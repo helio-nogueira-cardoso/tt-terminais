@@ -175,6 +175,7 @@ vigiar() {
   local s agora atividade pasta ultimo pasta_ant auto pid id st rot titulo nome motivo
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
   while tmux list-sessions >/dev/null 2>&1; do
+    [[ -s $CONF_MAQ ]] && atualizar_info >/dev/null 2>&1 &
     agora=$(date +%s)
     # GitHub: uma consulta a cada 12 h, em segundo plano.
     if ((agora - $(awk '{ print $2 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0) > 43200)); then
@@ -501,6 +502,11 @@ SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-ne
   -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%r@%h" -o ControlPersist=12h
   -o ServerAliveInterval=30)
 TT_REMOTO='~/.local/bin/tt'
+RT=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}
+# O que se soube de cada máquina na última consulta (rótulo = nome dela na barra): as sessões que ela
+# mostrou e "quantas-sessões versão". Os menus abrem na hora com isso e atualizam em segundo plano.
+cache_bloco() { echo "$RT/tt-bloco-$(id -u)-$1"; }
+info_maquina() { echo "$RT/tt-info-$(id -u)-$1"; }
 
 # Máquinas cadastradas e acessíveis: "usuario@host rótulo". Guarda 20 s em cache: a barra e os
 # menus chamam isso a cada clique.
@@ -513,6 +519,19 @@ maquinas() {
   tmp=$(mktemp "$cache.XXXXXX") || { maquinas_agora; return; }
   maquinas_agora >"$tmp" && mv -f "$tmp" "$cache" || rm -f "$tmp" # chamadas em paralelo: cada uma com seu temporário
   cat "$cache" 2>/dev/null || maquinas_agora
+}
+# Consulta todas as outras máquinas ao mesmo tempo e guarda "quantas-sessões versão" de cada uma
+# ("? ?" se não responder). Demora até 3 s: chame sempre em segundo plano.
+atualizar_info() {
+  local dest rot f r
+  while read -r dest rot; do
+    f=$(info_maquina "$rot")
+    {
+      r=$(timeout 3 ssh "${SSH_OPC[@]}" "$dest" "echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null) || r="? ?"
+      echo "$r" >"$f.$$" && mv "$f.$$" "$f"
+    } &
+  done < <(maquinas)
+  wait
 }
 limpar_cache_maquinas() { rm -f "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-maquinas-$(id -u)"; }
 
@@ -1289,42 +1308,95 @@ listar_leve() {
     }
 }
 
-# Linhas do seletor ("destino<TAB>chave<TAB>texto") da máquina escolhida (ou todas). No layout de
-# baixo para cima do seletor, a primeira linha fica junto da barra: sessões recentes embaixo,
-# ações (nova, central) no topo. Guarda a lista para pos_atual.
-lista_seletor() {
-  local m i n dest rot tmp nova
-  local -a dests rots
+# Máquinas que entram no seletor, conforme o filtro da aba (rótulo ou "todas"): "destino rótulo".
+alvos_seletor() {
+  local m dest rot
   m=$(estado maquina); m=${m:-$MAQUINA}
   while read -r dest rot; do
-    [[ $m == todas || $m == "$rot" ]] || continue
-    dests+=("$dest"); rots+=("$rot")
+    [[ $m == todas || $m == "$rot" ]] && echo "$dest $rot"
   done < <(echo ". $MAQUINA"; maquinas)
-  tmp=$(mktemp -d)
-  for i in "${!dests[@]}"; do
-    {
-      if [[ ${dests[i]} == . ]]; then listar_leve
-      else timeout 5 ssh "${SSH_OPC[@]}" "${dests[i]}" "$TT_REMOTO --listar-leve" </dev/null 2>/dev/null ||
-        printf '!erro\t\033[90m✗ sem resposta de %s\033[0m\n' "${rots[i]}"; fi
-    } | awk -F'\t' -v d="${dests[i]}" -v r="${rots[i]}" -v todas="$([[ $m == todas ]] && echo 1)" -v atual="${TT_ATUAL:-}" '{
-        marca = (r "|" $1 == atual) ? "\033[35m◆\033[0m " : "  "
-        rot = todas ? sprintf("\033[34m%-8.8s\033[0m ", r) : ""
-        printf "%s\t%s\t%s%s%s\n", d, $1, marca, rot, $2
-      }' >"$tmp/$i" &
-  done
-  wait
-  for ((i = 0; i < ${#dests[@]}; i++)); do cat "$tmp/$i"; done
+}
+
+# "chave<TAB>texto" (stdin) de uma máquina → linhas do seletor "destino<TAB>chave<TAB>texto".
+formatar_bloco() {
+  local todas=""
+  [[ $(estado maquina) == todas ]] && todas=1
+  awk -F'\t' -v d="$1" -v r="$2" -v todas="$todas" -v atual="${TT_ATUAL:-}" '{
+      marca = (r "|" $1 == atual) ? "\033[35m◆\033[0m " : "  "
+      rot = todas ? sprintf("\033[34m%-8.8s\033[0m ", r) : ""
+      printf "%s\t%s\t%s%s%s\n", d, $1, marca, rot, $2
+    }'
+}
+
+# Sessões de uma máquina de fora, consultadas agora (e guardadas no cache). Se ela não responde,
+# imprime a linha de erro.
+bloco_vivo() {
+  local dest=$1 rot=$2 saida st f
+  f=$(cache_bloco "$rot")
+  saida=$(timeout 4 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --listar-leve" </dev/null 2>/dev/null)
+  st=$?
+  if ((st != 0)); then
+    printf '!erro\t\033[90m✗ sem resposta de %s\033[0m\n' "$rot"
+  elif [[ -n $saida ]]; then
+    printf '%s\n' "$saida" >"$f.$$" && mv "$f.$$" "$f"
+    printf '%s\n' "$saida"
+  else
+    rm -f "$f"
+  fi
+}
+
+# Ações do fim da lista. Com uma máquina escolhida, a sessão nova nasce nela.
+acoes_seletor() {
+  local m nova
+  m=$(estado maquina); m=${m:-$MAQUINA}
   [[ $m == todas ]] && nova=. || nova=$(dest_de "$m")
   printf '%s\t!nova\t  \033[32m＋ nova sessão em %s\033[0m\n' "${nova:-.}" "$([[ $m == todas ]] && echo "$MAQUINA" || echo "$m")"
   printf '.\t!arquivos\t  \033[33m⇅ arquivos\033[0m \033[90m(enviar / trazer entre máquinas)\033[0m\n'
   printf '.\t!tmux\t  \033[35m⚙ tmux\033[0m \033[90m(janelas, painéis, opções)\033[0m\n'
   printf '.\t!central\t  \033[36m☰ central completa\033[0m \033[90m(busca, painéis, prévia)\033[0m\n'
+}
+
+# Primeira versão da lista, sem esperar ninguém: esta máquina na hora; as outras com o que se sabia
+# delas (cache) e a linha "atualizando…". A lista completa chega em seguida (reload do fzf).
+lista_rapida() {
+  local dest rot f
+  while read -r dest rot; do
+    if [[ $dest == . ]]; then listar_leve | formatar_bloco . "$rot"
+    else
+      f=$(cache_bloco "$rot")
+      [[ -s $f ]] && formatar_bloco "$dest" "$rot" <"$f"
+      printf '%s\t!erro\t  \033[90m⟳ atualizando %s…\033[0m\n' "$dest" "$rot"
+    fi
+  done < <(alvos_seletor)
+  acoes_seletor
+}
+lista_rapida_salva() { lista_rapida | tee "$TT_ESTADO.lista"; }
+
+# Linhas do seletor ("destino<TAB>chave<TAB>texto") da máquina escolhida (ou todas), com as outras
+# máquinas consultadas em paralelo. No layout de baixo para cima do seletor, a primeira linha fica
+# junto da barra: sessões recentes embaixo, ações (nova, central) no topo. Guarda a lista para
+# pos_atual.
+lista_seletor() {
+  local i dest rot tmp
+  local -a dests rots
+  while read -r dest rot; do dests+=("$dest"); rots+=("$rot"); done < <(alvos_seletor)
+  tmp=$(mktemp -d)
+  for i in "${!dests[@]}"; do
+    {
+      if [[ ${dests[i]} == . ]]; then listar_leve; else bloco_vivo "${dests[i]}" "${rots[i]}"; fi
+    } | formatar_bloco "${dests[i]}" "${rots[i]}" >"$tmp/$i" &
+  done
+  wait
+  for ((i = 0; i < ${#dests[@]}; i++)); do cat "$tmp/$i"; done
+  acoes_seletor
   rm -rf "$tmp"
-} 
+}
 
 # Ação do fzf que põe o cursor na sessão atual (◆), ou na primeira.
 pos_atual() {
   local n
+  [[ -e $TT_ESTADO.pos ]] && return
+  : >"$TT_ESTADO.pos"
   n=$(lista_seletor_cache | grep -n $'\t.*◆' | head -1 | cut -d: -f1)
   [[ -n $n ]] && echo "pos($n)" || echo first
 }
@@ -1356,7 +1428,8 @@ clique_seletor() {
   for r in $(rotulos) todas; do
     if [[ $w == "$r" ]]; then
       estado_por maquina "$r"
-      echo "reload-sync($EU --lista-seletor)+transform-header($EU --cabecalho-seletor)"
+      rm -f "$TT_ESTADO.pos"
+      echo "reload-sync($EU --lista-rapida)+transform-header($EU --cabecalho-seletor)+reload($EU --lista-seletor)"
       return
     fi
   done
@@ -1367,12 +1440,12 @@ seletor() {
   local saida dest alvo nome prev=()
   estado_por maquina "${TT_SEL_MAQ:-$MAQUINA}"
   [[ -n ${TT_PREVIA:-} ]] && prev=(--preview="$EU --previa-em {1} {2}" --preview-window='right,55%,border-left,follow')
-  lista_seletor_salva >/dev/null
-  saida=$(lista_seletor_cache | fzf --ansi --delimiter='\t' --with-nth=3 --exact --no-sort \
+  saida=$(lista_rapida_salva | fzf --ansi --delimiter='\t' --with-nth=3 --exact --no-sort \
     --prompt='❯ ' --pointer='▶' --info=inline-right --no-separator \
     --header="$(cabecalho_seletor)" --header-first \
     --color='header:#a6adc8,pointer:#f38ba8,prompt:#cba6f7,hl:#f9e2af,hl+:#f9e2af,bg+:#313244,info:#6c7086' \
     "${prev[@]}" \
+    --bind="start:reload($EU --lista-seletor)" \
     --bind="load:transform($EU --pos-atual)" \
     --bind='left-click:accept' \
     --bind="tab:transform($EU --clique-seletor proxima)" \
@@ -1396,7 +1469,7 @@ seletor_em() {
   local c=$1 m=${2:-$MAQUINA} p=${3:-} cw ch w h x prev="" atual
   read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
   if ((cw >= 140)); then w=130; prev=1; else w=$((cw < 74 ? cw : 74)); fi
-  h=$((ch - 2 < 24 ? ch - 2 : 24))
+  h=$((ch * 72 / 100)); ((h < 14)) && h=14; ((h > ch - 2)) && h=$((ch - 2))
   x=${TT_X:-0}
   ((x + w > cw)) && x=$((cw - w))
   atual=$(do_cliente "$c" '#{session_name}')
@@ -1569,34 +1642,47 @@ p	⚙ Mudar a pasta padrão de recebidos desta máquina…	$(popup_tt "$c" "past
 ITENS
 }
 
-# Menu das máquinas (clique no nome da máquina, na barra): sessões de cada uma e, se a versão do tt
-# de lá for mais velha que esta, o aviso. Também: arquivos, tmux, cadastro e sincronização.
+# Menu das máquinas (clique no nome da máquina, na barra): escolher a máquina. Abre na hora com o que
+# se soube de cada uma na última consulta (sessões, versão) e atualiza isso em segundo plano para
+# o próximo clique. Arquivos, tmux e cadastro ficam em "Administrar" (menu_admin).
 menu_maquinas() {
-  local c=$1 p=${2:-} tmp i n v vl marca info atras=0 dest rot
-  local -a dests rots
-  tmp=$(mktemp -d)
+  local c=$1 p=${2:-} i n v vl marca info dest rot f
   vl=$(versao_num)
-  while read -r dest rot; do dests+=("$dest"); rots+=("$rot"); done < <(echo ". $MAQUINA"; maquinas)
-  for i in "${!dests[@]}"; do
-    if [[ ${dests[i]} == . ]]; then echo "$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^$') $vl" >"$tmp/$i"
-    else (timeout 3 ssh "${SSH_OPC[@]}" "${dests[i]}" "echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null || echo "? ?") >"$tmp/$i" &
-    fi
-  done
-  wait
+  atualizar_info >/dev/null 2>&1 &
   {
-    for i in "${!dests[@]}"; do
-      read -r n v <"$tmp/$i"
-      [[ ${dests[i]} == . ]] && marca="●" || marca=" "
-      if [[ $n == "?" ]]; then info="sem resposta"
-      else
-        info="$n sessões"
-        if ((${v:-0} < vl)); then info+="  ⚠ v$v"; atras=1; fi
-      fi
-      printf '%s\t%s %-10s %s\t%s\n' "$((i + 1))" "$marca" "${rots[i]}" "$info" "TT_X=0 $EU --seletor-em $(q "$c") $(q "${rots[i]}") $p"
-    done
+    n=$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^$')
+    printf '1\t● %-10s %s sessões\t%s\n' "$MAQUINA" "$n" "TT_X=0 $EU --seletor-em $(q "$c") $(q "$MAQUINA") $p"
+    i=1
+    while read -r dest rot; do
+      i=$((i + 1))
+      f=$(info_maquina "$rot")
+      if [[ -s $f ]]; then read -r n v <"$f"; else n="…"; v=$vl; fi
+      case $n in
+        '?') info="sem resposta" ;;
+        '…') info="consultando…" ;;
+        *) info="$n sessões"; ((${v:-0} < vl)) && info+="  ⚠ v$v" ;;
+      esac
+      printf '%s\t  %-10s %s\t%s\n' "$i" "$rot" "$info" "TT_X=0 $EU --seletor-em $(q "$c") $(q "$rot") $p"
+    done < <(maquinas)
     printf 't\t  Todas as máquinas\t%s\n' "$EU --seletor-em $(q "$c") todas $p"
     printf 'c\t  ☰ Central completa…\t%s\n' "$EU --clique tt $(q "$c") $p ''"
     printf -- '-\t\t\n'
+    printf 'g\t  ⚙ Administrar (arquivos, tmux, cadastro)…\t%s\n' "$EU --menu-admin $(q "$c") $p"
+  } | menu_popup "$c" "máquinas · tt v$vl"
+}
+
+# Administração das máquinas: arquivos, tmux, atualização e cadastro (botão direito em "máquina ▾",
+# ou "Administrar" no menu das máquinas).
+menu_admin() {
+  local c=$1 p=${2:-} vl atras=0 rot f n v
+  vl=$(versao_num)
+  while read -r _ rot; do
+    f=$(info_maquina "$rot")
+    [[ -s $f ]] || continue
+    read -r n v <"$f"
+    [[ $n != '?' ]] && ((${v:-0} < vl)) && atras=1
+  done < <(maquinas)
+  {
     printf 'e\t  📤 Enviar arquivos…\t%s\n' "$(popup_tt "$c" "📤 enviar" "TT_CLIENTE=$c TT_PANE=$p $EU --enviar")"
     printf 'r\t  📥 Trazer arquivos…\t%s\n' "$(popup_tt "$c" "📥 trazer" "TT_CLIENTE=$c TT_PANE=$p $EU --trazer")"
     printf 'm\t  ⚙ tmux…\t%s\n' "$EU --menu-tmux $(q "$c") $p"
@@ -1605,8 +1691,41 @@ menu_maquinas() {
     (($(versao_github) > vl)) && printf 'g\t  ⟳ Atualizar do GitHub (v%s → v%s)\t%s\n' "$vl" "$(versao_github)" "$(popup_tt "$c" "atualizar do GitHub" "$EU --atualizar --todas; read -rsn1 -p '(tecla fecha)'")"
     printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
-  } | menu_popup "$c" "máquinas · tt v$vl"
-  rm -rf "$tmp"
+  } | menu_popup "$c" "administrar · tt v$vl"
+}
+
+# Cria uma sessão nova e leva este terminal para ela.
+nova_e_ir() {
+  local nome
+  nome=$("$EU" --nova) && tmux switch-client -c "$1" -t "=$nome"
+}
+
+# Menu da sessão atual (botão direito em "sessão ▾"): trocar, criar, renomear, dividir e fechar.
+menu_sessao() {
+  local c=$1 p=${2:-} sess pasta
+  sess=$(do_cliente "$c" '#{session_name}')
+  pasta=$(tmux display-message -p -t "$p" '#{pane_current_path}')
+  menu_popup "$c" "sessão · $sess" <<ITENS
+s	☰ Trocar de sessão…	$EU --seletor-em $(q "$c") $(q "$MAQUINA") $p
+n	＋ Nova sessão	$EU --nova-e-ir $(q "$c")
+r	✎ Renomear esta sessão…	tmux display-popup -c $(q "$c") -E -w 70 -h 7 -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
+-		
+l	Dividir ao lado (terminal novo)	tmux split-window -h -t $p -c $(q "$pasta")
+b	Dividir embaixo (terminal novo)	tmux split-window -v -t $p -c $(q "$pasta")
+-		
+x	Fechar esta sessão…	tmux confirm-before -t $(q "$c") -p $(q "Fechar a sessão $sess? (y/n)") $(q "kill-session -t =$sess")
+ITENS
+}
+
+# Botão direito na barra: em "máquina ▾" a administração, em "sessão ▾" o menu da sessão, no resto
+# da área da esquerda o menu das máquinas. RANGE CLIENTE PAINEL [X-DO-MOUSE].
+clique_direito() {
+  export TT_X=$(( ${4:-0} > 4 ? ${4:-0} - 4 : 0 ))
+  case $1 in
+    maquina) menu_admin "$2" "$3" ;;
+    sessao) menu_sessao "$2" "$3" ;;
+    *) menu_maquinas "$2" "$3" ;;
+  esac
 }
 
 # Clique num botão da barra de baixo: RANGE CLIENTE PAINEL PASTA [X-DO-MOUSE].
@@ -2041,13 +2160,13 @@ escolher() {
     --bind="left-click:accept"
 }
 
-sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista"; }
+sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos"; }
 
 # Chamados por cliques, menus e ganchos do tmux (run-shell): calados e sempre com sucesso — se
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --soltar | --vigia)
+  --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --soltar | --vigia)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -2102,6 +2221,11 @@ case "${1:-}" in
   --abrir-pasta) abrir_pasta "$2" "${3:-}"; exit ;;
   --menu-arquivos) menu_arquivos "$2" "${3:-}"; exit ;;
   --menu-maquinas) menu_maquinas "$2" "${3:-}"; exit ;;
+  --menu-admin) menu_admin "$2" "${3:-}"; exit ;;
+  --menu-sessao) menu_sessao "$2" "${3:-}"; exit ;;
+  --clique-direito) clique_direito "$2" "$3" "$4" "${5:-0}"; exit ;;
+  --nova-e-ir) nova_e_ir "$2"; exit ;;
+  --atualizar-info) atualizar_info; exit ;;
   --menu-popup-ui) menu_popup_ui "$2"; exit ;;
   --enviar | --trazer)
     TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
@@ -2125,12 +2249,13 @@ case "${1:-}" in
   --guarda-tamanho) guarda_tamanho; exit ;;
   --ciclo) fecha_ciclo "$2" "$3" && echo "fecha ciclo" || echo "ok, sem ciclo"; exit ;;
   --lista-seletor) lista_seletor_salva; exit ;;
+  --lista-rapida) lista_rapida_salva; exit ;;
   --pos-atual) pos_atual; exit ;;
   --cabecalho-seletor) cabecalho_seletor; exit ;;
   --clique-seletor) clique_seletor "${2:-}"; exit ;;
   --seletor-em) seletor_em "$2" "${3:-}" "${4:-}"; exit ;;
   --seletor) TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
-             trap 'rm -f "$TT_ESTADO" "$TT_ESTADO.lista"' EXIT; seletor; exit ;;
+             trap 'rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos"' EXIT; seletor; exit ;;
   --ir-ponte) ir_ponte "$2" "$3" "$4"; exit ;;
   --focar) focar "$2"; exit ;;
   --soltar) soltar_painel "$2"; exit ;;
