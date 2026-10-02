@@ -5,6 +5,7 @@
 # Janelas abertas fora do tmux aparecem como "solta" e podem ser adotadas com Enter.
 #
 #   tt              abre o menu
+#   tt --configurar-bashrc  põe no ~/.bashrc a abertura automática no tmux (--remover-bashrc desfaz)
 #   tt --janela     usado pelo ~/.bashrc: abre uma sessão nova "janela-N" para a janela do terminal
 #   tt --adotar PID traz para o tmux a janela cujo shell é PID (imprime o nome da sessão criada)
 #   tt --sugerir S  sugere um nome semântico para a sessão S (título do Claude ou leitura da tela)
@@ -771,8 +772,50 @@ desinstalar_aqui() {
   if [[ -f $HOME/.tmux.conf.antes-tt ]]; then mv "$HOME/.tmux.conf.antes-tt" "$HOME/.tmux.conf"
   elif grep -q '^source-file ~/.local/share/tt/tmux.conf' "$HOME/.tmux.conf" 2>/dev/null; then rm -f "$HOME/.tmux.conf"; fi
   [[ -L $HOME/.local/bin/tt ]] && rm -f "$HOME/.local/bin/tt"
+  remover_bashrc
   rm -rf "$DIR_TT"
   echo "tt removido de $(hostname -s) (a configuração em ~/.config/tt ficou)."
+}
+
+# Abertura automática no tmux: bloco no fim do ~/.bashrc, entre marcadores, para que cada janela
+# de terminal vire uma sessão do tt. Idempotente (também reconhece o trecho antigo, sem marcadores)
+# e com backup em ~/.bashrc.antes-tt.
+BASHRC_INI='# >>> tt (terminais em tmux) >>>'
+BASHRC_FIM='# <<< tt (terminais em tmux) <<<'
+
+bashrc_bloco() {
+  cat <<'BLOCO'
+# Toda janela de terminal (GNOME Terminal / Windows Terminal) abre numa sessão tmux própria,
+# para poder ser assumida de outro lugar pela central `tt`.
+# Fica de fora: terminais de IDE, SSH e shells não interativos. Para abrir uma janela sem tmux: NOTMUX=1
+if [[ $- == *i* && -t 0 && -t 1 && -z ${TMUX:-} && -z ${NOTMUX:-} && -z ${SSH_CONNECTION:-} \
+      && -z ${TERM_PROGRAM:-} && -z ${TERMINAL_EMULATOR:-} && ( -n ${VTE_VERSION:-} || -n ${WT_SESSION:-} ) ]] \
+   && command -v tmux >/dev/null && [[ -x $HOME/.local/bin/tt ]]; then
+  exec "$HOME/.local/bin/tt" --janela
+fi
+BLOCO
+}
+
+configurar_bashrc() {
+  local rc=$HOME/.bashrc
+  if grep -qF -e "$BASHRC_INI" -e 'tt" --janela' "$rc" 2>/dev/null; then
+    echo "~/.bashrc: já configurado, nada a fazer."; return 0
+  fi
+  [[ -f $rc ]] && cp -p "$rc" "$rc.antes-tt"
+  { [[ -s $rc ]] && echo; echo "$BASHRC_INI"; bashrc_bloco; echo "$BASHRC_FIM"; } >>"$rc" || return 1
+  echo "~/.bashrc: configurado (backup em ~/.bashrc.antes-tt). Abra um terminal novo para valer."
+}
+
+remover_bashrc() {
+  local rc=$HOME/.bashrc
+  if ! grep -qF "$BASHRC_INI" "$rc" 2>/dev/null; then
+    if grep -qF 'tt" --janela' "$rc" 2>/dev/null; then echo "~/.bashrc: o trecho do tt não tem marcadores; remova-o à mão."
+    else echo "~/.bashrc: nada do tt para remover."; fi
+    return 0
+  fi
+  cp -p "$rc" "$rc.antes-tt"
+  awk -v i="$BASHRC_INI" -v f="$BASHRC_FIM" '$0 == i { pula = 1; next } $0 == f { pula = 0; next } !pula' "$rc.antes-tt" >"$rc"
+  echo "~/.bashrc: trecho do tt removido (backup em ~/.bashrc.antes-tt)."
 }
 
 rotulo() { [[ $1 == . ]] && echo "$MAQUINA" || rotulo_de "$1"; }
@@ -1931,8 +1974,11 @@ case "${1:-}" in
     [[ -d $REPO_TT/.git ]] || { echo "Rode de dentro do clone do repositório (./tt --instalar)."; exit 1; }
     mkdir -p "$CONF_DIR"; grep -v '^repo=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "repo=$REPO_TT" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
     instalar_em . "${2:-}" || { echo "A instalação falhou."; exit 1; }
-    echo "Pronto. Abra um terminal e rode: tt   (ou, no tmux, Ctrl+B s)"
+    [[ -n ${TT_SEM_BASHRC:-} ]] || configurar_bashrc
+    echo "Pronto. Abra um terminal novo e rode: tt   (ou, no tmux, Ctrl+B s)"
     exit ;;
+  --configurar-bashrc) configurar_bashrc; exit ;;
+  --remover-bashrc) remover_bashrc; exit ;;
   --desinstalar-aqui) desinstalar_aqui; exit ;;
   --pacote) pacote; exit ;;
   --listar-pasta) listar_pasta "$2" "${3:-}" "${4:-}"; exit ;;

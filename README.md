@@ -36,16 +36,22 @@ bash, tmux ≥ 3.4, fzf ≥ 0.60, python3, ssh, tar (GNU). Opcionais: tailscale,
     git clone https://github.com/helio-nogueira-cardoso/tt-terminais.git && cd tt-terminais
     ./tt --instalar [nome-desta-máquina]
 
-Isso põe o tt em `~/.local/share/tt/`, liga `~/.local/bin/tt` a ele e faz o `~/.tmux.conf` carregar o
-`tmux.conf` do tt (o antigo fica em `~/.tmux.conf.antes-tt`). Ajustes só daquela máquina vão no
+Ou, instalando também as dependências que faltarem (apt) em um passo só:
+
+    ./instalar.sh [nome-desta-máquina]
+
+Isso põe o tt em `~/.local/share/tt/`, liga `~/.local/bin/tt` a ele, faz o `~/.tmux.conf` carregar o
+`tmux.conf` do tt (o antigo fica em `~/.tmux.conf.antes-tt`) e **configura o `~/.bashrc`** para cada
+janela de terminal abrir já dentro do tmux e aparecer na central. O bloco é acrescentado ao fim,
+entre marcadores, uma única vez (backup em `~/.bashrc.antes-tt`). Ajustes só daquela máquina vão no
 `~/.tmux.conf`, depois da linha `source-file`.
 
-Para cada janela de terminal abrir já dentro do tmux (e aparecer na central), no fim do `~/.bashrc`:
+Fica de fora do tmux: terminais de IDE, sessões SSH e shells não interativos. Para abrir uma janela
+sem tmux: `NOTMUX=1 bash`.
 
-    if [[ -z ${TMUX:-} && -z ${NOTMUX:-} && $- == *i* && -z ${SSH_CONNECTION:-} ]] \
-       && command -v tmux >/dev/null && [[ -x $HOME/.local/bin/tt ]]; then
-      exec "$HOME/.local/bin/tt" --janela
-    fi
+    tt --configurar-bashrc    põe o bloco no ~/.bashrc (já feito pelo --instalar)
+    tt --remover-bashrc       tira o bloco
+    TT_SEM_BASHRC=1 ./tt --instalar    instala sem mexer no ~/.bashrc
 
 ## Máquinas
 
