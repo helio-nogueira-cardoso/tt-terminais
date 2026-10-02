@@ -1,0 +1,1807 @@
+#!/usr/bin/env bash
+# tt — central de terminais deste PC.
+# Cada janela de terminal roda numa sessão tmux; aqui você vê todas (com prévia ao vivo)
+# e entra, cria, renomeia ou fecha. Ao sair de uma sessão (Ctrl+B d), volta para este menu.
+# Janelas abertas fora do tmux aparecem como "solta" e podem ser adotadas com Enter.
+#
+#   tt              abre o menu
+#   tt --janela     usado pelo ~/.bashrc: abre uma sessão nova "janela-N" para a janela do terminal
+#   tt --adotar PID traz para o tmux a janela cujo shell é PID (imprime o nome da sessão criada)
+#   tt --sugerir S  sugere um nome semântico para a sessão S (título do Claude ou leitura da tela)
+#   tt --renomear S pergunta o novo nome de S, já preenchido com a sugestão (Ctrl+B N no tmux)
+#   tt --nomear-todas dá nome semântico às sessões janela-N / claude-N
+#   tt --vigia      renomeia sozinho, em segundo plano, conforme as sessões são usadas
+#   tt --listar     imprime as linhas do menu só desta máquina (as outras chamam isso via ssh)
+#   tt --previa S   mostra a tela atual da sessão S (prévia do fzf)
+#   tt --nova [N]   cria uma sessão solta (sem entrar) e imprime o nome
+#
+# Menu: Enter entra; ^n nova; ^r renomeia; ^x fecha; ^a dá nome às genéricas. As palavras do
+# cabeçalho são clicáveis. ^f (ou clique) filtra por máquina; a busca procura em nome, máquina,
+# programa, pasta, título do Claude e no conteúdo da tela (^e: só nos nomes); a prévia pula para
+# o trecho encontrado. Sessões com vários painéis mostram cada painel (├ └): Enter vai direto
+# nele, ^x fecha só ele, ^r dá nome a ele, ^t solta ele como sessão própria.
+#
+# Painéis: ^v abre a sessão escolhida num painel ao lado da tela atual, ^o embaixo, e ^p troca a
+# sessão mostrada no painel em foco (só em painéis abertos assim). Cada painel é uma janela para
+# outra sessão (desta ou de outra máquina); fechar o painel não fecha a sessão. Na barra de baixo
+# há botões (☰ terminais, ┃ lado, ━ baixo, ⋯ painel); o ⋯ / Ctrl+B m abre o menu do painel.
+#
+# Outras máquinas: as Linux online da tailnet (Tailscale) aparecem no mesmo menu, com as sessões
+# delas, via ssh. O usuário de cada uma vem de ~/.config/tt/maquinas, uma por linha:
+#   host-no-tailscale  usuario  rótulo        (ex.: notebook-trabalho joao trabalho)
+#   host-no-tailscale  -                      (não mostrar essa máquina)
+# Sem linha, usa o mesmo usuário daqui e o nome do host como rótulo.
+
+set -u
+EU=$(readlink -f "$0")
+
+CONF_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/tt
+CONF=$CONF_DIR/config
+CONF_MAQ=$CONF_DIR/maquinas
+conf() { sed -n "s/^$1=//p" "$CONF" 2>/dev/null | tail -1; }
+# Nome desta máquina no menu: ~/.config/tt/config (nome=…); sem ele, o hostname.
+MAQUINA=$(conf nome)
+MAQUINA=${MAQUINA:-$(hostname -s)}
+
+proximo_nome() {
+  local prefixo=${1:-janela} n=1
+  while tmux has-session -t "=$prefixo-$n" 2>/dev/null; do n=$((n + 1)); done
+  echo "$prefixo-$n"
+}
+
+encurtar() {
+  case $1 in "$HOME"*) echo "~${1#"$HOME"}" ;; *) echo "$1" ;; esac
+}
+
+# "sessionId status name" do Claude Code rodando no PID dado (vazio se não houver registro).
+claude_info() {
+  python3 - "$HOME/.claude/sessions/$1.json" <<'EOF' 2>/dev/null
+import json, sys
+d = json.load(open(sys.argv[1]))
+print(d.get("sessionId", ""), d.get("status", "?"), d.get("name", ""))
+EOF
+}
+
+# --- Nomes semânticos ------------------------------------------------------
+
+# Texto livre → nome válido de sessão: sem acento, minúsculas, palavras separadas por hífen.
+limpar() {
+  LC_ALL=C.UTF-8 iconv -f utf-8 -t ascii//TRANSLIT <<<"$1" 2>/dev/null | tr 'A-Z' 'a-z' |
+    sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-40
+}
+
+# Texto livre → nome sugerido: como limpar, mas só as 3 primeiras palavras relevantes.
+slug() {
+  limpar "$1" |
+    awk -F- '{
+      n = 0; s = ""
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^(de|da|do|das|dos|a|o|as|os|e|em|no|na|nos|nas|para|pra|com|um|uma|por|the|of|and|to|in|for)$/) continue
+        s = s (n ? "-" : "") $i
+        if (++n == 3) break
+      }
+      print substr(s, 1, 28)
+    }'
+}
+
+# Título que o próprio Claude Code deu à conversa (aiTitle mais recente do transcript).
+titulo_claude() {
+  local arq
+  arq=$(ls "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | head -1)
+  [[ -n $arq ]] || return 1
+  grep '"type":"ai-title"' "$arq" | tail -1 | python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["aiTitle"])' 2>/dev/null
+}
+
+# PID do Claude Code rodando no painel P (%N, ou "=S:" para o painel ativo da sessão S).
+claude_no_painel() {
+  local raiz
+  raiz=$(tmux display-message -p -t "$1" '#{pane_pid}' 2>/dev/null) || return 1
+  { if [[ -n ${PS_CACHE:-} ]]; then echo "$PS_CACHE"; else ps -eo pid=,ppid=,comm=; fi; } | awk -v raiz="$raiz" '
+    { pai[$1] = $2; cmd[$1] = $3 }
+    END {
+      for (p in cmd) {
+        if (cmd[p] != "claude") continue
+        for (q = p; q in pai && q != 1; q = pai[q]) if (q == raiz) { print p; exit }
+      }
+    }'
+}
+claude_na_sessao() { claude_no_painel "=$1:"; }
+
+# Sugere um nome para a sessão S: título da conversa, se for Claude; senão pergunta ao Haiku
+# olhando a tela. Sem assunto claro, sugere o nome da pasta e retorna 1.
+sugerir_nome() {
+  local s=$1 pid id status rot titulo pasta cmd tela claude nome
+  pid=$(claude_na_sessao "$s")
+  if [[ -n $pid ]]; then
+    read -r id status rot < <(claude_info "$pid")
+    titulo=$(titulo_claude "${id:-x}") && nome=$(slug "$titulo")
+    [[ -n ${nome:-} ]] && { echo "$nome"; return; }
+  fi
+
+  pasta=$(tmux display-message -p -t "=$s:" '#{pane_current_path}')
+  cmd=$(tmux display-message -p -t "=$s:" '#{pane_current_command}')
+  claude=$HOME/.local/bin/claude
+  [[ -x $claude ]] || claude=$(command -v claude)
+  if [[ -n $claude ]]; then
+    tela=$(tmux capture-pane -p -J -S -80 -t "=$s:" | grep -v '^[[:space:]]*$' | tail -60)
+    nome=$(cd /tmp && printf 'Pasta: %s\nPrograma em primeiro plano: %s\nTela:\n%s\n' "$(encurtar "$pasta")" "$cmd" "$tela" |
+      timeout 45 "$claude" -p --model haiku --no-session-persistence --tools "" \
+        --system-prompt "Você nomeia sessões de terminal. Responda só com um nome curto (1 a 3 palavras em português, minúsculas, separadas por hífen) que diga do que trata a sessão: o projeto ou a tarefa, não o programa. Se a tela não mostrar nenhum trabalho concreto (só prompt vazio, boas-vindas), responda exatamente: vazio. Nada além do nome." 2>/dev/null | tail -1)
+    nome=$(slug "${nome:-}")
+    [[ $nome == vazio ]] && nome=""
+  fi
+  [[ -n ${nome:-} ]] && { echo "$nome"; return; }
+  # Sem assunto claro: sugere a pasta, e avisa (status 1) para o "nomear todas" deixar como está.
+  nome=$(slug "$(basename "$pasta")")
+  [[ $pasta == "$HOME" || -z $nome ]] && nome=terminal
+  echo "$nome"
+  return 1
+}
+
+# Renomeia S para NOVO (ajustado para ser válido e único). Imprime o nome final.
+# Com "auto" no 3º argumento o nome fica marcado como automático (o vigia pode trocá-lo depois);
+# sem ele, é um nome escolhido por você e o vigia nunca mais mexe.
+renomear() {
+  local s=$1 novo base n=2 auto=${3:-}
+  novo=$(limpar "$2")
+  [[ -n $novo ]] || return 1
+  base=$novo
+  if [[ $novo != "$s" && ${s%-[0-9]*} != "$base" ]]; then
+    while tmux has-session -t "=$novo" 2>/dev/null; do novo="$base-$n"; n=$((n + 1)); done
+    tmux rename-session -t "=$s" "$novo" || return 1
+  else
+    novo=$s
+  fi
+  tmux set-option -t "=$novo:" @nome_auto "$([[ $auto == auto ]] && echo 1 || echo 0)"
+  echo "$novo"
+}
+
+generico() { [[ $1 =~ ^(janela|claude)-[0-9]+$ ]]; }
+
+# Vigia: roda em segundo plano enquanto o tmux existir (iniciado pelo ~/.tmux.conf) e vai
+# renomeando as sessões conforme o uso. Só mexe em nomes genéricos ou automáticos.
+#   Claude: segue o título da conversa (sem custo, a cada volta).
+#   Shell:  pergunta ao Haiku só se houve uso desde a última vez e
+#           (nome genérico há 5 min) ou (mudou de pasta) ou (30 min desde o último nome).
+vigiar() {
+  local pidf="${XDG_RUNTIME_DIR:-/tmp}/tt-vigia-$(id -u).pid" log="$HOME/.cache/tt-vigia.log" outro
+  mkdir -p "$HOME/.cache"
+  # Uma instância só: se o PID registrado ainda é um vigia vivo, sai.
+  outro=$(cat "$pidf" 2>/dev/null)
+  if [[ -n $outro ]] && tr '\0' ' ' <"/proc/$outro/cmdline" 2>/dev/null | grep -q -- '--vigia'; then exit 0; fi
+  echo $$ >"$pidf"
+  echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
+  local s agora atividade pasta ultimo pasta_ant auto pid id st rot titulo nome motivo
+  local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
+  while tmux list-sessions >/dev/null 2>&1; do
+    agora=$(date +%s)
+    while IFS='|' read -r s atividade pasta; do
+      auto=$(tmux show-options -qv -t "=$s:" @nome_auto)
+      [[ $auto == 1 ]] || { generico "$s" && [[ $auto != 0 ]]; } || continue
+
+      pid=$(claude_na_sessao "$s")
+      if [[ -n $pid ]]; then
+        read -r id st rot < <(claude_info "$pid")
+        titulo=$(titulo_claude "${id:-x}") || continue
+        [[ $titulo == "$(tmux show-options -qv -t "=$s:" @nome_titulo)" ]] && continue
+        nome=$(renomear "$s" "$(slug "$titulo")" auto) || continue
+        tmux set-option -t "=$nome:" @nome_titulo "$titulo"
+        echo "$(date '+%F %T') $s → $nome (título: $titulo)" >>"$log"
+        continue
+      fi
+
+      ultimo=$(tmux show-options -qv -t "=$s:" @nome_em); ultimo=${ultimo:-0}
+      pasta_ant=$(tmux show-options -qv -t "=$s:" @nome_pasta)
+      ((atividade > ultimo)) || continue
+      motivo=""
+      if generico "$s" && ((agora - $(tmux display-message -p -t "=$s:" '#{session_created}') >= t_generico)) && ((agora - ultimo >= t_generico)); then
+        motivo="ganhou uso"
+      elif [[ -n $pasta_ant && $pasta != "$pasta_ant" ]] && ((agora - ultimo >= t_pasta)); then
+        motivo="mudou de pasta"
+      elif ((ultimo > 0 && agora - ultimo >= t_revisao)); then
+        motivo="revisão periódica"
+      fi
+      [[ -n $motivo ]] || continue
+
+      tmux set-option -t "=$s:" @nome_em "$agora"
+      tmux set-option -t "=$s:" @nome_pasta "$pasta"
+      nome=$(sugerir_nome "$s") || continue
+      [[ $nome == "${s%-[0-9]*}" ]] && continue
+      nome=$(renomear "$s" "$nome" auto) || continue
+      echo "$(date '+%F %T') $s → $nome ($motivo)" >>"$log"
+    done < <(tmux list-sessions -F '#{session_name}|#{window_activity}|#{pane_current_path}' 2>/dev/null)
+    sleep "$pausa"
+  done
+}
+
+# Pergunta o novo nome já preenchido com a sugestão (Enter aceita).
+renomear_interativo() {
+  local s=$1 sugestao novo
+  printf '\033[90mPensando num nome para %s…\033[0m\n' "$s"
+  sugestao=$(sugerir_nome "$s")
+  read -rep "Novo nome: " -i "$sugestao" novo || return
+  [[ -n $novo ]] || return
+  if [[ $novo == "$sugestao" ]]; then renomear "$s" "$novo" auto >/dev/null; else renomear "$s" "$novo" >/dev/null; fi
+}
+
+# Dá nome semântico a todas as sessões com nome genérico (janela-N, claude-N), em paralelo.
+nomear_todas() {
+  local s
+  for s in $(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -E '^(janela|claude)-[0-9]+$'); do
+    (
+      if nome=$(sugerir_nome "$s"); then
+        printf '  %s → %s\n' "$s" "$(renomear "$s" "$nome" auto)"
+      else
+        printf '  %s: sem assunto ainda, fica como está\n' "$s"
+      fi
+    ) &
+  done
+  wait
+}
+
+# Janelas de terminal abertas fora do tmux: shells líderes de sessão num pts, sem TMUX no ambiente,
+# que não vieram de SSH/mosh. Saída: "shell|primeiro-plano|programa|diretório".
+soltos() {
+  local meu_sid pid sid tty pai fg cmd
+  meu_sid=$(ps -o sid= -p $$ | tr -d ' ')
+  ps -u "$(id -un)" -o pid=,sid=,tty=,ppid=,tpgid=,comm= | while read -r pid sid tty pai fg cmd; do
+    [[ $pid == "$sid" && $tty == pts/* && $cmd =~ ^(bash|zsh|fish)$ && $sid != "$meu_sid" ]] || continue
+    tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -q '^TMUX=' && continue
+    case $(ps -o comm= -p "$pai") in sshd* | mosh-server | tailscaled | tmux*) continue ;; esac
+    [[ $fg -gt 0 ]] || fg=$pid
+    echo "$pid|$fg|$(ps -o comm= -p "$fg")|$(readlink "/proc/$fg/cwd")"
+  done
+}
+
+idade() {
+  local s=$(($(date +%s) - $1))
+  if ((s < 60)); then echo agora
+  elif ((s < 3600)); then echo "$((s / 60)) min"
+  elif ((s < 86400)); then echo "$((s / 3600)) h"
+  else echo "$((s / 86400)) d"; fi
+}
+
+# Texto de busca de um painel: título da conversa do Claude, nomes e o fim da tela. Vai no fim de
+# cada linha do menu depois de muitos espaços, para a busca achar mas a lista não mostrar.
+ESPACOS=$(printf '%*s' 300 '')
+busca_painel() {
+  local p=$1 pid id st rot titulo=""
+  pid=$(claude_no_painel "$p")
+  if [[ -n $pid ]]; then
+    read -r id st rot < <(claude_info "$pid")
+    titulo=$(titulo_claude "${id:-x}")
+  fi
+  printf '%s %s ' "$titulo" "$(tmux display-message -p -t "$p" '#{pane_title} #{@nome_painel} #{@tt_rotulo}')"
+  tmux capture-pane -p -J -S -150 -t "$p" 2>/dev/null | tr -s ' \t\n' ' ' | tail -c 2500 | iconv -f utf-8 -t utf-8 -c
+}
+
+# Sessão "vazia": todos os painéis só no shell (nada rodando), sem histórico e com no máximo 2
+# linhas escritas na tela (o prompt).
+sessao_vazia() {
+  local p cmd hist n
+  while IFS='|' read -r p cmd hist; do
+    [[ $cmd =~ ^(bash|zsh|fish|sh|dash)$ ]] || return 1
+    ((hist < 3)) || return 1
+    n=$(tmux capture-pane -p -t "$p" 2>/dev/null | grep -c '[^[:space:]]')
+    ((n <= 2)) || return 1
+  done < <(tmux list-panes -s -t "=$1" -F '#{pane_id}|#{pane_current_command}|#{history_size}' 2>/dev/null)
+}
+
+# Fecha as sessões vazias desta máquina, menos a sessão EXCETO (a que está em uso). Imprime quantas.
+fechar_vazias() {
+  local s ponte n=0
+  while IFS='|' read -r s ponte; do
+    [[ -n $ponte || $s == "${1:-}" ]] && continue
+    sessao_vazia "$s" && tmux kill-session -t "=$s" && n=$((n + 1))
+  done < <(tmux list-sessions -F '#{session_name}|#{@ponte}' 2>/dev/null)
+  echo "$n"
+}
+
+# Linha separadora do bloco de vazias (chave !vazias: Enter/clique fecha todas).
+linha_vazias() {
+  printf '!vazias	[90m── %d vazia%s · ⏎ fecha todas ──[0m	%svazias vazia
+' "$1" "$([[ $1 -gt 1 ]] && echo s)" "$ESPACOS"
+}
+
+# Linhas do menu desta máquina: "chave<TAB>texto<TAB>busca". Chave: nome da sessão, %N (um painel
+# de uma sessão com vários) ou +PID (janela solta, fora do tmux).
+listar() {
+  local sh fg cmd cwd desc id status nome
+  PS_CACHE=$(ps -eo pid=,ppid=,comm=)
+  soltos | while IFS='|' read -r sh fg cmd cwd; do
+    if [[ $cmd == claude ]]; then
+      read -r id status nome < <(claude_info "$fg")
+      [[ $status == idle ]] && desc=$'\033[33mclaude\033[0m \033[32mocioso\033[0m' || desc=$'\033[33mclaude\033[0m \033[31mtrabalhando\033[0m'
+    else
+      desc=$'\033[33m'"$cmd"$'\033[0m'
+    fi
+    printf '+%s\t\033[35m⧉\033[0m \033[1;35m%-20s\033[0m %s %s \033[90m(fora do tmux)\033[0m\t%s%s %s\n' \
+      "$sh" "solta" "$desc" "$(encurtar "$cwd")" "$ESPACOS" "$cmd" "$cwd"
+  done
+
+  local ativ s anex pasta ponte l n i uso extra marca ativo pid pos cmdp pastap rot nomep
+  local -a linhas=() buscas=() vazias=()
+  tmux list-sessions -F '#{window_activity}|#{session_name}|#{session_attached}|#{pane_current_command}|#{pane_current_path}|#{@ponte}' 2>/dev/null |
+    sort -t'|' -k1,1nr | {
+    while IFS='|' read -r ativ s anex cmd pasta ponte; do
+      [[ -n $ponte ]] && continue # ponte para sessão de outra máquina: aparece na linha da própria máquina
+      if sessao_vazia "$s"; then
+        # Vazias vão para um bloco à parte, no fim, apagadas.
+        ((anex > 0)) && uso='●' || uso='○'
+        vazias+=("$(printf '%s	[90m%s %-20.20s %-7s %s (%s)[0m	%s%s vazia' "$s" "$uso" "$s" "$cmd" "$(encurtar "$pasta")" "$(idade "$ativ")" "$ESPACOS" "$s")")
+        continue
+      fi
+      mapfile -t linhas < <(tmux list-panes -s -t "=$s" -F '#{pane_id}|#{window_index}.#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{@tt_rotulo}|#{@nome_painel}|#{&&:#{pane_active},#{window_active}}')
+      n=${#linhas[@]}
+      buscas=()
+      for l in "${linhas[@]}"; do buscas+=("$(busca_painel "${l%%|*}")"); done
+      ((anex > 0)) && uso=$'\033[32m●\033[0m' || uso=$'\033[90m○\033[0m'
+      ((n > 1)) && extra=" · $n painéis" || extra=""
+      nome=$s
+      ((${#nome} > 20)) && nome="${nome:0:19}…"
+      printf '%s\t%s \033[1;36m%-20s\033[0m \033[33m%-7s\033[0m %s \033[90m(%s%s)\033[0m\t%s%s %s\n' \
+        "$s" "$uso" "$nome" "$cmd" "$(encurtar "$pasta")" "$(idade "$ativ")" "$extra" "$ESPACOS" "$s" "${buscas[*]}"
+      ((n > 1)) || continue
+      for ((i = 0; i < n; i++)); do
+        IFS='|' read -r pid pos cmdp pastap rot nomep ativo <<<"${linhas[i]}"
+        ((i == n - 1)) && marca='└' || marca='├'
+        ((ativo)) && marca+='▸' || marca+=' '
+        if [[ -z $nomep ]]; then [[ -n $rot ]] && nomep="⧉ $rot" || nomep=$cmdp; fi
+        printf '%s\t  \033[90m%s%-4s\033[0m \033[36m%-15.15s\033[0m \033[33m%-7s\033[0m %s\t%s%s %s\n' \
+          "$pid" "$marca" "$pos" "$nomep" "$cmdp" "$(encurtar "$pastap")" "$ESPACOS" "$s" "${buscas[i]}"
+      done
+    done
+    if ((${#vazias[@]})); then
+      linha_vazias "${#vazias[@]}"
+      printf '%s\n' "${vazias[@]}"
+    fi
+  }
+}
+
+# Prévia: a tela da sessão/painel. Com texto buscado que aparece na tela, mostra o trecho dele.
+previa() {
+  local k=$1 q=${2:-} alvo
+  case $k in
+    +*) previa_solta "${k#+}"; return ;;
+    %*) alvo=$k ;;
+    *) alvo="=$k:" ;;
+  esac
+  [[ -n $q ]] && trecho "$k" "$q" && return
+  # Sem as linhas vazias do fim (senão o "follow" do fzf mostra só branco).
+  tmux capture-pane -ep -t "$alvo" 2>/dev/null |
+    awk '{ l[NR] = $0 } END { n = NR; while (n > 0 && l[n] ~ /^(\033\[[0-9;]*m|[[:space:]])*$/) n--; for (i = 1; i <= n; i++) print l[i] }'
+}
+
+trecho() {
+  local k=$1 q=$2 p
+  local paineis=$k
+  [[ $k == %* ]] || paineis=$(tmux list-panes -s -t "=$k" -F '#{pane_id}' 2>/dev/null)
+  for p in $paineis; do
+    tmux capture-pane -p -J -S -150 -t "$p" 2>/dev/null | python3 -c '
+import re, sys
+termos = [t.strip("^$\x27") for t in sys.argv[1].split() if not t.startswith("!")]
+termos = [t for t in termos if t]
+if not termos:
+    sys.exit(1)
+linhas = sys.stdin.read().rstrip("\n").split("\n")
+padrao = re.compile("|".join(re.escape(t) for t in termos), re.I)
+achou = [i for i, l in enumerate(linhas) if padrao.search(l)]
+if not achou:
+    sys.exit(1)
+i = achou[-1]
+print(f"\033[90m🔎 encontrado na tela ({len(achou)} linha(s); mostrando a última) · painel {sys.argv[2]}\033[0m")
+for l in linhas[max(0, i - 14): i + 6]:
+    print(padrao.sub(lambda m: "\033[30;43m" + m.group(0) + "\033[0m", l))
+' "$q" "$p" && return 0
+  done
+  return 1
+}
+
+previa_solta() {
+  local sh=$1 fg cmd id status nome
+  fg=$(ps -o tpgid= -p "$sh" | tr -d ' ')
+  cmd=$(ps -o comm= -p "$fg")
+  echo "Janela aberta fora do tmux — não dá para ver a tela dela daqui."
+  echo
+  echo "  terminal:  $(ps -o tty= -p "$sh")   shell: $sh"
+  echo "  rodando:   $(ps -o args= -p "$fg" | cut -c1-70)"
+  echo "  pasta:     $(encurtar "$(readlink "/proc/$fg/cwd")")"
+  echo
+  if [[ $cmd == claude ]]; then
+    read -r id status nome < <(claude_info "$fg")
+    echo "  conversa:  $nome ($id)"
+    echo
+    if [[ $status == idle ]]; then
+      echo "Enter: fecha esse Claude, reabre a MESMA conversa (claude --resume) numa"
+      echo "sessão tmux nova e fecha a janela original."
+    else
+      echo "Esse Claude está trabalhando agora. Espere ele terminar para adotar."
+    fi
+  elif [[ $fg == "$sh" ]]; then
+    echo "Enter: abre uma sessão tmux nova nesta pasta e fecha a janela original."
+    echo "(variáveis definidas à mão nessa janela se perdem; o histórico é salvo)"
+  else
+    echo "Enter: tenta mover \"$cmd\" para o tmux (reptyr). A janela original fica"
+    echo "com o shell parado no prompt."
+  fi
+}
+
+# Traz para o tmux a janela cujo shell líder é $1. Imprime o nome da sessão criada.
+adotar() {
+  local sh=$1 fg cmd cwd nome id status rotulo flags claude i titulo
+  fg=$(ps -o tpgid= -p "$sh" | tr -d ' ')
+  [[ -n $fg ]] || { echo "Essa janela já foi fechada." >&2; return 1; }
+  cmd=$(ps -o comm= -p "$fg")
+  cwd=$(readlink "/proc/$fg/cwd")
+
+  if [[ $cmd == claude ]]; then
+    read -r id status rotulo < <(claude_info "$fg")
+    [[ -n ${id:-} ]] || { echo "Não achei qual conversa esse Claude está usando." >&2; return 1; }
+    [[ $status == idle ]] || { echo "Esse Claude está trabalhando. Espere ele terminar e tente de novo." >&2; return 1; }
+    flags=$(tr '\0' '\n' <"/proc/$fg/cmdline" | grep -xE -- '--dangerously-skip-permissions|--verbose' | tr '\n' ' ')
+    claude=$HOME/.local/bin/claude
+    [[ -x $claude ]] || claude=$(command -v claude)
+    nome=$(proximo_nome claude)
+    titulo=$(titulo_claude "$id") || titulo=""
+    kill -TERM "$fg"
+    for i in $(seq 50); do kill -0 "$fg" 2>/dev/null || break; sleep 0.2; done
+    if kill -0 "$fg" 2>/dev/null; then echo "O Claude não fechou; nada foi alterado." >&2; return 1; fi
+    tmux new-session -d -s "$nome" -c "$cwd" "set -m; $claude --resume $id $flags; exec bash" || return 1
+    # A pasta já tinha sido aprovada na janela original: responde sozinho à pergunta de confiança.
+    for i in $(seq 40); do
+      sleep 0.5
+      case $(tmux capture-pane -p -t "=$nome:") in
+        *"Yes, I trust this folder"*) tmux send-keys -t "=$nome:" Down Enter; break ;;
+        *"bypass permissions"* | *"? for shortcuts"*) break ;;
+      esac
+    done
+    if [[ -n $titulo ]]; then
+      nome=$(renomear "$nome" "$(slug "$titulo")" auto)
+      tmux set-option -t "=$nome:" @nome_titulo "$titulo"
+    fi
+  elif [[ $fg == "$sh" ]]; then
+    nome=$(proximo_nome janela)
+    tmux new-session -d -s "$nome" -c "$cwd" || return 1
+  else
+    # Outro programa em primeiro plano: tenta movê-lo; o shell original fica na janela.
+    nome=$(proximo_nome janela)
+    local reptyr=reptyr
+    [[ $(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0) == 0 ]] || reptyr="sudo reptyr"
+    tmux new-session -d -s "$nome" -c "$cwd" \
+      "$reptyr $fg || read -rp 'Não deu para mover $cmd (ele tem subprocessos). Enter para continuar.'; exec bash" || return 1
+    echo "$nome"
+    return 0
+  fi
+
+  kill -HUP "$sh" # fecha a janela original
+  echo "$nome"
+}
+
+# --- Máquinas, instalação e versão -----------------------------------------
+#
+# Cada máquina tem o tt instalado em ~/.local/share/tt (tt, tmux.conf, VERSAO) e
+# ~/.local/bin/tt aponta para lá. O ~/.tmux.conf só carrega o tmux.conf de lá (e ajustes locais).
+# ~/.config/tt/config:   nome=<como esta máquina aparece no menu>
+# ~/.config/tt/maquinas: as outras máquinas cadastradas, uma por linha: host usuario rótulo
+# Na máquina onde se desenvolve, o repositório (~/Projetos/tt) é a origem de `tt --sincronizar`.
+
+DIR_TT=${TT_DIR:-$HOME/.local/share/tt}
+REPO_TT=${TT_REPO:-$HOME/Projetos/tt}
+SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new
+  -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%r@%h" -o ControlPersist=12h
+  -o ServerAliveInterval=30)
+TT_REMOTO='~/.local/bin/tt'
+
+# Máquinas cadastradas e acessíveis: "usuario@host rótulo". Guarda 20 s em cache: a barra e os
+# menus chamam isso a cada clique.
+maquinas() {
+  local cache="${XDG_RUNTIME_DIR:-/tmp}/tt-maquinas-$(id -u)"
+  if [[ -f $cache ]] && [[ $cache -nt $CONF_MAQ || ! -f $CONF_MAQ ]] && (($(date +%s) - $(stat -c %Y "$cache") < 20)); then
+    cat "$cache"; return
+  fi
+  maquinas_agora >"$cache.$$" && mv "$cache.$$" "$cache"
+  cat "$cache"
+}
+limpar_cache_maquinas() { rm -f "${XDG_RUNTIME_DIR:-/tmp}/tt-maquinas-$(id -u)"; }
+
+# Lê ~/.config/tt/maquinas; com o Tailscale, pula as desligadas e usa o nome completo
+# (host.tailnet.ts.net: o nome curto pode coincidir com o desta máquina — por exemplo, um WSL
+# com o mesmo hostname do Windows que o hospeda).
+maquinas_agora() {
+  [[ -f $CONF_MAQ ]] || return 0
+  { command -v tailscale >/dev/null && tailscale status --json 2>/dev/null || echo '{}'; } | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    d = {}
+pares = {}
+for p in (d.get("Peer") or {}).values():
+    dns = p.get("DNSName", "").rstrip(".")
+    for nome in {dns, dns.split(".")[0], p.get("HostName", "")}:
+        if nome:
+            pares[nome] = p
+for linha in open(sys.argv[1]):
+    c = linha.split()
+    if not c or c[0].startswith("#") or c[1:2] == ["-"]:
+        continue
+    host = c[0]
+    usuario = c[1] if len(c) > 1 else sys.argv[2]
+    rotulo = c[2] if len(c) > 2 else host.split(".")[0]
+    p = pares.get(host)
+    if p is not None:
+        if not p.get("Online"):
+            continue
+        host = p.get("DNSName", "").rstrip(".") or host
+    print(f"{usuario}@{host} {rotulo}")
+' "$CONF_MAQ" "$(id -un)" 2>/dev/null
+}
+
+# Máquinas Linux online da tailnet que ainda não estão cadastradas: "host sistema".
+candidatas() {
+  command -v tailscale >/dev/null || return 0
+  tailscale status --json 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+cad = set()
+try:
+    for l in open(sys.argv[1]):
+        c = l.split()
+        if c and not c[0].startswith("#"):
+            cad.add(c[0]); cad.add(c[0].split(".")[0])
+except OSError:
+    pass
+for p in (d.get("Peer") or {}).values():
+    host = p.get("DNSName", "").split(".")[0]
+    if host and p.get("Online") and host not in cad and p.get("OS") in ("linux",):
+        print(host, p.get("OS"))
+' "$CONF_MAQ" 2>/dev/null
+}
+
+# Como as outras máquinas chamam esta: nome curto no Tailscale (senão, hostname).
+meu_host() {
+  local h=""
+  command -v tailscale >/dev/null && h=$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Self",{}).get("DNSName","").split(".")[0])' 2>/dev/null)
+  echo "${h:-$(hostname -s)}"
+}
+
+dest_de() { [[ $1 == "$MAQUINA" ]] && echo . || maquinas | awk -v r="$1" '$2 == r { print $1; exit }'; }
+
+rotulo_de() { maquinas | awk -v d="$1" '$1 == d { print $2; f = 1 } END { if (!f) print d }'; }
+
+# Grava/tira uma máquina de ~/.config/tt/maquinas (troca a linha do mesmo host, se houver).
+registrar() {
+  local host=$1 usuario=$2 rot=$3
+  mkdir -p "$(dirname "$CONF_MAQ")"
+  [[ -f $CONF_MAQ ]] || echo '# host  usuario  rótulo   (gerenciado por tt --cadastrar / --descadastrar)' >"$CONF_MAQ"
+  desregistrar "$host"
+  echo "$host  $usuario  $rot" >>"$CONF_MAQ"
+  limpar_cache_maquinas
+}
+desregistrar() {
+  [[ -f $CONF_MAQ ]] || return 0
+  awk -v h="$1" '{ c = $1; sub(/\..*/, "", c); hh = h; sub(/\..*/, "", hh) } !($1 == h || c == hh) || /^#/' "$CONF_MAQ" >"$CONF_MAQ.novo" &&
+    mv "$CONF_MAQ.novo" "$CONF_MAQ"
+  limpar_cache_maquinas
+}
+
+# Versão instalada: "N hash data" (N = nº de commits do repositório; +dev = com mudanças não gravadas).
+versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
+versao_num() { versao | awk '{ print $1 + 0 }'; }
+
+# Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
+# desenvolvimento; senão, a própria instalação.
+pacote() {
+  local tmp n h d
+  if [[ -d $REPO_TT/.git ]]; then
+    tmp=$(mktemp -d)
+    cp "$REPO_TT/tt" "$REPO_TT/tmux.conf" "$REPO_TT/README.md" "$tmp/"
+    n=$(git -C "$REPO_TT" rev-list --count HEAD 2>/dev/null || echo 0)
+    h=$(git -C "$REPO_TT" rev-parse --short HEAD 2>/dev/null || echo ?)
+    d=$(git -C "$REPO_TT" log -1 --format=%cs 2>/dev/null || date +%F)
+    [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf README.md 2>/dev/null) ]] && h+="+dev"
+    echo "$n $h $d" >"$tmp/VERSAO"
+    tar -C "$tmp" -cf - tt tmux.conf README.md VERSAO
+    rm -rf "$tmp"
+  else
+    tar -C "$DIR_TT" -cf - tt tmux.conf README.md VERSAO
+  fi
+}
+
+# Instala o pacote que está na pasta deste tt (chamado como <pasta>/tt --instalar-aqui).
+# Troca a pasta de uma vez (nunca sobrescreve o arquivo de um tt que esteja rodando, como o vigia),
+# aponta ~/.local/bin/tt para ela, faz o ~/.tmux.conf carregar o tmux.conf dela e recarrega o tmux.
+instalar_aqui() {
+  local origem nome=${TT_NOME:-} pidf pid
+  origem=$(dirname "$EU")
+  if [[ $origem != "$DIR_TT" ]]; then
+    rm -rf "$DIR_TT.novo" "$DIR_TT.velho"
+    cp -a "$origem" "$DIR_TT.novo" || return 1
+    [[ -d $DIR_TT ]] && mv "$DIR_TT" "$DIR_TT.velho"
+    mv "$DIR_TT.novo" "$DIR_TT"
+    rm -rf "$DIR_TT.velho"
+  fi
+  chmod +x "$DIR_TT/tt"
+  mkdir -p "$HOME/.local/bin"
+  if [[ -f $HOME/.local/bin/tt && ! -L $HOME/.local/bin/tt ]]; then
+    mv "$HOME/.local/bin/tt" "$HOME/.local/bin/tt.antes-instalacao"
+  fi
+  ln -sfn "$DIR_TT/tt" "$HOME/.local/bin/tt"
+  if ! grep -q 'share/tt/tmux.conf' "$HOME/.tmux.conf" 2>/dev/null; then
+    [[ -f $HOME/.tmux.conf && ! -f $HOME/.tmux.conf.antes-tt ]] && cp "$HOME/.tmux.conf" "$HOME/.tmux.conf.antes-tt"
+    cat >"$HOME/.tmux.conf" <<'CONF'
+# ~/.tmux.conf — a configuração vem do tt (~/.local/share/tt/tmux.conf), atualizada por
+# `tt --sincronizar`. Ajustes só desta máquina vão abaixo da linha do source-file.
+source-file ~/.local/share/tt/tmux.conf
+CONF
+  fi
+  mkdir -p "$(dirname "$CONF")"
+  if [[ -n $nome ]]; then
+    grep -v '^nome=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "nome=$nome" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
+  elif [[ -z $(conf nome) ]]; then
+    echo "nome=$(hostname -s)" >>"$CONF"
+  fi
+  limpar_cache_maquinas
+  if tmux list-sessions >/dev/null 2>&1; then
+    tmux source-file "$HOME/.tmux.conf"
+    # O vigia em execução é da versão antiga: troca por um novo.
+    pidf="${XDG_RUNTIME_DIR:-/tmp}/tt-vigia-$(id -u).pid"
+    pid=$(cat "$pidf" 2>/dev/null)
+    if [[ -n $pid ]] && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--vigia'; then kill "$pid"; fi
+    rm -f "$pidf"
+    tmux run-shell -b "$HOME/.local/bin/tt --vigia"
+  fi
+  echo "$(conf nome): $(versao)"
+}
+
+# Envia o pacote para DEST e instala lá. Imprime "rótulo: versão".
+instalar_em() {
+  local dest=$1 nome=${2:-}
+  if [[ $dest == . ]]; then
+    local tmp; tmp=$(mktemp -d)
+    pacote | tar -C "$tmp" -xf - && TT_NOME=$nome "$tmp/tt" --instalar-aqui
+    rm -rf "$tmp"
+  else
+    pacote | ssh "${SSH_OPC[@]}" "$dest" "rm -rf ~/.cache/tt-pacote && mkdir -p ~/.cache/tt-pacote && tar -C ~/.cache/tt-pacote -xf - && TT_NOME=$(q "$nome") ~/.cache/tt-pacote/tt --instalar-aqui; rm -rf ~/.cache/tt-pacote"
+  fi
+}
+
+# tt --sincronizar [rótulo…]: instala a versão daqui (do repositório, se houver) nesta máquina e
+# nas cadastradas. Não rebaixa: pula quem já tem versão mais nova.
+sincronizar() {
+  local dest rot alvo n_local n_rem
+  local -a alvos=("$@")
+  echo "Versão a instalar: $(pacote | tar -xOf - VERSAO)"
+  [[ -d $REPO_TT/.git ]] && { printf '  %-10s ' "$MAQUINA"; instalar_em . | sed 's/^[^:]*: //'; }
+  n_local=$(pacote | tar -xOf - VERSAO | awk '{ print $1 + 0 }')
+  while read -r dest rot; do
+    if ((${#alvos[@]})); then
+      for alvo in "${alvos[@]}"; do [[ $alvo == "$rot" ]] && break; alvo=""; done
+      [[ -n $alvo ]] || continue
+    fi
+    printf '  %-10s ' "$rot"
+    n_rem=$(timeout 8 ssh "${SSH_OPC[@]}" "$dest" "cat ~/.local/share/tt/VERSAO 2>/dev/null || echo 0" </dev/null 2>/dev/null | awk '{ print $1 + 0 }')
+    if [[ -z $n_rem ]]; then echo "✗ sem resposta"; continue; fi
+    if ((n_rem > n_local)); then echo "· já tem versão mais nova ($n_rem), não mexi"; continue; fi
+    instalar_em "$dest" "$rot" 2>&1 | tail -1 | sed 's/^[^:]*: //'
+  done < <(maquinas)
+}
+
+# tt --cadastrar [host [usuario [rótulo]]]: testa o acesso, instala o tt lá e cadastra as duas
+# máquinas uma na outra.
+cadastrar() {
+  local host=${1:-} usuario=${2:-} rot=${3:-} dest err falta r h
+  if [[ -z $host ]]; then
+    host=$( { candidatas | awk '{ printf "%s\t\033[1m%s\033[0m \033[90m(Tailscale, %s)\033[0m\n", $1, $1, $2 }'
+              printf '!outro\t\033[36m✎ outra (digitar host ou IP)\033[0m\n'; } |
+      fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse --height=~15 \
+        --header='Qual máquina cadastrar? (Linux online no Tailscale ainda não cadastradas)' --prompt='❯ ' |
+      cut -f1) || return 1
+    [[ $host == !outro ]] && read -rp "Host ou IP (como no ssh): " host
+  fi
+  [[ -n $host ]] || return 1
+  usuario=${usuario:-$(id -un)}
+  while :; do
+    read -rep "Usuário em $host: " -i "$usuario" usuario || return 1
+    printf 'Testando ssh %s@%s… ' "$usuario" "$host"
+    err=$(timeout 15 ssh "${SSH_OPC[@]}" "$usuario@$host" true 2>&1 </dev/null) && { echo ok; break; }
+    echo "falhou."
+    if grep -q login.tailscale.com <<<"$err"; then
+      echo "O Tailscale SSH de lá pede aprovação no navegador:"; grep -o 'https://login.tailscale.com[^ ]*' <<<"$err"
+      read -rp "Aprove e tecle Enter para tentar de novo (ou Ctrl+C)." r
+    else
+      echo "  ${err:0:200}"
+      read -rp "Tentar outro usuário? [S/n] " r; [[ $r == [nN]* ]] && return 1
+    fi
+  done
+  dest="$usuario@$host"
+  falta=$(ssh "${SSH_OPC[@]}" "$dest" 'for p in tmux fzf python3 tar; do command -v $p >/dev/null || printf "%s " $p; done' </dev/null)
+  if [[ -n $falta ]]; then
+    echo "Faltam lá: $falta"
+    read -rp "Instalar com sudo apt-get? [S/n] " r
+    [[ $r == [nN]* ]] || ssh -t "${SSH_OPC[@]}" "$dest" "sudo apt-get install -y $falta"
+  fi
+  h=$(ssh "${SSH_OPC[@]}" "$dest" 'sed -n "s/^nome=//p" ~/.config/tt/config 2>/dev/null | tail -1' </dev/null)
+  rot=${rot:-${h:-${host%%.*}}}
+  read -rep "Nome dela no menu: " -i "$rot" rot || return 1
+  rot=$(limpar "$rot")
+  [[ $rot == "$MAQUINA" ]] && { echo "Esse nome já é o desta máquina; escolha outro."; return 1; }
+  echo "Instalando o tt em $rot…"
+  instalar_em "$dest" "$rot" | tail -1 || { echo "A instalação falhou."; return 1; }
+  registrar "$host" "$usuario" "$rot"
+  ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --registrar $(q "$(meu_host)" "$(id -un)" "$MAQUINA")" </dev/null
+  echo "✓ $rot cadastrada: aparece no menu daqui, e esta ($MAQUINA) no menu de lá."
+}
+
+# tt --descadastrar [rótulo]: tira do menu (aqui e lá), fecha as pontes e, se quiser, desinstala lá.
+descadastrar() {
+  local rot=${1:-} dest host r s
+  if [[ -z $rot ]]; then
+    rot=$(awk '!/^#/ && NF { print ($3 ? $3 : $1) "\t" $1 }' "$CONF_MAQ" 2>/dev/null |
+      fzf --delimiter='\t' --layout=reverse --height=~12 --header='Descadastrar qual máquina?' --prompt='❯ ' | cut -f1) || return 1
+  fi
+  [[ -n $rot ]] || return 1
+  host=$(awk -v r="$rot" '!/^#/ && ($3 == r || $1 == r) { print $1; exit }' "$CONF_MAQ" 2>/dev/null)
+  [[ -n $host ]] || { echo "$rot não está cadastrada."; return 1; }
+  dest=$(dest_de "$rot")
+  read -rp "Descadastrar $rot? [s/N] " r; [[ $r == [sSyY]* ]] || return 1
+  for s in $(tmux list-sessions -F '#{session_name}|#{@ponte}' 2>/dev/null | awk -F'|' -v d="$dest" '$2 == d && d != "" { print $1 }'); do
+    tmux kill-session -t "=$s"
+  done
+  if [[ -n $dest && $dest != . ]]; then
+    ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --desregistrar $(q "$(meu_host)")" </dev/null 2>/dev/null
+    read -rp "Remover o tt de lá também (volta o ~/.tmux.conf antigo)? [s/N] " r
+    [[ $r == [sSyY]* ]] && ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --desinstalar-aqui" </dev/null
+  fi
+  desregistrar "$host"
+  echo "✓ $rot descadastrada."
+}
+
+desinstalar_aqui() {
+  if [[ -f $HOME/.tmux.conf.antes-tt ]]; then mv "$HOME/.tmux.conf.antes-tt" "$HOME/.tmux.conf"
+  elif grep -q 'share/tt/tmux.conf' "$HOME/.tmux.conf" 2>/dev/null; then rm -f "$HOME/.tmux.conf"; fi
+  [[ -L $HOME/.local/bin/tt ]] && rm -f "$HOME/.local/bin/tt"
+  rm -rf "$DIR_TT"
+  echo "tt removido de $(hostname -s) (a configuração em ~/.config/tt ficou)."
+}
+
+rotulo() { [[ $1 == . ]] && echo "$MAQUINA" || rotulo_de "$1"; }
+
+# Linhas "destino<TAB>chave<TAB>texto<TAB>busca" de uma máquina (destino "." é esta).
+rotular() {
+  awk -F'\t' -v d="$1" -v r="$2" '{ printf "%s\t%s\t\033[34m%-8.8s\033[0m %s\t%s %s\n", d, $1, r, $2, $3, r }'
+}
+
+listar_remoto() {
+  local dest=$1 rot=$2 saida err st
+  err=$(mktemp)
+  saida=$(timeout 6 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --listar" 2>"$err" </dev/null)
+  st=$?
+  if ((st == 0)); then
+    if [[ -n $saida ]]; then rotular "$dest" "$rot" <<<"$saida"
+    else printf '!nova\t\033[90m+ nenhuma sessão — Enter cria uma\033[0m\n' | rotular "$dest" "$rot"; fi
+  elif grep -q 'login.tailscale.com' "$err"; then
+    printf '!autorizar\t\033[33m🔒 precisa autorizar o acesso (Enter mostra o link)\033[0m\n' | rotular "$dest" "$rot"
+  elif ((st == 127)); then
+    printf '!instalar\t\033[90m✗ não tem o tt — Enter instala\033[0m\n' | rotular "$dest" "$rot"
+  else
+    printf '!erro\t\033[90m✗ sem resposta (%s)\033[0m\n' "$(tail -1 "$err" | cut -c1-50)" | rotular "$dest" "$rot"
+  fi
+  rm -f "$err"
+}
+
+# Estado do menu aberto (filtro de máquina, escopo da busca), num arquivo temporário por menu.
+estado() { [[ -n ${TT_ESTADO:-} ]] && sed -n "s/^$1=//p" "$TT_ESTADO" 2>/dev/null | tail -1; }
+estado_por() { [[ -n ${TT_ESTADO:-} ]] && echo "$1=$2" >>"$TT_ESTADO"; }
+nth_atual() { [[ $(estado busca) == nomes ]] && echo 1 || echo 1,2; }
+
+# Menu completo: esta máquina primeiro, depois as outras (consultadas em paralelo).
+# Com filtro de máquina, só ela.
+listar_tudo() {
+  local tmp dest rot i=0 n filtro
+  filtro=$(estado maquina)
+  [[ $filtro == todas ]] && filtro=""
+  tmp=$(mktemp -d)
+  while read -r dest rot; do
+    [[ -z $filtro || $filtro == "$rot" ]] || continue
+    i=$((i + 1))
+    listar_remoto "$dest" "$rot" >"$tmp/$i" &
+  done < <(maquinas)
+  [[ -z $filtro || $filtro == "$MAQUINA" ]] && listar | rotular . "$MAQUINA"
+  wait
+  for ((n = 1; n <= i; n++)); do cat "$tmp/$n"; done
+  rm -rf "$tmp"
+}
+
+rotulos() { echo "$MAQUINA"; maquinas | awk '{ print $2 }'; }
+
+# Cabeçalho do menu. Cada palavra é clicável (veja clique_cabecalho).
+cabecalho() {
+  local m b r linha="máquina:"
+  m=$(estado maquina); m=${m:-todas}
+  b=$(estado busca); b=${b:-tudo}
+  for r in todas $(rotulos); do
+    [[ $r == "$m" ]] && linha+=" \033[1;30;46m $r \033[0m" || linha+="  $r "
+  done
+  linha+="    busca:"
+  for r in tudo nomes; do
+    [[ $r == "$b" ]] && linha+=" \033[1;30;45m $r \033[0m" || linha+="  $r "
+  done
+  printf '%b\n' "$linha"
+  echo "⏎ entrar   ^n nova   ^r renomear   ^x fechar   ^t soltar   ^a nomear-todas"
+  echo "^v ao-lado   ^o embaixo   ^p trocar-painel   ^s enviar   ^g trazer"
+  echo "^f máquina   ^e busca   ⚙ tmux   🖥 máquinas   esc sair"
+}
+
+# Palavra do texto que contém a coluna C (conta caracteres, não bytes; tolera a coluna vizinha).
+palavra_em() {
+  local t=$1 c=$2 i a b
+  for i in $((c - 1)) "$c" $((c - 2)); do
+    ((i >= 0 && i < ${#t})) && [[ ${t:i:1} != " " ]] && break
+    i=-1
+  done
+  ((i >= 0)) || return
+  a=$i; while ((a > 0)) && [[ ${t:a-1:1} != " " ]]; do a=$((a - 1)); done
+  b=$i; while ((b < ${#t} - 1)) && [[ ${t:b+1:1} != " " ]]; do b=$((b + 1)); done
+  echo "${t:a:b-a+1}"
+}
+
+# Clique numa palavra do cabeçalho (ou ^f/^e): devolve as ações do fzf a executar.
+clique_cabecalho() {
+  local w=$1 r m lista l c texto
+  # Clique: o fzf 0.60 entrega a linha inteira (com cores) em vez da palavra; acha a palavra pela
+  # coluna clicada na linha do cabeçalho.
+  l=${FZF_CLICK_HEADER_LINE:-0} c=${FZF_CLICK_HEADER_COLUMN:-0}
+  if ((l > 0)); then
+    texto=$(cabecalho | sed -n "${l}p" | sed 's/\x1b\[[0-9;]*m//g')
+    w=$(palavra_em "$texto" "$c")
+  fi
+  case $w in
+    ⏎ | entrar) echo accept; return ;;
+    ^n | nova) echo 'print(nova)+accept'; return ;;
+    ^r | renomear) echo 'print(renomear)+accept'; return ;;
+    ^t | soltar) echo 'print(soltar)+accept'; return ;;
+    ^a | nomear-todas) echo 'print(nomear)+accept'; return ;;
+    ^v | ao-lado) echo 'print(lado)+accept'; return ;;
+    ^o | embaixo) echo 'print(embaixo)+accept'; return ;;
+    ^p | trocar-painel) echo 'print(aqui)+accept'; return ;;
+    ^s | enviar) echo 'print(enviar)+accept'; return ;;
+    ^g | trazer) echo 'print(trazer)+accept'; return ;;
+    ⚙ | tmux) echo 'print(tmux)+accept'; return ;;
+    🖥 | máquinas) echo 'print(maquinas)+accept'; return ;;
+    ^x | fechar) echo "execute-silent($EU --fechar {1} {2})+reload($EU --listar-tudo)"; return ;;
+    esc | sair) echo abort; return ;;
+    tudo | nomes) estado_por busca "$w" ;;
+    ^e | busca | busca:) [[ $(estado busca) == nomes ]] && estado_por busca tudo || estado_por busca nomes ;;
+    ^f | máquina | máquina:)
+      # Próxima máquina na roda: todas → esta → as outras → todas.
+      mapfile -t lista < <(echo todas; rotulos)
+      m=$(estado maquina); m=${m:-todas}
+      for ((r = 0; r < ${#lista[@]}; r++)); do [[ ${lista[r]} == "$m" ]] && break; done
+      estado_por maquina "${lista[(r + 1) % ${#lista[@]}]}" ;;
+    *)
+      for r in todas $(rotulos); do [[ $w == "$r" ]] && estado_por maquina "$r"; done ;;
+  esac
+  echo "reload($EU --listar-tudo)+transform-header($EU --cabecalho)+change-nth($(nth_atual))"
+}
+
+q() { printf '%q ' "$@"; }
+
+# Roda um subcomando do tt em DEST ("." = aqui). rodar_tty: interativo (pergunta algo na tela).
+rodar() {
+  local dest=$1; shift
+  if [[ $dest == . ]]; then "$EU" "$@"
+  else ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO $(q "$@")" </dev/null; fi
+}
+rodar_tty() {
+  local dest=$1; shift
+  if [[ $dest == . ]]; then "$EU" "$@"
+  else ssh -t "${SSH_OPC[@]}" "$dest" "$TT_REMOTO $(q "$@")"; fi
+}
+
+previa_em() {
+  local dest=$1 s=$2 qq=${3:-}
+  [[ $dest == . ]] && { previa "$s" "$qq"; return; }
+  case $s in
+    !autorizar) echo "O Tailscale SSH desta máquina pede confirmação no navegador."
+                echo "Enter mostra o link; depois de aprovar, vale por umas 12 h." ;;
+    !instalar)  echo "Enter copia este tt para ~/.local/bin/tt de $dest (precisa de tmux e fzf lá)." ;;
+    !nova)      echo "Enter cria uma sessão nova em $dest e entra nela." ;;
+    !erro)      echo "Não consegui falar com $dest (desligada, sem rede ou sem ssh)."; echo "Saia e abra o menu de novo para tentar outra vez." ;;
+    *) timeout 6 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --previa $(q "$s" "$qq")" 2>/dev/null </dev/null ;;
+  esac
+}
+
+# ^x: fecha a sessão, ou só o painel (linhas ├/└).
+fechar_em() {
+  local dest=$1 s=$2 cmd
+  [[ $s == [+!]* || -z $s ]] && return
+  [[ $s == %* ]] && cmd="kill-pane -t $(q "$s")" || cmd="kill-session -t $(q "=$s")"
+  if [[ $dest == . ]]; then eval "tmux $cmd"
+  else timeout 6 ssh "${SSH_OPC[@]}" "$dest" "tmux $cmd" </dev/null; fi
+}
+
+# Painel %N: deixa ele em foco na sessão dele e imprime o nome da sessão.
+focar() {
+  tmux select-window -t "$1" && tmux select-pane -t "$1" && tmux display-message -p -t "$1" '#{session_name}'
+}
+
+# Painel %N vira uma sessão própria (sai da janela onde está). Imprime o nome da sessão nova.
+soltar_painel() {
+  local p=$1 nome
+  nome=$(limpar "$(tmux show-options -pqv -t "$p" @nome_painel)")
+  [[ -z $nome ]] || tmux has-session -t "=$nome" 2>/dev/null && nome=$(proximo_nome)
+  tmux new-session -d -s "$nome" -n tt-temp || return 1
+  tmux break-pane -d -s "$p" -t "=$nome:" && tmux kill-window -t "=$nome:tt-temp" || return 1
+  tmux set-option -t "=$nome:" @nome_auto "$([[ $nome == janela-* ]] && echo 1 || echo 0)"
+  echo "$nome"
+}
+
+renomear_painel() {
+  local p=$1 atual novo
+  atual=$(tmux show-options -pqv -t "$p" @nome_painel)
+  read -rep "Nome do painel: " -i "$atual" novo || return
+  tmux set-option -p -t "$p" @nome_painel "$novo"
+}
+
+# Comando que mostra a sessão S (de "." = esta máquina, ou de usuario@host) num terminal/painel.
+# Nas outras máquinas, o tmux de lá fica sabendo de onde veio (TT_PONTE="máquina|sessão-ponte"),
+# para devolver para cá as trocas de sessão feitas pela barra de lá (veja ir_para).
+cmd_ver() {
+  if [[ $1 == . ]]; then echo "env -u TMUX tmux attach -t $(q "=$2")"
+  else echo "ssh -t $(q "${SSH_OPC[@]}") $(q "$1") $(q "exec env TT_PONTE=$(q "$MAQUINA|${3:-}") tmux attach -t $(q "=$2")")"; fi
+}
+
+# Abre a sessão S num painel: modo lado | embaixo | aqui (troca o painel em foco, se for do tt).
+abrir_painel() {
+  local modo=$1 dest=$2 s=$3 painel=${TT_PANE:-} atual novo cmd
+  if [[ -z ${TMUX:-} ]]; then
+    read -rp "Painéis só funcionam dentro do tmux. Enter para voltar."
+    return 1
+  fi
+  atual=$(tmux display-message -p ${painel:+-t "$painel"} '#{session_name}')
+  if [[ $dest == . && $s == "$atual" ]]; then
+    read -rp "Essa é a sessão em que você está; não dá para abri-la dentro dela mesma. Enter."
+    return 1
+  fi
+  cmd=$(cmd_ver "$dest" "$s")
+  case $modo in
+    lado) novo=$(tmux split-window -h -P -F '#{pane_id}' ${painel:+-t "$painel"} "$cmd") ;;
+    embaixo) novo=$(tmux split-window -v -P -F '#{pane_id}' ${painel:+-t "$painel"} "$cmd") ;;
+    aqui)
+      novo=$(tmux display-message -p ${painel:+-t "$painel"} '#{pane_id}')
+      if [[ -z $(tmux show-options -pqv -t "$novo" @tt_painel) ]]; then
+        read -rp "^p só troca painéis abertos pelo tt (^v/^o); este tem seu próprio programa. Enter."
+        return 1
+      fi
+      tmux respawn-pane -k -t "$novo" "$cmd" ;;
+  esac || return 1
+  tmux set-option -p -t "$novo" @tt_painel "$dest $s"
+  tmux set-option -p -t "$novo" @tt_rotulo "$(rotulo "$dest") · $s"
+  tmux select-pane -t "$novo"
+}
+
+# Sessão-ponte local que mostra a sessão S de outra máquina (cria se não existir). Imprime o nome.
+criar_ponte() {
+  local dest=$1 s=$2 ponte
+  ponte=$(limpar "$(rotulo_de "$dest")-$s")
+  if ! tmux has-session -t "=$ponte" 2>/dev/null; then
+    tmux new-session -d -s "$ponte" "$(cmd_ver "$dest" "$s" "$ponte")" || return 1
+    tmux set-option -t "=$ponte:" @ponte "$dest"
+    tmux set-option -t "=$ponte:" @nome_auto 0
+    tmux set-option -t "=$ponte:" status off
+  fi
+  echo "$ponte"
+}
+
+# Entra na sessão S de outra máquina. Fora do tmux (celular), é um ssh direto e, ao sair
+# (Ctrl+B d), volta ao menu. Dentro do tmux, vai para a sessão-ponte (a barra daqui some; vale a
+# de lá). Ctrl+B fala com o tmux daqui; Ctrl+B Ctrl+B, com o de lá.
+entrar_remoto() {
+  local dest=$1 s=$2 ponte
+  if [[ -z ${TMUX:-} ]]; then
+    eval "$(cmd_ver "$dest" "$s")"
+    return
+  fi
+  ponte=$(criar_ponte "$dest" "$s") || return 1
+  sair_menu
+  exec tmux switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$ponte"
+}
+
+# Formato tmux avaliado para o cliente C (display-message -c não muda o contexto do formato).
+do_cliente() {
+  tmux list-clients -F "#{client_name}	$2" 2>/dev/null | awk -F'\t' -v c="$1" '$1 == c { print $2; exit }'
+}
+
+# "máquina|ponte" se o cliente tmux atual é uma ponte vinda de outra máquina (vazio se não).
+origem_ponte() {
+  local pid
+  if [[ -n ${1:-} ]]; then pid=$(do_cliente "$1" '#{client_pid}')
+  else pid=$(tmux display-message -p '#{client_pid}' 2>/dev/null); fi
+  [[ -n $pid ]] || return
+  tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | sed -n 's/^TT_PONTE=//p'
+}
+
+# Vai para a sessão S de DEST no cliente atual. Se este cliente é uma ponte vinda de outra máquina
+# (você está vendo esta máquina de lá), pede para a de lá fazer a troca: assim a tela que você
+# usa troca de verdade, sem encadear ponte dentro de ponte.
+ir_para() {
+  local dest=$1 s=$2 origem om op
+  origem=$(origem_ponte "${TT_CLIENTE:-}")
+  om=${origem%%|*} op=${origem#*|}
+  if [[ -n $origem && -n $op ]] && ssh "${SSH_OPC[@]}" "$(dest_de "$om")" "$TT_REMOTO --ir-ponte $(q "$op" "$(rotulo "$dest")" "$s")" </dev/null; then
+    sair_menu
+    return 0
+  fi
+  if [[ $dest != . ]]; then entrar_remoto "$dest" "$s"; return; fi
+  sair_menu
+  if [[ -n ${TMUX:-} ]]; then exec tmux switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$s"; fi
+  tmux attach-session -t "=$s"
+}
+
+# Roda na máquina de origem: os clientes que estão na ponte P passam a mostrar a sessão S da
+# máquina de rótulo R (desta, direto; de outra, por uma ponte).
+ir_ponte() {
+  local p=$1 r=$2 s=$3 alvo c
+  if [[ $r == "$MAQUINA" ]]; then alvo=$s
+  else alvo=$(criar_ponte "$(dest_de "$r")" "$s") || return 1; fi
+  for c in $(tmux list-clients -t "=$p" -F '#{client_name}'); do tmux switch-client -c "$c" -t "=$alvo"; done
+}
+
+# Menu do painel (botão "⋯ painel" da barra, Ctrl+B m, ou botão direito na borda do painel).
+menu_painel() {
+  local c=$1 p=$2 pop troca=-
+  [[ -n $(tmux show-options -pqv -t "$p" @tt_painel) ]] && troca=""
+  pop="display-popup -c $c -E -w 90% -h 85%"
+  local env="TT_CLIENTE=$c TT_PANE=$p"
+  tmux display-menu -M -c "$c" -t "$p" -x R -y S -T "#[align=centre] painel #{pane_index} " \
+    "Dividir ao lado (terminal novo)" "|" "split-window -h -t $p -c '#{pane_current_path}'" \
+    "Dividir embaixo (terminal novo)" "-" "split-window -v -t $p -c '#{pane_current_path}'" \
+    "" \
+    "Abrir outra sessão ao lado…" v "$pop \"$env TT_MODO=lado $EU\"" \
+    "Abrir outra sessão embaixo…" o "$pop \"$env TT_MODO=embaixo $EU\"" \
+    "${troca}Trocar a sessão deste painel…" p "$pop \"$env TT_MODO=aqui $EU\"" \
+    "" \
+    "Renomear painel" r "command-prompt -t $c -I '#{@nome_painel}' -p 'nome do painel:' \"set-option -p -t $p @nome_painel '%%'\"" \
+    "Maximizar / restaurar" z "resize-pane -Z -t $p" \
+    "Virar sessão própria" s "run-shell -b '$EU --soltar $p >/dev/null'" \
+    "" \
+    "" \
+    "📤 Enviar arquivos daqui…" e "$pop -T ' 📤 enviar ' \"$env $EU --enviar\"" \
+    "📥 Trazer arquivos para cá…" t "$pop -T ' 📥 trazer ' \"$env $EU --trazer\"" \
+    "⚙ tmux…" "#" "run-shell -b '$EU --menu-tmux $c $p'" \
+    "" \
+    "Fechar painel" x "kill-pane -t $p"
+}
+
+# --- Seletor da barra (clique no nome da sessão ou numa máquina) ------------
+
+# Lista curta desta máquina: só as sessões, "nome<TAB>texto", mais recentes primeiro.
+listar_leve() {
+  local ativ s anex cmd ponte uso
+  tmux list-sessions -F '#{window_activity}|#{session_name}|#{session_attached}|#{pane_current_command}|#{@ponte}' 2>/dev/null |
+    sort -t'|' -k1,1nr |
+    {
+      local -a vazias=()
+      while IFS='|' read -r ativ s anex cmd ponte; do
+        [[ -n $ponte ]] && continue
+        if sessao_vazia "$s"; then
+          ((anex > 0)) && uso='●' || uso='○'
+          vazias+=("$(printf '%s\t\033[90m%s %-24.24s %-7.7s %s\033[0m' "$s" "$uso" "$s" "$cmd" "$(idade "$ativ")")")
+          continue
+        fi
+        ((anex > 0)) && uso=$'\033[32m●\033[0m' || uso=$'\033[90m○\033[0m'
+        printf '%s\t%s \033[1m%-24.24s\033[0m \033[33m%-7.7s\033[0m \033[90m%s\033[0m\n' "$s" "$uso" "$s" "$cmd" "$(idade "$ativ")"
+      done
+      if ((${#vazias[@]})); then
+        linha_vazias "${#vazias[@]}" | cut -f1,2
+        printf '%s\n' "${vazias[@]}"
+      fi
+    }
+}
+
+# Linhas do seletor ("destino<TAB>chave<TAB>texto") da máquina escolhida (ou todas). No layout de
+# baixo para cima do seletor, a primeira linha fica junto da barra: sessões recentes embaixo,
+# ações (nova, central) no topo. Guarda a lista para pos_atual.
+lista_seletor() {
+  local m i n dest rot tmp nova
+  local -a dests rots
+  m=$(estado maquina); m=${m:-$MAQUINA}
+  while read -r dest rot; do
+    [[ $m == todas || $m == "$rot" ]] || continue
+    dests+=("$dest"); rots+=("$rot")
+  done < <(echo ". $MAQUINA"; maquinas)
+  tmp=$(mktemp -d)
+  for i in "${!dests[@]}"; do
+    {
+      if [[ ${dests[i]} == . ]]; then listar_leve
+      else timeout 5 ssh "${SSH_OPC[@]}" "${dests[i]}" "$TT_REMOTO --listar-leve" </dev/null 2>/dev/null ||
+        printf '!erro\t\033[90m✗ sem resposta de %s\033[0m\n' "${rots[i]}"; fi
+    } | awk -F'\t' -v d="${dests[i]}" -v r="${rots[i]}" -v todas="$([[ $m == todas ]] && echo 1)" -v atual="${TT_ATUAL:-}" '{
+        marca = (r "|" $1 == atual) ? "\033[35m◆\033[0m " : "  "
+        rot = todas ? sprintf("\033[34m%-8.8s\033[0m ", r) : ""
+        printf "%s\t%s\t%s%s%s\n", d, $1, marca, rot, $2
+      }' >"$tmp/$i" &
+  done
+  wait
+  for ((i = 0; i < ${#dests[@]}; i++)); do cat "$tmp/$i"; done
+  [[ $m == todas ]] && nova=. || nova=$(dest_de "$m")
+  printf '%s\t!nova\t  \033[32m＋ nova sessão em %s\033[0m\n' "${nova:-.}" "$([[ $m == todas ]] && echo "$MAQUINA" || echo "$m")"
+  printf '.\t!arquivos\t  \033[33m⇅ arquivos\033[0m \033[90m(enviar / trazer entre máquinas)\033[0m\n'
+  printf '.\t!tmux\t  \033[35m⚙ tmux\033[0m \033[90m(janelas, painéis, opções)\033[0m\n'
+  printf '.\t!central\t  \033[36m☰ central completa\033[0m \033[90m(busca, painéis, prévia)\033[0m\n'
+  rm -rf "$tmp"
+} 
+
+# Ação do fzf que põe o cursor na sessão atual (◆), ou na primeira.
+pos_atual() {
+  local n
+  n=$(lista_seletor_cache | grep -n $'\t.*◆' | head -1 | cut -d: -f1)
+  [[ -n $n ]] && echo "pos($n)" || echo first
+}
+lista_seletor_cache() { cat "$TT_ESTADO.lista" 2>/dev/null; }
+lista_seletor_salva() { lista_seletor | tee "$TT_ESTADO.lista"; }
+
+cabecalho_seletor() {
+  local m r linha=""
+  m=$(estado maquina); m=${m:-$MAQUINA}
+  for r in $(rotulos) todas; do
+    [[ $r == "$m" ]] && linha+="\033[1;30;46m $r \033[0m " || linha+=" $r  "
+  done
+  printf '%b\n' "$linha"
+  printf '\033[90m%s\033[0m\n' "clique abre · digite p/ filtrar · tab: máquina · esc fecha"
+}
+
+clique_seletor() {
+  local w=$1 r m lista
+  if ((${FZF_CLICK_HEADER_LINE:-0} == 1)); then
+    w=$(palavra_em "$(cabecalho_seletor | sed -n 1p | sed 's/\x1b\[[0-9;]*m//g')" "${FZF_CLICK_HEADER_COLUMN:-0}")
+  elif ((${FZF_CLICK_HEADER_LINE:-0} > 1)); then return
+  fi
+  if [[ $w == proxima ]]; then
+    mapfile -t lista < <(rotulos; echo todas)
+    m=$(estado maquina); m=${m:-$MAQUINA}
+    for ((r = 0; r < ${#lista[@]}; r++)); do [[ ${lista[r]} == "$m" ]] && break; done
+    w=${lista[(r + 1) % ${#lista[@]}]}
+  fi
+  for r in $(rotulos) todas; do
+    if [[ $w == "$r" ]]; then
+      estado_por maquina "$r"
+      echo "reload-sync($EU --lista-seletor)+transform-header($EU --cabecalho-seletor)"
+      return
+    fi
+  done
+}
+
+# O seletor em si (roda dentro do popup aberto por seletor_em).
+seletor() {
+  local saida dest alvo nome prev=()
+  estado_por maquina "${TT_SEL_MAQ:-$MAQUINA}"
+  [[ -n ${TT_PREVIA:-} ]] && prev=(--preview="$EU --previa-em {1} {2}" --preview-window='right,55%,border-left,follow')
+  lista_seletor_salva >/dev/null
+  saida=$(lista_seletor_cache | fzf --ansi --delimiter='\t' --with-nth=3 --exact --no-sort \
+    --prompt='❯ ' --pointer='▶' --info=inline-right --no-separator \
+    --header="$(cabecalho_seletor)" --header-first \
+    --color='header:#a6adc8,pointer:#f38ba8,prompt:#cba6f7,hl:#f9e2af,hl+:#f9e2af,bg+:#313244,info:#6c7086' \
+    "${prev[@]}" \
+    --bind="load:transform($EU --pos-atual)" \
+    --bind='left-click:accept' \
+    --bind="tab:transform($EU --clique-seletor proxima)" \
+    --bind="click-header:transform($EU --clique-seletor x)") || return 0
+  dest=$(cut -f1 <<<"$saida") alvo=$(cut -f2 <<<"$saida")
+  case $alvo in
+    '' | !erro) return 0 ;;
+    !vazias) confirmar_vazias "$dest"; return 0 ;;
+    !central) tmux run-shell -b "$EU --clique tt '${TT_CLIENTE:-}' '${TT_PANE:-}' ''"; return 0 ;;
+    !tmux) tmux run-shell -b "$EU --menu-tmux '${TT_CLIENTE:-}' '${TT_PANE:-}'"; return 0 ;;
+    !arquivos) tmux run-shell -b "$EU --menu-arquivos '${TT_CLIENTE:-}' '${TT_PANE:-}'"; return 0 ;;
+    !nova)
+      read -rp "Nome da nova sessão em $(rotulo "$dest") [automático]: " nome
+      alvo=$(rodar "$dest" --nova "$nome") || return 0 ;;
+  esac
+  ir_para "$dest" "$alvo"
+}
+
+# Abre o seletor num popup ancorado na barra, junto do clique. M = rótulo da máquina, ou "todas".
+seletor_em() {
+  local c=$1 m=${2:-$MAQUINA} p=${3:-} cw ch w h x prev="" atual
+  read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
+  if ((cw >= 140)); then w=130; prev=1; else w=$((cw < 74 ? cw : 74)); fi
+  h=$((ch - 2 < 24 ? ch - 2 : 24))
+  x=${TT_X:-0}
+  ((x + w > cw)) && x=$((cw - w))
+  atual=$(do_cliente "$c" '#{session_name}')
+  tmux display-popup -c "$c" -x "$x" -y S -w "$w" -h "$h" -T " ☰ sessões " -E \
+    "TT_CLIENTE=$(q "$c") TT_SEL_MAQ=$(q "$m") TT_PREVIA=$prev TT_PANE=$p TT_ATUAL=$(q "$MAQUINA|$atual") $EU --seletor"
+}
+
+# Menu das máquinas (clique no nome da máquina, na barra): cada uma com quantas sessões tem e,
+# se estiver com uma versão do tt mais velha que esta, o aviso. Daqui também: arquivos, tmux,
+# cadastrar/descadastrar e sincronizar a versão.
+menu_maquinas() {
+  local c=$1 p=${2:-} tmp i n v vl marca info atras=0 pop
+  local -a dests rots args
+  tmp=$(mktemp -d)
+  vl=$(versao_num)
+  while read -r dest rot; do dests+=("$dest"); rots+=("$rot"); done < <(echo ". $MAQUINA"; maquinas)
+  for i in "${!dests[@]}"; do
+    if [[ ${dests[i]} == . ]]; then echo "$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^$') $vl" >"$tmp/$i"
+    else (timeout 3 ssh "${SSH_OPC[@]}" "${dests[i]}" "echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null || echo "? ?") >"$tmp/$i" &
+    fi
+  done
+  wait
+  pop="display-popup -c $c -E -w 90% -h 85%"
+  for i in "${!dests[@]}"; do
+    read -r n v <"$tmp/$i"
+    [[ ${dests[i]} == . ]] && marca="● " || marca="  "
+    if [[ $n == "?" ]]; then info="sem resposta"
+    else
+      info="$n sessões"
+      if ((${v:-0} < vl)); then info+="  ⚠ v$v"; atras=1; fi
+    fi
+    args+=("$marca$(printf '%-10s' "${rots[i]}") $info" "$((i + 1))" "run-shell -b \"TT_X=0 $EU --seletor-em '$c' '${rots[i]}' '$p'\"")
+  done
+  rm -rf "$tmp"
+  args+=("" "  Todas as máquinas" t "run-shell -b \"$EU --seletor-em '$c' todas '$p'\"")
+  args+=("  ☰ Central completa…" c "run-shell -b \"$EU --clique tt '$c' '$p' ''\"")
+  args+=("" "  📤 Enviar arquivos…" e "$pop -T ' 📤 enviar ' \"TT_CLIENTE=$c TT_PANE=$p $EU --enviar\"")
+  args+=("  📥 Trazer arquivos…" r "$pop -T ' 📥 trazer ' \"TT_CLIENTE=$c TT_PANE=$p $EU --trazer\"")
+  args+=("  ⚙ tmux  (janelas, painéis, opções)" x "run-shell -b \"$EU --menu-tmux '$c' '$p'\"")
+  args+=("")
+  ((atras)) && args+=("  ⟳ Atualizar as desatualizadas (v$vl)" u "$pop -T ' sincronizar ' \"$EU --sincronizar; read -rsn1 -p '(tecla fecha)'\"")
+  args+=("  ＋ Cadastrar máquina…" "+" "$pop -T ' cadastrar máquina ' \"$EU --cadastrar; read -rsn1 -p '(tecla fecha)'\"")
+  args+=("  − Descadastrar máquina…" "-" "$pop -T ' descadastrar máquina ' \"$EU --descadastrar; read -rsn1 -p '(tecla fecha)'\"")
+  tmux display-menu -M -c "$c" -x 0 -y S -T "#[align=centre] máquinas · tt v$vl " "${args[@]}"
+}
+
+# Barrinha de título dos painéis só nas janelas com 2+ painéis (chamado pelos ganchos do tmux).
+bordas() {
+  sleep 0.05
+  tmux list-windows -a -F '#{window_id} #{window_panes} #{pane-border-status}' 2>/dev/null |
+    while read -r w n atual; do
+      if ((n > 1)); then [[ $atual == top ]] || tmux set-option -w -t "$w" pane-border-status top
+      else [[ $atual == off ]] || tmux set-option -w -t "$w" pane-border-status off; fi
+    done
+}
+
+# Confirma e fecha as vazias de DEST, poupando a sessão em uso (se for desta máquina).
+confirmar_vazias() {
+  local dest=$1 exceto="" r n
+  [[ $dest == . && -n ${TT_CLIENTE:-} ]] && exceto=$(do_cliente "$TT_CLIENTE" '#{session_name}')
+  [[ $dest == . && -z $exceto && -n ${TMUX:-} ]] && exceto=$(tmux display-message -p '#{session_name}')
+  read -rp "Fechar as sessões vazias de $(rotulo "$dest")${exceto:+ (menos \"$exceto\", em uso)}? [s/N] " r
+  [[ $r == [sSyY]* ]] || return 0
+  n=$(rodar "$dest" --fechar-vazias "$exceto")
+  echo "Fechadas: ${n:-0}."
+  sleep 0.6
+}
+
+# A janela do cliente C passa a ter o tamanho da tela dele (o tmux segue o cliente que "mexeu por
+# último"; trocar para a própria sessão conta como mexer).
+ajustar() {
+  local s
+  s=$(do_cliente "$1" '#{session_name}')
+  [[ -n $s ]] && tmux switch-client -c "$1" -t "=$s"
+}
+
+# Menu do próprio tmux (item "⚙ tmux" do menu de máquinas): janelas, arrumação dos painéis,
+# opções e a sessão/tela atual. -M: aceita clique/toque nos itens (sem ele, o tmux ignora o mouse
+# em menus abertos por script).
+menu_tmux() {
+  local c=$1 p=${2:-} sess win sinc mouse ed
+  sess=$(do_cliente "$c" '#{session_name}')
+  win=$(do_cliente "$c" '#{window_id}')
+  [[ -n $p ]] || p=$(do_cliente "$c" '#{pane_id}')
+  [[ $(tmux show-options -wv -t "$win" synchronize-panes) == on ]] && sinc="✓ ligado" || sinc="desligado"
+  [[ $(tmux show-options -gv mouse) == on ]] && mouse="✓ ligado" || mouse="desligado"
+  ed=${EDITOR:-nano}
+  tmux display-menu -M -c "$c" -x 0 -y S -T "#[align=centre] tmux #{version} · $sess " \
+    "Nova janela nesta sessão" c "new-window -t '=$sess:' -c '#{pane_current_path}'" \
+    "Próxima janela" n "next-window -t '=$sess:'" \
+    "Janela anterior" p "previous-window -t '=$sess:'" \
+    "" \
+    "Painéis lado a lado" 1 "select-layout -t $win even-horizontal" \
+    "Painéis empilhados" 2 "select-layout -t $win even-vertical" \
+    "Painéis em grade" 3 "select-layout -t $win tiled" \
+    "Um grande + os outros" 4 "select-layout -t $win main-vertical" \
+    "Digitar em todos os painéis: $sinc" s "set-option -w -t $win synchronize-panes" \
+    "" \
+    "Rolar / copiar o histórico" "[" "copy-mode -t $p" \
+    "Mouse: $mouse" m "set-option -g mouse" \
+    "Ver todos os atalhos" "?" "display-popup -c $c -E -w 90% -h 85% -T ' atalhos ' \"tmux list-keys | sed 's/^bind-key *//' | less -S\"" \
+    "Editar a configuração" e "display-popup -c $c -E -w 90% -h 85% -T ' ~/.tmux.conf ' \"$ed ~/.tmux.conf && tmux source-file ~/.tmux.conf\"" \
+    "Recarregar a configuração" r "source-file ~/.tmux.conf ; display-message 'configuração recarregada'" \
+    "" \
+    "Renomear a sessão…" N "display-popup -c $c -E -w 70 -h 7 -T ' renomear ' \"$EU --renomear '$sess'\"" \
+    "Desanexar esta tela" d "detach-client -t $c" \
+    "Desanexar as outras telas" D "detach-client -a -t $c" \
+    "Fechar a sessão…" X "confirm-before -t $c -p 'Fechar a sessão $sess? (y/n)' \"kill-session -t '=$sess'\"" \
+    "" \
+    "☰ Sessões…" S "run-shell -b '$EU --seletor-em $c $MAQUINA $p'" \
+    "🖥 Máquinas…" M "run-shell -b '$EU --menu-maquinas $c $p'" \
+    "⇅ Arquivos…" A "run-shell -b '$EU --menu-arquivos $c $p'"
+}
+
+# Clique num botão da barra de baixo: RANGE CLIENTE PAINEL PASTA [X-DO-MOUSE].
+clique() {
+  export TT_X=$(( ${5:-0} > 4 ? ${5:-0} - 4 : 0 ))
+  case $1 in
+    maquina) menu_maquinas "$2" "$3" ;;
+    arquivos) menu_arquivos "$2" "$3" ;;
+    ajustar) ajustar "$2" ;;
+    sessao) seletor_em "$2" "$MAQUINA" "$3" ;;
+    tt) tmux display-popup -c "$2" -E -w 90% -h 85% "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
+    lado) tmux split-window -h -t "$3" -c "$4" ;;
+    baixo) tmux split-window -v -t "$3" -c "$4" ;;
+    painel) menu_painel "$2" "$3" ;;
+  esac
+}
+
+# --- Arquivos entre máquinas -----------------------------------------------
+#
+# Navegador de pastas (→ entra, ← sobe, Tab marca vários, ⏎ confirma) numa máquina, escolha da
+# máquina e da pasta de destino, e cópia por tar+ssh (de/para qualquer máquina, inclusive entre duas
+# outras). Nada é sobrescrito: se já existe, chega como "nome (2)". Quem recebe vê um aviso na tela.
+
+RECEBIDOS='~/Recebidos'
+
+# "~" e "~/x" → caminho absoluto nesta máquina (as funções de arquivos sempre rodam na máquina
+# dona da pasta, via tt de lá).
+expandir() {
+  case $1 in
+    '~') echo "$HOME" ;;
+    '~/'*) echo "$HOME/${1#\~/}" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# Roda um subcomando do tt em DEST repassando stdin/stdout (para os fluxos de tar).
+rodar_io() {
+  local dest=$1; shift
+  if [[ $dest == . ]]; then (cd && "$EU" "$@")
+  else ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO $(q "$@")"; fi
+}
+
+# Lista uma pasta (desta máquina) para o navegador: "tipo<TAB>nome<TAB>texto". Pastas primeiro.
+listar_pasta() {
+  local dir=$1 ocultos=${2:-}
+  cd "$(expandir "$dir")" 2>/dev/null || { printf 'x\t\t\033[31mpasta não encontrada: %s\033[0m\n' "$dir"; return; }
+  printf 'u\t..\t\033[36m⬆ ..\033[0m \033[90m(%s)\033[0m\n' "$(encurtar "$(dirname "$PWD")")"
+  local -a filtro=()
+  [[ -n $ocultos ]] || filtro=(-not -name '.*')
+  find . -mindepth 1 -maxdepth 1 "${filtro[@]}" \
+    -printf '%y\t%f\t%s\t%TY-%Tm-%Td %TH:%TM\n' 2>/dev/null |
+    sort -t$'\t' -k1,1 -k2,2f |
+    awk -F'\t' '{
+      if ($1 == "d") printf "d\t%s\t\033[1;34m▸ %s/\033[0m\n", $2, $2
+      else {
+        t = $3; u = "B"
+        if (t >= 1073741824) { t = t / 1073741824; u = "G" } else if (t >= 1048576) { t = t / 1048576; u = "M" } else if (t >= 1024) { t = t / 1024; u = "K" }
+        printf "f\t%s\t  %-40s \033[90m%6.1f%s  %s\033[0m\n", $2, $2, t, u, $4
+      }
+    }'
+}
+
+# Prévia de um item: pasta → conteúdo; texto → começo; binário → tipo e tamanho.
+previa_item() {
+  local dir=$1 nome=$2 alvo
+  alvo="$(expandir "$dir")/$nome"
+  [[ $nome == .. ]] && alvo=$(dirname "$(expandir "$dir")")
+  if [[ -d $alvo ]]; then ls -la --color=always "$alvo" 2>/dev/null | head -60
+  elif file -b --mime "$alvo" 2>/dev/null | grep -q 'charset=binary'; then
+    echo "$(file -b "$alvo")"; du -h "$alvo" | cut -f1
+  else head -c 20000 "$alvo" 2>/dev/null | head -80; fi
+}
+
+# Pasta absoluta (resolvida nesta máquina) de "~/x", "..", relativos.
+resolver_pasta() { (cd "$(expandir "$1")" 2>/dev/null && encurtar "$(pwd -P)"); }
+
+# Navegador: imprime a pasta final na 1ª linha e os nomes escolhidos nas seguintes.
+escolher_arquivos() {
+  local dest=$1 dir=$2 titulo=${3:-escolha} saida
+  estado_por arq_dest "$dest"
+  estado_por arq_dir "$(rodar "$dest" --resolver-pasta "$dir" || echo "$dir")"
+  estado_por arq_ocultos ""
+  saida=$(rodar "$dest" --listar-pasta "$(estado arq_dir)" | fzf --ansi --multi --delimiter='\t' --with-nth=3 \
+    --layout=reverse --no-sort --exact --prompt='❯ ' --pointer='▶' --marker='✓' \
+    --border=rounded --border-label=" 📁 $titulo · $(rotulo "$dest") " --border-label-pos=3 \
+    --header="$(cabecalho_arquivos)" \
+    --color='border:#89b4fa,label:#89b4fa:bold,header:#a6adc8,pointer:#f38ba8,marker:#a6e3a1,prompt:#cba6f7,bg+:#313244' \
+    --preview="$EU --previa-item-em {1} {2}" --preview-window='right,45%,border-left' \
+    --bind="right:transform($EU --arq-acao entrar {1} {2})" \
+    --bind="left:transform($EU --arq-acao subir)" \
+    --bind="enter:transform($EU --arq-acao enter {1} {2})" \
+    --bind="double-click:transform($EU --arq-acao enter {1} {2})" \
+    --bind="click-header:transform($EU --arq-acao clique)" \
+    --bind="alt-h:transform($EU --arq-acao ocultos)") || return 1
+  estado arq_dir
+  cut -f2 <<<"$saida" | grep -v '^\.\.$' | grep -v '^$'
+}
+
+cabecalho_arquivos() {
+  printf '\033[1m%s\033[0m\n' "$(estado arq_dir)"
+  echo "⬆ subir   ⌂ início   ✓ confirmar   ◌ ocultos"
+  printf '\033[90m%s\033[0m\n' "Tab marca vários · → entra · ← sobe · ⏎ abre pasta / confirma"
+}
+
+# Ações do navegador (devolvem ações do fzf).
+arq_acao() {
+  local a=$1 tipo=${2:-} nome=${3:-} dir dest w recarga
+  dir=$(estado arq_dir); dest=$(estado arq_dest)
+  recarga="reload-sync($EU --listar-pasta-em)+transform-header($EU --cabecalho-arquivos)+clear-query+first"
+  case $a in
+    clique)
+      w=$(palavra_em "$(cabecalho_arquivos | sed -n "${FZF_CLICK_HEADER_LINE:-0}p" | sed 's/\x1b\[[0-9;]*m//g')" "${FZF_CLICK_HEADER_COLUMN:-0}")
+      case $w in
+        ⬆ | subir) arq_acao subir ;;
+        ⌂ | início) estado_por arq_dir '~'; echo "$recarga" ;;
+        ✓ | confirmar) echo accept ;;
+        ◌ | ocultos) arq_acao ocultos ;;
+      esac ;;
+    subir)
+      [[ -n ${FZF_QUERY:-} ]] && { echo backward-char; return; }
+      estado_por arq_dir "$(rodar "$dest" --resolver-pasta "$dir/..")"; echo "$recarga" ;;
+    entrar)
+      [[ -n ${FZF_QUERY:-} ]] && { echo forward-char; return; }
+      case $tipo in
+        d) estado_por arq_dir "$(rodar "$dest" --resolver-pasta "$dir/$nome")"; echo "$recarga" ;;
+        u) arq_acao subir ;;
+      esac ;;
+    enter)
+      if ((${FZF_SELECT_COUNT:-0} > 0)); then echo accept
+      elif [[ $tipo == d ]]; then estado_por arq_dir "$(rodar "$dest" --resolver-pasta "$dir/$nome")"; echo "$recarga"
+      elif [[ $tipo == u ]]; then FZF_QUERY="" arq_acao subir
+      elif [[ $tipo == f ]]; then echo accept; fi ;;
+    ocultos)
+      [[ -n $(estado arq_ocultos) ]] && estado_por arq_ocultos "" || estado_por arq_ocultos 1
+      echo "$recarga" ;;
+  esac
+}
+
+# Pastas de destino possíveis em DEST: a de cada sessão de lá (mais usadas primeiro), Recebidos, início.
+pastas_sessoes() {
+  tmux list-sessions -F '#{window_activity}|#{@ponte}|#{pane_current_path}|#{session_name}' 2>/dev/null |
+    sort -t'|' -k1,1nr | awk -F'|' '$2 == "" && !v[$3]++ { print $3 "|" $4 }' |
+    while IFS='|' read -r p s; do printf '%s\t%s\n' "$(encurtar "$p")" "$s"; done
+}
+
+escolher_destino() {
+  local dest=$1 aqui=${2:-} titulo=${3:-Para qual pasta?} escolha p
+  escolha=$( {
+      [[ -n $aqui ]] && printf '%s\t\033[1m%s\033[0m \033[90m(pasta deste painel)\033[0m\n' "$aqui" "$aqui"
+      printf '%s\t\033[1m%s\033[0m \033[90m(padrão)\033[0m\n' "$RECEBIDOS" "$RECEBIDOS"
+      rodar "$dest" --pastas-sessoes | awk -F'\t' '{ printf "%s\t\033[1m%s\033[0m \033[90m(sessão %s)\033[0m\n", $1, $1, $2 }'
+      printf '~\t\033[1m~\033[0m \033[90m(pasta pessoal)\033[0m\n'
+      printf '!outra\t\033[36m✎ outra pasta…\033[0m\n'
+    } | awk -F'\t' '!v[$1]++' | fzf --ansi --delimiter='\t' --with-nth=2 --layout=reverse --no-sort \
+      --border=rounded --border-label=" $titulo · $(rotulo "$dest") " --border-label-pos=3 \
+      --prompt='❯ ' --pointer='▶' --color='border:#89b4fa,label:#89b4fa:bold,bg+:#313244' \
+      --bind='left-click:accept' | cut -f1) || return 1
+  if [[ $escolha == !outra ]]; then read -rep "Pasta em $(rotulo "$dest"): " -i "~/" p; escolha=$p; fi
+  [[ -n $escolha ]] && echo "$escolha"
+}
+
+escolher_maquina() {
+  local titulo=$1 exceto=${2:-}
+  { [[ $exceto != . ]] && printf '.\t\033[1m%s\033[0m \033[90m(esta)\033[0m\n' "$MAQUINA"
+    maquinas | awk -v x="$exceto" '$1 != x { printf "%s\t\033[1m%s\033[0m\n", $1, $2 }'; } |
+    fzf --ansi --delimiter='\t' --with-nth=2 --layout=reverse --no-sort --height=~12 \
+      --border=rounded --border-label=" $titulo " --prompt='❯ ' --pointer='▶' \
+      --color='border:#89b4fa,label:#89b4fa:bold,bg+:#313244' --bind='left-click:accept' | cut -f1
+}
+
+# Lado de lá da cópia: lê um tar do stdin e põe os itens em DIR sem sobrescrever. Imprime os nomes.
+receber() {
+  local dir tmp f n base ext i alvo
+  dir=$(expandir "$1")
+  mkdir -p "$dir" || return 1
+  tmp=$(mktemp -d "$dir/.tt-recebendo.XXXXXX") || return 1
+  tar -C "$tmp" -xf - || { rm -rf "$tmp"; return 1; }
+  shopt -s dotglob nullglob
+  for f in "$tmp"/*; do
+    n=$(basename "$f"); alvo="$dir/$n"
+    if [[ -e $alvo ]]; then
+      base=$n ext=""
+      [[ -f $f && $n == ?*.* ]] && base=${n%.*} ext=".${n##*.}"
+      i=2; while [[ -e "$dir/$base ($i)$ext" ]]; do i=$((i + 1)); done
+      alvo="$dir/$base ($i)$ext"
+    fi
+    mv "$f" "$alvo" && basename "$alvo"
+  done
+  rmdir "$tmp"
+}
+
+empacotar() { local dir; dir=$(expandir "$1"); shift; tar -C "$dir" -cf - -- "$@"; }
+tamanho() { local dir; dir=$(expandir "$1"); shift; (cd "$dir" && du -scb -- "$@" 2>/dev/null | tail -1 | cut -f1); }
+
+avisar() {
+  local c
+  for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux display-message -c "$c" -d 6000 "$1"; done
+}
+
+humano() { awk -v b="${1:-0}" 'BEGIN { split("B K M G T", u); i = 1; while (b >= 1024 && i < 5) { b /= 1024; i++ } printf (i == 1 ? "%d%s" : "%.1f%s"), b, u[i] }'; }
+
+# Copia NOMES de SRC:DIR_SRC para DST:DIR_DST (qualquer combinação de máquinas).
+transferir() {
+  local src=$1 dsrc=$2 dst=$3 ddst=$4; shift 4
+  local bytes t0 recebidos n
+  bytes=$(rodar "$src" --tamanho "$dsrc" "$@")
+  printf '\033[90m%s %s:%s → %s:%s (%s)…\033[0m\n' "$#" "$(rotulo "$src")" "$dsrc" "$(rotulo "$dst")" "$ddst" "$(humano "$bytes")"
+  t0=$(date +%s)
+  if command -v pv >/dev/null && [[ -t 2 ]]; then
+    recebidos=$(rodar_io "$src" --empacotar "$dsrc" "$@" | pv -s "${bytes:-0}" -w 60 | rodar_io "$dst" --receber "$ddst")
+  else
+    recebidos=$(rodar_io "$src" --empacotar "$dsrc" "$@" | rodar_io "$dst" --receber "$ddst")
+  fi
+  n=$(grep -c . <<<"$recebidos")
+  if ((n == 0)); then echo "✗ Nada chegou."; return 1; fi
+  printf '\033[32m✓ %d ite%s (%s) em %ss → %s:%s\033[0m\n' "$n" "$([[ $n == 1 ]] && echo m || echo ns)" "$(humano "$bytes")" "$(($(date +%s) - t0))" "$(rotulo "$dst")" "$ddst"
+  sed 's/^/   /' <<<"$recebidos" | head -15
+  [[ $dst == . ]] || rodar "$dst" --avisar "📥 $n de $(rotulo "$src") → $ddst: $(head -3 <<<"$recebidos" | paste -sd, | cut -c1-60)" >/dev/null 2>&1
+}
+
+pasta_aqui() {
+  if [[ -n ${TT_PANE:-} ]]; then tmux display-message -p -t "$TT_PANE" '#{pane_current_path}' | { read -r p; encurtar "$p"; }
+  else encurtar "$PWD"; fi
+}
+
+# Fluxo "enviar": arquivos de SRC (navegando a partir de DIR) → máquina e pasta escolhidas.
+enviar_fluxo() {
+  local src=${1:-.} dir=${2:-$(pasta_aqui)} dst=${3:-} ddst=${4:-} lista pasta
+  local -a nomes
+  lista=$(escolher_arquivos "$src" "$dir" "o que enviar") || return 0
+  pasta=$(head -1 <<<"$lista"); mapfile -t nomes < <(tail -n +2 <<<"$lista")
+  ((${#nomes[@]})) || return 0
+  [[ -n $dst ]] || dst=$(escolher_maquina "📤 enviar ${#nomes[@]} ite$([[ ${#nomes[@]} == 1 ]] && echo m || echo ns) para" "$src") || return 0
+  [[ -n $dst ]] || return 0
+  [[ -n $ddst ]] || ddst=$(escolher_destino "$dst" "" "📤 para qual pasta") || return 0
+  transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}"
+  read -rsn1 -p $'\n\033[90m(qualquer tecla fecha)\033[0m'
+}
+
+# Fluxo "trazer": escolhe máquina, pasta de partida e arquivos de lá → DST:DDST (padrão: aqui).
+trazer_fluxo() {
+  local src=${1:-} dir=${2:-} dst=${3:-.} ddst=${4:-$(pasta_aqui)} lista pasta
+  local -a nomes
+  [[ -n $src ]] || src=$(escolher_maquina "📥 trazer de qual máquina" "$dst") || return 0
+  [[ -n $src ]] || return 0
+  [[ -n $dir ]] || dir=$(escolher_destino "$src" "" "📥 começar em qual pasta") || return 0
+  lista=$(escolher_arquivos "$src" "$dir" "o que trazer") || return 0
+  pasta=$(head -1 <<<"$lista"); mapfile -t nomes < <(tail -n +2 <<<"$lista")
+  ((${#nomes[@]})) || return 0
+  transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}"
+  read -rsn1 -p $'\n\033[90m(qualquer tecla fecha)\033[0m'
+}
+
+# Linha de comando: tt --enviar [arquivos…] [máquina[:pasta]]  /  tt --trazer máquina:caminho… [pasta]
+enviar_cli() {
+  local ultimo dst="" ddst="" maq a dir
+  local -a arqs=("$@")
+  if ((${#arqs[@]})); then
+    ultimo=${arqs[-1]}; maq=${ultimo%%:*}
+    if [[ -n $(dest_de "$maq") && ! -e $ultimo ]]; then
+      dst=$(dest_de "$maq"); [[ $ultimo == *:* ]] && ddst=${ultimo#*:}
+      unset 'arqs[-1]'
+    fi
+  fi
+  if ((${#arqs[@]} == 0)); then enviar_fluxo . "$(encurtar "$PWD")" "$dst" "$ddst"; return; fi
+  [[ -n $dst ]] || dst=$(escolher_maquina "📤 enviar para" .) || return 1
+  [[ -n $ddst ]] || ddst=$RECEBIDOS
+  for a in "${arqs[@]}"; do
+    [[ -e $a ]] || { echo "Não existe: $a"; return 1; }
+    dir=$(cd "$(dirname "$a")" && encurtar "$PWD")
+    transferir . "$dir" "$dst" "$ddst" "$(basename "$a")"
+  done
+}
+
+trazer_cli() {
+  local a maq src caminho ddst
+  local -a origens=()
+  for a in "$@"; do
+    maq=${a%%:*}
+    if [[ $a == *:* && -n $(dest_de "$maq") ]]; then origens+=("$a"); else ddst=$a; fi
+  done
+  ddst=${ddst:-$(encurtar "$PWD")}
+  if ((${#origens[@]} == 0)); then trazer_fluxo "" "" . "$ddst"; return; fi
+  for a in "${origens[@]}"; do
+    src=$(dest_de "${a%%:*}"); caminho=${a#*:}
+    transferir "$src" "$(dirname "$caminho")" . "$ddst" "$(basename "$caminho")"
+  done
+}
+
+# Menu de arquivos (botão ⇅ da barra, menus da máquina e do painel).
+menu_arquivos() {
+  local c=$1 p=${2:-} pop
+  pop="display-popup -c $c -E -w 90% -h 85%"
+  tmux display-menu -M -c "$c" -x R -y S -T "#[align=centre] arquivos " \
+    "📤 Enviar daqui para outra máquina…" e "$pop -T ' 📤 enviar ' \"TT_CLIENTE=$c TT_PANE=$p $EU --enviar\"" \
+    "📥 Trazer de outra máquina para cá…" t "$pop -T ' 📥 trazer ' \"TT_CLIENTE=$c TT_PANE=$p $EU --trazer\"" \
+    "" \
+    "📂 Abrir ~/Recebidos numa janela nova" r "run-shell 'mkdir -p ~/Recebidos' ; new-window -c ~/Recebidos -n recebidos"
+}
+
+escolher() {
+  local rotulo_borda=" 🖥  terminais · $MAQUINA "
+  case ${TT_MODO:-} in
+    lado) rotulo_borda+="· ⏎ abre ao lado " ;;
+    embaixo) rotulo_borda+="· ⏎ abre embaixo " ;;
+    aqui) rotulo_borda+="· ⏎ troca o painel " ;;
+  esac
+  listar_tudo | fzf --ansi --delimiter='\t' --with-nth=3,4 --nth="$(nth_atual)" --exact --no-hscroll \
+    --tiebreak=begin,index --layout=reverse \
+    --border=rounded --border-label="$rotulo_borda" --border-label-pos=3 \
+    --prompt='❯ ' --pointer='▶' --info=inline-right \
+    --header="$(cabecalho)" \
+    --color='border:#89b4fa,label:#89b4fa:bold,header:#a6adc8,pointer:#f38ba8,prompt:#cba6f7,hl:#f9e2af,hl+:#f9e2af,bg+:#313244' \
+    --preview="$EU --previa-em {1} {2} {q}" --preview-window='down,55%,border-top,follow' \
+    --bind="ctrl-x:execute-silent($EU --fechar {1} {2})+reload($EU --listar-tudo)" \
+    --bind="ctrl-n:print(nova)+accept,ctrl-r:print(renomear)+accept,ctrl-a:print(nomear)+accept" \
+    --bind="ctrl-v:print(lado)+accept,ctrl-o:print(embaixo)+accept,ctrl-p:print(aqui)+accept,ctrl-t:print(soltar)+accept" \
+    --bind="ctrl-s:print(enviar)+accept,ctrl-g:print(trazer)+accept" \
+    --bind="ctrl-f:transform($EU --clique-cabecalho máquina),ctrl-e:transform($EU --clique-cabecalho busca)" \
+    --bind="click-header:transform($EU --clique-cabecalho \"\$FZF_CLICK_HEADER_WORD\")" \
+    --bind="left-click:accept"
+}
+
+sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista"; }
+
+# Chamados por cliques, menus e ganchos do tmux (run-shell): calados e sempre com sucesso — se
+# imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
+# esconde o menu/popup (parecia que o menu "sumia").
+case "${1:-}" in
+  --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --seletor-em | --bordas | --ajustar | --soltar | --vigia)
+    exec >/dev/null 2>&1
+    trap 'exit 0' EXIT ;;
+esac
+
+case "${1:-}" in
+  --listar) listar; exit ;;
+  --nome) echo "$MAQUINA"; exit ;;
+  --versao) versao; exit ;;
+  --sincronizar) shift; sincronizar "$@"; exit ;;
+  --cadastrar) shift; cadastrar "$@"; exit ;;
+  --descadastrar) shift; descadastrar "$@"; exit ;;
+  --registrar) registrar "$2" "$3" "$4"; exit ;;
+  --desregistrar) desregistrar "$2"; exit ;;
+  --candidatas) candidatas; exit ;;
+  --instalar-aqui) instalar_aqui; exit ;;
+  --desinstalar-aqui) desinstalar_aqui; exit ;;
+  --pacote) pacote; exit ;;
+  --listar-pasta) listar_pasta "$2" "${3:-}"; exit ;;
+  --listar-pasta-em) rodar "$(estado arq_dest)" --listar-pasta "$(estado arq_dir)" "$(estado arq_ocultos)"; exit ;;
+  --previa-item) previa_item "$2" "$3"; exit ;;
+  --previa-item-em) [[ $2 == x ]] || rodar "$(estado arq_dest)" --previa-item "$(estado arq_dir)" "$3"; exit ;;
+  --resolver-pasta) resolver_pasta "$2"; exit ;;
+  --arq-acao) arq_acao "$2" "${3:-}" "${4:-}"; exit ;;
+  --cabecalho-arquivos) cabecalho_arquivos; exit ;;
+  --pastas-sessoes) pastas_sessoes; exit ;;
+  --pasta-de) [[ $2 == %* ]] && t=$2 || t="=$2:"; tmux display-message -p -t "$t" '#{pane_current_path}' | { read -r x; encurtar "$x"; }; exit ;;
+  --receber) receber "$2"; exit ;;
+  --empacotar) shift; empacotar "$@"; exit ;;
+  --tamanho) shift; tamanho "$@"; exit ;;
+  --avisar) avisar "$2"; exit ;;
+  --menu-arquivos) menu_arquivos "$2" "${3:-}"; exit ;;
+  --menu-maquinas) menu_maquinas "$2" "${3:-}"; exit ;;
+  --enviar | --trazer)
+    TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/tt-menu.XXXXXX"); export TT_ESTADO
+    trap 'rm -f "$TT_ESTADO"' EXIT
+    a=$1; shift
+    if [[ $a == --enviar ]]; then enviar_cli "$@"; else trazer_cli "$@"; fi
+    exit ;;
+  --listar-tudo) listar_tudo; exit ;;
+  --previa) previa "$2" "${3:-}"; exit ;;
+  --previa-em) previa_em "$2" "$3" "${4:-}"; exit ;;
+  --fechar) fechar_em "$2" "$3"; exit ;;
+  --cabecalho) cabecalho; exit ;;
+  --clique-cabecalho) clique_cabecalho "${2:-}"; exit ;;
+  --clique) clique "$2" "$3" "$4" "${5:-$HOME}" "${6:-0}"; exit ;;
+  --menu-painel) menu_painel "$2" "$3"; exit ;;
+  --menu-tmux) menu_tmux "$2" "${3:-}"; exit ;;
+  --listar-leve) listar_leve; exit ;;
+  --ajustar) ajustar "$2"; exit ;;
+  --fechar-vazias) fechar_vazias "${2:-}"; exit ;;
+  --bordas) bordas; exit ;;
+  --lista-seletor) lista_seletor_salva; exit ;;
+  --pos-atual) pos_atual; exit ;;
+  --cabecalho-seletor) cabecalho_seletor; exit ;;
+  --clique-seletor) clique_seletor "${2:-}"; exit ;;
+  --seletor-em) seletor_em "$2" "${3:-}" "${4:-}"; exit ;;
+  --seletor) TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/tt-menu.XXXXXX"); export TT_ESTADO
+             trap 'rm -f "$TT_ESTADO" "$TT_ESTADO.lista"' EXIT; seletor; exit ;;
+  --ir-ponte) ir_ponte "$2" "$3" "$4"; exit ;;
+  --focar) focar "$2"; exit ;;
+  --soltar) soltar_painel "$2"; exit ;;
+  --renomear-painel) renomear_painel "$2"; exit ;;
+  --maquinas) maquinas; exit ;;
+  --nova) nome=$(limpar "${2:-}"); nome=${nome:-$(proximo_nome)}
+          tmux new-session -d -s "$nome" -c "$HOME" && echo "$nome"; exit ;;
+  --adotar) adotar "$2"; exit ;;
+  --sugerir) sugerir_nome "$2"; exit ;;
+  --renomear) renomear_interativo "${2:-$(tmux display-message -p '#{session_name}')}"; exit ;;
+  --nomear-todas) nomear_todas; exit ;;
+  --vigia) vigiar; exit ;;
+  --janela) exec tmux new-session -s "$(proximo_nome)" ;;
+esac
+
+TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/tt-menu.XXXXXX")
+export TT_ESTADO
+trap sair_menu EXIT
+
+while true; do
+  saida=$(escolher) || [ -n "$saida" ] || exit 0
+  # Saída do fzf: [ação impressa por print(...)] e a linha escolhida (pode faltar).
+  linha=$(tail -1 <<<"$saida")
+  acao=""
+  if [[ $linha != *$'\t'* ]]; then acao=$linha; linha=$(sed -n 1p <<<"$saida" | grep $'\t')
+  elif (($(wc -l <<<"$saida") > 1)); then acao=$(head -1 <<<"$saida"); fi
+  dest=$(cut -f1 <<<"$linha"); dest=${dest:-.}
+  alvo=$(cut -f2 <<<"$linha")
+  [[ -z $acao ]] && acao=${TT_MODO:-}
+
+  case $alvo in
+    !autorizar)
+      echo "Abra o link abaixo e aprove; o menu volta sozinho em seguida."
+      ssh "${SSH_OPC[@]}" -o ConnectTimeout=300 "$dest" true </dev/null || read -rp "Não deu certo. Enter para voltar."
+      continue ;;
+    !instalar)
+      ssh "${SSH_OPC[@]}" "$dest" 'mkdir -p ~/.local/bin && cat >~/.local/bin/tt && chmod +x ~/.local/bin/tt' <"$EU" &&
+        echo "Instalado em $dest." || read -rp "Falhou. Enter para voltar."
+      sleep 1; continue ;;
+    !erro) continue ;;
+    !vazias) confirmar_vazias "$dest"; continue ;;
+    !nova) acao=nova ;;
+  esac
+
+  case $acao in
+    tmux | maquinas)
+      # Menus do tmux não abrem por cima deste popup: agenda e fecha a central.
+      tmux run-shell -b "sleep 0.15; $EU --menu-$([[ $acao == tmux ]] && echo tmux || echo maquinas) '${TT_CLIENTE:-}' '${TT_PANE:-}'"
+      exit 0 ;;
+    enviar | trazer)
+      [[ -n $alvo && $alvo != [!+]* ]] || { read -rp "Escolha uma sessão (ou painel): os arquivos vão para a pasta dela / vêm de lá. Enter."; continue; }
+      pasta=$(rodar "$dest" --pasta-de "$alvo")
+      if [[ $acao == enviar ]]; then enviar_fluxo . "$(pasta_aqui)" "$dest" "$pasta"
+      else trazer_fluxo "$dest" "$pasta" . "$(pasta_aqui)"; fi
+      continue ;;
+    nomear)
+      printf '\033[90mDando nome às sessões genéricas de %s…\033[0m\n' "$(rotulo "$dest")"
+      rodar_tty "$dest" --nomear-todas; sleep 1
+      continue ;;
+    renomear)
+      case $alvo in
+        '' | +*) ;;
+        %*) rodar_tty "$dest" --renomear-painel "$alvo" ;;
+        *) rodar_tty "$dest" --renomear "$alvo" ;;
+      esac
+      continue ;;
+    soltar)
+      if [[ $alvo == %* ]]; then rodar "$dest" --soltar "$alvo" >/dev/null
+      else read -rp "^t solta um painel (as linhas ├ └ embaixo de uma sessão) como sessão própria. Enter."; fi
+      continue ;;
+    nova)
+      read -rp "Nome da nova sessão em $(rotulo "$dest") [automático]: " nome
+      alvo=$(rodar "$dest" --nova "$nome") || continue
+      acao="" ;;
+  esac
+  [[ -n $alvo ]] || continue
+
+  if [[ $alvo == +* ]]; then
+    echo "Adotando a janela em $(rotulo "$dest")..."
+    if ! alvo=$(rodar "$dest" --adotar "${alvo#+}"); then
+      read -rp "Enter para voltar ao menu."
+      continue
+    fi
+  fi
+  # Painel: põe ele em foco e passa a tratar da sessão dele.
+  [[ $alvo == %* ]] && { alvo=$(rodar "$dest" --focar "$alvo") || continue; }
+
+  case $acao in
+    lado | embaixo | aqui) abrir_painel "$acao" "$dest" "$alvo" && exit 0; continue ;;
+  esac
+
+  ir_para "$dest" "$alvo"
+  # Dentro do tmux (popup), entrou: fecha. Quem trocou a tela pode ter sido a máquina de origem
+  # (ponte), e aí ir_para volta aqui em vez de substituir este processo. Fora do tmux (celular),
+  # voltar ao menu ao sair da sessão é o esperado.
+  [[ -n ${TMUX:-} ]] && exit 0
+done
