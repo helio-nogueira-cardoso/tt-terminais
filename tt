@@ -708,7 +708,9 @@ cadastrar() {
   [[ -n $host ]] || return 1
   usuario=${usuario:-$(id -un)}
   while :; do
-    read -rep "Usuário em $host: " -i "$usuario" usuario || return 1
+    r=$usuario
+    read -rep "Usuário em $host: " -i "$r" usuario || return 1
+    usuario=${usuario:-$r}
     printf 'Testando ssh %s@%s… ' "$usuario" "$host"
     err=$(timeout 15 ssh "${SSH_OPC[@]}" "$usuario@$host" true 2>&1 </dev/null) && { echo ok; break; }
     echo "falhou."
@@ -729,7 +731,9 @@ cadastrar() {
   fi
   h=$(ssh "${SSH_OPC[@]}" "$dest" 'sed -n "s/^nome=//p" ~/.config/tt/config 2>/dev/null | tail -1' </dev/null)
   rot=${rot:-${h:-${host%%.*}}}
-  read -rep "Nome dela no menu: " -i "$rot" rot || return 1
+  r=$rot
+  read -rep "Nome dela no menu: " -i "$r" rot || return 1
+  rot=${rot:-$r}
   rot=$(limpar "$rot")
   [[ $rot == "$MAQUINA" ]] && { echo "Esse nome já é o desta máquina; escolha outro."; return 1; }
   echo "Instalando o tt em $rot…"
