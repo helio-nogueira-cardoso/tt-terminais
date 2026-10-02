@@ -1651,7 +1651,8 @@ sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista"; 
 case "${1:-}" in
   --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --seletor-em | --bordas | --ajustar | --soltar | --vigia)
     exec >/dev/null 2>&1
-    trap 'exit 0' EXIT ;;
+    trap 'exit 0' EXIT
+    trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
 esac
 
 case "${1:-}" in
