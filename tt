@@ -974,6 +974,10 @@ abrir_painel() {
     read -rp "Essa é a sessão em que você está; não dá para abri-la dentro dela mesma. Enter."
     return 1
   fi
+  if [[ $dest == . ]] && fecha_ciclo "$s" "$atual"; then
+    aviso_ciclo "$s" "$atual"; read -rp "Enter para voltar."
+    return 1
+  fi
   cmd=$(cmd_ver "$dest" "$s")
   case $modo in
     lado) novo=$(tmux split-window -h -P -F '#{pane_id}' ${painel:+-t "$painel"} "$cmd") ;;
@@ -989,6 +993,78 @@ abrir_painel() {
   tmux set-option -p -t "$novo" @tt_painel "$dest $s"
   tmux set-option -p -t "$novo" @tt_rotulo "$(rotulo "$dest") · $s"
   tmux select-pane -t "$novo"
+}
+
+# --- Ciclos de painéis --------------------------------------------------------
+#
+# Um painel que mostra outra sessão é um cliente tmux do tamanho do painel, e o tmux dimensiona a
+# janela pelo cliente que mexeu por último. Se A mostra B e B (direta ou indiretamente) mostra A,
+# cada redesenho encolhe o painel, que encolhe a janela… até 1x1. Por isso:
+#   - antes de abrir um painel ou trocar o que um painel mostra, recusa se fechar um ciclo;
+#   - rede de segurança (ganchos de tamanho): vista aninhada minúscula é desligada.
+
+# Arestas "sessão-que-contém → sessão-mostrada" desta máquina: painel cujo processo é um cliente
+# tmux deste servidor.
+arestas_paineis() {
+  local -A sessao_do_cliente
+  local pid s
+  while read -r pid s; do sessao_do_cliente[$pid]=$s; done < <(tmux list-clients -F '#{client_pid} #{session_name}' 2>/dev/null)
+  tmux list-panes -a -F '#{pane_pid} #{session_name}' 2>/dev/null | while read -r pid s; do
+    [[ -n ${sessao_do_cliente[$pid]:-} ]] && echo "$s ${sessao_do_cliente[$pid]}"
+  done
+}
+
+# A sessão que contém o painel onde o cliente C roda (vazio se C é um terminal de verdade).
+contem_cliente() {
+  local pid
+  pid=$(do_cliente "$1" '#{client_pid}')
+  [[ -n $pid ]] && tmux list-panes -a -F '#{pane_pid} #{session_name}' 2>/dev/null | awk -v p="$pid" '$1 == p { print $2; exit }'
+}
+
+# Verdadeiro se, a partir da sessão DE, seguindo os painéis, chega-se à sessão PARA.
+alcanca() {
+  local de=$1 para=$2
+  [[ $de == "$para" ]] && return 0
+  arestas_paineis | awk -v de="$de" -v para="$para" '
+    { adj[$1] = adj[$1] " " $2 }
+    END {
+      fila[1] = de; visto[de] = 1; n = 1
+      for (i = 1; i <= n; i++) {
+        k = split(adj[fila[i]], viz, " ")
+        for (j = 1; j <= k; j++) {
+          if (viz[j] == para) { achou = 1; exit }
+          if (!visto[viz[j]]++) fila[++n] = viz[j]
+        }
+      }
+    }
+    END { exit achou ? 0 : 1 }'
+}
+
+# Pôr a sessão S (desta máquina) dentro da sessão CONTAINER fecharia um ciclo?
+fecha_ciclo() { [[ -n ${2:-} ]] && alcanca "$1" "$2"; }
+
+aviso_ciclo() {
+  echo "Não dá: a sessão \"$1\" já mostra (direta ou indiretamente) \"$2\", onde este painel está."
+  echo "Abrir uma dentro da outra cria um ciclo, e a tela encolhe até sumir."
+}
+
+# Rede de segurança (ganchos de tamanho): desliga vistas aninhadas (clientes que rodam dentro de um
+# painel: TERM tmux*/screen*) que encolheram demais — sinal de ciclo, talvez passando por outra
+# máquina, que daqui não dá para ver inteiro.
+guarda_tamanho() {
+  local c term w h s n=0 trava="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-guarda-$(id -u)"
+  mkdir "$trava" 2>/dev/null || return 0 # já tem uma rodando (vários ganchos disparam juntos)
+  trap 'rmdir "$trava" 2>/dev/null' RETURN
+  sleep 0.2
+  while read -r c term w h s; do
+    [[ $term == tmux* || $term == screen* ]] || continue
+    if ((w < 12 || h < 4)); then
+      tmux detach-client -t "$c" && n=$((n + 1))
+      echo "$(date '+%F %T') guarda: desliguei a vista aninhada $c ($w x $h, sessão $s)" >>"$HOME/.cache/tt-vigia.log"
+    fi
+  done < <(tmux list-clients -F '#{client_name} #{client_termname} #{client_width} #{client_height} #{session_name}' 2>/dev/null)
+  ((n)) && avisar "⚠ painel fechado: ele mostrava uma sessão que mostra ele mesmo (ciclo) e estava encolhendo a tela"
+  return 0
 }
 
 # Sessão-ponte local que mostra a sessão S de outra máquina (cria se não existir). Imprime o nome.
@@ -1043,6 +1119,12 @@ ir_para() {
     sair_menu
     return 0
   fi
+  local container
+  container=$( [[ -n ${TT_CLIENTE:-} ]] && contem_cliente "$TT_CLIENTE")
+  if [[ -n $container && $dest == . ]] && fecha_ciclo "$s" "$container"; then
+    aviso_ciclo "$s" "$container"; read -rp "Enter para voltar."
+    return 1
+  fi
   if [[ $dest != . ]]; then entrar_remoto "$dest" "$s"; return; fi
   sair_menu
   if [[ -n ${TMUX:-} ]]; then exec tmux switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$s"; fi
@@ -1055,7 +1137,10 @@ ir_ponte() {
   local p=$1 r=$2 s=$3 alvo c
   if [[ $r == "$MAQUINA" ]]; then alvo=$s
   else alvo=$(criar_ponte "$(dest_de "$r")" "$s") || return 1; fi
-  for c in $(tmux list-clients -t "=$p" -F '#{client_name}'); do tmux switch-client -c "$c" -t "=$alvo"; done
+  for c in $(tmux list-clients -t "=$p" -F '#{client_name}'); do
+    fecha_ciclo "$alvo" "$(contem_cliente "$c")" && continue
+    tmux switch-client -c "$c" -t "=$alvo"
+  done
 }
 
 
@@ -1824,7 +1909,7 @@ sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista"; 
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --seletor-em | --bordas | --ajustar | --soltar | --vigia)
+  --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --soltar | --vigia)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -1894,6 +1979,8 @@ case "${1:-}" in
   --ajustar) ajustar "$2"; exit ;;
   --fechar-vazias) fechar_vazias "${2:-}"; exit ;;
   --bordas) bordas; exit ;;
+  --guarda-tamanho) guarda_tamanho; exit ;;
+  --ciclo) fecha_ciclo "$2" "$3" && echo "fecha ciclo" || echo "ok, sem ciclo"; exit ;;
   --lista-seletor) lista_seletor_salva; exit ;;
   --pos-atual) pos_atual; exit ;;
   --cabecalho-seletor) cabecalho_seletor; exit ;;
