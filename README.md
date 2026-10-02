@@ -33,7 +33,7 @@ bash, tmux ≥ 3.4, fzf ≥ 0.60, python3, ssh, tar (GNU). Opcionais: tailscale,
 
 ## Instalação
 
-    git clone https://github.com/<você>/tt.git && cd tt
+    git clone https://github.com/helio-nogueira-cardoso/tt-terminais.git && cd tt-terminais
     ./tt --instalar [nome-desta-máquina]
 
 Isso põe o tt em `~/.local/share/tt/`, liga `~/.local/bin/tt` a ele e faz o `~/.tmux.conf` carregar o
@@ -83,3 +83,7 @@ As palavras do cabeçalho são clicáveis.
 O clone é a origem: edite, faça commit e rode `tt --sincronizar`. A versão é o número de commits
 (`+dev` quando há mudanças não gravadas); máquinas com versão mais velha aparecem com ⚠ no menu
 de máquinas, que oferece atualizar.
+
+## Licença
+
+MIT — veja [LICENSE](LICENSE).
