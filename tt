@@ -1346,7 +1346,7 @@ menu_arquivos() {
 e	📤 Enviar daqui para outra máquina…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar")
 t	📥 Trazer de outra máquina para cá…	$(popup_tt "$c" "📥 trazer" "$env $EU --trazer")
 -		
-r	📂 Abrir ~/Recebidos numa janela nova	mkdir -p ~/Recebidos && tmux new-window -t $(q "=$(do_cliente "$c" '#{session_name}'):") -c ~/Recebidos -n recebidos
+r	📂 Abrir a pasta de recebidos ($(pasta_recebidos))	$EU --abrir-pasta $(q "$(pasta_recebidos)") $(q "$c")
 ITENS
 }
 
@@ -1410,7 +1410,36 @@ clique() {
 # máquina e da pasta de destino, e cópia por tar+ssh (de/para qualquer máquina, inclusive entre duas
 # outras). Nada é sobrescrito: se já existe, chega como "nome (2)". Quem recebe vê um aviso na tela.
 
-RECEBIDOS='~/Recebidos'
+# Pasta padrão onde ESTA máquina recebe arquivos: "recebidos=" no config. Sem ele: no WSL, a pasta
+# Downloads\Recebidos do Windows (aparece no Explorer; descoberta uma vez e gravada no config);
+# nas outras, ~/Recebidos.
+pasta_recebidos() {
+  local p u
+  p=$(conf recebidos)
+  if [[ -z $p ]] && grep -qi microsoft /proc/version 2>/dev/null; then
+    u=$(cd /mnt/c 2>/dev/null && timeout 5 /mnt/c/Windows/System32/cmd.exe /c 'echo %USERNAME%' 2>/dev/null | tr -d '\r')
+    if [[ -n $u && -d /mnt/c/Users/$u/Downloads ]]; then
+      p="/mnt/c/Users/$u/Downloads/Recebidos"
+      mkdir -p "$CONF_DIR"; echo "recebidos=$p" >>"$CONF"
+    fi
+  fi
+  echo "${p:-~/Recebidos}"
+}
+
+# Abre a pasta no gerenciador de arquivos (Explorer no WSL; o da área de trabalho no Linux).
+# Sem nenhum, abre uma janela do tmux nela (no cliente C).
+abrir_pasta() {
+  local dir c=${2:-} sess
+  dir=$(expandir "$1"); mkdir -p "$dir"
+  if grep -qi microsoft /proc/version 2>/dev/null && [[ -x /mnt/c/Windows/explorer.exe ]]; then
+    (cd /mnt/c && /mnt/c/Windows/explorer.exe "$(wslpath -w "$dir")") && return
+  fi
+  if [[ -n ${WAYLAND_DISPLAY:-}${DISPLAY:-} ]] || [[ -S ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/wayland-0 ]]; then
+    WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0} setsid xdg-open "$dir" >/dev/null 2>&1 </dev/null && return
+  fi
+  sess=$( [[ -n $c ]] && do_cliente "$c" '#{session_name}')
+  tmux new-window ${sess:+-t "=$sess:"} -c "$dir" -n recebidos
+}
 
 # "~" e "~/x" → caminho absoluto nesta máquina (as funções de arquivos sempre rodam na máquina
 # dona da pasta, via tt de lá).
@@ -1536,7 +1565,8 @@ escolher_destino() {
   local dest=$1 aqui=${2:-} titulo=${3:-Para qual pasta?} escolha p
   escolha=$( {
       [[ -n $aqui ]] && printf '%s\t\033[1m%s\033[0m \033[90m(pasta deste painel)\033[0m\n' "$aqui" "$aqui"
-      printf '%s\t\033[1m%s\033[0m \033[90m(padrão)\033[0m\n' "$RECEBIDOS" "$RECEBIDOS"
+      p=$(rodar "$dest" --pasta-recebidos)
+      printf '%s\t\033[1m%s\033[0m \033[90m(recebidos de %s — padrão)\033[0m\n' "$p" "$p" "$(rotulo "$dest")"
       rodar "$dest" --pastas-sessoes | awk -F'\t' '{ printf "%s\t\033[1m%s\033[0m \033[90m(sessão %s)\033[0m\n", $1, $1, $2 }'
       printf '~\t\033[1m~\033[0m \033[90m(pasta pessoal)\033[0m\n'
       printf '!outra\t\033[36m✎ outra pasta…\033[0m\n'
@@ -1653,7 +1683,7 @@ enviar_cli() {
   fi
   if ((${#arqs[@]} == 0)); then enviar_fluxo . "$(encurtar "$PWD")" "$dst" "$ddst"; return; fi
   [[ -n $dst ]] || dst=$(escolher_maquina "📤 enviar para" .) || return 1
-  [[ -n $ddst ]] || ddst=$RECEBIDOS
+  [[ -n $ddst ]] || ddst=$(rodar "$dst" --pasta-recebidos)
   for a in "${arqs[@]}"; do
     [[ -e $a ]] || { echo "Não existe: $a"; return 1; }
     dir=$(cd "$(dirname "$a")" && encurtar "$PWD")
@@ -1745,6 +1775,8 @@ case "${1:-}" in
   --empacotar) shift; empacotar "$@"; exit ;;
   --tamanho) shift; tamanho "$@"; exit ;;
   --avisar) avisar "$2"; exit ;;
+  --pasta-recebidos) pasta_recebidos; exit ;;
+  --abrir-pasta) abrir_pasta "$2" "${3:-}"; exit ;;
   --menu-arquivos) menu_arquivos "$2" "${3:-}"; exit ;;
   --menu-maquinas) menu_maquinas "$2" "${3:-}"; exit ;;
   --menu-popup-ui) menu_popup_ui "$2"; exit ;;

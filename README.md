@@ -58,12 +58,14 @@ Para cada janela de terminal abrir já dentro do tmux (e aparecer na central), n
 Tudo isso também está no menu de máquinas (clique no nome da máquina na barra). Configuração:
 
     ~/.config/tt/config     nome=<como esta máquina aparece>   repo=<clone de origem, se houver>
+                            recebidos=<pasta onde chegam os arquivos> (padrão: ~/Recebidos; no
+                            WSL, Downloads\\Recebidos do Windows)
     ~/.config/tt/maquinas   host  usuario  nome     (uma máquina por linha; "host -" esconde)
 
 ## Arquivos
 
     tt --enviar                          navega a partir da pasta atual; escolhe máquina e pasta
-    tt --enviar a.pdf fotos/ trabalho    envia para trabalho:~/Recebidos
+    tt --enviar a.pdf fotos/ trabalho    envia para a pasta de recebidos de "trabalho"
     tt --enviar a.pdf trabalho:~/docs    envia para essa pasta
     tt --trazer                          escolhe máquina, pasta e arquivos de lá → pasta atual
     tt --trazer trabalho:~/x.log [pasta] traz direto
