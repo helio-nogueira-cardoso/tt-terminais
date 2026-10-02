@@ -164,7 +164,7 @@ generico() { [[ $1 =~ ^(janela|claude)-[0-9]+$ ]]; }
 #   Shell:  pergunta ao Haiku só se houve uso desde a última vez e
 #           (nome genérico há 5 min) ou (mudou de pasta) ou (30 min desde o último nome).
 vigiar() {
-  local pidf="${XDG_RUNTIME_DIR:-/tmp}/tt-vigia-$(id -u).pid" log="$HOME/.cache/tt-vigia.log" outro
+  local pidf="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-vigia-$(id -u).pid" log="$HOME/.cache/tt-vigia.log" outro
   mkdir -p "$HOME/.cache"
   # Uma instância só: se o PID registrado ainda é um vigia vivo, sai.
   outro=$(cat "$pidf" 2>/dev/null)
@@ -498,14 +498,14 @@ TT_REMOTO='~/.local/bin/tt'
 # Máquinas cadastradas e acessíveis: "usuario@host rótulo". Guarda 20 s em cache: a barra e os
 # menus chamam isso a cada clique.
 maquinas() {
-  local cache="${XDG_RUNTIME_DIR:-/tmp}/tt-maquinas-$(id -u)"
+  local cache="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-maquinas-$(id -u)"
   if [[ -f $cache ]] && [[ $cache -nt $CONF_MAQ || ! -f $CONF_MAQ ]] && (($(date +%s) - $(stat -c %Y "$cache") < 20)); then
     cat "$cache"; return
   fi
   maquinas_agora >"$cache.$$" && mv "$cache.$$" "$cache"
   cat "$cache"
 }
-limpar_cache_maquinas() { rm -f "${XDG_RUNTIME_DIR:-/tmp}/tt-maquinas-$(id -u)"; }
+limpar_cache_maquinas() { rm -f "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-maquinas-$(id -u)"; }
 
 # Lê ~/.config/tt/maquinas; com o Tailscale, pula as desligadas e usa o nome completo
 # (host.tailnet.ts.net: o nome curto pode coincidir com o desta máquina — por exemplo, um WSL
@@ -649,7 +649,7 @@ CONF
   if tmux list-sessions >/dev/null 2>&1; then
     tmux source-file "$HOME/.tmux.conf"
     # O vigia em execução é da versão antiga: troca por um novo.
-    pidf="${XDG_RUNTIME_DIR:-/tmp}/tt-vigia-$(id -u).pid"
+    pidf="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-vigia-$(id -u).pid"
     pid=$(cat "$pidf" 2>/dev/null)
     if [[ -n $pid ]] && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--vigia'; then kill "$pid"; fi
     rm -f "$pidf"
@@ -1241,7 +1241,7 @@ ajustar() {
 
 menu_popup() {
   local c=$1 titulo=$2 arq w h x cw ch
-  arq=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/tt-menu-itens.XXXXXX")
+  arq=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu-itens.XXXXXX")
   cat >"$arq"
   read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
   cw=${cw:-80} ch=${ch:-24}
@@ -1785,7 +1785,7 @@ case "${1:-}" in
   --menu-maquinas) menu_maquinas "$2" "${3:-}"; exit ;;
   --menu-popup-ui) menu_popup_ui "$2"; exit ;;
   --enviar | --trazer)
-    TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/tt-menu.XXXXXX"); export TT_ESTADO
+    TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
     trap 'rm -f "$TT_ESTADO"' EXIT
     a=$1; shift
     if [[ $a == --enviar ]]; then enviar_cli "$@"; else trazer_cli "$@"; fi
@@ -1808,7 +1808,7 @@ case "${1:-}" in
   --cabecalho-seletor) cabecalho_seletor; exit ;;
   --clique-seletor) clique_seletor "${2:-}"; exit ;;
   --seletor-em) seletor_em "$2" "${3:-}" "${4:-}"; exit ;;
-  --seletor) TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/tt-menu.XXXXXX"); export TT_ESTADO
+  --seletor) TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
              trap 'rm -f "$TT_ESTADO" "$TT_ESTADO.lista"' EXIT; seletor; exit ;;
   --ir-ponte) ir_ponte "$2" "$3" "$4"; exit ;;
   --focar) focar "$2"; exit ;;
@@ -1825,7 +1825,7 @@ case "${1:-}" in
   --janela) exec tmux new-session -s "$(proximo_nome)" ;;
 esac
 
-TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/tt-menu.XXXXXX")
+TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX")
 export TT_ESTADO
 trap sair_menu EXIT
 
