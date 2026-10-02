@@ -627,7 +627,7 @@ instalar_aqui() {
     mv "$HOME/.local/bin/tt" "$HOME/.local/bin/tt.antes-instalacao"
   fi
   ln -sfn "$DIR_TT/tt" "$HOME/.local/bin/tt"
-  if ! grep -q 'share/tt/tmux.conf' "$HOME/.tmux.conf" 2>/dev/null; then
+  if ! grep -q '^source-file ~/.local/share/tt/tmux.conf' "$HOME/.tmux.conf" 2>/dev/null; then
     [[ -f $HOME/.tmux.conf && ! -f $HOME/.tmux.conf.antes-tt ]] && cp "$HOME/.tmux.conf" "$HOME/.tmux.conf.antes-tt"
     cat >"$HOME/.tmux.conf" <<'CONF'
 # ~/.tmux.conf — a configuração vem do tt (~/.local/share/tt/tmux.conf), atualizada por
@@ -759,7 +759,7 @@ descadastrar() {
 
 desinstalar_aqui() {
   if [[ -f $HOME/.tmux.conf.antes-tt ]]; then mv "$HOME/.tmux.conf.antes-tt" "$HOME/.tmux.conf"
-  elif grep -q 'share/tt/tmux.conf' "$HOME/.tmux.conf" 2>/dev/null; then rm -f "$HOME/.tmux.conf"; fi
+  elif grep -q '^source-file ~/.local/share/tt/tmux.conf' "$HOME/.tmux.conf" 2>/dev/null; then rm -f "$HOME/.tmux.conf"; fi
   [[ -L $HOME/.local/bin/tt ]] && rm -f "$HOME/.local/bin/tt"
   rm -rf "$DIR_TT"
   echo "tt removido de $(hostname -s) (a configuração em ~/.config/tt ficou)."
