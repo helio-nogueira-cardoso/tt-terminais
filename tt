@@ -1054,31 +1054,6 @@ ir_ponte() {
   for c in $(tmux list-clients -t "=$p" -F '#{client_name}'); do tmux switch-client -c "$c" -t "=$alvo"; done
 }
 
-# Menu do painel (botão "⋯ painel" da barra, Ctrl+B m, ou botão direito na borda do painel).
-menu_painel() {
-  local c=$1 p=$2 pop troca=-
-  [[ -n $(tmux show-options -pqv -t "$p" @tt_painel) ]] && troca=""
-  pop="display-popup -c $c -E -w 90% -h 85%"
-  local env="TT_CLIENTE=$c TT_PANE=$p"
-  tmux display-menu -M -c "$c" -t "$p" -x R -y S -T "#[align=centre] painel #{pane_index} " \
-    "Dividir ao lado (terminal novo)" "|" "split-window -h -t $p -c '#{pane_current_path}'" \
-    "Dividir embaixo (terminal novo)" "-" "split-window -v -t $p -c '#{pane_current_path}'" \
-    "" \
-    "Abrir outra sessão ao lado…" v "$pop \"$env TT_MODO=lado $EU\"" \
-    "Abrir outra sessão embaixo…" o "$pop \"$env TT_MODO=embaixo $EU\"" \
-    "${troca}Trocar a sessão deste painel…" p "$pop \"$env TT_MODO=aqui $EU\"" \
-    "" \
-    "Renomear painel" r "command-prompt -t $c -I '#{@nome_painel}' -p 'nome do painel:' \"set-option -p -t $p @nome_painel '%%'\"" \
-    "Maximizar / restaurar" z "resize-pane -Z -t $p" \
-    "Virar sessão própria" s "run-shell -b '$EU --soltar $p >/dev/null'" \
-    "" \
-    "" \
-    "📤 Enviar arquivos daqui…" e "$pop -T ' 📤 enviar ' \"$env $EU --enviar\"" \
-    "📥 Trazer arquivos para cá…" t "$pop -T ' 📥 trazer ' \"$env $EU --trazer\"" \
-    "⚙ tmux…" "#" "run-shell -b '$EU --menu-tmux $c $p'" \
-    "" \
-    "Fechar painel" x "kill-pane -t $p"
-}
 
 # --- Seletor da barra (clique no nome da sessão ou numa máquina) ------------
 
@@ -1221,44 +1196,6 @@ seletor_em() {
     "TT_CLIENTE=$(q "$c") TT_SEL_MAQ=$(q "$m") TT_PREVIA=$prev TT_PANE=$p TT_ATUAL=$(q "$MAQUINA|$atual") $EU --seletor"
 }
 
-# Menu das máquinas (clique no nome da máquina, na barra): cada uma com quantas sessões tem e,
-# se estiver com uma versão do tt mais velha que esta, o aviso. Daqui também: arquivos, tmux,
-# cadastrar/descadastrar e sincronizar a versão.
-menu_maquinas() {
-  local c=$1 p=${2:-} tmp i n v vl marca info atras=0 pop
-  local -a dests rots args
-  tmp=$(mktemp -d)
-  vl=$(versao_num)
-  while read -r dest rot; do dests+=("$dest"); rots+=("$rot"); done < <(echo ". $MAQUINA"; maquinas)
-  for i in "${!dests[@]}"; do
-    if [[ ${dests[i]} == . ]]; then echo "$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^$') $vl" >"$tmp/$i"
-    else (timeout 3 ssh "${SSH_OPC[@]}" "${dests[i]}" "echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null || echo "? ?") >"$tmp/$i" &
-    fi
-  done
-  wait
-  pop="display-popup -c $c -E -w 90% -h 85%"
-  for i in "${!dests[@]}"; do
-    read -r n v <"$tmp/$i"
-    [[ ${dests[i]} == . ]] && marca="● " || marca="  "
-    if [[ $n == "?" ]]; then info="sem resposta"
-    else
-      info="$n sessões"
-      if ((${v:-0} < vl)); then info+="  ⚠ v$v"; atras=1; fi
-    fi
-    args+=("$marca$(printf '%-10s' "${rots[i]}") $info" "$((i + 1))" "run-shell -b \"TT_X=0 $EU --seletor-em '$c' '${rots[i]}' '$p'\"")
-  done
-  rm -rf "$tmp"
-  args+=("" "  Todas as máquinas" t "run-shell -b \"$EU --seletor-em '$c' todas '$p'\"")
-  args+=("  ☰ Central completa…" c "run-shell -b \"$EU --clique tt '$c' '$p' ''\"")
-  args+=("" "  📤 Enviar arquivos…" e "$pop -T ' 📤 enviar ' \"TT_CLIENTE=$c TT_PANE=$p $EU --enviar\"")
-  args+=("  📥 Trazer arquivos…" r "$pop -T ' 📥 trazer ' \"TT_CLIENTE=$c TT_PANE=$p $EU --trazer\"")
-  args+=("  ⚙ tmux  (janelas, painéis, opções)" x "run-shell -b \"$EU --menu-tmux '$c' '$p'\"")
-  args+=("")
-  ((atras)) && args+=("  ⟳ Atualizar as desatualizadas (v$vl)" u "$pop -T ' sincronizar ' \"$EU --sincronizar; read -rsn1 -p '(tecla fecha)'\"")
-  args+=("  ＋ Cadastrar máquina…" "+" "$pop -T ' cadastrar máquina ' \"$EU --cadastrar; read -rsn1 -p '(tecla fecha)'\"")
-  args+=("  − Descadastrar máquina…" "-" "$pop -T ' descadastrar máquina ' \"$EU --descadastrar; read -rsn1 -p '(tecla fecha)'\"")
-  tmux display-menu -M -c "$c" -x 0 -y S -T "#[align=centre] máquinas · tt v$vl " "${args[@]}"
-}
 
 # Barrinha de título dos painéis só nas janelas com 2+ painéis (chamado pelos ganchos do tmux).
 bordas() {
@@ -1290,9 +1227,81 @@ ajustar() {
   [[ -n $s ]] && tmux switch-client -c "$1" -t "=$s"
 }
 
-# Menu do próprio tmux (item "⚙ tmux" do menu de máquinas): janelas, arrumação dos painéis,
-# opções e a sessão/tela atual. -M: aceita clique/toque nos itens (sem ele, o tmux ignora o mouse
-# em menus abertos por script).
+
+# --- Menus em popup ----------------------------------------------------------
+#
+# No lugar do display-menu do tmux: ele fecha quando o ponteiro se mexe fora do menu (o terminal
+# relata movimento, e o tmux trata como "soltar fora"), então mal dava para chegar a um item.
+# Popups não fecham assim. Itens no stdin: "tecla<TAB>rótulo<TAB>comando shell"; tecla "-" é
+# separador; comando vazio deixa o item apagado. Um clique ou a tecla escolhe; Esc fecha.
+
+menu_popup() {
+  local c=$1 titulo=$2 arq w h x cw ch
+  arq=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/tt-menu-itens.XXXXXX")
+  cat >"$arq"
+  read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
+  cw=${cw:-80} ch=${ch:-24}
+  w=$(cut -f2 "$arq" | sed 's/\x1b\[[0-9;]*m//g' | wc -L)
+  w=$((w + 12)); ((w < 32)) && w=32; ((w > cw)) && w=$cw
+  h=$(($(wc -l <"$arq") + 2)); ((h > ch - 1)) && h=$((ch - 1))
+  x=${TT_X:-0}; ((x + w > cw)) && x=$((cw - w)); ((x < 0)) && x=0
+  # display-popup volta na hora (não espera o popup): quem apaga o arquivo é o menu, depois de ler.
+  tmux display-popup -c "$c" -x "$x" -y S -w "$w" -h "$h" -T " $titulo " -E "$EU --menu-popup-ui $(q "$arq")"
+}
+
+menu_popup_ui() {
+  local itens binds="" i=0 k r cmd escolha
+  itens=$(cat "$1"); rm -f "$1"
+  while IFS=$'\t' read -r k r cmd; do
+    i=$((i + 1))
+    [[ ${#k} == 1 && $k =~ [[:alnum:]] && -n $cmd ]] && binds+="$k:pos($i)+accept,"
+  done <<<"$itens"
+  escolha=$(awk -F'\t' '{
+      if ($1 == "-") printf "%d\t\033[90m%s\033[0m\n", NR, "────────────────────────"
+      else if ($3 == "") printf "%d\t\033[90m %s\033[0m\n", NR, $2
+      else printf "%d\t %s%s\n", NR, $2, ($1 == "" ? "" : "  \033[90m" $1 "\033[0m")
+    }' <<<"$itens" |
+    fzf --ansi --delimiter='\t' --with-nth=2 --no-input --no-info --no-separator --layout=reverse --no-sort \
+      --pointer='▶' --color='pointer:#f38ba8,bg+:#313244' --bind='left-click:accept' \
+      ${binds:+--bind="${binds%,}"} | cut -f1) || return 0
+  cmd=$(sed -n "${escolha}p" <<<"$itens" | cut -f3)
+  # Calado e sempre com sucesso: senão o tmux mostra a saída/erro por cima do painel.
+  [[ -n $cmd ]] && tmux run-shell -b "sleep 0.1; ( $cmd ) >/dev/null 2>&1; true"
+  return 0
+}
+
+popup_tt() { # cliente título args… → comando que abre o tt num popup grande
+  local c=$1 t=$2; shift 2
+  echo "tmux display-popup -c $(q "$c") -E -w 90% -h 85% -T $(q " $t ") $(q "$*")"
+}
+
+# Menu do painel (botão ⋯, Ctrl+B m, botão direito no painel).
+menu_painel() {
+  local c=$1 p=$2 pasta env troca=""
+  pasta=$(tmux display-message -p -t "$p" '#{pane_current_path}')
+  env="TT_CLIENTE=$c TT_PANE=$p"
+  [[ -n $(tmux show-options -pqv -t "$p" @tt_painel) ]] && troca="$(popup_tt "$c" trocar "$env TT_MODO=aqui $EU")"
+  menu_popup "$c" "painel $(tmux display-message -p -t "$p" '#{pane_index}')" <<ITENS
+l	Dividir ao lado (terminal novo)	tmux split-window -h -t $p -c $(q "$pasta")
+b	Dividir embaixo (terminal novo)	tmux split-window -v -t $p -c $(q "$pasta")
+-		
+v	Abrir outra sessão ao lado…	$(popup_tt "$c" "ao lado" "$env TT_MODO=lado $EU")
+o	Abrir outra sessão embaixo…	$(popup_tt "$c" embaixo "$env TT_MODO=embaixo $EU")
+p	Trocar a sessão deste painel…	$troca
+-		
+r	Renomear painel	tmux command-prompt -t $(q "$c") -p 'nome do painel:' "set-option -p -t $p @nome_painel '%%'"
+z	Maximizar / restaurar	tmux resize-pane -Z -t $p
+s	Virar sessão própria	$EU --soltar $p
+-		
+e	📤 Enviar arquivos daqui…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar")
+t	📥 Trazer arquivos para cá…	$(popup_tt "$c" "📥 trazer" "$env $EU --trazer")
+m	⚙ tmux…	$EU --menu-tmux $(q "$c") $p
+-		
+x	Fechar painel	tmux kill-pane -t $p
+ITENS
+}
+
+# Menu do próprio tmux: janelas, arrumação dos painéis, opções, sessão/tela atual e os outros menus.
 menu_tmux() {
   local c=$1 p=${2:-} sess win sinc mouse ed
   sess=$(do_cliente "$c" '#{session_name}')
@@ -1301,31 +1310,83 @@ menu_tmux() {
   [[ $(tmux show-options -wv -t "$win" synchronize-panes) == on ]] && sinc="✓ ligado" || sinc="desligado"
   [[ $(tmux show-options -gv mouse) == on ]] && mouse="✓ ligado" || mouse="desligado"
   ed=${EDITOR:-nano}
-  tmux display-menu -M -c "$c" -x 0 -y S -T "#[align=centre] tmux #{version} · $sess " \
-    "Nova janela nesta sessão" c "new-window -t '=$sess:' -c '#{pane_current_path}'" \
-    "Próxima janela" n "next-window -t '=$sess:'" \
-    "Janela anterior" p "previous-window -t '=$sess:'" \
-    "" \
-    "Painéis lado a lado" 1 "select-layout -t $win even-horizontal" \
-    "Painéis empilhados" 2 "select-layout -t $win even-vertical" \
-    "Painéis em grade" 3 "select-layout -t $win tiled" \
-    "Um grande + os outros" 4 "select-layout -t $win main-vertical" \
-    "Digitar em todos os painéis: $sinc" s "set-option -w -t $win synchronize-panes" \
-    "" \
-    "Rolar / copiar o histórico" "[" "copy-mode -t $p" \
-    "Mouse: $mouse" m "set-option -g mouse" \
-    "Ver todos os atalhos" "?" "display-popup -c $c -E -w 90% -h 85% -T ' atalhos ' \"tmux list-keys | sed 's/^bind-key *//' | less -S\"" \
-    "Editar a configuração" e "display-popup -c $c -E -w 90% -h 85% -T ' ~/.tmux.conf ' \"$ed ~/.tmux.conf && tmux source-file ~/.tmux.conf\"" \
-    "Recarregar a configuração" r "source-file ~/.tmux.conf ; display-message 'configuração recarregada'" \
-    "" \
-    "Renomear a sessão…" N "display-popup -c $c -E -w 70 -h 7 -T ' renomear ' \"$EU --renomear '$sess'\"" \
-    "Desanexar esta tela" d "detach-client -t $c" \
-    "Desanexar as outras telas" D "detach-client -a -t $c" \
-    "Fechar a sessão…" X "confirm-before -t $c -p 'Fechar a sessão $sess? (y/n)' \"kill-session -t '=$sess'\"" \
-    "" \
-    "☰ Sessões…" S "run-shell -b '$EU --seletor-em $c $MAQUINA $p'" \
-    "🖥 Máquinas…" M "run-shell -b '$EU --menu-maquinas $c $p'" \
-    "⇅ Arquivos…" A "run-shell -b '$EU --menu-arquivos $c $p'"
+  menu_popup "$c" "tmux $(tmux display-message -p '#{version}') · $sess" <<ITENS
+c	Nova janela nesta sessão	tmux new-window -t $(q "=$sess:") -c $(q "$(tmux display-message -p -t "$p" '#{pane_current_path}')")
+n	Próxima janela	tmux next-window -t $(q "=$sess:")
+b	Janela anterior	tmux previous-window -t $(q "=$sess:")
+-		
+1	Painéis lado a lado	tmux select-layout -t $win even-horizontal
+2	Painéis empilhados	tmux select-layout -t $win even-vertical
+3	Painéis em grade	tmux select-layout -t $win tiled
+4	Um grande + os outros	tmux select-layout -t $win main-vertical
+y	Digitar em todos os painéis: $sinc	tmux set-option -w -t $win synchronize-panes
+-		
+h	Rolar / copiar o histórico	tmux copy-mode -t $p
+u	Mouse: $mouse	tmux set-option -g mouse
+k	Ver todos os atalhos	$(popup_tt "$c" atalhos "tmux list-keys | sed 's/^bind-key *//' | less -S")
+e	Editar a configuração desta máquina	$(popup_tt "$c" "~/.tmux.conf" "$ed ~/.tmux.conf && tmux source-file ~/.tmux.conf")
+l	Recarregar a configuração	tmux source-file ~/.tmux.conf \; display-message -c $(q "$c") 'configuração recarregada'
+-		
+r	Renomear a sessão…	tmux display-popup -c $(q "$c") -E -w 70 -h 7 -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
+d	Desanexar esta tela	tmux detach-client -t $(q "$c")
+D	Desanexar as outras telas	tmux detach-client -a -t $(q "$c")
+X	Fechar a sessão…	tmux confirm-before -t $(q "$c") -p $(q "Fechar a sessão $sess? (y/n)") $(q "kill-session -t =$sess")
+-		
+s	☰ Sessões…	$EU --seletor-em $(q "$c") $(q "$MAQUINA") $p
+a	🖥 Máquinas…	$EU --menu-maquinas $(q "$c") $p
+f	⇅ Arquivos…	$EU --menu-arquivos $(q "$c") $p
+ITENS
+}
+
+# Menu de arquivos (botão ⇅ da barra).
+menu_arquivos() {
+  local c=$1 p=${2:-} env
+  env="TT_CLIENTE=$c TT_PANE=$p"
+  menu_popup "$c" "⇅ arquivos" <<ITENS
+e	📤 Enviar daqui para outra máquina…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar")
+t	📥 Trazer de outra máquina para cá…	$(popup_tt "$c" "📥 trazer" "$env $EU --trazer")
+-		
+r	📂 Abrir ~/Recebidos numa janela nova	mkdir -p ~/Recebidos && tmux new-window -t $(q "=$(do_cliente "$c" '#{session_name}'):") -c ~/Recebidos -n recebidos
+ITENS
+}
+
+# Menu das máquinas (clique no nome da máquina, na barra): sessões de cada uma e, se a versão do tt
+# de lá for mais velha que esta, o aviso. Também: arquivos, tmux, cadastro e sincronização.
+menu_maquinas() {
+  local c=$1 p=${2:-} tmp i n v vl marca info atras=0 dest rot
+  local -a dests rots
+  tmp=$(mktemp -d)
+  vl=$(versao_num)
+  while read -r dest rot; do dests+=("$dest"); rots+=("$rot"); done < <(echo ". $MAQUINA"; maquinas)
+  for i in "${!dests[@]}"; do
+    if [[ ${dests[i]} == . ]]; then echo "$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^$') $vl" >"$tmp/$i"
+    else (timeout 3 ssh "${SSH_OPC[@]}" "${dests[i]}" "echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null || echo "? ?") >"$tmp/$i" &
+    fi
+  done
+  wait
+  {
+    for i in "${!dests[@]}"; do
+      read -r n v <"$tmp/$i"
+      [[ ${dests[i]} == . ]] && marca="●" || marca=" "
+      if [[ $n == "?" ]]; then info="sem resposta"
+      else
+        info="$n sessões"
+        if ((${v:-0} < vl)); then info+="  ⚠ v$v"; atras=1; fi
+      fi
+      printf '%s\t%s %-10s %s\t%s\n' "$((i + 1))" "$marca" "${rots[i]}" "$info" "TT_X=0 $EU --seletor-em $(q "$c") $(q "${rots[i]}") $p"
+    done
+    printf 't\t  Todas as máquinas\t%s\n' "$EU --seletor-em $(q "$c") todas $p"
+    printf 'c\t  ☰ Central completa…\t%s\n' "$EU --clique tt $(q "$c") $p ''"
+    printf -- '-\t\t\n'
+    printf 'e\t  📤 Enviar arquivos…\t%s\n' "$(popup_tt "$c" "📤 enviar" "TT_CLIENTE=$c TT_PANE=$p $EU --enviar")"
+    printf 'r\t  📥 Trazer arquivos…\t%s\n' "$(popup_tt "$c" "📥 trazer" "TT_CLIENTE=$c TT_PANE=$p $EU --trazer")"
+    printf 'm\t  ⚙ tmux…\t%s\n' "$EU --menu-tmux $(q "$c") $p"
+    printf -- '-\t\t\n'
+    ((atras)) && printf 'u\t  ⟳ Atualizar as desatualizadas (v%s)\t%s\n' "$vl" "$(popup_tt "$c" sincronizar "$EU --sincronizar; read -rsn1 -p '(tecla fecha)'")"
+    printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
+    printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
+  } | menu_popup "$c" "máquinas · tt v$vl"
+  rm -rf "$tmp"
 }
 
 # Clique num botão da barra de baixo: RANGE CLIENTE PAINEL PASTA [X-DO-MOUSE].
@@ -1615,16 +1676,6 @@ trazer_cli() {
   done
 }
 
-# Menu de arquivos (botão ⇅ da barra, menus da máquina e do painel).
-menu_arquivos() {
-  local c=$1 p=${2:-} pop
-  pop="display-popup -c $c -E -w 90% -h 85%"
-  tmux display-menu -M -c "$c" -x R -y S -T "#[align=centre] arquivos " \
-    "📤 Enviar daqui para outra máquina…" e "$pop -T ' 📤 enviar ' \"TT_CLIENTE=$c TT_PANE=$p $EU --enviar\"" \
-    "📥 Trazer de outra máquina para cá…" t "$pop -T ' 📥 trazer ' \"TT_CLIENTE=$c TT_PANE=$p $EU --trazer\"" \
-    "" \
-    "📂 Abrir ~/Recebidos numa janela nova" r "run-shell 'mkdir -p ~/Recebidos' ; new-window -c ~/Recebidos -n recebidos"
-}
 
 escolher() {
   local rotulo_borda=" 🖥  terminais · $MAQUINA "
@@ -1696,6 +1747,7 @@ case "${1:-}" in
   --avisar) avisar "$2"; exit ;;
   --menu-arquivos) menu_arquivos "$2" "${3:-}"; exit ;;
   --menu-maquinas) menu_maquinas "$2" "${3:-}"; exit ;;
+  --menu-popup-ui) menu_popup_ui "$2"; exit ;;
   --enviar | --trazer)
     TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/tt-menu.XXXXXX"); export TT_ESTADO
     trap 'rm -f "$TT_ESTADO"' EXIT
