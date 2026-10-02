@@ -509,8 +509,10 @@ maquinas() {
   if [[ -f $cache ]] && [[ $cache -nt $CONF_MAQ || ! -f $CONF_MAQ ]] && (($(date +%s) - $(stat -c %Y "$cache") < 20)); then
     cat "$cache"; return
   fi
-  maquinas_agora >"$cache.$$" && mv "$cache.$$" "$cache"
-  cat "$cache"
+  local tmp
+  tmp=$(mktemp "$cache.XXXXXX") || { maquinas_agora; return; }
+  maquinas_agora >"$tmp" && mv -f "$tmp" "$cache" || rm -f "$tmp" # chamadas em paralelo: cada uma com seu temporário
+  cat "$cache" 2>/dev/null || maquinas_agora
 }
 limpar_cache_maquinas() { rm -f "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-maquinas-$(id -u)"; }
 
