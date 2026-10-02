@@ -1192,9 +1192,9 @@ seletor() {
   case $alvo in
     '' | !erro) return 0 ;;
     !vazias) confirmar_vazias "$dest"; return 0 ;;
-    !central) tmux run-shell -b "$EU --clique tt '${TT_CLIENTE:-}' '${TT_PANE:-}' ''"; return 0 ;;
-    !tmux) tmux run-shell -b "$EU --menu-tmux '${TT_CLIENTE:-}' '${TT_PANE:-}'"; return 0 ;;
-    !arquivos) tmux run-shell -b "$EU --menu-arquivos '${TT_CLIENTE:-}' '${TT_PANE:-}'"; return 0 ;;
+    !central) tmux run-shell -b "sleep 0.15; $EU --clique tt '${TT_CLIENTE:-}' '${TT_PANE:-}' ''"; return 0 ;;
+    !tmux) tmux run-shell -b "sleep 0.15; $EU --menu-tmux '${TT_CLIENTE:-}' '${TT_PANE:-}'"; return 0 ;;
+    !arquivos) tmux run-shell -b "sleep 0.15; $EU --menu-arquivos '${TT_CLIENTE:-}' '${TT_PANE:-}'"; return 0 ;;
     !nova)
       read -rp "Nome da nova sessão em $(rotulo "$dest") [automático]: " nome
       alvo=$(rodar "$dest" --nova "$nome") || return 0 ;;
