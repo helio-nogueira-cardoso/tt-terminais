@@ -94,6 +94,22 @@ Na central: `^s` envia para a pasta da sessão escolhida; `^g` traz de lá para 
 
 As palavras do cabeçalho são clicáveis.
 
+## Atualizar
+
+    tt --atualizar           instala a versão mais nova publicada no GitHub nesta máquina
+    tt --atualizar --todas   … e nas máquinas cadastradas
+
+O tt consulta o GitHub a cada 12 h e avisa na tela quando sai versão nova; o menu de máquinas
+oferece "⟳ Atualizar do GitHub". Para seguir um fork, ponha `fonte=<url do repositório>` no
+`~/.config/tt/config`.
+
+## Celular / tela pequena
+
+Em telas com menos de 80 colunas ou 30 linhas (celular), a central abre em tela cheia, com
+cabeçalho compacto (toque em "?" para todos os atalhos) e prévia escondida (toque em "prévia" ou
+^/). O seletor rápido (toque no nome da sessão na barra) é o jeito mais prático de trocar de sessão
+pelo toque.
+
 ## Desenvolvimento
 
 O clone é a origem: edite, faça commit e rode `tt --sincronizar`. A versão é o número de commits

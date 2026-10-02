@@ -176,6 +176,12 @@ vigiar() {
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
   while tmux list-sessions >/dev/null 2>&1; do
     agora=$(date +%s)
+    # GitHub: uma consulta a cada 12 h, em segundo plano.
+    if ((agora - $(awk '{ print $2 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0) > 43200)); then
+      mkdir -p "$(dirname "$CACHE_GITHUB")"
+      echo "$(versao_github) $agora" >"$CACHE_GITHUB" # marca antes: sem rede, não tenta a cada minuto
+      ("$EU" --verificar-atualizacao >/dev/null 2>&1 &)
+    fi
     while IFS='|' read -r s atividade pasta; do
       auto=$(tmux show-options -qv -t "=$s:" @nome_auto)
       [[ $auto == 1 ]] || { generico "$s" && [[ $auto != 0 ]]; } || continue
@@ -673,6 +679,66 @@ instalar_em() {
   fi
 }
 
+# --- Atualização pelo GitHub -----------------------------------------------
+#
+# A versão publicada fica num clone em ~/.local/share/tt-fonte (o repositório oficial, ou o de
+# "fonte=" no config). `tt --atualizar` instala de lá se for mais nova; o vigia consulta a cada 12 h
+# e avisa uma vez quando sai versão nova (e o menu de máquinas oferece atualizar).
+
+URL_FONTE_PADRAO='https://github.com/helio-nogueira-cardoso/tt-terminais.git'
+DIR_FONTE=$HOME/.local/share/tt-fonte
+CACHE_GITHUB="$HOME/.cache/tt-github-versao"
+
+url_fonte() { local u; u=$(conf fonte); echo "${u:-$URL_FONTE_PADRAO}"; }
+
+# Traz a versão publicada para o clone local. Imprime o número da versão (nº de commits).
+buscar_fonte() {
+  command -v git >/dev/null || { echo "precisa do git" >&2; return 1; }
+  if [[ ! -d $DIR_FONTE/.git ]]; then
+    rm -rf "$DIR_FONTE"
+    git clone -q "$(url_fonte)" "$DIR_FONTE" 2>/dev/null || return 1
+  else
+    git -C "$DIR_FONTE" remote set-url origin "$(url_fonte)"
+    git -C "$DIR_FONTE" fetch -q origin 2>/dev/null || return 1
+    git -C "$DIR_FONTE" reset -q --hard origin/HEAD 2>/dev/null || git -C "$DIR_FONTE" reset -q --hard origin/main
+  fi
+  git -C "$DIR_FONTE" rev-list --count HEAD
+}
+
+# Consulta (sem instalar) e guarda "N data" em cache; o vigia chama isto a cada 12 h.
+verificar_atualizacao() {
+  local n
+  n=$(buscar_fonte) || return 1
+  mkdir -p "$(dirname "$CACHE_GITHUB")"
+  echo "$n $(date +%s)" >"$CACHE_GITHUB"
+  if ((n > $(versao_num))) && [[ $(conf avisado) != "$n" ]]; then
+    avisar "⟳ tt: versão $n disponível no GitHub (esta é a $(versao_num)) — menu de máquinas → Atualizar"
+    grep -v '^avisado=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "avisado=$n" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
+  fi
+}
+versao_github() { awk '{ print $1 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0; }
+
+# tt --atualizar [--todas]: instala a versão mais nova do GitHub aqui (e nas cadastradas, com --todas).
+atualizar() {
+  local todas=${1:-} n
+  if [[ -d $REPO_TT/.git ]]; then
+    echo "Esta máquina é a de desenvolvimento ($REPO_TT): git pull…"
+    if [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf README.md) ]]; then
+      echo "Há mudanças não gravadas no repositório; atualize à mão (git stash / commit)."; return 1
+    fi
+    git -C "$REPO_TT" pull -q --ff-only || { echo "git pull falhou."; return 1; }
+  else
+    printf 'Buscando a versão publicada (%s)… ' "$(url_fonte)"
+    n=$(buscar_fonte) || { echo "falhou (sem rede ou sem git?)."; return 1; }
+    echo "v$n"
+    echo "$n $(date +%s)" >"$CACHE_GITHUB"
+    if ((n <= $(versao_num))) && [[ -z $todas ]]; then echo "Já está na mais nova (v$(versao_num))."; return 0; fi
+    REPO_TT=$DIR_FONTE
+  fi
+  if [[ -n $todas ]]; then sincronizar
+  else printf '  %-10s ' "$MAQUINA"; instalar_em . | sed 's/^[^:]*: //'; fi
+}
+
 # tt --sincronizar [rótulo…]: instala a versão daqui (do repositório, se houver) nesta máquina e
 # nas cadastradas. Não rebaixa: pula quem já tem versão mais nova.
 sincronizar() {
@@ -881,6 +947,11 @@ cabecalho() {
     [[ $r == "$b" ]] && linha+=" \033[1;30;45m $r \033[0m" || linha+="  $r "
   done
   printf '%b\n' "$linha"
+  if [[ -n ${TT_COMPACTO:-} && $(estado ajuda) != 1 ]]; then
+    printf '\033[90m%s\033[0m\n' "toque abre · ? ajuda · prévia · esc sai"
+    return
+  fi
+  [[ -n ${TT_COMPACTO:-} ]] && printf '\033[90m%s\033[0m\n' "? menos · prévia (^/) · esc sai"
   echo "⏎ entrar   ^n nova   ^r renomear   ^x fechar   ^t soltar   ^a nomear-todas"
   echo "^v ao-lado   ^o embaixo   ^p trocar-painel   ^s enviar   ^g trazer"
   echo "^f filtrar   ^e busca   ⚙ tmux…   🖥 máquinas…   esc sair"
@@ -923,8 +994,11 @@ clique_cabecalho() {
     ⚙ | tmux…) echo 'print(tmux)+accept'; return ;;
     🖥 | máquinas…) echo 'print(maquinas)+accept'; return ;;
     ^x | fechar) echo "execute-silent($EU --fechar {1} {2})+reload($EU --listar-tudo)"; return ;;
-    esc | sair) echo abort; return ;;
+    esc | sair | sai) echo abort; return ;;
     tudo | nomes) estado_por busca "$w" ;;
+    '?' | ajuda | menos) [[ $(estado ajuda) == 1 ]] && estado_por ajuda 0 || estado_por ajuda 1
+      echo "transform-header($EU --cabecalho)"; return ;;
+    prévia | 'prévia (^/)') echo toggle-preview; return ;;
     ^e | busca | busca:) [[ $(estado busca) == nomes ]] && estado_por busca tudo || estado_por busca nomes ;;
     ^f | filtrar | máquina:)
       # Próxima máquina na roda: todas → esta → as outras → todas.
@@ -1402,10 +1476,20 @@ menu_popup_ui() {
   return 0
 }
 
+# Tamanho dos popups grandes: tela cheia em tela pequena (celular), 90%x85% nas outras.
+tam_popup() {
+  local cw ch
+  read -r cw ch < <(do_cliente "$1" '#{client_width} #{client_height}')
+  if ((${cw:-80} < 80 || ${ch:-30} < 30)); then echo "-w 100% -h 100%"; else echo "-w 90% -h 85%"; fi
+}
+
 popup_tt() { # cliente título args… → comando que abre o tt num popup grande
   local c=$1 t=$2; shift 2
-  echo "tmux display-popup -c $(q "$c") -E -w 90% -h 85% -T $(q " $t ") $(q "$*")"
+  echo "tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T $(q " $t ") $(q "$*")"
 }
+
+# Tela pequena (celular, ou janela estreita/baixa): modo compacto nos menus grandes.
+compacto() { (($(tput cols 2>/dev/null || echo 80) < 80 || $(tput lines 2>/dev/null || echo 30) < 30)); }
 
 # Menu do painel (botão ⋯, Ctrl+B m, botão direito no painel).
 menu_painel() {
@@ -1516,6 +1600,7 @@ menu_maquinas() {
     printf 'm\t  ⚙ tmux…\t%s\n' "$EU --menu-tmux $(q "$c") $p"
     printf -- '-\t\t\n'
     ((atras)) && printf 'u\t  ⟳ Atualizar as desatualizadas (v%s)\t%s\n' "$vl" "$(popup_tt "$c" sincronizar "$EU --sincronizar; read -rsn1 -p '(tecla fecha)'")"
+    (($(versao_github) > vl)) && printf 'g\t  ⟳ Atualizar do GitHub (v%s → v%s)\t%s\n' "$vl" "$(versao_github)" "$(popup_tt "$c" "atualizar do GitHub" "$EU --atualizar --todas; read -rsn1 -p '(tecla fecha)'")"
     printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
   } | menu_popup "$c" "máquinas · tt v$vl"
@@ -1530,7 +1615,7 @@ clique() {
     arquivos) menu_arquivos "$2" "$3" ;;
     ajustar) ajustar "$2" ;;
     sessao) seletor_em "$2" "$MAQUINA" "$3" ;;
-    tt) tmux display-popup -c "$2" -E -w 90% -h 85% "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
+    tt) tmux display-popup -c "$2" -E $(tam_popup "$2") "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
     lado) tmux split-window -h -t "$3" -c "$4" ;;
     baixo) tmux split-window -v -t "$3" -c "$4" ;;
     painel) menu_painel "$2" "$3" ;;
@@ -1703,7 +1788,8 @@ escolher_arquivos() {
     --border=rounded --border-label=" 📁 $titulo · $(rotulo "$dest") " --border-label-pos=3 \
     --header="$(cabecalho_arquivos)" \
     --color='border:#89b4fa,label:#89b4fa:bold,header:#a6adc8,pointer:#f38ba8,marker:#a6e3a1,prompt:#cba6f7,bg+:#313244' \
-    --preview="$EU --previa-item-em {1} {2}" --preview-window='right,45%,border-left' \
+    --preview="$EU --previa-item-em {1} {2}" --preview-window="$(compacto && echo 'down,40%,border-top,hidden' || echo 'right,45%,border-left')" \
+    --bind='ctrl-/:toggle-preview' \
     --bind="right:transform($EU --arq-acao entrar {1} {2})" \
     --bind="left:transform($EU --arq-acao subir)" \
     --bind="enter:transform($EU --arq-acao enter {1} {2})" \
@@ -1924,7 +2010,13 @@ trazer_cli() {
 
 
 escolher() {
-  local rotulo_borda=" 🖥  terminais · $MAQUINA "
+  local rotulo_borda=" 🖥  terminais · $MAQUINA " borda=rounded prev_janela='down,55%,border-top,follow'
+  if compacto; then
+    export TT_COMPACTO=1
+    borda=none prev_janela='down,50%,border-top,follow,hidden'
+  else
+    unset TT_COMPACTO
+  fi
   case ${TT_MODO:-} in
     lado) rotulo_borda+="· ⏎ abre ao lado " ;;
     embaixo) rotulo_borda+="· ⏎ abre embaixo " ;;
@@ -1932,11 +2024,12 @@ escolher() {
   esac
   listar_tudo | fzf --ansi --delimiter='\t' --with-nth=3,4 --nth="$(nth_atual)" --exact --no-hscroll \
     --tiebreak=begin,index --layout=reverse \
-    --border=rounded --border-label="$rotulo_borda" --border-label-pos=3 \
-    --prompt='❯ ' --pointer='▶' --info=inline-right \
+    --border=$borda --border-label="$rotulo_borda" --border-label-pos=3 \
+    --prompt="$([[ -n ${TT_COMPACTO:-} ]] && echo "$MAQUINA ❯ " || echo '❯ ')" --pointer='▶' --info=inline-right \
     --header="$(cabecalho)" \
     --color='border:#89b4fa,label:#89b4fa:bold,header:#a6adc8,pointer:#f38ba8,prompt:#cba6f7,hl:#f9e2af,hl+:#f9e2af,bg+:#313244' \
-    --preview="$EU --previa-em {1} {2} {q}" --preview-window='down,55%,border-top,follow' \
+    --preview="$EU --previa-em {1} {2} {q}" --preview-window="$prev_janela" \
+    --bind='ctrl-/:toggle-preview' \
     --bind="ctrl-x:execute-silent($EU --fechar {1} {2})+reload($EU --listar-tudo)" \
     --bind="ctrl-n:print(nova)+accept,ctrl-r:print(renomear)+accept,ctrl-a:print(nomear)+accept" \
     --bind="ctrl-v:print(lado)+accept,ctrl-o:print(embaixo)+accept,ctrl-p:print(aqui)+accept,ctrl-t:print(soltar)+accept" \
@@ -1963,6 +2056,8 @@ case "${1:-}" in
   --nome) echo "$MAQUINA"; exit ;;
   --versao) versao; exit ;;
   --sincronizar) shift; sincronizar "$@"; exit ;;
+  --atualizar) atualizar "${2:-}"; exit ;;
+  --verificar-atualizacao) verificar_atualizacao; exit ;;
   --cadastrar) shift; cadastrar "$@"; exit ;;
   --descadastrar) shift; descadastrar "$@"; exit ;;
   --registrar) registrar "$2" "$3" "$4"; exit ;;
