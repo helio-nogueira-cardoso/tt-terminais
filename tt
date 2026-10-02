@@ -1414,6 +1414,31 @@ clique() {
 # máquina e da pasta de destino, e cópia por tar+ssh (de/para qualquer máquina, inclusive entre duas
 # outras). Nada é sobrescrito: se já existe, chega como "nome (2)". Quem recebe vê um aviso na tela.
 
+# wsl | termux | linux
+tipo_maquina() {
+  if grep -qi microsoft /proc/version 2>/dev/null; then echo wsl
+  elif [[ ${PREFIX:-} == *com.termux* ]]; then echo termux
+  else echo linux; fi
+}
+
+# Como a pasta aparece para quem usa esta máquina: no WSL, o caminho do Windows (C:\… ou
+# \\wsl.localhost\…, que o Explorer não mostra sozinho); no Termux, se está no armazenamento do
+# Android (visível no app de arquivos) ou só dentro do Termux.
+caminho_visivel() {
+  local d
+  d=$(expandir "$1")
+  case $(tipo_maquina) in
+    wsl)
+      if [[ $d == /mnt/[a-z]/* ]]; then echo "$(wslpath -w "$d" 2>/dev/null || echo "$d")  (aparece no Explorer)"
+      else echo "$(wslpath -w "$d" 2>/dev/null || echo "$d")  (só dentro do WSL, fora das pastas do Windows)"; fi ;;
+    termux)
+      local r; r=$(readlink -f "$d" 2>/dev/null || echo "$d")
+      if [[ $r == /storage/emulated/0/* ]]; then echo "Armazenamento interno/${r#/storage/emulated/0/}  (aparece no app de arquivos)"
+      else echo "$d  (só dentro do Termux)"; fi ;;
+    *) echo "$d" ;;
+  esac
+}
+
 # Pasta padrão onde ESTA máquina recebe arquivos: "recebidos=" no config. Sem ele: no WSL, a pasta
 # Downloads\Recebidos do Windows (aparece no Explorer; descoberta uma vez e gravada no config);
 # nas outras, ~/Recebidos.
@@ -1427,7 +1452,21 @@ pasta_recebidos() {
       mkdir -p "$CONF_DIR"; echo "recebidos=$p" >>"$CONF"
     fi
   fi
+  if [[ -z $p && $(tipo_maquina) == termux && -d $HOME/storage/downloads ]]; then
+    p='~/storage/downloads/Recebidos'
+  fi
   echo "${p:-~/Recebidos}"
+}
+
+# Destinos possíveis nesta máquina (para quem envia escolher): "pasta<TAB>descrição".
+destinos() {
+  local p v s
+  p=$(pasta_recebidos)
+  printf '%s\t\033[1m%s\033[0m \033[32m(padrão: recebidos)\033[0m \033[90m%s\033[0m\n' "$p" "$p" "$(caminho_visivel "$p" | sed 's/^[^(]*//')"
+  while IFS=$'\t' read -r v s; do
+    printf '%s\t\033[1m%s\033[0m \033[90m(sessão %s) %s\033[0m\n' "$v" "$v" "$s" "$(caminho_visivel "$v" | sed 's/^[^(]*//')"
+  done < <(pastas_sessoes)
+  printf '~\t\033[1m~\033[0m \033[90m(pasta pessoal) %s\033[0m\n' "$(caminho_visivel '~' | sed 's/^[^(]*//')"
 }
 
 # Abre a pasta no gerenciador de arquivos (Explorer no WSL; o da área de trabalho no Linux).
@@ -1569,10 +1608,7 @@ escolher_destino() {
   local dest=$1 aqui=${2:-} titulo=${3:-Para qual pasta?} escolha p
   escolha=$( {
       [[ -n $aqui ]] && printf '%s\t\033[1m%s\033[0m \033[90m(pasta deste painel)\033[0m\n' "$aqui" "$aqui"
-      p=$(rodar "$dest" --pasta-recebidos)
-      printf '%s\t\033[1m%s\033[0m \033[90m(recebidos de %s — padrão)\033[0m\n' "$p" "$p" "$(rotulo "$dest")"
-      rodar "$dest" --pastas-sessoes | awk -F'\t' '{ printf "%s\t\033[1m%s\033[0m \033[90m(sessão %s)\033[0m\n", $1, $1, $2 }'
-      printf '~\t\033[1m~\033[0m \033[90m(pasta pessoal)\033[0m\n'
+      rodar "$dest" --destinos
       printf '!outra\t\033[36m✎ outra pasta…\033[0m\n'
     } | awk -F'\t' '!v[$1]++' | fzf --ansi --delimiter='\t' --with-nth=2 --layout=reverse --no-sort \
       --border=rounded --border-label=" $titulo · $(rotulo "$dest") " --border-label-pos=3 \
@@ -1597,7 +1633,8 @@ receber() {
   dir=$(expandir "$1")
   mkdir -p "$dir" || return 1
   tmp=$(mktemp -d "$dir/.tt-recebendo.XXXXXX") || return 1
-  tar -C "$tmp" -xf - || { rm -rf "$tmp"; return 1; }
+  # -m: o arquivo ganha a data de chegada (senão fica com a data original e some no meio da pasta).
+  tar -C "$tmp" -xmf - || { rm -rf "$tmp"; return 1; }
   shopt -s dotglob nullglob
   for f in "$tmp"/*; do
     n=$(basename "$f"); alvo="$dir/$n"
@@ -1638,12 +1675,20 @@ transferir() {
   if ((n == 0)); then echo "✗ Nada chegou."; return 1; fi
   printf '\033[32m✓ %d ite%s (%s) em %ss → %s:%s\033[0m\n' "$n" "$([[ $n == 1 ]] && echo m || echo ns)" "$(humano "$bytes")" "$(($(date +%s) - t0))" "$(rotulo "$dst")" "$ddst"
   sed 's/^/   /' <<<"$recebidos" | head -15
-  [[ $dst == . ]] || rodar "$dst" --avisar "📥 $n de $(rotulo "$src") → $ddst: $(head -3 <<<"$recebidos" | paste -sd, | cut -c1-60)" >/dev/null 2>&1
+  printf '\033[36m📍 em %s: %s\033[0m\n' "$(rotulo "$dst")" "$(rodar "$dst" --caminho-visivel "$ddst")"
+  [[ $dst == . ]] || rodar "$dst" --avisar "📥 $n de $(rotulo "$src") → $(rodar "$dst" --caminho-visivel "$ddst" | sed 's/  (.*//'): $(head -3 <<<"$recebidos" | paste -sd, | cut -c1-60)" >/dev/null 2>&1
 }
 
 pasta_aqui() {
   if [[ -n ${TT_PANE:-} ]]; then tmux display-message -p -t "$TT_PANE" '#{pane_current_path}' | { read -r p; encurtar "$p"; }
   else encurtar "$PWD"; fi
+}
+
+fim_transferencia() {
+  local r
+  read -rsn1 -p $'\n\033[90ma: abrir a pasta lá  ·  qualquer outra tecla fecha\033[0m' r
+  [[ $r == [aA] ]] && rodar "$1" --abrir-pasta "$2" >/dev/null 2>&1
+  return 0
 }
 
 # Fluxo "enviar": arquivos de SRC (navegando a partir de DIR) → máquina e pasta escolhidas.
@@ -1656,8 +1701,7 @@ enviar_fluxo() {
   [[ -n $dst ]] || dst=$(escolher_maquina "📤 enviar ${#nomes[@]} ite$([[ ${#nomes[@]} == 1 ]] && echo m || echo ns) para" "$src") || return 0
   [[ -n $dst ]] || return 0
   [[ -n $ddst ]] || ddst=$(escolher_destino "$dst" "" "📤 para qual pasta") || return 0
-  transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}"
-  read -rsn1 -p $'\n\033[90m(qualquer tecla fecha)\033[0m'
+  transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}" && fim_transferencia "$dst" "$ddst"
 }
 
 # Fluxo "trazer": escolhe máquina, pasta de partida e arquivos de lá → DST:DDST (padrão: aqui).
@@ -1670,8 +1714,7 @@ trazer_fluxo() {
   lista=$(escolher_arquivos "$src" "$dir" "o que trazer") || return 0
   pasta=$(head -1 <<<"$lista"); mapfile -t nomes < <(tail -n +2 <<<"$lista")
   ((${#nomes[@]})) || return 0
-  transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}"
-  read -rsn1 -p $'\n\033[90m(qualquer tecla fecha)\033[0m'
+  transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}" && fim_transferencia "$dst" "$ddst"
 }
 
 # Linha de comando: tt --enviar [arquivos…] [máquina[:pasta]]  /  tt --trazer máquina:caminho… [pasta]
@@ -1780,6 +1823,8 @@ case "${1:-}" in
   --tamanho) shift; tamanho "$@"; exit ;;
   --avisar) avisar "$2"; exit ;;
   --pasta-recebidos) pasta_recebidos; exit ;;
+  --destinos) destinos; exit ;;
+  --caminho-visivel) caminho_visivel "$2"; exit ;;
   --abrir-pasta) abrir_pasta "$2" "${3:-}"; exit ;;
   --menu-arquivos) menu_arquivos "$2" "${3:-}"; exit ;;
   --menu-maquinas) menu_maquinas "$2" "${3:-}"; exit ;;
