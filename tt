@@ -6,6 +6,7 @@
 #
 #   tt              abre o menu
 #   tt --configurar-bashrc  põe no ~/.bashrc a abertura automática no tmux (--remover-bashrc desfaz)
+#   tt --botao A C P D  ação de botão (cl clc clr dbn tela sair ant zm jn dv) pelo cliente C, painel P, pasta D
 #   tt --janela     usado pelo ~/.bashrc: abre uma sessão nova "janela-N" para a janela do terminal
 #   tt --adotar PID traz para o tmux a janela cujo shell é PID (imprime o nome da sessão criada)
 #   tt --sugerir S  sugere um nome semântico para a sessão S (título do Claude ou leitura da tela)
@@ -872,11 +873,12 @@ BASHRC_FIM='# <<< tt (terminais em tmux) <<<'
 
 bashrc_bloco() {
   cat <<'BLOCO'
-# Toda janela de terminal (GNOME Terminal / Windows Terminal) abre numa sessão tmux própria,
+# Toda janela de terminal (GNOME Terminal / Windows Terminal / Termux) abre numa sessão tmux própria,
 # para poder ser assumida de outro lugar pela central `tt`.
 # Fica de fora: terminais de IDE, SSH e shells não interativos. Para abrir uma janela sem tmux: NOTMUX=1
 if [[ $- == *i* && -t 0 && -t 1 && -z ${TMUX:-} && -z ${NOTMUX:-} && -z ${SSH_CONNECTION:-} \
-      && -z ${TERM_PROGRAM:-} && -z ${TERMINAL_EMULATOR:-} && ( -n ${VTE_VERSION:-} || -n ${WT_SESSION:-} ) ]] \
+      && -z ${TERM_PROGRAM:-} && -z ${TERMINAL_EMULATOR:-} \
+      && ( -n ${VTE_VERSION:-} || -n ${WT_SESSION:-} || -n ${TERMUX_VERSION:-} ) ]] \
    && command -v tmux >/dev/null && [[ -x $HOME/.local/bin/tt ]]; then
   exec "$HOME/.local/bin/tt" --janela
 fi
@@ -2033,6 +2035,113 @@ avisar() {
   for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux display-message -c "$c" -d 6000 "$1"; done
 }
 
+# ---- Botões --------------------------------------------------------------------------------
+# Os botões da barra de teclas extras do Termux (e qualquer teclado) mandam Ctrl+B F1…F10; o tmux
+# chama `tt --botao <ação> <cliente> <painel> <pasta>` e a ação decide pelo estado do momento.
+
+botao_aviso() { tmux display-message -c "$1" -d 3000 "$2"; }
+
+# Descendentes de um PID (um por linha, "pid args"), lendo a árvore de processos.
+descendentes() {
+  ps -A -o pid= -o ppid= -o args= 2>/dev/null | awk -v raiz="$1" '
+    { pid = $1; pai[pid] = $2; $1 = $2 = ""; sub(/^ +/, ""); arg[pid] = $0 }
+    END { for (p in pai) { q = p; while (q != "" && q != 0 && q != raiz) q = pai[q]; if (q == raiz && p != raiz) print p, arg[p] } }'
+}
+
+# Comando que abre o Debian do proot-distro (Termux) na pasta dada, ou nada se não houver.
+debian_comando() {
+  [[ -d ${PREFIX:-/nonexistent}/var/lib/proot-distro/containers/debian ]] && command -v proot-distro >/dev/null || return 1
+  printf 'proot-distro login debian --shared-tmp --work-dir %q' "$1"
+}
+
+# Comando do Claude Code: o claude local, ou o do Debian do Termux; falha se nenhum existe.
+claude_comando() {
+  local pasta=$1 a; shift
+  a=$(printf '%q ' "$@")
+  if command -v claude >/dev/null; then printf 'claude %s' "$a"
+  elif debian_comando "$pasta" >/dev/null; then printf '%s -- bash -lc %q' "$(debian_comando "$pasta")" "claude $a"
+  else return 1; fi
+}
+
+# Vai para a janela marcada com o papel (claude, debian…) naquela pasta, ou cria uma sessão nova.
+# Se o painel atual já é desse papel, o botão alterna de volta para a sessão anterior.
+ir_papel() {
+  local papel=$1 cmd=$2 cliente=$3 pane=$4 pasta=$5 sess jan p dir nome
+  if [[ $(tmux show-options -wqv -t "$pane" @tt_papel) == "$papel" ]]; then
+    tmux switch-client -c "$cliente" -l 2>/dev/null || botao_aviso "$cliente" "$papel: não há outra sessão para onde voltar"
+    return
+  fi
+  while IFS=$'\t' read -r sess jan p dir; do
+    if [[ $p == "$papel" && $dir == "$pasta" ]]; then
+      tmux select-window -t "$jan" && tmux switch-client -c "$cliente" -t "=$sess"; return
+    fi
+  done < <(tmux list-windows -a -F '#{session_name}'$'\t''#{window_id}'$'\t''#{@tt_papel}'$'\t''#{@tt_pasta}')
+  nome=$(proximo_nome "$papel")
+  tmux new-session -d -s "$nome" -c "$pasta" "$cmd; exec \${SHELL:-bash}" || { botao_aviso "$cliente" "$papel: não consegui abrir a sessão"; return; }
+  tmux set-option -w -t "=$nome:" @tt_papel "$papel"
+  tmux set-option -w -t "=$nome:" @tt_pasta "$pasta"
+  tmux switch-client -c "$cliente" -t "=$nome"
+}
+
+# Túnel da tela remota (Guacamole): liga se está desligado, desliga se está ligado.
+botao_tela() {
+  local cliente=$1 dest porta url
+  dest=$(conf tela_destino); porta=$(conf tela_porta); porta=${porta:-8089}
+  url=$(conf tela_url); url=${url:-http://localhost:$porta/guacamole/}
+  [[ -n $dest ]] || { botao_aviso "$cliente" "tela: defina tela_destino=usuario@host em ~/.config/tt/config"; return; }
+  if pgrep -f "L $porta:127.0.0.1:$porta" >/dev/null; then
+    pkill -f "L $porta:127.0.0.1:$porta"; botao_aviso "$cliente" "tela: túnel desligado"
+  elif ssh -f -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ConnectTimeout=6 -L "$porta:127.0.0.1:$porta" "$dest"; then
+    command -v termux-open-url >/dev/null && termux-open-url "$url"
+    botao_aviso "$cliente" "tela: túnel ligado em $url"
+  else botao_aviso "$cliente" "tela: não consegui conectar em $dest"; fi
+}
+
+# Fecha o que está vazio; se há algo rodando, só desanexa (a sessão continua).
+botao_sair() {
+  local cliente=$1 pane=$2 pid cmd filhos paineis janelas
+  pid=$(tmux display-message -p -t "$pane" '#{pane_pid}'); cmd=$(tmux display-message -p -t "$pane" '#{pane_current_command}')
+  filhos=$(descendentes "$pid" | wc -l)
+  case $cmd in
+    bash|zsh|sh|dash|fish) ;;
+    *) tmux detach-client -t "$cliente"; return ;;
+  esac
+  ((filhos == 0)) || { tmux detach-client -t "$cliente"; return; }
+  paineis=$(tmux display-message -p -t "$pane" '#{window_panes}'); janelas=$(tmux display-message -p -t "$pane" '#{session_windows}')
+  if ((paineis > 1)); then tmux kill-pane -t "$pane"
+  elif ((janelas > 1)); then tmux kill-window -t "$pane"
+  else tmux kill-session -t "$(tmux display-message -p -t "$pane" '#{session_id}')"; fi
+}
+
+botao() {
+  local acao=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} cmd w h
+  case $acao in
+    cl|clc|clr)
+      local args=()
+      [[ $acao == clc ]] && args=(--continue)
+      [[ $acao == clr ]] && args=(--resume)
+      cmd=$(claude_comando "$pasta" "${args[@]}") || { botao_aviso "$cliente" "claude não está instalado aqui"; return; }
+      if [[ $acao == clr ]]; then   # o seletor de conversas é sempre uma sessão nova
+        [[ $(tmux show-options -wqv -t "$pane" @tt_papel) == claude ]] && { botao_aviso "$cliente" "já está no Claude: use /resume"; return; }
+        local nome; nome=$(proximo_nome claude)
+        tmux new-session -d -s "$nome" -c "$pasta" "$cmd; exec \${SHELL:-bash}" && tmux set-option -w -t "=$nome:" @tt_papel claude \
+          && tmux set-option -w -t "=$nome:" @tt_pasta "$pasta" && tmux switch-client -c "$cliente" -t "=$nome"
+      else ir_papel claude "$cmd" "$cliente" "$pane" "$pasta"; fi ;;
+    dbn)
+      cmd=$(debian_comando "$pasta") || { botao_aviso "$cliente" "não há Debian (proot-distro) aqui"; return; }
+      ir_papel debian "$cmd" "$cliente" "$pane" "$pasta" ;;
+    tela) botao_tela "$cliente" ;;
+    sair) botao_sair "$cliente" "$pane" ;;
+    ant) tmux switch-client -c "$cliente" -l 2>/dev/null || botao_aviso "$cliente" "não há sessão anterior" ;;
+    zm) tmux resize-pane -Z -t "$pane" ;;
+    jn) tmux new-window -a -t "$(tmux display-message -p -t "$pane" "#{window_id}")" -c "$pasta" ;;
+    dv) w=$(tmux display-message -p -t "$pane" '#{pane_width}'); h=$(tmux display-message -p -t "$pane" '#{pane_height}')
+        # célula de terminal é ~2x mais alta que larga: divide ao lado se couber, senão embaixo
+        if ((w >= 2 * h)); then tmux split-window -h -t "$pane" -c "$pasta"; else tmux split-window -v -t "$pane" -c "$pasta"; fi ;;
+    *) botao_aviso "$cliente" "botão desconhecido: $acao" ;;
+  esac
+}
+
 humano() { awk -v b="${1:-0}" 'BEGIN { split("B K M G T", u); i = 1; while (b >= 1024 && i < 5) { b /= 1024; i++ } printf (i == 1 ? "%d%s" : "%.1f%s"), b, u[i] }'; }
 
 # Copia NOMES de SRC:DIR_SRC para DST:DIR_DST (qualquer combinação de máquinas).
@@ -2193,6 +2302,7 @@ case "${1:-}" in
     [[ -n ${TT_SEM_BASHRC:-} ]] || configurar_bashrc
     echo "Pronto. Abra um terminal novo e rode: tt   (ou, no tmux, Ctrl+B s)"
     exit ;;
+  --botao) botao "$2" "$3" "$4" "${5:-}"; exit ;;
   --configurar-bashrc) configurar_bashrc; exit ;;
   --remover-bashrc) remover_bashrc; exit ;;
   --desinstalar-aqui) desinstalar_aqui; exit ;;

@@ -86,6 +86,28 @@ WSL, app de arquivos do Android).
 
 Na central: `^s` envia para a pasta da sessão escolhida; `^g` traz de lá para a pasta do painel.
 
+## Botões inteligentes
+
+Botões (ou teclas) que olham o estado e seguem o fluxo. Cada um manda `Ctrl+B F1…F10`, e o tmux
+chama `tt --botao <ação>`:
+
+| Botão | Tecla | O que faz |
+|---|---|---|
+| `CL` | F1 | Claude Code na pasta atual: vai para a sessão que já existe ali, cria uma se não houver, e volta para a anterior se você já está nela |
+| `CLC` | F2 | igual ao `CL`, continuando a última conversa (`--continue`) |
+| `CLR` | F3 | abre o seletor de conversas (`--resume`) numa sessão nova |
+| `DBN` | F4 | Debian (proot-distro, no Termux) na pasta atual, com a mesma lógica do `CL` |
+| `TL` | F5 | liga ou desliga o túnel da tela remota (`tela_destino=usuario@host` em `~/.config/tt/config`; opcionais `tela_porta` e `tela_url`) |
+| `X` | F6 | fecha o painel, a janela ou a sessão se estiver vazia (shell parado); se há algo rodando, só desanexa |
+| `ANT` | F7 | volta para a sessão anterior |
+| `DV` | F8 | divide o painel pelo lado maior |
+| `ZM` | F9 | zoom do painel |
+| `JN` | F10 | janela nova na pasta atual |
+
+O `CL` e o `DBN` usam o `claude` local; no Termux, o do Debian (`proot-distro`). No Termux, copie
+[`termux/termux.properties`](termux/termux.properties) para `~/.termux/termux.properties` e rode
+`termux-reload-settings` para ter os botões na barra de teclas extras.
+
 ## Atalhos da central
 
     ⏎ entrar   ^n nova   ^r renomear   ^x fechar   ^t soltar painel   ^a nomear todas
