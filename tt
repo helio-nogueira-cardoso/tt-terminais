@@ -486,7 +486,10 @@ adotar() {
 # Na máquina onde se desenvolve, o repositório (~/Projetos/tt) é a origem de `tt --sincronizar`.
 
 DIR_TT=${TT_DIR:-$HOME/.local/share/tt}
-REPO_TT=${TT_REPO:-$HOME/Projetos/tt}
+# Repositório de origem (só na máquina onde se desenvolve): TT_REPO, "repo=" no config, ou a pasta
+# deste tt, se ele estiver rodando de dentro de um clone.
+REPO_TT=${TT_REPO:-$(conf repo)}
+[[ -z $REPO_TT && -d $(dirname "$EU")/.git && -f $(dirname "$EU")/tmux.conf ]] && REPO_TT=$(dirname "$EU")
 SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new
   -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%r@%h" -o ControlPersist=12h
   -o ServerAliveInterval=30)
@@ -616,6 +619,7 @@ instalar_aqui() {
   origem=$(dirname "$EU")
   if [[ $origem != "$DIR_TT" ]]; then
     rm -rf "$DIR_TT.novo" "$DIR_TT.velho"
+    mkdir -p "$(dirname "$DIR_TT")"
     cp -a "$origem" "$DIR_TT.novo" || return 1
     [[ -d $DIR_TT ]] && mv "$DIR_TT" "$DIR_TT.velho"
     mv "$DIR_TT.novo" "$DIR_TT"
@@ -660,7 +664,9 @@ instalar_em() {
   if [[ $dest == . ]]; then
     local tmp; tmp=$(mktemp -d)
     pacote | tar -C "$tmp" -xf - && TT_NOME=$nome "$tmp/tt" --instalar-aqui
+    local st=$?
     rm -rf "$tmp"
+    return $st
   else
     pacote | ssh "${SSH_OPC[@]}" "$dest" "rm -rf ~/.cache/tt-pacote && mkdir -p ~/.cache/tt-pacote && tar -C ~/.cache/tt-pacote -xf - && TT_NOME=$(q "$nome") ~/.cache/tt-pacote/tt --instalar-aqui; rm -rf ~/.cache/tt-pacote"
   fi
@@ -830,7 +836,7 @@ cabecalho() {
   printf '%b\n' "$linha"
   echo "⏎ entrar   ^n nova   ^r renomear   ^x fechar   ^t soltar   ^a nomear-todas"
   echo "^v ao-lado   ^o embaixo   ^p trocar-painel   ^s enviar   ^g trazer"
-  echo "^f máquina   ^e busca   ⚙ tmux   🖥 máquinas   esc sair"
+  echo "^f filtrar   ^e busca   ⚙ tmux…   🖥 máquinas…   esc sair"
 }
 
 # Palavra do texto que contém a coluna C (conta caracteres, não bytes; tolera a coluna vizinha).
@@ -867,13 +873,13 @@ clique_cabecalho() {
     ^p | trocar-painel) echo 'print(aqui)+accept'; return ;;
     ^s | enviar) echo 'print(enviar)+accept'; return ;;
     ^g | trazer) echo 'print(trazer)+accept'; return ;;
-    ⚙ | tmux) echo 'print(tmux)+accept'; return ;;
-    🖥 | máquinas) echo 'print(maquinas)+accept'; return ;;
+    ⚙ | tmux…) echo 'print(tmux)+accept'; return ;;
+    🖥 | máquinas…) echo 'print(maquinas)+accept'; return ;;
     ^x | fechar) echo "execute-silent($EU --fechar {1} {2})+reload($EU --listar-tudo)"; return ;;
     esc | sair) echo abort; return ;;
     tudo | nomes) estado_por busca "$w" ;;
     ^e | busca | busca:) [[ $(estado busca) == nomes ]] && estado_por busca tudo || estado_por busca nomes ;;
-    ^f | máquina | máquina:)
+    ^f | filtrar | máquina:)
       # Próxima máquina na roda: todas → esta → as outras → todas.
       mapfile -t lista < <(echo todas; rotulos)
       m=$(estado maquina); m=${m:-todas}
@@ -1666,6 +1672,13 @@ case "${1:-}" in
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;
   --instalar-aqui) instalar_aqui; exit ;;
+  --instalar)
+    # Primeira instalação a partir de um clone: grava o repositório como origem e instala aqui.
+    [[ -d $REPO_TT/.git ]] || { echo "Rode de dentro do clone do repositório (./tt --instalar)."; exit 1; }
+    mkdir -p "$CONF_DIR"; grep -v '^repo=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "repo=$REPO_TT" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
+    instalar_em . "${2:-}" || { echo "A instalação falhou."; exit 1; }
+    echo "Pronto. Abra um terminal e rode: tt   (ou, no tmux, Ctrl+B s)"
+    exit ;;
   --desinstalar-aqui) desinstalar_aqui; exit ;;
   --pacote) pacote; exit ;;
   --listar-pasta) listar_pasta "$2" "${3:-}"; exit ;;
