@@ -69,6 +69,14 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
     tt --enviar a.pdf trabalho:~/docs    envia para essa pasta
     tt --trazer                          escolhe máquina, pasta e arquivos de lá → pasta atual
     tt --trazer trabalho:~/x.log [pasta] traz direto
+    tt --pasta-padrao                    escolhe (navegando) onde chegam os arquivos nesta máquina
+    tt --pasta-padrao trabalho:~/docs    define a pasta padrão de outra máquina
+
+Cada máquina tem sua pasta padrão de recebidos: `~/Recebidos`; no WSL, `Downloads\Recebidos` do
+Windows; no Termux, `Download/Recebidos` do Android. Dá para mudar pelo ⇅ ("Mudar a pasta padrão…"),
+pela lista de destinos ao enviar ("⚙ mudar a pasta padrão de …") ou com `tt --pasta-padrao`. Os
+arquivos chegam com a data de chegada, e o destino mostra onde a pasta aparece (Explorer, só no
+WSL, app de arquivos do Android).
 
 Na central: `^s` envia para a pasta da sessão escolhida; `^g` traz de lá para a pasta do painel.
 
