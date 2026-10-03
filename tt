@@ -1985,9 +1985,10 @@ clique() {
 
 # --- Arquivos entre máquinas -----------------------------------------------
 #
-# Navegador de pastas (→ entra, ← sobe, Tab marca vários, ⏎ confirma) numa máquina, escolha da
-# máquina e da pasta de destino, e cópia por tar+ssh (de/para qualquer máquina, inclusive entre duas
-# outras). Nada é sobrescrito: se já existe, chega como "nome (2)". Quem recebe vê um aviso na tela.
+# Navegador de pastas (→ entra, ← sobe, Tab marca arquivos ou pastas inteiras, ⏎ confirma) numa
+# máquina, escolha da máquina e da pasta de destino, e cópia por tar+ssh (de/para qualquer máquina,
+# inclusive entre duas outras). Pastas são empacotadas recursivamente. Nada é sobrescrito: se já
+# existe, chega como "nome (2)". Quem recebe vê um aviso na tela.
 
 # wsl | termux | linux
 tipo_maquina() {
@@ -2170,7 +2171,7 @@ cabecalho_arquivos() {
     printf '\033[90m%s\033[0m\n' "→ ou ⏎ entra na pasta · ← sobe · ^s ou ✓ usa a pasta mostrada acima"
   else
     echo "⬆ subir   ⌂ início   ✓ confirmar   ◌ ocultos"
-    printf '\033[90m%s\033[0m\n' "Tab marca vários · → entra · ← sobe · ⏎ abre pasta / confirma"
+    printf '\033[90m%s\033[0m\n' "Tab marca arquivos ou pastas inteiras · →/⏎ entra · ← sobe · ⏎ confirma marcados"
   fi
 }
 
@@ -2434,11 +2435,11 @@ fim_transferencia() {
   return 0
 }
 
-# Fluxo "enviar": arquivos de SRC (navegando a partir de DIR) → máquina e pasta escolhidas.
+# Fluxo "enviar": arquivos ou pastas de SRC (navegando a partir de DIR) → máquina e pasta escolhidas.
 enviar_fluxo() {
   local src=${1:-.} dir=${2:-$(pasta_aqui)} dst=${3:-} ddst=${4:-} lista pasta
   local -a nomes
-  lista=$(escolher_arquivos "$src" "$dir" "o que enviar") || return 0
+  lista=$(escolher_arquivos "$src" "$dir" "arquivos ou pastas para enviar") || return 0
   pasta=$(head -1 <<<"$lista"); mapfile -t nomes < <(tail -n +2 <<<"$lista")
   ((${#nomes[@]})) || return 0
   [[ -n $dst ]] || dst=$(escolher_maquina "📤 enviar ${#nomes[@]} ite$([[ ${#nomes[@]} == 1 ]] && echo m || echo ns) para" "$src") || return 0
@@ -2447,20 +2448,21 @@ enviar_fluxo() {
   transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}" && fim_transferencia "$dst" "$ddst"
 }
 
-# Fluxo "trazer": escolhe máquina, pasta de partida e arquivos de lá → DST:DDST (padrão: aqui).
+# Fluxo "trazer": escolhe máquina, pasta de partida e arquivos/pastas de lá → DST:DDST (padrão: aqui).
 trazer_fluxo() {
   local src=${1:-} dir=${2:-} dst=${3:-.} ddst=${4:-$(pasta_aqui)} lista pasta
   local -a nomes
   [[ -n $src ]] || src=$(escolher_maquina "📥 trazer de qual máquina" "$dst") || return 0
   [[ -n $src ]] || return 0
   [[ -n $dir ]] || dir=$(escolher_destino "$src" "" "📥 começar em qual pasta") || return 0
-  lista=$(escolher_arquivos "$src" "$dir" "o que trazer") || return 0
+  lista=$(escolher_arquivos "$src" "$dir" "arquivos ou pastas para trazer") || return 0
   pasta=$(head -1 <<<"$lista"); mapfile -t nomes < <(tail -n +2 <<<"$lista")
   ((${#nomes[@]})) || return 0
   transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}" && fim_transferencia "$dst" "$ddst"
 }
 
-# Linha de comando: tt --enviar [arquivos…] [máquina[:pasta]]  /  tt --trazer máquina:caminho… [pasta]
+# Linha de comando: tt --enviar [arquivos-ou-pastas…] [máquina[:pasta]]  /
+# tt --trazer máquina:caminho… [pasta]. Uma pasta é transferida inteira, recursivamente.
 enviar_cli() {
   local ultimo dst="" ddst="" maq a dir
   local -a arqs=("$@")

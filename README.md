@@ -109,6 +109,12 @@ pela lista de destinos ao enviar ("⚙ mudar a pasta padrão de …") ou com `tt
 arquivos chegam com a data de chegada, e o destino mostra onde a pasta aparece (Explorer, só no
 WSL, app de arquivos do Android).
 
+O navegador também transfere **pastas inteiras**, com todas as subpastas e arquivos: navegue até a
+pasta que quer enviar ou trazer, aperte `Tab` para marcá-la e `Enter` para confirmar. Pela linha de
+comando, basta passar a pasta normalmente: `tt --enviar projeto empresa:~/Recebidos` ou
+`tt --trazer empresa:~/projeto .`. Se já existir uma pasta com o mesmo nome no destino, ela chega
+como `projeto (2)`; nada é sobrescrito.
+
 Na central: `^s` envia para a pasta da sessão escolhida; `^g` traz de lá para a pasta do painel.
 
 ## Botões inteligentes
