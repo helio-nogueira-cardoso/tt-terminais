@@ -105,11 +105,11 @@ if command -v kiro >/dev/null 2>&1 || [[ -d $HOME/.config/Kiro || -d $HOME/.conf
   json_theme "$kiro_config" workbench.colorTheme 'Catppuccin Mocha' || true
   # O IDE e o Kiro CLI têm configurações independentes. No CLI, o preset claro pinta
   # a resposta enviada após Enter com fundo claro; mantenha a base escura, a resposta no
-  # foreground claro normal do terminal e o diff escuro.
+  # foreground claro/brilhante e o diff escuro.
   if [[ -d $HOME/.kiro || -x $HOME/.local/bin/kiro-cli || -x $HOME/.local/bin/kiro-cli-chat ]]; then
     kiro_cli_theme=${KIRO_HOME:-$HOME/.kiro}/settings/kiro_cli_theme.json
     json_theme "$kiro_cli_theme" baseTheme dark || true
-    json_theme "$kiro_cli_theme" responsePreset default || true
+    json_theme "$kiro_cli_theme" responsePreset light || true
     json_theme "$kiro_cli_theme" diffPreset dark || true
   fi
   printf '%s\n' 'Kiro: Catppuccin Mocha + CLI escuro'
