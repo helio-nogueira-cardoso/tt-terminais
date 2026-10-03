@@ -81,6 +81,10 @@ as fixadas continuam lá ao entrar numa sessão de outra máquina. A linha
 só aparece quando há alguma fixada. Uma sessão fixada não é
 renomeada sozinha pelo vigia, e renomear pelo tt atualiza o item.
 
+Se uma sessão fixada de outra máquina foi fechada, ou a máquina caiu, o tt avisa e conserva a tela
+atual. Se a conexão cair depois de entrar, a ponte fica aberta mostrando a falha; `Enter` tenta de
+novo e `Ctrl+B d` volta, sem fechar a janela do terminal.
+
 ## Fechar sessões
 
 Na central e no seletor, cada sessão tem, alinhados à direita, o pino (📍 fixar / 📌 desafixar —
