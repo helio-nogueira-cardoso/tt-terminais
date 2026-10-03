@@ -663,23 +663,54 @@ desregistrar() {
 versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
+# Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
+ARQUIVOS_FONTE=(tt tmux.conf tema-terminal.sh tema-agentes.sh README.md)
+ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
+
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
 # desenvolvimento; senão, a própria instalação.
 pacote() {
   local tmp n h d
   if [[ -d $REPO_TT/.git ]]; then
     tmp=$(mktemp -d)
-    cp "$REPO_TT/tt" "$REPO_TT/tmux.conf" "$REPO_TT/tema-terminal.sh" "$REPO_TT/tema-agentes.sh" "$REPO_TT/README.md" "$tmp/"
+    cp "${ARQUIVOS_FONTE[@]/#/$REPO_TT/}" "$tmp/"
     n=$(git -C "$REPO_TT" rev-list --count HEAD 2>/dev/null || echo 0)
     h=$(git -C "$REPO_TT" rev-parse --short HEAD 2>/dev/null || echo ?)
     d=$(git -C "$REPO_TT" log -1 --format=%cs 2>/dev/null || date +%F)
-    [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf tema-terminal.sh tema-agentes.sh README.md 2>/dev/null) ]] && h+="+dev"
+    [[ -n $(git -C "$REPO_TT" status --porcelain -- "${ARQUIVOS_FONTE[@]}" 2>/dev/null) ]] && h+="+dev"
     echo "$n $h $d" >"$tmp/VERSAO"
-    tar -C "$tmp" -cf - tt tmux.conf tema-terminal.sh tema-agentes.sh README.md VERSAO
+    tar -C "$tmp" -cf - "${ARQUIVOS_PACOTE[@]}"
     rm -rf "$tmp"
   else
-    tar -C "$DIR_TT" -cf - tt tmux.conf tema-terminal.sh tema-agentes.sh README.md VERSAO
+    tar -C "$DIR_TT" -cf - "${ARQUIVOS_PACOTE[@]}"
   fi
+}
+
+# O pacote em DIR tem todos os arquivos e os scripts passam no bash -n. Um pacote incompleto
+# (clone antigo, tar cortado) nunca substitui a instalação: trocaria a pasta inteira e sumiria
+# com recursos já instalados.
+pacote_valido() {
+  local dir=$1 f
+  for f in "${ARQUIVOS_PACOTE[@]}"; do
+    [[ -s $dir/$f ]] || { echo "$(conf nome): ✗ pacote incompleto (falta $f), nada instalado"; return 1; }
+  done
+  for f in tt tema-terminal.sh tema-agentes.sh; do
+    bash -n "$dir/$f" 2>/dev/null || { echo "$(conf nome): ✗ $f com erro de sintaxe, nada instalado"; return 1; }
+  done
+}
+
+# Não rebaixa nem troca por uma versão paralela: só instala se a versão nova ("N hash data") tiver
+# número maior que a instalada, ou o mesmo número e o mesmo commit (reinstalação, ou +dev do mesmo
+# commit). TT_FORCAR=1 passa por cima (para voltar de propósito a uma versão anterior).
+pode_instalar() {
+  local nova=$1 n h na ha
+  [[ -n ${TT_FORCAR:-} || ! -f $DIR_TT/VERSAO ]] && return 0
+  read -r n h _ <<<"$nova"; read -r na ha _ <"$DIR_TT/VERSAO"
+  [[ $n =~ ^[0-9]+$ ]] || n=0; [[ $na =~ ^[0-9]+$ ]] || na=0
+  if ((n > na)) || { ((n == na)) && [[ ${h%+dev} == "${ha%+dev}" ]]; }; then return 0; fi
+  if ((n < na)); then echo "$(conf nome): · já tem a versão $na ($ha), mais nova que $n ($h); não rebaixei"
+  else echo "$(conf nome): · tem outra versão $na ($ha), diferente desta ($h); não troquei — atualize o repositório"; fi
+  return 1
 }
 
 # Instala o pacote que está na pasta deste tt (chamado como <pasta>/tt --instalar-aqui).
@@ -689,6 +720,8 @@ instalar_aqui() {
   local origem nome=${TT_NOME:-} pidf pid
   origem=$(dirname "$EU")
   if [[ $origem != "$DIR_TT" ]]; then
+    pacote_valido "$origem" || return 1
+    pode_instalar "$(cat "$origem/VERSAO")" || return 1
     rm -rf "$DIR_TT.novo" "$DIR_TT.velho"
     mkdir -p "$(dirname "$DIR_TT")"
     cp -a "$origem" "$DIR_TT.novo" || return 1
@@ -789,7 +822,7 @@ atualizar() {
   local todas=${1:-} n
   if [[ -d $REPO_TT/.git ]]; then
     echo "Esta máquina é a de desenvolvimento ($REPO_TT): git pull…"
-    if [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf tema-terminal.sh tema-agentes.sh README.md) ]]; then
+    if [[ -n $(git -C "$REPO_TT" status --porcelain -- "${ARQUIVOS_FONTE[@]}") ]]; then
       echo "Há mudanças não gravadas no repositório; atualize à mão (git stash / commit)."; return 1
     fi
     git -C "$REPO_TT" pull -q --ff-only || { echo "git pull falhou."; return 1; }
@@ -805,11 +838,26 @@ atualizar() {
   else printf '  %-10s ' "$MAQUINA"; instalar_em . | sed 's/^[^:]*: //'; fi
 }
 
+# Um clone atrasado em relação ao GitHub não pode ser a fonte: instalaria código velho por cima
+# de recursos que outras máquinas já têm. Sem rede ou sem upstream, segue (o pode_instalar ainda
+# barra o rebaixamento em cada máquina).
+repo_em_dia() {
+  [[ -d $REPO_TT/.git ]] || return 0
+  git -C "$REPO_TT" rev-parse -q --verify '@{u}' >/dev/null 2>&1 || return 0
+  timeout 15 git -C "$REPO_TT" fetch -q 2>/dev/null || return 0
+  local atras
+  atras=$(git -C "$REPO_TT" rev-list --count 'HEAD..@{u}' 2>/dev/null || echo 0)
+  ((atras == 0)) && return 0
+  echo "✗ $REPO_TT está $atras commit(s) atrás de $(git -C "$REPO_TT" rev-parse --abbrev-ref '@{u}'): git pull --rebase antes de sincronizar."
+  return 1
+}
+
 # tt --sincronizar [rótulo…]: instala a versão daqui (do repositório, se houver) nesta máquina e
 # nas cadastradas. Não rebaixa: pula quem já tem versão mais nova.
 sincronizar() {
   local dest rot alvo n_local n_rem
   local -a alvos=("$@")
+  repo_em_dia || return 1
   echo "Versão a instalar: $(pacote | tar -xOf - VERSAO)"
   [[ -d $REPO_TT/.git ]] && { printf '  %-10s ' "$MAQUINA"; instalar_em . | sed 's/^[^:]*: //'; }
   n_local=$(pacote | tar -xOf - VERSAO | awk '{ print $1 + 0 }')
