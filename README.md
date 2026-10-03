@@ -140,7 +140,7 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
 ## Sessões fixadas
 
 Uma segunda linha na barra com as sessões que você usa sempre (desta ou de outras máquinas): um
-clique vai direto para ela, o ✕ ao lado desafixa; botão direito num item: ir, desafixar, mover para
+toque vai direto para ela ao pressionar, e o ✕ ao lado desafixa; botão direito num item: ir, desafixar, mover para
 os lados. Para fixar a sessão em uso: o pino ao lado do nome dela na barra (📍 = não fixada, um
 clique fixa; 📌 = fixada, um clique desafixa). Também: menu da sessão (botão direito em
 "sessão ▾") → "📌 Fixar na barra", `^f` no seletor, ou `tt --fixar [máquina:]sessão`. A lista é a mesma em todas as máquinas (cada mudança é copiada
@@ -270,8 +270,10 @@ Claude guarda as conversas e qual `claude` usar, inclusive no Termux, com o Clau
     tt --atualizar           instala a versão mais nova publicada no GitHub nesta máquina
     tt --atualizar --todas   … e nas máquinas cadastradas
 
-O tt consulta o GitHub a cada 12 h e avisa na tela quando sai versão nova; o menu de máquinas
-oferece "⟳ Atualizar do GitHub". Para seguir um fork, ponha `fonte=<url do repositório>` no
+O vigia consulta a fonte publicada a cada 5 min e instala automaticamente uma versão superior
+nesta máquina; sem rede, mantém o tt em funcionamento e tenta de novo no ciclo seguinte.
+`TT_T_ATUALIZACAO=0` força a consulta em cada volta do vigia (útil para teste). O menu de máquinas
+continua oferecendo "⟳ Atualizar do GitHub". Para seguir um fork, ponha `fonte=<url do repositório>` no
 `~/.config/tt/config`.
 
 ## Celular / tela pequena
