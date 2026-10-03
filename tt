@@ -1701,17 +1701,26 @@ copiar() {
   return 0
 }
 
-# A janela do cliente C passa explicitamente a ter o tamanho útil da tela dele. Não basta trocar
-# para a própria sessão: em algumas versões/casos o tmux trata isso como no-op e mantém o tamanho
-# do último cliente. A área útil desconta todas as linhas de status (uma ou duas, conforme as
-# fixadas estejam visíveis).
+# Tamanho dinâmico entre aparelhos: com window-size latest, o próprio tmux dá a janela ao
+# cliente que teclou, clicou (inclusive na barra), ganhou foco, anexou ou mudou de tamanho por
+# último — o aparelho em uso fica sempre do tamanho certo, e o outro, ao ser usado, toma de volta.
+# Nunca usar resize-window aqui: ele congela a janela (window-size manual) e ela para de seguir
+# os aparelhos. ajustar só descongela janelas presas assim (versões antigas do tt, menus do tmux)
+# e redesenha; quem decide o tamanho é o tmux, pelo cliente que acabou de agir.
+descongelar() {
+  local w
+  if [[ -n ${1:-} ]]; then tmux list-windows -t "=$1" -F '#{window_id}'; else tmux list-windows -a -F '#{window_id}'; fi 2>/dev/null |
+    while read -r w; do
+      [[ $(tmux show -wqv -t "$w" window-size 2>/dev/null) == manual ]] && tmux set -wu -t "$w" window-size
+    done
+  return 0
+}
+
 ajustar() {
-  local c=$1 s w h status
-  read -r s w h status < <(do_cliente "$c" '#{session_name} #{client_width} #{client_height} #{status}')
-  [[ -n $s && $w =~ ^[0-9]+$ && $h =~ ^[0-9]+$ && $status =~ ^[0-9]+$ ]] || return 1
-  h=$((h - status))
-  ((h > 0)) || return 1
-  tmux resize-window -t "=$s" -x "$w" -y "$h" || return 1
+  local c=$1 s
+  s=$(do_cliente "$c" '#{session_name}')
+  [[ -n $s ]] || return 1
+  descongelar "$s"
   tmux refresh-client -c "$c"
 }
 
@@ -2883,7 +2892,7 @@ sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --aplicar-fixadas | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --soltar | --vigia)
+  --ir-fixada | --mover-fixada | --aplicar-fixadas | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --descongelar | --soltar | --vigia)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -2968,6 +2977,7 @@ case "${1:-}" in
   --menu-tmux) menu_tmux "$2" "${3:-}"; exit ;;
   --listar-leve) listar_leve; exit ;;
   --ajustar) ajustar "$2"; exit ;;
+  --descongelar) descongelar "${2:-}"; exit 0 ;;
   --fechar-vazias) fechar_vazias "${2:-}"; exit ;;
   --bordas) bordas; exit ;;
   --clique-linha) clique_linha "${2:-}" "${3:-}"; exit ;;
