@@ -3097,6 +3097,7 @@ clique() {
   # Normalizar aqui evita que um clique válido seja descartado silenciosamente.
   local faixa=${1#user|}
   case $faixa in
+    window) tmux select-window -t = ;;
     maquina) menu_maquinas "$2" "$3" ;;
     arquivos) menu_arquivos "$2" "$3" ;;
     transferencias) eval "$(popup_tt "$2" "⇅ transferências" "$EU --transferencias")" ;;
