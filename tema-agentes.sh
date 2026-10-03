@@ -48,6 +48,9 @@ except OSError as exc:
     print(f"tema-agentes: não alterei {path}: {exc}", file=sys.stderr)
     raise SystemExit(1)
 
+# Repara a forma literal "\\n" que uma versão inicial deste sincronizador poderia gravar
+# imediatamente antes da seção criada por ele; não altera outros textos ou preferências.
+text = text.replace(r"[tui]\ntheme = ", "[tui]\ntheme = ")
 header = re.compile(r"(?m)^\[tui\]\s*$")
 section = header.search(text)
 if section:
@@ -57,10 +60,10 @@ if section:
     if re.search(r"(?m)^theme\s*=", body):
         body = re.sub(r'(?m)^theme\s*=.*$', 'theme = "catppuccin-mocha"', body)
     else:
-        body = "\\ntheme = \"catppuccin-mocha\"" + body
+        body = "\ntheme = \"catppuccin-mocha\"" + body
     updated = text[:section.end()] + body + text[end:]
 else:
-    updated = text.rstrip() + "\\n\\n[tui]\\ntheme = \"catppuccin-mocha\"\\n"
+    updated = text.rstrip() + "\n\n[tui]\ntheme = \"catppuccin-mocha\"\n"
 
 if updated == text:
     raise SystemExit(0)
