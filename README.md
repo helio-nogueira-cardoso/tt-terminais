@@ -125,6 +125,8 @@ sem tmux: `NOTMUX=1 bash`.
     tt --cadastrar [host [usuario [nome]]]   testa o ssh, instala o tt lá e cadastra as duas
                                              máquinas uma na outra (sem host: lista as do Tailscale)
     tt --descadastrar [nome]                 tira do menu (aqui e lá); opcionalmente desinstala lá
+    tt --ocultar-maquina [nome]              esconde só neste menu, preservando a configuração
+    tt --mostrar-maquina [nome]              restaura uma máquina ocultada
     tt --sincronizar [nome…]                 instala esta versão aqui e nas cadastradas
     tt --versao                              versão instalada ("N hash data")
 
@@ -135,7 +137,7 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
                             WSL, Downloads\\Recebidos do Windows)
                             claude_flags=<opções extras do claude nos botões CL, CLC e CLR>
                             claude_env=<variáveis para o claude nesses botões, ex.: IS_SANDBOX=1>
-    ~/.config/tt/maquinas   host  usuario  nome     (uma máquina por linha; "host -" esconde)
+    ~/.config/tt/maquinas   host  usuario  nome  [oculta]  (uma máquina por linha)
 
 ## Sessões fixadas
 

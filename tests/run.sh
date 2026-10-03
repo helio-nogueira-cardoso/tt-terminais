@@ -20,7 +20,7 @@ for cmd in bash python3 rg tmux; do exige "$cmd"; done
 [[ -f $conf ]] || { printf 'tmux.conf não encontrado: %s\n' "$conf" >&2; exit 2; }
 [[ -f $tema ]] || { printf 'tema-tmux.conf não encontrado: %s\n' "$tema" >&2; exit 2; }
 
-bash -n "$tt" && ok 'sintaxe Bash'
+if bash -n "$tt"; then ok 'sintaxe Bash'; else falha 'sintaxe Bash'; fi
 
 awk '/^  codigo=\$\(cat <<'\''PYEOF'\''/{captura=1; next} captura && /^PYEOF$/{exit} captura {print}' "$tt" |
   python3 -c 'import sys; compile(sys.stdin.read(), "com_mouse", "exec")'
@@ -42,6 +42,11 @@ tem "$tt" 't_atualizacao=\$\{TT_T_ATUALIZACAO:-300\}' &&
 tem "$tt" '^versao_barra\(\)' &&
   tem "$tema" '@barra_versao' && ok 'versão exibida na faixa de fixadas' ||
   falha 'versão não foi ligada à faixa de fixadas'
+
+tem "$tt" 'c\[3:4\] == \["oculta"\]' &&
+  tem "$tt" '^ocultar_maquina\(\)' &&
+  tem "$tt" '^mostrar_maquina\(\)' && ok 'ocultar/mostrar preserva máquinas cadastradas' ||
+  falha 'ocultar/mostrar máquinas não está completo'
 
 for evento in Status StatusLeft StatusRight; do
   if rg -q "MouseDown1$evento.*#\{m:(fx|fxx)\*" "$conf" &&

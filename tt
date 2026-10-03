@@ -773,7 +773,9 @@ for p in (d.get("Peer") or {}).values():
             pares[nome] = p
 for linha in open(sys.argv[1]):
     c = linha.split()
-    if not c or c[0].startswith("#") or c[1:2] == ["-"]:
+    # A 4ª coluna "oculta" preserva host, usuário e rótulo, mas tira a máquina dos menus.
+    # "host -" é o formato antigo, mantido só por compatibilidade.
+    if not c or c[0].startswith("#") or c[1:2] == ["-"] or c[3:4] == ["oculta"]:
         continue
     host = c[0]
     usuario = c[1] if len(c) > 1 else sys.argv[2]
@@ -833,6 +835,52 @@ desregistrar() {
   awk -v h="$1" '{ c = $1; sub(/\..*/, "", c); hh = h; sub(/\..*/, "", hh) } !($1 == h || c == hh) || /^#/' "$CONF_MAQ" >"$CONF_MAQ.novo" &&
     mv "$CONF_MAQ.novo" "$CONF_MAQ"
   limpar_cache_maquinas
+}
+
+# Ocultar preserva por inteiro a configuração da máquina (host, usuário e rótulo); é apenas uma
+# preferência local para ela não aparecer nas barras e seletores.
+ocultar_maquina() {
+  local rot=${1:-} host
+  if [[ -z $rot ]]; then
+    rot=$(awk '!/^#/ && NF && $2 != "-" && $4 != "oculta" { print ($3 ? $3 : $1) "\t" $1 }' "$CONF_MAQ" 2>/dev/null |
+      fzf --delimiter='\t' --with-nth=1 --layout=reverse --height=~12 --header='Ocultar qual máquina?' --prompt='❯ ' | cut -f2) || return 1
+    host=$rot
+  else
+    host=$(awk -v r="$rot" '!/^#/ && ($3 == r || $1 == r) { print $1; exit }' "$CONF_MAQ" 2>/dev/null)
+  fi
+  [[ -n $host ]] || { echo "${rot:-máquina} não está cadastrada."; return 1; }
+  awk -v h="$host" 'BEGIN { OFS = "  " }
+    /^#/ || !NF { print; next }
+    $1 == h { if ($2 == "-") { print; next } print $1, $2, ($3 ? $3 : $1), "oculta"; next }
+    { print }
+  ' "$CONF_MAQ" >"$CONF_MAQ.novo" && mv "$CONF_MAQ.novo" "$CONF_MAQ"
+  limpar_cache_maquinas
+  echo "✓ máquina ocultada (a configuração foi preservada)."
+}
+
+mostrar_maquina() {
+  local rot=${1:-} host usuario nome
+  if [[ -z $rot ]]; then
+    rot=$(awk '!/^#/ && NF && ($2 == "-" || $4 == "oculta") { print ($3 ? $3 : $1) "\t" $1 }' "$CONF_MAQ" 2>/dev/null |
+      fzf --delimiter='\t' --with-nth=1 --layout=reverse --height=~12 --header='Mostrar qual máquina?' --prompt='❯ ' | cut -f2) || return 1
+    host=$rot
+  else
+    host=$(awk -v r="$rot" '!/^#/ && ($3 == r || $1 == r) { print $1; exit }' "$CONF_MAQ" 2>/dev/null)
+  fi
+  [[ -n $host ]] || { echo "${rot:-máquina} não está cadastrada."; return 1; }
+  read -r usuario nome < <(awk -v h="$host" '$1 == h { print $2, ($3 ? $3 : $1); exit }' "$CONF_MAQ")
+  if [[ $usuario == "-" || -z $usuario ]]; then
+    usuario=$(id -un)
+    read -rep "Usuário em $host: " -i "$usuario" usuario || return 1
+    [[ -n $usuario ]] || return 1
+  fi
+  awk -v h="$host" -v u="$usuario" -v n="$nome" 'BEGIN { OFS = "  " }
+    /^#/ || !NF { print; next }
+    $1 == h { print $1, u, ($3 ? $3 : n); next }
+    { print }
+  ' "$CONF_MAQ" >"$CONF_MAQ.novo" && mv "$CONF_MAQ.novo" "$CONF_MAQ"
+  limpar_cache_maquinas
+  echo "✓ máquina mostrada novamente."
 }
 
 # Versão instalada: "N hash data" (N = nº de commits do repositório; +dev = com mudanças não gravadas).
@@ -2482,6 +2530,8 @@ menu_admin() {
     (($(versao_github) > vl)) && printf 'g\t  ⟳ Atualizar do GitHub (v%s → v%s)\t%s\n' "$vl" "$(versao_github)" "$(popup_tt "$c" "atualizar do GitHub" "$EU --atualizar --todas; read -rsn1 -p '(tecla fecha)'")"
     printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
+    printf 'h\t  ◌ Ocultar máquina…\t%s\n' "$(popup_tt "$c" "ocultar máquina" "$EU --ocultar-maquina; read -rsn1 -p '(tecla fecha)'")"
+    printf 'H\t  ◉ Mostrar máquina oculta…\t%s\n' "$(popup_tt "$c" "mostrar máquina" "$EU --mostrar-maquina; read -rsn1 -p '(tecla fecha)'")"
   } | menu_popup "$c" "administrar · tt v$vl"
 }
 
@@ -3834,6 +3884,8 @@ case "${1:-}" in
   --garantir-atualizacao) garantir_atualizacao; exit ;;
   --cadastrar) shift; cadastrar "$@"; exit ;;
   --descadastrar) shift; descadastrar "$@"; exit ;;
+  --ocultar-maquina) ocultar_maquina "${2:-}"; exit ;;
+  --mostrar-maquina) mostrar_maquina "${2:-}"; exit ;;
   --registrar) registrar "$2" "$3" "$4"; exit ;;
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;
