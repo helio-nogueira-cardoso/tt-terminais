@@ -185,13 +185,22 @@ O `CL` e o `DBN` usam o `claude` local; no Termux, o do Debian (`proot-distro`).
 
 ## Atalhos de comandos
 
-A barra também mostra um emoji por comando em `atalhos-padrao`, versionado junto com o tt. Um toque
+A barra também mostra um emoji por comando em `atalhos-padrao`, versionado junto com o tt. O padrão
+usa 👻 para Kiro, 🦀 para Claude e ⚪ para Codex. Um toque
 abre uma sessão nova na máquina atual e muda para ela. Os padrões incluem Kiro v3, Claude com
 permissões liberadas e o fluxo de resume.
 
-Cada máquina pode acrescentar atalhos em `~/.config/tt/atalhos`, no mesmo formato:
+Cada máquina pode sobrescrever, desativar ou acrescentar atalhos em `~/.config/tt/atalhos`, no mesmo
+formato. A segunda coluna é o ID estável: uma linha local com o mesmo ID substitui a padrão; emoji
+`-` desativa; um ID novo acrescenta:
 
+    👾	kiro-v3	kiro-cli chat --v3
+    -	claude-yolo
     🧪	meu-teste	ssh servidor
+
+No menu `⚙ tmux…` → “Editar atalhos de comandos…” é possível abrir esse arquivo para editar emoji
+e comando, adicionar ou excluir entradas. Os botões “lado” e “baixo” ficam disponíveis no menu de
+painel, mas não ocupam mais a barra.
 
 As contas criadas por `claude-conta adicionar <nome>` aparecem automaticamente como `1️⃣`, `2️⃣`,
 `3️⃣` etc.; as credenciais e os nomes dos perfis não entram no GitHub. O arquivo versionado pode ser
