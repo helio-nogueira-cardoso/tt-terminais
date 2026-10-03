@@ -66,6 +66,8 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
     ~/.config/tt/config     nome=<como esta máquina aparece>   repo=<clone de origem, se houver>
                             recebidos=<pasta onde chegam os arquivos> (padrão: ~/Recebidos; no
                             WSL, Downloads\\Recebidos do Windows)
+                            claude_flags=<opções extras do claude nos botões CL, CLC e CLR>
+                            claude_env=<variáveis para o claude nesses botões, ex.: IS_SANDBOX=1>
     ~/.config/tt/maquinas   host  usuario  nome     (uma máquina por linha; "host -" esconde)
 
 ## Arquivos
@@ -93,10 +95,10 @@ chama `tt --botao <ação>`:
 
 | Botão | Tecla | O que faz |
 |---|---|---|
-| `CL` | F1 | Claude Code na pasta atual: vai para a sessão que já existe ali, cria uma se não houver, e volta para a anterior se você já está nela |
-| `CLC` | F2 | igual ao `CL`, continuando a última conversa (`--continue`) |
+| `CL` | F1 | Claude Code com conversa nova na pasta atual, sempre numa sessão nova |
+| `CLC` | F2 | continua a última conversa (`--continue`) na pasta atual: vai para a sessão do Claude que já existe ali, cria uma se não houver, e volta para a anterior se você já está nela |
 | `CLR` | F3 | abre o seletor de conversas (`--resume`) numa sessão nova |
-| `DBN` | F4 | Debian (proot-distro, no Termux) na pasta atual, com a mesma lógica do `CL` |
+| `DBN` | F4 | Debian (proot-distro, no Termux) na pasta atual, com a mesma lógica do `CLC` |
 | `TL` | F5 | liga ou desliga o túnel da tela remota (`tela_destino=usuario@host` em `~/.config/tt/config`; opcionais `tela_porta` e `tela_url`) |
 | `X` | F6 | fecha o painel, a janela ou a sessão se estiver vazia (shell parado); se há algo rodando, só desanexa |
 | `ANT` | F7 | volta para a sessão anterior |

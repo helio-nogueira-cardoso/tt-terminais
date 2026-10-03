@@ -2055,11 +2055,14 @@ debian_comando() {
 }
 
 # Comando do Claude Code: o claude local, ou o do Debian do Termux; falha se nenhum existe.
+# Opções extras desta máquina vêm de claude_flags= e variáveis de ambiente de claude_env=
+# (ex.: IS_SANDBOX=1) no ~/.config/tt/config.
 claude_comando() {
-  local pasta=$1 a; shift
-  a=$(printf '%q ' "$@")
-  if command -v claude >/dev/null; then printf 'claude %s' "$a"
-  elif debian_comando "$pasta" >/dev/null; then printf '%s -- bash -lc %q' "$(debian_comando "$pasta")" "claude $a"
+  local pasta=$1 a e; shift
+  a="$(conf claude_flags) $(printf '%q ' "$@")"
+  e=$(conf claude_env); e=${e:+$e }
+  if command -v claude >/dev/null; then printf '%sclaude %s' "$e" "$a"
+  elif debian_comando "$pasta" >/dev/null; then printf '%s -- bash -lc %q' "$(debian_comando "$pasta")" "${e}claude $a"
   else return 1; fi
 }
 
@@ -2121,8 +2124,8 @@ botao() {
       [[ $acao == clc ]] && args=(--continue)
       [[ $acao == clr ]] && args=(--resume)
       cmd=$(claude_comando "$pasta" "${args[@]}") || { botao_aviso "$cliente" "claude não está instalado aqui"; return; }
-      if [[ $acao == clr ]]; then   # o seletor de conversas é sempre uma sessão nova
-        [[ $(tmux show-options -wqv -t "$pane" @tt_papel) == claude ]] && { botao_aviso "$cliente" "já está no Claude: use /resume"; return; }
+      if [[ $acao == cl || $acao == clr ]]; then   # conversa nova e seletor de conversas são sempre uma sessão nova
+        [[ $acao == clr && $(tmux show-options -wqv -t "$pane" @tt_papel) == claude ]] && { botao_aviso "$cliente" "já está no Claude: use /resume"; return; }
         local nome; nome=$(proximo_nome claude)
         tmux new-session -d -s "$nome" -c "$pasta" "$cmd; exec \${SHELL:-bash}" && tmux set-option -w -t "=$nome:" @tt_papel claude \
           && tmux set-option -w -t "=$nome:" @tt_pasta "$pasta" && tmux switch-client -c "$cliente" -t "=$nome"
