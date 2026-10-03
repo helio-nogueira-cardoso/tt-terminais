@@ -183,6 +183,20 @@ O `CL` e o `DBN` usam o `claude` local; no Termux, o do Debian (`proot-distro`).
 [`termux/termux.properties`](termux/termux.properties) para `~/.termux/termux.properties` e rode
 `termux-reload-settings` para ter os botões na barra de teclas extras.
 
+## Atalhos de comandos
+
+A barra também mostra um emoji por comando em `atalhos-padrao`, versionado junto com o tt. Um toque
+abre uma sessão nova na máquina atual e muda para ela. Os padrões incluem Kiro v3, Claude com
+permissões liberadas e o fluxo de resume.
+
+Cada máquina pode acrescentar atalhos em `~/.config/tt/atalhos`, no mesmo formato:
+
+    🧪	meu-teste	ssh servidor
+
+As contas criadas por `claude-conta adicionar <nome>` aparecem automaticamente como `1️⃣`, `2️⃣`,
+`3️⃣` etc.; as credenciais e os nomes dos perfis não entram no GitHub. O arquivo versionado pode ser
+alterado no repositório para que novos atalhos padrão cheguem a todas as máquinas.
+
 ## Atalhos da central
 
     ⏎ entrar   ^n nova   ^r renomear   ^x fechar   ^t soltar painel   ^a nomear todas
