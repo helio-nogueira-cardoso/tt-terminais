@@ -2272,7 +2272,7 @@ atalhos_base() {
     [[ -d $dir ]] || continue
     nome=${dir##*/}; i=$((i + 1))
     case $i in 1) emoji='1️⃣' ;; 2) emoji='2️⃣' ;; 3) emoji='3️⃣' ;; *) emoji='🔹' ;; esac
-    printf '%s\tclaude-conta-%s\t%s\n' "$emoji" "$nome" "claude-conta $(printf '%q' "$nome") --dangerously-skip-permissions"
+    printf '%s\tclaude-conta-%s\t%s\n' "$emoji" "$nome" "claude-conta $(printf '%q' "$nome") --dangerously-skip-permissions --resume"
   done
 }
 
@@ -2324,14 +2324,17 @@ atalho_executar() {
 
 clique() {
   export TT_X=$(( ${5:-0} > 4 ? ${5:-0} - 4 : 0 ))
-  case $1 in
+  # Algumas versões/configurações do tmux devolvem o tipo junto no range (user|at1).
+  # Normalizar aqui evita que um clique válido seja descartado silenciosamente.
+  local faixa=${1#user|}
+  case $faixa in
     maquina) menu_maquinas "$2" "$3" ;;
     arquivos) menu_arquivos "$2" "$3" ;;
     transferencias) eval "$(popup_tt "$2" "⇅ transferências" "$EU --transferencias")" ;;
-    at[0-9]*) atalho_executar "${1#at}" "$2" "$3" "${4:-$HOME}" ;;
+    at[0-9]*) atalho_executar "${faixa#at}" "$2" "$3" "${4:-$HOME}" ;;
     ajustar) ajustar "$2" ;;
     sessao) seletor_em "$2" "$MAQUINA" "$3" ;;
-    fx*) ir_fixada "$2" "$1" ;;
+    fx*) ir_fixada "$2" "$faixa" ;;
     tt) tmux display-popup -c "$2" -E $(tam_popup "$2") "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
     lado) tmux split-window -h -t "$3" -c "$4" ;;
     baixo) tmux split-window -v -t "$3" -c "$4" ;;
