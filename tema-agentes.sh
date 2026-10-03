@@ -48,6 +48,7 @@ except OSError as exc:
     print(f"tema-agentes: não alterei {path}: {exc}", file=sys.stderr)
     raise SystemExit(1)
 
+original = text
 # Repara a forma literal "\\n" que uma versão inicial deste sincronizador poderia gravar
 # imediatamente antes da seção criada por ele; não altera outros textos ou preferências.
 text = text.replace(r"[tui]\ntheme = ", "[tui]\ntheme = ")
@@ -65,7 +66,7 @@ if section:
 else:
     updated = text.rstrip() + "\n\n[tui]\ntheme = \"catppuccin-mocha\"\n"
 
-if updated == text:
+if updated == original:
     raise SystemExit(0)
 directory = os.path.dirname(path)
 os.makedirs(directory, mode=0o700, exist_ok=True)
