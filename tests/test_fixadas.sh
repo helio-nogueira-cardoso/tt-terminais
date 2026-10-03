@@ -11,6 +11,7 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 bash -n "$TT"
 grep -q 'fixada_chave()' "$TT"
 grep -q 'cliente_do_painel()' "$TT"
+grep -q 'tmux has-session -t "=\$p"' "$TT"
 grep -q 'range=user|fx%s' "$TT"
 grep -q 'range=user|fxx%s' "$TT"
 

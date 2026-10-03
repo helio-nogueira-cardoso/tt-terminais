@@ -1943,13 +1943,15 @@ ir_para() {
 # Roda na máquina de origem: os clientes que estão na ponte P passam a mostrar a sessão S da
 # máquina de rótulo R (desta, direto; de outra, por uma ponte).
 ir_ponte() {
-  local p=$1 r=$2 s=$3 alvo c
+  local p=$1 r=$2 s=$3 alvo c mudou=0
+  tmux has-session -t "=$p" 2>/dev/null || return 1
   if [[ $r == "$MAQUINA" ]]; then alvo=$s
   else alvo=$(criar_ponte "$(dest_de "$r")" "$s") || return 1; fi
   for c in $(tmux list-clients -t "=$p" -F '#{client_name}'); do
     fecha_ciclo "$alvo" "$(contem_cliente "$c")" && continue
-    tmux switch-client -c "$c" -t "=$alvo"
+    tmux switch-client -c "$c" -t "=$alvo" && mudou=1
   done
+  ((mudou))
 }
 
 
