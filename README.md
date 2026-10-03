@@ -39,17 +39,21 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
 
 ## Requisitos
 
-bash, tmux ≥ 3.4, fzf ≥ 0.60, python3, ssh, tar (GNU). Opcionais: tailscale, mosh (celular), pv
-(barra de progresso nas cópias), claude (nomes automáticos).
+bash, git, tmux ≥ 3.4, fzf ≥ 0.60, python3, ssh, tar (GNU) e `rg` (testes e busca rápida).
+Opcionais: tailscale, mosh (celular), pv (barra de progresso nas cópias), claude (nomes automáticos).
 
 ## Instalação
 
     git clone https://github.com/helio-nogueira-cardoso/tt-terminais.git && cd tt-terminais
     ./tt --instalar [nome-desta-máquina]
 
-Ou, instalando também as dependências que faltarem (apt) em um passo só:
+Ou, instalando automaticamente as dependências que faltarem:
 
     ./instalar.sh [nome-desta-máquina]
+
+O instalador detecta apt, dnf, pacman, apk, Homebrew e Termux/pkg, instala tudo em uma única etapa,
+traduz nomes de pacotes entre as distribuições e verifica novamente os comandos antes de instalar o
+tt. Em Linux, pode ser necessário informar a senha do `sudo` uma vez.
 
 Isso põe o tt em `~/.local/share/tt/`, liga `~/.local/bin/tt` a ele, faz o `~/.tmux.conf` carregar o
 `tmux.conf` do tt (o antigo fica em `~/.tmux.conf.antes-tt`) e **configura o `~/.bashrc`** para cada
