@@ -196,11 +196,12 @@ como `#cba6f7`). A segunda coluna é o ID estável: uma linha local com o mesmo 
 `-` desativa; um ID novo acrescenta:
 
     👾	kiro-v3	kiro-cli chat --v3
-    -	claude-yolo
+    -	codex
     🧪	meu-teste	ssh servidor
 
-No menu `⚙ tmux…` → “Editar atalhos de comandos…” é possível abrir esse arquivo para editar emoji
-e comando, adicionar ou excluir entradas. Os botões “lado” e “baixo” ficam disponíveis no menu de
+Os padrões são três: 👻 Kiro, 🦀 Claude (retomando a conversa) e ⚪ Codex. Para editar sem abrir
+o arquivo: menu ⋯ do painel → **✏ Atalhos da barra** (⏎ edita emoji, comando e cor; ^n novo; ^x
+exclui ou desativa um padrão; ^r volta ao padrão). O arquivo continua editável à mão. Os botões “lado” e “baixo” ficam disponíveis no menu de
 painel, mas não ocupam mais a barra.
 
 As contas criadas por `claude-conta adicionar <nome>` aparecem automaticamente como `1️⃣`, `2️⃣`,
