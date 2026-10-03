@@ -15,6 +15,10 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
 - **Barra clicável**: `máquina ▾` (máquinas, versões, cadastro), `sessão ▾` (seletor rápido com
   rolagem), ☰ central, ┃/━ dividir, ⋯ menu do painel, ⇅ arquivos, ⤢ caber nesta tela (quando duas
   telas de tamanhos diferentes usam a mesma sessão). Botão direito também abre os menus.
+- **Uma sessão, vários aparelhos**: a janela tem o tamanho do aparelho que você está usando: tecla,
+  toque ou clique, foco na janela, girar o celular ou abrir o teclado passam a sessão para ele na
+  hora, e o outro toma de volta assim que for usado. Quem só está olhando vê ⤢ na barra (um toque
+  encaixa nele). A janela nunca fica presa num tamanho fixo.
 - **Painéis com outras sessões**: `^v` ao lado, `^o` embaixo, `^p` troca — inclusive sessões de
   outra máquina. Uma sessão de outra máquina vista daqui vira uma "ponte"; trocar de sessão pela
   barra de lá troca a sua tela de verdade (sem ponte dentro de ponte).
