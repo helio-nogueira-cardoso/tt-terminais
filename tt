@@ -204,11 +204,16 @@ vigiar() {
   if [[ -n $outro ]] && tr '\0' ' ' <"/proc/$outro/cmdline" 2>/dev/null | grep -q -- '--vigia'; then exit 0; fi
   echo $$ >"$pidf"
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
-  local s agora atividade pasta ultimo pasta_ant auto pid id st rot titulo nome motivo
+  local ultima_puxada=0 s agora atividade pasta ultimo pasta_ant auto pid id st rot titulo nome motivo
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
   while tmux list-sessions >/dev/null 2>&1; do
     [[ -s $CONF_MAQ ]] && atualizar_info >/dev/null 2>&1 &
     agora=$(date +%s)
+    # Fixadas: puxa a lista mais nova das outras máquinas ao iniciar e a cada 5 min.
+    if ((agora - ${ultima_puxada:-0} >= 300)); then
+      ultima_puxada=$agora
+      ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
+    fi
     # GitHub: uma consulta a cada 12 h, em segundo plano.
     if ((agora - $(awk '{ print $2 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0) > 43200)); then
       mkdir -p "$(dirname "$CACHE_GITHUB")"
@@ -1783,17 +1788,42 @@ fixadas() { [[ -f $CONF_FIX ]] && grep -v '^\s*$' "$CONF_FIX"; }
 # plano), e cada uma redesenha a barra. Assim as fixadas não somem ao entrar numa sessão de outra
 # máquina (a barra que aparece é a de lá).
 propagar_fixadas() {
-  local dest rot
+  local dest rot v
+  v=$(versao_fixadas)
   while read -r dest rot; do
-    (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-fixadas" <"$CONF_FIX" >/dev/null 2>&1 &)
+    (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-fixadas $v" <"$CONF_FIX" >/dev/null 2>&1 &)
   done < <(maquinas)
 }
 
-# Recebe a lista de outra máquina (stdin) e aplica.
+# Versão da lista: a hora (ns) da última mudança, em ~/.config/tt/fixadas.v.
+versao_fixadas() { local v; v=$(cat "$CONF_FIX.v" 2>/dev/null); echo "${v:-0}"; }
+marcar_fixadas() { date +%s%N >"$CONF_FIX.v"; }
+
+# Recebe a lista de outra máquina (stdin) com a versão V. Só aceita se for mais nova que a daqui:
+# uma máquina que volta atrasada nunca desfaz uma mudança mais recente.
 receber_fixadas() {
+  local v=${1:-0} tmp
   mkdir -p "$CONF_DIR"
-  cat >"$CONF_FIX.novo" && mv "$CONF_FIX.novo" "$CONF_FIX"
-  aplicar_fixadas
+  tmp=$(mktemp "$CONF_FIX.XXXXXX"); cat >"$tmp"
+  if [[ $v =~ ^[0-9]+$ ]] && ((v > $(versao_fixadas))); then
+    mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"
+    aplicar_fixadas
+  else
+    rm -f "$tmp"
+  fi
+}
+
+# Puxa a lista mais nova entre as máquinas cadastradas (o vigia chama ao iniciar e a cada 5 min):
+# assim quem estava desligada na hora da mudança se atualiza sozinha ao voltar.
+puxar_fixadas() {
+  local dest rot v melhor_v melhor_d
+  melhor_v=$(versao_fixadas) melhor_d=""
+  while read -r dest rot; do
+    v=$(timeout 6 ssh "${SSH_OPC[@]}" "$dest" 'cat ~/.config/tt/fixadas.v 2>/dev/null || echo 0' </dev/null 2>/dev/null)
+    [[ $v =~ ^[0-9]+$ ]] && ((v > melhor_v)) && { melhor_v=$v; melhor_d=$dest; }
+  done < <(maquinas)
+  [[ -n $melhor_d ]] || return 0
+  timeout 8 ssh "${SSH_OPC[@]}" "$melhor_d" 'cat ~/.config/tt/fixadas 2>/dev/null' </dev/null 2>/dev/null | receber_fixadas "$melhor_v"
 }
 
 # Liga/desliga a 2ª linha e força a barra a se redesenhar já (o #() da barra muda de comando).
@@ -1819,6 +1849,7 @@ alternar_fixada() {
     else d=$(dest_de "$r"); [[ -n $d ]] && timeout 5 ssh "${SSH_OPC[@]}" "$d" "tmux set-option -t $(q "=$s:") @nome_auto 0" </dev/null >/dev/null 2>&1; fi
     echo "fixada"
   fi
+  marcar_fixadas
   aplicar_fixadas
   propagar_fixadas
 }
@@ -1828,6 +1859,7 @@ fixada_renomeada() {
   [[ -f $CONF_FIX ]] || return 0
   awk -F'\t' -v r="$MAQUINA" -v a="$1" -v n="$2" 'BEGIN { OFS = "\t" } $1 == r && $2 == a { $2 = n } { print }' "$CONF_FIX" >"$CONF_FIX.novo" &&
     mv "$CONF_FIX.novo" "$CONF_FIX"
+  marcar_fixadas
   aplicar_fixadas
   propagar_fixadas
 }
@@ -1882,6 +1914,7 @@ mover_fixada() {
   j=$((i + delta))
   awk -v i="$i" -v j="$j" '{ l[NR] = $0 } END { t = l[i]; l[i] = l[j]; l[j] = t; for (k = 1; k <= NR; k++) print l[k] }' "$CONF_FIX" >"$CONF_FIX.novo" &&
     mv "$CONF_FIX.novo" "$CONF_FIX"
+  marcar_fixadas
   aplicar_fixadas
   propagar_fixadas
 }
@@ -2722,7 +2755,9 @@ case "${1:-}" in
   --clique-linha) clique_linha "${2:-}" "${3:-}"; exit ;;
   --barra-fixadas) barra_fixadas "${2:-}"; exit ;;
   --aplicar-fixadas) aplicar_fixadas; exit ;;
-  --receber-fixadas) receber_fixadas; exit ;;
+  --receber-fixadas) receber_fixadas "${2:-0}"; exit ;;
+  --puxar-fixadas) puxar_fixadas; exit ;;
+  --marcar-fixadas) marcar_fixadas; exit ;;
   --propagar-fixadas) propagar_fixadas; exit ;;
   --ir-fixada) ir_fixada "$2" "$3"; exit ;;
   --mover-fixada) mover_fixada "$2" "$3"; exit ;;
