@@ -197,7 +197,7 @@ generico() { [[ $1 =~ ^(janela|claude)-[0-9]+$ ]]; }
 #   Shell:  pergunta ao Haiku só se houve uso desde a última vez e
 #           (nome genérico há 5 min) ou (mudou de pasta) ou (30 min desde o último nome).
 vigiar() {
-  local pidf="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-vigia-$(id -u).pid" log="$HOME/.cache/tt-vigia.log" outro
+  local pidf="$RT/tt-vigia-$(id -u).pid" log="$HOME/.cache/tt-vigia.log" outro
   mkdir -p "$HOME/.cache"
   # Uma instância só: se o PID registrado ainda é um vigia vivo, sai.
   outro=$(cat "$pidf" 2>/dev/null)
@@ -545,7 +545,11 @@ SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-ne
   -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%r@%h" -o ControlPersist=12h
   -o ServerAliveInterval=30)
 TT_REMOTO='~/.local/bin/tt'
-RT=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}
+# Estado compartilhado entre processos do tt (pidfile do vigia, caches, transferências): sempre o
+# mesmo diretório, venha o processo do tmux, de um popup, do ssh ou do vigia. Não depende de
+# XDG_RUNTIME_DIR, que uns têm e outros não (a barra e a tela olhavam pastas diferentes).
+RT=/run/user/$(id -u)
+[[ -d $RT && -w $RT ]] || RT=${TMPDIR:-/tmp}
 # O que se soube de cada máquina na última consulta (rótulo = nome dela na barra): as sessões que ela
 # mostrou e "quantas-sessões versão". Os menus abrem na hora com isso e atualizam em segundo plano.
 cache_bloco() { echo "$RT/tt-bloco-$(id -u)-$1"; }
@@ -554,7 +558,7 @@ info_maquina() { echo "$RT/tt-info-$(id -u)-$1"; }
 # Máquinas cadastradas e acessíveis: "usuario@host rótulo". Guarda 20 s em cache: a barra e os
 # menus chamam isso a cada clique.
 maquinas() {
-  local cache="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-maquinas-$(id -u)"
+  local cache="$RT/tt-maquinas-$(id -u)"
   if [[ -f $cache ]] && [[ $cache -nt $CONF_MAQ || ! -f $CONF_MAQ ]] && (($(date +%s) - $(stat -c %Y "$cache") < 20)); then
     cat "$cache"; return
   fi
@@ -576,7 +580,7 @@ atualizar_info() {
   done < <(maquinas)
   wait
 }
-limpar_cache_maquinas() { rm -f "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-maquinas-$(id -u)"; }
+limpar_cache_maquinas() { rm -f "$RT/tt-maquinas-$(id -u)"; }
 
 # Lê ~/.config/tt/maquinas; com o Tailscale, pula as desligadas e usa o nome completo
 # (host.tailnet.ts.net: o nome curto pode coincidir com o desta máquina — por exemplo, um WSL
@@ -758,10 +762,13 @@ CONF
     # barra imediatamente. Força todas as telas/abas ativas a adotarem o padrão novo.
     tmux refresh-client -S 2>/dev/null
     # O vigia em execução é da versão antiga: troca por um novo.
-    pidf="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-vigia-$(id -u).pid"
-    pid=$(cat "$pidf" 2>/dev/null)
-    if [[ -n $pid ]] && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--vigia'; then kill "$pid"; fi
-    rm -f "$pidf"
+    # (versões antigas gravavam o pidfile onde o XDG_RUNTIME_DIR do momento apontasse: procura em todos)
+    for pidf in "$RT" "${XDG_RUNTIME_DIR:-$RT}" "${TMPDIR:-/tmp}" /tmp; do
+      pidf="$pidf/tt-vigia-$(id -u).pid"
+      pid=$(cat "$pidf" 2>/dev/null)
+      if [[ -n $pid ]] && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--vigia'; then kill "$pid"; fi
+      rm -f "$pidf"
+    done
     tmux run-shell -b "$HOME/.local/bin/tt --vigia"
   fi
   echo "$(conf nome): $(versao)"
@@ -1358,7 +1365,7 @@ aviso_ciclo() {
 # painel: TERM tmux*/screen*) que encolheram demais — sinal de ciclo, talvez passando por outra
 # máquina, que daqui não dá para ver inteiro.
 guarda_tamanho() {
-  local c term w h s n=0 trava="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-guarda-$(id -u)"
+  local c term w h s n=0 trava="$RT/tt-guarda-$(id -u)"
   mkdir "$trava" 2>/dev/null || return 0 # já tem uma rodando (vários ganchos disparam juntos)
   trap 'rmdir "$trava" 2>/dev/null' RETURN
   sleep 0.2
@@ -2625,7 +2632,7 @@ humano() { awk -v b="${1:-0}" 'BEGIN { split("B K M G T", u); i = 1; while (b >=
 # Trabalhos de cópia persistem neste diretório até serem concluídos; o popup que os iniciou fica
 # livre imediatamente para novas sessões, menus e outras operações. Por trabalho: ID.info (origem e
 # destino), ID.status (estado), ID.pid (o trabalhador) e ID.log.
-dir_transferencias() { echo "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-transferencias-$(id -u)"; }
+dir_transferencias() { echo "$RT/tt-transferencias-$(id -u)"; }
 
 atualizar_transferencia() {
   local id=$1 estado=$2 d
