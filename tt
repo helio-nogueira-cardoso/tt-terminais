@@ -972,6 +972,7 @@ nth_atual() { [[ $(estado busca) == nomes ]] && echo 1 || echo 1,2; }
 # Menu completo: esta máquina primeiro, depois as outras (consultadas em paralelo).
 # Com filtro de máquina, só ela.
 listar_tudo() {
+  if [[ ${TT_COMX:-} == central && -z ${TT_SEM_X:-} ]]; then TT_SEM_X=1 listar_tudo | com_x; return; fi
   local tmp dest rot i=0 n filtro
   filtro=$(estado maquina)
   [[ $filtro == todas ]] && filtro=""
@@ -1297,6 +1298,15 @@ ir_para() {
     aviso_ciclo "$s" "$container"; read -rp "Enter para voltar."
     return 1
   fi
+  # Dentro do tmux sem saber qual é a tela: usa a que está nesta sessão. Se nenhuma estiver (o tt
+  # rodando numa sessão sem ninguém olhando), não troca nada — o tmux escolheria uma tela qualquer.
+  if [[ -n ${TMUX:-} && -z ${TT_CLIENTE:-} ]]; then
+    TT_CLIENTE=$(tmux list-clients -t "$(tmux display-message -p -t "${TMUX_PANE:-}" '#{session_name}' 2>/dev/null)" -F '#{client_name}' 2>/dev/null | head -1)
+    if [[ -z $TT_CLIENTE ]]; then
+      echo "Nenhuma tela está nesta sessão; não troquei nada. (Use: tmux attach -t =$s)" >&2
+      return 1
+    fi
+  fi
   if [[ $dest != . ]]; then entrar_remoto "$dest" "$s"; return; fi
   sair_menu
   if [[ -n ${TMUX:-} ]]; then exec tmux switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$s"; fi
@@ -1475,14 +1485,16 @@ seletor() {
   local saida dest alvo nome prev=()
   estado_por maquina "${TT_SEL_MAQ:-$MAQUINA}"
   [[ -n ${TT_PREVIA:-} ]] && prev=(--preview="$EU --previa-em {1} {2}" --preview-window='right,55%,border-left,follow')
-  saida=$(lista_rapida_salva | fzf --ansi --delimiter='\t' --with-nth=3 --exact --no-sort \
+  export TT_COMX=seletor TT_MOUSE="$TT_ESTADO.mouse"
+  saida=$(lista_rapida_salva | com_x | com_mouse "$TT_MOUSE" fzf --ansi --delimiter='\t' --with-nth=3 --exact --no-sort \
     --prompt='❯ ' --pointer='▶' --info=inline-right --no-separator \
     --header="$(cabecalho_seletor)" --header-first \
     --color='header:#a6adc8,pointer:#f38ba8,prompt:#cba6f7,hl:#f9e2af,hl+:#f9e2af,bg+:#313244,info:#6c7086' \
     "${prev[@]}" \
     --bind="start:reload($EU --lista-seletor)" \
     --bind="load:transform($EU --pos-atual)" \
-    --bind='left-click:accept' \
+    --bind="left-click:transform($EU --clique-linha {1} {2})" \
+    --bind="ctrl-x:execute-silent($EU --fechar {1} {2})+reload($EU --lista-seletor)" \
     --bind="tab:transform($EU --clique-seletor proxima)" \
     --bind="ctrl-f:execute-silent($EU --alternar-fixada {1} {2})+reload($EU --lista-seletor)" \
     --bind="click-header:transform($EU --clique-seletor x)") || return 0
@@ -2396,6 +2408,162 @@ trazer_cli() {
 }
 
 
+# --- Botão ✕ nas listas -----------------------------------------------------
+#
+# Cada sessão (e painel) da central e do seletor tem um ✕ alinhado à direita. O fzf só informa a
+# LINHA clicada, então a lista roda atrás de uma camada fina (com_mouse) que anota a coluna de cada
+# clique antes de repassá-lo; o clique decide: no ✕ → "fechar? ✕" (2º toque fecha), no resto →
+# abre. Sem python3, a lista roda direto (sem ✕).
+
+# Roda CMD com o terminal passando por um pty, anotando em ARQ "coluna linha" de cada clique.
+com_mouse() {
+  local arq=$1; shift
+  command -v python3 >/dev/null || { "$@"; return; }
+  local codigo
+  # O código vai por -c: a entrada padrão é a lista que o fzf tem de ler.
+  codigo=$(cat <<'PYEOF'
+import os, sys, tty, termios, select, signal, fcntl, re
+arq, cmd = sys.argv[1], sys.argv[2:]  # (com -c, argv[0] é "-c")
+try:
+    tfd = os.open('/dev/tty', os.O_RDWR)
+except OSError:
+    os.execvp(cmd[0], cmd)
+tam = fcntl.ioctl(tfd, termios.TIOCGWINSZ, b'\0' * 8)
+mfd, sfd = os.openpty()
+fcntl.ioctl(sfd, termios.TIOCSWINSZ, tam)
+pid = os.fork()
+if pid == 0:
+    os.close(mfd); os.close(tfd)
+    os.setsid()
+    fcntl.ioctl(sfd, termios.TIOCSCTTY, 0)
+    os.dup2(sfd, 2)
+    os.close(sfd)
+    os.execvp(cmd[0], cmd)
+os.close(sfd)
+antes = termios.tcgetattr(tfd)
+tty.setraw(tfd)
+clique = re.compile(rb'\x1b\[<(\d+);(\d+);(\d+)M')
+def winch(*_):
+    try:
+        fcntl.ioctl(mfd, termios.TIOCSWINSZ, fcntl.ioctl(tfd, termios.TIOCGWINSZ, b'\0' * 8))
+        os.kill(pid, signal.SIGWINCH)
+    except OSError:
+        pass
+signal.signal(signal.SIGWINCH, winch)
+try:
+    while True:
+        try:
+            r, _, _ = select.select([tfd, mfd], [], [])
+        except InterruptedError:
+            continue
+        if tfd in r:
+            d = os.read(tfd, 4096)
+            if not d:
+                break
+            for m in clique.finditer(d):
+                if int(m.group(1)) == 0:
+                    with open(arq, 'w') as f:
+                        f.write(m.group(2).decode() + ' ' + m.group(3).decode())
+            os.write(mfd, d)
+        if mfd in r:
+            try:
+                d = os.read(mfd, 65536)
+            except OSError:
+                break
+            if not d:
+                break
+            os.write(tfd, d)
+finally:
+    termios.tcsetattr(tfd, termios.TCSAFLUSH, antes)
+_, st = os.waitpid(pid, 0)
+sys.exit(os.waitstatus_to_exitcode(st))
+PYEOF
+)
+  python3 -c "$codigo" "$arq" "$@"
+}
+
+# Colunas da área de texto da lista e onde ela começa na tela (1 = primeira coluna), conforme o
+# menu (TT_COMX: seletor | central) e o tamanho da tela.
+geometria_x() {
+  local cols=${FZF_COLUMNS:-0} lista ini
+  # No evento "start" o fzf ainda não desenhou e FZF_COLUMNS vem 0: lê do terminal.
+  ((cols > 10)) || cols=$(stty size </dev/tty 2>/dev/null | awk '{ print $2 }')
+  ((${cols:-0} > 10)) || cols=80
+  case ${TT_COMX:-} in
+    seletor)
+      lista=$cols; ini=3
+      [[ -n ${TT_PREVIA:-} ]] && lista=$((cols - (cols * 55 + 99) / 100 - 1)) ;;
+    central)
+      if [[ -n ${TT_COMPACTO:-} ]]; then lista=$cols; ini=3; else lista=$((cols - 4)); ini=5; fi ;;
+    *) return 1 ;;
+  esac
+  echo "$((lista - 3)) $ini" # texto útil (tira o ▶ e a barra de rolagem), início do texto
+}
+
+# Filtro: põe o ✕ no fim do campo 3 de cada linha de sessão/painel ("destino<TAB>chave<TAB>texto…").
+com_x() {
+  local g w ini
+  g=$(geometria_x) || { cat; return; }
+  read -r w ini <<<"$g"
+  python3 -c '
+import sys, re, unicodedata
+w = int(sys.argv[1]); conf = sys.argv[2]
+ansi = re.compile(r"\x1b\[[0-9;]*m")
+def largura(t):
+    t = ansi.sub("", t)
+    return sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in t)
+def cortar(t, n):
+    out, u, i = [], 0, 0
+    partes = re.split(r"(\x1b\[[0-9;]*m)", t)
+    for p in partes:
+        if ansi.fullmatch(p or "x"):
+            out.append(p); continue
+        for c in p:
+            cw = 0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in "WF" else 1
+            if u + cw > n: return "".join(out) + "\x1b[0m"
+            out.append(c); u += cw
+    return "".join(out)
+for linha in sys.stdin:
+    linha = linha.rstrip("\n")
+    c = linha.split("\t")
+    if len(c) < 3 or c[1].startswith(("!", "+")) or not c[1]:
+        print(linha); continue
+    if c[0] + "|" + c[1] == conf:
+        x = "\x1b[1;31mfechar? ✕\x1b[0m"; xl = 9
+    else:
+        x = "\x1b[90m✕\x1b[0m"; xl = 1
+    alvo = w - xl - 1
+    t = c[2]
+    if largura(t) > alvo: t = cortar(t, alvo - 1) + "…"
+    c[2] = t + " " * (alvo - largura(t)) + " " + x
+    print("\t".join(c))
+' "$w" "$(estado confirmar)" 2>/dev/null || cat
+}
+
+# Clique numa linha (MODO: seletor | central). No ✕: 1º toque pede confirmação, 2º fecha.
+# Fora dele: abre (e esquece uma confirmação pendente).
+clique_linha() {
+  local dest=$1 chave=$2 g w ini xc yc lista
+  [[ $TT_COMX == central ]] && lista="$EU --listar-tudo" || lista="$EU --lista-seletor"
+  if [[ -z $chave || $chave == '!'* || $chave == '+'* ]] || ! g=$(geometria_x) || [[ ! -s ${TT_MOUSE:-} ]]; then
+    estado_por confirmar ""; echo accept; return
+  fi
+  read -r w ini <<<"$g"
+  read -r xc yc <"$TT_MOUSE"
+  if ((xc >= ini + w - 10)); then
+    if [[ $(estado confirmar) == "$dest|$chave" ]]; then
+      estado_por confirmar ""
+      "$EU" --fechar "$dest" "$chave" >/dev/null 2>&1
+    else
+      estado_por confirmar "$dest|$chave"
+    fi
+    echo "reload($lista)"
+  else
+    estado_por confirmar ""
+    echo accept
+  fi
+}
+
 escolher() {
   local rotulo_borda=" 🖥  terminais · $MAQUINA " borda=rounded prev_janela='down,55%,border-top,follow'
   if compacto; then
@@ -2409,7 +2577,8 @@ escolher() {
     embaixo) rotulo_borda+="· ⏎ abre embaixo " ;;
     aqui) rotulo_borda+="· ⏎ troca o painel " ;;
   esac
-  listar_tudo | fzf --ansi --delimiter='\t' --with-nth=3,4 --nth="$(nth_atual)" --exact --no-hscroll \
+  export TT_COMX=central TT_MOUSE="$TT_ESTADO.mouse"
+  listar_tudo | com_mouse "$TT_MOUSE" fzf --ansi --delimiter='\t' --with-nth=3,4 --nth="$(nth_atual)" --exact --no-hscroll --ellipsis='' \
     --tiebreak=begin,index --layout=reverse \
     --border=$borda --border-label="$rotulo_borda" --border-label-pos=3 \
     --prompt="$([[ -n ${TT_COMPACTO:-} ]] && echo "$MAQUINA ❯ " || echo '❯ ')" --pointer='▶' --info=inline-right \
@@ -2423,7 +2592,7 @@ escolher() {
     --bind="ctrl-s:print(enviar)+accept,ctrl-g:print(trazer)+accept" \
     --bind="ctrl-f:transform($EU --clique-cabecalho máquina),ctrl-e:transform($EU --clique-cabecalho busca)" \
     --bind="click-header:transform($EU --clique-cabecalho \"\$FZF_CLICK_HEADER_WORD\")" \
-    --bind="left-click:accept"
+    --bind="left-click:transform($EU --clique-linha {1} {2})"
 }
 
 sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos"; }
@@ -2513,19 +2682,20 @@ case "${1:-}" in
   --ajustar) ajustar "$2"; exit ;;
   --fechar-vazias) fechar_vazias "${2:-}"; exit ;;
   --bordas) bordas; exit ;;
+  --clique-linha) clique_linha "${2:-}" "${3:-}"; exit ;;
   --barra-fixadas) barra_fixadas "${2:-}"; exit ;;
   --aplicar-fixadas) aplicar_fixadas; exit ;;
   --ir-fixada) ir_fixada "$2" "$3"; exit ;;
   --mover-fixada) mover_fixada "$2" "$3"; exit ;;
   --alternar-fixada-rotulo) alternar_fixada "$2" "$3"; exit ;;
   --alternar-fixada) # DEST CHAVE (do seletor)
-    [[ $3 == [!+%]* ]] && alternar_fixada "$(rotulo "$2")" "$3" >/dev/null; exit ;;
+    [[ -n $3 && $3 != '!'* && $3 != '+'* && $3 != '%'* ]] && alternar_fixada "$(rotulo "$2")" "$3" >/dev/null; exit ;;
   --fixar) # [máquina:]sessão
     a=${2:?uso: tt --fixar [máquina:]sessão}; [[ $a == *:* ]] && alternar_fixada "${a%%:*}" "${a#*:}" || alternar_fixada "$MAQUINA" "$a"; exit ;;
   --fixadas) fixadas; exit ;;
   --guarda-tamanho) guarda_tamanho; exit ;;
   --ciclo) fecha_ciclo "$2" "$3" && echo "fecha ciclo" || echo "ok, sem ciclo"; exit ;;
-  --lista-seletor) lista_seletor_salva; exit ;;
+  --lista-seletor) lista_seletor_salva | com_x; exit ;;
   --lista-rapida) lista_rapida_salva; exit ;;
   --pos-atual) pos_atual; exit ;;
   --cabecalho-seletor) cabecalho_seletor; exit ;;
