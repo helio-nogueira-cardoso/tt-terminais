@@ -984,9 +984,29 @@ BLOCO
 
 # Em atualizações, substitui somente o conteúdo do bloco gerenciado pelo tt. Assim a paleta nova
 # chega às máquinas já cadastradas sem tocar no restante do ~/.bashrc.
+# Trecho antigo, sem marcadores (instalações anteriores aos marcadores): o bloco "if … exec tt
+# --janela … fi", com os comentários logo acima dele. Imprime "início fim" (linhas) se achar
+# exatamente esse formato; senão nada (e o ~/.bashrc não é tocado).
+bashrc_trecho_antigo() {
+  awk '
+    /^# Toda janela de terminal/ && !ini { com = NR }
+    /^if \[\[ \$- == \*i\*/ && !ini { ini = (com && com >= NR - 4) ? com : NR; next }
+    !ini && !/^#/ { com = 0 }
+    ini && /tt" --janela$/ { exe = 1 }
+    ini && /^fi$/ { if (exe && NR - ini < 16) print ini, NR; exit }
+  ' "$1"
+}
+
 atualizar_bashrc() {
-  local rc=$HOME/.bashrc tmp
-  grep -qF "$BASHRC_INI" "$rc" 2>/dev/null || return 0
+  local rc=$HOME/.bashrc tmp ini fim
+  if ! grep -qF "$BASHRC_INI" "$rc" 2>/dev/null; then
+    read -r ini fim < <(bashrc_trecho_antigo "$rc")
+    [[ -n $fim ]] || return 0
+    cp -p "$rc" "$rc.antes-marcadores"
+    tmp=$(mktemp "${rc}.tt.XXXXXX") || return 1
+    { head -n $((ini - 1)) "$rc"; echo "$BASHRC_INI"; echo "$BASHRC_FIM"; tail -n +$((fim + 1)) "$rc"; } >"$tmp" &&
+      cat "$tmp" >"$rc" && rm -f "$tmp"
+  fi
   tmp=$(mktemp "${rc}.tt.XXXXXX") || return 1
   {
     awk -v i="$BASHRC_INI" '$0 == i { print; exit } { print }' "$rc"
