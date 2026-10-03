@@ -1,5 +1,4 @@
 # emoji<TAB>id<TAB>comando<TAB>cor-de-fundo (a cor é opcional; comandos shell são intencionais)
 👻	kiro-v3	kiro-cli chat --v3 --trust-all-tools --resume-picker	#cba6f7
-🦀	claude-yolo	claude --dangerously-skip-permissions	#fab387
 🦀	claude-resume	claude --dangerously-skip-permissions --resume	#f38ba8
 ⚪	codex	codex	#89b4fa
