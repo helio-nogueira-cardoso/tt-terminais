@@ -229,6 +229,7 @@ vigiar() {
   local minimo_interacoes=${TT_INTERACOES_RENOMEAR:-3}
   while tmux list-sessions >/dev/null 2>&1; do
     proximo=$pausa
+    atualizar_barras
     [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || { echo "$(date '+%F %T') vigia $$ saiu: há outro" >>"$log"; exit 0; }
     [[ -s $CONF_MAQ ]] && atualizar_info >/dev/null 2>&1 &
     agora=$(date +%s)
@@ -888,6 +889,7 @@ pode_instalar() {
 # pontes. Sem -t, refresh-client age só no cliente usado por último — as outras abas ficavam com o
 # visual antigo depois de uma sincronização.
 redesenhar_todos() {
+  atualizar_barras
   tema_cliente
   local c
   for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do
@@ -2034,18 +2036,18 @@ descongelar() {
   local w
   if [[ -n ${1:-} ]]; then tmux list-windows -t "=$1" -F '#{window_id}'; else tmux list-windows -a -F '#{window_id}'; fi 2>/dev/null |
     while read -r w; do
-      [[ $(tmux show -wqv -t "$w" window-size 2>/dev/null) == manual ]] && tmux set -wu -t "$w" window-size
-    done
-  return 0
+      [[ $(tmux show -wqv -t "$w" window-size 2>/dev/null) == manual ]] && tmux set -wu -t "$w" window-size && echo x
+    done | wc -l
 }
 
 ajustar() {
   local c=$1 s
   s=$(do_cliente "$c" '#{session_name}')
   [[ -n $s ]] || return 1
-  descongelar "$s"
+  # Só redesenha se havia janela presa (redesenhar a cada foco fazia o cursor piscar, ainda mais
+  # em subtelas, onde o tmux de dentro também recebe foco a cada clique entre painéis).
+  (($(descongelar "$s"))) && tmux refresh-client -t "$c"
   tema_cliente "$c"
-  tmux refresh-client -c "$c"
 }
 
 # Reaplica a paleta comum (tema-terminal.sh) no terminal de fora do cliente C — ou de todos, sem C.
@@ -2059,8 +2061,8 @@ tema_cliente() {
   while read -r c term tty; do
     [[ -z $alvo || $c == "$alvo" ]] || continue
     [[ $term == tmux* || $term == screen* || ! -w $tty ]] && continue
+    # Só a paleta (OSC), sem redesenhar: as cores não mudam nada na tela se já estavam certas.
     env -u TMUX TERM="$term" bash -c 'source "$1"' _ "$DIR_TT/tema-terminal.sh" >"$tty" 2>/dev/null
-    tmux refresh-client -t "$c" 2>/dev/null
   done < <(tmux list-clients -F '#{client_name} #{client_termname} #{client_tty}' 2>/dev/null)
   return 0
 }
@@ -2441,9 +2443,7 @@ aplicar_fixadas() {
     if grep -qxF -- "$sess" <<<"$fix"; then tmux set -q -t "=$sess:" @tt_fixada 1
     else tmux set -q -u -t "=$sess:" @tt_fixada; fi
   done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
-  tmux set -g @fixadas_v "$(date +%s%N)"
-  tmux refresh-client -S 2>/dev/null
-  local c; for c in $(tmux list-clients -F '#{client_name}'); do tmux refresh-client -S -t "$c" 2>/dev/null; done
+  atualizar_barras
 }
 
 # Fixa ou desafixa a sessão S da máquina de rótulo R. Ao fixar uma sessão daqui, o vigia para de
@@ -2546,6 +2546,45 @@ reconciliar_fixadas() {
 }
 
 # Conteúdo da 2ª linha (chamado pela barra, por sessão: destaca a sessão atual).
+# Faixa das fixadas como FORMATO do tmux (vai para @barra_fixadas): o destaque da sessão em uso é
+# uma condição do próprio tmux (#{session_name}), então a barra não roda processo nenhum — com
+# status-interval curto e comandos #() na barra, cada cliente disparava processos a cada segundo e o
+# cursor piscava indo e voltando da barra. Recalculada só quando algo muda (atualizar_barras).
+barra_fixadas_fmt() {
+  local i=0 r s rot normal='#[bg=#44475a]#[fg=#f8f8f2]#[nobold]' atual='#[bg=#bd93f9]#[fg=#282a36]#[bold]' estilo
+  local -A existe
+  while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
+  while IFS=$'\t' read -r r s; do
+    i=$((i + 1))
+    if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
+    rot=${rot:0:22}; rot=${rot//#/##}
+    if [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then estilo='#[bg=#282a36]#[fg=#6272a4]#[nobold]'; rot="✗ $rot"
+    elif [[ $r == "$MAQUINA" && $s != *[,}#]* ]]; then estilo="#{?#{==:#{session_name},$s},$atual,$normal}"
+    else estilo=$normal; fi
+    printf '#[range=user|fx%d]%s %s #[norange]#[range=user|fxx%d]%s✕ #[norange]#[default] ' "$i" "$estilo" "$rot" "$i" "$estilo"
+  done < <(fixadas)
+}
+
+# Recalcula as faixas da barra (fixadas, atalhos, transferências) e as guarda em opções do tmux,
+# que a barra só lê. Redesenha as barras só se algo mudou.
+atualizar_barras() {
+  tmux list-sessions >/dev/null 2>&1 || return 0
+  local nome valor mudou="" c
+  for nome in fixadas atalhos transf; do
+    case $nome in
+      fixadas) valor=$(barra_fixadas_fmt) ;;
+      atalhos) valor=$(atalhos_barra) ;;
+      transf) valor=$(transferencias_barra) ;;
+    esac
+    [[ $valor == "$(tmux show -gqv "@barra_$nome")" ]] && continue
+    tmux set -g "@barra_$nome" "$valor"; mudou=1
+  done
+  [[ -n $mudou ]] || return 0
+  for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux refresh-client -S -t "$c" 2>/dev/null; done
+  return 0
+}
+
 barra_fixadas() {
   local atual=${1:-} i=0 r s rot cor
   local -A existe
@@ -3149,7 +3188,7 @@ atualizar_transferencia() {
   local id=$1 estado=$2 d
   d=$(dir_transferencias); mkdir -p "$d"
   printf '%s\n' "$estado" >"$d/$id.status"
-  local c; for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux refresh-client -S -t "$c" 2>/dev/null; done
+  atualizar_barras
   return 0
 }
 
@@ -3609,7 +3648,7 @@ sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --aplicar-fixadas | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia)
+  --ir-fixada | --mover-fixada | --aplicar-fixadas | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -3715,7 +3754,7 @@ case "${1:-}" in
   --bordas) bordas; exit ;;
   --clique-linha) clique_linha "${2:-}" "${3:-}"; exit ;;
   --barra-fixadas) barra_fixadas "${2:-}"; exit ;;
-  --aplicar-fixadas) aplicar_fixadas; exit ;;
+  --aplicar-fixadas | --barras) aplicar_fixadas; exit ;;
   --receber-fixadas) receber_fixadas "${2:-0}"; exit ;;
   --puxar-fixadas) puxar_fixadas; exit ;;
   --reconciliar-fixadas) reconciliar_fixadas; exit ;;
