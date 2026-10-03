@@ -2695,16 +2695,21 @@ barra_fixadas_fmt() {
   done < <(fixadas)
 }
 
+# Indicador discreto no canto direito da faixa de fixadas. É uma opção do tmux, não um #(), para
+# não iniciar processo a cada redesenho da barra.
+versao_barra() { printf '#[fg=#6c7086]v%s ' "$(versao_num)"; }
+
 # Recalcula as faixas da barra (fixadas, atalhos, transferências) e as guarda em opções do tmux,
 # que a barra só lê. Redesenha as barras só se algo mudou.
 atualizar_barras() {
   tmux list-sessions >/dev/null 2>&1 || return 0
   local nome valor mudou="" c
-  for nome in fixadas atalhos transf; do
+  for nome in fixadas atalhos transf versao; do
     case $nome in
       fixadas) valor=$(barra_fixadas_fmt) ;;
       atalhos) valor=$(atalhos_barra) ;;
       transf) valor=$(transferencias_barra) ;;
+      versao) valor=$(versao_barra) ;;
     esac
     [[ $valor == "$(tmux show -gqv "@barra_$nome")" ]] && continue
     tmux set -g "@barra_$nome" "$valor"; mudou=1

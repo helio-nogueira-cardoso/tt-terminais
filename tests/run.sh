@@ -7,6 +7,7 @@ set -euo pipefail
 raiz=${TT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}
 tt=$raiz/tt
 conf=$raiz/tmux.conf
+tema=$raiz/tema-tmux.conf
 falhas=0
 
 ok() { printf 'ok — %s\n' "$1"; }
@@ -17,6 +18,7 @@ tem() { rg -q -- "$2" "$1"; }
 for cmd in bash python3 rg tmux; do exige "$cmd"; done
 [[ -x $tt ]] || { printf 'tt não executável: %s\n' "$tt" >&2; exit 2; }
 [[ -f $conf ]] || { printf 'tmux.conf não encontrado: %s\n' "$conf" >&2; exit 2; }
+[[ -f $tema ]] || { printf 'tema-tmux.conf não encontrado: %s\n' "$tema" >&2; exit 2; }
 
 bash -n "$tt" && ok 'sintaxe Bash'
 
@@ -36,6 +38,10 @@ tem "$tt" 't_atualizacao=\$\{TT_T_ATUALIZACAO:-300\}' &&
   tem "$tt" 'REPO_TT=\$DIR_FONTE' &&
   tem "$tt" '\(\(n > atual\)\)' && ok 'vigia exige a versão publicada mais nova' ||
   falha 'vigia não garante atualização publicada'
+
+tem "$tt" '^versao_barra\(\)' &&
+  tem "$tema" '@barra_versao' && ok 'versão exibida na faixa de fixadas' ||
+  falha 'versão não foi ligada à faixa de fixadas'
 
 for evento in Status StatusLeft StatusRight; do
   if rg -q "MouseDown1$evento.*#\{m:(fx|fxx)\*" "$conf" &&
