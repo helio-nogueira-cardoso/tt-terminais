@@ -2112,6 +2112,7 @@ p	Trocar a sessão deste painel…	$troca
 c	📋 Colar a última cópia	tmux paste-buffer -p -t $p
 y	📋 Copiar o texto da tela	$EU --copiar-tela $(q "$c") $p
 h	📋 Histórico de cópias…	$(popup_tt "$c" "📋 cópias" "$env $EU --copias")
+a	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
 k	⏱ Sessões paradas: $( (($(minutos_paradas))) && echo "fecham após $(minutos_paradas) min" || echo desativado)…	$EU --config-paradas $(q "$c")
 -		
 r	Renomear painel	tmux command-prompt -t $(q "$c") -p 'nome do painel:' "set-option -p -t $p @nome_painel '%%'"
@@ -2150,7 +2151,7 @@ h	Rolar / copiar o histórico	tmux copy-mode -t $p
 u	Mouse: $mouse	tmux set-option -g mouse
 k	Ver todos os atalhos	$(popup_tt "$c" atalhos "tmux list-keys | sed 's/^bind-key *//' | less -S")
 e	Editar a configuração desta máquina	$(popup_tt "$c" "~/.tmux.conf" "$ed ~/.tmux.conf && tmux source-file ~/.tmux.conf")
-a	Editar atalhos de comandos…	$EU --menu-atalhos $(q "$c")
+t	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
 l	Recarregar a configuração	tmux source-file ~/.tmux.conf \; display-message -c $(q "$c") 'configuração recarregada'
 -		
 r	Renomear a sessão…	tmux display-popup -c $(q "$c") -E -w 70 -h 7 -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
@@ -2164,12 +2165,94 @@ f	⇅ Arquivos…	$EU --menu-arquivos $(q "$c") $p
 ITENS
 }
 
+# --- Editor de atalhos da barra ------------------------------------------------
+#
+# Lista com cor, emoji, comando e origem (padrão do tt, personalizado nesta máquina, desativado).
+# ⏎ edita, ^n cria, ^x exclui (um padrão fica desativado), ^r volta ao padrão, Esc fecha. Grava em
+# ~/.config/tt/atalhos (mesmo formato: emoji⇥id⇥comando⇥cor) e redesenha a barra de todos na hora.
+CORES_ATALHO=$'#cba6f7\tmalva\n#fab387\tpêssego\n#f38ba8\tvermelho\n#eba0ac\tsalmão\n#f9e2af\tamarelo\n#a6e3a1\tverde\n#94e2d5\tturquesa\n#89dceb\tcéu\n#89b4fa\tazul\n#b4befe\tlavanda\n#f5c2e7\trosa\n#9399b2\tcinza'
+
+amostra_cor() { # "#rrggbb" → bloco de cor (truecolor)
+  local h=${1#\#}
+  [[ $h =~ ^[[:xdigit:]]{6}$ ]] || h=cba6f7
+  printf '\033[48;2;%d;%d;%dm   \033[0m' "0x${h:0:2}" "0x${h:2:2}" "0x${h:4:2}"
+}
+
+linhas_editor_atalhos() {
+  local emoji id cmd cor origem base
+  base=$(atalhos_base)
+  printf '+\t\033[32m＋ Novo atalho…\033[0m\n'
+  while IFS=$'\t' read -r emoji id cmd cor; do
+    [[ -n $id ]] || continue
+    if grep -q "^[^	]*	$id	" "$CONF_ATALHOS" 2>/dev/null; then
+      if grep -q "^[^	]*	$id	" <<<"$base"; then origem=$'\033[33mpersonalizado\033[0m'; else origem=$'\033[36mseu\033[0m'; fi
+    else origem=$'\033[90mpadrão\033[0m'; fi
+    printf '%s\t%s %s  %-28.28s  %s\n' "$id" "$(amostra_cor "$cor")" "$emoji" "$cmd" "$origem"
+  done < <(atalhos_lista)
+  # Padrões desativados aqui (emoji "-") continuam na lista, apagados, para poder voltar.
+  while IFS=$'\t' read -r emoji id _; do
+    [[ $emoji == - && -n $id ]] || continue
+    IFS=$'\t' read -r emoji _ cmd cor < <(grep "^[^	]*	$id	" <<<"$base" | head -1)
+    [[ -n $cmd ]] && printf '%s\t\033[90m    %s  %-28.28s  desativado (^r reativa)\033[0m\n' "$id" "$emoji" "$cmd"
+  done <"$CONF_ATALHOS" 2>/dev/null
+}
+
+gravar_atalho() { # id emoji comando cor — substitui a linha do id (ou acrescenta)
+  local id=$1 tmp
+  mkdir -p "$CONF_DIR"; touch "$CONF_ATALHOS"
+  tmp=$(mktemp "$CONF_ATALHOS.XXXXXX") || return 1
+  awk -F'\t' -v id="$id" '$2 != id' "$CONF_ATALHOS" >"$tmp"
+  [[ -n ${2:-} ]] && printf '%s\t%s\t%s\t%s\n' "$2" "$id" "${3:-}" "${4:-}" >>"$tmp"
+  mv "$tmp" "$CONF_ATALHOS"
+}
+
+form_atalho() { # id (vazio = novo)
+  local id=${1:-} emoji="" cmd="" cor='#cba6f7' l e c k
+  if [[ -n $id ]]; then IFS=$'\t' read -r emoji _ cmd cor < <(atalhos_lista | awk -F'\t' -v id="$id" '$2 == id' | head -1); fi
+  [[ -n $cor ]] || cor='#cba6f7'
+  clear
+  printf '\033[1m%s\033[0m\n\n' "$([[ -n $id ]] && echo "Editar atalho" || echo "Novo atalho")"
+  printf 'Emoji ou até 3 letras do botão (ex.: 🦀, ⚡, git):\n'; read -r -e -i "$emoji" -p '› ' e || return 0
+  printf '\nComando (roda numa sessão nova, na pasta do painel; ex.: claude --resume, htop):\n'; read -r -e -i "$cmd" -p '› ' c || return 0
+  [[ -n $e && -n $c ]] || { printf '\nEmoji e comando são obrigatórios — nada mudou.\n'; sleep 1.5; return 0; }
+  k=$(while IFS=$'\t' read -r h n; do printf '%s\t%s %s%s\n' "$h" "$(amostra_cor "$h")" "$n" "$([[ $h == "$cor" ]] && echo '  ✓ atual')"; done <<<"$CORES_ATALHO" |
+    fzf --ansi --layout=reverse --delimiter=$'\t' --with-nth=2 --no-input --header="Cor do botão  (⏎ escolhe · Esc mantém a atual)" | cut -f1)
+  cor=${k:-$cor}
+  if [[ -z $id ]]; then
+    id=$(slug "${c%% *}"); [[ -n $id ]] || id=atalho
+    l=$id; n=2; while atalhos_lista | awk -F'\t' -v id="$l" '$2 == id { f = 1 } END { exit !f }'; do l="$id-$n"; n=$((n + 1)); done; id=$l
+  fi
+  gravar_atalho "$id" "$e" "$c" "$cor"
+  redesenhar_todos
+}
+
+editar_atalhos() {
+  local escolha acao id
+  while true; do
+    escolha=$(linhas_editor_atalhos | fzf --ansi --layout=reverse --no-sort --delimiter=$'\t' --with-nth=2 \
+      --header=$'⏎ edita · ^n novo · ^x exclui · ^r volta ao padrão · Esc fecha' \
+      --expect=enter,ctrl-n,ctrl-x,ctrl-r --no-input) || return 0
+    acao=$(head -1 <<<"$escolha"); id=$(sed -n 2p <<<"$escolha" | cut -f1)
+    case $acao in
+      ctrl-n) form_atalho "" ;;
+      ctrl-x)
+        [[ -n $id && $id != + ]] || continue
+        if atalhos_base | awk -F'\t' -v id="$id" '$2 == id { f = 1 } END { exit !f }'; then gravar_atalho "$id" - ""
+        else gravar_atalho "$id"; fi
+        redesenhar_todos ;;
+      ctrl-r) [[ -n $id && $id != + ]] && { gravar_atalho "$id"; redesenhar_todos; } ;;
+      *) if [[ $id == + ]]; then form_atalho ""; else form_atalho "$id"; fi ;;
+    esac
+  done
+}
+
 menu_atalhos() {
   local c=$1 ed=${EDITOR:-nano}
   mkdir -p "$CONF_DIR"
   touch "$CONF_ATALHOS"
   menu_popup "$c" "atalhos de comandos" <<ITENS
-e	Editar atalhos locais (emoji, comando, adicionar ou excluir)	$(popup_tt "$c" "~/.config/tt/atalhos" "$ed ~/.config/tt/atalhos && tmux refresh-client -S")
+e	✏ Editar atalhos (lista: editar, novo, excluir, cor)…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
+t	Editar o arquivo direto (avançado)	$(popup_tt "$c" "~/.config/tt/atalhos" "$ed ~/.config/tt/atalhos && $EU --redesenhar")
 v	Ver atalhos ativos	$(popup_tt "$c" "atalhos ativos" "$EU --atalhos-lista | less -S")
 ITENS
 }
@@ -2502,16 +2585,19 @@ atalhos_base() {
 # novo adiciona um atalho. Assim o arquivo versionado continua recebendo melhorias sem apagar a
 # personalização de cada máquina.
 atalhos_lista() {
-  local base localf tmp
+  local base localf
   base=$(mktemp "${RT:-/tmp}/tt-atalhos.XXXXXX") || return 1
   atalhos_base >"$base"
   localf=$CONF_ATALHOS; [[ -f $localf ]] || localf=/dev/null
+  # Padrões na ordem do pacote (trocados pela versão local do mesmo id; emoji "-" some), depois os
+  # atalhos só locais, na ordem do arquivo.
   awk -F '\t' -v b="$base" '
-    function guarda(l,   p) { split(l,p,"\t"); if (p[2] != "") { linha[p[2]]=l; if (!(p[2] in visto)) { ordem[++n]=p[2]; visto[p[2]]=1 } } }
-    FILENAME == b { guarda($0); next }
-    { guarda($0); local[p[2]]=$0 }
-    END { for (i=1; i<=n; i++) { id=ordem[i]; if (id in local) { split(local[id],p,"\t"); if (p[1] != "-") print local[id] } else print linha[id] }
-      for (id in local) if (!(id in linha)) { split(local[id],p,"\t"); if (p[1] != "-") print local[id] } }
+    FILENAME == b { if ($2 != "" && !($2 in base)) { base[$2] = $0; ob[++nb] = $2 }; next }
+    $2 != "" { if (!($2 in loc)) ol[++nl] = $2; loc[$2] = $0; em[$2] = $1 }
+    END {
+      for (i = 1; i <= nb; i++) { id = ob[i]; if (id in loc) { if (em[id] != "-") print loc[id] } else print base[id] }
+      for (i = 1; i <= nl; i++) { id = ol[i]; if (!(id in base) && em[id] != "-") print loc[id] }
+    }
   ' "$base" "$localf"
   rm -f "$base"
 }
@@ -3478,6 +3564,7 @@ case "${1:-}" in
   --receber-copia) receber_copia "${2:-}"; exit 0 ;;
   --copias) historico_copias; exit 0 ;;
   --nomear-texto) nomear_texto; exit ;;
+  --editar-atalhos) editar_atalhos; exit 0 ;;
   --fechar-paradas) fechar_paradas "$(date +%s)"; exit 0 ;;
   --definir-paradas) definir_paradas "$2" "${3:-}"; exit 0 ;;
   --config-paradas) config_paradas "$2"; exit 0 ;;
