@@ -57,6 +57,21 @@ janela de terminal abrir já dentro do tmux e aparecer na central. O bloco é ac
 entre marcadores, uma única vez (backup em `~/.bashrc.antes-tt`). Ajustes só daquela máquina vão no
 `~/.tmux.conf`, depois da linha `source-file`.
 
+### AI-DLC para qualquer motor
+
+Toda instalação do tt também disponibiliza uma política neutra em
+`~/.config/tt/AI-DLC.md` e expõe seu caminho em `TT_AIDLC_POLICY`. Quando um agente identificar o
+início de uma tarefa em qualquer projeto — pequeno, grande, greenfield ou brownfield — ele deve
+preparar a estrutura local antes de editar código:
+
+    tt --aidlc [raiz-do-projeto]
+
+O comando é idempotente, detecta os motores de IA instalados e chama o adaptador AI-DLC de cada um.
+Em brownfield, preserva a configuração existente e não usa `--force`. A convenção comum fica no
+`AI-DLC.md` do projeto; adaptadores específicos podem coexistir, mas não substituem essa fonte
+neutra. Se o runtime `aidlc` ainda não estiver instalado, o comando deixa um marcador `.aidlc/`
+e informa o que falta, sem fingir que o workflow foi configurado.
+
 ### Cores iguais em todas as máquinas
 
 O pacote inclui a paleta **Catppuccin Mocha** em `tema-terminal.sh`: ela configura as 16 cores ANSI, o fundo

@@ -12,6 +12,7 @@
 #   tt --sugerir S  sugere um nome semântico para a sessão S (título do Claude ou leitura da tela)
 #   tt --renomear S pergunta o novo nome de S, já preenchido com a sugestão (Ctrl+B N no tmux)
 #   tt --nomear-todas dá nome semântico às sessões janela-N / claude-N
+#   tt --aidlc DIR  configura a estrutura AI-DLC local para qualquer motor de IA
 #   tt --vigia      renomeia sozinho, em segundo plano, conforme as sessões são usadas
 #   tt --listar     imprime as linhas do menu só desta máquina (as outras chamam isso via ssh)
 #   tt --previa S   mostra a tela atual da sessão S (prévia do fzf)
@@ -836,7 +837,7 @@ versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao README.md)
+ARQUIVOS_FONTE=(tt tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao README.md AI-DLC.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -869,6 +870,67 @@ pacote_valido() {
   for f in tt tema-terminal.sh tema-agentes.sh memoria-agentes.sh; do
     bash -n "$dir/$f" 2>/dev/null || { echo "$(conf nome): ✗ $f com erro de sintaxe, nada instalado"; return 1; }
   done
+}
+
+# Política neutra que todos os motores de IA podem ler. Só substitui uma cópia que ainda
+# tenha o marcador gerenciado pelo tt; nunca toma posse de uma política editada pelo usuário.
+instalar_politica_aidlc() {
+  local destino="$HOME/.config/tt/AI-DLC.md"
+  mkdir -p "$(dirname "$destino")" || return 1
+  if [[ ! -e $destino ]] || grep -q '^<!-- tt-managed:' "$destino" 2>/dev/null; then
+    cp "$DIR_TT/AI-DLC.md" "$destino" || return 1
+  fi
+}
+
+# Configura AI-DLC no projeto atual sem escolher um motor específico. O comando aidlc cria os
+# adaptadores dos motores instalados; a política AI-DLC.md continua sendo a convenção comum.
+aidlc_bootstrap() {
+  local projeto=${1:-.} raiz h encontrou=0 executado=0
+  raiz=$(cd "$projeto" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd; }) || {
+    echo "tt --aidlc: projeto inexistente: $projeto" >&2; return 1;
+  }
+  instalar_politica_aidlc || return 1
+  if [[ ! -e $raiz/AI-DLC.md ]]; then
+    cp "$DIR_TT/AI-DLC.md" "$raiz/AI-DLC.md" || return 1
+    echo "tt --aidlc: política comum criada em $raiz/AI-DLC.md"
+  fi
+  if ! command -v aidlc >/dev/null 2>&1; then
+    mkdir -p "$raiz/.aidlc"
+    if [[ ! -e $raiz/.aidlc/README.md ]]; then
+      {
+        printf '%s\n\n' '# AI-DLC local'
+        printf '%s\n' 'O bootstrap comum do tt foi reconhecido, mas o comando aidlc não está instalado nesta máquina.'
+        printf 'Instale o runtime AI-DLC e rode `tt --aidlc "%s"` novamente.\n\n' "$raiz"
+        printf 'A política comum está em AI-DLC.md e em %s.\n' "$HOME/.config/tt/AI-DLC.md"
+      } >"$raiz/.aidlc/README.md"
+    fi
+    echo "tt --aidlc: aidlc não instalado; deixei o marcador local em $raiz/.aidlc" >&2
+    return 2
+  fi
+  for h in codex claude copilot cursor kiro kiro-ide opencode; do
+    case $h in
+      codex) command -v codex >/dev/null 2>&1 || continue ;;
+      claude) command -v claude >/dev/null 2>&1 || continue ;;
+      copilot) command -v copilot >/dev/null 2>&1 || continue ;;
+      cursor) command -v cursor-agent >/dev/null 2>&1 || continue ;;
+      kiro) command -v kiro-cli >/dev/null 2>&1 || continue ;;
+      kiro-ide) [[ -d ${XDG_CONFIG_HOME:-$HOME/.config}/Kiro ]] || continue ;;
+      opencode) command -v opencode >/dev/null 2>&1 || continue ;;
+    esac
+    encontrou=1
+    echo "tt --aidlc: configurando $h em $raiz"
+    if (cd "$raiz" && aidlc config --harness "$h" --yes); then
+      executado=1
+    else
+      echo "tt --aidlc: não consegui configurar o adaptador $h; preservei o projeto" >&2
+    fi
+  done
+  if (( ! encontrou )); then
+    echo "tt --aidlc: nenhum motor conhecido detectado; use o adaptador do seu agente" >&2
+    return 2
+  fi
+  ((executado)) && echo "tt --aidlc: projeto preparado em $raiz"
+  ((executado))
 }
 
 # Não rebaixa nem troca por uma versão paralela: só instala se a versão nova ("N hash data") tiver
@@ -923,6 +985,7 @@ instalar_aqui() {
     rm -rf "$DIR_TT.velho"
   fi
   chmod +x "$DIR_TT/tt" "$DIR_TT/tema-agentes.sh" "$DIR_TT/memoria-agentes.sh"
+  instalar_politica_aidlc || return 1
   mkdir -p "$HOME/.local/bin"
   if [[ -f $HOME/.local/bin/tt && ! -L $HOME/.local/bin/tt ]]; then
     mv "$HOME/.local/bin/tt" "$HOME/.local/bin/tt.antes-instalacao"
@@ -1170,6 +1233,7 @@ bashrc_bloco() {
 [[ -r "$HOME/.local/share/tt/tema-terminal.sh" ]] && source "$HOME/.local/share/tt/tema-terminal.sh"
 [[ -x "$HOME/.local/share/tt/tema-agentes.sh" ]] && "$HOME/.local/share/tt/tema-agentes.sh" --aplicar >/dev/null 2>&1
 [[ -x "$HOME/.local/share/tt/memoria-agentes.sh" ]] && "$HOME/.local/share/tt/memoria-agentes.sh" --aplicar >/dev/null 2>&1
+[[ -r "$HOME/.config/tt/AI-DLC.md" ]] && export TT_AIDLC_POLICY="$HOME/.config/tt/AI-DLC.md"
 
 # Toda janela de terminal (GNOME Terminal / Windows Terminal / Termux) abre numa sessão tmux própria,
 # para poder ser assumida de outro lugar pela central `tt`.
@@ -3717,6 +3781,7 @@ case "${1:-}" in
   --atualizar) atualizar "${2:-}"; exit ;;
   --tema-agentes) "$DIR_TT/tema-agentes.sh" --aplicar; exit ;;
   --memoria-agentes) "$DIR_TT/memoria-agentes.sh" --aplicar; exit ;;
+  --aidlc) aidlc_bootstrap "${2:-.}"; exit $? ;;
   --verificar-atualizacao) verificar_atualizacao; exit ;;
   --cadastrar) shift; cadastrar "$@"; exit ;;
   --descadastrar) shift; descadastrar "$@"; exit ;;
