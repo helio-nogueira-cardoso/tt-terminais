@@ -209,7 +209,7 @@ vigiar() {
   sleep 1
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
-  local ultima_puxada=0 ultima_tema=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo
+  local ultima_puxada=0 ultima_tema=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
   local minimo_interacoes=${TT_INTERACOES_RENOMEAR:-3}
   while tmux list-sessions >/dev/null 2>&1; do
@@ -228,6 +228,9 @@ vigiar() {
       ("$EU" --tema-agentes >/dev/null 2>&1 &)
       ("$EU" --memoria-agentes >/dev/null 2>&1 &)
     fi
+    # Limpeza conservadora: somente sessões sem processo, sem histórico e desanexadas há 5 min.
+    fechadas=$(fechar_vazias_expiradas "$agora")
+    [[ -z $fechadas ]] || echo "$(date '+%F %T') fechadas $fechadas sessão(ões) vazia(s) abandonada(s)" >>"$log"
     # GitHub: uma consulta a cada 12 h, em segundo plano.
     if ((agora - $(awk '{ print $2 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0) > 43200)); then
       mkdir -p "$(dirname "$CACHE_GITHUB")"
@@ -378,6 +381,21 @@ fechar_vazias() {
     sessao_vazia "$s" && tmux kill-session -t "=$s" && n=$((n + 1))
   done < <(tmux list-sessions -F '#{session_name}|#{@ponte}' 2>/dev/null)
   echo "$n"
+}
+
+# Fecha sessões vazias abandonadas. Sessões anexadas e sessões usadas como ponte são preservadas.
+fechar_vazias_expiradas() {
+  local agora=$1 limite=${TT_VAZIA_LIMITE:-300} s criada anexada ponte idade n=0
+  while IFS='|' read -r s criada anexada ponte; do
+    [[ -n $s && $criada =~ ^[0-9]+$ ]] || continue
+    ((anexada > 0)) && continue
+    [[ -n $ponte ]] && continue
+    idade=$((agora - criada))
+    ((idade >= limite)) || continue
+    sessao_vazia "$s" || continue
+    tmux kill-session -t "=$s" && n=$((n + 1))
+  done < <(tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{@ponte}' 2>/dev/null)
+  ((n)) && echo "$n"
 }
 
 # Linha separadora do bloco de vazias (chave !vazias: Enter/clique fecha todas).
@@ -2286,16 +2304,22 @@ atalhos_barra() {
 }
 
 atalho_executar() {
-  local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd nome
+  local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd nome script quoted
   IFS=$'\t' read -r emoji id cmd < <(atalhos_lista | sed -n "${i}p")
-  [[ -n $cmd ]] || return 0
+  [[ -n $cmd ]] || { tmux display-message -c "$cliente" "atalho indisponível" 2>/dev/null || true; return 0; }
   nome=$(proximo_nome atalho)
-  tmux new-session -d -s "$nome" -c "$pasta" "$cmd; exec \${SHELL:-bash}" || {
+  # Executa sempre em bash -lc para que comandos editados com argumentos, pipes ou variáveis
+  # tenham o mesmo comportamento em qualquer máquina. Mantém o shell aberto e deixa o erro
+  # visível quando o programa não existe ou termina imediatamente.
+  script=$cmd$'\nrc=$?\nif (( rc != 0 )); then printf "\\natalho terminou com código %d; shell mantido aberto\\n" "$rc"; fi\nexec "${SHELL:-bash}"'
+  printf -v quoted '%q' "$script"
+  tmux new-session -d -s "$nome" -c "$pasta" "bash -lc $quoted" || {
     botao_aviso "$cliente" "atalho: não consegui abrir a sessão"; return
   }
   tmux set-option -w -t "=$nome:" @tt_papel atalho
   tmux set-option -w -t "=$nome:" @tt_atalho "$id"
   tmux switch-client -c "$cliente" -t "=$nome"
+  tmux refresh-client -S -t "$cliente" 2>/dev/null || true
 }
 
 clique() {
