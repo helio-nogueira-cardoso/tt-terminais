@@ -1844,9 +1844,13 @@ copiar() {
 
 # Só a área de transferência do sistema desta máquina.
 copiar_local() {
-  local t=$1
-  if command -v clip.exe >/dev/null; then # WSL: vai direto ao Windows
-    clip.exe <"$t" >/dev/null 2>&1
+  local t=$1 clip
+  # WSL: vai direto ao Windows. Pelo ssh (cópia vinda de outra máquina) o PATH não tem as pastas do
+  # Windows, então procura o clip.exe também no lugar padrão.
+  clip=$(command -v clip.exe 2>/dev/null)
+  [[ -z $clip && -x /mnt/c/Windows/System32/clip.exe ]] && grep -qi microsoft /proc/version 2>/dev/null && clip=/mnt/c/Windows/System32/clip.exe
+  if [[ -n $clip ]]; then
+    "$clip" <"$t" >/dev/null 2>&1
   elif command -v wl-copy >/dev/null; then
     local run=${XDG_RUNTIME_DIR:-/run/user/$(id -u)} w=${WAYLAND_DISPLAY:-} s
     if [[ -z $w ]]; then
