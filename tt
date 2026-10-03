@@ -224,9 +224,12 @@ vigiar() {
   sleep 1
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
-  local ultima_puxada=0 ultima_tema=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_puxada=0 ultima_tema=0 ultima_atualizacao=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
+  # A atualização não bloqueia uma sessão sem rede; o vigia tenta de novo no próximo ciclo.
+  # TT_T_ATUALIZACAO=0 força uma tentativa a cada volta (útil em teste); o padrão é cinco minutos.
+  local t_atualizacao=${TT_T_ATUALIZACAO:-300}
   local minimo_interacoes=${TT_INTERACOES_RENOMEAR:-3}
   while tmux list-sessions >/dev/null 2>&1; do
     proximo=$pausa
@@ -250,11 +253,11 @@ vigiar() {
     fechar_paradas "$agora"
     fechadas=$(fechar_vazias_expiradas "$agora")
     [[ -z $fechadas ]] || echo "$(date '+%F %T') fechadas $fechadas sessão(ões) vazia(s) abandonada(s)" >>"$log"
-    # GitHub: uma consulta a cada 12 h, em segundo plano.
-    if ((agora - $(awk '{ print $2 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0) > 43200)); then
-      mkdir -p "$(dirname "$CACHE_GITHUB")"
-      echo "$(versao_github) $agora" >"$CACHE_GITHUB" # marca antes: sem rede, não tenta a cada minuto
-      ("$EU" --verificar-atualizacao >/dev/null 2>&1 &)
+    # Atualização obrigatória: cada vigia mantém esta máquina na última versão publicada.
+    # O instalador preserva sessões, reinicia o vigia com o código novo e rejeita downgrade.
+    if ((agora - ultima_atualizacao >= t_atualizacao)); then
+      ultima_atualizacao=$agora
+      ("$EU" --garantir-atualizacao >>"$log" 2>&1 &)
     fi
     while IFS='|' read -r s atividade pasta; do
       pid=$(claude_na_sessao "$s")
@@ -1077,6 +1080,23 @@ verificar_atualizacao() {
     avisar "⟳ tt: versão $n disponível no GitHub (esta é a $(versao_num)) — menu de máquinas → Atualizar"
     grep -v '^avisado=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "avisado=$n" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
   fi
+}
+
+# Instala a publicação se (e só se) for mais nova. Ignora REPO_TT de propósito: em uma máquina de
+# desenvolvimento ele pode apontar para um clone local, enquanto o vigia deve obedecer à fonte
+# publicada. Falha de rede é transitória; o próximo ciclo tentará de novo.
+garantir_atualizacao() {
+  local n atual repo_anterior
+  n=$(buscar_fonte) || return 1
+  mkdir -p "$(dirname "$CACHE_GITHUB")"
+  echo "$n $(date +%s)" >"$CACHE_GITHUB"
+  atual=$(versao_num)
+  ((n > atual)) || return 0
+  repo_anterior=$REPO_TT
+  REPO_TT=$DIR_FONTE
+  instalar_em . || { REPO_TT=$repo_anterior; return 1; }
+  REPO_TT=$repo_anterior
+  echo "$(date '+%F %T') vigia: tt atualizado de v$atual para v$n"
 }
 versao_github() { awk '{ print $1 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0; }
 
@@ -3559,6 +3579,9 @@ trazer_cli() {
 com_mouse() {
   local arq=$1; shift
   command -v python3 >/dev/null || { "$@"; return; }
+  # Não deixe uma coordenada de um menu anterior decidir o próximo clique se houver resize ou
+  # perda de pacote de mouse antes de o fzf receber o evento atual.
+  : >"$arq"
   local codigo
   # O código vai por -c: a entrada padrão é a lista que o fzf tem de ler.
   codigo=$(cat <<'PYEOF'
@@ -3582,7 +3605,8 @@ if pid == 0:
 os.close(sfd)
 antes = termios.tcgetattr(tfd)
 tty.setraw(tfd)
-clique = re.compile(rb'\x1b\[<(\d+);(\d+);(\d+)M')
+clique = re.compile(rb'\x1b\[<(\d+);(\d+);(\d+)([Mm])')
+pendente = b''
 def winch(*_):
     try:
         fcntl.ioctl(mfd, termios.TIOCSWINSZ, fcntl.ioctl(tfd, termios.TIOCGWINSZ, b'\0' * 8))
@@ -3600,10 +3624,21 @@ try:
             d = os.read(tfd, 4096)
             if not d:
                 break
-            for m in clique.finditer(d):
-                if int(m.group(1)) == 0:
+            # Leituras do pty podem partir uma sequência SGR de mouse em duas chamadas.
+            # Conserva apenas o começo possivelmente incompleto, sem repetir evento processado.
+            dados = pendente + d
+            fim = 0
+            for m in clique.finditer(dados):
+                fim = m.end()
+                botao = int(m.group(1))
+                # Esquerdo pressionado (inclusive modificadores); arrasto e soltura não mudam
+                # a coordenada. Os bytes inteiros seguem para o fzf logo abaixo.
+                if m.group(4) == b'M' and botao & 3 == 0 and not botao & 32:
                     with open(arq, 'w') as f:
                         f.write(m.group(2).decode() + ' ' + m.group(3).decode())
+            resto = dados[fim:]
+            inicio = resto.rfind(b'\x1b[<')
+            pendente = resto[inicio:] if inicio >= 0 else b''
             os.write(mfd, d)
         if mfd in r:
             try:
@@ -3791,6 +3826,7 @@ case "${1:-}" in
   --memoria-agentes) "$DIR_TT/memoria-agentes.sh" --aplicar; exit ;;
   --aidlc) aidlc_bootstrap "${2:-.}"; exit $? ;;
   --verificar-atualizacao) verificar_atualizacao; exit ;;
+  --garantir-atualizacao) garantir_atualizacao; exit ;;
   --cadastrar) shift; cadastrar "$@"; exit ;;
   --descadastrar) shift; descadastrar "$@"; exit ;;
   --registrar) registrar "$2" "$3" "$4"; exit ;;
