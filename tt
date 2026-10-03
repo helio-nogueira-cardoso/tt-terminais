@@ -280,10 +280,11 @@ renomear_interativo() {
   if [[ $novo == "$sugestao" ]]; then renomear "$s" "$novo" auto >/dev/null; else renomear "$s" "$novo" >/dev/null; fi
 }
 
-# Dá nome semântico a todas as sessões com nome genérico (janela-N, claude-N).
+# Dá nome semântico às sessões genéricas desta máquina. A variante separada é usada quando a
+# ação global chama cada máquina, evitando que uma máquina chame as outras em ciclo.
 # É deliberadamente sequencial: duas renomeações paralelas podem escolher o mesmo nome e,
 # principalmente, disputar a atualização da lista de sessões fixadas.
-nomear_todas() {
+nomear_todas_local() {
   local s
   for s in $(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -E '^(janela|claude)-[0-9]+$'); do
     if nome=$(sugerir_nome "$s"); then
@@ -292,6 +293,20 @@ nomear_todas() {
       printf '  %s: sem assunto ainda, fica como está\n' "$s"
     fi
   done
+}
+
+# Dá nome semântico às sessões genéricas de todas as máquinas acessíveis cadastradas.
+nomear_todas() {
+  local dest rot
+  printf '[%s]\n' "$MAQUINA"
+  nomear_todas_local
+  while read -r dest rot; do
+    printf '\n[%s]\n' "$rot"
+    # O destino executa só a parte local; se ele chamasse --nomear-todas, a topologia cadastrada
+    # nas máquinas faria a mesma operação voltar para cá indefinidamente.
+    timeout 900 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --nomear-todas-local" </dev/null ||
+      printf '  ✗ sem resposta ou falha ao nomear %s\n' "$rot"
+  done < <(maquinas)
 }
 
 # Janelas de terminal abertas fora do tmux: shells líderes de sessão num pts, sem TMUX no ambiente,
@@ -3244,6 +3259,7 @@ case "${1:-}" in
   --sugerir) sugerir_nome "$2"; exit ;;
   --renomear) renomear_interativo "${2:-$(tmux display-message -p '#{session_name}')}"; exit ;;
   --nomear-todas) nomear_todas; exit ;;
+  --nomear-todas-local) nomear_todas_local; exit ;;
   --vigia) vigiar; exit ;;
   --janela) exec tmux new-session -s "$(proximo_nome)" ;;
 esac
