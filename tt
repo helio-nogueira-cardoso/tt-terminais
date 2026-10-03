@@ -2569,6 +2569,10 @@ CONF_FIX=$CONF_DIR/fixadas
 
 fixadas() { [[ -f $CONF_FIX ]] && grep -v '^\s*$' "$CONF_FIX"; }
 
+# Identidade estável do item da barra. O índice pode mudar enquanto o vigia sincroniza a lista;
+# a chave permite resolver o clique contra a máquina e a sessão corretas mesmo nesse intervalo.
+fixada_chave() { printf '%s\t%s' "$1" "$2" | sha256sum | cut -c1-16; }
+
 # A lista é a mesma em todas as máquinas: cada mudança é copiada para as cadastradas (em segundo
 # plano), e cada uma redesenha a barra. Assim as fixadas não somem ao entrar numa sessão de outra
 # máquina (a barra que aparece é a de lá).
@@ -2651,10 +2655,14 @@ alternar_fixada() {
   propagar_fixadas
 }
 
-# ✕ de um item da faixa de fixadas: desafixa o I-ésimo.
+# ✕ de um item da faixa de fixadas: desafixa a sessão identificada pela chave estável.
 desafixar_item() {
-  local c=$1 i=$2 r s
-  IFS=$'\t' read -r r s < <(fixadas | sed -n "${i}p")
+  local c=$1 chave=${2#fxx} r s k
+  while IFS=$'\t' read -r r s; do
+    k=$(fixada_chave "$r" "$s")
+    [[ $k == "$chave" ]] && break
+    r=""; s=""
+  done < <(fixadas)
   [[ -n $s ]] || return 0
   alternar_fixada "$r" "$s" >/dev/null
   tmux display-message -c "$c" -d 2500 "📌 desafixada: $([[ $r == "$MAQUINA" ]] && echo "$s" || echo "$r:$s")"
@@ -2730,18 +2738,19 @@ reconciliar_fixadas() {
 # status-interval curto e comandos #() na barra, cada cliente disparava processos a cada segundo e o
 # cursor piscava indo e voltando da barra. Recalculada só quando algo muda (atualizar_barras).
 barra_fixadas_fmt() {
-  local i=0 r s rot normal='#[bg=#44475a]#[fg=#f8f8f2]#[nobold]' atual='#[bg=#bd93f9]#[fg=#282a36]#[bold]' estilo
+  local i=0 r s rot chave normal='#[bg=#44475a]#[fg=#f8f8f2]#[nobold]' atual='#[bg=#bd93f9]#[fg=#282a36]#[bold]' estilo
   local -A existe
   while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
   printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
   while IFS=$'\t' read -r r s; do
     i=$((i + 1))
+    chave=$(fixada_chave "$r" "$s")
     if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
     rot=${rot:0:22}; rot=${rot//#/##}
     if [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then estilo='#[bg=#282a36]#[fg=#6272a4]#[nobold]'; rot="✗ $rot"
     elif [[ $r == "$MAQUINA" && $s != *[,}#]* ]]; then estilo="#{?#{==:#{session_name},$s},$atual,$normal}"
     else estilo=$normal; fi
-    printf '#[range=user|fx%d]%s %s #[norange]#[range=user|fxx%d]%s✕ #[norange]#[default] ' "$i" "$estilo" "$rot" "$i" "$estilo"
+    printf '#[range=user|fx%s]%s %s #[norange]#[range=user|fxx%s]%s✕ #[norange]#[default] ' "$chave" "$estilo" "$rot" "$chave" "$estilo"
   done < <(fixadas)
 }
 
@@ -2770,26 +2779,31 @@ atualizar_barras() {
 }
 
 barra_fixadas() {
-  local atual=${1:-} i=0 r s rot cor
+  local atual=${1:-} i=0 r s rot cor chave
   local -A existe
   while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
   printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
   while IFS=$'\t' read -r r s; do
     i=$((i + 1))
+    chave=$(fixada_chave "$r" "$s")
     if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
     rot=${rot:0:22}
     if [[ $r == "$MAQUINA" && $s == "$atual" ]]; then cor='#[bg=#bd93f9,fg=#282a36,bold]'
     elif [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then cor='#[bg=#282a36,fg=#6272a4]'; rot="✗ $rot"
     else cor='#[bg=#44475a,fg=#f8f8f2]'; fi
     # Item (clique vai à sessão) + ✕ (clique desafixa).
-    printf '#[range=user|fx%d]%s %s #[norange]#[range=user|fxx%d]%s✕ #[norange]#[default] ' "$i" "$cor" "$rot" "$i" "$cor"
+    printf '#[range=user|fx%s]%s %s #[norange]#[range=user|fxx%s]%s✕ #[norange]#[default] ' "$chave" "$cor" "$rot" "$chave" "$cor"
   done < <(fixadas)
 }
 
 # Clique num item fixado: vai para ele (ponte, se for de outra máquina).
 ir_fixada() {
-  local c=$1 i=${2#fx} r s d
-  IFS=$'\t' read -r r s < <(fixadas | sed -n "${i}p")
+  local c=$1 chave=${2#fx} r s k d
+  while IFS=$'\t' read -r r s; do
+    k=$(fixada_chave "$r" "$s")
+    [[ $k == "$chave" ]] && break
+    r=""; s=""
+  done < <(fixadas)
   [[ -n $s ]] || return 0
   d=$(dest_de "$r")
   if [[ -z $d ]]; then tmux display-message -c "$c" "📌 $r: máquina não cadastrada ou desligada"; return 0; fi
@@ -2802,12 +2816,17 @@ ir_fixada() {
 
 # Botão direito num item fixado.
 menu_fixada() {
-  local c=$1 i=${2#fx} r s n
-  IFS=$'\t' read -r r s < <(fixadas | sed -n "${i}p")
+  local c=$1 chave=${2#fx} r s k n i
+  while IFS=$'\t' read -r r s; do
+    k=$(fixada_chave "$r" "$s")
+    [[ $k == "$chave" ]] && break
+    r=""; s=""
+  done < <(fixadas)
   [[ -n $s ]] || return 0
+  i=$(fixadas | awk -F'\t' -v r="$r" -v s="$s" '$1 == r && $2 == s { print NR; exit }')
   n=$(fixadas | wc -l)
   menu_popup "$c" "📌 $([[ $r == "$MAQUINA" ]] && echo "$s" || echo "$r:$s")" <<ITENS
-i	Ir para esta sessão	$EU --ir-fixada $(q "$c") fx$i
+i	Ir para esta sessão	$EU --ir-fixada $(q "$c") fx$chave
 d	Desafixar da barra	$EU --alternar-fixada-rotulo $(q "$r") $(q "$s")
 -		
 e	◀ Mover para a esquerda	$( ((i > 1)) && echo "$EU --mover-fixada $i -1")
