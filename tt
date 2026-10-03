@@ -1140,6 +1140,32 @@ cmd_ver() {
   else echo "ssh -t $(q "${SSH_OPC[@]}") $(q "$1") $(q "exec env TT_PONTE=$(q "$MAQUINA|${3:-}") tmux attach -t $(q "=$2")")"; fi
 }
 
+# Uma ponte não pode morrer junto com o ssh: se isso acontecia enquanto uma tela estava dentro
+# dela, o tmux desconectava essa tela — e a janela do terminal fechava. Este processo fica vivo
+# na sessão-ponte, mostra o erro e permite tentar novamente. Ctrl+B d continua sendo a saída
+# normal da ponte.
+ponte() {
+  local dest=$1 s=$2 ponte=$3 st
+  while true; do
+    clear
+    printf 'Conectando a %s:%s…\n' "$(rotulo_de "$dest")" "$s"
+    ssh -t "${SSH_OPC[@]}" "$dest" \
+      "exec env TT_PONTE=$(q "$MAQUINA|$ponte") tmux attach -t $(q "=$s")"
+    st=$?
+    printf '\n\033[33mA conexão com %s:%s terminou (código %s).\033[0m\n' "$(rotulo_de "$dest")" "$s" "$st"
+    printf 'A janela foi preservada. Pressione Enter para tentar novamente ou Ctrl+B d para voltar. '
+    read -r
+  done
+}
+
+# Confere antes da troca se a sessão ainda existe. A checagem impede que um item fixado antigo
+# mande a tela para uma ponte que já vai falhar; a função ponte acima cobre a corrida entre esta
+# checagem e o attach.
+sessao_remota_existe() {
+  local dest=$1 s=$2
+  timeout 5 ssh "${SSH_OPC[@]}" "$dest" "tmux has-session -t $(q "=$s")" </dev/null >/dev/null 2>&1
+}
+
 # Abre a sessão S num painel: modo lado | embaixo | aqui (troca o painel em foco, se for do tt).
 abrir_painel() {
   local modo=$1 dest=$2 s=$3 painel=${TT_PANE:-} atual novo cmd
@@ -1250,7 +1276,7 @@ criar_ponte() {
   local dest=$1 s=$2 ponte
   ponte=$(limpar "$(rotulo_de "$dest")-$s")
   if ! tmux has-session -t "=$ponte" 2>/dev/null; then
-    tmux new-session -d -s "$ponte" "$(cmd_ver "$dest" "$s" "$ponte")" || return 1
+    tmux new-session -d -s "$ponte" "$(q "$EU" --ponte "$dest" "$s" "$ponte")" || return 1
     tmux set-option -t "=$ponte:" @ponte "$dest"
     tmux set-option -t "=$ponte:" @nome_auto 0
     tmux set-option -t "=$ponte:" status off
@@ -1266,6 +1292,10 @@ entrar_remoto() {
   if [[ -z ${TMUX:-} ]]; then
     eval "$(cmd_ver "$dest" "$s")"
     return
+  fi
+  if ! sessao_remota_existe "$dest" "$s"; then
+    tmux display-message ${TT_CLIENTE:+-c "$TT_CLIENTE"} "⚠ $(rotulo_de "$dest"):$s não existe mais ou está inacessível"
+    return 1
   fi
   ponte=$(criar_ponte "$dest" "$s") || return 1
   sair_menu
@@ -2778,6 +2808,7 @@ case "${1:-}" in
   --seletor) TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
              trap 'rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos"' EXIT; seletor; exit ;;
   --ir-ponte) ir_ponte "$2" "$3" "$4"; exit ;;
+  --ponte) ponte "$2" "$3" "$4"; exit ;;
   --focar) focar "$2"; exit ;;
   --soltar) soltar_painel "$2"; exit ;;
   --renomear-painel) renomear_painel "$2"; exit ;;
