@@ -10,6 +10,7 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 [[ -x "$TT" ]]
 bash -n "$TT"
 grep -q 'fixada_chave()' "$TT"
+grep -q 'cliente_do_painel()' "$TT"
 grep -q 'range=user|fx%s' "$TT"
 grep -q 'range=user|fxx%s' "$TT"
 
@@ -20,6 +21,11 @@ printf 'dell\tsessao-a\ndell\tsessao-b\n' >"$TEST_DIR/home/.config/tt/fixadas"
 cat >"$TEST_DIR/bin/tmux" <<'TMUX'
 #!/usr/bin/env bash
 case ${1:-} in
+  display-message)
+    if [[ " $* " == *" -t %1 "* && "$*" == *"#{client_name}"* ]]; then
+      printf '%s\n' cliente-real
+    fi
+    exit 0 ;;
   list-clients) exit 0 ;;
   has-session) exit 0 ;;
   attach-session|switch-client) printf '%s\n' "$*" >"$TT_TEST_LOG"; exit 0 ;;
@@ -42,6 +48,14 @@ env HOME="$TEST_DIR/home" XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
   PATH="$TEST_DIR/bin:$PATH" "$TT" --ir-fixada cliente "fx$key"
 
 grep -qx 'switch-client -c cliente -t =sessao-b' "$TEST_DIR/tmux.log"
+
+rm -f "$TEST_DIR/tmux.log"
+env HOME="$TEST_DIR/home" XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
+  TT_DIR="$ROOT" TT_TEST_LOG="$TEST_DIR/tmux.log" \
+  TMUX=tmux-test TMUX_PANE=%1 TT_CLIENTE= \
+  PATH="$TEST_DIR/bin:$PATH" "$TT" --ir-fixada "" "fx$key"
+
+grep -qx 'switch-client -c cliente-real -t =sessao-b' "$TEST_DIR/tmux.log"
 
 key_again=$(printf '%s\t%s' dell sessao-b | sha256sum | cut -c1-16)
 key_other=$(printf '%s\t%s' dell sessao-a | sha256sum | cut -c1-16)
