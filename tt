@@ -213,6 +213,7 @@ vigiar() {
     if ((agora - ${ultima_puxada:-0} >= 300)); then
       ultima_puxada=$agora
       ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
+      ("$EU" --reconciliar-fixadas >/dev/null 2>&1 &)
     fi
     # Um agente pode ter sido instalado depois do tt. Reaplica só as chaves visuais, em até 5 min.
     if ((agora - ${ultima_tema:-0} >= 300)); then
@@ -274,19 +275,18 @@ renomear_interativo() {
   if [[ $novo == "$sugestao" ]]; then renomear "$s" "$novo" auto >/dev/null; else renomear "$s" "$novo" >/dev/null; fi
 }
 
-# Dá nome semântico a todas as sessões com nome genérico (janela-N, claude-N), em paralelo.
+# Dá nome semântico a todas as sessões com nome genérico (janela-N, claude-N).
+# É deliberadamente sequencial: duas renomeações paralelas podem escolher o mesmo nome e,
+# principalmente, disputar a atualização da lista de sessões fixadas.
 nomear_todas() {
   local s
   for s in $(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -E '^(janela|claude)-[0-9]+$'); do
-    (
-      if nome=$(sugerir_nome "$s"); then
-        printf '  %s → %s\n' "$s" "$(renomear "$s" "$nome" auto)"
-      else
-        printf '  %s: sem assunto ainda, fica como está\n' "$s"
-      fi
-    ) &
+    if nome=$(sugerir_nome "$s"); then
+      printf '  %s → %s\n' "$s" "$(renomear "$s" "$nome" auto)"
+    else
+      printf '  %s: sem assunto ainda, fica como está\n' "$s"
+    fi
   done
-  wait
 }
 
 # Janelas de terminal abertas fora do tmux: shells líderes de sessão num pts, sem TMUX no ambiente,
@@ -754,6 +754,9 @@ CONF
   "$DIR_TT/tema-agentes.sh" --aplicar
   if tmux list-sessions >/dev/null 2>&1; then
     tmux source-file "$HOME/.tmux.conf"
+    # source-file atualiza as opções, mas clientes já desenhados nem sempre redesenham a
+    # barra imediatamente. Força todas as telas/abas ativas a adotarem o padrão novo.
+    tmux refresh-client -S 2>/dev/null
     # O vigia em execução é da versão antiga: troca por um novo.
     pidf="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-vigia-$(id -u).pid"
     pid=$(cat "$pidf" 2>/dev/null)
@@ -1198,8 +1201,14 @@ fechar_em() {
   local dest=$1 s=$2 cmd
   [[ $s == [+!]* || -z $s ]] && return
   [[ $s == %* ]] && cmd="kill-pane -t $(q "$s")" || cmd="kill-session -t $(q "=$s")"
-  if [[ $dest == . ]]; then eval "tmux $cmd"
-  else timeout 6 ssh "${SSH_OPC[@]}" "$dest" "tmux $cmd" </dev/null; fi
+  if [[ $dest == . ]]; then
+    eval "tmux $cmd" || return
+  else
+    timeout 6 ssh "${SSH_OPC[@]}" "$dest" "tmux $cmd" </dev/null || return
+  fi
+  # Fechar uma sessão pelo tt é uma identificação imediata: não espere o próximo ciclo do vigia
+  # para retirar um eventual item fixado.
+  [[ $s == %* ]] || reconciliar_fixadas
 }
 
 # Painel %N: deixa ele em foco na sessão dele e imprime o nome da sessão.
@@ -1855,6 +1864,7 @@ menu_arquivos() {
   menu_popup "$c" "⇅ arquivos" <<ITENS
 e	📤 Enviar daqui para outra máquina…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar")
 t	📥 Trazer de outra máquina para cá…	$(popup_tt "$c" "📥 trazer" "$env $EU --trazer")
+a	⇅ Acompanhar as transferências…	$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")
 -		
 r	📂 Abrir a pasta de recebidos ($(pasta_recebidos))	$EU --abrir-pasta $(q "$(pasta_recebidos)") $(q "$c")
 p	⚙ Mudar a pasta padrão de recebidos desta máquina…	$(popup_tt "$c" "pasta padrão" "$env $EU --pasta-padrao; read -rsn1 -p '(tecla fecha)'")
@@ -2008,8 +2018,15 @@ alternar_fixada() {
     echo "desafixada"
   else
     printf '%s\t%s\n' "$r" "$s" >>"$CONF_FIX"
-    if [[ $r == "$MAQUINA" ]]; then tmux set-option -t "=$s:" @nome_auto 0 2>/dev/null
-    else d=$(dest_de "$r"); [[ -n $d ]] && timeout 5 ssh "${SSH_OPC[@]}" "$d" "tmux set-option -t $(q "=$s:") @nome_auto 0" </dev/null >/dev/null 2>&1; fi
+    # A marca fica dentro da sessão. Se ela for renomeada fora do tt, conseguimos achar a
+    # mesma sessão pelo marcador e corrigir o nome mostrado na barra.
+    if [[ $r == "$MAQUINA" ]]; then
+      tmux set-option -t "=$s:" @nome_auto 0 2>/dev/null
+      tmux set-option -t "=$s:" @tt_fixado_nome "$s" 2>/dev/null
+    else
+      d=$(dest_de "$r")
+      [[ -n $d ]] && timeout 5 ssh "${SSH_OPC[@]}" "$d" "tmux set-option -t $(q "=$s:") @nome_auto 0; tmux set-option -t $(q "=$s:") @tt_fixado_nome $(q "$s")" </dev/null >/dev/null 2>&1
+    fi
     echo "fixada"
   fi
   marcar_fixadas
@@ -2020,11 +2037,55 @@ alternar_fixada() {
 # Sessão daqui renomeada: o item fixado acompanha.
 fixada_renomeada() {
   [[ -f $CONF_FIX ]] || return 0
-  awk -F'\t' -v r="$MAQUINA" -v a="$1" -v n="$2" 'BEGIN { OFS = "\t" } $1 == r && $2 == a { $2 = n } { print }' "$CONF_FIX" >"$CONF_FIX.novo" &&
-    mv "$CONF_FIX.novo" "$CONF_FIX"
+  awk -F'\t' -v r="$MAQUINA" -v a="$1" -v n="$2" 'BEGIN { OFS = "\t" } $1 == r && $2 == a { $2 = n; mudou = 1 } { print } END { exit !mudou }' "$CONF_FIX" >"$CONF_FIX.novo" || { rm -f "$CONF_FIX.novo"; return 0; }
+  mv "$CONF_FIX.novo" "$CONF_FIX"
+  tmux set-option -t "=$2:" @tt_fixado_nome "$2" 2>/dev/null
   marcar_fixadas
   aplicar_fixadas
   propagar_fixadas
+}
+
+# Confere periodicamente os itens fixados. Uma máquina sem resposta é preservada (ela pode
+# estar desligada); uma sessão comprovadamente inexistente é desafixada. A marca @tt_fixado_nome
+# também permite acompanhar um rename feito diretamente pelo tmux ou por outro programa.
+reconciliar_fixadas() {
+  [[ -f $CONF_FIX ]] || return 0
+  local tmp r s d resposta st mudou=0 novo
+  tmp=$(mktemp "$CONF_FIX.XXXXXX") || return 1
+  while IFS=$'\t' read -r r s; do
+    [[ -n $r && -n $s ]] || continue
+    novo=$s
+    if [[ $r == "$MAQUINA" ]]; then
+      if tmux has-session -t "=$s" 2>/dev/null; then
+        # Também migra itens fixados de versões antigas para o marcador de identidade.
+        tmux set-option -t "=$s:" @tt_fixado_nome "$s" 2>/dev/null
+      else
+        novo=$(tmux list-sessions -F '#{session_name}\t#{@tt_fixado_nome}' 2>/dev/null |
+          awk -F'\t' -v antigo="$s" '$2 == antigo { print $1; exit }')
+      fi
+      # Sem sessão e sem marca correspondente: ela foi fechada.
+      [[ -n $novo ]] || { mudou=1; continue; }
+    else
+      d=$(dest_de "$r")
+      # Rótulo desconhecido ou máquina inacessível não é evidência de fechamento.
+      [[ -n $d ]] || { printf '%s\t%s\n' "$r" "$s" >>"$tmp"; continue; }
+      resposta=$(timeout 6 ssh "${SSH_OPC[@]}" "$d" "if tmux has-session -t $(q "=$s"); then tmux set-option -t $(q "=$s:") @tt_fixado_nome $(q "$s"); printf '%s\\n' $(q "$s"); else tmux list-sessions -F '#{session_name}\\t#{@tt_fixado_nome}' 2>/dev/null | awk -F '\\t' -v antigo=$(q "$s") '\$2 == antigo { print \$1; exit }'; fi" </dev/null 2>/dev/null)
+      st=$?
+      ((st == 0)) || { printf '%s\t%s\n' "$r" "$s" >>"$tmp"; continue; }
+      novo=$resposta
+      [[ -n $novo ]] || { mudou=1; continue; }
+    fi
+    [[ $novo == "$s" ]] || mudou=1
+    printf '%s\t%s\n' "$r" "$novo" >>"$tmp"
+  done < <(fixadas)
+  if ((mudou)); then
+    mv "$tmp" "$CONF_FIX"
+    marcar_fixadas
+    aplicar_fixadas
+    propagar_fixadas
+  else
+    rm -f "$tmp"
+  fi
 }
 
 # Conteúdo da 2ª linha (chamado pela barra, por sessão: destaca a sessão atual).
@@ -2052,7 +2113,8 @@ ir_fixada() {
   d=$(dest_de "$r")
   if [[ -z $d ]]; then tmux display-message -c "$c" "📌 $r: máquina não cadastrada ou desligada"; return 0; fi
   if [[ $d == . ]] && ! tmux has-session -t "=$s" 2>/dev/null; then
-    tmux display-message -c "$c" "📌 a sessão \"$s\" não existe mais (botão direito no item para desafixar)"; return 0
+    reconciliar_fixadas
+    tmux display-message -c "$c" "📌 a sessão \"$s\" não existe mais e foi desafixada"; return 0
   fi
   TT_CLIENTE=$c ir_para "$d" "$s"
 }
@@ -2100,7 +2162,7 @@ clique() {
   case $1 in
     maquina) menu_maquinas "$2" "$3" ;;
     arquivos) menu_arquivos "$2" "$3" ;;
-    transferencias) tmux display-popup -c "$2" $(tam_popup "$2") -T ' transferências ' "$EU --transferencias" ;;
+    transferencias) eval "$(popup_tt "$2" "⇅ transferências" "$EU --transferencias")" ;;
     ajustar) ajustar "$2" ;;
     sessao) seletor_em "$2" "$MAQUINA" "$3" ;;
     fx*) ir_fixada "$2" "$1" ;;
@@ -2377,7 +2439,14 @@ receber() {
   local dir tmp f n base ext i alvo
   dir=$(expandir "$1")
   mkdir -p "$dir" || return 1
+  # Restos de cópias que morreram no meio (máquina suspensa) somem depois de 6 h sem mudança.
+  local velho
+  for velho in "$dir"/.tt-recebendo.*; do
+    [[ -d $velho ]] && (($(idade_arquivo "$velho") > 21600)) && rm -rf "$velho"
+  done
   tmp=$(mktemp -d "$dir/.tt-recebendo.XXXXXX") || return 1
+  # Cancelada (TERM) ou conexão caída (HUP/PIPE): nada pela metade fica na pasta.
+  trap 'rm -rf "$tmp"; exit 1' TERM INT HUP PIPE
   # -m: o arquivo ganha a data de chegada (senão fica com a data original e some no meio da pasta).
   tar -C "$tmp" -xmf - || { rm -rf "$tmp"; return 1; }
   shopt -s dotglob nullglob
@@ -2532,7 +2601,8 @@ botao() {
 humano() { awk -v b="${1:-0}" 'BEGIN { split("B K M G T", u); i = 1; while (b >= 1024 && i < 5) { b /= 1024; i++ } printf (i == 1 ? "%d%s" : "%.1f%s"), b, u[i] }'; }
 
 # Trabalhos de cópia persistem neste diretório até serem concluídos; o popup que os iniciou fica
-# livre imediatamente para novas sessões, menus e outras operações.
+# livre imediatamente para novas sessões, menus e outras operações. Por trabalho: ID.info (origem e
+# destino), ID.status (estado), ID.pid (o trabalhador) e ID.log.
 dir_transferencias() { echo "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-transferencias-$(id -u)"; }
 
 atualizar_transferencia() {
@@ -2542,67 +2612,173 @@ atualizar_transferencia() {
   tmux refresh-client -S >/dev/null 2>&1 || true
 }
 
-transferencias_barra() {
-  local d f estado n=0
-  d=$(dir_transferencias)
-  for f in "$d"/*.status; do
-    [[ -f $f ]] || continue; estado=$(cat "$f" 2>/dev/null)
-    [[ $estado == na\ fila || $estado == calculando* || $estado == transferindo* ]] && n=$((n + 1))
-  done
-  ((n)) && printf '#[range=user|transferencias]#[fg=#a6e3a1,bold] ⇅ %d em andamento #[norange]#[default] ' "$n"
+idade_arquivo() { echo $(($(date +%s) - $(stat -c %Y "$1" 2>/dev/null || date +%s))); }
+
+# Estado real de um trabalho: um "em andamento" cujo trabalhador já morreu (máquina suspensa,
+# processo derrubado) vira "interrompida" — nada fica pendente para sempre. Concluídas, com erro
+# ou interrompidas há mais de um dia são apagadas.
+estado_transferencia() {
+  local d=$1 id=$2 estado pid
+  estado=$(cat "$d/$id.status" 2>/dev/null)
+  case $estado in
+    'na fila' | calculando* | transferindo*)
+      pid=$(cat "$d/$id.pid" 2>/dev/null)
+      # Sem pid ainda: o trabalhador acabou de ser lançado (dá alguns segundos a ele).
+      [[ -z $pid ]] && (($(idade_arquivo "$d/$id.status") < 10)) && { echo "$estado"; return 0; }
+      if [[ -z $pid ]] || ! kill -0 "$pid" 2>/dev/null; then
+        sleep 0.3; estado=$(cat "$d/$id.status" 2>/dev/null) # pode ter acabado agora
+        case $estado in 'na fila' | calculando* | transferindo*)
+          estado='interrompida'; printf '%s\n' "$estado" >"$d/$id.status" ;; esac
+      fi ;;
+    *) (($(idade_arquivo "$d/$id.status") > 86400)) && { rm -f "$d/$id".*; return 1; } ;;
+  esac
+  echo "$estado"
 }
 
-transferencias() {
-  local d f id estado info tecla
+transferencias_barra() {
+  local d f id n=0
   d=$(dir_transferencias)
-  [[ -t 0 ]] || { for f in "$d"/*.status; do [[ -f $f ]] && printf '%s: %s\n' "${f##*/}" "$(cat "$f")"; done; return; }
+  for f in "$d"/*.status; do
+    [[ -f $f ]] || continue; id=${f##*/}; id=${id%.status}
+    case $(estado_transferencia "$d" "$id") in 'na fila' | calculando* | transferindo*) n=$((n + 1)) ;; esac
+  done
+  ((n)) && printf '#[range=user|transferencias]#[fg=#a6e3a1,bold] ⇅ %d em andamento #[norange]#[default] ' "$n"
+  return 0
+}
+
+# Tela das transferências (botão "⇅ N em andamento" e menu de arquivos). Redesenha no lugar a
+# cada 0,5 s (sem piscar), cada linha cortada na largura da tela. 1–9 cancela a transferência em
+# andamento daquele número; q, Esc ou Enter fecham (e o popup fecha junto: popup_tt usa -E).
+transferencias() {
+  local d f id estado tecla resto i w tela total feitos taxa pct cheio prog cor sinal nomes rota ativos
+  local -a ids
+  d=$(dir_transferencias)
+  if [[ ! -t 0 ]]; then
+    for f in "$d"/*.status; do [[ -f $f ]] && { id=${f##*/}; id=${id%.status}; printf '%s: %s\n' "$id" "$(estado_transferencia "$d" "$id")"; }; done
+    return
+  fi
+  corta() { local t=$1 n=$2; ((${#t} > n)) && t="${t:0:n-1}…"; printf '%s' "$t"; }
+  printf '\033[?25l\033[2J'; trap 'printf "\033[?25h"' RETURN
   while true; do
-    clear; printf '\033[1mTRANSFERÊNCIAS\033[0m\n\n'
-    for f in "$d"/*.status; do
-      [[ -f $f ]] || continue; id=${f##*/}; id=${id%.status}; estado=$(cat "$f" 2>/dev/null)
-      info=$(tr '\t' ' ' <"$d/$id.info" 2>/dev/null)
-      printf '%-18s %-28s %s\n' "$id" "$estado" "$info"
+    w=$(($(tput cols 2>/dev/null || echo 80) - 1)); tela=""; ids=(); i=0; ativos=""
+    for f in $(ls -t "$d"/*.status 2>/dev/null); do
+      id=${f##*/}; id=${id%.status}
+      estado=$(estado_transferencia "$d" "$id") || continue
+      ((i < 9)) || break
+      i=$((i + 1)); ids[i]=$id
+      nomes=$(paste -sd'|' "$d/$id.nomes" 2>/dev/null); nomes=${nomes//|/, }
+      rota=$(awk -F'\t' '{ printf "%s:%s → %s:%s", $1, $2, $3, $4 }' "$d/$id.info" 2>/dev/null)
+      total=0 feitos=0 taxa=0; read -r total feitos taxa <"$d/$id.prog" 2>/dev/null
+      case $estado in 'na fila' | calculando* | transferindo*) ativos+="${ativos:+, }$i" ;; esac
+      case $estado in
+        'na fila' | calculando*) cor=33 sinal='⋯' prog=$estado ;;
+        transferindo*)
+          cor=36 sinal='⇣' pct=0
+          ((${total:-0} > 0)) && pct=$((${feitos:-0} * 100 / total)); ((pct > 99)) && pct=99
+          cheio=$((pct / 5))
+          prog="$(printf '%*s' "$cheio" '' | sed 's/ /█/g')$(printf '%*s' $((20 - cheio)) '' | sed 's/ /░/g') $(printf '%3d' "$pct")%  $(humano "${feitos:-0}") de $(humano "${total:-0}")  $(humano "${taxa:-0}")/s" ;;
+        concluída*) cor=32 sinal='✓' prog="concluída  $(cat "$d/$id.resumo" 2>/dev/null)" ;;
+        cancelada) cor=90 sinal='⊘' prog='cancelada' ;;
+        interrompida) cor=31 sinal='✗' prog='interrompida: o processo parou (máquina suspensa ou desligada?)' ;;
+        *) cor=31 sinal='✗' prog="falhou: $(grep -v '^[[:space:]]*$' "$d/$id.log" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | tail -1)" ;;
+      esac
+      tela+=$(printf '\033[1m%d\033[0m \033[%sm%s\033[0m %s' "$i" "$cor" "$sinal" "$(corta "${nomes:-?}" $((w - 4)))")$'\033[K\n'
+      tela+=$(printf '    \033[%sm%s\033[0m' "$cor" "$(corta "$prog" $((w - 4)))")$'\033[K\n'
+      tela+=$(printf '    \033[90m%s\033[0m' "$(corta "$rota" $((w - 4)))")$'\033[K\n'
     done
-    printf '\n\033[90mAtualiza automaticamente · q fecha\033[0m'
-    read -rsn1 -t 1 tecla || true; [[ ${tecla:-} == [qQ] ]] && return; tecla=""
+    ((i)) || tela=$'\033[90mnenhuma transferência recente\033[0m\033[K\n'
+    printf '\033[H\033[1m⇅ TRANSFERÊNCIAS\033[0m\033[K\n\033[K\n%s\033[K\n\033[90m%sq, Esc ou Enter fecha\033[0m\033[K\033[J' \
+      "$tela" "${ativos:+$ativos cancela · }"
+    tecla=""
+    IFS= read -rsn1 -t 0.5 tecla || continue
+    case $tecla in
+      q | Q | '') return ;;
+      $'\e') resto=""; IFS= read -rsn5 -t 0.03 resto || true; [[ -z $resto ]] && return ;;
+      [1-9])
+        id=${ids[tecla]:-}
+        [[ -n $id ]] || continue
+        case $(cat "$d/$id.status" 2>/dev/null) in 'na fila' | calculando* | transferindo*)
+          kill -TERM -- "-$(cat "$d/$id.pid")" 2>/dev/null || kill -TERM "$(cat "$d/$id.pid")" 2>/dev/null
+          atualizar_transferencia "$id" 'cancelada' ;; esac ;;
+    esac
   done
 }
 
 transferir_fundo() {
   local id=$1; shift
+  printf '%s\n' "$$" >"$(dir_transferencias)/$id.pid"
   atualizar_transferencia "$id" 'calculando tamanho…'
-  if transferir_bloqueante "$@"; then atualizar_transferencia "$id" 'concluída'; else atualizar_transferencia "$id" 'erro — veja o log'; fi
+  if transferir_bloqueante "$id" "$@"; then
+    atualizar_transferencia "$id" 'concluída'
+  else
+    [[ $(cat "$(dir_transferencias)/$id.status" 2>/dev/null) == cancelada ]] && return
+    atualizar_transferencia "$id" 'erro — veja o log'
+    avisar "✗ transferência de $(rotulo "$1") falhou — ⇅ na barra mostra o log"
+  fi
 }
 
 transferir() {
   local src=$1 dsrc=$2 dst=$3 ddst=$4; shift 4
   local d id
   d=$(dir_transferencias); mkdir -p "$d"; id="$(date +%H%M%S)-$RANDOM"
-  printf '%s\t%s\t%s\t%s\n' "$src" "$dsrc" "$dst" "$ddst" >"$d/$id.info"
+  printf '%s\t%s\t%s\t%s\n' "$(rotulo "$src")" "$dsrc" "$(rotulo "$dst")" "$ddst" >"$d/$id.info"
+  printf '%s\n' "$@" >"$d/$id.nomes"
   atualizar_transferencia "$id" 'na fila'
-  nohup "$EU" --transferir-fundo "$id" "$src" "$dsrc" "$dst" "$ddst" "$@" >"$d/$id.log" 2>&1 </dev/null &
-  printf '%s\n' "$!" >"$d/$id.pid"
-  printf '\033[32m⇅ Transferência %s iniciada em segundo plano.\033[0m Você já pode fechar este popup e continuar usando o tt.\n' "$id"
+  # Sessão própria (setsid): o trabalho não pode depender do popup que o iniciou — ao fechar, o
+  # tmux derruba o terminal do popup e, com ele, o ssh/tar de uma cópia ainda em curso.
+  if command -v setsid >/dev/null; then
+    setsid -f "$EU" --transferir-fundo "$id" "$src" "$dsrc" "$dst" "$ddst" "$@" >"$d/$id.log" 2>&1 </dev/null
+  else
+    nohup "$EU" --transferir-fundo "$id" "$src" "$dsrc" "$dst" "$ddst" "$@" >"$d/$id.log" 2>&1 </dev/null &
+    printf '%s\n' "$!" >"$d/$id.pid"
+  fi
+  printf '\033[32m⇅ Transferência iniciada em segundo plano.\033[0m Você já pode continuar usando o tt; a barra mostra o andamento e avisa ao terminar.\n'
+  sleep 1.2
+}
+
+# Repassa a entrada para a saída anotando em ARQ "total feitos bytes/s" (a tela das transferências
+# lê dali o andamento). Sem python3, só repassa.
+contador() {
+  command -v python3 >/dev/null || { cat; return; }
+  python3 -c '
+import sys, time, os
+arq, total = sys.argv[1], sys.argv[2]
+i, o = sys.stdin.buffer, sys.stdout.buffer
+feitos, t0, ult, base, tb = 0, time.time(), 0, 0, time.time()
+def grava(taxa):
+    tmp = arq + ".tmp"
+    with open(tmp, "w") as f: f.write("%s %d %d\n" % (total, feitos, taxa))
+    os.replace(tmp, arq)
+taxa = 0
+while True:
+    b = i.read1(65536) if hasattr(i, "read1") else i.read(65536)
+    if not b: break
+    o.write(b); feitos += len(b)
+    agora = time.time()
+    if agora - ult >= 0.5:
+        taxa = int((feitos - base) / max(agora - tb, 1e-3)); base, tb, ult = feitos, agora, agora
+        o.flush(); grava(taxa)
+o.flush(); grava(taxa)
+' "$1" "$2"
 }
 
 # Copia NOMES de SRC:DIR_SRC para DST:DIR_DST (qualquer combinação de máquinas).
 # Executada somente pelo trabalhador de fundo acima.
 transferir_bloqueante() {
-  local src=$1 dsrc=$2 dst=$3 ddst=$4; shift 4
+  local id=$1 src=$2 dsrc=$3 dst=$4 ddst=$5; shift 5
   local bytes t0 recebidos n
   bytes=$(rodar "$src" --tamanho "$dsrc" "$@")
+  atualizar_transferencia "$id" "transferindo $(humano "$bytes")…"
   printf '\033[90m%s %s:%s → %s:%s (%s)…\033[0m\n' "$#" "$(rotulo "$src")" "$dsrc" "$(rotulo "$dst")" "$ddst" "$(humano "$bytes")"
   t0=$(date +%s)
-  if command -v pv >/dev/null && [[ -t 2 ]]; then
-    recebidos=$(rodar_io "$src" --empacotar "$dsrc" "$@" | pv -s "${bytes:-0}" -w 60 | rodar_io "$dst" --receber "$ddst")
-  else
-    recebidos=$(rodar_io "$src" --empacotar "$dsrc" "$@" | rodar_io "$dst" --receber "$ddst")
-  fi
+  recebidos=$(rodar_io "$src" --empacotar "$dsrc" "$@" | contador "$(dir_transferencias)/$id.prog" "${bytes:-0}" | rodar_io "$dst" --receber "$ddst")
   n=$(grep -c . <<<"$recebidos")
   if ((n == 0)); then echo "✗ Nada chegou."; return 1; fi
+  printf '%s em %ss · %s\n' "$(humano "$bytes")" "$(($(date +%s) - t0))" "$(date +%H:%M)" >"$(dir_transferencias)/$id.resumo"
   printf '\033[32m✓ %d ite%s (%s) em %ss → %s:%s\033[0m\n' "$n" "$([[ $n == 1 ]] && echo m || echo ns)" "$(humano "$bytes")" "$(($(date +%s) - t0))" "$(rotulo "$dst")" "$ddst"
   sed 's/^/   /' <<<"$recebidos" | head -15
   printf '\033[36m📍 em %s: %s\033[0m\n' "$(rotulo "$dst")" "$(rodar "$dst" --caminho-visivel "$ddst")"
+  avisar "✓ $n ite$([[ $n == 1 ]] && echo m || echo ns) de $(rotulo "$src") → $(rotulo "$dst"):$ddst"
   [[ $dst == . ]] || rodar "$dst" --avisar "📥 $n de $(rotulo "$src") → $(rodar "$dst" --caminho-visivel "$ddst" | sed 's/  (.*//'): $(head -3 <<<"$recebidos" | paste -sd, | cut -c1-60)" >/dev/null 2>&1
 }
 
@@ -2985,6 +3161,7 @@ case "${1:-}" in
   --aplicar-fixadas) aplicar_fixadas; exit ;;
   --receber-fixadas) receber_fixadas "${2:-0}"; exit ;;
   --puxar-fixadas) puxar_fixadas; exit ;;
+  --reconciliar-fixadas) reconciliar_fixadas; exit ;;
   --marcar-fixadas) marcar_fixadas; exit ;;
   --propagar-fixadas) propagar_fixadas; exit ;;
   --ir-fixada) ir_fixada "$2" "$3"; exit ;;
