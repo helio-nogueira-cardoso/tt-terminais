@@ -114,6 +114,17 @@ O comando `^a`/“Nomear todas” faz isso sequencialmente nesta máquina e em t
 cadastradas que estiverem acessíveis. O limiar padrão é de 3 interações por sessão; pode ser
 ajustado com `TT_INTERACOES_RENOMEAR`.
 
+## Memória local dos agentes
+
+Toda instalação do tt mantém um repositório local em `~/.local/share/tt/ai-memory`. Ele é
+atualizado ao entrar no tt e periodicamente pelo vigia, detectando Claude, Codex, Kiro e outros
+processos visíveis nas sessões tmux. O índice (`index.json`), os agentes instalados e os metadados
+das sessões ficam separados dos textos duradouros (`memory.md` e `decisions.md`). Nenhum token,
+cookie, credencial ou transcript completo é copiado para esse repositório.
+
+Para forçar uma atualização: `tt --memoria-agentes`. Para mudar o local em uma máquina específica,
+use `TT_AI_MEMORY_DIR=/caminho/da/memoria`.
+
 Se uma sessão fixada de outra máquina foi fechada, ou a máquina caiu, o tt avisa e conserva a tela
 atual. Se a conexão cair depois de entrar, a ponte fica aberta mostrando a falha; `Enter` tenta de
 novo e `Ctrl+B d` volta, sem fechar a janela do terminal.
