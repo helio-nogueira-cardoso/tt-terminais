@@ -1577,7 +1577,10 @@ menu_popup_ui() {
     }' <<<"$itens" |
     fzf --ansi --delimiter='\t' --with-nth=2 --no-input --no-info --no-separator --layout=reverse --no-sort \
       --pointer='▶' --color='pointer:#f38ba8,bg+:#313244' --bind='left-click:accept' \
-      ${binds:+--bind="${binds%,}"} | cut -f1) || return 0
+      ${binds:+--bind="${binds%,}"} | cut -f1)
+  # Esc/fora: escolha vazia. Sem esta checagem, `sed -n "p"` pegava TODAS as linhas e o menu
+  # executava todas as ações de uma vez (abria janelas, desanexava a tela…).
+  [[ $escolha =~ ^[0-9]+$ ]] || return 0
   cmd=$(sed -n "${escolha}p" <<<"$itens" | cut -f3)
   # Calado e sempre com sucesso: senão o tmux mostra a saída/erro por cima do painel.
   [[ -n $cmd ]] && tmux run-shell -b "sleep 0.1; ( $cmd ) >/dev/null 2>&1; true"
