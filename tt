@@ -1367,7 +1367,7 @@ formatar_bloco() {
   [[ $(estado maquina) == todas ]] && todas=1
   awk -F'\t' -v d="$1" -v r="$2" -v todas="$todas" -v atual="${TT_ATUAL:-}" -v fx="$(fixadas | tr '\t\n' '|\034')" '{
       marca = (r "|" $1 == atual) ? "\033[35m◆\033[0m " : "  "
-      marca = marca (index("\034" fx, "\034" r "|" $1 "\034") ? "📌" : "  ") # mesma largura com e sem
+      marca = marca "  "
       rot = todas ? sprintf("\033[34m%-8.8s\033[0m ", r) : ""
       printf "%s\t%s\t%s%s%s\n", d, $1, marca, rot, $2
     }'
@@ -1455,7 +1455,7 @@ cabecalho_seletor() {
     [[ $r == "$m" ]] && linha+="\033[1;30;46m $r \033[0m " || linha+=" $r  "
   done
   printf '%b\n' "$linha"
-  printf '\033[90m%s\033[0m\n' "clique abre · digite p/ filtrar · tab: máquina · ^f 📌 fixa · esc fecha"
+  printf '\033[90m%s\033[0m\n' "clique abre · 📍 fixa · 📌 desafixa · ✕ fecha · tab: máquina · esc sai"
 }
 
 clique_seletor() {
@@ -2505,9 +2505,13 @@ com_x() {
   local g w ini
   g=$(geometria_x) || { cat; return; }
   read -r w ini <<<"$g"
+  local fx="" r sn d
+  while IFS=$'\t' read -r r sn; do
+    d=$(dest_de "$r"); [[ -n $d ]] && fx+="$d|$sn"$'\n'
+  done < <(fixadas)
   python3 -c '
 import sys, re, unicodedata
-w = int(sys.argv[1]); conf = sys.argv[2]
+w = int(sys.argv[1]); conf = sys.argv[2]; fix = set(sys.argv[3].split("\n"))
 ansi = re.compile(r"\x1b\[[0-9;]*m")
 def largura(t):
     t = ansi.sub("", t)
@@ -2532,12 +2536,15 @@ for linha in sys.stdin:
         x = "\x1b[1;31mfechar? ✕\x1b[0m"; xl = 9
     else:
         x = "\x1b[90m✕\x1b[0m"; xl = 1
-    alvo = w - xl - 1
+    if c[1].startswith("%"): pino = "  "
+    else: pino = "📌" if c[0] + "|" + c[1] in fix else "📍"
+    x = pino + "  " + x
+    alvo = w - xl - 5
     t = c[2]
     if largura(t) > alvo: t = cortar(t, alvo - 1) + "…"
     c[2] = t + " " * (alvo - largura(t)) + " " + x
     print("\t".join(c))
-' "$w" "$(estado confirmar)" 2>/dev/null || cat
+' "$w" "$(estado confirmar)" "$fx" 2>/dev/null || cat
 }
 
 # Clique numa linha (MODO: seletor | central). No ✕: 1º toque pede confirmação, 2º fecha.
@@ -2550,7 +2557,17 @@ clique_linha() {
   fi
   read -r w ini <<<"$g"
   read -r xc yc <"$TT_MOUSE"
-  if ((xc >= ini + w - 10)); then
+  local xl=1 x_ini pino_ini
+  [[ $(estado confirmar) == "$dest|$chave" ]] && xl=9
+  x_ini=$((ini + w - xl))          # 1ª coluna do ✕ (ou de "fechar? ✕")
+  pino_ini=$((x_ini - 4))          # o pino ocupa 2 colunas, seguido de 2 espaços
+  if [[ $chave != %* ]] && ((xc >= pino_ini - 1 && xc <= pino_ini + 2)); then
+    estado_por confirmar ""
+    "$EU" --alternar-fixada "$dest" "$chave" >/dev/null 2>&1
+    echo "reload($lista)"
+    return
+  fi
+  if ((xc >= x_ini - 1)); then
     if [[ $(estado confirmar) == "$dest|$chave" ]]; then
       estado_por confirmar ""
       "$EU" --fechar "$dest" "$chave" >/dev/null 2>&1
