@@ -239,10 +239,10 @@ vigiar() {
       ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
       ("$EU" --reconciliar-fixadas >/dev/null 2>&1 &)
     fi
-    # Um agente pode ter sido instalado depois do tt. Reaplica só as chaves visuais, em até 5 min.
+    # Reforça o padrão completo e redesenha os clientes em até 5 min, inclusive os aninhados.
     if ((agora - ${ultima_tema:-0} >= 300)); then
       ultima_tema=$agora
-      ("$EU" --tema-agentes >/dev/null 2>&1 &)
+      ("$EU" --tema-agentes >/dev/null 2>&1; "$EU" --redesenhar >/dev/null 2>&1) &
       ("$EU" --memoria-agentes >/dev/null 2>&1 &)
     fi
     # Limpeza conservadora: somente sessões sem processo, sem histórico e desanexadas há 5 min.
@@ -836,7 +836,7 @@ versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao README.md)
+ARQUIVOS_FONTE=(tt tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao README.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -889,6 +889,7 @@ pode_instalar() {
 # pontes. Sem -t, refresh-client age só no cliente usado por último — as outras abas ficavam com o
 # visual antigo depois de uma sincronização.
 redesenhar_todos() {
+  reforcar_visual
   atualizar_barras
   tema_cliente
   local c
@@ -2054,17 +2055,43 @@ ajustar() {
   tema_cliente "$c"
 }
 
+# As cores padrão do tmux também precisam ser escuras: o Codex consulta o fundo do painel.
+# Remove desvios locais só das opções visuais deste padrão, preservando sessões e processos.
+reforcar_visual() {
+  [[ -r $DIR_TT/tema-tmux.conf ]] || return 0
+  tmux source-file "$DIR_TT/tema-tmux.conf" || return 1
+  local id opt
+  local -a cmds=()
+  while read -r id; do
+    for opt in status-position status-interval status-format status-style status-left-length status-left status-right-length status-right message-style; do
+      cmds+=(set-option -su -t "$id" "$opt" ';')
+    done
+  done < <(tmux list-sessions -F '#{session_id}' 2>/dev/null)
+  while read -r id; do
+    for opt in window-style window-active-style pane-colours window-status-format window-status-current-format pane-border-style pane-active-border-style pane-border-format mode-style popup-style popup-border-style popup-border-lines; do
+      cmds+=(set-option -wu -t "$id" "$opt" ';')
+    done
+  done < <(tmux list-windows -a -F '#{window_id}' 2>/dev/null | sort -u)
+  while read -r id; do
+    for opt in window-style window-active-style pane-colours pane-border-style pane-active-border-style mode-style; do
+      cmds+=(set-option -pu -t "$id" "$opt" ';')
+    done
+  done < <(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)
+  ((${#cmds[@]})) && tmux "${cmds[@]}" 2>/dev/null
+  return 0
+}
+
 # Reaplica a paleta comum (tema-terminal.sh) no terminal de fora do cliente C — ou de todos, sem C.
 # Ela é mandada por sequências OSC quando o terminal abre, e se perde quando algum programa manda
 # "restaurar as cores padrão" (TUIs ao sair, reset): o fundo do Windows Terminal/Termux voltava ao
-# do perfil. Clientes aninhados (TERM tmux*, painéis e pontes) ficam de fora: o tmux de fora cuida.
+# do perfil. Nos clientes aninhados, o OSC atualiza o painel do tmux de fora também.
 # Depois de escrever direto no terminal, redesenha o cliente (caso a escrita caia no meio de um quadro).
 tema_cliente() {
   local alvo=${1:-} c term tty
   [[ -r $DIR_TT/tema-terminal.sh ]] || return 0
   while read -r c term tty; do
     [[ -z $alvo || $c == "$alvo" ]] || continue
-    [[ $term == tmux* || $term == screen* || ! -w $tty ]] && continue
+    [[ ! -w $tty ]] && continue
     # Só a paleta (OSC), sem redesenhar: as cores não mudam nada na tela se já estavam certas.
     env -u TMUX TERM="$term" bash -c 'source "$1"' _ "$DIR_TT/tema-terminal.sh" >"$tty" 2>/dev/null
   done < <(tmux list-clients -F '#{client_name} #{client_termname} #{client_tty}' 2>/dev/null)
