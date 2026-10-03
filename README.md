@@ -66,6 +66,22 @@ cor simplesmente a ignoram. Para mudar o padrão, edite esse arquivo e as cores 
 clone de origem, faça commit e rode `tt --sincronizar`. Todas as máquinas cadastradas recebem o
 mesmo pacote; `tt --atualizar --todas` faz o mesmo a partir da versão publicada.
 
+### Padrão visual completo
+
+O tt fixa texto, fundo, paleta ANSI, barras, bordas e popups no tmux, além das cores do
+terminal externo. Reaplica o padrão ao conectar, sincronizar e a cada cinco minutos;
+clientes aninhados e pontes também recebem a paleta. Todos os clientes conectados são
+redesenhados, incluindo o atual, sem encerrar sessões ou processos. Sessões desanexadas
+herdam o padrão e são desenhadas ao conectar. Desvios locais de texto, fundo e paleta dos
+painéis são removidos nessa reaplicação.
+
+    tt --redesenhar    reforça o padrão visual e redesenha todos os clientes desta máquina
+    tt --tema-agentes  reaplica as preferências visuais dos agentes instalados
+
+Os agentes já abertos podem precisar de reabertura para ler sua configuração novamente;
+o redesenho do tmux não obriga o agente a reler preferências nem substitui cores RGB que
+ele próprio desenha. A sincronização distribui o mesmo padrão às máquinas cadastradas.
+
 ### Temas dos agentes
 
 Junto com a paleta do terminal, a sincronização aplica `tema-agentes.sh` somente aos agentes que
