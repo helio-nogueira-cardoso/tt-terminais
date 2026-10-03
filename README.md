@@ -287,6 +287,17 @@ pelo toque.
 
 ## Desenvolvimento
 
+### Testes e AI-DLC
+
+Rode `make test` (ou `tests/run.sh`) antes de publicar mudanças. A suíte usa configuração e
+runtime temporários para testar fluxos de CLI sem tocar nas máquinas cadastradas, além de validar
+os bindings do tmux num servidor isolado. Para auditar uma instalação, use
+`TT_DIR=~/.local/share/tt tests/run.sh`.
+
+O projeto segue a política [`AI-DLC.md`](AI-DLC.md); o protocolo de trabalho para agentes está em
+[`AGENTS.md`](AGENTS.md), e a cobertura esperada de mouse, toque, teclado, menus e CLI está na
+[`tests/INTERACTIONS.md`](tests/INTERACTIONS.md).
+
 O clone é a origem: edite, faça commit e rode `tt --sincronizar`. A versão é o número de commits
 (`+dev` quando há mudanças não gravadas); máquinas com versão mais velha aparecem com ⚠ no menu
 de máquinas, que oferece atualizar.

@@ -720,7 +720,7 @@ TT_REMOTO='~/.local/bin/tt'
 # Estado compartilhado entre processos do tt (pidfile do vigia, caches, transferências): sempre o
 # mesmo diretório, venha o processo do tmux, de um popup, do ssh ou do vigia. Não depende de
 # XDG_RUNTIME_DIR, que uns têm e outros não (a barra e a tela olhavam pastas diferentes).
-RT=/run/user/$(id -u)
+RT=${TT_RT:-/run/user/$(id -u)}
 [[ -d $RT && -w $RT ]] || RT=${TMPDIR:-/tmp}
 # O que se soube de cada máquina na última consulta (rótulo = nome dela na barra): as sessões que ela
 # mostrou e "quantas-sessões versão". Os menus abrem na hora com isso e atualizam em segundo plano.
