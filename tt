@@ -664,16 +664,16 @@ pacote() {
   local tmp n h d
   if [[ -d $REPO_TT/.git ]]; then
     tmp=$(mktemp -d)
-    cp "$REPO_TT/tt" "$REPO_TT/tmux.conf" "$REPO_TT/README.md" "$tmp/"
+    cp "$REPO_TT/tt" "$REPO_TT/tmux.conf" "$REPO_TT/tema-terminal.sh" "$REPO_TT/README.md" "$tmp/"
     n=$(git -C "$REPO_TT" rev-list --count HEAD 2>/dev/null || echo 0)
     h=$(git -C "$REPO_TT" rev-parse --short HEAD 2>/dev/null || echo ?)
     d=$(git -C "$REPO_TT" log -1 --format=%cs 2>/dev/null || date +%F)
-    [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf README.md 2>/dev/null) ]] && h+="+dev"
+    [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf tema-terminal.sh README.md 2>/dev/null) ]] && h+="+dev"
     echo "$n $h $d" >"$tmp/VERSAO"
-    tar -C "$tmp" -cf - tt tmux.conf README.md VERSAO
+    tar -C "$tmp" -cf - tt tmux.conf tema-terminal.sh README.md VERSAO
     rm -rf "$tmp"
   else
-    tar -C "$DIR_TT" -cf - tt tmux.conf README.md VERSAO
+    tar -C "$DIR_TT" -cf - tt tmux.conf tema-terminal.sh README.md VERSAO
   fi
 }
 
@@ -712,6 +712,7 @@ CONF
     echo "nome=$(hostname -s)" >>"$CONF"
   fi
   limpar_cache_maquinas
+  atualizar_bashrc
   if tmux list-sessions >/dev/null 2>&1; then
     tmux source-file "$HOME/.tmux.conf"
     # O vigia em execução é da versão antiga: troca por um novo.
@@ -782,7 +783,7 @@ atualizar() {
   local todas=${1:-} n
   if [[ -d $REPO_TT/.git ]]; then
     echo "Esta máquina é a de desenvolvimento ($REPO_TT): git pull…"
-    if [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf README.md) ]]; then
+    if [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf tema-terminal.sh README.md) ]]; then
       echo "Há mudanças não gravadas no repositório; atualize à mão (git stash / commit)."; return 1
     fi
     git -C "$REPO_TT" pull -q --ff-only || { echo "git pull falhou."; return 1; }
@@ -910,6 +911,10 @@ BASHRC_FIM='# <<< tt (terminais em tmux) <<<'
 
 bashrc_bloco() {
   cat <<'BLOCO'
+# A paleta comum chega antes do tmux: vale também para SSH e para terminais
+# abertos diretamente nesta máquina. Em emuladores que não aceitam OSC, não faz nada.
+[[ -r "$HOME/.local/share/tt/tema-terminal.sh" ]] && source "$HOME/.local/share/tt/tema-terminal.sh"
+
 # Toda janela de terminal (GNOME Terminal / Windows Terminal / Termux) abre numa sessão tmux própria,
 # para poder ser assumida de outro lugar pela central `tt`.
 # Fica de fora: terminais de IDE, SSH e shells não interativos. Para abrir uma janela sem tmux: NOTMUX=1
@@ -920,6 +925,19 @@ if [[ $- == *i* && -t 0 && -t 1 && -z ${TMUX:-} && -z ${NOTMUX:-} && -z ${SSH_CO
   exec "$HOME/.local/bin/tt" --janela
 fi
 BLOCO
+}
+
+# Em atualizações, substitui somente o conteúdo do bloco gerenciado pelo tt. Assim a paleta nova
+# chega às máquinas já cadastradas sem tocar no restante do ~/.bashrc.
+atualizar_bashrc() {
+  local rc=$HOME/.bashrc tmp
+  grep -qF "$BASHRC_INI" "$rc" 2>/dev/null || return 0
+  tmp=$(mktemp "${rc}.tt.XXXXXX") || return 1
+  {
+    awk -v i="$BASHRC_INI" '$0 == i { print; exit } { print }' "$rc"
+    bashrc_bloco
+    awk -v f="$BASHRC_FIM" '$0 == f { mostra = 1 } mostra { print }' "$rc"
+  } >"$tmp" && mv "$tmp" "$rc"
 }
 
 configurar_bashrc() {
@@ -1524,7 +1542,7 @@ seletor() {
   saida=$(lista_rapida_salva | com_x | com_mouse "$TT_MOUSE" fzf --ansi --delimiter='\t' --with-nth=3 --exact --no-sort \
     --prompt='❯ ' --pointer='▶' --info=inline-right --no-separator \
     --header="$(cabecalho_seletor)" --header-first \
-    --color='header:#a6adc8,pointer:#f38ba8,prompt:#cba6f7,hl:#f9e2af,hl+:#f9e2af,bg+:#313244,info:#6c7086' \
+    --color='bg:#282a36,fg:#f8f8f2,header:#f8f8f2,pointer:#ff79c6,prompt:#bd93f9,hl:#f1fa8c,hl+:#ffb86c,fg+:#f8f8f2,bg+:#44475a,info:#6272a4' \
     "${prev[@]}" \
     --bind="start:reload($EU --lista-seletor)" \
     --bind="load:transform($EU --pos-atual)" \
@@ -1632,7 +1650,7 @@ menu_popup_ui() {
       else printf "%d\t %s%s\n", NR, $2, ($1 == "" ? "" : "  \033[90m" $1 "\033[0m")
     }' <<<"$itens" |
     fzf --ansi --delimiter='\t' --with-nth=2 --no-input --no-info --no-separator --layout=reverse --no-sort \
-      --pointer='▶' --color='pointer:#f38ba8,bg+:#313244' --bind='left-click:accept' \
+      --pointer='▶' --color='bg:#282a36,fg:#f8f8f2,pointer:#ff79c6,fg+:#f8f8f2,bg+:#44475a' --bind='left-click:accept' \
       ${binds:+--bind="${binds%,}"} | cut -f1)
   # Esc/fora: escolha vazia. Sem esta checagem, `sed -n "p"` pegava TODAS as linhas e o menu
   # executava todas as ações de uma vez (abria janelas, desanexava a tela…).
@@ -1905,14 +1923,14 @@ barra_fixadas() {
   local atual=${1:-} i=0 r s rot cor
   local -A existe
   while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
-  printf '#[fg=#6c7086] 📌 '
+  printf '#[fg=#6272a4] 📌 '
   while IFS=$'\t' read -r r s; do
     i=$((i + 1))
     if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
     rot=${rot:0:22}
-    if [[ $r == "$MAQUINA" && $s == "$atual" ]]; then cor='#[bg=#89b4fa,fg=#1e1e2e,bold]'
-    elif [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then cor='#[bg=#1e1e2e,fg=#585b70]'; rot="✗ $rot"
-    else cor='#[bg=#313244,fg=#cdd6f4]'; fi
+    if [[ $r == "$MAQUINA" && $s == "$atual" ]]; then cor='#[bg=#bd93f9,fg=#282a36,bold]'
+    elif [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then cor='#[bg=#282a36,fg=#6272a4]'; rot="✗ $rot"
+    else cor='#[bg=#44475a,fg=#f8f8f2]'; fi
     printf '#[range=user|fx%d]%s %s #[norange]#[default] ' "$i" "$cor" "$rot"
   done < <(fixadas)
 }
@@ -2149,7 +2167,7 @@ escolher_arquivos() {
     --layout=reverse --no-sort --exact --prompt='❯ ' --pointer='▶' --marker='✓' \
     --border=rounded --border-label=" 📁 $titulo · $(rotulo "$dest") " --border-label-pos=3 \
     --header="$(cabecalho_arquivos)" \
-    --color='border:#89b4fa,label:#89b4fa:bold,header:#a6adc8,pointer:#f38ba8,marker:#a6e3a1,prompt:#cba6f7,bg+:#313244' \
+    --color='bg:#282a36,fg:#f8f8f2,border:#bd93f9,label:#bd93f9:bold,header:#f8f8f2,pointer:#ff79c6,marker:#50fa7b,prompt:#bd93f9,hl:#f1fa8c,hl+:#ffb86c,fg+:#f8f8f2,bg+:#44475a' \
     --preview="$EU --previa-item-em {1} {2}" --preview-window="$(compacto && echo 'down,40%,border-top,hidden' || echo 'right,45%,border-left')" \
     --bind='ctrl-/:toggle-preview' \
     --bind="right:transform($EU --arq-acao entrar {1} {2})" \
@@ -2225,7 +2243,7 @@ escolher_destino() {
       printf '!outra\t\033[36m✎ outra pasta…\033[0m\n'
     } | awk -F'\t' '!v[$1]++' | fzf --ansi --delimiter='\t' --with-nth=2 --layout=reverse --no-sort \
       --border=rounded --border-label=" $titulo · $(rotulo "$dest") " --border-label-pos=3 \
-      --prompt='❯ ' --pointer='▶' --color='border:#89b4fa,label:#89b4fa:bold,bg+:#313244' \
+      --prompt='❯ ' --pointer='▶' --color='bg:#282a36,fg:#f8f8f2,border:#bd93f9,label:#bd93f9:bold,pointer:#ff79c6,fg+:#f8f8f2,bg+:#44475a' \
       --bind='left-click:accept' | cut -f1) || return 1
   if [[ $escolha == !outra ]]; then read -rep "Pasta em $(rotulo "$dest"): " -i "~/" p; escolha=$p; fi
   if [[ $escolha == !padrao ]]; then
@@ -2241,7 +2259,7 @@ escolher_maquina() {
     maquinas | awk -v x="$exceto" '$1 != x { printf "%s\t\033[1m%s\033[0m\n", $1, $2 }'; } |
     fzf --ansi --delimiter='\t' --with-nth=2 --layout=reverse --no-sort --height=~12 \
       --border=rounded --border-label=" $titulo " --prompt='❯ ' --pointer='▶' \
-      --color='border:#89b4fa,label:#89b4fa:bold,bg+:#313244' --bind='left-click:accept' | cut -f1
+      --color='bg:#282a36,fg:#f8f8f2,border:#bd93f9,label:#bd93f9:bold,pointer:#ff79c6,fg+:#f8f8f2,bg+:#44475a' --bind='left-click:accept' | cut -f1
 }
 
 # Lado de lá da cópia: lê um tar do stdin e põe os itens em DIR sem sobrescrever. Imprime os nomes.
@@ -2691,7 +2709,7 @@ escolher() {
     --border=$borda --border-label="$rotulo_borda" --border-label-pos=3 \
     --prompt="$([[ -n ${TT_COMPACTO:-} ]] && echo "$MAQUINA ❯ " || echo '❯ ')" --pointer='▶' --info=inline-right \
     --header="$(cabecalho)" \
-    --color='border:#89b4fa,label:#89b4fa:bold,header:#a6adc8,pointer:#f38ba8,prompt:#cba6f7,hl:#f9e2af,hl+:#f9e2af,bg+:#313244' \
+    --color='bg:#282a36,fg:#f8f8f2,border:#bd93f9,label:#bd93f9:bold,header:#f8f8f2,pointer:#ff79c6,prompt:#bd93f9,hl:#f1fa8c,hl+:#ffb86c,fg+:#f8f8f2,bg+:#44475a,info:#6272a4' \
     --preview="$EU --previa-em {1} {2} {q}" --preview-window="$prev_janela" \
     --bind='ctrl-/:toggle-preview' \
     --bind="ctrl-x:execute-silent($EU --fechar {1} {2})+reload($EU --listar-tudo)" \

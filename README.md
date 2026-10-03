@@ -46,6 +46,15 @@ janela de terminal abrir já dentro do tmux e aparecer na central. O bloco é ac
 entre marcadores, uma única vez (backup em `~/.bashrc.antes-tt`). Ajustes só daquela máquina vão no
 `~/.tmux.conf`, depois da linha `source-file`.
 
+### Cores iguais em todas as máquinas
+
+O pacote inclui a paleta **Dracula** em `tema-terminal.sh`: ela configura as 16 cores ANSI, o fundo
+e o texto do terminal ao abrir um shell, e o `tmux`/`fzf` usam a mesma paleta. Windows Terminal,
+GNOME Terminal/VTE e Termux aceitam essa configuração; terminais que não aceitam as sequências de
+cor simplesmente a ignoram. Para mudar o padrão, edite esse arquivo e as cores do `tmux.conf` no
+clone de origem, faça commit e rode `tt --sincronizar`. Todas as máquinas cadastradas recebem o
+mesmo pacote; `tt --atualizar --todas` faz o mesmo a partir da versão publicada.
+
 Fica de fora do tmux: terminais de IDE, sessões SSH e shells não interativos. Para abrir uma janela
 sem tmux: `NOTMUX=1 bash`.
 
