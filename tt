@@ -242,7 +242,7 @@ vigiar() {
     # Reforça o padrão completo e redesenha os clientes em até 5 min, inclusive os aninhados.
     if ((agora - ${ultima_tema:-0} >= 300)); then
       ultima_tema=$agora
-      ("$EU" --tema-agentes >/dev/null 2>&1; "$EU" --redesenhar >/dev/null 2>&1) &
+      ("$EU" --reforcar-padrao >/dev/null 2>&1) &
       ("$EU" --memoria-agentes >/dev/null 2>&1 &)
     fi
     # Limpeza conservadora: somente sessões sem processo, sem histórico e desanexadas há 5 min.
@@ -888,6 +888,12 @@ pode_instalar() {
 # Redesenha TODOS os clientes desta máquina (tela inteira e barra): abas, aparelhos, painéis e
 # pontes. Sem -t, refresh-client age só no cliente usado por último — as outras abas ficavam com o
 # visual antigo depois de uma sincronização.
+# Temas dos agentes e terminal aplicados juntos antes de iniciar uma TUI nova.
+reforcar_padrao() {
+  "$DIR_TT/tema-agentes.sh" --aplicar || return 1
+  redesenhar_todos
+}
+
 redesenhar_todos() {
   reforcar_visual
   atualizar_barras
@@ -2749,7 +2755,8 @@ atalho_executar() {
   # Executa sempre em bash -lc para que comandos editados com argumentos, pipes ou variáveis
   # tenham o mesmo comportamento em qualquer máquina. Mantém o shell aberto e deixa o erro
   # visível quando o programa não existe ou termina imediatamente.
-  script=$cmd$'\nrc=$?\nif (( rc != 0 )); then printf "\\natalho terminou com código %d; shell mantido aberto\\n" "$rc"; fi\nexec "${SHELL:-bash}"'
+  # O Codex guarda as cores do terminal ao iniciar; o fundo precisa estar correto ANTES dele.
+  script="$(q "$EU") --reforcar-padrao >/dev/null 2>&1"$'\n'$cmd$'\nrc=$?\nif (( rc != 0 )); then printf "\\natalho terminou com código %d; shell mantido aberto\\n" "$rc"; fi\nexec "${SHELL:-bash}"'
   printf -v quoted '%q' "$script"
   tmux new-session -d -s "$nome" -c "$pasta" "bash -lc $quoted" || {
     botao_aviso "$cliente" "atalho: não consegui abrir a sessão"; return
@@ -3701,6 +3708,7 @@ case "${1:-}" in
   --fechar-paradas) fechar_paradas "$(date +%s)"; exit 0 ;;
   --definir-paradas) definir_paradas "$2" "${3:-}"; exit 0 ;;
   --config-paradas) config_paradas "$2"; exit 0 ;;
+  --reforcar-padrao) reforcar_padrao; exit ;;
   --redesenhar) redesenhar_todos; exit 0 ;;
   --tema-clientes) tema_cliente "${2:-}"; exit 0 ;;
   --copiar-tela) copiar_tela "$2" "$3"; exit 0 ;;

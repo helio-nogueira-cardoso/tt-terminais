@@ -62,7 +62,7 @@ entre marcadores, uma única vez (backup em `~/.bashrc.antes-tt`). Ajustes só d
 O pacote inclui a paleta **Catppuccin Mocha** em `tema-terminal.sh`: ela configura as 16 cores ANSI, o fundo
 e o texto do terminal ao abrir um shell, e o `tmux`/`fzf` usam a mesma paleta. Windows Terminal,
 GNOME Terminal/VTE e Termux aceitam essa configuração; terminais que não aceitam as sequências de
-cor simplesmente a ignoram. Para mudar o padrão, edite esse arquivo e as cores do `tmux.conf` no
+cor simplesmente a ignoram. Para mudar o padrão, edite esse arquivo e as cores do `tema-tmux.conf` no
 clone de origem, faça commit e rode `tt --sincronizar`. Todas as máquinas cadastradas recebem o
 mesmo pacote; `tt --atualizar --todas` faz o mesmo a partir da versão publicada.
 
@@ -75,8 +75,15 @@ redesenhados, incluindo o atual, sem encerrar sessões ou processos. Sessões de
 herdam o padrão e são desenhadas ao conectar. Desvios locais de texto, fundo e paleta dos
 painéis são removidos nessa reaplicação.
 
+    tt --reforcar-padrao aplica os temas dos agentes e redesenha todos os clientes
     tt --redesenhar    reforça o padrão visual e redesenha todos os clientes desta máquina
     tt --tema-agentes  reaplica as preferências visuais dos agentes instalados
+
+Os atalhos da barra aplicam o padrão completo antes de iniciar o programa. O Codex guarda
+as cores padrão do terminal ao iniciar; corrigir o terminal e redesenhar o tmux não limpa
+esse cache. Se uma conversa antiga continuar com blocos claros, use `/quit` e
+`codex resume <id-da-conversa>` para retomá-la com as cores novas, sem perder o histórico.
+O tt não encerra agentes automaticamente para fazer essa atualização.
 
 Os agentes já abertos podem precisar de reabertura para ler sua configuração novamente;
 o redesenho do tmux não obriga o agente a reler preferências nem substitui cores RGB que
