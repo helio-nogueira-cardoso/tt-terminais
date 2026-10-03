@@ -833,6 +833,7 @@ pode_instalar() {
 # pontes. Sem -t, refresh-client age só no cliente usado por último — as outras abas ficavam com o
 # visual antigo depois de uma sincronização.
 redesenhar_todos() {
+  tema_cliente
   local c
   for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do
     tmux refresh-client -t "$c" 2>/dev/null
@@ -1850,7 +1851,10 @@ copiar_local() {
   clip=$(command -v clip.exe 2>/dev/null)
   [[ -z $clip && -x /mnt/c/Windows/System32/clip.exe ]] && grep -qi microsoft /proc/version 2>/dev/null && clip=/mnt/c/Windows/System32/clip.exe
   if [[ -n $clip ]]; then
-    "$clip" <"$t" >/dev/null 2>&1
+    # clip.exe lê bytes na página de código do console (850/1252): UTF-8 virava "Ã§". Em UTF-16LE
+    # (sem BOM, senão ele entra no texto) chega certo, inclusive emoji e ideogramas.
+    if command -v iconv >/dev/null; then iconv -f utf-8 -t utf-16le <"$t" | "$clip" >/dev/null 2>&1
+    else "$clip" <"$t" >/dev/null 2>&1; fi
   elif command -v wl-copy >/dev/null; then
     local run=${XDG_RUNTIME_DIR:-/run/user/$(id -u)} w=${WAYLAND_DISPLAY:-} s
     if [[ -z $w ]]; then
@@ -1985,7 +1989,25 @@ ajustar() {
   s=$(do_cliente "$c" '#{session_name}')
   [[ -n $s ]] || return 1
   descongelar "$s"
+  tema_cliente "$c"
   tmux refresh-client -c "$c"
+}
+
+# Reaplica a paleta comum (tema-terminal.sh) no terminal de fora do cliente C — ou de todos, sem C.
+# Ela é mandada por sequências OSC quando o terminal abre, e se perde quando algum programa manda
+# "restaurar as cores padrão" (TUIs ao sair, reset): o fundo do Windows Terminal/Termux voltava ao
+# do perfil. Clientes aninhados (TERM tmux*, painéis e pontes) ficam de fora: o tmux de fora cuida.
+# Depois de escrever direto no terminal, redesenha o cliente (caso a escrita caia no meio de um quadro).
+tema_cliente() {
+  local alvo=${1:-} c term tty
+  [[ -r $DIR_TT/tema-terminal.sh ]] || return 0
+  while read -r c term tty; do
+    [[ -z $alvo || $c == "$alvo" ]] || continue
+    [[ $term == tmux* || $term == screen* || ! -w $tty ]] && continue
+    env -u TMUX TERM="$term" bash -c 'source "$1"' _ "$DIR_TT/tema-terminal.sh" >"$tty" 2>/dev/null
+    tmux refresh-client -t "$c" 2>/dev/null
+  done < <(tmux list-clients -F '#{client_name} #{client_termname} #{client_tty}' 2>/dev/null)
+  return 0
 }
 
 
@@ -3416,7 +3438,7 @@ sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --aplicar-fixadas | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --descongelar | --copiado | --copiar-tela | --soltar | --vigia)
+  --ir-fixada | --mover-fixada | --aplicar-fixadas | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -3435,6 +3457,7 @@ case "${1:-}" in
   --definir-paradas) definir_paradas "$2" "${3:-}"; exit 0 ;;
   --config-paradas) config_paradas "$2"; exit 0 ;;
   --redesenhar) redesenhar_todos; exit 0 ;;
+  --tema-clientes) tema_cliente "${2:-}"; exit 0 ;;
   --copiar-tela) copiar_tela "$2" "$3"; exit 0 ;;
   --versao) versao; exit ;;
   --sincronizar) shift; sincronizar "$@"; exit ;;
