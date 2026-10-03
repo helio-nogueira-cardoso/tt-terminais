@@ -15,6 +15,11 @@ falha() { printf 'FALHOU — %s\n' "$1" >&2; falhas=$((falhas + 1)); }
 exige() { command -v "$1" >/dev/null || { printf 'falta dependência de teste: %s\n' "$1" >&2; exit 2; }; }
 tem() { rg -q -- "$2" "$1"; }
 
+suite_dir=$(cd "$(dirname "$0")" && pwd)
+if [[ -x $suite_dir/test_fixadas.sh ]]; then
+  "$suite_dir/test_fixadas.sh"
+fi
+
 for cmd in bash python3 rg tmux; do exige "$cmd"; done
 [[ -x $tt ]] || { printf 'tt não executável: %s\n' "$tt" >&2; exit 2; }
 [[ -f $conf ]] || { printf 'tmux.conf não encontrado: %s\n' "$conf" >&2; exit 2; }
