@@ -54,8 +54,8 @@ tem "$tt" 'c\[3:4\] == \["oculta"\]' &&
   falha 'ocultar/mostrar máquinas não está completo'
 
 for evento in Status StatusLeft StatusRight; do
-  if rg -q "MouseDown1$evento.*#\{m:(fx|fxx)\*" "$conf" &&
-     rg -q "MouseUp1$evento.*#\{m:(fx|fxx)\*" "$conf"; then
+  if rg -q "MouseDown1$evento run-shell.*--clique" "$conf" &&
+     rg -q "MouseUp1$evento" "$conf"; then
     ok "fixadas em MouseDown/MouseUp$evento"
   else
     falha "fixadas sem proteção completa em $evento"
