@@ -192,6 +192,17 @@ O clone é a origem: edite, faça commit e rode `tt --sincronizar`. A versão é
 (`+dev` quando há mudanças não gravadas); máquinas com versão mais velha aparecem com ⚠ no menu
 de máquinas, que oferece atualizar.
 
+A instalação se protege de versões erradas, venha de `--sincronizar`, `--atualizar` ou `--cadastrar`:
+
+- não rebaixa: uma máquina com versão mais nova é mantida, e uma com o mesmo número mas outro commit
+  (clone divergente) também — `TT_FORCAR=1 tt --sincronizar` volta de propósito a uma versão anterior;
+- o pacote precisa ter todos os arquivos (`tt`, `tmux.conf`, `tema-terminal.sh`, `tema-agentes.sh`,
+  `README.md`) e passar no `bash -n`; senão nada é trocado;
+- `--sincronizar` recusa rodar de um clone atrasado em relação ao GitHub (faça `git pull --rebase`).
+
+`tema-terminal.sh` é carregado com `source` pelo `~/.bashrc`: nele, nunca use `exit` fora de uma
+função — encerraria o shell que o carregou (a sessão do tmux fecharia na hora).
+
 ## Licença
 
 MIT — veja [LICENSE](LICENSE).
