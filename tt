@@ -203,10 +203,15 @@ vigiar() {
   outro=$(cat "$pidf" 2>/dev/null)
   if [[ -n $outro ]] && tr '\0' ' ' <"/proc/$outro/cmdline" 2>/dev/null | grep -q -- '--vigia'; then exit 0; fi
   echo $$ >"$pidf"
+  # A checagem acima não é atômica: dois vigias lançados juntos passam por ela. Quem gravou por
+  # último fica; o outro sai aqui (e, a cada volta, qualquer vigia que perdeu o pidfile sai).
+  sleep 1
+  [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   local ultima_puxada=0 ultima_tema=0 s agora atividade pasta ultimo pasta_ant auto pid id st rot titulo nome motivo
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
   while tmux list-sessions >/dev/null 2>&1; do
+    [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || { echo "$(date '+%F %T') vigia $$ saiu: há outro" >>"$log"; exit 0; }
     [[ -s $CONF_MAQ ]] && atualizar_info >/dev/null 2>&1 &
     agora=$(date +%s)
     # Fixadas: puxa a lista mais nova das outras máquinas ao iniciar e a cada 5 min.
@@ -2684,7 +2689,7 @@ transferencias() {
   d=$(dir_transferencias)
   if [[ ! -t 0 ]]; then
     for f in "$d"/*.status; do [[ -f $f ]] && { id=${f##*/}; id=${id%.status}; printf '%s: %s\n' "$id" "$(estado_transferencia "$d" "$id")"; }; done
-    return
+    return 0
   fi
   corta() { local t=$1 n=$2; ((${#t} > n)) && t="${t:0:n-1}…"; printf '%s' "$t"; }
   printf '\033[?25l\033[2J'; trap 'printf "\033[?25h"' RETURN
