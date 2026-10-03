@@ -107,12 +107,17 @@ menu da sessão (botão direito em "sessão ▾") → "📌 Fixar na barra", `^f
 `tt --fixar [máquina:]sessão`. A lista é a mesma em todas as máquinas (cada mudança é copiada
 para as cadastradas; quem estava desligada puxa a mais nova sozinha ao voltar, em até 5 min), então
 as fixadas continuam lá ao entrar numa sessão de outra máquina. A linha
-só aparece quando há alguma fixada. O vigia renomeia sessões semanticamente depois de algumas
-interações (inclusive fixadas), e o item da barra acompanha o novo nome.
+só aparece quando há alguma fixada. O vigia dá nome semântico às sessões (inclusive fixadas), e o item da barra
+acompanha o novo nome:
+
+- **primeiro nome**: uma aba de nome genérico (`janela-N`, `atalho-N`…) ganha nome 1 minuto
+  depois da primeira interação (`TT_T_PRIMEIRO`, em segundos); se a tela ainda não mostrar do que
+  se trata, tenta de novo 1 minuto depois da interação seguinte;
+- **renomeações seguintes**: depois de 3 interações (`TT_INTERACOES_RENOMEAR`), ao mudar de pasta
+  ou na revisão periódica. Sessões do Claude seguem o título da conversa.
 
 O comando `^a`/“Nomear todas” faz isso sequencialmente nesta máquina e em todas as máquinas
-cadastradas que estiverem acessíveis. O limiar padrão é de 3 interações por sessão; pode ser
-ajustado com `TT_INTERACOES_RENOMEAR`.
+cadastradas que estiverem acessíveis.
 
 ## Memória local dos agentes
 
