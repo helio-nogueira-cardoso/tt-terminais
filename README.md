@@ -80,7 +80,8 @@ renomeada sozinha pelo vigia, e renomear pelo tt atualiza o item.
 
 ## Fechar sessões
 
-Na central e no seletor, cada sessão (e cada painel) tem um ✕ alinhado à direita. Um toque no ✕
+Na central e no seletor, cada sessão tem, alinhados à direita, o pino (📍 fixar / 📌 desafixar —
+liga e desliga a sessão na barra de fixadas) e o ✕ (os painéis só têm o ✕). Um toque no ✕
 vira "fechar? ✕"; o segundo fecha. Tocar em qualquer outro ponto da linha abre a sessão (e cancela
 a confirmação). Pelo teclado: `^x` fecha a selecionada. (A coluna do clique é lida por uma camada
 fina em Python entre o terminal e o fzf; sem python3, a lista funciona sem o ✕.)
