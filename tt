@@ -2313,14 +2313,22 @@ amostra_cor() { # "#rrggbb" → bloco de cor (truecolor)
 }
 
 linhas_editor_atalhos() {
-  local emoji id cmd cor origem base
+  local emoji id cmd cor origem base local padrao
   base=$(atalhos_base)
   printf '+\t\033[32m＋ Novo atalho…\033[0m\n'
   while IFS=$'\t' read -r emoji id cmd cor; do
     [[ -n $id ]] || continue
-    if grep -q "^[^	]*	$id	" "$CONF_ATALHOS" 2>/dev/null; then
-      if grep -q "^[^	]*	$id	" <<<"$base"; then origem=$'\033[33mpersonalizado\033[0m'; else origem=$'\033[36mseu\033[0m'; fi
-    else origem=$'\033[90mpadrão\033[0m'; fi
+    local=$(awk -F '\t' -v id="$id" '$2 == id { print; exit }' "$CONF_ATALHOS" 2>/dev/null)
+    padrao=$(awk -F '\t' -v id="$id" '$2 == id { print; exit }' <<<"$base")
+    if [[ -z $local ]]; then
+      origem=$'\033[90mpadrão\033[0m'
+    elif [[ -n $padrao && $local == "$padrao" ]]; then
+      origem=$'\033[90mpadrão\033[0m'
+    elif [[ -n $padrao ]]; then
+      origem=$'\033[33mpersonalizado\033[0m'
+    else
+      origem=$'\033[36mseu\033[0m'
+    fi
     printf '%s\t%s %s  %-28.28s  %s\n' "$id" "$(amostra_cor "$cor")" "$emoji" "$cmd" "$origem"
   done < <(atalhos_lista)
   # Padrões desativados aqui (emoji "-") continuam na lista, apagados, para poder voltar.
