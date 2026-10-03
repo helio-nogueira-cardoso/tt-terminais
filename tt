@@ -2254,12 +2254,23 @@ mover_fixada() {
 # da área da esquerda o menu das máquinas. RANGE CLIENTE PAINEL [X-DO-MOUSE].
 clique_direito() {
   export TT_X=$(( ${4:-0} > 4 ? ${4:-0} - 4 : 0 ))
-  case $1 in
-    fx*) menu_fixada "$2" "$1" ;;
+  local faixa=${1#user|}
+  case $faixa in
+    fx*) menu_fixada "$2" "$faixa" ;;
+    at[0-9]*) atalho_info "$2" "${faixa#at}" ;;
     maquina) menu_admin "$2" "$3" ;;
     sessao) menu_sessao "$2" "$3" ;;
     *) menu_maquinas "$2" "$3" ;;
   esac
+}
+
+# O tmux não possui evento de movimento/hover. O botão direito funciona como tooltip explícito,
+# mostrando o comando completo sem executar nada; o clique normal continua abrindo a sessão.
+atalho_info() {
+  local cliente=$1 i=$2 emoji id cmd
+  IFS=$'\t' read -r emoji id cmd < <(atalhos_lista | sed -n "${i}p")
+  [[ -n $cmd ]] || return 0
+  tmux display-message -c "$cliente" "$emoji  $id: $cmd"
 }
 
 # Clique num botão da barra de baixo: RANGE CLIENTE PAINEL PASTA [X-DO-MOUSE].
