@@ -55,6 +55,15 @@ cor simplesmente a ignoram. Para mudar o padrão, edite esse arquivo e as cores 
 clone de origem, faça commit e rode `tt --sincronizar`. Todas as máquinas cadastradas recebem o
 mesmo pacote; `tt --atualizar --todas` faz o mesmo a partir da versão publicada.
 
+### Temas dos agentes
+
+Junto com a paleta do terminal, a sincronização aplica `tema-agentes.sh` somente aos agentes que
+já existem na máquina: Claude fica no modo escuro e herda a paleta ANSI Mocha; Codex recebe
+`tui.theme = "catppuccin-mocha"`; e Kiro recebe `Catppuccin Mocha`. O script altera apenas as
+chaves visuais, é idempotente e nunca copia tokens, MCPs, permissões ou outras preferências entre
+máquinas. Se um dos agentes for instalado depois, a verificação roda em toda nova janela de
+terminal e a cada cinco minutos enquanto o tt estiver ativo.
+
 Fica de fora do tmux: terminais de IDE, sessões SSH e shells não interativos. Para abrir uma janela
 sem tmux: `NOTMUX=1 bash`.
 

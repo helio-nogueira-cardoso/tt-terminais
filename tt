@@ -204,7 +204,7 @@ vigiar() {
   if [[ -n $outro ]] && tr '\0' ' ' <"/proc/$outro/cmdline" 2>/dev/null | grep -q -- '--vigia'; then exit 0; fi
   echo $$ >"$pidf"
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
-  local ultima_puxada=0 s agora atividade pasta ultimo pasta_ant auto pid id st rot titulo nome motivo
+  local ultima_puxada=0 ultima_tema=0 s agora atividade pasta ultimo pasta_ant auto pid id st rot titulo nome motivo
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
   while tmux list-sessions >/dev/null 2>&1; do
     [[ -s $CONF_MAQ ]] && atualizar_info >/dev/null 2>&1 &
@@ -213,6 +213,11 @@ vigiar() {
     if ((agora - ${ultima_puxada:-0} >= 300)); then
       ultima_puxada=$agora
       ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
+    fi
+    # Um agente pode ter sido instalado depois do tt. Reaplica só as chaves visuais, em até 5 min.
+    if ((agora - ${ultima_tema:-0} >= 300)); then
+      ultima_tema=$agora
+      ("$EU" --tema-agentes >/dev/null 2>&1 &)
     fi
     # GitHub: uma consulta a cada 12 h, em segundo plano.
     if ((agora - $(awk '{ print $2 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0) > 43200)); then
@@ -664,16 +669,16 @@ pacote() {
   local tmp n h d
   if [[ -d $REPO_TT/.git ]]; then
     tmp=$(mktemp -d)
-    cp "$REPO_TT/tt" "$REPO_TT/tmux.conf" "$REPO_TT/tema-terminal.sh" "$REPO_TT/README.md" "$tmp/"
+    cp "$REPO_TT/tt" "$REPO_TT/tmux.conf" "$REPO_TT/tema-terminal.sh" "$REPO_TT/tema-agentes.sh" "$REPO_TT/README.md" "$tmp/"
     n=$(git -C "$REPO_TT" rev-list --count HEAD 2>/dev/null || echo 0)
     h=$(git -C "$REPO_TT" rev-parse --short HEAD 2>/dev/null || echo ?)
     d=$(git -C "$REPO_TT" log -1 --format=%cs 2>/dev/null || date +%F)
-    [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf tema-terminal.sh README.md 2>/dev/null) ]] && h+="+dev"
+    [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf tema-terminal.sh tema-agentes.sh README.md 2>/dev/null) ]] && h+="+dev"
     echo "$n $h $d" >"$tmp/VERSAO"
-    tar -C "$tmp" -cf - tt tmux.conf tema-terminal.sh README.md VERSAO
+    tar -C "$tmp" -cf - tt tmux.conf tema-terminal.sh tema-agentes.sh README.md VERSAO
     rm -rf "$tmp"
   else
-    tar -C "$DIR_TT" -cf - tt tmux.conf tema-terminal.sh README.md VERSAO
+    tar -C "$DIR_TT" -cf - tt tmux.conf tema-terminal.sh tema-agentes.sh README.md VERSAO
   fi
 }
 
@@ -691,7 +696,7 @@ instalar_aqui() {
     mv "$DIR_TT.novo" "$DIR_TT"
     rm -rf "$DIR_TT.velho"
   fi
-  chmod +x "$DIR_TT/tt"
+  chmod +x "$DIR_TT/tt" "$DIR_TT/tema-agentes.sh"
   mkdir -p "$HOME/.local/bin"
   if [[ -f $HOME/.local/bin/tt && ! -L $HOME/.local/bin/tt ]]; then
     mv "$HOME/.local/bin/tt" "$HOME/.local/bin/tt.antes-instalacao"
@@ -713,6 +718,7 @@ CONF
   fi
   limpar_cache_maquinas
   atualizar_bashrc
+  "$DIR_TT/tema-agentes.sh" --aplicar
   if tmux list-sessions >/dev/null 2>&1; then
     tmux source-file "$HOME/.tmux.conf"
     # O vigia em execução é da versão antiga: troca por um novo.
@@ -783,7 +789,7 @@ atualizar() {
   local todas=${1:-} n
   if [[ -d $REPO_TT/.git ]]; then
     echo "Esta máquina é a de desenvolvimento ($REPO_TT): git pull…"
-    if [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf tema-terminal.sh README.md) ]]; then
+    if [[ -n $(git -C "$REPO_TT" status --porcelain -- tt tmux.conf tema-terminal.sh tema-agentes.sh README.md) ]]; then
       echo "Há mudanças não gravadas no repositório; atualize à mão (git stash / commit)."; return 1
     fi
     git -C "$REPO_TT" pull -q --ff-only || { echo "git pull falhou."; return 1; }
@@ -914,6 +920,7 @@ bashrc_bloco() {
 # A paleta comum chega antes do tmux: vale também para SSH e para terminais
 # abertos diretamente nesta máquina. Em emuladores que não aceitam OSC, não faz nada.
 [[ -r "$HOME/.local/share/tt/tema-terminal.sh" ]] && source "$HOME/.local/share/tt/tema-terminal.sh"
+[[ -x "$HOME/.local/share/tt/tema-agentes.sh" ]] && "$HOME/.local/share/tt/tema-agentes.sh" --aplicar >/dev/null 2>&1
 
 # Toda janela de terminal (GNOME Terminal / Windows Terminal / Termux) abre numa sessão tmux própria,
 # para poder ser assumida de outro lugar pela central `tt`.
@@ -2739,6 +2746,7 @@ case "${1:-}" in
   --versao) versao; exit ;;
   --sincronizar) shift; sincronizar "$@"; exit ;;
   --atualizar) atualizar "${2:-}"; exit ;;
+  --tema-agentes) "$DIR_TT/tema-agentes.sh" --aplicar; exit ;;
   --verificar-atualizacao) verificar_atualizacao; exit ;;
   --cadastrar) shift; cadastrar "$@"; exit ;;
   --descadastrar) shift; descadastrar "$@"; exit ;;
