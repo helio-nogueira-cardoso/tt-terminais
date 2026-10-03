@@ -55,9 +55,34 @@ encurtar() {
   case $1 in "$HOME"*) echo "~${1#"$HOME"}" ;; *) echo "$1" ;; esac
 }
 
+# Pastas de dados do Claude Code nesta máquina, achadas sozinhas: a do usuário
+# (CLAUDE_CONFIG_DIR ou ~/.claude) e as de dentro dos Linux do proot-distro (Termux), onde o
+# Claude costuma rodar no Android. PIDs e IDs de conversa não se repetem entre elas.
+pastas_claude() {
+  if [[ -z ${PASTAS_CLAUDE+x} ]]; then
+    local d raiz
+    PASTAS_CLAUDE=()
+    for d in ${CLAUDE_CONFIG_DIR:-} "$HOME/.claude"; do [[ -d $d ]] && PASTAS_CLAUDE+=("$d"); done
+    for raiz in "${PREFIX:-/nonexistent}"/var/lib/proot-distro/{containers/*/rootfs,installed-rootfs/*}; do
+      for d in "$raiz"/root/.claude "$raiz"/home/*/.claude; do [[ -d $d ]] && PASTAS_CLAUDE+=("$d"); done
+    done
+  fi
+  printf '%s\n' "${PASTAS_CLAUDE[@]}"
+}
+
+# Arquivo SUB (ex.: sessions/123.json) na primeira pasta do Claude que o tiver.
+arquivo_claude() {
+  local d
+  while read -r d; do
+    [[ -n $d ]] || continue
+    compgen -G "$d/$1" >/dev/null && { compgen -G "$d/$1" | head -1; return; }
+  done < <(pastas_claude)
+  return 1
+}
+
 # "sessionId status name" do Claude Code rodando no PID dado (vazio se não houver registro).
 claude_info() {
-  python3 - "$HOME/.claude/sessions/$1.json" <<'EOF' 2>/dev/null
+  python3 - "$(arquivo_claude "sessions/$1.json")" <<'EOF' 2>/dev/null
 import json, sys
 d = json.load(open(sys.argv[1]))
 print(d.get("sessionId", ""), d.get("status", "?"), d.get("name", ""))
@@ -66,9 +91,14 @@ EOF
 
 # --- Nomes semânticos ------------------------------------------------------
 
+# Tira os acentos (ação → acao). Em Python, porque o Termux não tem iconv (o do Android é bloqueado).
+sem_acento() {
+  python3 -c 'import sys, unicodedata as u; t = sys.stdin.buffer.read().decode("utf-8", "ignore"); sys.stdout.write(u.normalize("NFKD", t).encode("ascii", "ignore").decode())'
+}
+
 # Texto livre → nome válido de sessão: sem acento, minúsculas, palavras separadas por hífen.
 limpar() {
-  LC_ALL=C.UTF-8 iconv -f utf-8 -t ascii//TRANSLIT <<<"$1" 2>/dev/null | tr 'A-Z' 'a-z' |
+  sem_acento <<<"$1" | tr 'A-Z' 'a-z' |
     sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-40
 }
 
@@ -89,7 +119,7 @@ slug() {
 # Título que o próprio Claude Code deu à conversa (aiTitle mais recente do transcript).
 titulo_claude() {
   local arq
-  arq=$(ls "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | head -1)
+  arq=$(arquivo_claude "projects/*/$1.jsonl")
   [[ -n $arq ]] || return 1
   grep '"type":"ai-title"' "$arq" | tail -1 | python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["aiTitle"])' 2>/dev/null
 }
@@ -122,13 +152,13 @@ sugerir_nome() {
 
   pasta=$(tmux display-message -p -t "=$s:" '#{pane_current_path}')
   cmd=$(tmux display-message -p -t "=$s:" '#{pane_current_command}')
-  claude=$HOME/.local/bin/claude
-  [[ -x $claude ]] || claude=$(command -v claude)
-  if [[ -n $claude ]]; then
+  # Numa pasta neutra (sem CLAUDE.md de projeto); no Termux não há /tmp, mas há TMPDIR.
+  local neutra=${TMPDIR:-/tmp}
+  if claude=$(claude_comando "$neutra" -p --model haiku --no-session-persistence --tools "" \
+        --system-prompt "Você nomeia sessões de terminal. Responda só com um nome curto (1 a 3 palavras em português, minúsculas, separadas por hífen) que diga do que trata a sessão: o projeto ou a tarefa, não o programa. Se a tela não mostrar nenhum trabalho concreto (só prompt vazio, boas-vindas), responda exatamente: vazio. Nada além do nome."); then
     tela=$(tmux capture-pane -p -J -S -80 -t "=$s:" | grep -v '^[[:space:]]*$' | tail -60)
-    nome=$(cd /tmp && printf 'Pasta: %s\nPrograma em primeiro plano: %s\nTela:\n%s\n' "$(encurtar "$pasta")" "$cmd" "$tela" |
-      timeout 45 "$claude" -p --model haiku --no-session-persistence --tools "" \
-        --system-prompt "Você nomeia sessões de terminal. Responda só com um nome curto (1 a 3 palavras em português, minúsculas, separadas por hífen) que diga do que trata a sessão: o projeto ou a tarefa, não o programa. Se a tela não mostrar nenhum trabalho concreto (só prompt vazio, boas-vindas), responda exatamente: vazio. Nada além do nome." 2>/dev/null | tail -1)
+    nome=$(cd "$neutra" && printf 'Pasta: %s\nPrograma em primeiro plano: %s\nTela:\n%s\n' "$(encurtar "$pasta")" "$cmd" "$tela" |
+      timeout 90 bash -c "$claude" 2>/dev/null | tail -1)
     nome=$(slug "${nome:-}")
     [[ $nome == vazio ]] && nome=""
   fi
@@ -281,7 +311,8 @@ busca_painel() {
     titulo=$(titulo_claude "${id:-x}")
   fi
   printf '%s %s ' "$titulo" "$(tmux display-message -p -t "$p" '#{pane_title} #{@nome_painel} #{@tt_rotulo}')"
-  tmux capture-pane -p -J -S -150 -t "$p" 2>/dev/null | tr -s ' \t\n' ' ' | tail -c 2500 | iconv -f utf-8 -t utf-8 -c
+  tmux capture-pane -p -J -S -150 -t "$p" 2>/dev/null | tr -s ' \t\n' ' ' | tail -c 2500 |
+    python3 -c 'import sys; sys.stdout.write(sys.stdin.buffer.read().decode("utf-8", "ignore"))'
 }
 
 # Sessão "vazia": todos os painéis só no shell (nada rodando), sem histórico e com no máximo 2
@@ -2048,20 +2079,37 @@ descendentes() {
     END { for (p in pai) { q = p; while (q != "" && q != 0 && q != raiz) q = pai[q]; if (q == raiz && p != raiz) print p, arg[p] } }'
 }
 
-# Comando que abre o Debian do proot-distro (Termux) na pasta dada, ou nada se não houver.
+# Linux do proot-distro (Termux) a usar: distro= no config; senão o Debian; senão o primeiro
+# instalado (aceita o layout novo, containers/, e o antigo, installed-rootfs/).
+distro_proot() {
+  local base=${PREFIX:-/nonexistent}/var/lib/proot-distro d
+  command -v proot-distro >/dev/null || return 1
+  for d in "$(conf distro)" debian $(ls "$base"/containers "$base"/installed-rootfs 2>/dev/null); do
+    [[ -n $d && ( -d $base/containers/$d/rootfs || -d $base/installed-rootfs/$d ) ]] && { echo "$d"; return; }
+  done
+  return 1
+}
+
+# Comando que abre o Linux do proot-distro (Termux) na pasta dada, ou nada se não houver.
 debian_comando() {
-  [[ -d ${PREFIX:-/nonexistent}/var/lib/proot-distro/containers/debian ]] && command -v proot-distro >/dev/null || return 1
-  printf 'proot-distro login debian --shared-tmp --work-dir %q' "$1"
+  local d
+  d=$(distro_proot) || return 1
+  printf 'proot-distro login %q --shared-tmp --work-dir %q' "$d" "$1"
+}
+
+# Caminho do claude desta máquina (também em ~/.local/bin, que pode não estar no PATH do tmux).
+claude_local() {
+  if [[ -x $HOME/.local/bin/claude ]]; then echo "$HOME/.local/bin/claude"; else command -v claude; fi
 }
 
 # Comando do Claude Code: o claude local, ou o do Debian do Termux; falha se nenhum existe.
 # Opções extras desta máquina vêm de claude_flags= e variáveis de ambiente de claude_env=
 # (ex.: IS_SANDBOX=1) no ~/.config/tt/config.
 claude_comando() {
-  local pasta=$1 a e; shift
+  local pasta=$1 a e c; shift
   a="$(conf claude_flags) $(printf '%q ' "$@")"
   e=$(conf claude_env); e=${e:+$e }
-  if command -v claude >/dev/null; then printf '%sclaude %s' "$e" "$a"
+  if c=$(claude_local); then printf '%s%q %s' "$e" "$c" "$a"
   elif debian_comando "$pasta" >/dev/null; then printf '%s -- bash -lc %q' "$(debian_comando "$pasta")" "${e}claude $a"
   else return 1; fi
 }

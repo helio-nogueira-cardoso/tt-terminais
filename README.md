@@ -118,6 +118,11 @@ O `CL` e o `DBN` usam o `claude` local; no Termux, o do Debian (`proot-distro`).
 
 As palavras do cabeçalho são clicáveis.
 
+Sessões com nome genérico (`janela-N`, `claude-N`) ganham nome sozinhas conforme o uso: o título
+da conversa, se for o Claude, ou um nome curto que o Haiku tira da tela. O tt acha sozinho onde o
+Claude guarda as conversas e qual `claude` usar, inclusive no Termux, com o Claude dentro do Debian
+(`proot-distro`). Um nome que você der à mão (`^r`, Ctrl+B N) nunca é trocado.
+
 ## Atualizar
 
     tt --atualizar           instala a versão mais nova publicada no GitHub nesta máquina
