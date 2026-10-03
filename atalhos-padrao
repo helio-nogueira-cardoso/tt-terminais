@@ -1,0 +1,4 @@
+# emoji<TAB>id<TAB>comando (um atalho por linha; comandos shell são intencionais e versionados)
+🟣	kiro-v3	kiro-cli chat --v3 --trust-all-tools --resume-picker
+🟢	claude-yolo	claude --dangerously-skip-permissions
+🔵	claude-resume	claude --yolo resume

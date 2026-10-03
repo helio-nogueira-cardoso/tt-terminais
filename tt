@@ -569,6 +569,8 @@ adotar() {
 # Na máquina onde se desenvolve, o repositório (~/Projetos/tt) é a origem de `tt --sincronizar`.
 
 DIR_TT=${TT_DIR:-$HOME/.local/share/tt}
+ATALHOS_PADRAO=${TT_ATALHOS_PADRAO:-$DIR_TT/atalhos-padrao}
+CONF_ATALHOS=$CONF_DIR/atalhos
 # Repositório de origem (só na máquina onde se desenvolve): TT_REPO, "repo=" no config, ou a pasta
 # deste tt, se ele estiver rodando de dentro de um clone.
 REPO_TT=${TT_REPO:-$(conf repo)}
@@ -700,7 +702,7 @@ versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh README.md)
+ARQUIVOS_FONTE=(tt tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao README.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -2232,12 +2234,49 @@ clique_direito() {
 }
 
 # Clique num botão da barra de baixo: RANGE CLIENTE PAINEL PASTA [X-DO-MOUSE].
+atalhos_lista() {
+  [[ -f $ATALHOS_PADRAO ]] && sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' "$ATALHOS_PADRAO"
+  [[ -f $CONF_ATALHOS ]] && sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' "$CONF_ATALHOS"
+  # Contas do claude-conta são atalhos locais: só o nome do perfil entra na barra, nunca a
+  # credencial. Emojis numerados deixam as contas distinguíveis mesmo em telas estreitas.
+  local dir nome i=0 emoji
+  for dir in "$HOME"/.local/share/claude-contas/*; do
+    [[ -d $dir ]] || continue
+    nome=${dir##*/}; i=$((i + 1))
+    case $i in 1) emoji='1️⃣' ;; 2) emoji='2️⃣' ;; 3) emoji='3️⃣' ;; *) emoji='🔹' ;; esac
+    printf '%s\tclaude-conta-%s\t%s\n' "$emoji" "$nome" "claude-conta $(printf '%q' "$nome") --dangerously-skip-permissions"
+  done
+}
+
+atalhos_barra() {
+  local emoji id cmd i=0
+  while IFS=$'\t' read -r emoji id cmd; do
+    [[ -n $emoji && -n $cmd ]] || continue
+    i=$((i + 1))
+    printf '#[range=user|at%d]#[fg=#1e1e2e,bg=#cba6f7,bold] %s #[norange]#[default] ' "$i" "$emoji"
+  done < <(atalhos_lista)
+}
+
+atalho_executar() {
+  local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd nome
+  IFS=$'\t' read -r emoji id cmd < <(atalhos_lista | sed -n "${i}p")
+  [[ -n $cmd ]] || return 0
+  nome=$(proximo_nome atalho)
+  tmux new-session -d -s "$nome" -c "$pasta" "$cmd; exec \${SHELL:-bash}" || {
+    botao_aviso "$cliente" "atalho: não consegui abrir a sessão"; return
+  }
+  tmux set-option -w -t "=$nome:" @tt_papel atalho
+  tmux set-option -w -t "=$nome:" @tt_atalho "$id"
+  tmux switch-client -c "$cliente" -t "=$nome"
+}
+
 clique() {
   export TT_X=$(( ${5:-0} > 4 ? ${5:-0} - 4 : 0 ))
   case $1 in
     maquina) menu_maquinas "$2" "$3" ;;
     arquivos) menu_arquivos "$2" "$3" ;;
     transferencias) eval "$(popup_tt "$2" "⇅ transferências" "$EU --transferencias")" ;;
+    at[0-9]*) atalho_executar "${1#at}" "$2" "$3" "${4:-$HOME}" ;;
     ajustar) ajustar "$2" ;;
     sessao) seletor_em "$2" "$MAQUINA" "$3" ;;
     fx*) ir_fixada "$2" "$1" ;;
@@ -3195,6 +3234,7 @@ case "${1:-}" in
   --receber) receber "$2"; exit ;;
   --transferir-fundo) shift; transferir_fundo "$@"; exit ;;
   --transferencias-barra) transferencias_barra; exit ;;
+  --atalhos-barra) atalhos_barra; exit ;;
   --transferencias) transferencias; exit ;;
   --empacotar) shift; empacotar "$@"; exit ;;
   --tamanho) shift; tamanho "$@"; exit ;;
