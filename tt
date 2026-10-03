@@ -2550,7 +2550,7 @@ barra_fixadas() {
   local atual=${1:-} i=0 r s rot cor
   local -A existe
   while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
-  printf '#[fg=#6272a4] 📌 '
+  printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
   while IFS=$'\t' read -r r s; do
     i=$((i + 1))
     if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
