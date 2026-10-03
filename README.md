@@ -70,6 +70,14 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
                             claude_env=<variáveis para o claude nesses botões, ex.: IS_SANDBOX=1>
     ~/.config/tt/maquinas   host  usuario  nome     (uma máquina por linha; "host -" esconde)
 
+## Sessões fixadas
+
+Uma segunda linha na barra com as sessões que você usa sempre (desta ou de outras máquinas): um
+clique vai direto para ela; botão direito num item: ir, desafixar, mover para os lados. Para fixar:
+menu da sessão (botão direito em "sessão ▾") → "📌 Fixar na barra", `^f` no seletor, ou
+`tt --fixar [máquina:]sessão`. A linha só aparece quando há alguma fixada. Uma sessão fixada não é
+renomeada sozinha pelo vigia, e renomear pelo tt atualiza o item.
+
 ## Arquivos
 
     tt --enviar                          navega a partir da pasta atual; escolhe máquina e pasta
