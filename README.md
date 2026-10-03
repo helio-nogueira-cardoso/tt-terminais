@@ -19,12 +19,19 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
   toque ou clique, foco na janela, girar o celular ou abrir o teclado passam a sessão para ele na
   hora, e o outro toma de volta assim que for usado. Quem só está olhando vê ⤢ na barra (um toque
   encaixa nele). A janela nunca fica presa num tamanho fixo.
+- **Copiar e colar iguais em todo lugar**: arrastar copia (também sobre o Claude Code, o Codex e
+  sessões de outra máquina), duplo clique copia a palavra, triplo a linha, sempre com o aviso
+  "📋 copiado (N caracteres)"; a cópia vai para a área de transferência do aparelho em uso (PC,
+  Windows/WSL ou celular via mosh). Colar: Ctrl+Shift+V, botão do meio ou ⋯ → 📋 Colar; no
+  celular, ⋯ → 📋 Copiar o texto da tela. Shift+arrastar continua sendo a seleção do terminal.
 - **Painéis com outras sessões**: `^v` ao lado, `^o` embaixo, `^p` troca — inclusive sessões de
   outra máquina. Uma sessão de outra máquina vista daqui vira uma "ponte"; trocar de sessão pela
   barra de lá troca a sua tela de verdade (sem ponte dentro de ponte).
 - **Arquivos entre máquinas**: navegador de pastas (→ entra, ← sobe, Tab marca, ⏎ confirma), escolha
   da máquina e da pasta (a de cada sessão de lá aparece como opção). Nunca sobrescreve: conflito
-  vira `nome (2)`. Quem recebe vê um aviso na tela.
+  vira `nome (2)`. Quem recebe vê um aviso na tela. Rodam em segundo plano: a barra
+  mostra "⇅ N em andamento" e avisa ao terminar; ⇅ → Acompanhar mostra progresso, velocidade e
+  cancela (cópia cancelada ou interrompida não deixa nada pela metade).
 - **⚙ tmux**: janelas, layouts, digitar em todos os painéis, histórico, mouse, atalhos, editar e
   recarregar a configuração, desanexar telas.
 - **Nomes automáticos**: sessões genéricas ganham nome pelo assunto (título do Claude Code, ou o
