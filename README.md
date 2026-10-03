@@ -107,8 +107,12 @@ menu da sessão (botão direito em "sessão ▾") → "📌 Fixar na barra", `^f
 `tt --fixar [máquina:]sessão`. A lista é a mesma em todas as máquinas (cada mudança é copiada
 para as cadastradas; quem estava desligada puxa a mais nova sozinha ao voltar, em até 5 min), então
 as fixadas continuam lá ao entrar numa sessão de outra máquina. A linha
-só aparece quando há alguma fixada. Uma sessão fixada não é
-renomeada sozinha pelo vigia, e renomear pelo tt atualiza o item.
+só aparece quando há alguma fixada. O vigia renomeia sessões semanticamente depois de algumas
+interações (inclusive fixadas), e o item da barra acompanha o novo nome.
+
+O comando `^a`/“Nomear todas” faz isso sequencialmente nesta máquina e em todas as máquinas
+cadastradas que estiverem acessíveis. O limiar padrão é de 3 interações por sessão; pode ser
+ajustado com `TT_INTERACOES_RENOMEAR`.
 
 Se uma sessão fixada de outra máquina foi fechada, ou a máquina caiu, o tt avisa e conserva a tela
 atual. Se a conexão cair depois de entrar, a ponte fica aberta mostrando a falha; `Enter` tenta de
