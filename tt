@@ -185,6 +185,7 @@ renomear() {
     novo=$s
   fi
   tmux set-option -t "=$novo:" @nome_auto "$([[ $auto == auto ]] && echo 1 || echo 0)"
+  [[ $novo != "$s" ]] && fixada_renomeada "$s" "$novo" >/dev/null 2>&1
   echo "$novo"
 }
 
@@ -1354,8 +1355,9 @@ alvos_seletor() {
 formatar_bloco() {
   local todas=""
   [[ $(estado maquina) == todas ]] && todas=1
-  awk -F'\t' -v d="$1" -v r="$2" -v todas="$todas" -v atual="${TT_ATUAL:-}" '{
+  awk -F'\t' -v d="$1" -v r="$2" -v todas="$todas" -v atual="${TT_ATUAL:-}" -v fx="$(fixadas | tr '\t\n' '|\034')" '{
       marca = (r "|" $1 == atual) ? "\033[35m◆\033[0m " : "  "
+      marca = marca (index("\034" fx, "\034" r "|" $1 "\034") ? "📌" : "  ") # mesma largura com e sem
       rot = todas ? sprintf("\033[34m%-8.8s\033[0m ", r) : ""
       printf "%s\t%s\t%s%s%s\n", d, $1, marca, rot, $2
     }'
@@ -1443,7 +1445,7 @@ cabecalho_seletor() {
     [[ $r == "$m" ]] && linha+="\033[1;30;46m $r \033[0m " || linha+=" $r  "
   done
   printf '%b\n' "$linha"
-  printf '\033[90m%s\033[0m\n' "clique abre · digite p/ filtrar · tab: máquina · esc fecha"
+  printf '\033[90m%s\033[0m\n' "clique abre · digite p/ filtrar · tab: máquina · ^f 📌 fixa · esc fecha"
 }
 
 clique_seletor() {
@@ -1482,6 +1484,7 @@ seletor() {
     --bind="load:transform($EU --pos-atual)" \
     --bind='left-click:accept' \
     --bind="tab:transform($EU --clique-seletor proxima)" \
+    --bind="ctrl-f:execute-silent($EU --alternar-fixada {1} {2})+reload($EU --lista-seletor)" \
     --bind="click-header:transform($EU --clique-seletor x)") || return 0
   dest=$(cut -f1 <<<"$saida") alvo=$(cut -f2 <<<"$saida")
   case $alvo in
@@ -1745,6 +1748,7 @@ menu_sessao() {
 s	☰ Trocar de sessão…	$EU --seletor-em $(q "$c") $(q "$MAQUINA") $p
 n	＋ Nova sessão	$EU --nova-e-ir $(q "$c")
 r	✎ Renomear esta sessão…	tmux display-popup -c $(q "$c") -E -w 70 -h 7 -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
+f	$(fixadas | grep -qxF "$MAQUINA"$'\t'"$sess" && echo "📌 Desafixar da barra" || echo "📌 Fixar na barra")	$EU --alternar-fixada-rotulo $(q "$MAQUINA") $(q "$sess")
 -		
 l	Dividir ao lado (terminal novo)	tmux split-window -h -t $p -c $(q "$pasta")
 b	Dividir embaixo (terminal novo)	tmux split-window -v -t $p -c $(q "$pasta")
@@ -1753,11 +1757,109 @@ x	Fechar esta sessão…	tmux confirm-before -t $(q "$c") -p $(q "Fechar a sess�
 ITENS
 }
 
+# --- Sessões fixadas ----------------------------------------------------------
+#
+# Uma segunda linha na barra com as sessões fixadas (desta ou de outras máquinas), cada uma um
+# botão: clique vai para ela; botão direito: ir, desafixar, mover. Lista em ~/.config/tt/fixadas
+# ("rótulo-da-máquina<TAB>sessão", na ordem da barra). A linha só aparece se houver alguma.
+
+CONF_FIX=$CONF_DIR/fixadas
+
+fixadas() { [[ -f $CONF_FIX ]] && grep -v '^\s*$' "$CONF_FIX"; }
+
+# Liga/desliga a 2ª linha e força a barra a se redesenhar já (o #() da barra muda de comando).
+aplicar_fixadas() {
+  tmux list-sessions >/dev/null 2>&1 || return 0
+  if [[ -n $(fixadas) ]]; then tmux set -g status 2; else tmux set -g status on; fi
+  tmux set -g @fixadas_v "$(date +%s%N)"
+  tmux refresh-client -S 2>/dev/null
+  local c; for c in $(tmux list-clients -F '#{client_name}'); do tmux refresh-client -S -t "$c" 2>/dev/null; done
+}
+
+# Fixa ou desafixa a sessão S da máquina de rótulo R. Ao fixar uma sessão daqui, o vigia para de
+# renomeá-la (senão o item da barra ficaria apontando para um nome que sumiu).
+alternar_fixada() {
+  local r=$1 s=$2
+  mkdir -p "$CONF_DIR"; touch "$CONF_FIX"
+  if grep -qxF "$r"$'\t'"$s" "$CONF_FIX"; then
+    grep -vxF "$r"$'\t'"$s" "$CONF_FIX" >"$CONF_FIX.novo"; mv "$CONF_FIX.novo" "$CONF_FIX"
+    echo "desafixada"
+  else
+    printf '%s\t%s\n' "$r" "$s" >>"$CONF_FIX"
+    if [[ $r == "$MAQUINA" ]]; then tmux set-option -t "=$s:" @nome_auto 0 2>/dev/null
+    else d=$(dest_de "$r"); [[ -n $d ]] && timeout 5 ssh "${SSH_OPC[@]}" "$d" "tmux set-option -t $(q "=$s:") @nome_auto 0" </dev/null >/dev/null 2>&1; fi
+    echo "fixada"
+  fi
+  aplicar_fixadas
+}
+
+# Sessão daqui renomeada: o item fixado acompanha.
+fixada_renomeada() {
+  [[ -f $CONF_FIX ]] || return 0
+  awk -F'\t' -v r="$MAQUINA" -v a="$1" -v n="$2" 'BEGIN { OFS = "\t" } $1 == r && $2 == a { $2 = n } { print }' "$CONF_FIX" >"$CONF_FIX.novo" &&
+    mv "$CONF_FIX.novo" "$CONF_FIX"
+  aplicar_fixadas
+}
+
+# Conteúdo da 2ª linha (chamado pela barra, por sessão: destaca a sessão atual).
+barra_fixadas() {
+  local atual=${1:-} i=0 r s rot cor
+  local -A existe
+  while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  printf '#[fg=#6c7086] 📌 '
+  while IFS=$'\t' read -r r s; do
+    i=$((i + 1))
+    if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
+    rot=${rot:0:22}
+    if [[ $r == "$MAQUINA" && $s == "$atual" ]]; then cor='#[bg=#89b4fa,fg=#1e1e2e,bold]'
+    elif [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then cor='#[bg=#1e1e2e,fg=#585b70]'; rot="✗ $rot"
+    else cor='#[bg=#313244,fg=#cdd6f4]'; fi
+    printf '#[range=user|fx%d]%s %s #[norange]#[default] ' "$i" "$cor" "$rot"
+  done < <(fixadas)
+}
+
+# Clique num item fixado: vai para ele (ponte, se for de outra máquina).
+ir_fixada() {
+  local c=$1 i=${2#fx} r s d
+  IFS=$'\t' read -r r s < <(fixadas | sed -n "${i}p")
+  [[ -n $s ]] || return 0
+  d=$(dest_de "$r")
+  if [[ -z $d ]]; then tmux display-message -c "$c" "📌 $r: máquina não cadastrada ou desligada"; return 0; fi
+  if [[ $d == . ]] && ! tmux has-session -t "=$s" 2>/dev/null; then
+    tmux display-message -c "$c" "📌 a sessão \"$s\" não existe mais (botão direito no item para desafixar)"; return 0
+  fi
+  TT_CLIENTE=$c ir_para "$d" "$s"
+}
+
+# Botão direito num item fixado.
+menu_fixada() {
+  local c=$1 i=${2#fx} r s n
+  IFS=$'\t' read -r r s < <(fixadas | sed -n "${i}p")
+  [[ -n $s ]] || return 0
+  n=$(fixadas | wc -l)
+  menu_popup "$c" "📌 $([[ $r == "$MAQUINA" ]] && echo "$s" || echo "$r:$s")" <<ITENS
+i	Ir para esta sessão	$EU --ir-fixada $(q "$c") fx$i
+d	Desafixar da barra	$EU --alternar-fixada-rotulo $(q "$r") $(q "$s")
+-		
+e	◀ Mover para a esquerda	$( ((i > 1)) && echo "$EU --mover-fixada $i -1")
+r	▶ Mover para a direita	$( ((i < n)) && echo "$EU --mover-fixada $i 1")
+ITENS
+}
+
+mover_fixada() {
+  local i=$1 delta=$2 j
+  j=$((i + delta))
+  awk -v i="$i" -v j="$j" '{ l[NR] = $0 } END { t = l[i]; l[i] = l[j]; l[j] = t; for (k = 1; k <= NR; k++) print l[k] }' "$CONF_FIX" >"$CONF_FIX.novo" &&
+    mv "$CONF_FIX.novo" "$CONF_FIX"
+  aplicar_fixadas
+}
+
 # Botão direito na barra: em "máquina ▾" a administração, em "sessão ▾" o menu da sessão, no resto
 # da área da esquerda o menu das máquinas. RANGE CLIENTE PAINEL [X-DO-MOUSE].
 clique_direito() {
   export TT_X=$(( ${4:-0} > 4 ? ${4:-0} - 4 : 0 ))
   case $1 in
+    fx*) menu_fixada "$2" "$1" ;;
     maquina) menu_admin "$2" "$3" ;;
     sessao) menu_sessao "$2" "$3" ;;
     *) menu_maquinas "$2" "$3" ;;
@@ -1772,6 +1874,7 @@ clique() {
     arquivos) menu_arquivos "$2" "$3" ;;
     ajustar) ajustar "$2" ;;
     sessao) seletor_em "$2" "$MAQUINA" "$3" ;;
+    fx*) ir_fixada "$2" "$1" ;;
     tt) tmux display-popup -c "$2" -E $(tam_popup "$2") "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
     lado) tmux split-window -h -t "$3" -c "$4" ;;
     baixo) tmux split-window -v -t "$3" -c "$4" ;;
@@ -2329,7 +2432,7 @@ sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --soltar | --vigia)
+  --ir-fixada | --mover-fixada | --aplicar-fixadas | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --soltar | --vigia)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -2410,6 +2513,16 @@ case "${1:-}" in
   --ajustar) ajustar "$2"; exit ;;
   --fechar-vazias) fechar_vazias "${2:-}"; exit ;;
   --bordas) bordas; exit ;;
+  --barra-fixadas) barra_fixadas "${2:-}"; exit ;;
+  --aplicar-fixadas) aplicar_fixadas; exit ;;
+  --ir-fixada) ir_fixada "$2" "$3"; exit ;;
+  --mover-fixada) mover_fixada "$2" "$3"; exit ;;
+  --alternar-fixada-rotulo) alternar_fixada "$2" "$3"; exit ;;
+  --alternar-fixada) # DEST CHAVE (do seletor)
+    [[ $3 == [!+%]* ]] && alternar_fixada "$(rotulo "$2")" "$3" >/dev/null; exit ;;
+  --fixar) # [máquina:]sessão
+    a=${2:?uso: tt --fixar [máquina:]sessão}; [[ $a == *:* ]] && alternar_fixada "${a%%:*}" "${a#*:}" || alternar_fixada "$MAQUINA" "$a"; exit ;;
+  --fixadas) fixadas; exit ;;
   --guarda-tamanho) guarda_tamanho; exit ;;
   --ciclo) fecha_ciclo "$2" "$3" && echo "fecha ciclo" || echo "ok, sem ciclo"; exit ;;
   --lista-seletor) lista_seletor_salva; exit ;;
