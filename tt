@@ -1263,8 +1263,12 @@ nth_atual() { [[ $(estado busca) == nomes ]] && echo 1 || echo 1,2; }
 
 # Menu completo: esta máquina primeiro, depois as outras (consultadas em paralelo).
 # Com filtro de máquina, só ela.
-listar_tudo() {
-  if [[ ${TT_COMX:-} == central && -z ${TT_SEM_X:-} ]]; then TT_SEM_X=1 listar_tudo | com_x; return; fi
+# A consulta às máquinas não pode herdar o terminal do popup (entrada e saída de erros): o tmux só
+# fecha o quadro quando todos os processos soltam aquele terminal, e um ssh ainda respondendo depois
+# do Esc segurava o quadro aberto por segundos. Só a lista (stdout) vai para o fzf.
+listar_tudo() { (exec </dev/null 2>/dev/null; listar_tudo_ "$@"); } # exec: sem cópias guardadas do terminal
+listar_tudo_() {
+  if [[ ${TT_COMX:-} == central && -z ${TT_SEM_X:-} ]]; then TT_SEM_X=1 listar_tudo_ | com_x; return; fi
   local tmp dest rot i=0 n filtro
   filtro=$(estado maquina)
   [[ $filtro == todas ]] && filtro=""
@@ -3625,7 +3629,9 @@ escolher() {
     aqui) rotulo_borda+="· ⏎ troca o painel " ;;
   esac
   export TT_COMX=central TT_MOUSE="$TT_ESTADO.mouse"
-  listar_tudo | com_mouse "$TT_MOUSE" fzf --ansi --delimiter='\t' --with-nth=3,4 --nth="$(nth_atual)" --exact --no-hscroll --ellipsis='' \
+  # <(…) e não "listar_tudo |": o bash espera todos os estágios de um pipeline, então depois do Esc
+  # ele ficava esperando a consulta às outras máquinas (ssh) acabar, e o quadro do popup não fechava.
+  com_mouse "$TT_MOUSE" fzf --ansi --delimiter='\t' --with-nth=3,4 --nth="$(nth_atual)" --exact --no-hscroll --ellipsis='' \
     --tiebreak=begin,index --layout=reverse \
     --border=$borda --border-label="$rotulo_borda" --border-label-pos=3 \
     --prompt="$([[ -n ${TT_COMPACTO:-} ]] && echo "$MAQUINA ❯ " || echo '❯ ')" --pointer='▶' --info=inline-right \
@@ -3639,7 +3645,7 @@ escolher() {
     --bind="ctrl-s:print(enviar)+accept,ctrl-g:print(trazer)+accept" \
     --bind="ctrl-f:transform($EU --clique-cabecalho máquina),ctrl-e:transform($EU --clique-cabecalho busca)" \
     --bind="click-header:transform($EU --clique-cabecalho \"\$FZF_CLICK_HEADER_WORD\")" \
-    --bind="left-click:transform($EU --clique-linha {1} {2})"
+    --bind="left-click:transform($EU --clique-linha {1} {2})" < <(listar_tudo)
 }
 
 sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos"; }
@@ -3770,7 +3776,7 @@ case "${1:-}" in
   --fixadas) fixadas; exit ;;
   --guarda-tamanho) guarda_tamanho; exit ;;
   --ciclo) fecha_ciclo "$2" "$3" && echo "fecha ciclo" || echo "ok, sem ciclo"; exit ;;
-  --lista-seletor) lista_seletor_salva | com_x; exit ;;
+  --lista-seletor) exec </dev/null 2>/dev/null; lista_seletor_salva | com_x; exit ;; # sem o terminal do popup (veja listar_tudo)
   --lista-rapida) lista_rapida_salva; exit ;;
   --pos-atual) pos_atual; exit ;;
   --cabecalho-seletor) cabecalho_seletor; exit ;;
