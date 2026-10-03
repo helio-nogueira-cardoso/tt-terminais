@@ -3096,6 +3096,14 @@ clique() {
   # Algumas versões/configurações do tmux devolvem o tipo junto no range (user|at1).
   # Normalizar aqui evita que um clique válido seja descartado silenciosamente.
   local faixa=${1#user|}
+  local marca="$RT/tt-clique-$(id -u)" agora anterior cliente_anterior faixa_anterior
+  agora=$(date +%s%N)
+  if read -r anterior cliente_anterior faixa_anterior <"$marca" 2>/dev/null &&
+     [[ $cliente_anterior == "$2" && $faixa_anterior == "$faixa" ]] &&
+     ((agora - anterior < 500000000)); then
+    return 0
+  fi
+  printf '%s %s %s\n' "$agora" "$2" "$faixa" >"$marca"
   case $faixa in
     window) tmux select-window -t = ;;
     maquina) menu_maquinas "$2" "$3" ;;
