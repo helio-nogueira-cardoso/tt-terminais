@@ -192,7 +192,8 @@ renomear() {
 generico() { [[ $1 =~ ^(janela|claude)-[0-9]+$ ]]; }
 
 # Vigia: roda em segundo plano enquanto o tmux existir (iniciado pelo ~/.tmux.conf) e vai
-# renomeando as sessões conforme o uso. Só mexe em nomes genéricos ou automáticos.
+# renomeando semanticamente as sessões conforme o uso. Depois de algumas interações, também
+# revisa sessões que já tinham um nome escolhido; nomes fixados acompanham o rename.
 #   Claude: segue o título da conversa (sem custo, a cada volta).
 #   Shell:  pergunta ao Haiku só se houve uso desde a última vez e
 #           (nome genérico há 5 min) ou (mudou de pasta) ou (30 min desde o último nome).
@@ -208,8 +209,9 @@ vigiar() {
   sleep 1
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
-  local ultima_puxada=0 ultima_tema=0 s agora atividade pasta ultimo pasta_ant auto pid id st rot titulo nome motivo
+  local ultima_puxada=0 ultima_tema=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
+  local minimo_interacoes=${TT_INTERACOES_RENOMEAR:-3}
   while tmux list-sessions >/dev/null 2>&1; do
     [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || { echo "$(date '+%F %T') vigia $$ saiu: há outro" >>"$log"; exit 0; }
     [[ -s $CONF_MAQ ]] && atualizar_info >/dev/null 2>&1 &
@@ -232,9 +234,6 @@ vigiar() {
       ("$EU" --verificar-atualizacao >/dev/null 2>&1 &)
     fi
     while IFS='|' read -r s atividade pasta; do
-      auto=$(tmux show-options -qv -t "=$s:" @nome_auto)
-      [[ $auto == 1 ]] || { generico "$s" && [[ $auto != 0 ]]; } || continue
-
       pid=$(claude_na_sessao "$s")
       if [[ -n $pid ]]; then
         read -r id st rot < <(claude_info "$pid")
@@ -247,10 +246,18 @@ vigiar() {
       fi
 
       ultimo=$(tmux show-options -qv -t "=$s:" @nome_em); ultimo=${ultimo:-0}
+      interacoes=$(tmux show-options -qv -t "=$s:" @nome_interacoes); interacoes=${interacoes:-0}
       pasta_ant=$(tmux show-options -qv -t "=$s:" @nome_pasta)
       ((atividade > ultimo)) || continue
+      # window_activity avança quando há entrada/saída relevante no terminal. Guardamos cada
+      # avanço para que o custo do Haiku só ocorra depois do número mínimo de interações.
+      interacoes=$((interacoes + 1))
+      tmux set-option -t "=$s:" @nome_interacoes "$interacoes"
+      tmux set-option -t "=$s:" @nome_em "$atividade"
       motivo=""
-      if generico "$s" && ((agora - $(tmux display-message -p -t "=$s:" '#{session_created}') >= t_generico)) && ((agora - ultimo >= t_generico)); then
+      if ((interacoes >= minimo_interacoes)); then
+        motivo="ganhou $interacoes interações"
+      elif generico "$s" && ((agora - $(tmux display-message -p -t "=$s:" '#{session_created}') >= t_generico)) && ((agora - ultimo >= t_generico)); then
         motivo="ganhou uso"
       elif [[ -n $pasta_ant && $pasta != "$pasta_ant" ]] && ((agora - ultimo >= t_pasta)); then
         motivo="mudou de pasta"
@@ -259,11 +266,15 @@ vigiar() {
       fi
       [[ -n $motivo ]] || continue
 
-      tmux set-option -t "=$s:" @nome_em "$agora"
       tmux set-option -t "=$s:" @nome_pasta "$pasta"
-      nome=$(sugerir_nome "$s") || continue
-      [[ $nome == "${s%-[0-9]*}" ]] && continue
+      if ! nome=$(sugerir_nome "$s"); then
+        # Sem assunto claro: não fica tentando a cada volta; novas interações reabrem a tentativa.
+        tmux set-option -t "=$s:" @nome_interacoes 0
+        continue
+      fi
+      [[ $nome == "${s%-[0-9]*}" ]] && { tmux set-option -t "=$s:" @nome_interacoes 0; continue; }
       nome=$(renomear "$s" "$nome" auto) || continue
+      tmux set-option -t "=$nome:" @nome_interacoes 0
       echo "$(date '+%F %T') $s → $nome ($motivo)" >>"$log"
     done < <(tmux list-sessions -F '#{session_name}|#{window_activity}|#{pane_current_path}' 2>/dev/null)
     sleep "$pausa"
