@@ -1921,6 +1921,7 @@ h	Rolar / copiar o histórico	tmux copy-mode -t $p
 u	Mouse: $mouse	tmux set-option -g mouse
 k	Ver todos os atalhos	$(popup_tt "$c" atalhos "tmux list-keys | sed 's/^bind-key *//' | less -S")
 e	Editar a configuração desta máquina	$(popup_tt "$c" "~/.tmux.conf" "$ed ~/.tmux.conf && tmux source-file ~/.tmux.conf")
+a	Editar atalhos de comandos…	$EU --menu-atalhos $(q "$c")
 l	Recarregar a configuração	tmux source-file ~/.tmux.conf \; display-message -c $(q "$c") 'configuração recarregada'
 -		
 r	Renomear a sessão…	tmux display-popup -c $(q "$c") -E -w 70 -h 7 -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
@@ -1931,6 +1932,16 @@ X	Fechar a sessão…	tmux confirm-before -t $(q "$c") -p $(q "Fechar a sessão 
 s	☰ Sessões…	$EU --seletor-em $(q "$c") $(q "$MAQUINA") $p
 a	🖥 Máquinas…	$EU --menu-maquinas $(q "$c") $p
 f	⇅ Arquivos…	$EU --menu-arquivos $(q "$c") $p
+ITENS
+}
+
+menu_atalhos() {
+  local c=$1 ed=${EDITOR:-nano}
+  mkdir -p "$CONF_DIR"
+  touch "$CONF_ATALHOS"
+  menu_popup "$c" "atalhos de comandos" <<ITENS
+e	Editar atalhos locais (emoji, comando, adicionar ou excluir)	$(popup_tt "$c" "~/.config/tt/atalhos" "$ed ~/.config/tt/atalhos && tmux refresh-client -S")
+v	Ver atalhos ativos	$(popup_tt "$c" "atalhos ativos" "$EU --atalhos-lista | less -S")
 ITENS
 }
 
@@ -2234,9 +2245,8 @@ clique_direito() {
 }
 
 # Clique num botão da barra de baixo: RANGE CLIENTE PAINEL PASTA [X-DO-MOUSE].
-atalhos_lista() {
+atalhos_base() {
   [[ -f $ATALHOS_PADRAO ]] && sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' "$ATALHOS_PADRAO"
-  [[ -f $CONF_ATALHOS ]] && sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' "$CONF_ATALHOS"
   # Contas do claude-conta são atalhos locais: só o nome do perfil entra na barra, nunca a
   # credencial. Emojis numerados deixam as contas distinguíveis mesmo em telas estreitas.
   local dir nome i=0 emoji
@@ -2246,6 +2256,24 @@ atalhos_lista() {
     case $i in 1) emoji='1️⃣' ;; 2) emoji='2️⃣' ;; 3) emoji='3️⃣' ;; *) emoji='🔹' ;; esac
     printf '%s\tclaude-conta-%s\t%s\n' "$emoji" "$nome" "claude-conta $(printf '%q' "$nome") --dangerously-skip-permissions"
   done
+}
+
+# A configuração local sobrescreve pelo ID (2ª coluna). Emoji '-' desativa um padrão; um ID
+# novo adiciona um atalho. Assim o arquivo versionado continua recebendo melhorias sem apagar a
+# personalização de cada máquina.
+atalhos_lista() {
+  local base localf tmp
+  base=$(mktemp "${RT:-/tmp}/tt-atalhos.XXXXXX") || return 1
+  atalhos_base >"$base"
+  localf=$CONF_ATALHOS; [[ -f $localf ]] || localf=/dev/null
+  awk -F '\t' -v b="$base" '
+    function guarda(l,   p) { split(l,p,"\t"); if (p[2] != "") { linha[p[2]]=l; if (!(p[2] in visto)) { ordem[++n]=p[2]; visto[p[2]]=1 } } }
+    FILENAME == b { guarda($0); next }
+    { guarda($0); local[p[2]]=$0 }
+    END { for (i=1; i<=n; i++) { id=ordem[i]; if (id in local) { split(local[id],p,"\t"); if (p[1] != "-") print local[id] } else print linha[id] }
+      for (id in local) if (!(id in linha)) { split(local[id],p,"\t"); if (p[1] != "-") print local[id] } }
+  ' "$base" "$localf"
+  rm -f "$base"
 }
 
 atalhos_barra() {
@@ -3235,6 +3263,7 @@ case "${1:-}" in
   --transferir-fundo) shift; transferir_fundo "$@"; exit ;;
   --transferencias-barra) transferencias_barra; exit ;;
   --atalhos-barra) atalhos_barra; exit ;;
+  --atalhos-lista) atalhos_lista; exit ;;
   --transferencias) transferencias; exit ;;
   --empacotar) shift; empacotar "$@"; exit ;;
   --tamanho) shift; tamanho "$@"; exit ;;
@@ -3271,6 +3300,7 @@ case "${1:-}" in
   --clique) clique "$2" "$3" "$4" "${5:-$HOME}" "${6:-0}"; exit ;;
   --menu-painel) menu_painel "$2" "$3"; exit ;;
   --menu-tmux) menu_tmux "$2" "${3:-}"; exit ;;
+  --menu-atalhos) menu_atalhos "$2"; exit ;;
   --listar-leve) listar_leve; exit ;;
   --ajustar) ajustar "$2"; exit ;;
   --descongelar) descongelar "${2:-}"; exit 0 ;;
