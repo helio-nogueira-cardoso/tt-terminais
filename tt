@@ -722,6 +722,18 @@ pode_instalar() {
   return 1
 }
 
+# Redesenha TODOS os clientes desta máquina (tela inteira e barra): abas, aparelhos, painéis e
+# pontes. Sem -t, refresh-client age só no cliente usado por último — as outras abas ficavam com o
+# visual antigo depois de uma sincronização.
+redesenhar_todos() {
+  local c
+  for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do
+    tmux refresh-client -t "$c" 2>/dev/null
+    tmux refresh-client -S -t "$c" 2>/dev/null
+  done
+  return 0
+}
+
 # Instala o pacote que está na pasta deste tt (chamado como <pasta>/tt --instalar-aqui).
 # Troca a pasta de uma vez (nunca sobrescreve o arquivo de um tt que esteja rodando, como o vigia),
 # aponta ~/.local/bin/tt para ela, faz o ~/.tmux.conf carregar o tmux.conf dela e recarrega o tmux.
@@ -765,7 +777,7 @@ CONF
     tmux source-file "$HOME/.tmux.conf"
     # source-file atualiza as opções, mas clientes já desenhados nem sempre redesenham a
     # barra imediatamente. Força todas as telas/abas ativas a adotarem o padrão novo.
-    tmux refresh-client -S 2>/dev/null
+    redesenhar_todos
     # O vigia em execução é da versão antiga: troca por um novo.
     # (versões antigas gravavam o pidfile onde o XDG_RUNTIME_DIR do momento apontasse: procura em todos)
     for pidf in "$RT" "${XDG_RUNTIME_DIR:-$RT}" "${TMPDIR:-/tmp}" /tmp; do
@@ -2643,7 +2655,8 @@ atualizar_transferencia() {
   local id=$1 estado=$2 d
   d=$(dir_transferencias); mkdir -p "$d"
   printf '%s\n' "$estado" >"$d/$id.status"
-  tmux refresh-client -S >/dev/null 2>&1 || true
+  local c; for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux refresh-client -S -t "$c" 2>/dev/null; done
+  return 0
 }
 
 idade_arquivo() { echo $(($(date +%s) - $(stat -c %Y "$1" 2>/dev/null || date +%s))); }
@@ -3114,6 +3127,7 @@ case "${1:-}" in
   --copiar) copiar; exit 0 ;;
   --copiar-buffer) tmux save-buffer - 2>/dev/null | copiar; exit 0 ;;
   --copiado) copiado "$2"; exit 0 ;;
+  --redesenhar) redesenhar_todos; exit 0 ;;
   --copiar-tela) copiar_tela "$2" "$3"; exit 0 ;;
   --versao) versao; exit ;;
   --sincronizar) shift; sincronizar "$@"; exit ;;
