@@ -224,9 +224,11 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   local ultima_puxada=0 ultima_tema=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
   local minimo_interacoes=${TT_INTERACOES_RENOMEAR:-3}
   while tmux list-sessions >/dev/null 2>&1; do
+    proximo=$pausa
     [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || { echo "$(date '+%F %T') vigia $$ saiu: há outro" >>"$log"; exit 0; }
     [[ -s $CONF_MAQ ]] && atualizar_info >/dev/null 2>&1 &
     agora=$(date +%s)
@@ -264,6 +266,35 @@ vigiar() {
         continue
       fi
 
+      # Primeiro nome: aba com nome genérico que o tt ainda não nomeou. Não espera várias
+      # interações: 1 min depois da primeira (TT_T_PRIMEIRO) a tela já mostra do que se trata.
+      # A saída do próprio shell ao abrir (até 2 s depois de criada) não conta como interação.
+      if generico "$s" && [[ -z $(tmux show-options -qv -t "=$s:" @nome_dado) ]]; then
+        primeira=$(tmux show-options -qv -t "=$s:" @nome_primeira)
+        if [[ -z $primeira ]]; then
+          desde=$(tmux show-options -qv -t "=$s:" @nome_espera)
+          [[ -n $desde ]] || desde=$(($(tmux display-message -p -t "=$s:" '#{session_created}') + 2))
+          ((atividade > desde)) || continue
+          tmux set-option -t "=$s:" @nome_primeira "$atividade"
+          ((proximo = t_primeiro < proximo ? t_primeiro : proximo))
+          continue
+        fi
+        falta=$((primeira + t_primeiro - agora))
+        if ((falta > 0)); then ((proximo = falta < proximo ? falta : proximo)); continue; fi
+        tmux set-option -t "=$s:" @nome_pasta "$pasta"
+        tmux set-option -t "=$s:" @nome_em "$atividade"
+        tmux set-option -u -t "=$s:" @nome_primeira
+        if nome=$(sugerir_nome "$s") && [[ $nome != "${s%-[0-9]*}" ]] && nome=$(renomear "$s" "$nome" auto); then
+          tmux set-option -t "=$nome:" @nome_dado 1
+          tmux set-option -t "=$nome:" @nome_interacoes 0
+          echo "$(date '+%F %T') $s → $nome (primeiro nome, 1 min após a primeira interação)" >>"$log"
+        else
+          # Ainda sem assunto: espera a próxima interação e tenta de novo 1 min depois dela.
+          tmux set-option -t "=$s:" @nome_espera "$atividade"
+        fi
+        continue
+      fi
+
       ultimo=$(tmux show-options -qv -t "=$s:" @nome_em); ultimo=${ultimo:-0}
       interacoes=$(tmux show-options -qv -t "=$s:" @nome_interacoes); interacoes=${interacoes:-0}
       pasta_ant=$(tmux show-options -qv -t "=$s:" @nome_pasta)
@@ -276,8 +307,6 @@ vigiar() {
       motivo=""
       if ((interacoes >= minimo_interacoes)); then
         motivo="ganhou $interacoes interações"
-      elif generico "$s" && ((agora - $(tmux display-message -p -t "=$s:" '#{session_created}') >= t_generico)) && ((agora - ultimo >= t_generico)); then
-        motivo="ganhou uso"
       elif [[ -n $pasta_ant && $pasta != "$pasta_ant" ]] && ((agora - ultimo >= t_pasta)); then
         motivo="mudou de pasta"
       elif ((ultimo > 0 && agora - ultimo >= t_revisao)); then
@@ -296,7 +325,9 @@ vigiar() {
       tmux set-option -t "=$nome:" @nome_interacoes 0
       echo "$(date '+%F %T') $s → $nome ($motivo)" >>"$log"
     done < <(tmux list-sessions -F '#{session_name}|#{window_activity}|#{pane_current_path}' 2>/dev/null)
-    sleep "$pausa"
+    # Um primeiro nome pendente encurta o sono: o nome sai ~1 min após a interação, não até 2 min.
+    ((proximo < 5)) && proximo=5
+    sleep "$proximo"
   done
 }
 
