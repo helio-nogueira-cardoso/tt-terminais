@@ -1889,6 +1889,16 @@ do_cliente() {
   tmux list-clients -F "#{client_name}	$2" 2>/dev/null | awk -F'\t' -v c="$1" '$1 == c { print $2; exit }'
 }
 
+# Cliente que contém o painel desta execução. Não use a primeira tela da sessão: uma mesma
+# sessão pode estar anexada em várias telas e os menus precisam trocar exatamente a tela clicada.
+cliente_do_painel() {
+  local p=${1:-${TMUX_PANE:-}} c
+  [[ -n $p ]] || return 1
+  c=$(tmux display-message -p -t "$p" '#{client_name}' 2>/dev/null)
+  [[ -n $c && $c != '#{client_name}' ]] || return 1
+  printf '%s\n' "$c"
+}
+
 # "máquina|ponte" se o cliente tmux atual é uma ponte vinda de outra máquina (vazio se não).
 origem_ponte() {
   local pid
@@ -1915,12 +1925,12 @@ ir_para() {
     aviso_ciclo "$s" "$container"; read -rp "Enter para voltar."
     return 1
   fi
-  # Dentro do tmux sem saber qual é a tela: usa a que está nesta sessão. Se nenhuma estiver (o tt
-  # rodando numa sessão sem ninguém olhando), não troca nada — o tmux escolheria uma tela qualquer.
+  # Dentro do tmux sem saber qual é a tela: resolve pelo painel que abriu o menu. Não escolha a
+  # primeira tela da sessão: ela pode ser outra tela do mesmo computador.
   if [[ -n ${TMUX:-} && -z ${TT_CLIENTE:-} ]]; then
-    TT_CLIENTE=$(tmux list-clients -t "$(tmux display-message -p -t "${TMUX_PANE:-}" '#{session_name}' 2>/dev/null)" -F '#{client_name}' 2>/dev/null | head -1)
+    TT_CLIENTE=$(cliente_do_painel) || true
     if [[ -z $TT_CLIENTE ]]; then
-      echo "Nenhuma tela está nesta sessão; não troquei nada. (Use: tmux attach -t =$s)" >&2
+      echo "Não consegui identificar a tela deste menu; não troquei nada. (Use: tmux attach -t =$s)" >&2
       return 1
     fi
   fi
