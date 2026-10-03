@@ -2450,13 +2450,14 @@ desafixar_item() {
   tmux display-message -c "$c" -d 2500 "📌 desafixada: $([[ $r == "$MAQUINA" ]] && echo "$s" || echo "$r:$s")"
 }
 
-# 📌 ao lado do nome da sessão, na barra: fixa a sessão atual (ou desafixa, se já estiver fixada).
+# Pino ao lado do nome da sessão, na barra (mesma convenção do seletor): 📍 = não fixada, o clique
+# fixa; 📌 = fixada, o clique desafixa.
 fixar_atual() {
   local c=$1 s r
   s=$(do_cliente "$c" '#{session_name}')
   [[ -n $s ]] || return 0
   r=$(alternar_fixada "$MAQUINA" "$s")
-  tmux display-message -c "$c" -d 2500 "📌 $s $r$([[ $r == fixada ]] && echo " — aparece na faixa de cima em todas as máquinas; o ✕ dela desafixa")"
+  tmux display-message -c "$c" -d 2500 "$([[ $r == fixada ]] && echo 📌 || echo 📍) $s $r$([[ $r == fixada ]] && echo " — aparece na faixa das fixadas em todas as máquinas; o ✕ dela desafixa")"
 }
 
 # Sessão daqui renomeada: o item fixado acompanha.
