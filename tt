@@ -1710,6 +1710,25 @@ copiar() {
   return 0
 }
 
+# Aviso de cópia feita, no cliente C: "📋 copiado (N caracteres)". Cópia vazia não avisa.
+copiado() {
+  local n
+  n=$(tmux show-buffer 2>/dev/null | wc -m)
+  ((n > 0)) || return 0
+  tmux display-message -c "$1" -d 1800 "📋 copiado ($n caractere$( ((n > 1)) && echo s)) — cole com Ctrl+Shift+V, botão do meio ou ⋯ → Colar"
+}
+
+# Copia o texto visível do painel P (linhas quebradas juntadas) — útil no celular, onde arrastar
+# rola a tela. Vai para o buffer do tmux, para os terminais por OSC 52 (load-buffer -w) e para a
+# área de transferência desta máquina.
+copiar_tela() {
+  local c=$1 p=$2
+  tmux capture-pane -p -J -t "$p" | awk '{ l[NR] = $0 } NF { u = NR } END { for (i = 1; i <= u; i++) print l[i] }' |
+    sed 's/[[:space:]]*$//' | tmux load-buffer -w - || return 0
+  tmux save-buffer - | copiar
+  copiado "$c"
+}
+
 # Tamanho dinâmico entre aparelhos: com window-size latest, o próprio tmux dá a janela ao
 # cliente que teclou, clicou (inclusive na barra), ganhou foco, anexou ou mudou de tamanho por
 # último — o aparelho em uso fica sempre do tamanho certo, e o outro, ao ser usado, toma de volta.
@@ -1807,6 +1826,9 @@ b	Dividir embaixo (terminal novo)	tmux split-window -v -t $p -c $(q "$pasta")
 v	Abrir outra sessão ao lado…	$(popup_tt "$c" "ao lado" "$env TT_MODO=lado $EU")
 o	Abrir outra sessão embaixo…	$(popup_tt "$c" embaixo "$env TT_MODO=embaixo $EU")
 p	Trocar a sessão deste painel…	$troca
+-		
+c	📋 Colar a última cópia	tmux paste-buffer -p -t $p
+y	📋 Copiar o texto da tela	$EU --copiar-tela $(q "$c") $p
 -		
 r	Renomear painel	tmux command-prompt -t $(q "$c") -p 'nome do painel:' "set-option -p -t $p @nome_painel '%%'"
 z	Maximizar / restaurar	tmux resize-pane -Z -t $p
@@ -3068,7 +3090,7 @@ sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --aplicar-fixadas | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --descongelar | --soltar | --vigia)
+  --ir-fixada | --mover-fixada | --aplicar-fixadas | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --descongelar | --copiado | --copiar-tela | --soltar | --vigia)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -3079,6 +3101,8 @@ case "${1:-}" in
   --nome) echo "$MAQUINA"; exit ;;
   --copiar) copiar; exit 0 ;;
   --copiar-buffer) tmux save-buffer - 2>/dev/null | copiar; exit 0 ;;
+  --copiado) copiado "$2"; exit 0 ;;
+  --copiar-tela) copiar_tela "$2" "$3"; exit 0 ;;
   --versao) versao; exit ;;
   --sincronizar) shift; sincronizar "$@"; exit ;;
   --atualizar) atualizar "${2:-}"; exit ;;
