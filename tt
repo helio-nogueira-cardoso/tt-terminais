@@ -2267,8 +2267,8 @@ clique_direito() {
 # O tmux não possui evento de movimento/hover. O botão direito funciona como tooltip explícito,
 # mostrando o comando completo sem executar nada; o clique normal continua abrindo a sessão.
 atalho_info() {
-  local cliente=$1 i=$2 emoji id cmd
-  IFS=$'\t' read -r emoji id cmd < <(atalhos_lista | sed -n "${i}p")
+  local cliente=$1 i=$2 emoji id cmd cor
+  IFS=$'\t' read -r emoji id cmd cor < <(atalhos_lista | sed -n "${i}p")
   [[ -n $cmd ]] || return 0
   tmux display-message -c "$cliente" "$emoji  $id: $cmd"
 }
@@ -2283,7 +2283,7 @@ atalhos_base() {
     [[ -d $dir ]] || continue
     nome=${dir##*/}; i=$((i + 1))
     case $i in 1) emoji='1️⃣' ;; 2) emoji='2️⃣' ;; 3) emoji='3️⃣' ;; *) emoji='🔹' ;; esac
-    printf '%s\tclaude-conta-%s\t%s\n' "$emoji" "$nome" "claude-conta $(printf '%q' "$nome") --dangerously-skip-permissions --resume"
+    printf '%s\tclaude-conta-%s\t%s\t#fab387\n' "$emoji" "$nome" "claude-conta $(printf '%q' "$nome") --dangerously-skip-permissions --resume"
   done
 }
 
@@ -2306,17 +2306,18 @@ atalhos_lista() {
 }
 
 atalhos_barra() {
-  local emoji id cmd i=0
-  while IFS=$'\t' read -r emoji id cmd; do
+  local emoji id cmd cor i=0
+  while IFS=$'\t' read -r emoji id cmd cor; do
     [[ -n $emoji && -n $cmd ]] || continue
+    [[ $cor =~ ^#[[:xdigit:]]{6}$ ]] || cor='#cba6f7'
     i=$((i + 1))
-    printf '#[range=user|at%d]#[fg=#1e1e2e,bg=#cba6f7,bold] %s #[norange]#[default] ' "$i" "$emoji"
+    printf '#[range=user|at%d]#[fg=#1e1e2e,bg=%s,bold] %s #[norange]#[default] ' "$i" "$cor" "$emoji"
   done < <(atalhos_lista)
 }
 
 atalho_executar() {
   local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd nome script quoted
-  IFS=$'\t' read -r emoji id cmd < <(atalhos_lista | sed -n "${i}p")
+  IFS=$'\t' read -r emoji id cmd cor < <(atalhos_lista | sed -n "${i}p")
   [[ -n $cmd ]] || { tmux display-message -c "$cliente" "atalho indisponível" 2>/dev/null || true; return 0; }
   nome=$(proximo_nome atalho)
   # Executa sempre em bash -lc para que comandos editados com argumentos, pipes ou variáveis

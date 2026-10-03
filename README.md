@@ -191,7 +191,8 @@ abre uma sessão nova na máquina atual e muda para ela. Os padrões incluem Kir
 permissões liberadas e o fluxo de resume.
 
 Cada máquina pode sobrescrever, desativar ou acrescentar atalhos em `~/.config/tt/atalhos`, no mesmo
-formato. A segunda coluna é o ID estável: uma linha local com o mesmo ID substitui a padrão; emoji
+formato `emoji<TAB>id<TAB>comando<TAB>cor-de-fundo` (a quarta coluna é opcional, em hexadecimal,
+como `#cba6f7`). A segunda coluna é o ID estável: uma linha local com o mesmo ID substitui a padrão; emoji
 `-` desativa; um ID novo acrescenta:
 
     👾	kiro-v3	kiro-cli chat --v3
