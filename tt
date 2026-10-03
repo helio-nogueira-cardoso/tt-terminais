@@ -2023,6 +2023,7 @@ clique() {
   case $1 in
     maquina) menu_maquinas "$2" "$3" ;;
     arquivos) menu_arquivos "$2" "$3" ;;
+    transferencias) tmux display-popup -c "$2" $(tam_popup "$2") -T ' transferências ' "$EU --transferencias" ;;
     ajustar) ajustar "$2" ;;
     sessao) seletor_em "$2" "$MAQUINA" "$3" ;;
     fx*) ir_fixada "$2" "$1" ;;
@@ -2453,8 +2454,63 @@ botao() {
 
 humano() { awk -v b="${1:-0}" 'BEGIN { split("B K M G T", u); i = 1; while (b >= 1024 && i < 5) { b /= 1024; i++ } printf (i == 1 ? "%d%s" : "%.1f%s"), b, u[i] }'; }
 
-# Copia NOMES de SRC:DIR_SRC para DST:DIR_DST (qualquer combinação de máquinas).
+# Trabalhos de cópia persistem neste diretório até serem concluídos; o popup que os iniciou fica
+# livre imediatamente para novas sessões, menus e outras operações.
+dir_transferencias() { echo "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-transferencias-$(id -u)"; }
+
+atualizar_transferencia() {
+  local id=$1 estado=$2 d
+  d=$(dir_transferencias); mkdir -p "$d"
+  printf '%s\n' "$estado" >"$d/$id.status"
+  tmux refresh-client -S >/dev/null 2>&1 || true
+}
+
+transferencias_barra() {
+  local d f estado n=0
+  d=$(dir_transferencias)
+  for f in "$d"/*.status; do
+    [[ -f $f ]] || continue; estado=$(cat "$f" 2>/dev/null)
+    [[ $estado == na\ fila || $estado == calculando* || $estado == transferindo* ]] && n=$((n + 1))
+  done
+  ((n)) && printf '#[range=user|transferencias]#[fg=#a6e3a1,bold] ⇅ %d em andamento #[norange]#[default] ' "$n"
+}
+
+transferencias() {
+  local d f id estado info tecla
+  d=$(dir_transferencias)
+  [[ -t 0 ]] || { for f in "$d"/*.status; do [[ -f $f ]] && printf '%s: %s\n' "${f##*/}" "$(cat "$f")"; done; return; }
+  while true; do
+    clear; printf '\033[1mTRANSFERÊNCIAS\033[0m\n\n'
+    for f in "$d"/*.status; do
+      [[ -f $f ]] || continue; id=${f##*/}; id=${id%.status}; estado=$(cat "$f" 2>/dev/null)
+      info=$(tr '\t' ' ' <"$d/$id.info" 2>/dev/null)
+      printf '%-18s %-28s %s\n' "$id" "$estado" "$info"
+    done
+    printf '\n\033[90mAtualiza automaticamente · q fecha\033[0m'
+    read -rsn1 -t 1 tecla || true; [[ ${tecla:-} == [qQ] ]] && return; tecla=""
+  done
+}
+
+transferir_fundo() {
+  local id=$1; shift
+  atualizar_transferencia "$id" 'calculando tamanho…'
+  if transferir_bloqueante "$@"; then atualizar_transferencia "$id" 'concluída'; else atualizar_transferencia "$id" 'erro — veja o log'; fi
+}
+
 transferir() {
+  local src=$1 dsrc=$2 dst=$3 ddst=$4; shift 4
+  local d id
+  d=$(dir_transferencias); mkdir -p "$d"; id="$(date +%H%M%S)-$RANDOM"
+  printf '%s\t%s\t%s\t%s\n' "$src" "$dsrc" "$dst" "$ddst" >"$d/$id.info"
+  atualizar_transferencia "$id" 'na fila'
+  nohup "$EU" --transferir-fundo "$id" "$src" "$dsrc" "$dst" "$ddst" "$@" >"$d/$id.log" 2>&1 </dev/null &
+  printf '%s\n' "$!" >"$d/$id.pid"
+  printf '\033[32m⇅ Transferência %s iniciada em segundo plano.\033[0m Você já pode fechar este popup e continuar usando o tt.\n' "$id"
+}
+
+# Copia NOMES de SRC:DIR_SRC para DST:DIR_DST (qualquer combinação de máquinas).
+# Executada somente pelo trabalhador de fundo acima.
+transferir_bloqueante() {
   local src=$1 dsrc=$2 dst=$3 ddst=$4; shift 4
   local bytes t0 recebidos n
   bytes=$(rodar "$src" --tamanho "$dsrc" "$@")
@@ -2495,7 +2551,7 @@ enviar_fluxo() {
   [[ -n $dst ]] || dst=$(escolher_maquina "📤 enviar ${#nomes[@]} ite$([[ ${#nomes[@]} == 1 ]] && echo m || echo ns) para" "$src") || return 0
   [[ -n $dst ]] || return 0
   [[ -n $ddst ]] || ddst=$(escolher_destino "$dst" "" "📤 para qual pasta") || return 0
-  transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}" && fim_transferencia "$dst" "$ddst"
+  transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}"
 }
 
 # Fluxo "trazer": escolhe máquina, pasta de partida e arquivos/pastas de lá → DST:DDST (padrão: aqui).
@@ -2508,7 +2564,7 @@ trazer_fluxo() {
   lista=$(escolher_arquivos "$src" "$dir" "arquivos ou pastas para trazer") || return 0
   pasta=$(head -1 <<<"$lista"); mapfile -t nomes < <(tail -n +2 <<<"$lista")
   ((${#nomes[@]})) || return 0
-  transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}" && fim_transferencia "$dst" "$ddst"
+  transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}"
 }
 
 # Linha de comando: tt --enviar [arquivos-ou-pastas…] [máquina[:pasta]]  /
@@ -2804,6 +2860,9 @@ case "${1:-}" in
   --pastas-sessoes) pastas_sessoes; exit ;;
   --pasta-de) [[ $2 == %* ]] && t=$2 || t="=$2:"; tmux display-message -p -t "$t" '#{pane_current_path}' | { read -r x; encurtar "$x"; }; exit ;;
   --receber) receber "$2"; exit ;;
+  --transferir-fundo) shift; transferir_fundo "$@"; exit ;;
+  --transferencias-barra) transferencias_barra; exit ;;
+  --transferencias) transferencias; exit ;;
   --empacotar) shift; empacotar "$@"; exit ;;
   --tamanho) shift; tamanho "$@"; exit ;;
   --avisar) avisar "$2"; exit ;;
