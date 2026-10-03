@@ -1583,12 +1583,18 @@ confirmar_vazias() {
   sleep 0.6
 }
 
-# A janela do cliente C passa a ter o tamanho da tela dele (o tmux segue o cliente que "mexeu por
-# último"; trocar para a própria sessão conta como mexer).
+# A janela do cliente C passa explicitamente a ter o tamanho útil da tela dele. Não basta trocar
+# para a própria sessão: em algumas versões/casos o tmux trata isso como no-op e mantém o tamanho
+# do último cliente. A área útil desconta todas as linhas de status (uma ou duas, conforme as
+# fixadas estejam visíveis).
 ajustar() {
-  local s
-  s=$(do_cliente "$1" '#{session_name}')
-  [[ -n $s ]] && tmux switch-client -c "$1" -t "=$s"
+  local c=$1 s w h status
+  read -r s w h status < <(do_cliente "$c" '#{session_name} #{client_width} #{client_height} #{status}')
+  [[ -n $s && $w =~ ^[0-9]+$ && $h =~ ^[0-9]+$ && $status =~ ^[0-9]+$ ]] || return 1
+  h=$((h - status))
+  ((h > 0)) || return 1
+  tmux resize-window -t "=$s" -x "$w" -y "$h" || return 1
+  tmux refresh-client -c "$c"
 }
 
 
