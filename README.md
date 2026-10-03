@@ -120,6 +120,12 @@ sem tmux: `NOTMUX=1 bash`.
     tt --remover-bashrc       tira o bloco
     TT_SEM_BASHRC=1 ./tt --instalar    instala sem mexer no ~/.bashrc
 
+### Testes
+
+Os testes de regressão ficam em `tests/`. Para executá-los:
+
+    tests/test_fixadas.sh
+
 ## Máquinas
 
     tt --cadastrar [host [usuario [nome]]]   testa o ssh, instala o tt lá e cadastra as duas
