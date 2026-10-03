@@ -229,6 +229,7 @@ vigiar() {
       ("$EU" --memoria-agentes >/dev/null 2>&1 &)
     fi
     # Limpeza conservadora: somente sessões sem processo, sem histórico e desanexadas há 5 min.
+    fechar_paradas "$agora"
     fechadas=$(fechar_vazias_expiradas "$agora")
     [[ -z $fechadas ]] || echo "$(date '+%F %T') fechadas $fechadas sessão(ões) vazia(s) abandonada(s)" >>"$log"
     # GitHub: uma consulta a cada 12 h, em segundo plano.
@@ -396,6 +397,65 @@ fechar_vazias_expiradas() {
     tmux kill-session -t "=$s" && n=$((n + 1))
   done < <(tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{@ponte}' 2>/dev/null)
   ((n)) && echo "$n"
+}
+
+# Sessões paradas: fecha a sessão em que ninguém mexeu (tecla, toque, anexar), nada saiu na tela e
+# nenhum programa roda — cada painel é só o shell, sem processos filhos (nem em segundo plano) — há
+# N minutos (fechar_paradas= no config; padrão 30; 0 desliga). Nunca fecha sessão aberta em alguma
+# tela, ponte nem fixada.
+minutos_paradas() { local m; m=$(conf fechar_paradas); [[ $m =~ ^[0-9]+$ ]] || m=30; echo "$m"; }
+
+sessao_parada() {
+  local s=$1 agora=$2 limite=$3 ult x p cmd pid
+  ult=0
+  for x in $(tmux display-message -p -t "=$s:" '#{session_activity} #{session_last_attached} #{session_created}') \
+           $(tmux list-windows -t "=$s" -F '#{window_activity}' 2>/dev/null); do
+    [[ $x =~ ^[0-9]+$ ]] && ((x > ult)) && ult=$x
+  done
+  ((ult > 0 && agora - ult >= limite)) || return 1
+  while IFS='|' read -r p cmd pid; do
+    [[ $cmd =~ ^(bash|zsh|fish|sh|dash)$ ]] || return 1
+    [[ -z $(pgrep -P "$pid" 2>/dev/null) ]] || return 1
+  done < <(tmux list-panes -s -t "=$s" -F '#{pane_id}|#{pane_current_command}|#{pane_pid}' 2>/dev/null)
+}
+
+fechar_paradas() {
+  local agora=$1 limite s anexada ponte n=0 fix
+  limite=${TT_PARADAS_SEGUNDOS:-$(($(minutos_paradas) * 60))}
+  ((limite > 0)) || return 0
+  fix=$(fixadas 2>/dev/null | awk -F'\t' -v m="$MAQUINA" '$1 == m { print $2 }')
+  while IFS='|' read -r s anexada ponte; do
+    [[ -n $s ]] || continue
+    ((anexada > 0)) && continue
+    [[ -n $ponte ]] && continue
+    grep -qxF -- "$s" <<<"$fix" && continue
+    sessao_parada "$s" "$agora" "$limite" || continue
+    tmux kill-session -t "=$s" && n=$((n + 1)) &&
+      echo "$(date '+%F %T') fechada sessão parada: $s ($((limite / 60)) min)" >>"$HOME/.cache/tt-vigia.log"
+  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{@ponte}' 2>/dev/null)
+  ((n)) && avisar "🧹 $n sessão(ões) parada(s) há $((limite / 60)) min fechada(s)"
+  return 0
+}
+
+# Grava o tempo (minutos; 0 desliga) aqui e, sem "--local", em todas as máquinas ligadas.
+definir_paradas() {
+  local m=$1 local_so=${2:-} dest rot
+  [[ $m =~ ^[0-9]+$ ]] || { echo "minutos inválidos: $m"; return 1; }
+  mkdir -p "$(dirname "$CONF")"
+  grep -v '^fechar_paradas=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "fechar_paradas=$m" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
+  [[ $local_so == --local ]] && return 0
+  while read -r dest rot; do
+    timeout 10 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --definir-paradas $m --local" </dev/null >/dev/null 2>&1 &
+  done < <(maquinas)
+  wait
+}
+
+# Item do menu do painel: pergunta o tempo no próprio tmux (cliente C) e aplica em todas.
+config_paradas() {
+  local c=$1
+  tmux command-prompt -c "$c" -I "$(minutos_paradas)" \
+    -p "Fechar sessões paradas após quantos minutos? (0 = nunca)" \
+    "run-shell -b \"$EU --definir-paradas '%%' >/dev/null 2>&1; tmux display-message -c '$c' 'sessões paradas: %% min (todas as máquinas)'\""
 }
 
 # Linha separadora do bloco de vazias (chave !vazias: Enter/clique fecha todas).
@@ -1766,6 +1826,25 @@ copiar() {
   local t
   t=$(mktemp) || return 0
   cat >"$t"
+  [[ -s $t ]] || { rm -f "$t"; return 0; }
+  copiar_local "$t"
+  # Repetição da última cópia (inclusive o eco de uma cópia recebida que volta por OSC 52 de uma
+  # ponte): não entra de novo no histórico nem é reenviada — senão as máquinas ficariam trocando a
+  # mesma cópia entre si.
+  if ! copia_repetida "$t"; then
+    registrar_copia "$t" "${TT_COPIA_ORIGEM:-$MAQUINA}"
+    if [[ -z ${TT_COPIA_RECEBIDA:-} && $(conf copia_entre_maquinas) != 0 ]] && command -v setsid >/dev/null; then
+      setsid -f "$EU" --propagar-copia "$t" >/dev/null 2>&1 </dev/null
+      return 0 # o propagador apaga o arquivo
+    fi
+  fi
+  rm -f "$t"
+  return 0
+}
+
+# Só a área de transferência do sistema desta máquina.
+copiar_local() {
+  local t=$1
   if command -v clip.exe >/dev/null; then # WSL: vai direto ao Windows
     clip.exe <"$t" >/dev/null 2>&1
   elif command -v wl-copy >/dev/null; then
@@ -1779,8 +1858,88 @@ copiar() {
   elif command -v termux-clipboard-set >/dev/null; then
     termux-clipboard-set <"$t" >/dev/null 2>&1
   fi
-  rm -f "$t"
   return 0
+}
+
+# --- Histórico de cópias e cópia entre máquinas --------------------------------
+#
+# Cada cópia (desta máquina ou recebida de outra) vira um arquivo em ~/.cache/tt-copias, nome
+# "NANOSSEGUNDOS_MÁQUINA"; ficam as 100 mais recentes. Toda cópia feita aqui vai também para as
+# outras máquinas ligadas (tt --receber-copia), que a põem na área de transferência, no tmux (e,
+# por OSC 52, no terminal de quem estiver olhando) e no histórico. copia_entre_maquinas=0 no
+# config desliga o envio.
+DIR_COPIAS=$HOME/.cache/tt-copias
+LIMITE_COPIA=$((2 * 1024 * 1024))
+
+copia_mais_recente() { ls -1 "$DIR_COPIAS" 2>/dev/null | sort | tail -1; }
+copia_repetida() {
+  local u
+  u=$(copia_mais_recente); [[ -n $u ]] || return 1
+  cmp -s "$1" "$DIR_COPIAS/$u"
+}
+registrar_copia() {
+  local t=$1 origem=${2:-$MAQUINA}
+  mkdir -p "$DIR_COPIAS" && chmod 700 "$DIR_COPIAS"
+  cp "$t" "$DIR_COPIAS/$(date +%s%N)_${origem//[^A-Za-z0-9_-]/}"
+  ls -1 "$DIR_COPIAS" | sort | head -n -100 | while read -r f; do rm -f "$DIR_COPIAS/$f"; done
+}
+
+propagar_copia() {
+  local t=$1 dest rot
+  if (($(stat -c %s "$t" 2>/dev/null || echo 0) <= LIMITE_COPIA)); then
+    while read -r dest rot; do
+      timeout 10 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-copia $(q "$MAQUINA")" <"$t" >/dev/null 2>&1 &
+    done < <(maquinas)
+    wait
+  fi
+  rm -f "$t"
+}
+
+receber_copia() {
+  local origem=${1:-?} t
+  t=$(mktemp) || return 0
+  cat >"$t"
+  if [[ -s $t ]] && ! copia_repetida "$t"; then
+    registrar_copia "$t" "$origem"
+    copiar_local "$t"
+    tmux list-sessions >/dev/null 2>&1 && tmux load-buffer -w "$t" 2>/dev/null
+  fi
+  rm -f "$t"
+}
+
+# Lista do histórico (popup): Enter cola no painel (e vira a cópia atual), ^y só copia, ^x apaga
+# o item, Esc fecha. Prévia com o texto inteiro.
+historico_copias() {
+  local escolha acao id pane=${TT_PANE:-}
+  [[ -d $DIR_COPIAS ]] && [[ -n $(ls -A "$DIR_COPIAS") ]] || { echo "Nenhuma cópia ainda."; read -rsn1 -t 3; return 0; }
+  while true; do
+    # {1} vem com o TAB do separador: a prévia o tira antes de abrir o arquivo.
+    escolha=$(listar_copias | fzf --ansi --no-sort --layout=reverse --delimiter=$'\t' --with-nth=2 --no-multi \
+      --header=$'⏎ cola aqui · ^y só copia · ^x apaga · Esc fecha' \
+      --preview "f={1}; cat $(printf %q "$DIR_COPIAS")/\"\${f%%[[:space:]]*}\"" --preview-window='down,60%,wrap' \
+      --expect=enter,ctrl-y,ctrl-x --bind 'click-header:abort') || return 0
+    acao=$(head -1 <<<"$escolha"); id=$(sed -n 2p <<<"$escolha" | cut -f1)
+    [[ -n $id && -f $DIR_COPIAS/$id ]] || return 0
+    case $acao in
+      ctrl-x) rm -f "$DIR_COPIAS/$id"; continue ;;
+      *)
+        # Reusar move o item para o topo (sai o antigo, entra como cópia nova) e o manda às outras.
+        local t; t=$(mktemp); cp "$DIR_COPIAS/$id" "$t"; rm -f "$DIR_COPIAS/$id"
+        "$EU" --copiar <"$t"; tmux load-buffer -w "$t" 2>/dev/null; rm -f "$t"
+        [[ $acao == ctrl-y || -z $pane ]] || tmux paste-buffer -p -t "$pane"
+        return 0 ;;
+    esac
+  done
+}
+
+listar_copias() {
+  local f ts origem hora texto
+  ls -1 "$DIR_COPIAS" | sort -r | while read -r f; do
+    ts=${f%%_*}; origem=${f#*_}
+    hora=$(date -d "@$((ts / 1000000000))" '+%d/%m %H:%M' 2>/dev/null)
+    texto=$(head -c 300 "$DIR_COPIAS/$f" | sed 's/\x1b\[[0-9;]*m//g' | awk 'NR > 1 { printf " ⏎ " } { gsub(/\t/, " "); printf "%s", $0 }')
+    printf '%s\t\033[90m%s\033[0m \033[36m%-8.8s\033[0m %s\n' "$f" "$hora" "$origem" "$texto"
+  done
 }
 
 # Aviso de cópia feita, no cliente C: "📋 copiado (N caracteres)". Cópia vazia não avisa.
@@ -1788,7 +1947,7 @@ copiado() {
   local n
   n=$(tmux show-buffer 2>/dev/null | wc -m)
   ((n > 0)) || return 0
-  tmux display-message -c "$1" -d 1800 "📋 copiado ($n caractere$( ((n > 1)) && echo s)) — cole com Ctrl+Shift+V, botão do meio ou ⋯ → Colar"
+  tmux display-message -c "$1" -d 1800 "📋 copiado ($n caractere$( ((n > 1)) && echo s)) — cole com Ctrl+Shift+V, botão do meio ou ⋯ · histórico: Ctrl+B y"
 }
 
 # Copia o texto visível do painel P (linhas quebradas juntadas) — útil no celular, onde arrastar
@@ -1902,6 +2061,8 @@ p	Trocar a sessão deste painel…	$troca
 -		
 c	📋 Colar a última cópia	tmux paste-buffer -p -t $p
 y	📋 Copiar o texto da tela	$EU --copiar-tela $(q "$c") $p
+h	📋 Histórico de cópias…	$(popup_tt "$c" "📋 cópias" "$env $EU --copias")
+k	⏱ Fechar sessões paradas após: $(minutos_paradas) min…	$EU --config-paradas $(q "$c")
 -		
 r	Renomear painel	tmux command-prompt -t $(q "$c") -p 'nome do painel:' "set-option -p -t $p @nome_painel '%%'"
 z	Maximizar / restaurar	tmux resize-pane -Z -t $p
@@ -2343,6 +2504,7 @@ clique() {
     maquina) menu_maquinas "$2" "$3" ;;
     arquivos) menu_arquivos "$2" "$3" ;;
     transferencias) eval "$(popup_tt "$2" "⇅ transferências" "$EU --transferencias")" ;;
+    copias) eval "$(popup_tt "$2" "📋 cópias" "TT_CLIENTE=$2 TT_PANE=$3 $EU --copias")" ;;
     at[0-9]*) atalho_executar "${faixa#at}" "$2" "$3" "${4:-$HOME}" ;;
     ajustar) ajustar "$2" ;;
     sessao) seletor_em "$2" "$MAQUINA" "$3" ;;
@@ -3262,6 +3424,12 @@ case "${1:-}" in
   --copiar) copiar; exit 0 ;;
   --copiar-buffer) tmux save-buffer - 2>/dev/null | copiar; exit 0 ;;
   --copiado) copiado "$2"; exit 0 ;;
+  --propagar-copia) propagar_copia "$2"; exit 0 ;;
+  --receber-copia) receber_copia "${2:-}"; exit 0 ;;
+  --copias) historico_copias; exit 0 ;;
+  --fechar-paradas) fechar_paradas "$(date +%s)"; exit 0 ;;
+  --definir-paradas) definir_paradas "$2" "${3:-}"; exit 0 ;;
+  --config-paradas) config_paradas "$2"; exit 0 ;;
   --redesenhar) redesenhar_todos; exit 0 ;;
   --copiar-tela) copiar_tela "$2" "$3"; exit 0 ;;
   --versao) versao; exit ;;
