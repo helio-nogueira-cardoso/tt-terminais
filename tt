@@ -1779,6 +1779,23 @@ CONF_FIX=$CONF_DIR/fixadas
 
 fixadas() { [[ -f $CONF_FIX ]] && grep -v '^\s*$' "$CONF_FIX"; }
 
+# A lista é a mesma em todas as máquinas: cada mudança é copiada para as cadastradas (em segundo
+# plano), e cada uma redesenha a barra. Assim as fixadas não somem ao entrar numa sessão de outra
+# máquina (a barra que aparece é a de lá).
+propagar_fixadas() {
+  local dest rot
+  while read -r dest rot; do
+    (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-fixadas" <"$CONF_FIX" >/dev/null 2>&1 &)
+  done < <(maquinas)
+}
+
+# Recebe a lista de outra máquina (stdin) e aplica.
+receber_fixadas() {
+  mkdir -p "$CONF_DIR"
+  cat >"$CONF_FIX.novo" && mv "$CONF_FIX.novo" "$CONF_FIX"
+  aplicar_fixadas
+}
+
 # Liga/desliga a 2ª linha e força a barra a se redesenhar já (o #() da barra muda de comando).
 aplicar_fixadas() {
   tmux list-sessions >/dev/null 2>&1 || return 0
@@ -1803,6 +1820,7 @@ alternar_fixada() {
     echo "fixada"
   fi
   aplicar_fixadas
+  propagar_fixadas
 }
 
 # Sessão daqui renomeada: o item fixado acompanha.
@@ -1811,6 +1829,7 @@ fixada_renomeada() {
   awk -F'\t' -v r="$MAQUINA" -v a="$1" -v n="$2" 'BEGIN { OFS = "\t" } $1 == r && $2 == a { $2 = n } { print }' "$CONF_FIX" >"$CONF_FIX.novo" &&
     mv "$CONF_FIX.novo" "$CONF_FIX"
   aplicar_fixadas
+  propagar_fixadas
 }
 
 # Conteúdo da 2ª linha (chamado pela barra, por sessão: destaca a sessão atual).
@@ -1864,6 +1883,7 @@ mover_fixada() {
   awk -v i="$i" -v j="$j" '{ l[NR] = $0 } END { t = l[i]; l[i] = l[j]; l[j] = t; for (k = 1; k <= NR; k++) print l[k] }' "$CONF_FIX" >"$CONF_FIX.novo" &&
     mv "$CONF_FIX.novo" "$CONF_FIX"
   aplicar_fixadas
+  propagar_fixadas
 }
 
 # Botão direito na barra: em "máquina ▾" a administração, em "sessão ▾" o menu da sessão, no resto
@@ -2702,6 +2722,8 @@ case "${1:-}" in
   --clique-linha) clique_linha "${2:-}" "${3:-}"; exit ;;
   --barra-fixadas) barra_fixadas "${2:-}"; exit ;;
   --aplicar-fixadas) aplicar_fixadas; exit ;;
+  --receber-fixadas) receber_fixadas; exit ;;
+  --propagar-fixadas) propagar_fixadas; exit ;;
   --ir-fixada) ir_fixada "$2" "$3"; exit ;;
   --mover-fixada) mover_fixada "$2" "$3"; exit ;;
   --alternar-fixada-rotulo) alternar_fixada "$2" "$3"; exit ;;

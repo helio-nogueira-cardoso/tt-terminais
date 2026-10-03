@@ -75,7 +75,9 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
 Uma segunda linha na barra com as sessões que você usa sempre (desta ou de outras máquinas): um
 clique vai direto para ela; botão direito num item: ir, desafixar, mover para os lados. Para fixar:
 menu da sessão (botão direito em "sessão ▾") → "📌 Fixar na barra", `^f` no seletor, ou
-`tt --fixar [máquina:]sessão`. A linha só aparece quando há alguma fixada. Uma sessão fixada não é
+`tt --fixar [máquina:]sessão`. A lista é a mesma em todas as máquinas (cada mudança é copiada
+para as cadastradas), então as fixadas continuam lá ao entrar numa sessão de outra máquina. A linha
+só aparece quando há alguma fixada. Uma sessão fixada não é
 renomeada sozinha pelo vigia, e renomear pelo tt atualiza o item.
 
 ## Fechar sessões
