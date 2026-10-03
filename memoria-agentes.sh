@@ -19,7 +19,14 @@ import tempfile
 
 root = pathlib.Path(sys.argv[1])
 now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-machine = os.uname().nodename
+machine = os.environ.get("TT_NOME", "")
+if not machine:
+    config = pathlib.Path(os.environ.get("XDG_CONFIG_HOME", str(pathlib.Path.home() / ".config"))) / "tt/config"
+    try:
+        machine = next((line.split("=", 1)[1].strip() for line in config.read_text(encoding="utf-8").splitlines() if line.startswith("nome=") and "=" in line), "")
+    except OSError:
+        machine = ""
+machine = machine or os.uname().nodename
 for directory in (root, root / "agents", root / "sessions", root / "events"):
     try:
         directory.chmod(0o700)
