@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Vigia numa aba do Claude: o primeiro nome vem do título da conversa; depois, mesmo com o título
-# parado (o aiTitle não muda ao longo da conversa), o nome acompanha os pedidos mais recentes.
+# parado (o aiTitle não muda ao longo da conversa), o nome acompanha os pedidos mais recentes. Sem
+# pedido novo, o Claude trabalhando sozinho (tela mudando) não troca o nome.
 source "$(dirname "$0")/lib.sh"; isolar
 
 # Um "claude" falso em duas partes. A tela: um link chamado claude para o bash (o vigia acha o
@@ -38,7 +39,7 @@ esperar() { # nome-esperado segundos
 }
 tmux -f /dev/null new -d -s guarda 'sleep 600' # o vigia só roda enquanto houver tmux
 
-TT_PAUSA=1 TT_T_PRIMEIRO=1 TT_T_RENOMEAR=2 TT_INTERACOES_RENOMEAR=2 TT_T_REVISAO=999999 \
+TT_PAUSA=1 TT_T_PRIMEIRO=1 TT_T_RENOMEAR=2 TT_PONTOS_RENOMEAR=4 TT_T_REVISAO=999999 \
   "$TT" --vigia >/dev/null 2>&1 &
 
 esperar pagina-primeiro-assunto 20 || falhou "primeiro nome não veio do título (ficou $(nome))"
@@ -48,13 +49,15 @@ done
 [[ $t == 'Página do primeiro assunto' ]] || falhou "título guardado errado: $t"
 passou 'aba do Claude: primeiro nome é o título da conversa'
 
-# O título fica parado; a revisão lê os pedidos (resultados de ferramenta não contam).
-esperar tarefa-alfa 30 || falhou "com o título parado a aba não foi revisada (ficou $(nome))"
-passou 'título parado: o vigia revisa a aba do Claude pelos pedidos'
+# A tela muda a cada segundo (minutos de uso somam), mas sem pedido novo o nome fica.
+sleep 8
+[[ $(nome) == pagina-primeiro-assunto ]] || falhou "renomeou sem pedido novo (ficou $(nome))"
+passou 'sem pedido novo, uso sozinho não renomeia (nem chama o Haiku)'
 
+# Pedido novo com o título parado: a revisão lê os pedidos (resultados de ferramenta não contam).
 dizer 'PEDIDO-B mudei de assunto'
 esperar tarefa-beta 30 || falhou "o nome não acompanhou o pedido mais recente (ficou $(nome))"
-passou 'o nome acompanha a tarefa atual da conversa'
+passou 'título parado: o nome acompanha o pedido mais recente da conversa'
 
 # Um título novo continua valendo na hora.
 titulo 'Outro título'

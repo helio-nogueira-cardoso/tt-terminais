@@ -254,9 +254,10 @@ generico() { [[ $1 =~ ^(janela|claude|atalho)-[0-9]+$ ]]; }
 # renomeando semanticamente as sessões conforme o uso. Depois de algumas interações, também
 # revisa sessões que já tinham um nome escolhido; nomes fixados acompanham o rename.
 #   Claude: o primeiro nome é o título da conversa (sem custo) e, se ele mudar, segue o título.
-#   Todas:  depois, pergunta ao Haiku só se houve uso desde a última vez e (3 interações e 20 min
-#           desde o último nome) ou (mudou de pasta) ou (30 min desde o último uso). No Claude o
-#           Haiku lê os últimos pedidos da conversa, para o nome acompanhar a tarefa atual.
+#   Todas:  depois, pontos: pedido novo vale 3 (no Claude, mensagem digitada; nas outras, tecla ou
+#           toque numa volta) e minuto com uso vale 1. Com 10 pontos, ao menos um pedido novo e
+#           5 min desde o último nome, pergunta ao Haiku; mudar de pasta também. Sem pedido novo,
+#           nunca. No Claude o Haiku lê os últimos pedidos, e o nome acompanha a tarefa atual.
 vigiar() {
   local pidf="$RT/tt-vigia-$(id -u).pid" log="$HOME/.cache/tt-vigia.log" outro
   mkdir -p "$HOME/.cache"
@@ -276,14 +277,17 @@ vigiar() {
   # set-option, até de uma opção @ que nada desenha, redesenha a tela inteira de todos os clientes,
   # e o vigia gravava isso a cada minuto por sessão usada — o cursor piscava nos outros aparelhos.
   local -A V_EM=() V_INTER=() V_PASTA=() V_PRIMEIRA=() V_ESPERA=() V_NOMEADO=()
-  local t_renomear=${TT_T_RENOMEAR:-1200}
+  local -A V_PED=() V_ENT=() V_ARQ=() V_TAM=()
+  local t_renomear=${TT_T_RENOMEAR:-300} entrada arq tam novos pedidos pontos
   local estado_vigia="$RT/tt-vigia-estado-$(id -u)-$(tmux display-message -p '#{pid}' 2>/dev/null)"
   [[ -r $estado_vigia ]] && source "$estado_vigia" 2>/dev/null
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
   # A atualização não bloqueia uma sessão sem rede; o vigia tenta de novo no próximo ciclo.
   # TT_T_ATUALIZACAO=0 força uma tentativa a cada volta (útil em teste); o padrão é cinco minutos.
   local t_atualizacao=${TT_T_ATUALIZACAO:-300}
-  local minimo_interacoes=${TT_INTERACOES_RENOMEAR:-3}
+  # Renomeação seguinte por pontos: cada pedido novo vale TT_PESO_PEDIDO (3) e cada minuto com uso
+  # vale 1; ao somar TT_PONTOS_RENOMEAR (10), com ao menos um pedido novo, pergunta ao Haiku.
+  local peso_pedido=${TT_PESO_PEDIDO:-3} pontos_renomear=${TT_PONTOS_RENOMEAR:-10}
   while tmux list-sessions >/dev/null 2>&1; do
     proximo=$pausa
     atualizar_barras
@@ -313,19 +317,19 @@ vigiar() {
       ultima_atualizacao=$agora
       ("$EU" --garantir-atualizacao >>"$log" 2>&1 &)
     fi
-    while IFS='|' read -r s sid atividade pasta ponte; do
+    while IFS='|' read -r s sid atividade entrada pasta ponte; do
       # Pontes mostram uma sessão de outra máquina: o nome delas é o da ponte, nunca do vigia.
       [[ -n $ponte ]] && continue
       # Claude: o título da conversa dá o nome sem custo, mas só uma vez (o aiTitle não muda ao
       # longo da conversa). Depois a sessão segue as mesmas revisões das outras, logo abaixo.
-      pid=$(claude_na_sessao "$s")
+      pid=$(claude_na_sessao "$s") id=""
       if [[ -n $pid ]]; then
         read -r id st rot < <(claude_info "$pid")
         if titulo=$(titulo_claude "${id:-x}"); then
           if [[ $titulo != "$(tmux show-options -qv -t "=$s:" @nome_titulo)" ]]; then
             if nome=$(renomear "$s" "$(slug "$titulo")" auto); then
               tmux set-option -t "=$nome:" @nome_titulo "$titulo"
-              V_INTER[$sid]=0 V_NOMEADO[$sid]=$agora V_EM[$sid]=$atividade
+              V_INTER[$sid]=0 V_PED[$sid]=0 V_NOMEADO[$sid]=$agora V_EM[$sid]=$atividade
               echo "$(date '+%F %T') $s → $nome (título: $titulo)" >>"$log"
             fi
             continue
@@ -363,38 +367,57 @@ vigiar() {
         continue
       fi
 
+      # Pedidos novos (sinal de assunto). No Claude: mensagens digitadas no transcript desde a
+      # última volta, lendo só o trecho novo do arquivo. Nas demais: voltas em que houve tecla ou
+      # toque de verdade (session_activity; saída na tela e send-keys não a movem).
+      if [[ -n $pid ]] && arq=$(arquivo_claude "projects/*/${id:-x}.jsonl"); then
+        tam=$(stat -c %s "$arq" 2>/dev/null || echo 0)
+        if [[ $arq != "${V_ARQ[$sid]:-}" || $tam -lt ${V_TAM[$sid]:-0} ]]; then
+          V_ARQ[$sid]=$arq V_TAM[$sid]=$tam # conversa nova para o vigia: conta daqui em diante
+        elif ((tam > V_TAM[$sid])); then
+          novos=$(tail -c +"$((V_TAM[$sid] + 1))" "$arq" | grep -c '"role":"user","content":"[^<[]')
+          V_TAM[$sid]=$tam V_PED[$sid]=$((${V_PED[$sid]:-0} + novos))
+        fi
+      elif [[ $entrada =~ ^[0-9]+$ ]] && ((entrada > ${V_ENT[$sid]:-0})); then
+        [[ -n ${V_ENT[$sid]:-} ]] && V_PED[$sid]=$((${V_PED[$sid]:-0} + 1))
+        V_ENT[$sid]=$entrada
+      fi
+
       ultimo=${V_EM[$sid]:-0} interacoes=${V_INTER[$sid]:-0} pasta_ant=${V_PASTA[$sid]:-}
       ((atividade > ultimo)) || continue
-      # window_activity avança quando há entrada/saída relevante no terminal. Guardamos cada
-      # avanço para que o custo do Haiku só ocorra depois do número mínimo de interações.
+      # Minutos com uso (sinal de uso): voltas em que window_activity avançou (no máximo uma por volta).
       interacoes=$((interacoes + 1))
       V_INTER[$sid]=$interacoes V_EM[$sid]=$atividade
+      pedidos=${V_PED[$sid]:-0} pontos=$((${V_PED[$sid]:-0} * peso_pedido + interacoes))
       motivo=""
-      # Uma sessão já nomeada não troca de nome a cada poucas interações (o nome ficava mudando e
-      # cada rename redesenha todos os aparelhos): só depois de TT_T_RENOMEAR (20 min) desde o
+      # Cada rename redesenha todos os aparelhos: nunca antes de TT_T_RENOMEAR (5 min) desde o
       # último nome. Ao ver a sessão pela primeira vez (vigia recém-iniciado), conta a partir dali.
+      # Sem pedido novo o assunto não mudou (um agente trabalhando sozinho no mesmo pedido): nem
+      # pergunta ao Haiku.
       [[ -n ${V_NOMEADO[$sid]:-} ]] || V_NOMEADO[$sid]=$agora
-      if ((interacoes >= minimo_interacoes && agora - V_NOMEADO[$sid] >= t_renomear)); then
-        motivo="ganhou $interacoes interações"
-      elif [[ -n $pasta_ant && $pasta != "$pasta_ant" ]] && ((agora - ultimo >= t_pasta)); then
+      if [[ -n $pasta_ant && $pasta != "$pasta_ant" ]] && ((agora - ultimo >= t_pasta)); then
         motivo="mudou de pasta"
-      elif ((ultimo > 0 && agora - ultimo >= t_revisao)); then
-        motivo="revisão periódica"
+      elif ((pedidos == 0)); then
+        :
+      elif ((pontos >= pontos_renomear && agora - V_NOMEADO[$sid] >= t_renomear)); then
+        motivo="$pedidos pedido(s), $interacoes min de uso"
+      elif ((ultimo > 0 && agora - ultimo >= t_revisao && agora - V_NOMEADO[$sid] >= t_renomear)); then
+        motivo="voltou a ser usada"
       fi
       [[ -n $motivo ]] || continue
 
       V_PASTA[$sid]=$pasta
       if ! nome=$(sugerir_nome "$s" revisar); then
-        # Sem assunto claro: não fica tentando a cada volta; novas interações reabrem a tentativa.
-        V_INTER[$sid]=0
+        # Sem assunto claro: não fica tentando a cada volta; novos pedidos reabrem a tentativa.
+        V_INTER[$sid]=0 V_PED[$sid]=0
         continue
       fi
-      [[ $nome == "${s%-[0-9]*}" ]] && { V_INTER[$sid]=0; continue; }
+      [[ $nome == "${s%-[0-9]*}" ]] && { V_INTER[$sid]=0 V_PED[$sid]=0; continue; }
       nome=$(renomear "$s" "$nome" auto) || continue
-      V_INTER[$sid]=0 V_NOMEADO[$sid]=$agora
+      V_INTER[$sid]=0 V_PED[$sid]=0 V_NOMEADO[$sid]=$agora
       echo "$(date '+%F %T') $s → $nome ($motivo)" >>"$log"
-    done < <(tmux list-sessions -F '#{session_name}|#{session_id}|#{window_activity}|#{pane_current_path}|#{@ponte}' 2>/dev/null)
-    declare -p V_EM V_INTER V_PASTA V_PRIMEIRA V_ESPERA V_NOMEADO >"$estado_vigia.$$" 2>/dev/null && mv -f "$estado_vigia.$$" "$estado_vigia"
+    done < <(tmux list-sessions -F '#{session_name}|#{session_id}|#{window_activity}|#{session_activity}|#{pane_current_path}|#{@ponte}' 2>/dev/null)
+    declare -p V_EM V_INTER V_PASTA V_PRIMEIRA V_ESPERA V_NOMEADO V_PED V_ENT V_ARQ V_TAM >"$estado_vigia.$$" 2>/dev/null && mv -f "$estado_vigia.$$" "$estado_vigia"
     # Um primeiro nome pendente encurta o sono: o nome sai ~1 min após a interação, não até 2 min.
     ((proximo < 5)) && proximo=5
     sleep "$proximo"
@@ -515,10 +538,41 @@ fechar_vazias_expiradas() {
 }
 
 # Sessões paradas: fecha a sessão em que ninguém mexeu (tecla, toque, anexar), nada saiu na tela e
-# nenhum programa roda — cada painel é só o shell, sem processos filhos (nem em segundo plano) — há
-# N minutos (fechar_paradas= no config; padrão 30; 0 desliga). Nunca fecha sessão aberta em alguma
-# tela, ponte nem fixada.
+# nenhum programa roda — em cada painel só há shells ociosos, nada em primeiro nem em segundo plano —
+# há N minutos (fechar_paradas= no config; padrão 30; 0 desliga). Nunca fecha sessão aberta em
+# alguma tela, ponte nem fixada.
 minutos_paradas() { local m; m=$(conf fechar_paradas); [[ $m =~ ^[0-9]+$ ]] || m=30; echo "$m"; }
+
+# Imprime o primeiro processo de trabalho abaixo de PID (exclusive) e retorna 0; retorna 1 se lá só
+# há shells interativos ociosos (bash -l, zsh…: sem -c nem script, como um "bash -l" aberto para
+# recarregar o PATH) e invólucros do proot (proot-distro login, proot), que sozinhos não são
+# trabalho. Sem a lista de processos ou sem o próprio PID nela, responde "há trabalho": na dúvida,
+# não fecha. PS_ARGS (saída de ps -ww -eo pid=,ppid=,args=) evita um ps por painel.
+trabalho_abaixo() {
+  { if [[ -n ${PS_ARGS:-} ]]; then echo "$PS_ARGS"; else ps -ww -eo pid=,ppid=,args= 2>/dev/null; fi; } | awk -v raiz="$1" '
+    NF >= 3 { p = $1; pai[p] = $2; $1 = $2 = ""; sub(/^ +/, ""); args[p] = $0 }
+    function ocioso(a,   n, v, i, j, b, x) {
+      n = split(a, v, / +/)
+      b = v[1]; sub(/^-/, "", b); sub(/.*\//, "", b)
+      # No Termux o ps mostra "nome /caminho/do/nome args": o caminho repetido não é argumento.
+      i = 2; x = v[2]; sub(/.*\//, "", x); if (v[2] ~ /^\// && x == b) i = 3
+      if (b == "proot") return 1
+      for (j = i; j <= n; j++) { x = v[j]; sub(/.*\//, "", x); if (x == "proot-distro") return 1 }
+      if (b !~ /^(bash|zsh|fish|sh|dash|ksh|mksh)$/) return 0
+      for (; i <= n; i++) if (v[i] !~ /^-/ || v[i] ~ /^-[a-zA-Z]*c/) return 0
+      return 1
+    }
+    END {
+      if (!(raiz in pai)) exit 0
+      for (p in pai) {
+        if (p == raiz) continue
+        for (q = pai[p]; q in pai && q != raiz && q > 1; q = pai[q]) ;
+        if (q != raiz) continue
+        if (!ocioso(args[p])) { print p " " args[p]; exit 0 }
+      }
+      exit 1
+    }'
+}
 
 sessao_parada() {
   local s=$1 agora=$2 limite=$3 ult x p cmd pid
@@ -529,15 +583,16 @@ sessao_parada() {
   done
   ((ult > 0 && agora - ult >= limite)) || return 1
   while IFS='|' read -r p cmd pid; do
-    [[ $cmd =~ ^(bash|zsh|fish|sh|dash)$ ]] || return 1
-    [[ -z $(pgrep -P "$pid" 2>/dev/null) ]] || return 1
+    [[ $cmd =~ ^(bash|zsh|fish|sh|dash|proot)$ ]] || return 1
+    if trabalho_abaixo "$pid" >/dev/null; then return 1; fi
   done < <(tmux list-panes -s -t "=$s" -F '#{pane_id}|#{pane_current_command}|#{pane_pid}' 2>/dev/null)
 }
 
 fechar_paradas() {
-  local agora=$1 limite s anexada ponte n=0 fix
+  local agora=$1 limite s anexada ponte n=0 fix PS_ARGS
   limite=${TT_PARADAS_SEGUNDOS:-$(($(minutos_paradas) * 60))}
   ((limite > 0)) || return 0
+  PS_ARGS=$(ps -ww -eo pid=,ppid=,args= 2>/dev/null)
   fix=$(fixadas 2>/dev/null | awk -F'\t' -v m="$MAQUINA" '$1 == m { print $2 }')
   while IFS='|' read -r s anexada ponte; do
     [[ -n $s ]] || continue

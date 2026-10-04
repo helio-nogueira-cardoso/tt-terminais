@@ -23,7 +23,7 @@ tmux set -t =b: status-style bg=red
 passou 'reforçar o padrão é idempotente (0 gravações sem desvio; 1 com desvio)'
 
 tmux new -d -s c 'while :; do echo x; sleep 1; done'
-TT_PAUSA=2 TT_T_PRIMEIRO=999 TT_INTERACOES_RENOMEAR=999 PATH=$T/shim:$PATH "$TT" --vigia >/dev/null 2>&1 &
+TT_PAUSA=2 TT_T_PRIMEIRO=999 TT_PONTOS_RENOMEAR=999999 PATH=$T/shim:$PATH "$TT" --vigia >/dev/null 2>&1 &
 sleep 8; : >"$T/escritas"; sleep 12
 grep -v '@barra_\|^set -g status 2' "$T/escritas" | grep -q . && falhou "vigia em regime grava opções: $(head -3 "$T/escritas")"
 passou 'vigia em regime não grava opções (nenhum redesenho completo periódico)'

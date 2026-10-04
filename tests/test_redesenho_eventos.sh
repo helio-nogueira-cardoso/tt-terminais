@@ -23,7 +23,7 @@ sleep 3; for i in 1 2 3 4 5 6; do tmux send -t =janela-1: "echo $i" Enter; tmux 
 # O tmux.conf instalado sobe o próprio vigia: para o teste controlar o dele (claude falso, prazos curtos).
 kill "$(cat "$TT_RT"/tt-vigia-*.pid 2>/dev/null)" 2>/dev/null || true; rm -f "$TT_RT"/tt-vigia-*.pid; sleep 0.5
 mkdir -p "$T/bin"; printf '#!/bin/sh\ncat >/dev/null; echo nome-novo\n' >"$T/bin/claude"; chmod +x "$T/bin/claude"
-PATH=$T/bin:$PATH TT_PAUSA=1 TT_T_PRIMEIRO=2 TT_INTERACOES_RENOMEAR=2 TT_T_RENOMEAR=3600 "$TT" --vigia >/dev/null 2>&1 & sleep 16
+PATH=$T/bin:$PATH TT_PAUSA=1 TT_T_PRIMEIRO=2 TT_PONTOS_RENOMEAR=1 TT_T_RENOMEAR=3600 "$TT" --vigia >/dev/null 2>&1 & sleep 16
 tmux has-session -t =ja-nomeada 2>/dev/null || falhou 'sessão já nomeada foi renomeada antes do prazo'
 tmux has-session -t =ponte-y 2>/dev/null || falhou 'ponte foi renomeada pelo vigia'
 tmux ls -F '#S' | grep -q '^nome-novo' || falhou 'claude falso não foi usado (teste sem efeito)'
