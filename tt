@@ -2727,11 +2727,34 @@ CONF_FIX=$CONF_DIR/fixadas
 
 fixadas() { [[ -f $CONF_FIX ]] && grep -v '^\s*$' "$CONF_FIX"; }
 
+session_id() {
+  local s=$1 id
+  id=$(tmux show-options -qv -t "=$s:" @tt_session_id 2>/dev/null)
+  if [[ -z $id ]]; then
+    id=$(printf '%s\0%s\0%s\0%s' "$MAQUINA" "$s" "$$" "$(date +%s%N)" | sha256sum | cut -c1-32)
+    tmux set-option -q -t "=$s:" @tt_session_id "$id" 2>/dev/null || return 1
+  fi
+  printf '%s\n' "$id"
+}
+
+session_by_id() {
+  local id=$1
+  tmux list-sessions -F '#{session_name}\t#{@tt_session_id}' 2>/dev/null |
+    awk -F'\t' -v id="$id" '$2 == id { print $1; exit }'
+}
+
+resolver_fixada_remota() {
+  local antigo=$1 id=$2 s
+  if [[ -n $id ]]; then s=$(session_by_id "$id"); else s=$antigo; fi
+  [[ -n $s ]] || return 1
+  printf '%s\t%s\n' "$s" "$(session_id "$s")"
+}
+
 # Identidade estável do item da barra. O índice pode mudar enquanto o vigia sincroniza a lista;
 # a chave permite resolver o clique contra a máquina e a sessão corretas mesmo nesse intervalo.
 # O tmux limita o argumento de range=user|X a 15 bytes; 12 hexadecimais deixam margem para
 # classificadores e versões que acrescentam o prefixo do tipo ao valor.
-fixada_chave() { printf '%s\t%s' "$1" "$2" | sha256sum | cut -c1-12; }
+fixada_chave() { printf '%s\t%s' "$1" "${3:-$2}" | sha256sum | cut -c1-12; }
 
 # A lista é a mesma em todas as máquinas: cada mudança é copiada para as cadastradas (em segundo
 # plano), e cada uma redesenha a barra. Assim as fixadas não somem ao entrar numa sessão de outra
@@ -2792,13 +2815,19 @@ aplicar_fixadas() {
 # Fixa ou desafixa a sessão S da máquina de rótulo R. Ao fixar uma sessão daqui, o vigia para de
 # renomeá-la (senão o item da barra ficaria apontando para um nome que sumiu).
 alternar_fixada() {
-  local r=$1 s=$2
+  local r=$1 s=$2 id="" d
   mkdir -p "$CONF_DIR"; touch "$CONF_FIX"
-  if grep -qxF "$r"$'\t'"$s" "$CONF_FIX"; then
-    grep -vxF "$r"$'\t'"$s" "$CONF_FIX" >"$CONF_FIX.novo"; mv "$CONF_FIX.novo" "$CONF_FIX"
+  if awk -F'\t' -v r="$r" -v s="$s" '$1 == r && $2 == s { found=1 } END { exit !found }' "$CONF_FIX"; then
+    awk -F'\t' -v r="$r" -v s="$s" '$1 != r || $2 != s' "$CONF_FIX" >"$CONF_FIX.novo"; mv "$CONF_FIX.novo" "$CONF_FIX"
     echo "desafixada"
   else
-    printf '%s\t%s\n' "$r" "$s" >>"$CONF_FIX"
+    if [[ $r == "$MAQUINA" ]]; then
+      id=$(session_id "$s")
+    else
+      d=$(dest_de "$r")
+      [[ -n $d ]] && id=$(timeout 5 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --session-id $(q "$s")" </dev/null 2>/dev/null)
+    fi
+    printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$CONF_FIX"
     # A marca fica dentro da sessão. Se ela for renomeada fora do tt, conseguimos achar a
     # mesma sessão pelo marcador e corrigir o nome mostrado na barra.
     if [[ $r == "$MAQUINA" ]]; then
@@ -2817,9 +2846,9 @@ alternar_fixada() {
 
 # ✕ de um item da faixa de fixadas: desafixa a sessão identificada pela chave estável.
 desafixar_item() {
-  local c=$1 chave=${2#fxx} r s k
-  while IFS=$'\t' read -r r s; do
-    k=$(fixada_chave "$r" "$s")
+  local c=$1 chave=${2#fxx} r s id k
+  while IFS=$'\t' read -r r s id; do
+    k=$(fixada_chave "$r" "$s" "$id")
     [[ $k == "$chave" ]] && break
     r=""; s=""
   done < <(fixadas)
@@ -2854,33 +2883,37 @@ fixada_renomeada() {
 # também permite acompanhar um rename feito diretamente pelo tmux ou por outro programa.
 reconciliar_fixadas() {
   [[ -f $CONF_FIX ]] || return 0
-  local tmp r s d resposta st mudou=0 novo
+  local tmp r s id d resposta st mudou=0 novo novo_id
   tmp=$(mktemp "$CONF_FIX.XXXXXX") || return 1
-  while IFS=$'\t' read -r r s; do
+  while IFS=$'\t' read -r r s id; do
     [[ -n $r && -n $s ]] || continue
     novo=$s
     if [[ $r == "$MAQUINA" ]]; then
       if tmux has-session -t "=$s" 2>/dev/null; then
         # Também migra itens fixados de versões antigas para o marcador de identidade.
         tmux set-option -t "=$s:" @tt_fixado_nome "$s" 2>/dev/null
+        novo_id=$(session_id "$s")
       else
-        novo=$(tmux list-sessions -F '#{session_name}\t#{@tt_fixado_nome}' 2>/dev/null |
+        if [[ -n $id ]]; then novo=$(session_by_id "$id"); fi
+        [[ -n $novo ]] || novo=$(tmux list-sessions -F '#{session_name}\t#{@tt_fixado_nome}' 2>/dev/null |
           awk -F'\t' -v antigo="$s" '$2 == antigo { print $1; exit }')
+        [[ -n $novo ]] && novo_id=$(session_id "$novo")
       fi
       # Sem sessão e sem marca correspondente: ela foi fechada.
       [[ -n $novo ]] || { mudou=1; continue; }
     else
       d=$(dest_de "$r")
       # Rótulo desconhecido ou máquina inacessível não é evidência de fechamento.
-      [[ -n $d ]] || { printf '%s\t%s\n' "$r" "$s" >>"$tmp"; continue; }
-      resposta=$(timeout 6 ssh "${SSH_OPC[@]}" "$d" "if tmux has-session -t $(q "=$s"); then tmux set-option -t $(q "=$s:") @tt_fixado_nome $(q "$s"); printf '%s\\n' $(q "$s"); else tmux list-sessions -F '#{session_name}\\t#{@tt_fixado_nome}' 2>/dev/null | awk -F '\\t' -v antigo=$(q "$s") '\$2 == antigo { print \$1; exit }'; fi" </dev/null 2>/dev/null)
+      [[ -n $d ]] || { printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$tmp"; continue; }
+      resposta=$(timeout 6 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --resolver-fixada $(q "$s") $(q "$id")" </dev/null 2>/dev/null)
       st=$?
-      ((st == 0)) || { printf '%s\t%s\n' "$r" "$s" >>"$tmp"; continue; }
-      novo=$resposta
+      ((st == 0)) || { printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$tmp"; continue; }
+      novo=${resposta%%$'\t'*}; novo_id=${resposta#*$'\t'}
       [[ -n $novo ]] || { mudou=1; continue; }
     fi
-    [[ $novo == "$s" ]] || mudou=1
-    printf '%s\t%s\n' "$r" "$novo" >>"$tmp"
+    [[ $novo == "$s" || $novo_id != "$id" ]] || true
+    [[ $novo == "$s" && $novo_id == "$id" ]] || mudou=1
+    printf '%s\t%s\t%s\n' "$r" "$novo" "$novo_id" >>"$tmp"
   done < <(fixadas)
   if ((mudou)); then
     mv "$tmp" "$CONF_FIX"
@@ -2898,13 +2931,13 @@ reconciliar_fixadas() {
 # status-interval curto e comandos #() na barra, cada cliente disparava processos a cada segundo e o
 # cursor piscava indo e voltando da barra. Recalculada só quando algo muda (atualizar_barras).
 barra_fixadas_fmt() {
-  local i=0 r s rot chave normal='#[bg=#44475a]#[fg=#f8f8f2]#[nobold]' atual='#[bg=#bd93f9]#[fg=#282a36]#[bold]' estilo
+  local i=0 r s id rot chave normal='#[bg=#44475a]#[fg=#f8f8f2]#[nobold]' atual='#[bg=#bd93f9]#[fg=#282a36]#[bold]' estilo
   local -A existe
   while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
   printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
-  while IFS=$'\t' read -r r s; do
+  while IFS=$'\t' read -r r s id; do
     i=$((i + 1))
-    chave=$(fixada_chave "$r" "$s")
+    chave=$(fixada_chave "$r" "$s" "$id")
     if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
     rot=${rot:0:22}; rot=${rot//#/##}
     if [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then estilo='#[bg=#282a36]#[fg=#6272a4]#[nobold]'; rot="✗ $rot"
@@ -2939,13 +2972,13 @@ atualizar_barras() {
 }
 
 barra_fixadas() {
-  local atual=${1:-} i=0 r s rot cor chave
+  local atual=${1:-} i=0 r s id rot cor chave
   local -A existe
   while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
   printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
-  while IFS=$'\t' read -r r s; do
+  while IFS=$'\t' read -r r s id; do
     i=$((i + 1))
-    chave=$(fixada_chave "$r" "$s")
+    chave=$(fixada_chave "$r" "$s" "$id")
     if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
     rot=${rot:0:22}
     if [[ $r == "$MAQUINA" && $s == "$atual" ]]; then cor='#[bg=#bd93f9,fg=#282a36,bold]'
@@ -2958,15 +2991,24 @@ barra_fixadas() {
 
 # Clique num item fixado: vai para ele (ponte, se for de outra máquina).
 ir_fixada() {
-  local c=$1 chave=${2#fx} r s k d
-  while IFS=$'\t' read -r r s; do
-    k=$(fixada_chave "$r" "$s")
+  local c=$1 chave=${2#fx} r s id k d resolvida
+  while IFS=$'\t' read -r r s id; do
+    k=$(fixada_chave "$r" "$s" "$id")
     [[ $k == "$chave" ]] && break
     r=""; s=""
   done < <(fixadas)
   [[ -n $s ]] || return 0
   d=$(dest_de "$r")
   if [[ -z $d ]]; then tmux display-message -c "$c" "📌 $r: máquina não cadastrada ou desligada"; return 0; fi
+  if [[ -n $id ]]; then
+    if [[ $d == . ]]; then
+      resolvida=$(session_by_id "$id")
+    else
+      resolvida=$(timeout 6 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --resolver-fixada $(q "$s") $(q "$id")" </dev/null 2>/dev/null)
+      resolvida=${resolvida%%$'\t'*}
+    fi
+    [[ -n $resolvida ]] && s=$resolvida
+  fi
   if [[ $d == . ]] && ! tmux has-session -t "=$s" 2>/dev/null; then
     reconciliar_fixadas
     tmux display-message -c "$c" "📌 a sessão \"$s\" não existe mais e foi desafixada"; return 0
@@ -2976,9 +3018,9 @@ ir_fixada() {
 
 # Botão direito num item fixado.
 menu_fixada() {
-  local c=$1 chave=${2#fx} r s k n i
-  while IFS=$'\t' read -r r s; do
-    k=$(fixada_chave "$r" "$s")
+  local c=$1 chave=${2#fx} r s id k n i
+  while IFS=$'\t' read -r r s id; do
+    k=$(fixada_chave "$r" "$s" "$id")
     [[ $k == "$chave" ]] && break
     r=""; s=""
   done < <(fixadas)
@@ -4080,6 +4122,8 @@ case "${1:-}" in
   --registrar) registrar "$2" "$3" "$4"; exit ;;
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;
+  --session-id) session_id "$2"; exit ;;
+  --resolver-fixada) resolver_fixada_remota "$2" "${3:-}"; exit $? ;;
   --instalar-aqui) instalar_aqui; exit ;;
   --instalar)
     # Primeira instalação a partir de um clone: grava o repositório como origem e instala aqui.
