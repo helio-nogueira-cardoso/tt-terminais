@@ -715,7 +715,7 @@ REPO_TT=${TT_REPO:-$(conf repo)}
 [[ -z $REPO_TT && -d $(dirname "$EU")/.git && -f $(dirname "$EU")/tmux.conf ]] && REPO_TT=$(dirname "$EU")
 SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new
   -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%r@%h" -o ControlPersist=12h
-  -o ServerAliveInterval=30)
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
 TT_REMOTO='~/.local/bin/tt'
 # Estado compartilhado entre processos do tt (pidfile do vigia, caches, transferências): sempre o
 # mesmo diretório, venha o processo do tmux, de um popup, do ssh ou do vigia. Não depende de
@@ -820,6 +820,150 @@ meu_host() {
 dest_de() { [[ $1 == "$MAQUINA" ]] && echo . || maquinas | awk -v r="$1" '$2 == r { print $1; exit }'; }
 
 rotulo_de() { maquinas | awk -v d="$1" '$1 == d { print $2; f = 1 } END { if (!f) print d }'; }
+
+# Resiliência de conexão (aprendizado do incidente dell 2026-10): a rota Tailscale pode
+# estar viva e o SSH ainda falhar por chave ausente ou policy; e um primeiro acesso pelo
+# relay DERP costuma travar antes de a rota direta subir. Estas funções separam as camadas
+# (rede, porta, autenticação), aquecem a rota e reconciliam a chave pública.
+
+# Aquece a rota direta ate o host antes de uma operacao pesada (evita a 1a tentativa no relay).
+aquecer_rota() {
+  local host=$1
+  command -v tailscale >/dev/null || return 0
+  timeout 6 tailscale ping -c 1 "$host" >/dev/null 2>&1 || true
+}
+
+# ssh com ate N tentativas e backoff curto, para link instavel (DERP, Termux). Usa SSH_OPC.
+ssh_retry() {
+  local tentativas=${TT_SSH_TENTATIVAS:-2} i=1 rc
+  while :; do
+    ssh "${SSH_OPC[@]}" "$@" && return 0
+    rc=$?
+    ((i >= tentativas)) && return $rc
+    sleep $((i))
+    ((i++))
+  done
+}
+
+# Classifica por que o SSH para um destino falhou, separando as camadas. Ecoa um rotulo:
+#   ok | offline | sem-rota | porta-fechada | precisa-aprovar | policy-nega | sem-chave | timeout | erro
+diagnosticar_conexao() {
+  local dest=$1 host=${1#*@} err estado
+  # 1) Tailscale conhece e esta online?
+  if command -v tailscale >/dev/null; then
+    estado=$(tailscale status --json 2>/dev/null | python3 -c '
+import json, sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit()
+alvo = sys.argv[1].split("@")[-1].split(".")[0].lower()
+for p in (d.get("Peer") or {}).values():
+    if (p.get("HostName","").lower() == alvo
+            or p.get("DNSName","").split(".")[0].lower() == alvo):
+        print("online" if p.get("Online") else "offline"); break
+' "$dest" 2>/dev/null)
+    [[ $estado == offline ]] && { echo offline; return; }
+    if [[ $estado == online ]]; then
+      timeout 6 tailscale ping -c 1 "$host" >/dev/null 2>&1 || { echo sem-rota; return; }
+    fi
+  fi
+  # 2) Autenticacao: tenta um comando trivial e classifica o erro.
+  err=$(timeout 15 ssh "${SSH_OPC[@]}" "$dest" true 2>&1 </dev/null) && { echo ok; return; }
+  if grep -q 'login.tailscale.com' <<<"$err"; then echo precisa-aprovar
+  elif grep -qi 'tailnet policy does not permit' <<<"$err"; then echo policy-nega
+  elif grep -qi 'permission denied' <<<"$err"; then echo sem-chave
+  elif grep -qiE 'timed out|connection timed out' <<<"$err"; then echo timeout
+  elif grep -qiE 'connection refused|port 22' <<<"$err"; then echo porta-fechada
+  else echo "erro"
+  fi
+}
+
+# Mensagem humana para cada rotulo do diagnostico.
+explicar_diagnostico() {
+  case $1 in
+  ok) echo "conecta normalmente." ;;
+  offline) echo "desligada no Tailscale." ;;
+  sem-rota) echo "online no Tailscale, mas sem rota (ping falhou); verifique a rede/relay." ;;
+  porta-fechada) echo "rota ok, mas o sshd nao respondeu (servico parado ou porta fechada)." ;;
+  precisa-aprovar) echo "o Tailscale SSH de la pede aprovacao no navegador (tente de novo apos aprovar)." ;;
+  policy-nega) echo "a policy do tailnet nao permite esse usuario de destino; ajuste a ACL ou use outro usuario." ;;
+  sem-chave) echo "rota e porta ok, mas a chave publica nao esta autorizada la; rode: tt --reparar <maquina>." ;;
+  timeout) echo "tempo esgotado; rede instavel ou maquina sobrecarregada." ;;
+  *) echo "falha nao classificada." ;;
+  esac
+}
+
+# tt --diagnosticar [rotulo]: diagnostico em camadas de uma ou de todas as maquinas.
+diagnosticar() {
+  local rot=${1:-} dest est
+  if [[ -n $rot ]]; then
+    dest=$(dest_de "$rot"); [[ -n $dest && $dest != . ]] || { echo "$rot: nao cadastrada."; return 1; }
+    est=$(diagnosticar_conexao "$dest")
+    printf '%-16s %-14s %s\n' "$rot" "$est" "$(explicar_diagnostico "$est")"
+    return 0
+  fi
+  while read -r dest rot; do
+    est=$(diagnosticar_conexao "$dest")
+    printf '%-16s %-14s %s\n' "$rot" "$est" "$(explicar_diagnostico "$est")"
+  done < <(maquinas)
+}
+
+# tt --saude: igual ao diagnostico de todas, mas marca em vermelho as que estao online sem auth.
+saude() {
+  local dest rot est
+  echo "Saude das maquinas cadastradas:"
+  while read -r dest rot; do
+    est=$(diagnosticar_conexao "$dest")
+    case $est in
+    ok) printf '  \033[32m●\033[0m %-16s %s\n' "$rot" "$est" ;;
+    offline) printf '  \033[90m○\033[0m %-16s %s\n' "$rot" "$est" ;;
+    *) printf '  \033[31m●\033[0m %-16s %-14s %s\n' "$rot" "$est" "$(explicar_diagnostico "$est")" ;;
+    esac
+  done < <(maquinas)
+}
+
+# Garante a chave publica desta maquina no authorized_keys do destino (idempotente). Precisa
+# de um acesso ja funcional ao destino (chave existente, Tailscale SSH ou senha interativa).
+instalar_chave_em() {
+  local dest=$1 pub
+  pub=$(cat ~/.ssh/id_ed25519.pub 2>/dev/null) || return 1
+  [[ -n $pub ]] || return 1
+  ssh "${SSH_OPC[@]}" "$dest" "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && grep -qF $(q "$pub") ~/.ssh/authorized_keys || printf '%s\n' $(q "$pub") >> ~/.ssh/authorized_keys" </dev/null
+}
+
+# tt --reparar [rotulo]: reconcilia o acesso. Se a auth direta falha por falta de chave mas ha
+# uma ponte (outra maquina que ja acessa o destino), instala a chave por ela; senao, orienta.
+reparar() {
+  local rot=${1:-} dest host est od orot
+  if [[ -z $rot ]]; then
+    rot=$(awk '!/^#/ && NF { print ($3 ? $3 : $1) }' "$CONF_MAQ" 2>/dev/null |
+      fzf --layout=reverse --height=~12 --header='Reparar qual maquina?' --prompt='❯ ') || return 1
+  fi
+  dest=$(dest_de "$rot"); host=${dest#*@}
+  [[ -n $dest && $dest != . ]] || { echo "$rot: nao cadastrada."; return 1; }
+  aquecer_rota "$host"
+  est=$(diagnosticar_conexao "$dest")
+  case $est in
+  ok) echo "$rot: ja conecta, nada a reparar." ; return 0 ;;
+  sem-chave)
+    echo "$rot: chave nao autorizada. Procurando uma ponte que ja acesse $rot…"
+    while read -r od orot; do
+      [[ $od == "$dest" || $od == . ]] && continue
+      if ssh "${SSH_OPC[@]}" "$od" "ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new $(q "$dest") true" </dev/null 2>/dev/null; then
+        echo "  ponte: $orot acessa $rot. Instalando a chave por ela…"
+        if ssh "${SSH_OPC[@]}" "$od" "ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new $(q "$dest") $(q "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && grep -qF $(cat ~/.ssh/id_ed25519.pub) ~/.ssh/authorized_keys || echo $(cat ~/.ssh/id_ed25519.pub) >> ~/.ssh/authorized_keys")" </dev/null 2>/dev/null; then
+          aquecer_rota "$host"
+          [[ $(diagnosticar_conexao "$dest") == ok ]] && { echo "  ✓ reparado: agora conecta direto."; return 0; }
+        fi
+      fi
+    done < <(maquinas)
+    echo "  nenhuma ponte disponivel. Autorize manualmente esta chave no $rot:"
+    echo "    $(cat ~/.ssh/id_ed25519.pub 2>/dev/null)"
+    return 1 ;;
+  policy-nega) echo "$rot: $(explicar_diagnostico policy-nega)"; return 1 ;;
+  precisa-aprovar) echo "$rot: $(explicar_diagnostico precisa-aprovar)"; return 1 ;;
+  *) echo "$rot: $est - $(explicar_diagnostico "$est")"; return 1 ;;
+  esac
+}
 
 # Grava/tira uma máquina de ~/.config/tt/maquinas (troca a linha do mesmo host, se houver).
 registrar() {
@@ -1088,6 +1232,7 @@ instalar_em() {
     rm -rf "$tmp"
     return $st
   else
+    aquecer_rota "${dest#*@}"  # sobe a rota direta antes do envio pesado (evita travar no relay)
     pacote | ssh "${SSH_OPC[@]}" "$dest" "rm -rf ~/.cache/tt-pacote && mkdir -p ~/.cache/tt-pacote && tar -C ~/.cache/tt-pacote -xf - && TT_NOME=$(q "$nome") ~/.cache/tt-pacote/tt --instalar-aqui; rm -rf ~/.cache/tt-pacote"
   fi
 }
@@ -1250,6 +1395,7 @@ cadastrar() {
   [[ $rot == "$MAQUINA" ]] && { echo "Esse nome já é o desta máquina; escolha outro."; return 1; }
   echo "Instalando o tt em $rot…"
   instalar_em "$dest" "$rot" | tail -1 || { echo "A instalação falhou."; return 1; }
+  instalar_chave_em "$dest" 2>/dev/null && echo "chave desta máquina autorizada em $rot (acesso direto garantido)."
   registrar "$host" "$usuario" "$rot"
   ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --registrar $(q "$(meu_host)" "$(id -un)" "$MAQUINA")" </dev/null
   echo "✓ $rot cadastrada: aparece no menu daqui, e esta ($MAQUINA) no menu de lá."
@@ -3905,6 +4051,9 @@ case "${1:-}" in
   --descadastrar) shift; descadastrar "$@"; exit ;;
   --ocultar-maquina) ocultar_maquina "${2:-}"; exit ;;
   --mostrar-maquina) mostrar_maquina "${2:-}"; exit ;;
+  --diagnosticar) shift; diagnosticar "${1:-}"; exit ;;
+  --reparar) shift; reparar "${1:-}"; exit ;;
+  --saude) saude; exit ;;
   --registrar) registrar "$2" "$3" "$4"; exit ;;
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;

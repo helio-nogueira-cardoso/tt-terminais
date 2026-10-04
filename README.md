@@ -138,7 +138,22 @@ Os testes de regressão ficam em `tests/`. Para executá-los:
     tt --ocultar-maquina [nome]              esconde só neste menu, preservando a configuração
     tt --mostrar-maquina [nome]              restaura uma máquina ocultada
     tt --sincronizar [nome…]                 instala esta versão aqui e nas cadastradas
+    tt --diagnosticar [nome]                 por que uma (ou todas) não conecta, camada por camada
+    tt --saude                               painel rápido: verde conecta, vermelho online sem acesso
+    tt --reparar [nome]                      reautoriza a chave desta máquina usando outra como ponte
     tt --versao                              versão instalada ("N hash data")
+
+### Quando uma máquina para de conectar
+
+Uma máquina pode estar ligada no Tailscale e mesmo assim recusar o acesso: a rota existe,
+mas falta a chave no `authorized_keys` de lá, ou a policy do tailnet não libera aquele
+usuário. `tt --diagnosticar` separa as camadas (desligada, sem rota, porta fechada, precisa
+aprovar no navegador, policy nega, sem chave, timeout) e diz qual é o caso. `tt --reparar`
+resolve o caso mais comum, "sem chave": procura outra máquina cadastrada que ainda acesse a
+que quebrou e, por ela como ponte, reautoriza a chave desta máquina, sem precisar de senha.
+O `--cadastrar` já deixa a chave autorizada no destino, para o acesso direto não depender de
+configuração manual.
+
 
 Tudo isso também está no menu de máquinas (clique no nome da máquina na barra). Configuração:
 
