@@ -52,6 +52,11 @@ tem "$tt" 'tmux set -g status 2' &&
   tem "$tt" 'printf.*📌' && ok 'faixa de fixadas permanece visível vazia' ||
   falha 'faixa de fixadas desaparece quando vazia'
 
+tem "$tt" 'atalhos-padrao-s23' &&
+  tem "$raiz/atalhos-padrao-s23" 'claude --dangerously-skip-permissions' &&
+  tem "$raiz/atalhos-padrao-s23" 'codex --yolo' && ok 'perfil s23 abre Claude e Codex novos com permissões reforçadas' ||
+  falha 'perfil s23 não reforça atalhos novos de Claude/Codex'
+
 tem "$tt" 'c\[3:4\] == \["oculta"\]' &&
   tem "$tt" '^ocultar_maquina\(\)' &&
   tem "$tt" '^mostrar_maquina\(\)' && ok 'ocultar/mostrar preserva máquinas cadastradas' ||
