@@ -35,7 +35,7 @@ esac
 TMUX
 chmod +x "$TEST_DIR/bin/tmux"
 
-key=$(printf '%s\t%s' dell sessao-b | sha256sum | cut -c1-16)
+key=$(printf '%s\t%s' dell sessao-b | sha256sum | cut -c1-12)
 env HOME="$TEST_DIR/home" XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
   TT_DIR="$ROOT" TT_TEST_LOG="$TEST_DIR/tmux.log" \
   TMUX= TMUX_PANE= \
@@ -58,8 +58,8 @@ env HOME="$TEST_DIR/home" XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
 
 grep -qx 'switch-client -c cliente-real -t =sessao-b' "$TEST_DIR/tmux.log"
 
-key_again=$(printf '%s\t%s' dell sessao-b | sha256sum | cut -c1-16)
-key_other=$(printf '%s\t%s' dell sessao-a | sha256sum | cut -c1-16)
+key_again=$(printf '%s\t%s' dell sessao-b | sha256sum | cut -c1-12)
+key_other=$(printf '%s\t%s' dell sessao-a | sha256sum | cut -c1-12)
 [[ $key == "$key_again" ]]
 [[ $key != "$key_other" ]]
 

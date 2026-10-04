@@ -2729,7 +2729,9 @@ fixadas() { [[ -f $CONF_FIX ]] && grep -v '^\s*$' "$CONF_FIX"; }
 
 # Identidade estável do item da barra. O índice pode mudar enquanto o vigia sincroniza a lista;
 # a chave permite resolver o clique contra a máquina e a sessão corretas mesmo nesse intervalo.
-fixada_chave() { printf '%s\t%s' "$1" "$2" | sha256sum | cut -c1-16; }
+# O tmux limita o argumento de range=user|X a 15 bytes; 12 hexadecimais deixam margem para
+# classificadores e versões que acrescentam o prefixo do tipo ao valor.
+fixada_chave() { printf '%s\t%s' "$1" "$2" | sha256sum | cut -c1-12; }
 
 # A lista é a mesma em todas as máquinas: cada mudança é copiada para as cadastradas (em segundo
 # plano), e cada uma redesenha a barra. Assim as fixadas não somem ao entrar numa sessão de outra
