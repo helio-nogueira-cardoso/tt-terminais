@@ -182,11 +182,14 @@ acompanha o novo nome:
 - **primeiro nome**: uma aba de nome genérico (`janela-N`, `atalho-N`…) ganha nome 1 minuto
   depois da primeira interação (`TT_T_PRIMEIRO`, em segundos); se a tela ainda não mostrar do que
   se trata, tenta de novo 1 minuto depois da interação seguinte;
-- **renomeações seguintes**: depois de 3 interações (`TT_INTERACOES_RENOMEAR`) e 20 min desde o
-  último nome (`TT_T_RENOMEAR`), ao mudar de pasta ou na revisão periódica. Vale para todas as
-  abas, inclusive as do Claude: o primeiro nome delas é o título da conversa (sem custo), mas esse
-  título não muda mais, então as revisões perguntam ao Haiku olhando os últimos pedidos da
-  conversa e a tela, e o nome acompanha a tarefa atual. Se o título da conversa mudar, a aba o segue.
+- **renomeações seguintes**: por pontos. Cada pedido novo vale 3 (`TT_PESO_PEDIDO`) e cada minuto
+  com uso vale 1; com 10 pontos (`TT_PONTOS_RENOMEAR`) e pelo menos 5 min desde o último nome
+  (`TT_T_RENOMEAR`, em segundos), o Haiku sugere o nome novo. Pedido é uma mensagem digitada na
+  conversa do Claude ou, nas outras abas, tecla/toque de verdade (saída na tela não conta). Sem
+  pedido novo o assunto não mudou e o Haiku nem é chamado, por mais que a tela mude (um agente
+  trabalhando sozinho no mesmo pedido). Mudar de pasta também renomeia. Nas abas do Claude o
+  primeiro nome é o título da conversa (sem custo); as revisões leem os últimos pedidos e a tela,
+  e o nome acompanha a tarefa atual. Se o título da conversa mudar, a aba o segue.
 
 O comando `^a`/“Nomear todas” faz isso sequencialmente nesta máquina e em todas as máquinas
 cadastradas que estiverem acessíveis.
@@ -213,6 +216,13 @@ liga e desliga a sessão na barra de fixadas) e o ✕ (os painéis só têm o �
 vira "fechar? ✕"; o segundo fecha. Tocar em qualquer outro ponto da linha abre a sessão (e cancela
 a confirmação). Pelo teclado: `^x` fecha a selecionada. (A coluna do clique é lida por uma camada
 fina em Python entre o terminal e o fzf; sem python3, a lista funciona sem o ✕.)
+
+O vigia de cada máquina também fecha sozinho as **sessões paradas**: sem tecla, toque, anexo nem
+saída na tela há N minutos (menu do painel → "⏱ Sessões paradas", ou `tt --definir-paradas N`,
+que vale para todas as máquinas; padrão 30, 0 desliga) e sem nada rodando, nem em segundo plano.
+Shells interativos ociosos aninhados (um `bash -l` aberto para recarregar o PATH) e o invólucro do
+`proot-distro login` não contam como programa; um agente aberto, um `sleep &` ou um `sh -c` contam.
+Sessões abertas em alguma tela, fixadas e pontes nunca são fechadas assim.
 
 ## Arquivos
 
