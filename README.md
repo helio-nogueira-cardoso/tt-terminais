@@ -172,7 +172,9 @@ os lados. Para fixar a sessão em uso: o pino ao lado do nome dela na barra (�
 clique fixa; 📌 = fixada, um clique desafixa). Também: menu da sessão (botão direito em
 "sessão ▾") → "📌 Fixar na barra", `^f` no seletor, ou `tt --fixar [máquina:]sessão`. A lista é a mesma em todas as máquinas (cada mudança é copiada
 para as cadastradas; quem estava desligada puxa a mais nova sozinha ao voltar, em até 5 min), então
-as fixadas continuam lá ao entrar numa sessão de outra máquina. A linha
+as fixadas continuam lá ao entrar numa sessão de outra máquina. Cada fixada também carrega uma
+identidade persistente da sessão, independente do nome exibido; por isso renomear uma sessão não
+quebra o clique, inclusive quando a troca atravessa máquinas. A linha
 só aparece quando há alguma fixada. O vigia dá nome semântico às sessões (inclusive fixadas), e o item da barra
 acompanha o novo nome:
 
