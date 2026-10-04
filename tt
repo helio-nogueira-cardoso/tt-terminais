@@ -1032,7 +1032,7 @@ versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-s23 README.md AI-DLC.md)
+ARQUIVOS_FONTE=(tt tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -3082,11 +3082,11 @@ atalho_info() {
 # Clique num botão da barra de baixo: RANGE CLIENTE PAINEL PASTA [X-DO-MOUSE].
 atalhos_base() {
   local padrao=$ATALHOS_PADRAO
-  [[ $MAQUINA == s23 && -f $DIR_TT/atalhos-padrao-s23 ]] && padrao=$DIR_TT/atalhos-padrao-s23
+  e_mobile && [[ -f $DIR_TT/atalhos-padrao-mobile ]] && padrao=$DIR_TT/atalhos-padrao-mobile
   [[ -f $padrao ]] && sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' "$padrao"
   # Contas do claude-conta são atalhos locais: só o nome do perfil entra na barra, nunca a
   # credencial. Emojis numerados deixam as contas distinguíveis mesmo em telas estreitas.
-  [[ $MAQUINA == s23 ]] && return 0
+  e_mobile && return 0
   local dir nome i=0 emoji
   for dir in "$HOME"/.local/share/claude-contas/*; do
     [[ -d $dir ]] || continue
@@ -3104,7 +3104,7 @@ atalhos_lista() {
   base=$(mktemp "${RT:-/tmp}/tt-atalhos.XXXXXX") || return 1
   atalhos_base >"$base"
   localf=$CONF_ATALHOS
-  [[ $MAQUINA == s23 ]] && localf=/dev/null
+  e_mobile && localf=/dev/null
   [[ -f $localf ]] || localf=/dev/null
   # Padrões na ordem do pacote (trocados pela versão local do mesmo id; emoji "-" some), depois os
   # atalhos só locais, na ordem do arquivo.
@@ -3194,6 +3194,11 @@ tipo_maquina() {
   elif [[ ${PREFIX:-} == *com.termux* ]]; then echo termux
   else echo linux; fi
 }
+
+# Esta maquina e um ambiente mobile (celular com Termux)? Vale para o perfil de atalhos:
+# no Termux os agentes rodam dentro de um Debian via proot, nao direto no shell, e nao ha
+# o diretorio de contas do claude-conta local. Detecta pela plataforma, sem fixar o nome.
+e_mobile() { [[ $(tipo_maquina) == termux ]]; }
 
 # Como a pasta aparece para quem usa esta máquina: no WSL, o caminho do Windows (C:\… ou
 # \\wsl.localhost\…, que o Explorer não mostra sozinho); no Termux, se está no armazenamento do
