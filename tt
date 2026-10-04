@@ -135,7 +135,7 @@ claude_no_painel() {
   local raiz
   raiz=$(tmux display-message -p -t "$1" '#{pane_pid}' 2>/dev/null) || return 1
   { if [[ -n ${PS_CACHE:-} ]]; then echo "$PS_CACHE"; else ps -eo pid=,ppid=,comm=; fi; } | awk -v raiz="$raiz" '
-    { pai[$1] = $2; cmd[$1] = $3 }
+    { pai[$1] = $2; n = $3; sub(/.*\//, "", n); cmd[$1] = n } # no Termux, um binário fora do PATH aparece com o caminho
     END {
       for (p in cmd) {
         if (cmd[p] != "claude") continue
@@ -145,22 +145,61 @@ claude_no_painel() {
 }
 claude_na_sessao() { claude_no_painel "=$1:"; }
 
+# Últimos pedidos digitados na conversa ID do Claude, o mais recente por último, um por linha e
+# curtos. Dizem do que a sessão trata agora; o título (aiTitle) é dado uma vez e não muda mais.
+pedidos_claude() {
+  local arq
+  arq=$(arquivo_claude "projects/*/$1.jsonl") && [[ -r $arq ]] || return 1
+  command -v python3 >/dev/null || return 1
+  # Só o fim do transcript: a primeira linha cortada não é JSON válido e é descartada.
+  tail -c 2000000 "$arq" | python3 -c '
+import json, sys
+pedidos = []
+for linha in sys.stdin:
+    try:
+        e = json.loads(linha)
+    except ValueError:
+        continue
+    if not isinstance(e, dict) or e.get("type") != "user" or e.get("isMeta") or e.get("isSidechain"):
+        continue
+    c = (e.get("message") or {}).get("content")
+    if isinstance(c, list):  # resultados de ferramentas não são pedidos; só os trechos de texto
+        c = " ".join(p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text")
+    if not isinstance(c, str):
+        continue
+    c = " ".join(c.split())
+    if not c or c.startswith(("<", "[Request interrupted")):  # comandos, avisos do sistema
+        continue
+    pedidos.append(c[:300])
+print("\n".join("- " + p for p in pedidos[-6:]))
+' 2>/dev/null
+}
+
 # Sugere um nome para a sessão S: título da conversa, se for Claude; senão pergunta ao Haiku
-# olhando a tela. Sem assunto claro, sugere o nome da pasta e retorna 1.
+# olhando a tela. Com "revisar" no 2º argumento (renomeações seguintes do vigia), uma sessão do
+# Claude não repete o título: o Haiku lê os últimos pedidos e a tela e nomeia a tarefa atual.
+# Sem assunto claro, sugere o nome da pasta e retorna 1.
 sugerir_nome() {
-  local s=$1 pid id status rot titulo pasta cmd tela claude nome
+  local s=$1 revisar=${2:-} pid id status rot titulo="" pedidos="" pasta cmd tela claude nome=""
   pid=$(claude_na_sessao "$s")
   if [[ -n $pid ]]; then
     read -r id status rot < <(claude_info "$pid")
-    titulo=$(titulo_claude "${id:-x}") && nome=$(slug "$titulo")
-    [[ -n ${nome:-} ]] && { echo "$nome"; return; }
+    titulo=$(titulo_claude "${id:-x}") || titulo=""
+    if [[ -z $revisar ]]; then
+      nome=$(slug "$titulo")
+      [[ -n $nome ]] && { echo "$nome"; return; }
+    fi
+    pedidos=$(pedidos_claude "${id:-x}") || pedidos=""
   fi
 
   pasta=$(tmux display-message -p -t "=$s:" '#{pane_current_path}')
   cmd=$(tmux display-message -p -t "=$s:" '#{pane_current_command}')
   tela=$(tmux capture-pane -p -J -S -80 -t "=$s:" | grep -v '^[[:space:]]*$' | tail -60)
   local texto dest rot
-  texto=$(printf 'Pasta: %s\nPrograma em primeiro plano: %s\nTela:\n%s\n' "$(encurtar "$pasta")" "$cmd" "$tela")
+  texto=$(printf 'Pasta: %s\nPrograma em primeiro plano: %s\n' "$(encurtar "$pasta")" "$cmd")
+  [[ -n $titulo ]] && texto+=$'\n'"Título dado no início da conversa (pode estar desatualizado): $titulo"
+  [[ -n $pedidos ]] && texto+=$'\n'"Últimos pedidos do usuário (o mais recente por último):"$'\n'"$pedidos"
+  texto+=$'\n'"Tela:"$'\n'"$tela"
   # Sem o claude aqui (celular, notebook só com Codex), outra máquina do tt sugere o nome.
   if ! nome=$(nomear_texto <<<"$texto"); then
     nome=""
@@ -184,7 +223,7 @@ sugerir_nome() {
 nomear_texto() {
   local claude neutra=${TMPDIR:-/tmp} nome
   claude=$(claude_comando "$neutra" -p --model haiku --no-session-persistence --tools "" \
-    --system-prompt "Você nomeia sessões de terminal. Responda só com um nome curto (1 a 3 palavras em português, minúsculas, separadas por hífen) que diga do que trata a sessão: o projeto ou a tarefa, não o programa. Se a tela não mostrar nenhum trabalho concreto (só prompt vazio, boas-vindas), responda exatamente: vazio. Nada além do nome.") || { cat >/dev/null; return 1; }
+    --system-prompt "Você nomeia sessões de terminal. Responda só com um nome curto (1 a 3 palavras em português, minúsculas, separadas por hífen) que diga do que trata a sessão: o projeto ou a tarefa, não o programa. Se vierem pedidos do usuário, o nome diz a tarefa atual (os pedidos mais recentes), não o título inicial. Se a tela não mostrar nenhum trabalho concreto (só prompt vazio, boas-vindas), responda exatamente: vazio. Nada além do nome.") || { cat >/dev/null; return 1; }
   nome=$(cd "$neutra" && timeout 90 bash -c "$claude" 2>/dev/null | tail -1)
   [[ -n $nome ]] || return 1
   echo "$nome"
@@ -214,9 +253,10 @@ generico() { [[ $1 =~ ^(janela|claude|atalho)-[0-9]+$ ]]; }
 # Vigia: roda em segundo plano enquanto o tmux existir (iniciado pelo ~/.tmux.conf) e vai
 # renomeando semanticamente as sessões conforme o uso. Depois de algumas interações, também
 # revisa sessões que já tinham um nome escolhido; nomes fixados acompanham o rename.
-#   Claude: segue o título da conversa (sem custo, a cada volta).
-#   Shell:  pergunta ao Haiku só se houve uso desde a última vez e
-#           (nome genérico há 5 min) ou (mudou de pasta) ou (30 min desde o último nome).
+#   Claude: o primeiro nome é o título da conversa (sem custo) e, se ele mudar, segue o título.
+#   Todas:  depois, pergunta ao Haiku só se houve uso desde a última vez e (3 interações e 20 min
+#           desde o último nome) ou (mudou de pasta) ou (30 min desde o último uso). No Claude o
+#           Haiku lê os últimos pedidos da conversa, para o nome acompanhar a tarefa atual.
 vigiar() {
   local pidf="$RT/tt-vigia-$(id -u).pid" log="$HOME/.cache/tt-vigia.log" outro
   mkdir -p "$HOME/.cache"
@@ -276,15 +316,23 @@ vigiar() {
     while IFS='|' read -r s sid atividade pasta ponte; do
       # Pontes mostram uma sessão de outra máquina: o nome delas é o da ponte, nunca do vigia.
       [[ -n $ponte ]] && continue
+      # Claude: o título da conversa dá o nome sem custo, mas só uma vez (o aiTitle não muda ao
+      # longo da conversa). Depois a sessão segue as mesmas revisões das outras, logo abaixo.
       pid=$(claude_na_sessao "$s")
       if [[ -n $pid ]]; then
         read -r id st rot < <(claude_info "$pid")
-        titulo=$(titulo_claude "${id:-x}") || continue
-        [[ $titulo == "$(tmux show-options -qv -t "=$s:" @nome_titulo)" ]] && continue
-        nome=$(renomear "$s" "$(slug "$titulo")" auto) || continue
-        tmux set-option -t "=$nome:" @nome_titulo "$titulo"
-        echo "$(date '+%F %T') $s → $nome (título: $titulo)" >>"$log"
-        continue
+        if titulo=$(titulo_claude "${id:-x}"); then
+          if [[ $titulo != "$(tmux show-options -qv -t "=$s:" @nome_titulo)" ]]; then
+            if nome=$(renomear "$s" "$(slug "$titulo")" auto); then
+              tmux set-option -t "=$nome:" @nome_titulo "$titulo"
+              V_INTER[$sid]=0 V_NOMEADO[$sid]=$agora V_EM[$sid]=$atividade
+              echo "$(date '+%F %T') $s → $nome (título: $titulo)" >>"$log"
+            fi
+            continue
+          fi
+        elif generico "$s"; then
+          continue # conversa ainda sem título: o primeiro nome vem dele, sem chamar o Haiku
+        fi
       fi
 
       # Primeiro nome: aba com nome genérico que o tt ainda não nomeou. Não espera várias
@@ -336,7 +384,7 @@ vigiar() {
       [[ -n $motivo ]] || continue
 
       V_PASTA[$sid]=$pasta
-      if ! nome=$(sugerir_nome "$s"); then
+      if ! nome=$(sugerir_nome "$s" revisar); then
         # Sem assunto claro: não fica tentando a cada volta; novas interações reabrem a tentativa.
         V_INTER[$sid]=0
         continue
