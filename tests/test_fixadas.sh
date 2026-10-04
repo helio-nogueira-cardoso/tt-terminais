@@ -19,7 +19,8 @@ grep -q 'range=user|fxx%s' "$TT"
 
 mkdir -p "$TEST_DIR/home/.config/tt" "$TEST_DIR/bin"
 printf 'nome=dell\n' >"$TEST_DIR/home/.config/tt/config"
-printf 'dell\tsessao-a\tuuid-a\ndell\tsessao-b\tuuid-b\n' >"$TEST_DIR/home/.config/tt/fixadas"
+# O nome salvo está deliberadamente atrasado: a resolução deve encontrar sessao-b pelo UUID.
+printf 'dell\tsessao-a\tuuid-a\ndell\tnome-antigo\tuuid-b\n' >"$TEST_DIR/home/.config/tt/fixadas"
 
 cat >"$TEST_DIR/bin/tmux" <<'TMUX'
 #!/usr/bin/env bash
@@ -30,7 +31,7 @@ case ${1:-} in
     fi
     exit 0 ;;
   list-sessions)
-    printf '%s\n' 'sessao-b\tuuid-b'; exit 0 ;;
+    printf 'sessao-b\tuuid-b\n'; exit 0 ;;
   show-options)
     printf '%s\n' uuid-b; exit 0 ;;
   set-option) exit 0 ;;
@@ -70,4 +71,4 @@ key_other=$(printf '%s\t%s' dell uuid-a | sha256sum | cut -c1-12)
 [[ $key == "$key_again" ]]
 [[ $key != "$key_other" ]]
 
-echo 'ok: cliques fixados usam identidade estável'
+echo 'ok: cliques fixados usam identidade persistente e acompanham rename'
