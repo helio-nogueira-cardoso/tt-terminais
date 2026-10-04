@@ -1032,7 +1032,7 @@ versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao README.md AI-DLC.md)
+ARQUIVOS_FONTE=(tt tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-s23 README.md AI-DLC.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -3081,9 +3081,12 @@ atalho_info() {
 
 # Clique num botão da barra de baixo: RANGE CLIENTE PAINEL PASTA [X-DO-MOUSE].
 atalhos_base() {
-  [[ -f $ATALHOS_PADRAO ]] && sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' "$ATALHOS_PADRAO"
+  local padrao=$ATALHOS_PADRAO
+  [[ $MAQUINA == s23 && -f $DIR_TT/atalhos-padrao-s23 ]] && padrao=$DIR_TT/atalhos-padrao-s23
+  [[ -f $padrao ]] && sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' "$padrao"
   # Contas do claude-conta são atalhos locais: só o nome do perfil entra na barra, nunca a
   # credencial. Emojis numerados deixam as contas distinguíveis mesmo em telas estreitas.
+  [[ $MAQUINA == s23 ]] && return 0
   local dir nome i=0 emoji
   for dir in "$HOME"/.local/share/claude-contas/*; do
     [[ -d $dir ]] || continue
@@ -3100,7 +3103,9 @@ atalhos_lista() {
   local base localf
   base=$(mktemp "${RT:-/tmp}/tt-atalhos.XXXXXX") || return 1
   atalhos_base >"$base"
-  localf=$CONF_ATALHOS; [[ -f $localf ]] || localf=/dev/null
+  localf=$CONF_ATALHOS
+  [[ $MAQUINA == s23 ]] && localf=/dev/null
+  [[ -f $localf ]] || localf=/dev/null
   # Padrões na ordem do pacote (trocados pela versão local do mesmo id; emoji "-" some), depois os
   # atalhos só locais, na ordem do arquivo.
   awk -F '\t' -v b="$base" '
