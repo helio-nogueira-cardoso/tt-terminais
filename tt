@@ -83,11 +83,14 @@ arquivo_claude() {
 
 # "sessionId status name" do Claude Code rodando no PID dado (vazio se não houver registro).
 claude_info() {
-  python3 - "$(arquivo_claude "sessions/$1.json")" <<'EOF' 2>/dev/null
-import json, sys
-d = json.load(open(sys.argv[1]))
-print(d.get("sessionId", ""), d.get("status", "?"), d.get("name", ""))
-EOF
+  # Sem python (ele custava ~15 ms por chamada, em cada painel com Claude ao abrir as listas).
+  local arq v id st nome
+  arq=$(arquivo_claude "sessions/$1.json"); [[ -r $arq ]] || return 1
+  v=$(tr -d '\n' <"$arq")
+  id=$(grep -o '"sessionId" *: *"[^"]*"' <<<"$v" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+  st=$(grep -o '"status" *: *"[^"]*"' <<<"$v" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+  nome=$(grep -o '"name" *: *"[^"]*"' <<<"$v" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+  echo "$id ${st:-?} $nome"
 }
 
 # --- Nomes semânticos ------------------------------------------------------
@@ -122,7 +125,9 @@ titulo_claude() {
   local arq
   arq=$(arquivo_claude "projects/*/$1.jsonl")
   [[ -n $arq ]] || return 1
-  grep '"type":"ai-title"' "$arq" | tail -1 | python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["aiTitle"])' 2>/dev/null
+  local t
+  t=$(grep '"type":"ai-title"' "$arq" | tail -1 | grep -o '"aiTitle" *: *"\([^"\\]\|\\.\)*"' | sed 's/^"aiTitle" *: *"//; s/"$//; s/\\"/"/g')
+  [[ -n $t ]] && printf '%s\n' "$t"
 }
 
 # PID do Claude Code rodando no painel P (%N, ou "=S:" para o painel ativo da sessão S).
@@ -230,7 +235,8 @@ vigiar() {
   # cópia em arquivo para sobreviver a reinícios. Não ficam em opções do tmux: qualquer
   # set-option, até de uma opção @ que nada desenha, redesenha a tela inteira de todos os clientes,
   # e o vigia gravava isso a cada minuto por sessão usada — o cursor piscava nos outros aparelhos.
-  local -A V_EM=() V_INTER=() V_PASTA=() V_PRIMEIRA=() V_ESPERA=()
+  local -A V_EM=() V_INTER=() V_PASTA=() V_PRIMEIRA=() V_ESPERA=() V_NOMEADO=()
+  local t_renomear=${TT_T_RENOMEAR:-1200}
   local estado_vigia="$RT/tt-vigia-estado-$(id -u)-$(tmux display-message -p '#{pid}' 2>/dev/null)"
   [[ -r $estado_vigia ]] && source "$estado_vigia" 2>/dev/null
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
@@ -267,7 +273,9 @@ vigiar() {
       ultima_atualizacao=$agora
       ("$EU" --garantir-atualizacao >>"$log" 2>&1 &)
     fi
-    while IFS='|' read -r s sid atividade pasta; do
+    while IFS='|' read -r s sid atividade pasta ponte; do
+      # Pontes mostram uma sessão de outra máquina: o nome delas é o da ponte, nunca do vigia.
+      [[ -n $ponte ]] && continue
       pid=$(claude_na_sessao "$s")
       if [[ -n $pid ]]; then
         read -r id st rot < <(claude_info "$pid")
@@ -298,7 +306,7 @@ vigiar() {
         unset 'V_PRIMEIRA[$sid]'
         if nome=$(sugerir_nome "$s") && [[ $nome != "${s%-[0-9]*}" ]] && nome=$(renomear "$s" "$nome" auto); then
           tmux set-option -t "=$nome:" @nome_dado 1 # só no rename (que já redesenha a barra)
-          V_INTER[$sid]=0
+          V_INTER[$sid]=0 V_NOMEADO[$sid]=$agora
           echo "$(date '+%F %T') $s → $nome (primeiro nome, 1 min após a primeira interação)" >>"$log"
         else
           # Ainda sem assunto: espera a próxima interação e tenta de novo 1 min depois dela.
@@ -314,7 +322,11 @@ vigiar() {
       interacoes=$((interacoes + 1))
       V_INTER[$sid]=$interacoes V_EM[$sid]=$atividade
       motivo=""
-      if ((interacoes >= minimo_interacoes)); then
+      # Uma sessão já nomeada não troca de nome a cada poucas interações (o nome ficava mudando e
+      # cada rename redesenha todos os aparelhos): só depois de TT_T_RENOMEAR (20 min) desde o
+      # último nome. Ao ver a sessão pela primeira vez (vigia recém-iniciado), conta a partir dali.
+      [[ -n ${V_NOMEADO[$sid]:-} ]] || V_NOMEADO[$sid]=$agora
+      if ((interacoes >= minimo_interacoes && agora - V_NOMEADO[$sid] >= t_renomear)); then
         motivo="ganhou $interacoes interações"
       elif [[ -n $pasta_ant && $pasta != "$pasta_ant" ]] && ((agora - ultimo >= t_pasta)); then
         motivo="mudou de pasta"
@@ -331,10 +343,10 @@ vigiar() {
       fi
       [[ $nome == "${s%-[0-9]*}" ]] && { V_INTER[$sid]=0; continue; }
       nome=$(renomear "$s" "$nome" auto) || continue
-      V_INTER[$sid]=0
+      V_INTER[$sid]=0 V_NOMEADO[$sid]=$agora
       echo "$(date '+%F %T') $s → $nome ($motivo)" >>"$log"
-    done < <(tmux list-sessions -F '#{session_name}|#{session_id}|#{window_activity}|#{pane_current_path}' 2>/dev/null)
-    declare -p V_EM V_INTER V_PASTA V_PRIMEIRA V_ESPERA >"$estado_vigia.$$" 2>/dev/null && mv -f "$estado_vigia.$$" "$estado_vigia"
+    done < <(tmux list-sessions -F '#{session_name}|#{session_id}|#{window_activity}|#{pane_current_path}|#{@ponte}' 2>/dev/null)
+    declare -p V_EM V_INTER V_PASTA V_PRIMEIRA V_ESPERA V_NOMEADO >"$estado_vigia.$$" 2>/dev/null && mv -f "$estado_vigia.$$" "$estado_vigia"
     # Um primeiro nome pendente encurta o sono: o nome sai ~1 min após a interação, não até 2 min.
     ((proximo < 5)) && proximo=5
     sleep "$proximo"
@@ -414,7 +426,7 @@ busca_painel() {
   fi
   printf '%s %s ' "$titulo" "$(tmux display-message -p -t "$p" '#{pane_title} #{@nome_painel} #{@tt_rotulo}')"
   tmux capture-pane -p -J -S -150 -t "$p" 2>/dev/null | tr -s ' \t\n' ' ' | tail -c 2500 |
-    python3 -c 'import sys; sys.stdout.write(sys.stdin.buffer.read().decode("utf-8", "ignore"))'
+    LC_ALL=C sed '1s/^[\x80-\xbf]*//' # tail -c pode cortar um caractere ao meio
 }
 
 # Sessão "vazia": todos os painéis só no shell (nada rodando), sem histórico e com no máximo 2
@@ -1190,6 +1202,15 @@ instalar_aqui() {
     echo "$(conf nome): ✗ $DIR_TT é um repositório git, não uma instalação; nada foi trocado" >&2
     return 1
   fi
+  # Mesmo pacote já instalado (sincronizar repetido, ou outra máquina reenviando): não recarrega o
+  # tmux nem redesenha. Recarregar regrava dezenas de opções, e cada gravação redesenha a tela
+  # inteira de todos os aparelhos — o cursor corria pela tela a cada sincronização.
+  local mesmo=""
+  if [[ $origem != "$DIR_TT" && -f $DIR_TT/VERSAO ]] && cmp -s "$origem/VERSAO" "$DIR_TT/VERSAO"; then
+    mesmo=1; local f
+    for f in "${ARQUIVOS_FONTE[@]}"; do cmp -s "$origem/$f" "$DIR_TT/$f" || { mesmo=""; break; }; done
+  fi
+  if [[ -n $mesmo ]]; then echo "$(conf nome): $(versao) (já instalada)"; return 0; fi
   if [[ $origem != "$DIR_TT" ]]; then
     pacote_valido "$origem" || return 1
     pode_instalar "$(cat "$origem/VERSAO")" || return 1
@@ -1581,13 +1602,33 @@ listar_tudo_() {
   tmp=$(mktemp -d)
   while read -r dest rot; do
     [[ -z $filtro || $filtro == "$rot" ]] || continue
-    i=$((i + 1))
+    i=$((i + 1)); echo "$rot" >>"$tmp/rotulos"
     listar_remoto "$dest" "$rot" >"$tmp/$i" &
   done < <(maquinas)
   [[ -z $filtro || $filtro == "$MAQUINA" ]] && listar | rotular . "$MAQUINA"
   wait
-  for ((n = 1; n <= i; n++)); do cat "$tmp/$n"; done
+  for ((n = 1; n <= i; n++)); do
+    cat "$tmp/$n"
+    # A última lista de cada máquina fica guardada: a central abre na hora com ela (lista_rapida).
+    [[ -s $tmp/$n ]] && ! grep -q '^[^	]*	!erro' "$tmp/$n" && cp "$tmp/$n" "$(cache_lista "$(sed -n "${n}p" "$tmp/rotulos")")"
+  done
   rm -rf "$tmp"
+}
+cache_lista() { echo "$RT/tt-lista-$(id -u)-$1"; }
+
+# Abertura instantânea da central (lista_rapida, sem sufixo, é a do seletor): esta máquina fresca (~0,1 s) e as outras com a última lista
+# conhecida (marcada como "…" até a consulta terminar). Logo depois a central troca pela lista
+# fresca (listar_tudo), mantendo o item em que você está (--track).
+lista_rapida_central() {
+  (exec </dev/null 2>/dev/null
+   if [[ ${TT_COMX:-} == central && -z ${TT_SEM_X:-} ]]; then TT_SEM_X=1 lista_rapida_central | com_x; exit; fi
+   local dest rot filtro c
+   filtro=$(estado maquina); [[ $filtro == todas ]] && filtro=""
+   [[ -z $filtro || $filtro == "$MAQUINA" ]] && listar | rotular . "$MAQUINA"
+   while read -r dest rot; do
+     [[ -z $filtro || $filtro == "$rot" ]] || continue
+     c=$(cache_lista "$rot"); [[ -s $c ]] && cat "$c"
+   done < <(maquinas))
 }
 
 rotulos() { echo "$MAQUINA"; maquinas | awk '{ print $2 }'; }
@@ -2897,7 +2938,7 @@ puxar_fixadas() {
 aplicar_fixadas() {
   tmux list-sessions >/dev/null 2>&1 || return 0
   # A faixa permanece visível mesmo vazia: o marcador deixa claro onde as fixadas aparecerão.
-  tmux set -g status 2
+  [[ $(tmux show -gv status 2>/dev/null) == 2 ]] || tmux set -g status 2
   # Marca nas sessões daqui (@tt_fixada): o 📌 ao lado do nome, na barra, fica aceso nas fixadas.
   # Só grava o que mudou: todo set-option redesenha a tela inteira de todos os clientes.
   local sess marca fix
@@ -4200,10 +4241,11 @@ escolher() {
     --bind="ctrl-s:print(enviar)+accept,ctrl-g:print(trazer)+accept" \
     --bind="ctrl-f:transform($EU --clique-cabecalho máquina),ctrl-e:transform($EU --clique-cabecalho busca)" \
     --bind="click-header:transform($EU --clique-cabecalho \"\$FZF_CLICK_HEADER_WORD\")" \
-    --bind="left-click:transform($EU --clique-linha {1} {2})" < <(listar_tudo)
+    --bind="left-click:transform($EU --clique-linha {1} {2})" \
+    --track --bind="load:transform($EU --atualizar-uma-vez)" < <(lista_rapida_central)
 }
 
-sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos"; }
+sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos" "$TT_ESTADO.fresca"; }
 
 # Chamados por cliques, menus e ganchos do tmux (run-shell): calados e sempre com sucesso — se
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
@@ -4309,6 +4351,10 @@ case "${1:-}" in
     if [[ $a == --enviar ]]; then enviar_cli "$@"; else trazer_cli "$@"; fi
     exit ;;
   --listar-tudo) listar_tudo; exit ;;
+  --lista-rapida-central) lista_rapida_central; exit ;;
+  --atualizar-uma-vez) # 1º "load" da central (lista rápida): troca pela fresca; depois, nada.
+    [[ -n ${TT_ESTADO:-} && ! -e $TT_ESTADO.fresca ]] && { : >"$TT_ESTADO.fresca"; echo "reload($EU --listar-tudo)"; }
+    exit 0 ;;
   --previa) previa "$2" "${3:-}"; exit ;;
   --previa-em) previa_em "$2" "$3" "${4:-}"; exit ;;
   --fechar) fechar_em "$2" "$3"; exit ;;
