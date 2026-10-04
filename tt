@@ -130,6 +130,40 @@ titulo_claude() {
   [[ -n $t ]] && printf '%s\n' "$t"
 }
 
+# Cópias da mesma conversa do Claude: cada "claude --resume" que escolhe uma conversa já aberta
+# cria outra instância, e as antigas continuam rodando (no celular chegaram a 6, cada uma com
+# 15–20% de CPU no proot, e o Android passou a derrubar coisas). Para cada conversa com 2+
+# instâncias, fica a que está numa aba anexada a uma tela ou, entre as outras, a de atividade
+# mais recente; as demais que estiverem OCIOSAS recebem Ctrl+C duas vezes (encerramento normal;
+# a conversa continua salva). Uma cópia trabalhando nunca é tocada: só gera aviso.
+encerrar_claude_duplicados() {
+  local linhas sess pid id st anex ativ ids mantem
+  PS_CACHE=$(ps -eo pid=,ppid=,comm=)
+  # "id pid sessão anexada atividade estado"
+  linhas=$(tmux list-panes -a -F '#{pane_id}|#{session_name}|#{session_attached}|#{window_activity}' 2>/dev/null |
+    while IFS='|' read -r p sess anex ativ; do
+      pid=$(claude_no_painel "$p") || continue; [[ -n $pid ]] || continue
+      read -r id st _ < <(claude_info "$pid"); [[ -n $id ]] || continue
+      echo "$id $pid $sess $anex $ativ ${st:-?}"
+    done)
+  unset PS_CACHE
+  [[ -n $linhas ]] || return 0
+  ids=$(awk '{ n[$1]++ } END { for (i in n) if (n[i] > 1) print i }' <<<"$linhas")
+  for id in $ids; do
+    mantem=$(awk -v id="$id" '$1 == id { print ($4 > 0 ? 1 : 0), $5, $2 }' <<<"$linhas" | sort -k1,1nr -k2,2nr | awk 'NR == 1 { print $3 }')
+    while read -r _ pid sess anex ativ st; do
+      [[ $pid == "$mantem" ]] && continue
+      if [[ $st == idle ]]; then
+        tmux send-keys -t "=$sess:" C-c; sleep 0.3; tmux send-keys -t "=$sess:" C-c
+        { mkdir -p "$HOME/.cache"; echo "$(date '+%F %T') claude duplicado encerrado: conversa ${id:0:8}, aba $sess (pid $pid; fica o $mantem)" >>"$HOME/.cache/tt-vigia.log"; } 2>/dev/null
+      else
+        avisar "⚠ a conversa ${id:0:8} do Claude está aberta em duas abas ($sess trabalhando) — feche uma"
+      fi
+    done < <(awk -v id="$id" '$1 == id' <<<"$linhas")
+  done
+  return 0
+}
+
 # PID do Claude Code rodando no painel P (%N, ou "=S:" para o painel ativo da sessão S).
 claude_no_painel() {
   local raiz
@@ -309,6 +343,7 @@ vigiar() {
     # Limpeza conservadora: somente sessões sem processo, sem histórico e desanexadas há 5 min.
     fechar_paradas "$agora"
     fechar_pontes_ociosas "$agora"
+    encerrar_claude_duplicados
     fechadas=$(fechar_vazias_expiradas "$agora")
     [[ -z $fechadas ]] || echo "$(date '+%F %T') fechadas $fechadas sessão(ões) vazia(s) abandonada(s)" >>"$log"
     # Atualização obrigatória: cada vigia mantém esta máquina na última versão publicada.
@@ -4366,6 +4401,7 @@ case "${1:-}" in
   --copiar) copiar; exit 0 ;;
   --copiar-buffer) tmux save-buffer - 2>/dev/null | copiar; exit 0 ;;
   --copiado) copiado "$2"; exit 0 ;;
+  --encerrar-duplicados) encerrar_claude_duplicados; exit 0 ;;
   --propagar-copia) propagar_copia "$2"; exit 0 ;;
   --receber-copia) receber_copia "${2:-}"; exit 0 ;;
   --copias) historico_copias; exit 0 ;;
