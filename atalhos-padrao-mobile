@@ -1,0 +1,7 @@
+# Perfil mobile (Termux/Android): os agentes vivem num Debian via proot-distro, nao no
+# shell do Termux. Por isso cada atalho entra no Debian com login -- bash -lc, que carrega
+# o PATH onde o claude esta (~/.local/bin). Rodar "claude" direto no Termux falha com
+# "command not found". Cada atalho ja abre numa sessao tmux nova pelo tt.
+# Nao ha codex instalado no Debian do celular; por isso o perfil traz so o claude.
+🟠	claude-novo	proot-distro login debian -- bash -lc 'claude --dangerously-skip-permissions'	#f38ba8
+🦀	claude-resume	proot-distro login debian -- bash -lc 'claude --dangerously-skip-permissions --resume'	#fab387
