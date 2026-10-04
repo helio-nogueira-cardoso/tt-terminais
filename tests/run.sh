@@ -16,18 +16,10 @@ exige() { command -v "$1" >/dev/null || { printf 'falta dependência de teste: %
 tem() { rg -q -- "$2" "$1"; }
 
 suite_dir=$(cd "$(dirname "$0")" && pwd)
-if [[ -x $suite_dir/test_fixadas.sh ]]; then
-  "$suite_dir/test_fixadas.sh"
-fi
-if [[ -x $suite_dir/test_fixadas_tmux.sh ]]; then
-  "$suite_dir/test_fixadas_tmux.sh"
-fi
-if [[ -x $suite_dir/test_ponte_cliente.sh ]]; then
-  "$suite_dir/test_ponte_cliente.sh"
-fi
-if [[ -x $suite_dir/test_instalar_repo.sh ]]; then
-  "$suite_dir/test_instalar_repo.sh"
-fi
+# Testes de comportamento: cada tests/test_*.sh roda isolado (HOME, tmux e pacote temporários).
+for t in "$suite_dir"/test_*.sh; do
+  if "$t"; then :; else falha "$(basename "$t")"; fi
+done
 
 for cmd in bash python3 rg tmux; do exige "$cmd"; done
 [[ -x $tt ]] || { printf 'tt não executável: %s\n' "$tt" >&2; exit 2; }
@@ -61,10 +53,10 @@ tem "$tt" 'tmux set -g status 2' &&
   tem "$tt" 'printf.*📌' && ok 'faixa de fixadas permanece visível vazia' ||
   falha 'faixa de fixadas desaparece quando vazia'
 
-tem "$tt" 'atalhos-padrao-s23' &&
-  tem "$raiz/atalhos-padrao-s23" 'claude --dangerously-skip-permissions' &&
-  tem "$raiz/atalhos-padrao-s23" 'codex --yolo' && ok 'perfil s23 abre Claude e Codex novos com permissões reforçadas' ||
-  falha 'perfil s23 não reforça atalhos novos de Claude/Codex'
+# O perfil do celular (atalhos-padrao-mobile) é verificado por comportamento em test_atalhos.sh.
+tem "$tt" 'atalhos-padrao-mobile' &&
+  [[ -f $raiz/atalhos-padrao-mobile ]] && ok 'perfil mobile empacotado e usado pelo tt' ||
+  falha 'perfil mobile ausente do pacote ou do tt'
 
 tem "$tt" 'c\[3:4\] == \["oculta"\]' &&
   tem "$tt" '^ocultar_maquina\(\)' &&

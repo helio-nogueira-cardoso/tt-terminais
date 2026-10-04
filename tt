@@ -486,7 +486,7 @@ fechar_paradas() {
     grep -qxF -- "$s" <<<"$fix" && continue
     sessao_parada "$s" "$agora" "$limite" || continue
     tmux kill-session -t "=$s" && n=$((n + 1)) &&
-      echo "$(date '+%F %T') fechada sessão parada: $s ($((limite / 60)) min)" >>"$HOME/.cache/tt-vigia.log"
+      { mkdir -p "$HOME/.cache"; echo "$(date '+%F %T') fechada sessão parada: $s ($((limite / 60)) min)" >>"$HOME/.cache/tt-vigia.log"; } 2>/dev/null
   done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{@ponte}' 2>/dev/null)
   ((n)) && avisar "🧹 $n sessão(ões) parada(s) há $((limite / 60)) min fechada(s)"
   return 0
@@ -4227,7 +4227,7 @@ case "${1:-}" in
   --nomear-texto) nomear_texto; exit ;;
   --editar-atalhos) editar_atalhos; exit 0 ;;
   --fechar-paradas) fechar_paradas "$(date +%s)"; exit 0 ;;
-  --definir-paradas) definir_paradas "$2" "${3:-}"; exit 0 ;;
+  --definir-paradas) definir_paradas "$2" "${3:-}"; exit ;;
   --config-paradas) config_paradas "$2"; exit 0 ;;
   --reforcar-padrao) reforcar_padrao; exit ;;
   --redesenhar) redesenhar_todos; exit 0 ;;
