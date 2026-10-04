@@ -4,7 +4,7 @@
 | --- | --- | --- |
 | Máquina | barra, botão direito, CLI | abrir seletor; administrar; ocultar e restaurar sem perder `host usuário rótulo` |
 | Sessão | barra, seletor, teclado | abrir; renomear; fechar com confirmação; tratar sessão inexistente |
-| Fixada | toque, clique direito, ✕ | ir no pressionar; menu; desafixar; redraw entre pressionar e soltar |
+| Fixada | toque, clique direito, ✕ | ir no pressionar; menu; desafixar; redraw entre pressionar e soltar; toque de ponta a ponta no 📍 (fixa) e bem em cima do ✕ (desafixa) |
 | Painel | mouse, botão direito, `Ctrl+B m` | menu; copiar; colar; dividir; maximizar; fechar |
 | Barra principal | toque, mouse, teclado | central, arquivos, painel, ajustes, transferências e atalhos customizados |
 | Botões F1–F10 | teclado/Termux | cada `bind F*` chama o respectivo `tt --botao` |

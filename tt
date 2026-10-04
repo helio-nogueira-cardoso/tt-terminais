@@ -3239,7 +3239,9 @@ barra_fixadas_fmt() {
     if [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then estilo='#[bg=#282a36]#[fg=#6272a4]#[nobold]'; rot="✗ $rot"
     elif [[ $r == "$MAQUINA" && $s != *[,}#]* ]]; then estilo="#{?#{==:#{session_name},$s},$atual,$normal}"
     else estilo=$normal; fi
-    printf '#[range=user|fx%s]%s %s #[norange]#[range=user|fxx%s]%s✕ #[norange]#[default] ' "$chave" "$estilo" "$rot" "$chave" "$estilo"
+    # O espaço antes do ✕ fica no range dele: o tmux dá a 1ª coluna de um range ao range colado
+    # antes, e um toque bem em cima do ✕ ia para a sessão em vez de desafixar.
+    printf '#[range=user|fx%s]%s %s#[norange]#[range=user|fxx%s]%s ✕ #[norange]#[default] ' "$chave" "$estilo" "$rot" "$chave" "$estilo"
   done < <(fixadas)
 }
 
@@ -3281,7 +3283,7 @@ barra_fixadas() {
     elif [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then cor='#[bg=#282a36,fg=#6272a4]'; rot="✗ $rot"
     else cor='#[bg=#44475a,fg=#f8f8f2]'; fi
     # Item (clique vai à sessão) + ✕ (clique desafixa).
-    printf '#[range=user|fx%s]%s %s #[norange]#[range=user|fxx%s]%s✕ #[norange]#[default] ' "$chave" "$cor" "$rot" "$chave" "$cor"
+    printf '#[range=user|fx%s]%s %s#[norange]#[range=user|fxx%s]%s ✕ #[norange]#[default] ' "$chave" "$cor" "$rot" "$chave" "$cor"
   done < <(fixadas)
 }
 
