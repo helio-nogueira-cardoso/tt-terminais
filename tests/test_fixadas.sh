@@ -17,7 +17,8 @@ grep -q 'tmux has-session -t "=\$p"' "$TT"
 grep -q 'range=user|fx%s' "$TT"
 grep -q 'range=user|fxx%s' "$TT"
 
-mkdir -p "$TEST_DIR/home/.config/tt" "$TEST_DIR/bin"
+mkdir -p "$TEST_DIR/home/.config/tt" "$TEST_DIR/bin" "$TEST_DIR/pkg"
+cp "$ROOT"/tt "$ROOT"/atalhos-padrao* "$TEST_DIR/pkg/"  # TT_DIR nunca aponta para o repositório
 printf 'nome=dell\n' >"$TEST_DIR/home/.config/tt/config"
 # O nome salvo está deliberadamente atrasado: a resolução deve encontrar sessao-b pelo UUID.
 printf 'dell\tsessao-a\tuuid-a\ndell\tnome-antigo\tuuid-b\n' >"$TEST_DIR/home/.config/tt/fixadas"
@@ -45,14 +46,14 @@ chmod +x "$TEST_DIR/bin/tmux"
 
 key=$(printf '%s\t%s' dell uuid-b | sha256sum | cut -c1-12)
 env HOME="$TEST_DIR/home" XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
-  TT_DIR="$ROOT" TT_TEST_LOG="$TEST_DIR/tmux.log" \
+  TT_DIR="$TEST_DIR/pkg" TT_TEST_LOG="$TEST_DIR/tmux.log" \
   TMUX= TMUX_PANE= \
   PATH="$TEST_DIR/bin:$PATH" "$TT" --ir-fixada cliente "fx$key"
 
 grep -qx 'attach-session -t =sessao-b' "$TEST_DIR/tmux.log"
 
 env HOME="$TEST_DIR/home" XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
-  TT_DIR="$ROOT" TT_TEST_LOG="$TEST_DIR/tmux.log" \
+  TT_DIR="$TEST_DIR/pkg" TT_TEST_LOG="$TEST_DIR/tmux.log" \
   TMUX=tmux-test TMUX_PANE=%1 \
   PATH="$TEST_DIR/bin:$PATH" "$TT" --ir-fixada cliente "fx$key"
 
@@ -60,7 +61,7 @@ grep -qx 'switch-client -c cliente -t =sessao-b' "$TEST_DIR/tmux.log"
 
 rm -f "$TEST_DIR/tmux.log"
 env HOME="$TEST_DIR/home" XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
-  TT_DIR="$ROOT" TT_TEST_LOG="$TEST_DIR/tmux.log" \
+  TT_DIR="$TEST_DIR/pkg" TT_TEST_LOG="$TEST_DIR/tmux.log" \
   TMUX=tmux-test TMUX_PANE=%1 TT_CLIENTE= \
   PATH="$TEST_DIR/bin:$PATH" "$TT" --ir-fixada "" "fx$key"
 
