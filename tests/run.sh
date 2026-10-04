@@ -19,6 +19,9 @@ suite_dir=$(cd "$(dirname "$0")" && pwd)
 if [[ -x $suite_dir/test_fixadas.sh ]]; then
   "$suite_dir/test_fixadas.sh"
 fi
+if [[ -x $suite_dir/test_fixadas_tmux.sh ]]; then
+  "$suite_dir/test_fixadas_tmux.sh"
+fi
 
 for cmd in bash python3 rg tmux; do exige "$cmd"; done
 [[ -x $tt ]] || { printf 'tt não executável: %s\n' "$tt" >&2; exit 2; }

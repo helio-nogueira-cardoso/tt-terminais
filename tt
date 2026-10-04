@@ -2739,7 +2739,8 @@ session_id() {
 
 session_by_id() {
   local id=$1
-  tmux list-sessions -F '#{session_name}\t#{@tt_session_id}' 2>/dev/null |
+  # O tmux não converte "\t" no formato: o TAB precisa ir literal ($'\t').
+  tmux list-sessions -F "#{session_name}"$'\t'"#{@tt_session_id}" 2>/dev/null |
     awk -F'\t' -v id="$id" '$2 == id { print $1; exit }'
 }
 
@@ -2767,6 +2768,22 @@ propagar_fixadas() {
   done < <(maquinas)
 }
 
+# Trava das gravações da lista (fixar/desafixar, receber de outra máquina, reconciliar): sem ela,
+# duas gravações quase juntas faziam uma desfazer a outra (fixar uma sessão desafixava outra).
+# mkdir é atômico em qualquer sistema (o Termux não garante flock). Trava velha (>20 s) é de um
+# processo que morreu e é retomada.
+travar_fixadas() {
+  local t=$CONF_FIX.trava i
+  mkdir -p "$CONF_DIR"
+  for ((i = 0; i < 200; i++)); do
+    mkdir "$t" 2>/dev/null && return 0
+    (($(idade_arquivo "$t") > 20)) && rmdir "$t" 2>/dev/null
+    sleep 0.05
+  done
+  return 1
+}
+destravar_fixadas() { rmdir "$CONF_FIX.trava" 2>/dev/null; return 0; }
+
 # Versão da lista: a hora (ns) da última mudança, em ~/.config/tt/fixadas.v.
 versao_fixadas() { local v; v=$(cat "$CONF_FIX.v" 2>/dev/null); echo "${v:-0}"; }
 marcar_fixadas() { date +%s%N >"$CONF_FIX.v"; }
@@ -2777,10 +2794,13 @@ receber_fixadas() {
   local v=${1:-0} tmp
   mkdir -p "$CONF_DIR"
   tmp=$(mktemp "$CONF_FIX.XXXXXX"); cat >"$tmp"
+  travar_fixadas || { rm -f "$tmp"; return 1; }
   if [[ $v =~ ^[0-9]+$ ]] && ((v > $(versao_fixadas))); then
     mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"
+    destravar_fixadas
     aplicar_fixadas
   else
+    destravar_fixadas
     rm -f "$tmp"
   fi
 }
@@ -2818,16 +2838,17 @@ aplicar_fixadas() {
 alternar_fixada() {
   local r=$1 s=$2 id="" d
   mkdir -p "$CONF_DIR"; touch "$CONF_FIX"
+  # O identificador de uma sessão de outra máquina é pedido antes da trava (ssh pode demorar).
+  if [[ $r != "$MAQUINA" ]] && ! awk -F'\t' -v r="$r" -v s="$s" '$1 == r && $2 == s { f=1 } END { exit !f }' "$CONF_FIX"; then
+    d=$(dest_de "$r")
+    [[ -n $d ]] && id=$(timeout 5 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --session-id $(q "$s")" </dev/null 2>/dev/null)
+  fi
+  travar_fixadas || return 1
   if awk -F'\t' -v r="$r" -v s="$s" '$1 == r && $2 == s { found=1 } END { exit !found }' "$CONF_FIX"; then
     awk -F'\t' -v r="$r" -v s="$s" '$1 != r || $2 != s' "$CONF_FIX" >"$CONF_FIX.novo"; mv "$CONF_FIX.novo" "$CONF_FIX"
     echo "desafixada"
   else
-    if [[ $r == "$MAQUINA" ]]; then
-      id=$(session_id "$s")
-    else
-      d=$(dest_de "$r")
-      [[ -n $d ]] && id=$(timeout 5 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --session-id $(q "$s")" </dev/null 2>/dev/null)
-    fi
+    [[ $r == "$MAQUINA" ]] && id=$(session_id "$s")
     printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$CONF_FIX"
     # A marca fica dentro da sessão. Se ela for renomeada fora do tt, conseguimos achar a
     # mesma sessão pelo marcador e corrigir o nome mostrado na barra.
@@ -2841,6 +2862,7 @@ alternar_fixada() {
     echo "fixada"
   fi
   marcar_fixadas
+  destravar_fixadas
   aplicar_fixadas
   propagar_fixadas
 }
@@ -2871,10 +2893,12 @@ fixar_atual() {
 # Sessão daqui renomeada: o item fixado acompanha.
 fixada_renomeada() {
   [[ -f $CONF_FIX ]] || return 0
-  awk -F'\t' -v r="$MAQUINA" -v a="$1" -v n="$2" 'BEGIN { OFS = "\t" } $1 == r && $2 == a { $2 = n; mudou = 1 } { print } END { exit !mudou }' "$CONF_FIX" >"$CONF_FIX.novo" || { rm -f "$CONF_FIX.novo"; return 0; }
+  travar_fixadas || return 0
+  awk -F'\t' -v r="$MAQUINA" -v a="$1" -v n="$2" 'BEGIN { OFS = "\t" } $1 == r && $2 == a { $2 = n; mudou = 1 } { print } END { exit !mudou }' "$CONF_FIX" >"$CONF_FIX.novo" || { rm -f "$CONF_FIX.novo"; destravar_fixadas; return 0; }
   mv "$CONF_FIX.novo" "$CONF_FIX"
-  tmux set-option -t "=$2:" @tt_fixado_nome "$2" 2>/dev/null
   marcar_fixadas
+  destravar_fixadas
+  tmux set-option -t "=$2:" @tt_fixado_nome "$2" 2>/dev/null
   aplicar_fixadas
   propagar_fixadas
 }
@@ -2884,7 +2908,8 @@ fixada_renomeada() {
 # também permite acompanhar um rename feito diretamente pelo tmux ou por outro programa.
 reconciliar_fixadas() {
   [[ -f $CONF_FIX ]] || return 0
-  local tmp r s id d resposta st mudou=0 novo novo_id
+  local tmp r s id d resposta st mudou=0 novo novo_id v0
+  v0=$(versao_fixadas)
   tmp=$(mktemp "$CONF_FIX.XXXXXX") || return 1
   while IFS=$'\t' read -r r s id; do
     [[ -n $r && -n $s ]] || continue
@@ -2897,10 +2922,11 @@ reconciliar_fixadas() {
         novo_id=$(session_id "$novo")
       elif tmux has-session -t "=$s" 2>/dev/null; then
         # Também migra itens fixados de versões antigas para o marcador de identidade.
+        novo=$s
         tmux set-option -t "=$s:" @tt_fixado_nome "$s" 2>/dev/null
         novo_id=$(session_id "$s")
       else
-        novo=$(tmux list-sessions -F '#{session_name}\t#{@tt_fixado_nome}' 2>/dev/null |
+        novo=$(tmux list-sessions -F "#{session_name}"$'\t'"#{@tt_fixado_nome}" 2>/dev/null |
           awk -F'\t' -v antigo="$s" '$2 == antigo { print $1; exit }')
         [[ -n $novo ]] && novo_id=$(session_id "$novo")
       fi
@@ -2920,11 +2946,17 @@ reconciliar_fixadas() {
     [[ $novo == "$s" && $novo_id == "$id" ]] || mudou=1
     printf '%s\t%s\t%s\n' "$r" "$novo" "$novo_id" >>"$tmp"
   done < <(fixadas)
-  if ((mudou)); then
-    mv "$tmp" "$CONF_FIX"
-    marcar_fixadas
-    aplicar_fixadas
-    propagar_fixadas
+  # A conferência consulta outras máquinas e leva segundos. Se a lista mudou nesse meio-tempo
+  # (fixou/desafixou aqui, ou chegou uma mais nova), esta conferência ficou velha: descarta e a
+  # próxima volta do vigia confere de novo. Nunca grava por cima de uma mudança mais recente.
+  if ((mudou)) && travar_fixadas; then
+    if [[ $(versao_fixadas) == "$v0" ]]; then
+      mv "$tmp" "$CONF_FIX"; marcar_fixadas; destravar_fixadas
+      aplicar_fixadas
+      propagar_fixadas
+    else
+      destravar_fixadas; rm -f "$tmp"
+    fi
   else
     rm -f "$tmp"
   fi
@@ -3048,9 +3080,11 @@ ITENS
 mover_fixada() {
   local i=$1 delta=$2 j
   j=$((i + delta))
+  travar_fixadas || return 0
   awk -v i="$i" -v j="$j" '{ l[NR] = $0 } END { t = l[i]; l[i] = l[j]; l[j] = t; for (k = 1; k <= NR; k++) print l[k] }' "$CONF_FIX" >"$CONF_FIX.novo" &&
     mv "$CONF_FIX.novo" "$CONF_FIX"
   marcar_fixadas
+  destravar_fixadas
   aplicar_fixadas
   propagar_fixadas
 }
