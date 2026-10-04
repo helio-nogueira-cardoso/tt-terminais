@@ -2801,7 +2801,8 @@ puxar_fixadas() {
 # Liga/desliga a 2ª linha e força a barra a se redesenhar já (o #() da barra muda de comando).
 aplicar_fixadas() {
   tmux list-sessions >/dev/null 2>&1 || return 0
-  if [[ -n $(fixadas) ]]; then tmux set -g status 2; else tmux set -g status on; fi
+  # A faixa permanece visível mesmo vazia: o marcador deixa claro onde as fixadas aparecerão.
+  tmux set -g status 2
   # Marca nas sessões daqui (@tt_fixada): o 📌 ao lado do nome, na barra, fica aceso nas fixadas.
   local sess fix
   fix=$(fixadas | awk -F'\t' -v m="$MAQUINA" '$1 == m { print $2 }')
@@ -2938,6 +2939,10 @@ barra_fixadas_fmt() {
   local i=0 r s id rot chave normal='#[bg=#44475a]#[fg=#f8f8f2]#[nobold]' atual='#[bg=#bd93f9]#[fg=#282a36]#[bold]' estilo
   local -A existe
   while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  if [[ -z $(fixadas) ]]; then
+    printf '#[fg=#6272a4] ▸ 📌'
+    return 0
+  fi
   printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
   while IFS=$'\t' read -r r s id; do
     i=$((i + 1))
