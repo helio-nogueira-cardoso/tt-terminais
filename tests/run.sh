@@ -22,6 +22,9 @@ fi
 if [[ -x $suite_dir/test_fixadas_tmux.sh ]]; then
   "$suite_dir/test_fixadas_tmux.sh"
 fi
+if [[ -x $suite_dir/test_ponte_cliente.sh ]]; then
+  "$suite_dir/test_ponte_cliente.sh"
+fi
 
 for cmd in bash python3 rg tmux; do exige "$cmd"; done
 [[ -x $tt ]] || { printf 'tt não executável: %s\n' "$tt" >&2; exit 2; }

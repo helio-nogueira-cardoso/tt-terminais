@@ -1947,10 +1947,13 @@ ir_ponte() {
   tmux has-session -t "=$p" 2>/dev/null || return 1
   if [[ $r == "$MAQUINA" ]]; then alvo=$s
   else alvo=$(criar_ponte "$(dest_de "$r")" "$s") || return 1; fi
-  for c in $(tmux list-clients -t "=$p" -F '#{client_name}'); do
-    fecha_ciclo "$alvo" "$(contem_cliente "$c")" && continue
-    tmux switch-client -c "$c" -t "=$alvo" && mudou=1
-  done
+  # Só o cliente que agiu: vários aparelhos podem estar na mesma ponte (ela é uma por sessão
+  # remota), e o pedido veio de quem clicou/teclou na barra de lá — o cliente daqui com a atividade
+  # mais recente. Trocar todos levava junto o outro aparelho, que nem estava mexendo.
+  c=$(tmux list-clients -t "=$p" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
+  [[ -n $c ]] || return 1
+  fecha_ciclo "$alvo" "$(contem_cliente "$c")" && return 1
+  tmux switch-client -c "$c" -t "=$alvo" && mudou=1
   ((mudou))
 }
 
