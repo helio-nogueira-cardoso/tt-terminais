@@ -2889,13 +2889,17 @@ reconciliar_fixadas() {
     [[ -n $r && -n $s ]] || continue
     novo=$s
     if [[ $r == "$MAQUINA" ]]; then
-      if tmux has-session -t "=$s" 2>/dev/null; then
+      # Primeiro resolve pelo UUID. O nome antigo pode ter sido reutilizado por outra sessão.
+      if [[ -n $id ]]; then novo=$(session_by_id "$id"); fi
+      if [[ -n $novo ]]; then
+        tmux set-option -t "=$novo:" @tt_fixado_nome "$novo" 2>/dev/null
+        novo_id=$(session_id "$novo")
+      elif tmux has-session -t "=$s" 2>/dev/null; then
         # Também migra itens fixados de versões antigas para o marcador de identidade.
         tmux set-option -t "=$s:" @tt_fixado_nome "$s" 2>/dev/null
         novo_id=$(session_id "$s")
       else
-        if [[ -n $id ]]; then novo=$(session_by_id "$id"); fi
-        [[ -n $novo ]] || novo=$(tmux list-sessions -F '#{session_name}\t#{@tt_fixado_nome}' 2>/dev/null |
+        novo=$(tmux list-sessions -F '#{session_name}\t#{@tt_fixado_nome}' 2>/dev/null |
           awk -F'\t' -v antigo="$s" '$2 == antigo { print $1; exit }')
         [[ -n $novo ]] && novo_id=$(session_id "$novo")
       fi
