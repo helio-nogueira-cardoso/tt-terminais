@@ -10,6 +10,7 @@
 | Botões F1–F10 | teclado/Termux | cada `bind F*` chama o respectivo `tt --botao` |
 | Central e seletor | mouse, toque, teclado | abrir linha; pino; ✕; busca; troca de máquina; prévia ligada/desligada |
 | Mouse fzf | SGR/PTY | pressão, soltura, arrasto, modificadores e sequência de bytes fragmentada |
+| Nome automático | vigia | primeiro nome pelo título do Claude; com o título parado, revisa pelos pedidos recentes; segue título novo |
 | Atualização | vigia, CLI | sem rede não bloqueia; versão maior instala; nunca rebaixa |
 
 `tests/run.sh` cobre hoje os contratos estruturais, o tmux isolado, a ponte SGR e o fluxo isolado

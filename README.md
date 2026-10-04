@@ -182,8 +182,11 @@ acompanha o novo nome:
 - **primeiro nome**: uma aba de nome genérico (`janela-N`, `atalho-N`…) ganha nome 1 minuto
   depois da primeira interação (`TT_T_PRIMEIRO`, em segundos); se a tela ainda não mostrar do que
   se trata, tenta de novo 1 minuto depois da interação seguinte;
-- **renomeações seguintes**: depois de 3 interações (`TT_INTERACOES_RENOMEAR`), ao mudar de pasta
-  ou na revisão periódica. Sessões do Claude seguem o título da conversa.
+- **renomeações seguintes**: depois de 3 interações (`TT_INTERACOES_RENOMEAR`) e 20 min desde o
+  último nome (`TT_T_RENOMEAR`), ao mudar de pasta ou na revisão periódica. Vale para todas as
+  abas, inclusive as do Claude: o primeiro nome delas é o título da conversa (sem custo), mas esse
+  título não muda mais, então as revisões perguntam ao Haiku olhando os últimos pedidos da
+  conversa e a tela, e o nome acompanha a tarefa atual. Se o título da conversa mudar, a aba o segue.
 
 O comando `^a`/“Nomear todas” faz isso sequencialmente nesta máquina e em todas as máquinas
 cadastradas que estiverem acessíveis.
