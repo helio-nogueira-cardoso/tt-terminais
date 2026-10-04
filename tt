@@ -225,7 +225,14 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   local ultima_puxada=0 ultima_tema=0 ultima_atualizacao=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
-  local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo
+  local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
+  # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
+  # cópia em arquivo para sobreviver a reinícios. Não ficam em opções do tmux: qualquer
+  # set-option, até de uma opção @ que nada desenha, redesenha a tela inteira de todos os clientes,
+  # e o vigia gravava isso a cada minuto por sessão usada — o cursor piscava nos outros aparelhos.
+  local -A V_EM=() V_INTER=() V_PASTA=() V_PRIMEIRA=() V_ESPERA=()
+  local estado_vigia="$RT/tt-vigia-estado-$(id -u)-$(tmux display-message -p '#{pid}' 2>/dev/null)"
+  [[ -r $estado_vigia ]] && source "$estado_vigia" 2>/dev/null
   local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
   # A atualização não bloqueia uma sessão sem rede; o vigia tenta de novo no próximo ciclo.
   # TT_T_ATUALIZACAO=0 força uma tentativa a cada volta (útil em teste); o padrão é cinco minutos.
@@ -251,6 +258,7 @@ vigiar() {
     fi
     # Limpeza conservadora: somente sessões sem processo, sem histórico e desanexadas há 5 min.
     fechar_paradas "$agora"
+    fechar_pontes_ociosas "$agora"
     fechadas=$(fechar_vazias_expiradas "$agora")
     [[ -z $fechadas ]] || echo "$(date '+%F %T') fechadas $fechadas sessão(ões) vazia(s) abandonada(s)" >>"$log"
     # Atualização obrigatória: cada vigia mantém esta máquina na última versão publicada.
@@ -259,7 +267,7 @@ vigiar() {
       ultima_atualizacao=$agora
       ("$EU" --garantir-atualizacao >>"$log" 2>&1 &)
     fi
-    while IFS='|' read -r s atividade pasta; do
+    while IFS='|' read -r s sid atividade pasta; do
       pid=$(claude_na_sessao "$s")
       if [[ -n $pid ]]; then
         read -r id st rot < <(claude_info "$pid")
@@ -275,40 +283,36 @@ vigiar() {
       # interações: 1 min depois da primeira (TT_T_PRIMEIRO) a tela já mostra do que se trata.
       # A saída do próprio shell ao abrir (até 2 s depois de criada) não conta como interação.
       if generico "$s" && [[ -z $(tmux show-options -qv -t "=$s:" @nome_dado) ]]; then
-        primeira=$(tmux show-options -qv -t "=$s:" @nome_primeira)
+        primeira=${V_PRIMEIRA[$sid]:-}
         if [[ -z $primeira ]]; then
-          desde=$(tmux show-options -qv -t "=$s:" @nome_espera)
+          desde=${V_ESPERA[$sid]:-}
           [[ -n $desde ]] || desde=$(($(tmux display-message -p -t "=$s:" '#{session_created}') + 2))
           ((atividade > desde)) || continue
-          tmux set-option -t "=$s:" @nome_primeira "$atividade"
+          V_PRIMEIRA[$sid]=$atividade
           ((proximo = t_primeiro < proximo ? t_primeiro : proximo))
           continue
         fi
         falta=$((primeira + t_primeiro - agora))
         if ((falta > 0)); then ((proximo = falta < proximo ? falta : proximo)); continue; fi
-        tmux set-option -t "=$s:" @nome_pasta "$pasta"
-        tmux set-option -t "=$s:" @nome_em "$atividade"
-        tmux set-option -u -t "=$s:" @nome_primeira
+        V_PASTA[$sid]=$pasta V_EM[$sid]=$atividade
+        unset 'V_PRIMEIRA[$sid]'
         if nome=$(sugerir_nome "$s") && [[ $nome != "${s%-[0-9]*}" ]] && nome=$(renomear "$s" "$nome" auto); then
-          tmux set-option -t "=$nome:" @nome_dado 1
-          tmux set-option -t "=$nome:" @nome_interacoes 0
+          tmux set-option -t "=$nome:" @nome_dado 1 # só no rename (que já redesenha a barra)
+          V_INTER[$sid]=0
           echo "$(date '+%F %T') $s → $nome (primeiro nome, 1 min após a primeira interação)" >>"$log"
         else
           # Ainda sem assunto: espera a próxima interação e tenta de novo 1 min depois dela.
-          tmux set-option -t "=$s:" @nome_espera "$atividade"
+          V_ESPERA[$sid]=$atividade
         fi
         continue
       fi
 
-      ultimo=$(tmux show-options -qv -t "=$s:" @nome_em); ultimo=${ultimo:-0}
-      interacoes=$(tmux show-options -qv -t "=$s:" @nome_interacoes); interacoes=${interacoes:-0}
-      pasta_ant=$(tmux show-options -qv -t "=$s:" @nome_pasta)
+      ultimo=${V_EM[$sid]:-0} interacoes=${V_INTER[$sid]:-0} pasta_ant=${V_PASTA[$sid]:-}
       ((atividade > ultimo)) || continue
       # window_activity avança quando há entrada/saída relevante no terminal. Guardamos cada
       # avanço para que o custo do Haiku só ocorra depois do número mínimo de interações.
       interacoes=$((interacoes + 1))
-      tmux set-option -t "=$s:" @nome_interacoes "$interacoes"
-      tmux set-option -t "=$s:" @nome_em "$atividade"
+      V_INTER[$sid]=$interacoes V_EM[$sid]=$atividade
       motivo=""
       if ((interacoes >= minimo_interacoes)); then
         motivo="ganhou $interacoes interações"
@@ -319,17 +323,18 @@ vigiar() {
       fi
       [[ -n $motivo ]] || continue
 
-      tmux set-option -t "=$s:" @nome_pasta "$pasta"
+      V_PASTA[$sid]=$pasta
       if ! nome=$(sugerir_nome "$s"); then
         # Sem assunto claro: não fica tentando a cada volta; novas interações reabrem a tentativa.
-        tmux set-option -t "=$s:" @nome_interacoes 0
+        V_INTER[$sid]=0
         continue
       fi
-      [[ $nome == "${s%-[0-9]*}" ]] && { tmux set-option -t "=$s:" @nome_interacoes 0; continue; }
+      [[ $nome == "${s%-[0-9]*}" ]] && { V_INTER[$sid]=0; continue; }
       nome=$(renomear "$s" "$nome" auto) || continue
-      tmux set-option -t "=$nome:" @nome_interacoes 0
+      V_INTER[$sid]=0
       echo "$(date '+%F %T') $s → $nome ($motivo)" >>"$log"
-    done < <(tmux list-sessions -F '#{session_name}|#{window_activity}|#{pane_current_path}' 2>/dev/null)
+    done < <(tmux list-sessions -F '#{session_name}|#{session_id}|#{window_activity}|#{pane_current_path}' 2>/dev/null)
+    declare -p V_EM V_INTER V_PASTA V_PRIMEIRA V_ESPERA >"$estado_vigia.$$" 2>/dev/null && mv -f "$estado_vigia.$$" "$estado_vigia"
     # Um primeiro nome pendente encurta o sono: o nome sai ~1 min após a interação, não até 2 min.
     ((proximo < 5)) && proximo=5
     sleep "$proximo"
@@ -1146,12 +1151,22 @@ pode_instalar() {
 # pontes. Sem -t, refresh-client age só no cliente usado por último — as outras abas ficavam com o
 # visual antigo depois de uma sincronização.
 # Temas dos agentes e terminal aplicados juntos antes de iniciar uma TUI nova.
+# Rodado pelo vigia a cada 5 min: só corrige o que se desviou do padrão e só redesenha se corrigiu
+# algo. Antes recarregava o tema, mandava a paleta a todos os terminais e redesenhava a tela
+# inteira de todos os clientes toda vez — o cursor piscava em todos os aparelhos a cada 5 min.
 reforcar_padrao() {
-  "$DIR_TT/tema-agentes.sh" --aplicar || return 1
-  redesenhar_todos
+  "$DIR_TT/tema-agentes.sh" --aplicar >/dev/null 2>&1
+  reforcar_visual
+  atualizar_barras
+  if ((VISUAL_MUDOU)); then
+    local c
+    for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux refresh-client -t "$c" 2>/dev/null; done
+  fi
+  return 0
 }
 
 redesenhar_todos() {
+  tmux set -gu @tema_hash 2>/dev/null # explícito (sincronizar/instalar): recarrega o tema sempre
   reforcar_visual
   atualizar_barras
   tema_cliente
@@ -1169,6 +1184,12 @@ redesenhar_todos() {
 instalar_aqui() {
   local origem nome=${TT_NOME:-} pidf pid
   origem=$(dirname "$EU")
+  # Nunca troca uma pasta que é um repositório git (TT_DIR apontado para um clone num teste apagou
+  # o clone inteiro, .git inclusive): a instalação só substitui pastas que são instalações.
+  if [[ -e $DIR_TT/.git ]]; then
+    echo "$(conf nome): ✗ $DIR_TT é um repositório git, não uma instalação; nada foi trocado" >&2
+    return 1
+  fi
   if [[ $origem != "$DIR_TT" ]]; then
     pacote_valido "$origem" || return 1
     pode_instalar "$(cat "$origem/VERSAO")" || return 1
@@ -1855,15 +1876,48 @@ guarda_tamanho() {
 
 # Sessão-ponte local que mostra a sessão S de outra máquina (cria se não existir). Imprime o nome.
 criar_ponte() {
-  local dest=$1 s=$2 ponte
-  ponte=$(limpar "$(rotulo_de "$dest")-$s")
-  if ! tmux has-session -t "=$ponte" 2>/dev/null; then
-    tmux new-session -d -s "$ponte" "$(q "$EU" --ponte "$dest" "$s" "$ponte")" || return 1
-    tmux set-option -t "=$ponte:" @ponte "$dest"
-    tmux set-option -t "=$ponte:" @nome_auto 0
-    tmux set-option -t "=$ponte:" status off
+  local dest=$1 s=$2 cliente=${3:-} base ponte alvo nome anexada dono n=2
+  base=$(limpar "$(rotulo_de "$dest")-$s")
+  alvo="$dest|$s"
+  # Uma ponte por aparelho: dois aparelhos vendo a mesma sessão de outra máquina não podem dividir
+  # a ponte, senão uma troca de sessão pedida por um (tt --ir-ponte) leva o outro junto. O aparelho
+  # reaproveita a ponte dele, ou uma livre (ninguém anexado) do mesmo alvo; senão cria outra.
+  if [[ -n $cliente ]]; then
+    ponte=""
+    while IFS=$'\t' read -r nome anexada dono; do
+      [[ $dono == "$cliente" ]] && { ponte=$nome; break; }
+      [[ -z $ponte && $anexada == 0 ]] && ponte=$nome
+    done < <(tmux list-sessions -F "#{session_name}"$'\t'"#{session_attached}"$'\t'"#{@ponte_dono}"$'\t'"#{@ponte_alvo}" 2>/dev/null |
+      awk -F'\t' -v a="$alvo" -v b="$base" '$4 == a || ($4 == "" && $1 == b) { print $1 "\t" $2 "\t" $3 }')
+    if [[ -n $ponte ]]; then
+      [[ $(tmux show-options -qv -t "=$ponte:" @ponte_dono) == "$cliente" ]] || tmux set-option -t "=$ponte:" @ponte_dono "$cliente"
+      [[ -n $(tmux show-options -qv -t "=$ponte:" @ponte_alvo) ]] || tmux set-option -t "=$ponte:" @ponte_alvo "$alvo"
+      echo "$ponte"; return 0
+    fi
+    ponte=$base
+    while tmux has-session -t "=$ponte" 2>/dev/null; do ponte="$base-$n"; n=$((n + 1)); done
+  else
+    ponte=$base
+    tmux has-session -t "=$ponte" 2>/dev/null && { echo "$ponte"; return 0; }
   fi
+  tmux new-session -d -s "$ponte" "$(q "$EU" --ponte "$dest" "$s" "$ponte")" || return 1
+  tmux set-option -t "=$ponte:" @ponte "$dest"
+  tmux set-option -t "=$ponte:" @ponte_alvo "$alvo"
+  [[ -n $cliente ]] && tmux set-option -t "=$ponte:" @ponte_dono "$cliente"
+  tmux set-option -t "=$ponte:" @nome_auto 0
+  tmux set-option -t "=$ponte:" status off
   echo "$ponte"
+}
+
+# Pontes que ninguém usa há mais de 30 min (TT_T_PONTE, em segundos) são fechadas: com uma ponte
+# por aparelho elas se acumulariam, cada uma com uma conexão ssh aberta. A sessão da outra máquina
+# continua lá; só a conexão daqui se encerra.
+fechar_pontes_ociosas() {
+  local agora=$1 limite=${TT_T_PONTE:-1800} s anexada ult
+  while IFS='|' read -r s anexada ult; do
+    ((anexada == 0 && ult > 0 && agora - ult >= limite)) && tmux kill-session -t "=$s" 2>/dev/null
+  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{?session_last_attached,#{session_last_attached},#{session_created}}' -f '#{@ponte}' 2>/dev/null)
+  return 0
 }
 
 # Entra na sessão S de outra máquina. Fora do tmux (celular), é um ssh direto e, ao sair
@@ -1879,7 +1933,7 @@ entrar_remoto() {
     tmux display-message ${TT_CLIENTE:+-c "$TT_CLIENTE"} "⚠ $(rotulo_de "$dest"):$s não existe mais ou está inacessível"
     return 1
   fi
-  ponte=$(criar_ponte "$dest" "$s") || return 1
+  ponte=$(criar_ponte "$dest" "$s" "${TT_CLIENTE:-}") || return 1
   sair_menu
   exec tmux switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$ponte"
 }
@@ -1943,18 +1997,16 @@ ir_para() {
 # Roda na máquina de origem: os clientes que estão na ponte P passam a mostrar a sessão S da
 # máquina de rótulo R (desta, direto; de outra, por uma ponte).
 ir_ponte() {
-  local p=$1 r=$2 s=$3 alvo c mudou=0
+  local p=$1 r=$2 s=$3 alvo c
   tmux has-session -t "=$p" 2>/dev/null || return 1
-  if [[ $r == "$MAQUINA" ]]; then alvo=$s
-  else alvo=$(criar_ponte "$(dest_de "$r")" "$s") || return 1; fi
-  # Só o cliente que agiu: vários aparelhos podem estar na mesma ponte (ela é uma por sessão
-  # remota), e o pedido veio de quem clicou/teclou na barra de lá — o cliente daqui com a atividade
-  # mais recente. Trocar todos levava junto o outro aparelho, que nem estava mexendo.
+  # Com pontes por aparelho, P tem um cliente só. Pontes antigas (compartilhadas) podem ter vários:
+  # aí troca só o que agiu por último (quem clicou ou teclou na barra de lá).
   c=$(tmux list-clients -t "=$p" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
   [[ -n $c ]] || return 1
+  if [[ $r == "$MAQUINA" ]]; then alvo=$s
+  else alvo=$(criar_ponte "$(dest_de "$r")" "$s" "$c") || return 1; fi
   fecha_ciclo "$alvo" "$(contem_cliente "$c")" && return 1
-  tmux switch-client -c "$c" -t "=$alvo" && mudou=1
-  ((mudou))
+  tmux switch-client -c "$c" -t "=$alvo"
 }
 
 
@@ -2351,32 +2403,46 @@ ajustar() {
   # Só redesenha se havia janela presa (redesenhar a cada foco fazia o cursor piscar, ainda mais
   # em subtelas, onde o tmux de dentro também recebe foco a cada clique entre painéis).
   (($(descongelar "$s"))) && tmux refresh-client -t "$c"
-  tema_cliente "$c"
+  # A paleta vai direto ao terminal (fora do tmux) e pode se intercalar com um quadro que o tmux
+  # está desenhando: no foco, no máximo a cada 10 min por cliente (ao anexar, sempre).
+  local marca="$RT/tt-tema-${c//\//_}"
+  if [[ ! -e $marca ]] || (($(idade_arquivo "$marca") > 600)); then
+    touch "$marca"; tema_cliente "$c"
+  fi
 }
 
 # As cores padrão do tmux também precisam ser escuras: o Codex consulta o fundo do painel.
 # Remove desvios locais só das opções visuais deste padrão, preservando sessões e processos.
 reforcar_visual() {
+  VISUAL_MUDOU=0
   [[ -r $DIR_TT/tema-tmux.conf ]] || return 0
-  tmux source-file "$DIR_TT/tema-tmux.conf" || return 1
-  local id opt
+  # Todo set-option redesenha a tela inteira de todos os clientes: só grava o que está diferente.
+  # O tema global só é recarregado quando o arquivo muda (hash em @tema_hash).
+  local h id opt linha
+  h=$(sha256sum <"$DIR_TT/tema-tmux.conf" | cut -c1-16)
+  if [[ $(tmux show -gqv @tema_hash 2>/dev/null) != "$h" ]]; then
+    tmux source-file "$DIR_TT/tema-tmux.conf" || return 1
+    tmux set -g @tema_hash "$h"
+    VISUAL_MUDOU=1
+  fi
   local -a cmds=()
+  local so='^(status-position|status-interval|status-format|status-style|status-left-length|status-left|status-right-length|status-right|message-style)(\[[0-9]+\])? '
+  local wo='^(window-style|window-active-style|pane-colours|window-status-format|window-status-current-format|pane-border-style|pane-active-border-style|pane-border-format|mode-style|popup-style|popup-border-style|popup-border-lines)(\[[0-9]+\])? '
+  local po='^(window-style|window-active-style|pane-colours|pane-border-style|pane-active-border-style|mode-style)(\[[0-9]+\])? '
+  # Sem -g, show-options lista só o que foi definido localmente naquele alvo (o desvio).
   while read -r id; do
-    for opt in status-position status-interval status-format status-style status-left-length status-left status-right-length status-right message-style; do
-      cmds+=(set-option -su -t "$id" "$opt" ';')
-    done
+    while read -r linha; do opt=${linha%% *}; opt=${opt%%\[*}; cmds+=(set-option -su -t "$id" "$opt" ';')
+    done < <(tmux show-options -t "$id" 2>/dev/null | grep -E "$so" | sort -u -k1,1)
   done < <(tmux list-sessions -F '#{session_id}' 2>/dev/null)
   while read -r id; do
-    for opt in window-style window-active-style pane-colours window-status-format window-status-current-format pane-border-style pane-active-border-style pane-border-format mode-style popup-style popup-border-style popup-border-lines; do
-      cmds+=(set-option -wu -t "$id" "$opt" ';')
-    done
+    while read -r linha; do opt=${linha%% *}; opt=${opt%%\[*}; cmds+=(set-option -wu -t "$id" "$opt" ';')
+    done < <(tmux show-options -w -t "$id" 2>/dev/null | grep -E "$wo" | sort -u -k1,1)
   done < <(tmux list-windows -a -F '#{window_id}' 2>/dev/null | sort -u)
   while read -r id; do
-    for opt in window-style window-active-style pane-colours pane-border-style pane-active-border-style mode-style; do
-      cmds+=(set-option -pu -t "$id" "$opt" ';')
-    done
+    while read -r linha; do opt=${linha%% *}; opt=${opt%%\[*}; cmds+=(set-option -pu -t "$id" "$opt" ';')
+    done < <(tmux show-options -p -t "$id" 2>/dev/null | grep -E "$po" | sort -u -k1,1)
   done < <(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)
-  ((${#cmds[@]})) && tmux "${cmds[@]}" 2>/dev/null
+  if ((${#cmds[@]})); then tmux "${cmds[@]}" 2>/dev/null; VISUAL_MUDOU=1; fi
   return 0
 }
 
@@ -2771,6 +2837,12 @@ propagar_fixadas() {
   done < <(maquinas)
 }
 
+# Grava a opção @ da sessão S só se o valor for outro (todo set-option redesenha todos os clientes).
+opt_sessao() {
+  [[ $(tmux show-options -qv -t "=$1:" "$2" 2>/dev/null) == "$3" ]] && return 0
+  tmux set-option -q -t "=$1:" "$2" "$3" 2>/dev/null
+}
+
 # Trava das gravações da lista (fixar/desafixar, receber de outra máquina, reconciliar): sem ela,
 # duas gravações quase juntas faziam uma desfazer a outra (fixar uma sessão desafixava outra).
 # mkdir é atômico em qualquer sistema (o Termux não garante flock). Trava velha (>20 s) é de um
@@ -2827,12 +2899,13 @@ aplicar_fixadas() {
   # A faixa permanece visível mesmo vazia: o marcador deixa claro onde as fixadas aparecerão.
   tmux set -g status 2
   # Marca nas sessões daqui (@tt_fixada): o 📌 ao lado do nome, na barra, fica aceso nas fixadas.
-  local sess fix
+  # Só grava o que mudou: todo set-option redesenha a tela inteira de todos os clientes.
+  local sess marca fix
   fix=$(fixadas | awk -F'\t' -v m="$MAQUINA" '$1 == m { print $2 }')
-  while IFS= read -r sess; do
-    if grep -qxF -- "$sess" <<<"$fix"; then tmux set -q -t "=$sess:" @tt_fixada 1
-    else tmux set -q -u -t "=$sess:" @tt_fixada; fi
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  while IFS=$'\t' read -r sess marca; do
+    if grep -qxF -- "$sess" <<<"$fix"; then [[ $marca == 1 ]] || tmux set -q -t "=$sess:" @tt_fixada 1
+    else [[ -z $marca ]] || tmux set -q -u -t "=$sess:" @tt_fixada; fi
+  done < <(tmux list-sessions -F "#{session_name}"$'\t'"#{@tt_fixada}" 2>/dev/null)
   atualizar_barras
 }
 
@@ -2921,12 +2994,12 @@ reconciliar_fixadas() {
       # Primeiro resolve pelo UUID. O nome antigo pode ter sido reutilizado por outra sessão.
       if [[ -n $id ]]; then novo=$(session_by_id "$id"); fi
       if [[ -n $novo ]]; then
-        tmux set-option -t "=$novo:" @tt_fixado_nome "$novo" 2>/dev/null
+        opt_sessao "$novo" @tt_fixado_nome "$novo"
         novo_id=$(session_id "$novo")
       elif tmux has-session -t "=$s" 2>/dev/null; then
         # Também migra itens fixados de versões antigas para o marcador de identidade.
         novo=$s
-        tmux set-option -t "=$s:" @tt_fixado_nome "$s" 2>/dev/null
+        opt_sessao "$s" @tt_fixado_nome "$s"
         novo_id=$(session_id "$s")
       else
         novo=$(tmux list-sessions -F "#{session_name}"$'\t'"#{@tt_fixado_nome}" 2>/dev/null |
