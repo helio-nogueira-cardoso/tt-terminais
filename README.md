@@ -319,6 +319,26 @@ nesta máquina; sem rede, mantém o tt em funcionamento e tenta de novo no ciclo
 continua oferecendo "⟳ Atualizar do GitHub". Para seguir um fork, ponha `fonte=<url do repositório>` no
 `~/.config/tt/config`.
 
+## Montar um celular do zero
+
+Num Termux recém-instalado (F-Droid ou GitHub; Termux:Boot e Termux:API da mesma origem), um
+comando deixa o celular no padrão do tt: pacotes, barra de teclas com os botões, sshd na porta 8022
+só por chave, início automático no boot, Debian (`proot-distro`) com o Claude Code e o tt instalado:
+
+    curl -fsSL https://raw.githubusercontent.com/helio-nogueira-cardoso/tt-terminais/main/termux/celular.sh | bash
+
+Ele clona o repositório em `~/tt-terminais` e roda `termux/celular.sh` de lá. Depois:
+
+    termux/celular.sh verificar           o que está pronto e o que falta (não muda nada)
+    termux/celular.sh conectar eu@meu-pc  chaves dos dois lados, porta 8022 no ~/.ssh/config do PC e cadastro no tt
+    termux/celular.sh android             ajustes do Android (processos fantasmas, bateria) via adb ou Shizuku
+    termux/celular.sh --nome cel --chaves-github USUARIO --sem-claude   opções da instalação
+
+Tudo é idempotente: depois de um `git pull`, rodar de novo aplica só o que mudou (a versão do perfil
+fica em `~/.config/tt/celular`). Arquivos que seriam trocados ganham cópia `*.antes-celular`, e
+`claude_flags`/`claude_env` só entram no config se ainda não existirem. `CELULAR_SIMULAR=1` mostra
+os comandos sem executar.
+
 ## Celular / tela pequena
 
 Em telas com menos de 80 colunas ou 30 linhas (celular), a central abre em tela cheia, com
