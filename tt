@@ -3066,6 +3066,8 @@ menu_admin() {
     printf 'r\t  📥 Trazer arquivos…\t%s\n' "$(popup_tt "$c" "📥 trazer" "TT_CLIENTE=$c TT_PANE=$p $EU --trazer")"
     printf 'm\t  ⚙ tmux…\t%s\n' "$EU --menu-tmux $(q "$c") $p"
     printf -- '-\t\t\n'
+    printf 'c\t  📧 Contas de e-mail…\t%s\n' "$EU --email-contas $(q "$c")"
+    printf -- '-\t\t\n'
     ((atras)) && printf 'u\t  ⟳ Atualizar as desatualizadas (v%s)\t%s\n' "$vl" "$(popup_tt "$c" sincronizar "$EU --sincronizar; read -rsn1 -p '(tecla fecha)'")"
     (($(versao_github) > vl)) && printf 'g\t  ⟳ Atualizar do GitHub (v%s → v%s)\t%s\n' "$vl" "$(versao_github)" "$(popup_tt "$c" "atualizar do GitHub" "$EU --atualizar --todas; read -rsn1 -p '(tecla fecha)'")"
     printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
@@ -4013,6 +4015,113 @@ botao_email() {
     "cd ${HOME@Q}; $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Enter fecha.' \"\$?\"; read -r _; }"
 }
 
+# ─── Cadastro e gerência de contas de e-mail (aerc) ────────────────────────────
+# Objetivo: cadastrar/remover conta sem o dono editar accounts.conf à mão nem a senha de app
+# vazar para o versionado. A senha de app fica num arquivo próprio em ~/.secrets (600) e o
+# accounts.conf só guarda o COMANDO que a lê (source-cred-cmd/outgoing-cred-cmd). Nenhuma função
+# aqui imprime, versiona ou copia a senha; ela só transita por `read -s` e vai direto para o arquivo.
+AERC_DIR="$HOME/.config/aerc"
+AERC_CONTAS="$AERC_DIR/accounts.conf"
+SECRETS_DIR="$HOME/.secrets"
+
+# Nome de conta → slug seguro para nome de arquivo (minúsculas, só [a-z0-9_-]).
+email_slug() {
+  local s=${1,,}; s=${s//[^a-z0-9]/-}; s=${s//--/-}; s=${s#-}; s=${s%-}; printf '%s' "${s:-conta}"
+}
+
+# Lista os nomes de conta já cadastrados (cabeçalhos [Nome] do accounts.conf), um por linha.
+email_contas_nomes() {
+  [[ -f $AERC_CONTAS ]] || return 0
+  sed -n 's/^\[\(.*\)\]$/\1/p' "$AERC_CONTAS"
+}
+
+# Assistente de cadastro (roda dentro do popup). Guiado por perguntas; a senha nunca aparece na tela.
+email_conta_nova_ui() {
+  command -v aerc >/dev/null || { printf 'O aerc não está instalado nesta máquina.\nInstale o aerc e rode de novo. Enter fecha.'; read -r _; return; }
+  local nome email slug cred n
+  printf '📧 Nova conta de e-mail (Gmail via IMAP/SMTP, senha de app)\n\n'
+  printf 'Antes: gere uma SENHA DE APP em https://myaccount.google.com/apppasswords\n'
+  printf '(a verificação em duas etapas precisa estar ligada).\n\n'
+  read -r -p 'Nome da conta (ex.: Pessoal): ' nome
+  [[ -n $nome ]] || { printf 'Nome vazio. Enter fecha.'; read -r _; return; }
+  if email_contas_nomes | grep -qxF "$nome"; then
+    printf 'Já existe uma conta "%s". Remova-a primeiro em "gerenciar contas". Enter fecha.' "$nome"; read -r _; return
+  fi
+  read -r -p 'Endereço (ex.: voce@gmail.com): ' email
+  [[ $email == *@* ]] || { printf 'E-mail inválido. Enter fecha.'; read -r _; return; }
+  local senha senha2
+  read -r -s -p 'Senha de app (não aparece): ' senha; printf '\n'
+  read -r -s -p 'Repita a senha de app: ' senha2; printf '\n'
+  [[ -n $senha ]] || { printf 'Senha vazia. Enter fecha.'; read -r _; return; }
+  [[ $senha == "$senha2" ]] || { printf 'As senhas não conferem. Enter fecha.'; read -r _; return; }
+
+  slug=$(email_slug "$nome"); cred="$SECRETS_DIR/aerc-$slug.txt"
+  mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR" 2>/dev/null
+  ( umask 077; printf '%s' "$senha" > "$cred" ); chmod 600 "$cred"
+  unset senha senha2
+
+  mkdir -p "$AERC_DIR"
+  [[ -f $AERC_CONTAS ]] || { : > "$AERC_CONTAS"; }
+  chmod 600 "$AERC_CONTAS" 2>/dev/null
+  # URL-encode do @ no userinfo (aerc exige %40), o resto do endereço vai literal.
+  local user=${email/@/%40}
+  { printf '\n[%s]\n' "$nome"
+    printf 'source        = imaps://%s@imap.gmail.com:993\n' "$user"
+    printf 'source-cred-cmd = cat %q\n' "$cred"
+    printf 'outgoing      = smtps://%s@smtp.gmail.com:465\n' "$user"
+    printf 'outgoing-cred-cmd = cat %q\n' "$cred"
+    printf 'from          = %s\n' "$email"
+    printf 'default       = INBOX\n'
+  } >> "$AERC_CONTAS"
+  printf '\n✔ Conta "%s" cadastrada.\n' "$nome"
+  printf 'A senha de app ficou em %s (600), fora de qualquer repositório.\n' "$cred"
+  printf 'Se o aerc estiver aberto, saia e reabra pelo 📧 para carregar a conta.\nEnter fecha.'
+  read -r _
+}
+
+# Gerência (roda dentro do popup): lista contas e permite remover uma.
+email_contas_ui() {
+  local nomes n alvo slug cred tmp op c i
+  while :; do
+    clear 2>/dev/null
+    printf '📧 Contas de e-mail cadastradas\n\n'
+    mapfile -t nomes < <(email_contas_nomes)
+    if ((${#nomes[@]} == 0)); then printf '(nenhuma)\n'; else
+      i=0; for n in "${nomes[@]}"; do i=$((i+1)); printf '  %d) %s\n' "$i" "$n"; done
+    fi
+    printf '\n[n] nova conta   [r] remover   [Enter] fechar\n> '
+    read -r op
+    case $op in
+      n|N) email_conta_nova_ui ;;
+      r|R)
+        ((${#nomes[@]})) || { printf 'Nada para remover. '; continue; }
+        read -r -p 'Número da conta a remover: ' alvo
+        [[ $alvo =~ ^[0-9]+$ ]] && ((alvo>=1 && alvo<=${#nomes[@]})) || { printf 'Inválido. '; continue; }
+        n=${nomes[alvo-1]}
+        read -r -p "Remover \"$n\"? apaga o bloco e a senha de app (s/N): " c
+        [[ $c == [sSyY]* ]] || { printf 'Cancelado. '; continue; }
+        # Remove o bloco [n] até o próximo cabeçalho [..] ou fim do arquivo.
+        tmp=$(mktemp)
+        awk -v alvo="[$n]" '
+          $0==alvo {pula=1; next}
+          pula && /^\[.*\]$/ {pula=0}
+          !pula {print}' "$AERC_CONTAS" > "$tmp" && cat "$tmp" > "$AERC_CONTAS"; rm -f "$tmp"
+        slug=$(email_slug "$n"); cred="$SECRETS_DIR/aerc-$slug.txt"
+        [[ -f $cred ]] && rm -f "$cred"
+        printf 'Removida "%s". ' "$n"
+        ;;
+      *) return 0 ;;
+    esac
+  done
+}
+
+# Abre o gerenciador de contas numa subjanela (popup), como o próprio e-mail.
+botao_email_contas() {
+  local cliente=$1
+  tmux display-popup -c "$cliente" -E $(tam_popup "$cliente") -T " 📧 contas de e-mail " \
+    "cd ${HOME@Q}; $EU --email-contas-ui"
+}
+
 # Fecha o que está vazio; se há algo rodando, só desanexa (a sessão continua).
 botao_sair() {
   local cliente=$1 pane=$2 pid cmd filhos paineis janelas
@@ -4607,6 +4716,12 @@ case "${1:-}" in
     # Verbo de teclado/CLI equivalente ao botão 📧: abre o e-mail numa subjanela (popup).
     c=${2:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
     botao_email "$c"; exit ;;
+  --email-contas|--email-conta)
+    # Abre o gerenciador de contas de e-mail numa subjanela (popup). --email-conta é alias.
+    c=${2:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
+    botao_email_contas "$c"; exit ;;
+  --email-contas-ui) email_contas_ui; exit ;;
+  --email-conta-nova-ui) email_conta_nova_ui; exit ;;
   --configurar-bashrc) configurar_bashrc; exit ;;
   --remover-bashrc) remover_bashrc; exit ;;
   --desinstalar-aqui) desinstalar_aqui; exit ;;

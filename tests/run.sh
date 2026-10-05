@@ -135,6 +135,36 @@ pos_rel=$(rg -n '%H:%M' "$tema" | head -1 | cut -d: -f1)
   falha 'e-mail: 📧 não está entre arquivos e relógio na barra'
 ((falhas == 0)) && ok 'botão de e-mail: barra, rota, botão, verbo e posição' || true
 
+# Gerência de contas de e-mail (cadastro guiado): funções, verbos e item de menu existem; o
+# wizard grava a conta e a senha de app FORA do accounts.conf (só o cred-cmd fica lá).
+falhas=0
+rg -q '^email_conta_nova_ui\(\)' "$tt" || falha 'e-mail/contas: email_conta_nova_ui ausente'
+rg -q '^email_contas_ui\(\)' "$tt" || falha 'e-mail/contas: email_contas_ui ausente'
+rg -q '^botao_email_contas\(\)' "$tt" || falha 'e-mail/contas: botao_email_contas ausente'
+rg -Fq -- '--email-contas-ui)' "$tt" || falha 'e-mail/contas: verbo --email-contas-ui ausente'
+rg -Fq -- '--email-conta-nova-ui)' "$tt" || falha 'e-mail/contas: verbo --email-conta-nova-ui ausente'
+rg -Fq -- '--email-contas|--email-conta)' "$tt" || falha 'e-mail/contas: verbo --email-contas ausente'
+rg -Fq 'Contas de e-mail' "$tt" || falha 'e-mail/contas: item de menu administrar ausente'
+# Senha nunca é ecoada: a leitura usa read -s.
+corpo_nova=$(sed -n '/^email_conta_nova_ui()/,/^}/p' "$tt")
+grep -Eq 'read -r -s' <<<"$corpo_nova" || falha 'e-mail/contas: senha deve ser lida com read -s (sem eco)'
+# Teste funcional em HOME isolado: cadastra uma conta e confirma que a senha vai para ~/.secrets
+# (600) e não para o accounts.conf. aerc é simulado via PATH; valores são fictícios.
+tmphome=$(mktemp -d)
+printf '#!/bin/sh\nexit 0\n' > "$tmphome/aerc"; chmod +x "$tmphome/aerc"
+printf 'ContaTeste\nx@gmail.com\nSENHA_FICTICIA_TESTE\nSENHA_FICTICIA_TESTE\n\n' |
+  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
+# nota: EU aponta para um tt inexistente de propósito; a função nova_ui não reinvoca o tt.
+conta="$tmphome/.config/aerc/accounts.conf"; cred="$tmphome/.secrets/aerc-contateste.txt"
+rg -Fq '[ContaTeste]' "$conta" 2>/dev/null || falha 'e-mail/contas: bloco [ContaTeste] não foi gravado'
+rg -Fq 'x%40gmail.com' "$conta" 2>/dev/null || falha 'e-mail/contas: userinfo deveria ter @ como %40'
+rg -Fq 'SENHA_FICTICIA_TESTE' "$conta" 2>/dev/null && falha 'e-mail/contas: SENHA VAZOU para accounts.conf'
+[[ -f $cred && $(cat "$cred") == SENHA_FICTICIA_TESTE ]] || falha 'e-mail/contas: senha não foi gravada no arquivo de credencial'
+perm=$(stat -c '%a' "$cred" 2>/dev/null || stat -f '%Lp' "$cred" 2>/dev/null)
+[[ $perm == 600 ]] || falha "e-mail/contas: credencial deveria ser 600 (é $perm)"
+rm -rf "$tmphome"
+((falhas == 0)) && ok 'contas de e-mail: cadastro guiado grava conta sem vazar senha' || true
+
 # Especificação executável da captura SGR: o pressionar esquerdo é registrado, soltura/arrasto não,
 # e a mesma sequência continua correta quando chega em pedaços pelo pty.
 python3 - <<'PY'
