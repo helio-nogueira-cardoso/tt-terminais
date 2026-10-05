@@ -110,10 +110,26 @@ grep -qx 'legacy.example  carol  legado' "$caso/config/tt/maquinas" && ok 'CLI: 
 
 # Cada range desenhado pela barra deve chegar a uma rota explícita em clique(). Isto é o contrato
 # comum para mouse, toque e os ranges que o tmux classifica de forma diferente por terminal.
-for rota in maquina sessao fixar ajustar tt painel arquivos transferencias copias 'at[0-9]*' 'fx*' 'fxx*'; do
+for rota in maquina sessao fixar ajustar tt painel arquivos email transferencias copias 'at[0-9]*' 'fx*' 'fxx*'; do
   rg -Fq "$rota)" "$tt" || falha "rota de interação ausente: $rota"
 done
 ((falhas == 0)) && ok 'contrato: todos os controles da barra têm rota de ação' || true
+
+# Botão de e-mail (📧): range no tema entre arquivos e relógio, rota de clique, case de botão,
+# verbo de teclado/CLI --email, cliente configurável (default aerc) e aviso quando ausente.
+rg -q 'range=user\|email' "$tema" || falha 'e-mail: range ausente no tema'
+rg -Fq 'email) botao_email' "$tt" || falha 'e-mail: case de botão ausente'
+rg -Fq -- '--email)' "$tt" || falha 'e-mail: verbo --email ausente'
+rg -q '^email_comando\(\)' "$tt" && rg -q 'c=\$\{c:-aerc\}' "$tt" || falha 'e-mail: email_comando com default aerc ausente'
+rg -q '^botao_email\(\)' "$tt" || falha 'e-mail: botao_email ausente'
+rg -q '@tt_papel email' "$tt" || falha 'e-mail: sessão singleton (papel email) ausente'
+# O 📧 vem depois do ⇅ arquivos e antes do relógio %H:%M (ordem pedida na barra).
+pos_arq=$(rg -n 'range=user\|arquivos' "$tema" | head -1 | cut -d: -f1)
+pos_eml=$(rg -n 'range=user\|email' "$tema" | head -1 | cut -d: -f1)
+pos_rel=$(rg -n '%H:%M' "$tema" | head -1 | cut -d: -f1)
+[[ -n $pos_arq && -n $pos_eml && -n $pos_rel && $pos_arq -lt $pos_eml && $pos_eml -lt $pos_rel ]] ||
+  falha 'e-mail: 📧 não está entre arquivos e relógio na barra'
+((falhas == 0)) && ok 'botão de e-mail: barra, rota, botão, verbo e posição' || true
 
 # Especificação executável da captura SGR: o pressionar esquerdo é registrado, soltura/arrasto não,
 # e a mesma sequência continua correta quando chega em pedaços pelo pty.

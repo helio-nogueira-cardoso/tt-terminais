@@ -3517,6 +3517,7 @@ clique() {
     window) tmux select-window -t = ;;
     maquina) menu_maquinas "$2" "$3" ;;
     arquivos) menu_arquivos "$2" "$3" ;;
+    email) botao_email "$2" "$3" ;;
     transferencias) eval "$(popup_tt "$2" "⇅ transferências" "$EU --transferencias")" ;;
     copias) eval "$(popup_tt "$2" "📋 cópias" "TT_CLIENTE=$2 TT_PANE=$3 $EU --copias")" ;;
     at[0-9]*) atalho_executar "${faixa#at}" "$2" "$3" "${4:-$HOME}" ;;
@@ -3917,6 +3918,35 @@ botao_tela() {
   else botao_aviso "$cliente" "tela: não consegui conectar em $dest"; fi
 }
 
+# Cliente de e-mail desta máquina: do config (email=), senão aerc. Falha se não existe.
+email_comando() {
+  local c; c=$(conf email); c=${c:-aerc}
+  command -v "${c%% *}" >/dev/null || return 1
+  printf '%s' "$c"
+}
+
+# Sessão de e-mail única (papel email), independente de pasta: vai para ela, cria se não houver,
+# volta para a sessão anterior se já estiver nela. Mesma lógica dos botões CL/DBN (ir_papel), mas
+# singleton — não faz sentido uma caixa de e-mail por diretório.
+botao_email() {
+  local cliente=$1 pane=$2 cmd sess jan p nome
+  cmd=$(email_comando) || { botao_aviso "$cliente" "e-mail: instale o aerc (ou defina email=<cliente> em ~/.config/tt/config)"; return; }
+  if [[ $(tmux show-options -wqv -t "$pane" @tt_papel) == email ]]; then
+    tmux switch-client -c "$cliente" -l 2>/dev/null || botao_aviso "$cliente" "e-mail: não há outra sessão para onde voltar"
+    return
+  fi
+  while IFS=$'\t' read -r sess jan p; do
+    if [[ $p == email ]]; then
+      tmux select-window -t "$jan" && tmux switch-client -c "$cliente" -t "=$sess"; return
+    fi
+  done < <(tmux list-windows -a -F '#{session_name}'$'\t''#{window_id}'$'\t''#{@tt_papel}')
+  nome=$(proximo_nome email)
+  tmux new-session -d -s "$nome" -c "$HOME" "$cmd; exec \${SHELL:-bash}" || { botao_aviso "$cliente" "e-mail: não consegui abrir a sessão"; return; }
+  tmux set-option -w -t "=$nome:" @tt_papel email
+  tmux set-option -w -t "=$nome:" @tt_pasta "$HOME"
+  tmux switch-client -c "$cliente" -t "=$nome"
+}
+
 # Fecha o que está vazio; se há algo rodando, só desanexa (a sessão continua).
 botao_sair() {
   local cliente=$1 pane=$2 pid cmd filhos paineis janelas
@@ -3951,6 +3981,7 @@ botao() {
       cmd=$(debian_comando "$pasta") || { botao_aviso "$cliente" "não há Debian (proot-distro) aqui"; return; }
       ir_papel debian "$cmd" "$cliente" "$pane" "$pasta" ;;
     tela) botao_tela "$cliente" ;;
+    email) botao_email "$cliente" "$pane" ;;
     sair) botao_sair "$cliente" "$pane" ;;
     ant) tmux switch-client -c "$cliente" -l 2>/dev/null || botao_aviso "$cliente" "não há sessão anterior" ;;
     zm) tmux resize-pane -Z -t "$pane" ;;
@@ -4506,6 +4537,11 @@ case "${1:-}" in
     echo "Pronto. Abra um terminal novo e rode: tt   (ou, no tmux, Ctrl+B s)"
     exit ;;
   --botao) botao "$2" "$3" "$4" "${5:-}"; exit ;;
+  --email)
+    # Verbo de teclado/CLI equivalente ao botão 📧 da barra: resolve cliente e painel do tmux atual.
+    c=${2:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
+    p=${3:-$(tmux display-message -p '#{pane_id}' 2>/dev/null)}
+    botao_email "$c" "$p"; exit ;;
   --configurar-bashrc) configurar_bashrc; exit ;;
   --remover-bashrc) remover_bashrc; exit ;;
   --desinstalar-aqui) desinstalar_aqui; exit ;;
