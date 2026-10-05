@@ -1,0 +1,11 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# tt-rish: shell do sistema (uid shell) pelo Shizuku, sem adb nem Wi-Fi. Procura o rish exportado
+# pelo app Shizuku ("Usar o Shizuku em apps de terminal" → Exportar) em ~/.local/lib/rish ou ~/bin.
+#   tt-rish -c 'comando'     executa         tt-rish     abre o shell         tt-rish --ok  testa
+for d in "$HOME/.local/lib/rish" "$HOME/bin"; do
+  [[ -f $d/rish && -f $d/rish_shizuku.dex ]] && { RISH=$d/rish; break; }
+done
+[[ -n ${RISH:-} ]] || { echo "rish não instalado: termux/celular.sh adb (passo do Shizuku)" >&2; exit 3; }
+export RISH_APPLICATION_ID=${RISH_APPLICATION_ID:-com.termux}
+if [[ ${1:-} == --ok ]]; then timeout 10 sh "$RISH" -c true >/dev/null 2>&1; exit; fi
+exec sh "$RISH" "$@"

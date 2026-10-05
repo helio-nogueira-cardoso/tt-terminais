@@ -1,0 +1,5 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# shizuku-desligar: pede ao Tasker para desligar depuração sem fio, adb e modo dev (o Shizuku cai junto).
+adb-local off >/dev/null 2>&1
+am broadcast -a tt.MODO_DEV_OFF >/dev/null 2>&1
+echo "modo dev desligado" >&2
