@@ -15,6 +15,7 @@ isolar() {
   done
   echo "999 teste 2099-01-01" >"$T/pkg/VERSAO"
   export HOME=$T/home XDG_CONFIG_HOME=$T/home/.config TMUX_TMPDIR=$T/tmux TT_RT=$T/rt TT_DIR=$T/pkg
+  export TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8  # ambiente controlavel: nao herdar TERM=dumb nem locale vazio do chamador
   export TT_T_ATUALIZACAO=999999 TT_ATALHOS_PADRAO=$T/pkg/atalhos-padrao
   unset TMUX TMUX_PANE TT_CLIENTE TT_PANE PREFIX XDG_STATE_HOME XDG_DATA_HOME TT_AI_MEMORY_DIR TT_AIDLC_POLICY
   printf 'nome=teste\n' >"$XDG_CONFIG_HOME/tt/config"
