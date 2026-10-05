@@ -110,13 +110,15 @@ grep -qx 'legacy.example  carol  legado' "$caso/config/tt/maquinas" && ok 'CLI: 
 
 # Cada range desenhado pela barra deve chegar a uma rota explícita em clique(). Isto é o contrato
 # comum para mouse, toque e os ranges que o tmux classifica de forma diferente por terminal.
+base=$falhas
 for rota in maquina sessao fixar ajustar tt painel arquivos email transferencias copias 'at[0-9]*' 'fx*' 'fxx*'; do
   rg -Fq "$rota)" "$tt" || falha "rota de interação ausente: $rota"
 done
-((falhas == 0)) && ok 'contrato: todos os controles da barra têm rota de ação' || true
+((falhas == base)) && ok 'contrato: todos os controles da barra têm rota de ação' || true
 
 # Botão de e-mail (📧): range no tema entre arquivos e relógio, rota de clique, case de botão,
 # verbo de teclado/CLI --email, cliente configurável (default aerc) e aviso quando ausente.
+base=$falhas
 rg -q 'range=user\|email' "$tema" || falha 'e-mail: range ausente no tema'
 rg -Fq 'email) botao_email' "$tt" || falha 'e-mail: case de botão ausente'
 rg -Fq -- '--email)' "$tt" || falha 'e-mail: verbo --email ausente'
@@ -136,7 +138,7 @@ pos_eml=$(rg -n 'range=user\|email' "$tema" | head -1 | cut -d: -f1)
 pos_rel=$(rg -n '%H:%M' "$tema" | head -1 | cut -d: -f1)
 [[ -n $pos_arq && -n $pos_eml && -n $pos_rel && $pos_arq -lt $pos_eml && $pos_eml -lt $pos_rel ]] ||
   falha 'e-mail: 📧 não está entre arquivos e relógio na barra'
-((falhas == 0)) && ok 'botão de e-mail: barra, rota, botão, verbo e posição' || true
+((falhas == base)) && ok 'botão de e-mail: barra, rota, botão, verbo e posição' || true
 
 # Gerência de contas de e-mail (cadastro guiado): funções, verbos e item de menu existem; o
 # wizard grava a conta e a senha de app FORA do accounts.conf (só o cred-cmd fica lá).
@@ -237,6 +239,7 @@ ok 'mouse SGR: pressão, soltura, arrasto e pacote fragmentado'
 
 tmux -S "$sock" -f "$conf" new-session -d -s tt-test 'sleep 5'
 tmux -S "$sock" list-keys -T root >"$tmp/keys"
+base=$falhas
 tmux -S "$sock" list-keys -T prefix >"$tmp/prefix-keys"
 for evento in MouseDown1Status MouseDown1StatusLeft MouseDown1StatusRight MouseUp1Status MouseUp1StatusLeft MouseUp1StatusRight; do
   rg -q " $evento " "$tmp/keys" || falha "binding tmux ausente: $evento"
@@ -252,7 +255,7 @@ for esperado in 'F1 cl' 'F2 clc' 'F3 clr' 'F4 dbn' 'F5 tela' 'F6 sair' 'F7 ant' 
   rg -q -- " $tecla .*--botao $botao " "$tmp/prefix-keys" ||
     falha "atalho $tecla não alcança o botão esperado: $botao"
 done
-((falhas == 0)) && ok 'teclas F1–F10 alcançam todos os botões do tt' || true
+((falhas == base)) && ok 'teclas F1–F10 alcançam todos os botões do tt' || true
 rg -q 'MouseUp3Status.*--clique-direito' "$conf" && rg -q 'MouseUp3Pane.*--menu-painel' "$conf" && ok 'botão direito alcança menus de status e painel' ||
   falha 'botão direito não tem rota completa'
 rg -q 'align=right.*@barra_versao' "$tema" && rg -q 'range=user\|fixar' "$tema" && ok 'tema expõe pino e versão nos dois cantos da barra' ||
