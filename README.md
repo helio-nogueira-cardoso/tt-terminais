@@ -14,7 +14,7 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
   "fechar todas".
 - **Barra clicável**: `máquina ▾` (máquinas, versões, cadastro), `sessão ▾` (seletor rápido com
   rolagem), ☰ central, ┃/━ dividir, ⋯ menu do painel, ⇅ arquivos, 📧 e-mail (abre o cliente de
-  terminal numa sessão dedicada; `aerc` por padrão, configurável), ⤢ caber nesta tela (quando duas
+  terminal numa subjanela, como a central; `aerc` por padrão, configurável), ⤢ caber nesta tela (quando duas
   telas de tamanhos diferentes usam a mesma sessão). Botão direito também abre os menus.
 - **Uma sessão, vários aparelhos**: a janela tem o tamanho do aparelho que você está usando: tecla,
   toque ou clique, foco na janela, girar o celular ou abrir o teclado passam a sessão para ele na
