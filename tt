@@ -40,6 +40,11 @@ EU=$(readlink -f "$0")
 
 CONF_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/tt
 CONF=$CONF_DIR/config
+# Três lugares, cada um com um papel: o pacote ($DIR_TT, ~/.local/share/tt) é geral e trocado
+# inteiro a cada instalação — nada do usuário mora nele; o perfil ($CONF_DIR) guarda só escolhas
+# do usuário (config, máquinas, atalhos, fixadas, ajustes locais); o estado ($ESTADO_DIR) guarda o
+# que o tt gera sozinho (memória dos agentes, avisos, estado do celular).
+ESTADO_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/tt
 CONF_MAQ=$CONF_DIR/maquinas
 conf() { sed -n "s/^$1=//p" "$CONF" 2>/dev/null | tail -1; }
 # Nome desta máquina no menu: ~/.config/tt/config (nome=…); sem ele, o hostname.
@@ -1222,14 +1227,24 @@ pacote_valido() {
   done
 }
 
-# Política neutra que todos os motores de IA podem ler. Só substitui uma cópia que ainda
-# tenha o marcador gerenciado pelo tt; nunca toma posse de uma política editada pelo usuário.
+# Política neutra que todos os motores de IA podem ler. Vem do pacote; ~/.config/tt/AI-DLC.md só
+# existe quando o usuário quer a própria versão (e então vale ela). A cópia gerenciada que versões
+# antigas punham no perfil sai; uma editada pelo usuário (sem o marcador) fica.
+politica_aidlc() {
+  if [[ -r $CONF_DIR/AI-DLC.md ]]; then echo "$CONF_DIR/AI-DLC.md"; else echo "$DIR_TT/AI-DLC.md"; fi
+}
 instalar_politica_aidlc() {
-  local destino="$HOME/.config/tt/AI-DLC.md"
-  mkdir -p "$(dirname "$destino")" || return 1
-  if [[ ! -e $destino ]] || grep -q '^<!-- tt-managed:' "$destino" 2>/dev/null; then
-    cp "$DIR_TT/AI-DLC.md" "$destino" || return 1
+  grep -q '^<!-- tt-managed:' "$CONF_DIR/AI-DLC.md" 2>/dev/null && rm -f "$CONF_DIR/AI-DLC.md"
+  return 0
+}
+
+# Dados que versões antigas gravavam dentro do pacote (sumiam a cada instalação): vão para o estado.
+migrar_dados_do_pacote() {
+  local d=$1
+  if [[ -d $d/ai-memory && ! -e $ESTADO_DIR/ai-memory ]]; then
+    mkdir -p "$ESTADO_DIR" && mv "$d/ai-memory" "$ESTADO_DIR/ai-memory"
   fi
+  return 0
 }
 
 # Configura AI-DLC no projeto atual sem escolher um motor específico. O comando aidlc cria os
@@ -1251,7 +1266,7 @@ aidlc_bootstrap() {
         printf '%s\n\n' '# AI-DLC local'
         printf '%s\n' 'O bootstrap comum do tt foi reconhecido, mas o comando aidlc não está instalado nesta máquina.'
         printf 'Instale o runtime AI-DLC e rode `tt --aidlc "%s"` novamente.\n\n' "$raiz"
-        printf 'A política comum está em AI-DLC.md e em %s.\n' "$HOME/.config/tt/AI-DLC.md"
+        printf 'A política comum está em AI-DLC.md e em %s.\n' "$(politica_aidlc)"
       } >"$raiz/.aidlc/README.md"
     fi
     echo "tt --aidlc: aidlc não instalado; deixei o marcador local em $raiz/.aidlc" >&2
@@ -1355,7 +1370,7 @@ instalar_aqui() {
     rm -rf "$DIR_TT.novo" "$DIR_TT.velho"
     mkdir -p "$(dirname "$DIR_TT")"
     cp -a "$origem" "$DIR_TT.novo" || return 1
-    [[ -d $DIR_TT ]] && mv "$DIR_TT" "$DIR_TT.velho"
+    [[ -d $DIR_TT ]] && migrar_dados_do_pacote "$DIR_TT" && mv "$DIR_TT" "$DIR_TT.velho"
     mv "$DIR_TT.novo" "$DIR_TT"
     rm -rf "$DIR_TT.velho"
   fi
@@ -1380,6 +1395,8 @@ CONF
   elif [[ -z $(conf nome) ]]; then
     echo "nome=$(hostname -s)" >>"$CONF"
   fi
+  # Chave de estado que versões antigas gravavam no perfil.
+  grep -q '^avisado=' "$CONF" 2>/dev/null && { grep -v '^avisado=' "$CONF" >"$CONF.novo"; mv "$CONF.novo" "$CONF"; }
   limpar_cache_maquinas
   atualizar_bashrc
   "$DIR_TT/tema-agentes.sh" --aplicar
@@ -1449,9 +1466,10 @@ verificar_atualizacao() {
   n=$(buscar_fonte) || return 1
   mkdir -p "$(dirname "$CACHE_GITHUB")"
   echo "$n $(date +%s)" >"$CACHE_GITHUB"
-  if ((n > $(versao_num))) && [[ $(conf avisado) != "$n" ]]; then
+  # Qual versão já foi avisada é estado, não escolha do usuário: fica em $ESTADO_DIR/avisado.
+  if ((n > $(versao_num))) && [[ $(cat "$ESTADO_DIR/avisado" 2>/dev/null) != "$n" ]]; then
     avisar "⟳ tt: versão $n disponível no GitHub (esta é a $(versao_num)) — menu de máquinas → Atualizar"
-    grep -v '^avisado=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "avisado=$n" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
+    mkdir -p "$ESTADO_DIR" && echo "$n" >"$ESTADO_DIR/avisado"
   fi
 }
 
@@ -1627,7 +1645,10 @@ bashrc_bloco() {
 [[ -r "$HOME/.local/share/tt/tema-terminal.sh" ]] && source "$HOME/.local/share/tt/tema-terminal.sh"
 [[ -x "$HOME/.local/share/tt/tema-agentes.sh" ]] && "$HOME/.local/share/tt/tema-agentes.sh" --aplicar >/dev/null 2>&1
 [[ -x "$HOME/.local/share/tt/memoria-agentes.sh" ]] && "$HOME/.local/share/tt/memoria-agentes.sh" --aplicar >/dev/null 2>&1
-[[ -r "$HOME/.config/tt/AI-DLC.md" ]] && export TT_AIDLC_POLICY="$HOME/.config/tt/AI-DLC.md"
+# Política AI-DLC: a do perfil, se o usuário tiver a própria; senão a do pacote.
+for _tt_p in "$HOME/.config/tt/AI-DLC.md" "$HOME/.local/share/tt/AI-DLC.md"; do
+  [[ -r $_tt_p ]] && { export TT_AIDLC_POLICY=$_tt_p; break; }
+done; unset _tt_p
 
 # Toda janela de terminal (GNOME Terminal / Windows Terminal / Termux) abre numa sessão tmux própria,
 # para poder ser assumida de outro lugar pela central `tt`.
