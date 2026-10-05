@@ -42,6 +42,11 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
 bash, git, tmux ≥ 3.4, fzf ≥ 0.60, python3, ssh, tar (GNU) e `rg` (testes e busca rápida).
 Opcionais: tailscale, mosh (celular), pv (barra de progresso nas cópias), claude (nomes automáticos).
 
+macOS: bash ≥ 4 e as demais dependências pelo Homebrew (`brew install bash tmux fzf ripgrep`). Como o
+ssh não interativo do macOS (zsh) não carrega o Homebrew, a instalação acrescenta ao `~/.zshenv` um
+bloco entre marcadores que põe `~/.local/bin`, `/opt/homebrew/bin` e `/usr/local/bin` no PATH, e todo
+comando que o tt manda para outra máquina já leva esse PATH. Não é preciso `setopt NO_EQUALS`.
+
 ## Instalação
 
     git clone https://github.com/helio-nogueira-cardoso/tt-terminais.git && cd tt-terminais
