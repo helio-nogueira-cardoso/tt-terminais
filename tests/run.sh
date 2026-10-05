@@ -248,6 +248,10 @@ for side in lista pos fresca mouse; do
 done
 sed -n '/^sair_menu()/,/^}/p' "$tt" | grep -Fq 'limpar_estado' || falha 'menu: sair_menu deve delegar para limpar_estado'
 rg -q 'trap limpar_estado EXIT' "$tt" || falha 'menu: trap do --seletor deve usar limpar_estado'
+# Nenhum trap EXIT de $TT_ESTADO pode remover só o arquivo base (rm -f cru): todos delegam a
+# limpar_estado para não vazar sidecar futuro (foi assim que o .mouse escapou nos traps duplicados).
+grep -nE "trap +'?rm -f +\"?\\\$TT_ESTADO\"?'? +EXIT" "$tt" >/dev/null 2>&1 \
+  && falha 'menu: trap EXIT de $TT_ESTADO com rm -f cru (deve usar limpar_estado)'
 ((falhas == base)) && ok 'menu: limpar_estado centraliza limpeza dos sidecars (sem vazar arquivo)' || true
 
 tmux -S "$sock" -f "$conf" new-session -d -s tt-test 'sleep 5'

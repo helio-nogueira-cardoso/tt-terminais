@@ -4825,7 +4825,7 @@ case "${1:-}" in
   --definir-recebidos) definir_recebidos "$2"; exit ;;
   --pasta-padrao)
     TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
-    trap 'rm -f "$TT_ESTADO"' EXIT
+    trap limpar_estado EXIT
     pasta_padrao_cli "${2:-}"; exit ;;
   --caminho-visivel) caminho_visivel "$2"; exit ;;
   --abrir-pasta) abrir_pasta "$2" "${3:-}"; exit ;;
@@ -4839,7 +4839,7 @@ case "${1:-}" in
   --menu-popup-ui) menu_popup_ui "$2"; exit ;;
   --enviar | --trazer)
     TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
-    trap 'rm -f "$TT_ESTADO"' EXIT
+    trap limpar_estado EXIT
     a=$1; shift
     if [[ $a == --enviar ]]; then enviar_cli "$@"; else trazer_cli "$@"; fi
     exit ;;
