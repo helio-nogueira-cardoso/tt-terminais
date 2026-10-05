@@ -4,7 +4,13 @@
 
 set -u
 
-raiz=${TT_AI_MEMORY_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/tt/ai-memory}
+# Fica no estado do tt (~/.local/state/tt), fora do pacote: a pasta do pacote é trocada inteira a
+# cada instalação. A pasta antiga, dentro do pacote, é migrada uma vez.
+raiz=${TT_AI_MEMORY_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/tt/ai-memory}
+antiga=${XDG_DATA_HOME:-$HOME/.local/share}/tt/ai-memory
+if [[ -z ${TT_AI_MEMORY_DIR:-} && -d $antiga && ! -e $raiz ]]; then
+  mkdir -p "$(dirname "$raiz")" && mv "$antiga" "$raiz"
+fi
 mkdir -p "$raiz/agents" "$raiz/sessions" "$raiz/events"
 
 python3 - "$raiz" <<'PY'

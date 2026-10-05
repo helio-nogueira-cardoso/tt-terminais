@@ -59,12 +59,39 @@ Isso põe o tt em `~/.local/share/tt/`, liga `~/.local/bin/tt` a ele, faz o `~/.
 `tmux.conf` do tt (o antigo fica em `~/.tmux.conf.antes-tt`) e **configura o `~/.bashrc`** para cada
 janela de terminal abrir já dentro do tmux e aparecer na central. O bloco é acrescentado ao fim,
 entre marcadores, uma única vez (backup em `~/.bashrc.antes-tt`). Ajustes só daquela máquina vão no
-`~/.tmux.conf`, depois da linha `source-file`.
+perfil, em `~/.config/tt/tmux.conf` (veja abaixo).
+
+### Onde fica cada coisa
+
+O tt separa o que é geral do que é seu, para dar para compartilhar, atualizar e versionar cada parte
+sem misturar:
+
+| Lugar | Papel | Quem escreve |
+|---|---|---|
+| `~/.local/share/tt/` | **pacote** geral, igual para qualquer usuário; trocado inteiro a cada instalação | só o instalador |
+| `~/.config/tt/` | **perfil**: só escolhas suas (veja a lista abaixo) | você e os menus do tt |
+| `~/.local/state/tt/` | **estado** que o tt gera sozinho: memória dos agentes, avisos, perfil do celular aplicado | o tt |
+| `~/.cache/`, `/run/user/UID` | caches e travas, descartáveis | o tt |
+
+Arquivos do perfil (todos opcionais, exceto `config`):
+
+    config             nome desta máquina e opções (recebidos=, claude_flags=, tela_destino=, …)
+    maquinas           máquinas cadastradas: host usuario rótulo
+    atalhos            atalhos da barra além dos padrões (mesmo ID substitui; emoji - desativa)
+    fixadas            sessões fixadas (sincronizada entre as máquinas)
+    tmux.conf          ajustes de tmux só seus, carregados depois do tmux.conf do pacote
+    termux.properties  barra de teclas do Termux própria (o celular.sh usa esta no lugar da geral)
+    AI-DLC.md          política AI-DLC própria, no lugar da do pacote
+
+Por isso o perfil pode virar um repositório git privado seu (ou ser copiado para outra máquina) sem
+levar código junto, e o pacote pode ser atualizado ou reinstalado sem perder nada seu. O
+`~/.tmux.conf` e o `~/.bashrc` só ganham os pontos de ligação (uma linha `source-file` e um bloco
+entre marcadores).
 
 ### AI-DLC para qualquer motor
 
-Toda instalação do tt também disponibiliza uma política neutra em
-`~/.config/tt/AI-DLC.md` e expõe seu caminho em `TT_AIDLC_POLICY`. Quando um agente identificar o
+Toda instalação do tt também disponibiliza uma política neutra (`AI-DLC.md` do pacote, ou a sua em
+`~/.config/tt/AI-DLC.md`, se existir) e expõe seu caminho em `TT_AIDLC_POLICY`. Quando um agente identificar o
 início de uma tarefa em qualquer projeto — pequeno, grande, greenfield ou brownfield — ele deve
 preparar a estrutura local antes de editar código:
 
@@ -196,7 +223,8 @@ cadastradas que estiverem acessíveis.
 
 ## Memória local dos agentes
 
-Toda instalação do tt mantém um repositório local em `~/.local/share/tt/ai-memory`. Ele é
+Toda instalação do tt mantém um repositório local em `~/.local/state/tt/ai-memory` (fora do pacote,
+para sobreviver às atualizações; a pasta antiga, `~/.local/share/tt/ai-memory`, é migrada sozinha). Ele é
 atualizado ao entrar no tt e periodicamente pelo vigia, detectando Claude, Codex, Kiro e outros
 processos visíveis nas sessões tmux. O índice (`index.json`), os agentes instalados e os metadados
 das sessões ficam separados dos textos duradouros (`memory.md` e `decisions.md`). Nenhum token,
@@ -335,8 +363,10 @@ Ele clona o repositório em `~/tt-terminais` e roda `termux/celular.sh` de lá. 
     termux/celular.sh --nome cel --chaves-github USUARIO --sem-claude   opções da instalação
 
 Tudo é idempotente: depois de um `git pull`, rodar de novo aplica só o que mudou (a versão do perfil
-fica em `~/.config/tt/celular`). Arquivos que seriam trocados ganham cópia `*.antes-celular`, e
-`claude_flags`/`claude_env` só entram no config se ainda não existirem. `CELULAR_SIMULAR=1` mostra
+fica em `~/.local/state/tt/celular`). Arquivos que seriam trocados ganham cópia `*.antes-celular`, e
+`claude_flags`/`claude_env` só entram no config se ainda não existirem. Uma barra de teclas própria
+(com botões pessoais, por exemplo) vai em `~/.config/tt/termux.properties` e tem prioridade sobre a
+geral. `CELULAR_SIMULAR=1` mostra
 os comandos sem executar.
 
 ## Celular / tela pequena

@@ -21,7 +21,7 @@ CLONE=${TT_CELULAR_CLONE:-$HOME/tt-terminais}
 SIMULAR=${CELULAR_SIMULAR:-}
 CONF_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/tt
 CONF=$CONF_DIR/config
-ESTADO=$CONF_DIR/celular
+ESTADO=${XDG_STATE_HOME:-$HOME/.local/state}/tt/celular
 
 PACOTES=(git tmux fzf python openssh mosh ripgrep proot-distro termux-services termux-api curl tar zstd nano)
 PACOTES_DEBIAN=(ca-certificates curl git python3 procps sudo)
@@ -62,6 +62,10 @@ instalar_arquivo() { # origem destino [modo]
   if cmp -s "$o" "$d" 2>/dev/null; then ok "${d/#$HOME/\~} já em dia"; return 0; fi
   if [[ -e $d && ! -e $d.antes-celular ]]; then faz cp -p "$d" "$d.antes-celular"; fi
   faz mkdir -p "$(dirname "$d")" && faz cp "$o" "$d" && faz chmod "$m" "$d" && ok "${d/#$HOME/\~} instalado"
+}
+# Barra de teclas: a do perfil (~/.config/tt/termux.properties), se o usuário tiver a própria; senão a geral.
+barra_teclas() {
+  if [[ -r $CONF_DIR/termux.properties ]]; then echo "$CONF_DIR/termux.properties"; else echo "$RAIZ/termux/termux.properties"; fi
 }
 debian_rootfs() { echo "${PREFIX:-}/var/lib/proot-distro/containers/debian/rootfs"; }
 tem_debian() { [[ -d $(debian_rootfs)/usr || -d ${PREFIX:-}/var/lib/proot-distro/installed-rootfs/debian/usr ]]; }
@@ -104,7 +108,7 @@ passo_armazenamento() {
 
 passo_teclas() {
   titulo "Barra de teclas extras (botões do tt)"
-  instalar_arquivo "$RAIZ/termux/termux.properties" "$HOME/.termux/termux.properties"
+  instalar_arquivo "$(barra_teclas)" "$HOME/.termux/termux.properties"
   command -v termux-reload-settings >/dev/null && faz termux-reload-settings
 }
 
@@ -193,7 +197,7 @@ passo_debian() {
 
 registrar_estado() {
   [[ -n $SIMULAR ]] && return 0
-  mkdir -p "$CONF_DIR"
+  mkdir -p "$(dirname "$ESTADO")"
   printf 'versao=%s\ncommit=%s\ndata=%s\n' "$CELULAR_VERSAO" \
     "$(git -C "$RAIZ" rev-parse --short HEAD 2>/dev/null)" "$(date +%F\ %T)" >"$ESTADO"
 }
@@ -237,8 +241,8 @@ verificar() {
   for p in "${PACOTES[@]}"; do dpkg -s "$p" >/dev/null 2>&1 || falta+=("$p"); done
   ((${#falta[@]})) && erro "pacotes faltando: ${falta[*]}" || ok "pacotes do Termux"
   [[ -d $HOME/storage/downloads ]] && ok "armazenamento" || erro "armazenamento: rode termux-setup-storage"
-  cmp -s "$RAIZ/termux/termux.properties" "$HOME/.termux/termux.properties" && ok "barra de teclas" ||
-    aviso "barra de teclas diferente da do tt (ok se você personalizou)"
+  cmp -s "$(barra_teclas)" "$HOME/.termux/termux.properties" && ok "barra de teclas ($(barra_teclas | sed "s|^$HOME|~|"))" ||
+    aviso "barra de teclas diferente da do tt; para manter a sua, guarde-a em ~/.config/tt/termux.properties"
   [[ -s $HOME/.ssh/authorized_keys ]] && ok "chaves SSH autorizadas: $(grep -c . "$HOME/.ssh/authorized_keys")" ||
     erro "nenhuma chave SSH autorizada"
   pgrep -x sshd >/dev/null && ok "sshd rodando" || erro "sshd parado"
