@@ -4,7 +4,7 @@
 # placeholder esmaecido (SGR 2) e de status do agente; ultima_linha pula rodapé de TUI.
 source "$(dirname "$0")/lib.sh"; isolar
 T_() { tmux -f /dev/null "$@"; }
-mkdir -p "$T/bin"; ln -s "$(command -v sleep)" "$T/bin/claude"
+mkdir -p "$T/bin"; printf '#!/bin/sh\nsleep "$@"\n' >"$T/bin/claude"; chmod +x "$T/bin/claude"  # script, não symlink: sleep multicall (uutils) recusa argv0
 T_ new -d -s shell -x 120 -y 20 'bash --norc'
 T_ new -d -s agente -x 120 -y 20 "bash --norc -c '$T/bin/claude 900; exec bash --norc'"
 T_ new -d -s rasc -x 120 -y 20 "printf 'resposta real\n› texto nao enviado\n? for shortcuts\n'; exec sleep 900"
