@@ -122,7 +122,11 @@ rg -Fq 'email) botao_email' "$tt" || falha 'e-mail: case de botão ausente'
 rg -Fq -- '--email)' "$tt" || falha 'e-mail: verbo --email ausente'
 rg -q '^email_comando\(\)' "$tt" && rg -q 'c=\$\{c:-aerc\}' "$tt" || falha 'e-mail: email_comando com default aerc ausente'
 rg -q '^botao_email\(\)' "$tt" || falha 'e-mail: botao_email ausente'
-rg -q '@tt_papel email' "$tt" || falha 'e-mail: sessão singleton (papel email) ausente'
+# Abstração em subjanela: botao_email abre num display-popup (como a central), não cria sessão.
+corpo_email=$(sed -n '/^botao_email()/,/^}/p' "$tt")
+grep -Fq 'display-popup' <<<"$corpo_email" || falha 'e-mail: botao_email deve abrir em subjanela (display-popup)'
+grep -Fq 'new-session' <<<"$corpo_email" && falha 'e-mail: botao_email não deve criar sessão tmux (é popup)'
+rg -q '@tt_papel email' "$tt" && falha 'e-mail: não deve mais marcar papel de sessão email — é popup'
 # O 📧 vem depois do ⇅ arquivos e antes do relógio %H:%M (ordem pedida na barra).
 pos_arq=$(rg -n 'range=user\|arquivos' "$tema" | head -1 | cut -d: -f1)
 pos_eml=$(rg -n 'range=user\|email' "$tema" | head -1 | cut -d: -f1)

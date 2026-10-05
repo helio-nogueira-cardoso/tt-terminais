@@ -3517,7 +3517,7 @@ clique() {
     window) tmux select-window -t = ;;
     maquina) menu_maquinas "$2" "$3" ;;
     arquivos) menu_arquivos "$2" "$3" ;;
-    email) botao_email "$2" "$3" ;;
+    email) botao_email "$2" ;;
     transferencias) eval "$(popup_tt "$2" "⇅ transferências" "$EU --transferencias")" ;;
     copias) eval "$(popup_tt "$2" "📋 cópias" "TT_CLIENTE=$2 TT_PANE=$3 $EU --copias")" ;;
     at[0-9]*) atalho_executar "${faixa#at}" "$2" "$3" "${4:-$HOME}" ;;
@@ -3927,26 +3927,16 @@ email_comando() {
   printf '%s' "$c"
 }
 
-# Sessão de e-mail única (papel email), independente de pasta: vai para ela, cria se não houver,
-# volta para a sessão anterior se já estiver nela. Mesma lógica dos botões CL/DBN (ir_papel), mas
-# singleton — não faz sentido uma caixa de e-mail por diretório.
+# E-mail numa subjanela (display-popup), como a central ☰ — não uma sessão tmux comum: não
+# aparece na lista/central nem vira "sessão de trabalho". O popup abre o cliente (aerc) sobre a
+# tela atual; ao sair do cliente o popup fecha e não sobra nada (nem sessão, nem shell órfão), então
+# o botão sempre reabre limpo. Se o cliente falhar ao abrir, cai num shell com a mensagem para o
+# erro ficar visível, em vez de o popup sumir num piscar.
 botao_email() {
-  local cliente=$1 pane=$2 cmd sess jan p nome
+  local cliente=$1 cmd
   cmd=$(email_comando) || { botao_aviso "$cliente" "e-mail: instale o aerc (ou defina email=<cliente> em ~/.config/tt/config)"; return; }
-  if [[ $(tmux show-options -wqv -t "$pane" @tt_papel) == email ]]; then
-    tmux switch-client -c "$cliente" -l 2>/dev/null || botao_aviso "$cliente" "e-mail: não há outra sessão para onde voltar"
-    return
-  fi
-  while IFS=$'\t' read -r sess jan p; do
-    if [[ $p == email ]]; then
-      tmux select-window -t "$jan" && tmux switch-client -c "$cliente" -t "=$sess"; return
-    fi
-  done < <(tmux list-windows -a -F '#{session_name}'$'\t''#{window_id}'$'\t''#{@tt_papel}')
-  nome=$(proximo_nome email)
-  tmux new-session -d -s "$nome" -c "$HOME" "$cmd; exec \${SHELL:-bash}" || { botao_aviso "$cliente" "e-mail: não consegui abrir a sessão"; return; }
-  tmux set-option -w -t "=$nome:" @tt_papel email
-  tmux set-option -w -t "=$nome:" @tt_pasta "$HOME"
-  tmux switch-client -c "$cliente" -t "=$nome"
+  tmux display-popup -c "$cliente" -E $(tam_popup "$cliente") -T " 📧 e-mail " \
+    "cd ${HOME@Q}; $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Enter fecha.' \"\$?\"; read -r _; }"
 }
 
 # Fecha o que está vazio; se há algo rodando, só desanexa (a sessão continua).
@@ -3983,7 +3973,7 @@ botao() {
       cmd=$(debian_comando "$pasta") || { botao_aviso "$cliente" "não há Debian (proot-distro) aqui"; return; }
       ir_papel debian "$cmd" "$cliente" "$pane" "$pasta" ;;
     tela) botao_tela "$cliente" ;;
-    email) botao_email "$cliente" "$pane" ;;
+    email) botao_email "$cliente" ;;
     sair) botao_sair "$cliente" "$pane" ;;
     ant) tmux switch-client -c "$cliente" -l 2>/dev/null || botao_aviso "$cliente" "não há sessão anterior" ;;
     zm) tmux resize-pane -Z -t "$pane" ;;
@@ -4540,10 +4530,9 @@ case "${1:-}" in
     exit ;;
   --botao) botao "$2" "$3" "$4" "${5:-}"; exit ;;
   --email)
-    # Verbo de teclado/CLI equivalente ao botão 📧 da barra: resolve cliente e painel do tmux atual.
+    # Verbo de teclado/CLI equivalente ao botão 📧: abre o e-mail numa subjanela (popup).
     c=${2:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
-    p=${3:-$(tmux display-message -p '#{pane_id}' 2>/dev/null)}
-    botao_email "$c" "$p"; exit ;;
+    botao_email "$c"; exit ;;
   --configurar-bashrc) configurar_bashrc; exit ;;
   --remover-bashrc) remover_bashrc; exit ;;
   --desinstalar-aqui) desinstalar_aqui; exit ;;
