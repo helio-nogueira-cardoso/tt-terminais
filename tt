@@ -1696,14 +1696,17 @@ configurar_aerc() {
     }' "$conf" > "$tmp"
   cmp -s "$tmp" "$conf" 2>/dev/null || cat "$tmp" > "$conf"; rm -f "$tmp"
 
-  # binds.conf: bloco entre marcadores com uma saída instantânea (Q), sem o prompt 'Quit?'. Mantém
-  # o q com confirmação que o aerc traz; Q fecha na hora, casando com o fechar-e-voltar do popup.
+  # binds.conf: bloco entre marcadores com saída instantânea, sem o prompt 'Quit?' do aerc. O título
+  # do popup instrui "q fecha"; para isso ser verdade, q (e Q, por hábito) saem na hora, no contexto
+  # global e na lista de mensagens.
   [[ -f $binds ]] || : > "$binds"
   tmp=$(mktemp) || return 1
   { awk -v i="$AERC_BINDS_INI" -v f="$AERC_BINDS_FIM" '$0==i{p=1} !p{print} $0==f{p=0}' "$binds"
     echo "$AERC_BINDS_INI"
+    echo 'q = :quit<Enter>'
     echo 'Q = :quit<Enter>'
     echo '[messages]'
+    echo 'q = :quit<Enter>'
     echo 'Q = :quit<Enter>'
     echo "$AERC_BINDS_FIM"; } > "$tmp"
   cmp -s "$tmp" "$binds" 2>/dev/null || cat "$tmp" > "$binds"; rm -f "$tmp"
@@ -4062,9 +4065,17 @@ email_comando() {
 # o botão sempre reabre limpo. Se o cliente falhar ao abrir, cai num shell com a mensagem para o
 # erro ficar visível, em vez de o popup sumir num piscar.
 botao_email() {
-  local cliente=$1 cmd
+  local cliente=$1 cmd prog dica
   cmd=$(email_comando) || { botao_aviso "$cliente" "e-mail: instale o aerc (ou defina email=<cliente> em ~/.config/tt/config)"; return; }
-  tmux display-popup -c "$cliente" -E $(tam_popup "$cliente") -T " 📧 e-mail " \
+  # Dica de como fechar: display-popup não tem X clicável, então o popup só some quando o
+  # cliente sai. Mostra no título a tecla de saída do cliente para quem não a conhece.
+  prog=${cmd%% *}
+  case ${prog##*/} in
+    aerc)        dica="q fecha" ;;
+    mutt|neomutt) dica="q fecha" ;;
+    *)           dica="feche o cliente p/ sair" ;;
+  esac
+  tmux display-popup -c "$cliente" -E $(tam_popup "$cliente") -T " 📧 e-mail · $dica " \
     "cd ${HOME@Q}; $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Enter fecha.' \"\$?\"; read -r _; }"
 }
 
