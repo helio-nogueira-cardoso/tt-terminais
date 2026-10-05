@@ -1804,6 +1804,80 @@ listar_tudo_() {
 }
 cache_lista() { echo "$RT/tt-lista-$(id -u)-$1"; }
 
+# Mestre de obras (fase 1, só recomendar): `tt --listar-tudo --tsv|--para-ia [-n N]` descreve as
+# sessões DESTA máquina para um chefe IA decidir o que podar. Nunca fecha nada. Contrato fechado no
+# tt-mesh (referência: tools/mesh-sessoes), colunas fixas:
+#   maquina sessao anexada ocioso_s janelas cmd_1oplano agente fixada papel rascunho titulo ultima_linha
+# agente: claude/codex/… entre os DESCENDENTES do pane (o atalho roda `bash -c claude`: o cmd mente).
+# rascunho: 1 = texto não enviado no prompt (›/❯); 0 = vazio, placeholder (esmaecido, SGR 2), status
+# do agente ou item de menu; - = sem prompt. ultima_linha pula prompt, réguas e rodapés de TUI.
+# Sem aritmética de bytes no awk: gawk em UTF-8 conta caracteres, mawk conta bytes.
+SESSOES_IA_CAB='maquina	sessao	anexada	ocioso_s	janelas	cmd_1oplano	agente	fixada	papel	rascunho	titulo	ultima_linha'
+sessoes_ia_agentes() {
+  ps -e -o pid=,ppid=,comm= 2>/dev/null | awk -v raiz="$1" '
+    { pai[$1]=$2; nome[$1]=$3 }
+    END { for (p in pai) { q=p; while (q in pai && q!=raiz && q>1) q=pai[q]
+            if (q==raiz && p!=raiz && nome[p] ~ /^(claude|codex|kiro|kiro-cli|aerc|node|ssh|vim|nvim|python3?)$/) v[nome[p]]=1 }
+          for (k in v) printf "%s%s", (n++?",":""), k }'
+}
+sessoes_ia_conteudo() {
+  awk '{ l=$0; t=l; gsub(/[ \t]/, "", t); r=t; gsub(/─|━|═|╭|╮|╰|╯|│|\302\240/, "", r)
+         if (t=="" || r=="" || index(t,"────")==1) next
+         if (index(t,"›")==1 || index(t,"❯")==1) next
+         if (index(l,"for shortcuts") || index(l,"for agents") || index(l,"bypass permissions") || index(l,"auto mode") ||
+             index(l,"shift+tab to cycle") || index(l,"esc to interrupt") || index(l,"esc back") || index(l,"/clear to save") ||
+             index(l," · ~ · ") || index(l,"f2 to view")) next
+         u=l } END { print u }'
+}
+sessoes_ia_rascunho() {
+  awk 'BEGIN { r="-" }
+       { l=$0; p=index(l,"›"); if (!p) p=index(l,"❯"); if (!p) next
+         pre=substr(l,1,p-1); gsub(/\033\[[0-9;]*m|[ \t]/, "", pre); if (pre!="") next
+         x=substr(l,p); sub(/^(›|❯)/, "", x); dim=0
+         while (1) {
+           if (substr(x,1,1)==" ") { x=substr(x,2); continue }
+           if (index(x,"\302\240")==1) { x=substr(x,1+length("\302\240")); continue }
+           if (match(x, /^\033\[[0-9;]*m/)) { sg=substr(x,3,RLENGTH-3)
+             if (sg ~ /(^|;)2$/) dim=1; else if (sg ~ /(^|;)(0|22)?$/ || sg=="") dim=0
+             x=substr(x,RLENGTH+1); continue }
+           break }
+         gsub(/\033\[[0-9;]*m/, "", x); gsub(/^[ \t]+|[ \t]+$/, "", x)
+         if (x=="" || dim || index(x,"is working") || index(x,"esc to") || index(x,"Type to steer") || x ~ /^[0-9]+\. /) r=0; else r=1 }
+       END { print r }'
+}
+sessoes_ia_limpa() { tr '\t\r\n' '   ' | sed 's/[[:space:]]\{1,\}/ /g; s/^ //; s/ $//' | cut -c1-160; }
+sessoes_ia_linhas() {
+  local maq agora fix s at act jan marca alvo cmd ag tit papel ult ras f
+  maq=${TT_MACHINE:-$MAQUINA}; maq=${maq//_/-}
+  agora=$(date +%s)
+  fix=$(fixadas | awk -F'\t' -v m="$MAQUINA" '$1 == m { print $2 }')
+  while IFS=$'\t' read -r s at act jan marca; do
+    alvo="=$s:"
+    cmd=$(tmux display-message -p -t "$alvo" '#{pane_current_command}' 2>/dev/null | sessoes_ia_limpa)
+    ag=$(sessoes_ia_agentes "$(tmux display-message -p -t "$alvo" '#{pane_pid}' 2>/dev/null)")
+    tit=$(tmux display-message -p -t "$alvo" '#{pane_title}' 2>/dev/null | sessoes_ia_limpa)
+    papel=$(tmux list-windows -t "$alvo" -F '#{@tt_papel}' 2>/dev/null | grep -v '^$' | sort -u | paste -sd, -)
+    ult=$(tmux capture-pane -p -t "$alvo" 2>/dev/null | sessoes_ia_conteudo | sessoes_ia_limpa)
+    ras=$(tmux capture-pane -p -e -t "$alvo" 2>/dev/null | sessoes_ia_rascunho)
+    f=0; [[ $marca == 1 ]] || grep -qxF -- "$s" <<<"$fix" && f=1
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$maq" "$s" "$at" "$((agora - ${act:-$agora}))" "$jan" \
+      "${cmd:--}" "${ag:--}" "$f" "${papel:--}" "${ras:--}" "${tit:--}" "${ult:--}"
+  done < <(tmux list-sessions -F '#{session_name}'$'\t''#{session_attached}'$'\t''#{session_activity}'$'\t''#{session_windows}'$'\t''#{@tt_fixada}' 2>/dev/null)
+}
+sessoes_ia() { # --tsv | --para-ia [-n N]
+  local modo=$1 n=5 s
+  [[ ${2:-} == -n && ${3:-} =~ ^[0-9]+$ ]] && n=$3
+  if [[ $modo == --tsv ]]; then echo "$SESSOES_IA_CAB"; sessoes_ia_linhas; return 0; fi
+  echo "# mestre de obras — ${TT_MACHINE:-$MAQUINA} — $(date -u +%Y%m%dT%H%M%SZ)"
+  echo "Regras: NUNCA fechar anexada>0, fixada=1, papel singleton (email etc.; 'atalho' não conta), nem agente!=- (processo vivo no pane), nem rascunho=1 (texto não enviado) sem ok do dono."
+  echo "Só recomendar shell puro (bash/zsh/sh) ocioso >= 1800 s com prompt vazio. Em dúvida, manter."
+  echo; echo '```tsv'; echo "$SESSOES_IA_CAB"; sessoes_ia_linhas; echo '```'; echo
+  while read -r s; do
+    echo "## $s (últimas $n linhas)"
+    echo '```'; tmux capture-pane -p -t "=$s:" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n "$n" | cut -c1-200; echo '```'
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+}
+
 # Abertura instantânea da central (lista_rapida, sem sufixo, é a do seletor): esta máquina fresca (~0,1 s) e as outras com a última lista
 # conhecida (marcada como "…" até a consulta terminar). Logo depois a central troca pela lista
 # fresca (listar_tudo), mantendo o item em que você está (--track).
@@ -4578,7 +4652,7 @@ case "${1:-}" in
     a=$1; shift
     if [[ $a == --enviar ]]; then enviar_cli "$@"; else trazer_cli "$@"; fi
     exit ;;
-  --listar-tudo) listar_tudo; exit ;;
+  --listar-tudo) [[ ${2:-} == --tsv || ${2:-} == --para-ia ]] && { sessoes_ia "$2" "${3:-}" "${4:-}"; exit 0; }; listar_tudo; exit ;;
   --lista-rapida-central) lista_rapida_central; exit ;;
   --atualizar-uma-vez) # 1º "load" da central (lista rápida): troca pela fresca; depois, nada.
     [[ -n ${TT_ESTADO:-} && ! -e $TT_ESTADO.fresca ]] && { : >"$TT_ESTADO.fresca"; echo "reload($EU --listar-tudo)"; }
