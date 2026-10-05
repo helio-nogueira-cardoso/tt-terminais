@@ -237,6 +237,14 @@ assert coordenada == (12, 7), coordenada
 PY
 ok 'mouse SGR: pressão, soltura, arrasto e pacote fragmentado'
 
+# Limpeza do estado do menu: sair_menu e o trap do --seletor removem todos os sidecars de
+# $TT_ESTADO, inclusive .mouse (senão vaza 1 arquivo por abertura do menu).
+base=$falhas
+corpo_sair=$(sed -n '/^sair_menu()/,/^}/p' "$tt")
+grep -Fq '$TT_ESTADO.mouse' <<<"$corpo_sair" || falha 'menu: sair_menu não remove $TT_ESTADO.mouse (vazamento)'
+rg -q -- "--seletor\).*TT_ESTADO" "$tt" && rg -Fq '"$TT_ESTADO.mouse"' "$tt" || falha 'menu: trap do --seletor não remove $TT_ESTADO.mouse'
+((falhas == base)) && ok 'menu: limpeza remove .mouse de $TT_ESTADO (sem vazar arquivo)' || true
+
 tmux -S "$sock" -f "$conf" new-session -d -s tt-test 'sleep 5'
 tmux -S "$sock" list-keys -T root >"$tmp/keys"
 base=$falhas
