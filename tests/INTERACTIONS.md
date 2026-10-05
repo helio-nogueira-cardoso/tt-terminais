@@ -6,7 +6,7 @@
 | Sessão | barra, seletor, teclado | abrir; renomear; fechar com confirmação; tratar sessão inexistente |
 | Fixada | toque, clique direito, ✕ | ir no pressionar; menu; desafixar; redraw entre pressionar e soltar; toque de ponta a ponta no 📍 (fixa) e bem em cima do ✕ (desafixa) |
 | Painel | mouse, botão direito, `Ctrl+B m` | menu; copiar; colar; dividir; maximizar; fechar |
-| Barra principal | toque, mouse, teclado | central, arquivos, painel, ajustes, transferências e atalhos customizados |
+| Barra principal | toque, mouse, teclado | central, arquivos, e-mail, painel, ajustes, transferências e atalhos customizados |
 | Botões F1–F10 | teclado/Termux | cada `bind F*` chama o respectivo `tt --botao` |
 | Central e seletor | mouse, toque, teclado | abrir linha; pino; ✕; busca; troca de máquina; prévia ligada/desligada |
 | Mouse fzf | SGR/PTY | pressão, soltura, arrasto, modificadores e sequência de bytes fragmentada |
@@ -16,3 +16,4 @@
 
 `tests/run.sh` cobre hoje os contratos estruturais, o tmux isolado, a ponte SGR e o fluxo isolado
 de máquinas. Ao adicionar uma interação, acrescente aqui o cenário e o teste correspondente.
+

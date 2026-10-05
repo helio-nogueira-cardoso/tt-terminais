@@ -13,7 +13,8 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
   trecho achado); filtro por máquina; cada painel de cada sessão; janelas vazias agrupadas, com
   "fechar todas".
 - **Barra clicável**: `máquina ▾` (máquinas, versões, cadastro), `sessão ▾` (seletor rápido com
-  rolagem), ☰ central, ┃/━ dividir, ⋯ menu do painel, ⇅ arquivos, ⤢ caber nesta tela (quando duas
+  rolagem), ☰ central, ┃/━ dividir, ⋯ menu do painel, ⇅ arquivos, 📧 e-mail (abre o cliente de
+  terminal numa sessão dedicada; `aerc` por padrão, configurável), ⤢ caber nesta tela (quando duas
   telas de tamanhos diferentes usam a mesma sessão). Botão direito também abre os menus.
 - **Uma sessão, vários aparelhos**: a janela tem o tamanho do aparelho que você está usando: tecla,
   toque ou clique, foco na janela, girar o celular ou abrir o teclado passam a sessão para ele na
@@ -189,6 +190,8 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
                             WSL, Downloads\\Recebidos do Windows)
                             claude_flags=<opções extras do claude nos botões CL, CLC e CLR>
                             claude_env=<variáveis para o claude nesses botões, ex.: IS_SANDBOX=1>
+                            email=<cliente de e-mail do botão 📧; padrão aerc. A conta e as
+                            credenciais ficam na config do próprio cliente, nunca aqui>
     ~/.config/tt/maquinas   host  usuario  nome  [oculta]  (uma máquina por linha)
 
 ## Sessões fixadas
