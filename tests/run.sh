@@ -165,6 +165,26 @@ perm=$(stat -c '%a' "$cred" 2>/dev/null || stat -f '%Lp' "$cred" 2>/dev/null)
 rm -rf "$tmphome"
 ((falhas == 0)) && ok 'contas de e-mail: cadastro guiado grava conta sem vazar senha' || true
 
+# Regressão (bug do slug): dois nomes distintos que geram o MESMO slug não podem compartilhar
+# o arquivo de credencial. "Pessoal" e "pessoal!" => slug "pessoal". A 2ª deve ser RECUSADA e a
+# senha da 1ª NÃO pode ser sobrescrita. Também cobre a recusa de [ ] no nome.
+falhas=0
+tmphome=$(mktemp -d)
+printf '#!/bin/sh\nexit 0\n' > "$tmphome/aerc"; chmod +x "$tmphome/aerc"
+printf 'Pessoal\np1@gmail.com\nSENHA_UM\nSENHA_UM\n\n' |
+  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
+printf 'pessoal!\np2@gmail.com\nSENHA_DOIS\nSENHA_DOIS\n\n' |
+  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
+conta="$tmphome/.config/aerc/accounts.conf"; cred="$tmphome/.secrets/aerc-pessoal.txt"
+[[ -f $cred && $(cat "$cred") == SENHA_UM ]] || falha 'e-mail/contas: colisão de slug sobrescreveu a senha da 1ª conta'
+[[ $(grep -c '^\[pessoal!\]$' "$conta" 2>/dev/null) == 0 ]] || falha 'e-mail/contas: 2ª conta com slug colidente foi cadastrada mesmo assim'
+# nome com colchete deve ser recusado (cabeçalho [Nome] quebraria)
+printf 'Tra[balho]\nt@gmail.com\nSENHA_T\nSENHA_T\n\n' |
+  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
+[[ $(grep -c '^\[Tra\[balho\]\]$' "$conta" 2>/dev/null) == 0 ]] || falha 'e-mail/contas: nome com [ ] não foi recusado'
+rm -rf "$tmphome"
+((falhas == 0)) && ok 'contas de e-mail: slug colidente e nome com [ ] são recusados (sem sobrescrever credencial)' || true
+
 # Provisionamento do aerc (incremento mouse + saída rápida), garantido pelo tt em toda máquina.
 falhas=0
 rg -q '^configurar_aerc\(\)' "$tt" || falha 'aerc: configurar_aerc ausente'
