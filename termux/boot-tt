@@ -1,0 +1,10 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# Termux:Boot (instalado por termux/celular.sh em ~/.termux/boot/00-tt): depois de um reboot, sobe
+# os serviços e um servidor tmux sem precisar abrir o Termux, para o tt deste celular aparecer nas
+# outras máquinas.
+termux-wake-lock
+export SVDIR=$PREFIX/var/service LOGDIR=$PREFIX/var/log
+service-daemon start >/dev/null 2>&1   # sshd (sv-enable sshd) e o que mais estiver habilitado
+pgrep -x sshd >/dev/null || sshd
+sleep 5
+tmux has-session 2>/dev/null || tmux new-session -d -s inicio
