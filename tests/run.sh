@@ -238,12 +238,17 @@ PY
 ok 'mouse SGR: pressão, soltura, arrasto e pacote fragmentado'
 
 # Limpeza do estado do menu: sair_menu e o trap do --seletor removem todos os sidecars de
-# $TT_ESTADO, inclusive .mouse (senão vaza 1 arquivo por abertura do menu).
+# Limpeza do estado do menu centralizada em limpar_estado(): remove todos os sidecars de
+# $TT_ESTADO (lista, pos, fresca, mouse). sair_menu e o trap do --seletor usam essa fonte única,
+# para não repetir a lista (foi assim que o .mouse escapou antes e vazou 1 arquivo por abertura).
 base=$falhas
-corpo_sair=$(sed -n '/^sair_menu()/,/^}/p' "$tt")
-grep -Fq '$TT_ESTADO.mouse' <<<"$corpo_sair" || falha 'menu: sair_menu não remove $TT_ESTADO.mouse (vazamento)'
-rg -q -- "--seletor\).*TT_ESTADO" "$tt" && rg -Fq '"$TT_ESTADO.mouse"' "$tt" || falha 'menu: trap do --seletor não remove $TT_ESTADO.mouse'
-((falhas == base)) && ok 'menu: limpeza remove .mouse de $TT_ESTADO (sem vazar arquivo)' || true
+corpo_limpar=$(sed -n '/^limpar_estado()/,/^}/p' "$tt")
+for side in lista pos fresca mouse; do
+  grep -Fq "\$TT_ESTADO\".$side" <<<"$corpo_limpar" || falha "menu: limpar_estado não remove sidecar .$side (vazamento)"
+done
+sed -n '/^sair_menu()/,/^}/p' "$tt" | grep -Fq 'limpar_estado' || falha 'menu: sair_menu deve delegar para limpar_estado'
+rg -q 'trap limpar_estado EXIT' "$tt" || falha 'menu: trap do --seletor deve usar limpar_estado'
+((falhas == base)) && ok 'menu: limpar_estado centraliza limpeza dos sidecars (sem vazar arquivo)' || true
 
 tmux -S "$sock" -f "$conf" new-session -d -s tt-test 'sleep 5'
 tmux -S "$sock" list-keys -T root >"$tmp/keys"
