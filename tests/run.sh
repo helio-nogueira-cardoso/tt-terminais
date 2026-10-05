@@ -137,7 +137,7 @@ pos_rel=$(rg -n '%H:%M' "$tema" | head -1 | cut -d: -f1)
 
 # Gerência de contas de e-mail (cadastro guiado): funções, verbos e item de menu existem; o
 # wizard grava a conta e a senha de app FORA do accounts.conf (só o cred-cmd fica lá).
-falhas=0
+base=$falhas
 rg -q '^email_conta_nova_ui\(\)' "$tt" || falha 'e-mail/contas: email_conta_nova_ui ausente'
 rg -q '^email_contas_ui\(\)' "$tt" || falha 'e-mail/contas: email_contas_ui ausente'
 rg -q '^botao_email_contas\(\)' "$tt" || falha 'e-mail/contas: botao_email_contas ausente'
@@ -163,12 +163,12 @@ rg -Fq 'SENHA_FICTICIA_TESTE' "$conta" 2>/dev/null && falha 'e-mail/contas: SENH
 perm=$(stat -c '%a' "$cred" 2>/dev/null || stat -f '%Lp' "$cred" 2>/dev/null)
 [[ $perm == 600 ]] || falha "e-mail/contas: credencial deveria ser 600 (é $perm)"
 rm -rf "$tmphome"
-((falhas == 0)) && ok 'contas de e-mail: cadastro guiado grava conta sem vazar senha' || true
+((falhas == base)) && ok 'contas de e-mail: cadastro guiado grava conta sem vazar senha' || true
 
 # Regressão (bug do slug): dois nomes distintos que geram o MESMO slug não podem compartilhar
 # o arquivo de credencial. "Pessoal" e "pessoal!" => slug "pessoal". A 2ª deve ser RECUSADA e a
 # senha da 1ª NÃO pode ser sobrescrita. Também cobre a recusa de [ ] no nome.
-falhas=0
+base=$falhas
 tmphome=$(mktemp -d)
 printf '#!/bin/sh\nexit 0\n' > "$tmphome/aerc"; chmod +x "$tmphome/aerc"
 printf 'Pessoal\np1@gmail.com\nSENHA_UM\nSENHA_UM\n\n' |
@@ -183,10 +183,10 @@ printf 'Tra[balho]\nt@gmail.com\nSENHA_T\nSENHA_T\n\n' |
   env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
 [[ $(grep -c '^\[Tra\[balho\]\]$' "$conta" 2>/dev/null) == 0 ]] || falha 'e-mail/contas: nome com [ ] não foi recusado'
 rm -rf "$tmphome"
-((falhas == 0)) && ok 'contas de e-mail: slug colidente e nome com [ ] são recusados (sem sobrescrever credencial)' || true
+((falhas == base)) && ok 'contas de e-mail: slug colidente e nome com [ ] são recusados (sem sobrescrever credencial)' || true
 
 # Provisionamento do aerc (incremento mouse + saída rápida), garantido pelo tt em toda máquina.
-falhas=0
+base=$falhas
 rg -q '^configurar_aerc\(\)' "$tt" || falha 'aerc: configurar_aerc ausente'
 rg -q '^remover_aerc\(\)' "$tt" || falha 'aerc: remover_aerc ausente'
 rg -Fq $'  configurar_aerc' "$tt" || falha 'aerc: configurar_aerc não é chamado na instalação'
@@ -211,7 +211,7 @@ grep -Fq 'Q = :quit<Enter>' "$th/.config/aerc/binds.conf" || falha 'aerc: binds.
 [[ $(grep -c 'saída rápida' "$th/.config/aerc/binds.conf") == 2 ]] || falha 'aerc: bloco de bind não é idempotente (marcadores duplicados)'
 [[ -f $th/.config/aerc/accounts.conf ]] && falha 'aerc: accounts.conf não deveria ser criado pelo provisionamento'
 rm -rf "$th"
-((falhas == 0)) && ok 'aerc: tt garante mouse e saída rápida sem tocar contas (idempotente)' || true
+((falhas == base)) && ok 'aerc: tt garante mouse e saída rápida sem tocar contas (idempotente)' || true
 
 # Especificação executável da captura SGR: o pressionar esquerdo é registrado, soltura/arrasto não,
 # e a mesma sequência continua correta quando chega em pedaços pelo pty.
