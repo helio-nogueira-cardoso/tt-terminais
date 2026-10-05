@@ -4097,8 +4097,16 @@ email_conta_nova_ui() {
   printf '(a verificação em duas etapas precisa estar ligada).\n\n'
   read -r -p 'Nome da conta (ex.: Pessoal): ' nome
   [[ -n $nome ]] || { printf 'Nome vazio. Enter fecha.'; read -r _; return; }
+  [[ $nome == *'['* || $nome == *']'* ]] && { printf 'O nome não pode conter [ nem ]. Enter fecha.'; read -r _; return; }
   if email_contas_nomes | grep -qxF "$nome"; then
     printf 'Já existe uma conta "%s". Remova-a primeiro em "gerenciar contas". Enter fecha.' "$nome"; read -r _; return
+  fi
+  # A credencial é indexada pelo slug: nomes distintos que gerem o mesmo slug
+  # (ex.: "Pessoal" e "pessoal!") colidiriam no mesmo arquivo e sobrescreveriam
+  # a senha um do outro. Recusa a colisão antes de pedir senha.
+  slug=$(email_slug "$nome"); cred="$SECRETS_DIR/aerc-$slug.txt"
+  if [[ -e $cred ]]; then
+    printf 'Já existe uma conta que usa o mesmo arquivo de credencial (%s).\nEscolha um nome distinto. Enter fecha.' "$cred"; read -r _; return
   fi
   read -r -p 'Endereço (ex.: voce@gmail.com): ' email
   [[ $email == *@* ]] || { printf 'E-mail inválido. Enter fecha.'; read -r _; return; }
@@ -4108,7 +4116,6 @@ email_conta_nova_ui() {
   [[ -n $senha ]] || { printf 'Senha vazia. Enter fecha.'; read -r _; return; }
   [[ $senha == "$senha2" ]] || { printf 'As senhas não conferem. Enter fecha.'; read -r _; return; }
 
-  slug=$(email_slug "$nome"); cred="$SECRETS_DIR/aerc-$slug.txt"
   mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR" 2>/dev/null
   ( umask 077; printf '%s' "$senha" > "$cred" ); chmod 600 "$cred"
   unset senha senha2
@@ -4147,12 +4154,12 @@ email_contas_ui() {
     case $op in
       n|N) email_conta_nova_ui ;;
       r|R)
-        ((${#nomes[@]})) || { printf 'Nada para remover. '; continue; }
+        ((${#nomes[@]})) || { printf 'Nada para remover. '; read -rsn1 _; continue; }
         read -r -p 'Número da conta a remover: ' alvo
-        [[ $alvo =~ ^[0-9]+$ ]] && ((alvo>=1 && alvo<=${#nomes[@]})) || { printf 'Inválido. '; continue; }
+        [[ $alvo =~ ^[0-9]+$ ]] && ((alvo>=1 && alvo<=${#nomes[@]})) || { printf 'Inválido. (tecla segue) '; read -rsn1 _; continue; }
         n=${nomes[alvo-1]}
         read -r -p "Remover \"$n\"? apaga o bloco e a senha de app (s/N): " c
-        [[ $c == [sSyY]* ]] || { printf 'Cancelado. '; continue; }
+        [[ $c == [sSyY]* ]] || { printf 'Cancelado. (tecla segue) '; read -rsn1 _; continue; }
         # Remove o bloco [n] até o próximo cabeçalho [..] ou fim do arquivo.
         tmp=$(mktemp)
         awk -v alvo="[$n]" '
