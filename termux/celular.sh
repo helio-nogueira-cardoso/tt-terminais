@@ -10,6 +10,8 @@
 #   termux/celular.sh verificar          o que está pronto e o que falta (não muda nada)
 #   termux/celular.sh conectar USU@HOST  liga este celular a um PC do tt (chaves dos dois lados + cadastro)
 #   termux/celular.sh android            ajustes do Android que o Termux sozinho não faz (adb/Shizuku)
+#   termux/celular.sh adb                passo a passo: adb do próprio aparelho, Shizuku e Tasker, para o
+#                                        Shizuku voltar sozinho depois do reboot (ver termux/ANDROID-ADB.md)
 #
 # Tudo é idempotente: rodar de novo depois de um `git pull` aplica só o que mudou. Arquivos do
 # usuário que seriam trocados ganham cópia *.antes-celular. CELULAR_SIMULAR=1 só mostra os comandos.
@@ -256,6 +258,10 @@ verificar() {
   else aviso "sem Debian (proot-distro)"; fi
   [[ -n $(sed -n '/./p' "$CONF_DIR/maquinas" 2>/dev/null) ]] && ok "máquinas: $(awk '!/^#/ && NF {print $3}' "$CONF_DIR/maquinas" | tr '\n' ' ')" ||
     aviso "nenhuma máquina ligada: $0 conectar usuario@pc"
+  command -v adb-local >/dev/null && { adb-local status >/dev/null 2>&1 && ok "adb local: $(adb-local status)" || aviso "adb local desconectado"; }
+  if command -v tt-rish >/dev/null; then tt-rish --ok && ok "Shizuku ativo (tt-rish)" || aviso "Shizuku parado"
+  else aviso "sem adb/Shizuku/Tasker: $0 adb"; fi
+  crontab -l 2>/dev/null | grep -q 'shizuku-vigia\|shizuku-guard' && ok "vigia do Shizuku no cron"
   echo "  (os ajustes do Android só são vistos pelo adb/Shizuku: $0 android)"
 }
 
@@ -311,12 +317,115 @@ EOF
   fi
 }
 
+# --- adb do próprio aparelho + Shizuku + Tasker (termux/ANDROID-ADB.md) ------------------------
+pergunta() { [[ -n $SIMULAR ]] && return 1; local r; read -rp "  $1 " r </dev/tty; [[ $r == [sSyY]* ]]; }
+espera() { [[ -n $SIMULAR ]] || read -rp "  $1 (Enter para seguir) " _ </dev/tty; }
+app_instalado() { adb -s "$2" shell pm path "$1" 2>/dev/null | grep -q package:; }
+
+# Liga os utilitários do clone em ~/.local/bin (symlinks: seguem o git pull). Nunca troca um arquivo
+# que não seja link nosso.
+ligar_utilitarios() {
+  local f d
+  faz mkdir -p "$HOME/.local/bin"
+  for f in "$RAIZ"/termux/bin/*; do
+    d=$HOME/.local/bin/$(basename "$f")
+    if [[ -e $d && ! -L $d ]]; then aviso "~/.local/bin/$(basename "$f") já existe e não é do tt; deixei como está"; continue; fi
+    [[ $(readlink "$d" 2>/dev/null) == "$f" ]] || faz ln -sfn "$f" "$d"
+  done
+  ok "utilitários: $(cd "$RAIZ/termux/bin" && echo *)"
+}
+
+# rish exportado pelo app Shizuku → ~/.local/lib/rish (dex sem escrita: o Android 14+ exige).
+instalar_rish() {
+  local dex d=$HOME/.local/lib/rish
+  [[ -f $d/rish && -f $d/rish_shizuku.dex ]] && return 0
+  dex=$(find "$HOME/storage/downloads" "$HOME/storage/shared" -maxdepth 3 -name rish_shizuku.dex 2>/dev/null | head -1)
+  [[ -n $dex && -f $(dirname "$dex")/rish ]] || return 1
+  faz mkdir -p "$d" && faz cp "$(dirname "$dex")/rish" "$dex" "$d/" && faz chmod 700 "$d/rish" && faz chmod 400 "$d/rish_shizuku.dex"
+}
+
+adb_guiado() {
+  no_termux || [[ -n $SIMULAR ]] || { echo "Rode no Termux (Android)."; exit 1; }
+  local s='' p c
+  titulo "1/6 Ferramentas"
+  for p in android-tools cronie termux-api; do
+    dpkg -s "$p" >/dev/null 2>&1 || faz env DEBIAN_FRONTEND=noninteractive pkg install -y "$p"
+  done
+  ligar_utilitarios
+  export PATH="$HOME/.local/bin:$PATH"
+
+  titulo "2/6 adb do próprio aparelho (depuração sem fio)"
+  if [[ -z $SIMULAR ]] && s=$(adb-local conectar 2>/dev/null); then ok "adb já conecta: $s"
+  else
+    cat <<'TXT'
+  a) Configurações → Sobre o telefone → Informações do software → toque 7× em "Número de compilação".
+  b) Opções do desenvolvedor → Depuração sem fio → ligar (com Wi-Fi) → "Parear dispositivo com código".
+  c) Deixe essa tela visível (tela dividida ou janela pop-up com o Termux): o código some se ela fechar.
+TXT
+    if [[ -z $SIMULAR ]]; then
+      read -rp "  Porta mostrada no pareamento (depois do ':'): " p </dev/tty
+      read -rp "  Código de 6 dígitos: " c </dev/tty
+      adb-local parear "$p" "$c" || { erro "pareamento falhou; rode de novo"; exit 1; }
+      s=$(adb-local conectar) || { erro "pareou, mas não conectou; confira se a depuração sem fio está ligada"; exit 1; }
+    else faz adb-local parear PORTA CODIGO; faz adb-local conectar; fi
+    ok "adb conectado: $s"
+  fi
+
+  titulo "3/6 Ajustes do Android (pelo adb que acabou de conectar)"
+  if [[ -n $SIMULAR ]]; then faz "adb -s \$s shell sh < $RAIZ/termux/android-ajustes.sh"
+  else adb -s "$s" shell sh <"$RAIZ/termux/android-ajustes.sh" | sed 's/^/  /'; fi
+
+  titulo "4/6 Shizuku (shell do sistema sem adb nem Wi-Fi)"
+  if [[ -z $SIMULAR ]] && ! app_instalado moe.shizuku.privileged.api "$s"; then
+    espera "Instale o app Shizuku (Play Store ou GitHub RikkaApps/Shizuku)."
+  fi
+  faz shizuku-ligar || aviso "o Shizuku não subiu; abra o app Shizuku e toque em Iniciar (depuração sem fio)"
+  if ! instalar_rish; then
+    echo "  No app Shizuku: \"Usar o Shizuku em apps de terminal\" → Exportar arquivos → escolha a pasta Download."
+    espera "Exportou?"
+    instalar_rish || aviso "não achei rish e rish_shizuku.dex em Download"
+  fi
+  [[ -n $SIMULAR ]] || { tt-rish --ok && ok "Shizuku responde ao Termux (tt-rish)" ||
+    aviso "o Shizuku vai perguntar se o Termux pode usá-lo: permita e rode este passo de novo"; }
+
+  titulo "5/6 Tasker (modo dev, depuração sem fio e boot sem tocar na tela)"
+  if [[ -z $SIMULAR ]] && ! app_instalado net.dinglisch.android.taskerm "$s"; then
+    aviso "Tasker não instalado: sem ele, depois de um reboot a depuração sem fio volta a ser ligada à mão"
+  else
+    faz mkdir -p /sdcard/Tasker/projects
+    faz cp "$RAIZ/termux/tasker/tt-celular.prj.xml" /sdcard/Tasker/projects/
+    [[ -n $SIMULAR ]] || adb -s "$s" shell pm grant net.dinglisch.android.taskerm android.permission.WRITE_SECURE_SETTINGS
+    echo "  No Tasker: segure o nome de um projeto (abas de baixo) → Importar projeto → tt-celular → ✓."
+    echo "  Ele traz 4 perfis: ligar/desligar modo dev (intents tt.MODO_DEV_ON/OFF), abrir no boot, estado do Wi-Fi."
+    espera "Importou?"
+    [[ -n $SIMULAR || -f /sdcard/Tasker/estado/wifi ]] && ok "Tasker grava o estado do Wi-Fi" ||
+      aviso "/sdcard/Tasker/estado/wifi ainda não existe: confira se os perfis tt: estão ligados"
+  fi
+
+  titulo "6/6 Vigia e adb sem Wi-Fi"
+  local cron
+  cron=$(crontab -l 2>/dev/null)
+  if grep -q 'shizuku-guard' <<<"$cron"; then aviso "já há um shizuku-guard próprio no cron; não acrescentei o shizuku-vigia"
+  elif ! grep -q 'shizuku-vigia' <<<"$cron"; then
+    if [[ -n $SIMULAR ]]; then faz "crontab: */2 * * * * \$HOME/.local/bin/shizuku-vigia"
+    else { [[ -n $cron ]] && echo "$cron"; echo "*/2 * * * * PATH=$HOME/.local/bin:\$PATH $HOME/.local/bin/shizuku-vigia"; } | crontab -; fi
+  fi
+  command -v sv-enable >/dev/null && faz sv-enable crond >/dev/null 2>&1
+  ok "shizuku-vigia no cron (a cada 2 min)"
+  [[ -n $SIMULAR ]] || { adb-local tcpip >/dev/null 2>&1 && ok "adb em 127.0.0.1:5555: sem Wi-Fi até o próximo reboot" ||
+    aviso "não abri o 5555 agora; o shizuku-ligar tenta de novo"; }
+  titulo "Depois de um reboot"
+  echo "  O Tasker liga o modo dev e abre o Termux; na primeira conexão Wi-Fi o shizuku-vigia sobe o"
+  echo "  Shizuku e reabre o adb local. Não precisa tocar em nada. Log: ~/.local/state/tt/shizuku.log"
+}
+
 case ${1:-instalar} in
   instalar) shift 2>/dev/null; instalar "$@" ;;
   --*) instalar "$@" ;;
   verificar) verificar ;;
   conectar) conectar "${2:-}" ;;
   android) android ;;
-  -h|--ajuda|ajuda) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
+  adb) adb_guiado ;;
+  -h|--ajuda|ajuda) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "comando desconhecido: $1 (veja $0 --ajuda)"; exit 2 ;;
 esac

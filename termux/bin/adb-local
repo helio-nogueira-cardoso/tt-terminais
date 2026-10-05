@@ -1,0 +1,51 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# adb-local: o adb do Termux ligado ao próprio aparelho (Android 11+, depuração sem fio).
+#   adb-local parear PORTA CODIGO  uma vez: Opções do desenvolvedor → Depuração sem fio → Parear com código
+#   adb-local conectar [PORTA]     conecta; sem porta, varre 30000–50000 (a porta muda a cada vez)
+#   adb-local tcpip                abre também 127.0.0.1:5555, que vale sem Wi-Fi até o próximo reboot
+#   adb-local sh [comando…]        adb shell no aparelho
+#   adb-local status | off
+# Estado em ~/.local/state/tt/adb-serial (o último endereço que funcionou).
+set -u
+EST=${XDG_STATE_HOME:-$HOME/.local/state}/tt
+mkdir -p "$EST"
+SERIAL_ARQ=$EST/adb-serial
+command -v adb >/dev/null || { echo "falta o adb: pkg install android-tools" >&2; exit 3; }
+
+serial() { cat "$SERIAL_ARQ" 2>/dev/null; }
+vivo() { [[ -n ${1:-} && $(timeout 5 adb -s "$1" get-state 2>/dev/null) == device ]]; }
+tenta() { # endereço → conecta e guarda se for um adb de verdade
+  timeout 6 adb connect "$1" 2>/dev/null | grep -q '^connected\|already connected' && vivo "$1" &&
+    { echo "$1" >"$SERIAL_ARQ"; return 0; }
+  adb disconnect "$1" >/dev/null 2>&1; return 1
+}
+portas_abertas() {
+  python3 - <<'PY'
+import socket
+for p in range(30000, 50001):
+    s = socket.socket(); s.settimeout(0.02)
+    if s.connect_ex(("127.0.0.1", p)) == 0: print(p)
+    s.close()
+PY
+}
+conectar() {
+  local p s
+  s=$(serial); vivo "$s" && { echo "$s"; return 0; }
+  for s in 127.0.0.1:5555 ${1:+127.0.0.1:$1}; do tenta "$s" && { echo "$s"; return 0; }; done
+  [[ -n ${1:-} ]] && return 1
+  for p in $(portas_abertas); do [[ $p == 5555 ]] && continue; tenta "127.0.0.1:$p" && { serial; return 0; }; done
+  return 1
+}
+
+case ${1:-status} in
+  parear) [[ $# -eq 3 ]] || { echo "uso: adb-local parear PORTA CODIGO"; exit 2; }
+          adb pair "127.0.0.1:$2" "$3" ;;
+  conectar) conectar "${2:-}" || { echo "nenhum adb respondeu: depuração sem fio ligada? Wi-Fi conectado? já pareou?" >&2; exit 1; } ;;
+  tcpip) s=$(conectar) || exit 1
+         adb -s "$s" tcpip 5555 >/dev/null 2>&1; sleep 3
+         tenta 127.0.0.1:5555 && echo 127.0.0.1:5555 || { echo "tcpip não abriu" >&2; exit 1; } ;;
+  sh) shift; s=$(conectar) || exit 1; adb -s "$s" shell "$@" ;;
+  status) s=$(serial); if vivo "$s"; then echo "conectado: $s ($(adb -s "$s" shell id -un 2>/dev/null))"; else echo "desconectado"; exit 1; fi ;;
+  off) adb disconnect >/dev/null 2>&1; adb kill-server >/dev/null 2>&1; rm -f "$SERIAL_ARQ"; echo "adb desligado" ;;
+  *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac

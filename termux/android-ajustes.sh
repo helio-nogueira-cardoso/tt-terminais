@@ -15,7 +15,7 @@ settings put global settings_enable_monitor_phantom_procs false
   && ok "processos do Termux não são mais mortos em lote" || falha "phantom process killer"
 
 # 2. Sem otimização de bateria e liberados em segundo plano.
-for p in com.termux com.termux.boot com.termux.api com.tailscale.ipn moe.shizuku.privileged.api; do
+for p in com.termux com.termux.boot com.termux.api com.tailscale.ipn moe.shizuku.privileged.api net.dinglisch.android.taskerm; do
   pm path "$p" >/dev/null 2>&1 || { echo "--    $p não instalado"; continue; }
   dumpsys deviceidle whitelist +"$p" >/dev/null
   cmd appops set "$p" RUN_IN_BACKGROUND allow
@@ -29,4 +29,12 @@ if pm path com.tailscale.ipn >/dev/null 2>&1; then
   settings put secure always_on_vpn_app com.tailscale.ipn && settings put secure always_on_vpn_lockdown 0 \
     && ok "Tailscale = VPN sempre ativa" || falha "VPN sempre ativa"
 fi
+# 4. WRITE_SECURE_SETTINGS (sobrevive a reboot e a desligar o modo dev): o Tasker passa a ligar o modo
+#    dev, o adb e a depuração sem fio sozinho (perfis do termux/tasker/tt-celular.prj.xml), o que deixa
+#    o Shizuku voltar sem tocar na tela.
+for p in net.dinglisch.android.taskerm moe.shizuku.privileged.api; do
+  pm path "$p" >/dev/null 2>&1 || continue
+  pm grant "$p" android.permission.WRITE_SECURE_SETTINGS && ok "$p com WRITE_SECURE_SETTINGS" || falha "WRITE_SECURE_SETTINGS para $p"
+done
+
 pm path com.termux.boot >/dev/null 2>&1 || echo "FALTA  Termux:Boot (mesma origem do Termux: F-Droid ou GitHub)"

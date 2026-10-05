@@ -1,0 +1,27 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# shizuku-vigia (cron, a cada 2 min): se o Shizuku caiu e há Wi-Fi, roda shizuku-ligar — no máximo
+# uma vez por conexão Wi-Fi (numa rede nova o Android pergunta se permite a depuração sem fio, e
+# insistir só enche a tela). O Wi-Fi vem do Tasker (perfil "tt: estado do Wi-Fi", que grava
+# "1|0 <ms>" em /sdcard/Tasker/estado/wifi); sem ele, do termux-wifi-connectioninfo (Termux:API).
+# Com o Shizuku de pé, roda ~/.config/tt/shizuku-ok (opcional, do perfil) para serviços que dependem dele.
+EST=${XDG_STATE_HOME:-$HOME/.local/state}/tt; mkdir -p "$EST"
+log=$EST/shizuku.log
+exec 9>"${PREFIX:-/tmp}/tmp/tt-shizuku-vigia.lock"; flock -n 9 || exit 0
+if tt-rish --ok; then
+  h=${XDG_CONFIG_HOME:-$HOME/.config}/tt/shizuku-ok
+  [[ -x $h ]] && timeout 60 "$h" >>"$log" 2>&1
+  exit 0
+fi
+if read -r wifi token </sdcard/Tasker/estado/wifi 2>/dev/null; then :
+elif command -v termux-wifi-connectioninfo >/dev/null; then
+  info=$(timeout 10 termux-wifi-connectioninfo 2>/dev/null)
+  grep -q '"supplicant_state": "COMPLETED"' <<<"$info" && wifi=1 || wifi=0
+  token=$(sed -n 's/.*"bssid": "\(.*\)".*/\1/p' <<<"$info")
+else exit 0; fi
+[[ $wifi == 1 ]] || exit 0
+[[ $token == "$(cat "$EST/shizuku-vigia.token" 2>/dev/null)" ]] && exit 0
+echo "$token" >"$EST/shizuku-vigia.token"
+{ echo "== $(date '+%F %T') Shizuku caído, Wi-Fi $token: tentando"
+  shizuku-ligar && echo "Shizuku religado" || echo "shizuku-ligar falhou"
+  tail -n 300 "$log" >"$log.tmp" 2>/dev/null; } >>"$log" 2>&1
+mv -f "$log.tmp" "$log" 2>/dev/null; true

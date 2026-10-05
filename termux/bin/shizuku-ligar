@@ -1,0 +1,30 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# shizuku-ligar: sobe o Shizuku sem tocar na tela. Pede ao Tasker para ligar o modo dev e a depuração
+# sem fio (perfil "tt: ligar modo dev"; só funciona numa rede Wi-Fi já autorizada), conecta o adb
+# local (adb-local) e inicia o servidor do Shizuku pela biblioteca do próprio app. Depois abre o adb
+# em 127.0.0.1:5555: até o próximo reboot o Wi-Fi deixa de ser necessário.
+# Par: shizuku-desligar. Log: ~/.local/state/tt/shizuku.log
+set -u
+log() { printf '%s\n' "$*" >&2; }
+tt-rish --ok && { log "Shizuku já ativo"; exit 0; }
+
+am broadcast -a tt.MODO_DEV_ON >/dev/null 2>&1
+s=""
+for _ in $(seq 1 15); do s=$(adb-local conectar 2>/dev/null) && break; sleep 2; done
+[[ -n $s ]] || { log "adb não apareceu (Wi-Fi? Tasker com WRITE_SECURE_SETTINGS? Termux pareado?)"; exit 1; }
+log "adb em $s"
+
+dir=$(adb -s "$s" shell pm path moe.shizuku.privileged.api | head -1 | sed 's/^package://; s#/base.apk$##' | tr -d '\r')
+[[ -n $dir ]] || { log "app Shizuku não instalado"; exit 1; }
+abi=$(adb -s "$s" shell ls "$dir/lib" | head -1 | tr -d '\r')
+adb -s "$s" shell "$dir/lib/$abi/libshizuku.so" >/dev/null 2>&1
+for _ in $(seq 1 10); do tt-rish --ok && break; sleep 1; done
+tt-rish --ok || { log "adb ok, mas o Shizuku não respondeu"; exit 1; }
+log "Shizuku ativo"
+
+# 5555 local: não depende da depuração sem fio (some no reboot). Se o Shizuku cair junto, sobe de novo.
+if adb-local tcpip >/dev/null 2>&1; then
+  log "adb também em 127.0.0.1:5555 (sem Wi-Fi até o próximo reboot)"
+  tt-rish --ok || { adb -s 127.0.0.1:5555 shell "$dir/lib/$abi/libshizuku.so" >/dev/null 2>&1; sleep 3; }
+fi
+tt-rish --ok
