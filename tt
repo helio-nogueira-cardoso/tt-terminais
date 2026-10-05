@@ -3542,8 +3542,10 @@ clique() {
 
 # wsl | termux | linux
 tipo_maquina() {
-  if grep -qi microsoft /proc/version 2>/dev/null; then echo wsl
-  elif [[ ${PREFIX:-} == *com.termux* ]]; then echo termux
+  # Termux primeiro: o PREFIX do Termux é sinal explícito e nunca existe no WSL; testar o WSL
+  # antes fazia PREFIX=…com.termux não valer lá (perfil mobile nunca escolhido).
+  if [[ ${PREFIX:-} == *com.termux* ]]; then echo termux
+  elif grep -qi microsoft /proc/version 2>/dev/null; then echo wsl
   else echo linux; fi
 }
 
