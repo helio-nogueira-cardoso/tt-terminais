@@ -126,6 +126,9 @@ rg -q '^botao_email\(\)' "$tt" || falha 'e-mail: botao_email ausente'
 corpo_email=$(sed -n '/^botao_email()/,/^}/p' "$tt")
 grep -Fq 'display-popup' <<<"$corpo_email" || falha 'e-mail: botao_email deve abrir em subjanela (display-popup)'
 grep -Fq 'new-session' <<<"$corpo_email" && falha 'e-mail: botao_email não deve criar sessão tmux (é popup)'
+# Dica de fechar no título do popup: display-popup não tem X clicável, o título instrui a saída.
+grep -Eq -- '-T " 📧 e-mail · ' <<<"$corpo_email" || falha 'e-mail: título do popup deve mostrar como fechar'
+grep -Fq 'q fecha' <<<"$corpo_email" || falha 'e-mail: dica de saída do aerc (q fecha) ausente no título'
 rg -q '@tt_papel email' "$tt" && falha 'e-mail: não deve mais marcar papel de sessão email — é popup'
 # O 📧 vem depois do ⇅ arquivos e antes do relógio %H:%M (ordem pedida na barra).
 pos_arq=$(rg -n 'range=user\|arquivos' "$tema" | head -1 | cut -d: -f1)
