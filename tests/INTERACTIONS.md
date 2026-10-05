@@ -7,7 +7,7 @@
 | Fixada | toque, clique direito, ✕ | ir no pressionar; menu; desafixar; redraw entre pressionar e soltar; toque de ponta a ponta no 📍 (fixa) e bem em cima do ✕ (desafixa) |
 | Painel | mouse, botão direito, `Ctrl+B m` | menu; copiar; colar; dividir; maximizar; fechar |
 | Barra principal | toque, mouse, teclado | central, arquivos, e-mail, painel, ajustes, transferências e atalhos customizados |
-| E-mail | botão 📧, teclado/CLI `--email` | abre o cliente numa subjanela (popup) sobre a tela; ao sair volta à tela de baixo; sem sessão nem shell órfão |
+| E-mail | botão 📧, teclado/CLI `--email` | abre o cliente numa subjanela (popup) sobre a tela; ao sair volta à tela de baixo; sem sessão nem shell órfão; o tt garante no aerc o mouse ligado e a saída rápida (Q) em toda máquina, sem tocar nas contas |
 | Contas de e-mail | menu administrar, CLI `--email-contas` | cadastro guiado grava `[Nome]` no accounts.conf e a senha de app em `~/.secrets` (600), nunca no versionado; remover apaga bloco e credencial; nome duplicado é recusado |
 | Botões F1–F10 | teclado/Termux | cada `bind F*` chama o respectivo `tt --botao` |
 | Central e seletor | mouse, toque, teclado | abrir linha; pino; ✕; busca; troca de máquina; prévia ligada/desligada |
