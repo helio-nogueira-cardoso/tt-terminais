@@ -4722,7 +4722,7 @@ escolher() {
     --track --bind="load:transform($EU --atualizar-uma-vez)" < <(lista_rapida_central)
 }
 
-sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos" "$TT_ESTADO.fresca"; }
+sair_menu() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos" "$TT_ESTADO.fresca" "$TT_ESTADO.mouse"; }
 
 # Chamados por cliques, menus e ganchos do tmux (run-shell): calados e sempre com sucesso — se
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
@@ -4882,7 +4882,7 @@ case "${1:-}" in
   --clique-seletor) clique_seletor "${2:-}"; exit ;;
   --seletor-em) seletor_em "$2" "${3:-}" "${4:-}"; exit ;;
   --seletor) TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
-             trap 'rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos"' EXIT; seletor; exit ;;
+             trap 'rm -f "$TT_ESTADO" "$TT_ESTADO.lista" "$TT_ESTADO.pos" "$TT_ESTADO.fresca" "$TT_ESTADO.mouse"' EXIT; seletor; exit ;;
   --ir-ponte) ir_ponte "$2" "$3" "$4"; exit ;;
   --ponte) ponte "$2" "$3" "$4"; exit ;;
   --focar) focar "$2"; exit ;;
