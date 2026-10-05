@@ -165,6 +165,34 @@ perm=$(stat -c '%a' "$cred" 2>/dev/null || stat -f '%Lp' "$cred" 2>/dev/null)
 rm -rf "$tmphome"
 ((falhas == 0)) && ok 'contas de e-mail: cadastro guiado grava conta sem vazar senha' || true
 
+# Provisionamento do aerc (incremento mouse + saída rápida), garantido pelo tt em toda máquina.
+falhas=0
+rg -q '^configurar_aerc\(\)' "$tt" || falha 'aerc: configurar_aerc ausente'
+rg -q '^remover_aerc\(\)' "$tt" || falha 'aerc: remover_aerc ausente'
+rg -Fq $'  configurar_aerc' "$tt" || falha 'aerc: configurar_aerc não é chamado na instalação'
+rg -Fq $'  remover_aerc' "$tt" || falha 'aerc: remover_aerc não é chamado na desinstalação'
+# NUNCA toca accounts.conf: a função não deve referenciar accounts.conf.
+corpo_aerc=$(sed -n '/^configurar_aerc()/,/^}/p' "$tt")
+grep -Fq 'accounts.conf' <<<"$corpo_aerc" && falha 'aerc: configurar_aerc não pode tocar accounts.conf'
+# Teste funcional em HOME isolado: aplica sobre um aerc.conf com mouse comentado e confirma mouse
+# ligado (1x, sem duplicar), bind de saída rápida (Q) e que accounts.conf não é criado. Idempotente.
+th=$(mktemp -d); printf '#!/bin/sh\nexit 0\n' > "$th/aerc"; chmod +x "$th/aerc"
+mkdir -p "$th/.config/aerc"
+printf '[ui]\n#mouse-enabled=false\nindex-columns=date\n' > "$th/.config/aerc/aerc.conf"
+cat > "$th/drv.sh" <<DRV
+HOME="$th"; PATH="$th:\$PATH"; conf(){ echo ""; }
+$(sed -n '/^AERC_BINDS_INI=/,/^}/p' "$tt")
+$(sed -n '/^remover_aerc() {/,/^}/p' "$tt")
+configurar_aerc; configurar_aerc
+DRV
+bash "$th/drv.sh" >/dev/null 2>&1
+[[ $(grep -c '^mouse-enabled=true' "$th/.config/aerc/aerc.conf") == 1 ]] || falha 'aerc: mouse-enabled=true deveria aparecer 1x em [ui]'
+grep -Fq 'Q = :quit<Enter>' "$th/.config/aerc/binds.conf" || falha 'aerc: binds.conf deveria ter saída rápida Q'
+[[ $(grep -c 'saída rápida' "$th/.config/aerc/binds.conf") == 2 ]] || falha 'aerc: bloco de bind não é idempotente (marcadores duplicados)'
+[[ -f $th/.config/aerc/accounts.conf ]] && falha 'aerc: accounts.conf não deveria ser criado pelo provisionamento'
+rm -rf "$th"
+((falhas == 0)) && ok 'aerc: tt garante mouse e saída rápida sem tocar contas (idempotente)' || true
+
 # Especificação executável da captura SGR: o pressionar esquerdo é registrado, soltura/arrasto não,
 # e a mesma sequência continua correta quando chega em pedaços pelo pty.
 python3 - <<'PY'
