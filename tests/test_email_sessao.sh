@@ -20,3 +20,10 @@ passou "e-mail aberto em segundo plano: 1ª ${m1} ms, reabrir ${m2} ms; fora das
 tmux run-shell -b "$TT --email '$c'"; sleep 1.5; fora send -t v C-q; sleep 2
 tmux has-session -t =_tt-email 2>/dev/null && falhou 'Ctrl+q não encerrou o aerc'
 passou 'Ctrl+q encerra o e-mail de verdade'
+
+# Emoji com seletor de variação no assunto (🕸️, ⚠️): o aerc da sessão mede igual ao tmux; nada
+# transborda para a linha de baixo (dígitos soltos na coluna de pastas).
+[[ $(tmux show-environment -t =_tt-email VAXIS_FORCE_UNICODE 2>/dev/null) == VAXIS_FORCE_UNICODE=1 ]] ||
+  { tmux run-shell -b "$TT --email '$c'"; sleep 2; fora send -t v q; sleep 1; }
+[[ $(tmux show-environment -t =_tt-email VAXIS_FORCE_UNICODE 2>/dev/null) == VAXIS_FORCE_UNICODE=1 ]] || falhou 'aerc da sessão sem VAXIS_FORCE_UNICODE=1'
+passou 'aerc mede emoji com seletor de variação igual ao tmux'
