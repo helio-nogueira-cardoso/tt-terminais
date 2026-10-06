@@ -2066,6 +2066,7 @@ sessoes_ia_linhas() {
   agora=$(date +%s)
   fix=$(fixadas | awk -F'\t' -v m="$MAQUINA" '$1 == m { print $2 }')
   while IFS=$'\t' read -r s at act jan marca; do
+    [[ $s == _tt-* ]] && continue # sessões ocultas do tt (e-mail aberto): nunca entram na poda
     alvo="=$s:"
     cmd=$(tmux display-message -p -t "$alvo" '#{pane_current_command}' 2>/dev/null | sessoes_ia_limpa)
     ag=$(sessoes_ia_agentes "$(tmux display-message -p -t "$alvo" '#{pane_pid}' 2>/dev/null)")
@@ -2442,6 +2443,7 @@ criar_ponte() {
 fechar_pontes_ociosas() {
   local agora=$1 limite=${TT_T_PONTE:-1800} s anexada ult
   while IFS='|' read -r s anexada ult; do
+    [[ $s == _tt-* ]] && continue # sessões ocultas do tt (e-mail aberto em segundo plano)
     ((anexada == 0 && ult > 0 && agora - ult >= limite)) && tmux kill-session -t "=$s" 2>/dev/null
   done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{?session_last_attached,#{session_last_attached},#{session_created}}' -f '#{@ponte}' 2>/dev/null)
   return 0
@@ -3748,7 +3750,8 @@ email_atalhos() {
   local lista
   lista=$(cat <<'AT'
 Ler	Enter	abrir a mensagem
-Ler	q	fechar a mensagem (na lista: fechar o e-mail)
+Ler	q	fechar a mensagem (na lista: esconder o e-mail; ele continua conectado)
+Ler	Ctrl+q	encerrar o e-mail de verdade (a próxima abertura reconecta)
 Ler	j / k  ou  setas	mensagem seguinte / anterior
 Ler	J / K	pasta seguinte / anterior
 Ler	Tab	recolher / abrir a conversa
@@ -4310,7 +4313,7 @@ botao_email() {
   # cliente sai. Mostra no título a tecla de saída do cliente para quem não a conhece.
   prog=${cmd%% *}
   case ${prog##*/} in
-    aerc)        dica="q fecha · ? atalhos · F2 contas · botão direito no 📧: menu" ;;
+    aerc)        dica="q fecha · ? atalhos · F2 contas" ;;
     mutt|neomutt) dica="q fecha" ;;
     *)           dica="feche o cliente p/ sair" ;;
   esac
@@ -4324,14 +4327,46 @@ botao_email() {
     aerc_definir "$estreito" ui index-columns 'flags:3,name<12%,subject,date>=' forcar
     cmd+=" -C $(printf %q "$estreito")"
   fi
-  # aerc: subjanela por cima da tela, SEM a linha de borda (-b none): o tmux só deixa arrastar um
-  # popup quando o clique cai na borda, e o quadro era arrastado sem querer. A barra de abas e a de
-  # status do aerc delimitam o quadro; a dica de teclas fica na barra de status dele.
-  # Outros clientes: quadro com título (que diz como sair).
-  local geo=(-b none $(tam_popup "$cliente"))
-  [[ ${prog##*/} == aerc ]] || geo=($(tam_popup "$cliente") -T " 📧 e-mail · $dica ")
+  # Subjanela por cima da tela, com borda arredondada na cor do tema e título. (O tmux deixa arrastar
+  # um popup pela linha da borda e não tem opção para desligar isso; o dono prefere a borda.)
+  local geo=($(tam_popup "$cliente") -b rounded -S 'fg=#89b4fa' -T " 📧 e-mail · $dica ")
+  if [[ ${prog##*/} == aerc ]]; then
+    # aerc fica aberto e conectado numa sessão oculta: abrir de novo é instantâneo (antes, ~6 s
+    # reconectando às contas a cada vez), e e-mail novo chega com ele fechado. q só esconde a
+    # subjanela; Ctrl+q encerra o aerc de verdade.
+    local modo=largo; [[ $cmd == *" -C "* ]] && modo=estreito
+    email_sessao "$cmd" "$modo" || { botao_aviso "$cliente" "e-mail: não consegui abrir o aerc"; return; }
+    tmux display-popup -c "$cliente" -E "${geo[@]}" "env -u TMUX tmux attach -t =$EMAIL_SESSAO"
+    return
+  fi
   tmux display-popup -c "$cliente" -E "${geo[@]}" \
     "cd ${HOME@Q}; $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Enter fecha.' \"\$?\"; read -r _; }"
+}
+
+# Sessão oculta com o aerc aberto. Marcada como "ponte" do tipo email: fica fora da central, do
+# seletor, do vigia e da limpeza de sessões paradas/vazias. Recriada se o aerc saiu ou se o modo
+# (largo/estreito) mudou. Nela, q desanexa em vez de sair (binds próprios, gerados do binds.conf).
+EMAIL_SESSAO=_tt-email
+email_sessao() {
+  local cmd=$1 modo=$2 b="$HOME/.config/aerc/binds.conf" bo="$HOME/.cache/tt-aerc-binds-oculto.conf" pane_cmd
+  if tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
+    pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
+    if [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo) == "$modo" && $pane_cmd == aerc* ]]; then return 0; fi
+    tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
+  fi
+  mkdir -p "$HOME/.cache"
+  if [[ -f $b ]]; then
+    sed -e 's/^\([[:space:]]*\)\(q\|Q\)[[:space:]]*=[[:space:]]*:quit<Enter>[[:space:]]*$/\1\2 = :exec tmux detach-client<Enter>/' \
+        -e "s/^<C-q>[[:space:]]*=.*/<C-q> = :quit<Enter>/" "$b" >"$bo"
+    cmd+=" -B $(printf %q "$bo")"
+  fi
+  tmux new-session -d -s "$EMAIL_SESSAO" -x 150 -y 40 -c "$HOME" "$cmd" || return 1
+  tmux set -q -t "=$EMAIL_SESSAO:" @ponte email
+  tmux set -q -t "=$EMAIL_SESSAO:" @tt_oculta 1
+  tmux set -q -t "=$EMAIL_SESSAO:" @nome_auto 0
+  tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_modo "$modo"
+  tmux set -q -t "=$EMAIL_SESSAO:" status off
+  return 0
 }
 
 # ─── Cadastro e gerência de contas de e-mail (aerc) ────────────────────────────
