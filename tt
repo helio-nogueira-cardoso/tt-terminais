@@ -2317,6 +2317,15 @@ cmd_ver() {
 # normal da ponte.
 ponte() {
   local dest=$1 s=$2 ponte=$3 st
+  # Uma ponte antiga pode chegar aqui sem host (ex.: o rótulo deixou de resolver). Não
+  # repetir SSH com destino vazio: isso produz "Could not resolve hostname" para sempre.
+  if [[ -z $dest || $dest == : ]]; then
+    clear
+    printf 'Destino remoto inválido para a sessão %s (host vazio).\n' "$s"
+    printf 'Pressione Enter para abrir o seletor e escolher outra sessão; Ctrl+B d para voltar. '
+    read -r
+    exec "$EU"
+  fi
   while true; do
     clear
     printf 'Conectando a %s:%s…\n' "$(rotulo_de "$dest")" "$s"
@@ -2445,6 +2454,10 @@ guarda_tamanho() {
 # Sessão-ponte local que mostra a sessão S de outra máquina (cria se não existir). Imprime o nome.
 criar_ponte() {
   local dest=$1 s=$2 cliente=${3:-} base ponte alvo nome anexada dono n=2
+  [[ -n $dest && $dest != : ]] || {
+    printf 'tt: ponte não criada para %s: destino remoto vazio ou inválido\n' "$s" >&2
+    return 1
+  }
   base=$(limpar "$(rotulo_de "$dest")-$s")
   alvo="$dest|$s"
   # Uma ponte por aparelho: dois aparelhos vendo a mesma sessão de outra máquina não podem dividir
@@ -2566,14 +2579,21 @@ ir_para() {
 # Roda na máquina de origem: os clientes que estão na ponte P passam a mostrar a sessão S da
 # máquina de rótulo R (desta, direto; de outra, por uma ponte).
 ir_ponte() {
-  local p=$1 r=$2 s=$3 alvo c
+  local p=$1 r=$2 s=$3 alvo c dest
   tmux has-session -t "=$p" 2>/dev/null || return 1
   # Com pontes por aparelho, P tem um cliente só. Pontes antigas (compartilhadas) podem ter vários:
   # aí troca só o que agiu por último (quem clicou ou teclou na barra de lá).
   c=$(tmux list-clients -t "=$p" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
   [[ -n $c ]] || return 1
   if [[ $r == "$MAQUINA" ]]; then alvo=$s
-  else alvo=$(criar_ponte "$(dest_de "$r")" "$s" "$c") || return 1; fi
+  else
+    dest=$(dest_de "$r")
+    if [[ -z $dest ]]; then
+      tmux display-message -c "$c" "⚠ $r: máquina não cadastrada ou desligada; sessão $s não aberta"
+      return 1
+    fi
+    alvo=$(criar_ponte "$dest" "$s" "$c") || return 1
+  fi
   fecha_ciclo "$alvo" "$(contem_cliente "$c")" && return 1
   tmux switch-client -c "$c" -t "=$alvo"
 }
