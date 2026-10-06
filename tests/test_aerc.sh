@@ -52,3 +52,11 @@ if PATH="$HOME_REAL/.local/bin:$PATH" command -v aerc >/dev/null; then
 else
   echo "(aerc não instalado aqui: partida real pulada)"
 fi
+
+# email= com caminho completo para o aerc (como no Dell) também recebe a configuração.
+rm -rf "$HOME/.config/aerc"; mkdir -p "$HOME/.config/aerc"
+PATH="$T/bin:/usr/bin:/bin" bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { [[ \$1 == email ]] && echo /opt/x/bin/aerc; }; configurar_aerc"
+grep -q '^styleset-name=tt-catppuccin' "$HOME/.config/aerc/aerc.conf" || falhou 'email=/caminho/aerc não recebeu a configuração'
+PATH="$T/bin:/usr/bin:/bin" bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { [[ \$1 == email ]] && echo neomutt; }; rm -f '$HOME/.config/aerc/aerc.conf'; configurar_aerc"
+[[ -e $HOME/.config/aerc/aerc.conf ]] && falhou 'configurou o aerc com outro cliente escolhido (neomutt)'
+passou 'email= com caminho do aerc configura; outro cliente escolhido não é tocado'
