@@ -1,5 +1,12 @@
 # tt — central de terminais
 
+O nomeador automático usa o `~/.local/bin/claude-rot`, quando instalado com suporte
+a `--claude-only`, para alternar entre contas Claude com Haiku, sem ferramentas.
+Sem rotator, usa o Claude local. Falhas de execução, limites e respostas fora do
+formato de nome são rejeitados, inclusive quando vêm de outra máquina; o nome
+existente é preservado. O título da conversa continua sendo usado sem consulta
+ao modelo quando disponível.
+
 Um menu só para todas as sessões tmux de todas as suas máquinas: entre, crie, divida, busque e
 mande arquivos de uma para outra, pelo teclado, mouse ou toque (celular com Termux + mosh).
 
