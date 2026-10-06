@@ -1880,6 +1880,14 @@ aerc_reparar_se_preciso() {
   return 1
 }
 
+aerc_tema_suportado() {
+  local v maior menor
+  v=$(aerc -v 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+  [[ -z $v ]] && return 0   # versão não detectável: não degrada o tema (assume compatível)
+  IFS=. read -r maior menor _ <<<"$v"
+  ((maior > 0 || menor >= 20))
+}
+
 configurar_aerc() {
   # email= pode ser "aerc" ou um caminho para ele (ex.: ~/.local/bin/aerc); outro cliente: nada a fazer.
   local cli; cli=$(conf email); cli=${cli%% *}
@@ -1888,12 +1896,17 @@ configurar_aerc() {
   local dir="$HOME/.config/aerc" conf="$HOME/.config/aerc/aerc.conf" binds="$HOME/.config/aerc/binds.conf" tmp k v
   mkdir -p "$dir/stylesets"
 
-  # Visual e comportamento (só acrescenta o que o dono não definiu): tema Catppuccin, pastas em árvore
-  # com contagem de não lidas, conversas em fio, datas curtas, bordas finas, autocompletar com sugestões.
-  aerc_tema >"$dir/stylesets/tt-catppuccin"
+  # O tema completo usa objetos disponíveis a partir do aerc 0.20. Em versões anteriores, mantém
+  # tema personalizado do usuário ou troca somente o tema do tt pelo "default", evitando tela vazia.
+  if aerc_tema_suportado; then
+    aerc_tema >"$dir/stylesets/tt-catppuccin"
+    aerc_definir "$conf" ui styleset-name tt-catppuccin
+  elif ! grep -q '^[[:space:]]*styleset-name[[:space:]]*=' "$conf" 2>/dev/null ||
+       grep -q '^[[:space:]]*styleset-name[[:space:]]*=[[:space:]]*tt-catppuccin[[:space:]]*$' "$conf"; then
+    aerc_definir "$conf" ui styleset-name default forcar
+  fi
   aerc_definir "$conf" ui mouse-enabled true forcar
   while IFS='=' read -r k v; do aerc_definir "$conf" ui "$k" "$v"; done <<'UI'
-styleset-name=tt-catppuccin
 sidebar-width=24
 dirlist-tree=true
 dirlist-right={{if .Unread}}{{humanReadable .Unread}}{{end}}
@@ -4503,6 +4516,21 @@ botao_email() {
     # subjanela; Ctrl+q encerra o aerc de verdade.
     local modo=largo; [[ $cmd == *" -C "* ]] && modo=estreito
     email_sessao "$cmd" "$modo" || { botao_aviso "$cliente" "e-mail: não consegui abrir o aerc"; return; }
+    # Se o aerc morrer logo ao abrir (tema/config/conta inválidos), a sessão fica num shell com o
+    # erro em vez de o popup abrir e sumir vazio. Dá um instante para ele iniciar e checa o estado.
+    sleep 0.4
+    if ! tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
+      botao_aviso "$cliente" "e-mail: o aerc fechou sozinho ao abrir. Rode: aerc  (fora do tt) para ver o erro, ou 📧 → contas para corrigir."
+      return
+    fi
+    local pane_cmd; pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
+    if [[ $pane_cmd != aerc* ]]; then
+      # O aerc saiu e o shell da sessão mostra o erro: anexa o popup a ele para o erro ficar visível.
+      tmux display-popup -c "$cliente" -E "${geo[@]}" "env -u TMUX tmux attach -t =$EMAIL_SESSAO"
+      tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
+      botao_aviso "$cliente" "e-mail: o aerc não abriu. Verifique a conta em 📧 → contas (ou rode: aerc)."
+      return
+    fi
     tmux display-popup -c "$cliente" -E "${geo[@]}" "env -u TMUX tmux attach -t =$EMAIL_SESSAO"
     return
   fi
@@ -4571,7 +4599,7 @@ email_contas_nomes() {
 }
 
 # Provedores conhecidos: "chave|rótulo|imap host porta seg|smtp host porta seg|autenticações|dica".
-EMAIL_PROVEDORES='gmail|Gmail / Google Workspace|imap.gmail.com 993 tls|smtp.gmail.com 465 tls|senha oauth comando|Senha de app: https://myaccount.google.com/apppasswords (precisa da verificação em 2 etapas)
+EMAIL_PROVEDORES='gmail|Gmail / Google Workspace|imap.gmail.com 993 tls|smtp.gmail.com 465 tls|oauth senha comando|OAuth2 é recomendado. Senha de app continua disponível: https://myaccount.google.com/apppasswords
 microsoft|Outlook / Hotmail / Microsoft 365|outlook.office365.com 993 tls|smtp.office365.com 587 starttls|oauth senha comando|A Microsoft desligou a senha comum: use OAuth2 (SSO). Contas de empresa podem exigir aprovação do administrador.
 yahoo|Yahoo Mail|imap.mail.yahoo.com 993 tls|smtp.mail.yahoo.com 465 tls|senha comando|Senha de app: Segurança da conta → Gerar senha de app
 icloud|iCloud Mail|imap.mail.me.com 993 tls|smtp.mail.me.com 587 starttls|senha comando|Senha específica de app: appleid.apple.com → Iniciar sessão e segurança
@@ -4617,13 +4645,71 @@ email_gravar() {
     for k in "${EMAIL_CHAVES[@]}"; do [[ -z ${E[$k]:-} ]] || printf '%s=%s\n' "$k" "${E[$k]}"; done; } >"$f.tmp" && mv "$f.tmp" "$f"
 }
 
+# Snapshot privado para cadastro/edição transacional. Se autorização ou teste falhar, todos os
+# arquivos locais voltam exatamente ao estado anterior; conta nova inválida não deixa resíduos.
+email_snapshot_criar() { # slug
+  local slug=$1 d nome arq
+  d=$(mktemp -d "${TMPDIR:-/tmp}/tt-email-snapshot.XXXXXX") || return 1
+  chmod 700 "$d"
+  while IFS='|' read -r nome arq; do
+    if [[ -e $arq ]]; then cp -p "$arq" "$d/$nome" || { rm -rf "$d"; return 1; }; : >"$d/$nome.existe"; fi
+  done <<EOF
+conf|$(email_conf_arq "$slug")
+cred|$(email_cred_arq "$slug")
+client_secret|$SECRETS_DIR/aerc-$slug.client_secret
+accounts|$AERC_CONTAS
+pastas|$AERC_DIR/tt-pastas-$slug.map
+EOF
+  printf '%s' "$d"
+}
+
+email_snapshot_restaurar() { # snapshot slug
+  local d=$1 slug=$2 nome arq
+  while IFS='|' read -r nome arq; do
+    if [[ -e $d/$nome.existe ]]; then mkdir -p "$(dirname "$arq")"; cp -p "$d/$nome" "$arq"
+    else rm -f "$arq"; fi
+  done <<EOF
+conf|$(email_conf_arq "$slug")
+cred|$(email_cred_arq "$slug")
+client_secret|$SECRETS_DIR/aerc-$slug.client_secret
+accounts|$AERC_CONTAS
+pastas|$AERC_DIR/tt-pastas-$slug.map
+EOF
+  rm -rf "$d"
+}
+
+email_salvar_validado() { # snapshot autorizar_oauth(0|1)
+  local snap=$1 autorizar=${2:-0} slug=${E[_slug]}
+  if ! email_gravar || ! email_regerar "$slug"; then
+    email_snapshot_restaurar "$snap" "$slug"
+    echo "✗ Não consegui gravar a conta. Nada foi alterado."; return 1
+  fi
+  if [[ -z ${TT_EMAIL_SEM_REDE:-} ]]; then
+    if [[ ${E[auth]} == oauth && $autorizar == 1 ]] && ! email_autorizar_slug "$slug"; then
+      email_snapshot_restaurar "$snap" "$slug"
+      echo "✗ Autorização cancelada ou recusada. A configuração anterior foi restaurada."; return 1
+    fi
+    if ! email_testar_slug "$slug"; then
+      email_snapshot_restaurar "$snap" "$slug"
+      echo "✗ IMAP/SMTP não foram validados. Nada inválido foi salvo; corrija e tente novamente."; return 1
+    fi
+  fi
+  case ${E[auth]} in
+    comando) rm -f "$(email_cred_arq "$slug")" "$SECRETS_DIR/aerc-$slug.client_secret" ;;
+    senha) rm -f "$SECRETS_DIR/aerc-$slug.client_secret" ;;
+  esac
+  rm -rf "$snap"
+  tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null || true
+  return 0
+}
+
 email_slugs() { local f; for f in "$EMAIL_DIR"/*.conf; do [[ -e $f ]] && basename "$f" .conf; done; }
 
 # URL do aerc: segurança → esquema; OAuth2 → +xoauth2 e parâmetros para o aerc renovar o token.
 email_url() { # imap|smtp
   local t=$1 host porta seg usuario esq q=""
   host=${E[${t}_host]}; porta=${E[${t}_porta]}; seg=${E[${t}_seg]:-tls}
-  usuario=${E[usuario]:-${E[endereco]}}; usuario=${usuario//@/%40}
+  usuario=${E[usuario]:-${E[endereco]}}; usuario=$(email_urlenc "$usuario")
   case $t:$seg in
     imap:tls) esq=imaps ;; imap:starttls) esq=imap ;; imap:*) esq=imap+insecure ;;
     smtp:tls) esq=smtps ;; smtp:starttls) esq=smtp ;; smtp:*) esq=smtp+insecure ;;
@@ -4762,17 +4848,38 @@ email_assumir() {
 
 # Validação comum (cadastro e edição). Imprime o problema e falha.
 email_validar() {
-  local novo=${1:-}
+  local novo=${1:-} auths login
   [[ -n ${E[nome]:-} ]] || { echo "Nome vazio."; return 1; }
-  [[ ${E[nome]} == *'['* || ${E[nome]} == *']'* ]] && { echo "O nome não pode conter [ nem ]."; return 1; }
-  [[ ${E[endereco]:-} == ?*@?*.* ]] || { echo "Endereço inválido: ${E[endereco]:-vazio}."; return 1; }
-  [[ ${E[imap_host]:-} && ${E[smtp_host]:-} ]] || { echo "Faltam os servidores IMAP/SMTP."; return 1; }
+  [[ ${E[nome]} != *'['* && ${E[nome]} != *']'* && ${E[nome]} != *$'\n'* && ${E[nome]} != *$'\r'* ]] ||
+    { echo "O nome não pode conter [ ], quebra de linha nem controle."; return 1; }
+  [[ ${E[endereco]:-} =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
+    { echo "Endereço inválido: ${E[endereco]:-vazio}. Use o e-mail completo, por exemplo nome@dominio.com."; return 1; }
+  login=${E[usuario]:-${E[endereco]}}
+  [[ -n $login && $login != *[[:space:]]* && $login != *://* && $login != *'<'* && $login != *'>'* ]] ||
+    { echo "Usuário de login inválido: use o login técnico, sem espaços. Deixe vazio para usar ${E[endereco]}."; return 1; }
+  [[ -n ${E[imap_host]:-} && -n ${E[smtp_host]:-} && ${E[imap_host]} != *[[:space:]]* && ${E[smtp_host]} != *[[:space:]]* ]] ||
+    { echo "Servidores IMAP/SMTP inválidos ou vazios."; return 1; }
   [[ ${E[imap_porta]:-} =~ ^[0-9]+$ && ${E[smtp_porta]:-} =~ ^[0-9]+$ ]] || { echo "Porta inválida."; return 1; }
+  ((10#${E[imap_porta]} >= 1 && 10#${E[imap_porta]} <= 65535 && 10#${E[smtp_porta]} >= 1 && 10#${E[smtp_porta]} <= 65535)) ||
+    { echo "Portas devem estar entre 1 e 65535."; return 1; }
   [[ ${E[imap_seg]} =~ ^(tls|starttls|nenhuma)$ && ${E[smtp_seg]} =~ ^(tls|starttls|nenhuma)$ ]] || { echo "Segurança deve ser tls, starttls ou nenhuma."; return 1; }
+  if [[ ${E[imap_seg]} == nenhuma && ! ${E[imap_host]} =~ ^(127\.0\.0\.1|localhost|::1)$ ]] ||
+     [[ ${E[smtp_seg]} == nenhuma && ! ${E[smtp_host]} =~ ^(127\.0\.0\.1|localhost|::1)$ ]]; then
+    echo "Conexão sem criptografia só é permitida em localhost."; return 1
+  fi
   [[ ${E[auth]} =~ ^(senha|oauth|comando)$ ]] || { echo "Autenticação deve ser senha, oauth ou comando."; return 1; }
-  [[ ${E[auth]} != comando || -n ${E[cred_cmd]:-} ]] || { echo "Falta o comando que imprime a senha."; return 1; }
-  [[ ${E[auth]} != oauth || -n ${E[oauth_client_id]:-} || ${2:-} == antes-do-segredo ]] ||
-    { echo "Falta o ID do app OAuth (client_id)."; return 1; }
+  auths=$(cut -d'|' -f5 <<<"$(email_provedor "${E[provedor]}")")
+  [[ " $auths " == *" ${E[auth]} "* ]] || { echo "${E[provedor]} não oferece o método de autenticação escolhido."; return 1; }
+  [[ ${E[auth]} != comando || -n ${E[cred_cmd]:-} || ${2:-} == antes-do-segredo ]] || { echo "Falta o comando que imprime a senha."; return 1; }
+  if [[ ${E[auth]} == oauth && ${2:-} != antes-do-segredo ]]; then
+    [[ -n ${E[oauth_client_id]:-} ]] || { echo "Falta o ID do aplicativo OAuth (client_id)."; return 1; }
+    [[ ${E[oauth_token_endpoint]:-} == https://* || ${E[oauth_token_endpoint]:-} == http://127.0.0.1:* || ${E[oauth_token_endpoint]:-} == http://localhost:* ]] ||
+      { echo "O endpoint de token OAuth deve usar HTTPS (HTTP só é aceito em localhost)."; return 1; }
+    [[ ${E[oauth_device_endpoint]:-} == https://* || ${E[oauth_auth_endpoint]:-} == https://* ||
+       ${E[oauth_device_endpoint]:-} == http://127.0.0.1:* || ${E[oauth_auth_endpoint]:-} == http://127.0.0.1:* ||
+       ${E[oauth_device_endpoint]:-} == http://localhost:* || ${E[oauth_auth_endpoint]:-} == http://localhost:* ]] ||
+      { echo "OAuth precisa de endpoint seguro de autorização ou de código do dispositivo."; return 1; }
+  fi
   if [[ -n $novo ]]; then
     email_contas_nomes | grep -qxF "${E[nome]}" && { echo "Já existe uma conta \"${E[nome]}\"."; return 1; }
     [[ -e $(email_conf_arq "${E[_slug]}") || -e $(email_cred_arq "${E[_slug]}") ]] &&
@@ -4791,8 +4898,6 @@ email_aplicar_provedor() {
     done < <(python3 "$EMAIL_PY" descobrir "${E[endereco]#*@}" 2>/dev/null)
     if [[ -n $achado && -n $(email_provedor "$achado") ]]; then
       E[provedor]=$achado
-      # A Microsoft desligou a senha comum: conta dela só entra por OAuth2.
-      [[ $achado == microsoft && -n ${E[auth]:-} ]] && E[auth]=oauth
     fi
   fi
   linha=$(email_provedor "${E[provedor]}"); IFS='|' read -r _ _ imap smtp auths _ <<<"$linha"
@@ -4897,12 +5002,47 @@ email_escolher() { # VAR título padrão "opções" (a resposta vem da entrada p
 
 email_rotulo_auth() { case $1 in senha) echo "senha / senha de app" ;; oauth) echo "OAuth2 / SSO (login pelo navegador)" ;; comando) echo "comando externo (pass, secret-tool, Bitwarden…)" ;; esac; }
 
+# Opções realmente suportadas pelo provedor. OAuth fica primeiro e marcado como recomendado nos
+# provedores com endpoints prontos; a escolha atual pode vir primeiro durante uma edição.
+email_auth_opcoes() { # provedor [atual]
+  local prov=$1 atual=${2:-} linha auths op rot
+  linha=$(email_provedor "$prov"); auths=$(cut -d'|' -f5 <<<"$linha")
+  if [[ -n $atual && " $auths " == *" $atual "* ]]; then
+    rot=$(email_rotulo_auth "$atual"); [[ $atual == oauth && $prov =~ ^(gmail|microsoft)$ ]] && rot+=" · recomendado"
+    printf '%s\t%s\n' "$atual" "$rot"
+  fi
+  for op in $auths; do
+    [[ -n $atual && $op == "$atual" ]] && continue
+    rot=$(email_rotulo_auth "$op"); [[ $op == oauth && $prov =~ ^(gmail|microsoft)$ ]] && rot+=" · recomendado"
+    printf '%s\t%s\n' "$op" "$rot"
+  done
+}
+
+email_auth_padrao() {
+  local linha; linha=$(email_provedor "$1"); cut -d'|' -f5 <<<"$linha" | awk '{print $1}'
+}
+
+email_auth_aplicar() {
+  if [[ ${E[auth]} == oauth ]]; then
+    E[cred_cmd]=""
+    [[ -n ${E[oauth_token_endpoint]:-} ]] || email_oauth_padrao "${E[provedor]}"
+  else
+    E[oauth_client_id]=""; E[oauth_auth_endpoint]=""; E[oauth_token_endpoint]=""
+    E[oauth_device_endpoint]=""; E[oauth_scope]=""
+    [[ ${E[auth]} == senha ]] && E[cred_cmd]=""
+  fi
+}
+
 # Pede o segredo conforme a autenticação. Senha: lida sem eco, direto para ~/.secrets (600).
 email_pedir_segredo() {
   case ${E[auth]} in
     senha)
       local senha senha2 cred; cred=$(email_cred_arq "${E[_slug]}")
-      read -r -s -p 'Senha (não aparece): ' senha; printf '\n'
+      case ${E[provedor]} in
+        gmail) printf 'Gmail: use uma senha de app de 16 caracteres; a senha normal costuma ser recusada.\n' ;;
+        microsoft) printf 'Microsoft: OAuth2 é recomendado; muitos tenants recusam senha comum.\n' ;;
+      esac
+      read -r -s -p 'Senha/credencial (não aparece): ' senha; printf '\n'
       read -r -s -p 'Repita a senha: ' senha2; printf '\n'
       [[ -n $senha ]] || { echo "Senha vazia."; return 1; }
       [[ $senha == "$senha2" ]] || { echo "As senhas não conferem."; return 1; }
@@ -4935,71 +5075,97 @@ email_pedir_segredo() {
 
 email_avancado() {
   printf '\n⚙ Servidores (Enter mantém o valor)\n'
-  email_pergunta 'E[imap_host]' 'IMAP (receber) — servidor' "${E[imap_host]:-}"
-  email_pergunta 'E[imap_porta]' 'IMAP — porta' "${E[imap_porta]:-993}"
-  email_escolher 'E[imap_seg]' 'IMAP — segurança' "${E[imap_seg]:-tls}" $'tls\tTLS (porta 993)\nstarttls\tSTARTTLS (porta 143)\nnenhuma\tnenhuma (só localhost, ex.: Proton Bridge)' || true
-  email_pergunta 'E[smtp_host]' 'SMTP (enviar) — servidor' "${E[smtp_host]:-}"
-  email_pergunta 'E[smtp_porta]' 'SMTP — porta' "${E[smtp_porta]:-465}"
-  email_escolher 'E[smtp_seg]' 'SMTP — segurança' "${E[smtp_seg]:-tls}" $'tls\tTLS (porta 465)\nstarttls\tSTARTTLS (porta 587)\nnenhuma\tnenhuma (só localhost)' || true
-  email_pergunta 'E[usuario]' 'Usuário de login (se diferente do endereço)' "${E[usuario]:-}"
-  email_pergunta 'E[pasta]' 'Pasta inicial' "${E[pasta]:-INBOX}"
+  email_pergunta 'E[imap_host]' 'IMAP (receber) — servidor' "${E[imap_host]:-}" || return 1
+  email_pergunta 'E[imap_porta]' 'IMAP — porta' "${E[imap_porta]:-993}" || return 1
+  email_escolher 'E[imap_seg]' 'IMAP — segurança' "${E[imap_seg]:-tls}" $'tls\tTLS (porta 993)\nstarttls\tSTARTTLS (porta 143)\nnenhuma\tnenhuma (só localhost, ex.: Proton Bridge)' || return 1
+  email_pergunta 'E[smtp_host]' 'SMTP (enviar) — servidor' "${E[smtp_host]:-}" || return 1
+  email_pergunta 'E[smtp_porta]' 'SMTP — porta' "${E[smtp_porta]:-465}" || return 1
+  email_escolher 'E[smtp_seg]' 'SMTP — segurança' "${E[smtp_seg]:-tls}" $'tls\tTLS (porta 465)\nstarttls\tSTARTTLS (porta 587)\nnenhuma\tnenhuma (só localhost)' || return 1
+  printf '\nDeixe o usuário técnico vazio para usar o endereço %s. Não use o nome da conta.\n' "${E[endereco]}"
+  email_pergunta 'E[usuario]' 'Usuário técnico de login (sem espaços; opcional)' "${E[usuario]:-}" || return 1
+  email_pergunta 'E[pasta]' 'Pasta inicial' "${E[pasta]:-INBOX}" || return 1
 }
 
 email_resumo() {
   printf '\n  %s  <%s>\n' "${E[nome]}" "${E[endereco]}"
   printf '  provedor: %s · autenticação: %s\n' "${E[provedor]}" "$(email_rotulo_auth "${E[auth]}")"
   printf '  IMAP: %s:%s (%s) · SMTP: %s:%s (%s)\n' "${E[imap_host]}" "${E[imap_porta]}" "${E[imap_seg]}" "${E[smtp_host]}" "${E[smtp_porta]}" "${E[smtp_seg]}"
-  [[ -n ${E[usuario]:-} ]] && printf '  usuário de login: %s\n' "${E[usuario]}"
+  if [[ -n ${E[usuario]:-} ]]; then printf '  usuário técnico: %s\n' "${E[usuario]}"
+  else printf '  usuário técnico: %s (igual ao endereço)\n' "${E[endereco]}"; fi
   return 0
 }
 
 email_pausa() { [[ -t 0 ]] && { printf '\n%s' "${1:-Enter volta.}"; read -r _; }; return 0; }
 
-# Assistente de cadastro: provedor → endereço → nome → autenticação → segredo → (avançado) → testar.
+# Assistente de cadastro: provedor/endereço → descoberta → autenticação → segredo → teste obrigatório.
 email_conta_nova_ui() {
   command -v aerc >/dev/null || { printf 'O aerc não está instalado nesta máquina.\nInstale o aerc e rode de novo.'; email_pausa 'Enter fecha.'; return; }
-  local -A E=(); local prov auths op linha dica erro
+  local -A E=(); local prov linha dica erro snap
   clear 2>/dev/null; printf '📧 Nova conta de e-mail\n\n'
   email_escolher prov 'Qual é o seu e-mail?' gmail "$(cut -d'|' -f1,2 <<<"$EMAIL_PROVEDORES" | tr '|' '\t')" || return 0
-  E[provedor]=$prov; linha=$(email_provedor "$prov"); IFS='|' read -r _ _ _ _ auths dica <<<"$linha"
+  E[provedor]=$prov
   email_pergunta 'E[endereco]' 'Endereço (ex.: voce@exemplo.com)' || return 0
   email_pergunta 'E[nome]' 'Nome da conta no aerc' "${E[endereco]%%@*}" || return 0
   E[_slug]=$(email_slug "${E[nome]}")
-  local opts=""; for op in $auths; do opts+="$op"$'\t'"$(email_rotulo_auth "$op")"$'\n'; done
-  email_escolher 'E[auth]' 'Como entrar na conta?' "${auths%% *}" "${opts%$'\n'}" || return 0
-  email_aplicar_provedor
-  if [[ $prov == outro && ${E[provedor]} != outro ]]; then # domínio próprio hospedado num provedor conhecido
-    linha=$(email_provedor "${E[provedor]}"); IFS='|' read -r _ _ _ _ _ dica <<<"$linha"
-    printf '\nℹ %s é hospedado em %s: servidores preenchidos; login por %s.\n' "${E[endereco]#*@}" \
+
+  # Descobre o provedor ANTES da autenticação. A descoberta nunca anula a escolha do usuário.
+  E[auth]=""; email_aplicar_provedor
+  linha=$(email_provedor "${E[provedor]}"); dica=$(cut -d'|' -f6- <<<"$linha")
+  email_escolher 'E[auth]' 'Como entrar? OAuth2 é recomendado quando disponível' \
+    "$(email_auth_padrao "${E[provedor]}")" "$(email_auth_opcoes "${E[provedor]}")" || return 0
+  email_auth_aplicar
+
+  if [[ $prov == outro && ${E[provedor]} != outro ]]; then
+    printf '\nℹ %s é hospedado em %s; servidores preenchidos. Você escolheu %s.\n' "${E[endereco]#*@}" \
       "$(cut -d'|' -f2 <<<"$linha")" "$(email_rotulo_auth "${E[auth]}")"
   fi
   [[ -n $dica ]] && printf '\nℹ %s\n' "$dica"
-  if [[ ${E[provedor]} == outro ]]; then printf '\nServidores %s.\n' "$([[ -n ${E[imap_host]:-} ]] && echo "descobertos para ${E[endereco]#*@}" || echo "não encontrados")"; email_avancado
-  elif [[ -t 0 ]]; then local aj; read -r -p $'\nAjustar servidores, portas ou usuário? (s/N) ' aj; [[ $aj == [sSyY]* ]] && email_avancado; fi
-  if ! erro=$(email_validar novo antes-do-segredo); then printf '\n✗ %s\n' "$erro"; email_pausa 'Enter fecha.'; return 0; fi
-  email_pedir_segredo || { email_pausa 'Enter fecha.'; return 0; }
-  # De novo, agora com o client_id do OAuth (sem "novo": o segredo recém-gravado não é conta repetida).
-  if ! erro=$(email_validar); then printf '\n✗ %s\n' "$erro"; email_pausa 'Enter fecha.'; return 0; fi
-  email_gravar; email_regerar "${E[_slug]}"
-  printf '\n✔ Conta cadastrada:'; email_resumo
-  if [[ ${E[auth]} == oauth ]]; then printf '\nAgora autorize o acesso:\n'; email_autorizar_slug "${E[_slug]}"; fi
-  if [[ -t 0 ]]; then local t; read -r -p $'\nTestar a conexão agora? (S/n) ' t; [[ $t == [nN]* ]] || { printf '\n'; email_testar_slug "${E[_slug]}"; }; fi
-  printf '\nSe o aerc estiver aberto, saia e reabra pelo 📧 para carregar a conta.'
+  if [[ ${E[provedor]} == outro ]]; then
+    printf '\nServidores %s.\n' "$([[ -n ${E[imap_host]:-} ]] && echo "descobertos para ${E[endereco]#*@}" || echo "não encontrados")"
+    email_avancado || return 0
+  elif [[ -t 0 ]]; then
+    local aj; read -r -p $'\nAjustar servidores, portas ou usuário técnico? (s/N) ' aj || return 0
+    if [[ $aj == [sSyY]* ]]; then email_avancado || return 0; fi
+  fi
+  if ! erro=$(email_validar novo antes-do-segredo); then printf '\n✗ %s\nNada foi salvo.\n' "$erro"; email_pausa 'Enter volta.'; return 0; fi
+
+  snap=$(email_snapshot_criar "${E[_slug]}") || { echo '✗ Não consegui criar o snapshot de segurança.'; email_pausa; return 0; }
+  if ! email_pedir_segredo; then email_snapshot_restaurar "$snap" "${E[_slug]}"; email_pausa 'Nada foi salvo. Enter volta.'; return 0; fi
+  if ! erro=$(email_validar); then
+    email_snapshot_restaurar "$snap" "${E[_slug]}"; printf '\n✗ %s\nNada foi salvo.\n' "$erro"; email_pausa 'Enter volta.'; return 0
+  fi
+  printf '\nValidando IMAP e SMTP antes de salvar…\n'
+  if ! email_salvar_validado "$snap" 1; then email_pausa 'Enter volta para corrigir.'; return 0; fi
+  printf '\n✔ Conta cadastrada e validada:'; email_resumo
   email_pausa 'Enter volta.'
 }
 
-# Edição: os campos atuais vêm preenchidos; trocar a senha é opcional.
+# Edição transacional: permite trocar autenticação; só substitui a conta após validar IMAP e SMTP.
 email_editar_ui() {
-  local slug=$1 erro t; local -A E=(); email_ler "$slug" || return 0
+  local slug=$1 erro t snap auth_antiga autorizar=0; local -A E=(); email_ler "$slug" || return 0
+  auth_antiga=${E[auth]}
   clear 2>/dev/null; printf '✏ Editar conta'; email_resumo
-  email_pergunta 'E[endereco]' 'Endereço' "${E[endereco]}"
-  email_pergunta 'E[nome_exibicao]' 'Nome de exibição (no "De:"; opcional)' "${E[nome_exibicao]:-}"
-  email_avancado
-  if ! erro=$(email_validar); then printf '\n✗ %s\n' "$erro"; email_pausa; return 0; fi
-  read -r -p $'\nTrocar a senha/credencial? (s/N) ' t; [[ $t == [sSyY]* ]] && { email_pedir_segredo || { email_pausa; return 0; }; }
-  email_gravar; email_regerar "$slug"
-  [[ ${E[auth]} == oauth && $t == [sSyY]* ]] && email_autorizar_slug "$slug"
-  printf '\n✔ Conta atualizada.'; email_pausa
+  email_pergunta 'E[endereco]' 'Endereço' "${E[endereco]}" || return 0
+  email_pergunta 'E[nome_exibicao]' 'Nome de exibição (no "De:"; opcional)' "${E[nome_exibicao]:-}" || return 0
+  email_escolher 'E[auth]' 'Como entrar? OAuth2 é recomendado quando disponível' "$auth_antiga" \
+    "$(email_auth_opcoes "${E[provedor]}" "$auth_antiga")" || return 0
+  email_auth_aplicar
+  email_avancado || return 0
+  if ! erro=$(email_validar "" antes-do-segredo); then printf '\n✗ %s\nNada foi alterado.\n' "$erro"; email_pausa; return 0; fi
+
+  if [[ ${E[auth]} != "$auth_antiga" ]]; then t=s
+  else read -r -p $'\nTrocar a senha/credencial? (s/N) ' t || return 0; fi
+  snap=$(email_snapshot_criar "$slug") || { echo '✗ Não consegui criar o snapshot de segurança.'; email_pausa; return 0; }
+  if [[ $t == [sSyY]* ]]; then
+    if ! email_pedir_segredo; then email_snapshot_restaurar "$snap" "$slug"; email_pausa 'Nada foi alterado. Enter volta.'; return 0; fi
+    [[ ${E[auth]} == oauth ]] && autorizar=1
+  fi
+  if ! erro=$(email_validar); then
+    email_snapshot_restaurar "$snap" "$slug"; printf '\n✗ %s\nA configuração anterior foi restaurada.\n' "$erro"; email_pausa; return 0
+  fi
+  printf '\nValidando IMAP e SMTP antes de substituir a conta…\n'
+  if ! email_salvar_validado "$snap" "$autorizar"; then email_pausa 'Enter volta para corrigir.'; return 0; fi
+  printf '\n✔ Conta atualizada e validada.'; email_pausa
 }
 
 # Gerência: lista navegável das contas; Enter abre as ações da conta.
