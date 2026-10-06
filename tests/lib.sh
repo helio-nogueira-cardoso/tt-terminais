@@ -21,6 +21,7 @@ isolar() {
   printf 'nome=teste\n' >"$XDG_CONFIG_HOME/tt/config"
   : >"$XDG_CONFIG_HOME/tt/maquinas"
   TT=$T/pkg/tt
+  : "${HOME_REAL:=$(getent passwd "$(id -un)" | cut -d: -f6)}"; export HOME_REAL
   trap limpar_isolado EXIT
 }
 

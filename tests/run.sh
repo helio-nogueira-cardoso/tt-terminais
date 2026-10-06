@@ -209,13 +209,14 @@ mkdir -p "$th/.config/aerc"
 printf '[ui]\n#mouse-enabled=false\nindex-columns=date\n' > "$th/.config/aerc/aerc.conf"
 cat > "$th/drv.sh" <<DRV
 HOME="$th"; PATH="$th:\$PATH"; conf(){ echo ""; }
-$(sed -n '/^AERC_BINDS_INI=/,/^}/p' "$tt")
+DIR_TT="$th"
+$(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' "$tt" | sed '$d')
 $(sed -n '/^remover_aerc() {/,/^}/p' "$tt")
 configurar_aerc; configurar_aerc
 DRV
 bash "$th/drv.sh" >/dev/null 2>&1
 [[ $(grep -c '^mouse-enabled=true' "$th/.config/aerc/aerc.conf") == 1 ]] || falha 'aerc: mouse-enabled=true deveria aparecer 1x em [ui]'
-grep -Fq 'q = :quit<Enter>' "$th/.config/aerc/binds.conf" || falha 'aerc: binds.conf deveria ter saída rápida q (casa com o título "q fecha")'
+sed -n '/^\[messages\]/,$p' "$th/.config/aerc/binds.conf" | grep -Fq 'q = :quit<Enter>' || falha 'aerc: binds.conf deveria ter saída rápida q na lista (casa com o título "q fecha")'
 grep -Fq 'Q = :quit<Enter>' "$th/.config/aerc/binds.conf" || falha 'aerc: binds.conf deveria ter saída rápida Q'
 [[ $(grep -c 'saída rápida' "$th/.config/aerc/binds.conf") == 2 ]] || falha 'aerc: bloco de bind não é idempotente (marcadores duplicados)'
 [[ -f $th/.config/aerc/accounts.conf ]] && falha 'aerc: accounts.conf não deveria ser criado pelo provisionamento'

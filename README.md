@@ -227,6 +227,24 @@ contas do cadastro antigo são importadas sozinhas. Pela linha de comando:
        smtp_host=mail.x.com smtp_porta=587 smtp_seg=starttls auth=comando 'cred_cmd=pass email/x'
     tt --email-listar | --email-testar NOME | --email-autorizar NOME | --email-remover NOME
 
+### O leitor de e-mail (aerc)
+
+O tt deixa o aerc pronto em toda máquina (só acrescenta o que você não configurou; o que já estiver no
+`aerc.conf` fica): tema **Catppuccin Mocha** igual ao do tt, pastas em árvore com a **contagem de não
+lidas**, conversas agrupadas em fios, datas curtas e e-mails em **HTML legíveis** mesmo sem `w3m`
+(usa `lynx` ou o conversor do próprio tt, com os links numerados no fim). Atalhos, na lista e na leitura:
+
+| Tecla | Ação | Tecla | Ação |
+|---|---|---|---|
+| ⏎ | abrir | `q` | fechar (a mensagem / o e-mail) |
+| `u` | lido ↔ não lido | `*` | estrela (importante) |
+| `rr` / `Rr` | responder a todos / responder | `f` | encaminhar |
+| `a` | arquivar | `d` / `D` | apagar (com confirmação / direto) |
+| `M` | mover para pasta (Tab completa) | `Y` | copiar para pasta |
+| `F` | só não lidos (Esc volta) | `/` | buscar |
+| `m` | escrever | `J` / `K` | próxima / anterior pasta |
+| `v` / espaço | selecionar várias (as ações valem para todas) | `?` | todos os atalhos |
+
 ## Sessões fixadas
 
 Uma segunda linha na barra com as sessões que você usa sempre (desta ou de outras máquinas): um
