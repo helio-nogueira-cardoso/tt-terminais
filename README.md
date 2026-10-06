@@ -199,6 +199,34 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
                             credenciais ficam na config do próprio cliente, nunca aqui>
     ~/.config/tt/maquinas   host  usuario  nome  [oculta]  (uma máquina por linha)
 
+## Contas de e-mail
+
+Menu ⚙ administrar → **Contas de e-mail** (ou `tt --email-contas`): uma lista com cada conta
+(provedor, autenticação, servidor). **⏎** abre as ações da conta (🔌 testar conexão, ✏ editar,
+🔑 autorizar de novo, 🗑 descadastrar); **^n** cadastra, **^t** testa, **^d** descadastra.
+
+O cadastro pergunta o provedor e já preenche servidores, portas e segurança: Gmail, Outlook /
+Hotmail / Microsoft 365, Yahoo, iCloud, Fastmail, Zoho, Proton (via Bridge) ou **outro** — aí os
+servidores são descobertos pelo domínio do endereço (base pública do Thunderbird). Formas de entrar:
+
+- **senha / senha de app** — lida sem aparecer na tela, guardada em `~/.secrets/aerc-<conta>.txt` (600);
+- **comando externo** — `pass`, `secret-tool`, Bitwarden etc.: a senha nem chega ao disco;
+- **OAuth2 / SSO** — Microsoft pelo código no aparelho (abre-se o link em qualquer aparelho e digita-se o
+  código); Google e outros pelo navegador. Precisa do ID de um app OAuth (para a Microsoft há a opção do ID
+  público do Thunderbird). O token de renovação fica em `~/.secrets` e o aerc renova o acesso sozinho.
+
+Em **ajustar** (ou ✏ editar): servidores IMAP/SMTP, portas, segurança (TLS, STARTTLS ou nenhuma, só
+para localhost), usuário de login diferente do endereço, nome de exibição e pasta inicial.
+
+Cada conta tem um arquivo sem segredos em `~/.config/tt/email/<conta>.conf`; o `accounts.conf` do
+aerc é gerado entre marcadores `# >>> tt e-mail: <conta> >>>` — blocos escritos à mão ficam intactos, e as
+contas do cadastro antigo são importadas sozinhas. Pela linha de comando:
+
+    tt --email-adicionar nome=Pessoal endereco=eu@gmail.com provedor=gmail auth=senha --senha-stdin
+    tt --email-adicionar nome=X endereco=eu@x.com imap_host=mail.x.com imap_porta=143 imap_seg=starttls \
+       smtp_host=mail.x.com smtp_porta=587 smtp_seg=starttls auth=comando 'cred_cmd=pass email/x'
+    tt --email-listar | --email-testar NOME | --email-autorizar NOME | --email-remover NOME
+
 ## Sessões fixadas
 
 Uma segunda linha na barra com as sessões que você usa sempre (desta ou de outras máquinas): um
