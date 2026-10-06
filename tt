@@ -2363,9 +2363,29 @@ ponte() {
   while true; do
     clear
     printf 'Conectando a %s:%s…\n' "$(rotulo_de "$dest")" "$s"
+    # Alvo que não existe mais no destino não vira loop eterno de reconexão: a ponte seria uma
+    # sessão fantasma (aparece viva na máquina de origem, sem par real do outro lado). Só paramos
+    # quando o destino RESPONDE e confirma que a sessão sumiu; se ele não responde (rede/SSH caiu),
+    # mantemos o comportamento antigo de permitir nova tentativa.
+    if ! sessao_remota_existe "$dest" "$s" && alcanca_destino "$dest"; then
+      printf '\n\033[33mA sessão %s:%s não existe mais no destino. Encerrando esta ponte.\033[0m\n' \
+        "$(rotulo_de "$dest")" "$s"
+      sleep 1
+      tmux kill-session -t "=$ponte" 2>/dev/null
+      return 0
+    fi
     ssh -t "${SSH_OPC[@]}" "$dest" \
       "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|$ponte") tmux attach -t $(q "=$s")"
     st=$?
+    # O attach terminou. Se a sessão sumiu no destino (fim normal: a sessão de lá foi fechada), a
+    # ponte não tem mais o que mostrar — encerra em vez de oferecer reconexão a um alvo morto.
+    if ! sessao_remota_existe "$dest" "$s" && alcanca_destino "$dest"; then
+      printf '\n\033[33mA sessão %s:%s foi encerrada no destino. Fechando esta ponte.\033[0m\n' \
+        "$(rotulo_de "$dest")" "$s"
+      sleep 1
+      tmux kill-session -t "=$ponte" 2>/dev/null
+      return 0
+    fi
     printf '\n\033[33mA conexão com %s:%s terminou (código %s).\033[0m\n' "$(rotulo_de "$dest")" "$s" "$st"
     printf 'A janela foi preservada. Pressione Enter para tentar novamente ou Ctrl+B d para voltar. '
     read -r
@@ -2378,6 +2398,15 @@ ponte() {
 sessao_remota_existe() {
   local dest=$1 s=$2
   timeout 5 ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO tmux has-session -t $(q "=$s")" </dev/null >/dev/null 2>&1
+}
+
+# O destino responde a SSH agora? Serve para distinguir "a sessão sumiu" (destino responde, mas a
+# sessão não existe) de "a rede/SSH caiu" (destino mudo). Só o primeiro caso justifica encerrar uma
+# ponte; o segundo é transitório e merece nova tentativa.
+alcanca_destino() {
+  local dest=$1
+  [[ -n $dest && $dest != : ]] || return 1
+  timeout 5 ssh "${SSH_OPC[@]}" "$dest" true </dev/null >/dev/null 2>&1
 }
 
 # Abre a sessão S num painel: modo lado | embaixo | aqui (troca o painel em foco, se for do tt).
@@ -2527,12 +2556,30 @@ criar_ponte() {
 # Pontes que ninguém usa há mais de 30 min (TT_T_PONTE, em segundos) são fechadas: com uma ponte
 # por aparelho elas se acumulariam, cada uma com uma conexão ssh aberta. A sessão da outra máquina
 # continua lá; só a conexão daqui se encerra.
+#
+# Além das ociosas, saneia pontes órfãs: aquelas cujo alvo (sessão da outra máquina) já não existe
+# mais — a sessão de lá foi fechada ou renomeada. Sem isso, a ponte vira uma sessão fantasma, viva
+# aqui e sem par real no destino. Só encerramos quando o destino RESPONDE e confirma que a sessão
+# sumiu; destino mudo (rede/SSH caiu) é transitório e a ponte é preservada.
 fechar_pontes_ociosas() {
-  local agora=$1 limite=${TT_T_PONTE:-1800} s anexada ult
-  while IFS='|' read -r s anexada ult; do
+  local agora=$1 limite=${TT_T_PONTE:-1800} s anexada ult dest alvo rs
+  while IFS='|' read -r s anexada ult dest alvo; do
     [[ $s == _tt-* ]] && continue # sessões ocultas do tt (e-mail aberto em segundo plano)
-    ((anexada == 0 && ult > 0 && agora - ult >= limite)) && tmux kill-session -t "=$s" 2>/dev/null
-  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{?session_last_attached,#{session_last_attached},#{session_created}}' -f '#{@ponte}' 2>/dev/null)
+    if ((anexada == 0 && ult > 0 && agora - ult >= limite)); then
+      tmux kill-session -t "=$s" 2>/dev/null
+      continue
+    fi
+    # Órfã: o alvo é "dest|sessão"; se o destino responde e a sessão não existe lá, encerra já,
+    # sem esperar o tempo de ociosidade. Pontes anexadas também: uma sessão fantasma anexada é
+    # justamente o sintoma a corrigir. As sondas são opcionais: se não estiverem no escopo (ex.: a
+    # função foi extraída isolada), a verificação de órfã é pulada em vez de quebrar.
+    [[ -n $alvo && $alvo == *"|"* ]] || continue
+    declare -F sessao_remota_existe >/dev/null && declare -F alcanca_destino >/dev/null || continue
+    rs=${alvo#*|}
+    if ! sessao_remota_existe "$dest" "$rs" && alcanca_destino "$dest"; then
+      tmux kill-session -t "=$s" 2>/dev/null
+    fi
+  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{?session_last_attached,#{session_last_attached},#{session_created}}|#{@ponte}|#{@ponte_alvo}' -f '#{@ponte}' 2>/dev/null)
   return 0
 }
 
