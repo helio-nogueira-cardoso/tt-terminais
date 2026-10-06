@@ -4745,7 +4745,8 @@ email_validar() {
   [[ ${E[imap_seg]} =~ ^(tls|starttls|nenhuma)$ && ${E[smtp_seg]} =~ ^(tls|starttls|nenhuma)$ ]] || { echo "Segurança deve ser tls, starttls ou nenhuma."; return 1; }
   [[ ${E[auth]} =~ ^(senha|oauth|comando)$ ]] || { echo "Autenticação deve ser senha, oauth ou comando."; return 1; }
   [[ ${E[auth]} != comando || -n ${E[cred_cmd]:-} ]] || { echo "Falta o comando que imprime a senha."; return 1; }
-  [[ ${E[auth]} != oauth || -n ${E[oauth_client_id]:-} ]] || { echo "Falta o ID do app OAuth (client_id)."; return 1; }
+  [[ ${E[auth]} != oauth || -n ${E[oauth_client_id]:-} || ${2:-} == antes-do-segredo ]] ||
+    { echo "Falta o ID do app OAuth (client_id)."; return 1; }
   if [[ -n $novo ]]; then
     email_contas_nomes | grep -qxF "${E[nome]}" && { echo "Já existe uma conta \"${E[nome]}\"."; return 1; }
     [[ -e $(email_conf_arq "${E[_slug]}") || -e $(email_cred_arq "${E[_slug]}") ]] &&
@@ -4754,16 +4755,24 @@ email_validar() {
   return 0
 }
 
-# Preenche servidores e autenticação a partir do provedor (e, em "outro", do domínio).
+# Preenche servidores e autenticação a partir do provedor. Em "outro", descobre pelo domínio; se ele é
+# hospedado na Microsoft 365 ou no Google Workspace (o MX diz), a conta passa a ser desse provedor.
 email_aplicar_provedor() {
-  local linha imap smtp auths h p s
+  local linha imap smtp auths h p s k v achado=""
+  if [[ ${E[provedor]} == outro && -z ${E[imap_host]:-} && ${E[endereco]:-} == *@* ]] && command -v python3 >/dev/null; then
+    while IFS='=' read -r k v; do
+      case $k in imap_* | smtp_*) E[$k]=$v ;; provedor) achado=$v ;; esac
+    done < <(python3 "$EMAIL_PY" descobrir "${E[endereco]#*@}" 2>/dev/null)
+    if [[ -n $achado && -n $(email_provedor "$achado") ]]; then
+      E[provedor]=$achado
+      # A Microsoft desligou a senha comum: conta dela só entra por OAuth2.
+      [[ $achado == microsoft && -n ${E[auth]:-} ]] && E[auth]=oauth
+    fi
+  fi
   linha=$(email_provedor "${E[provedor]}"); IFS='|' read -r _ _ imap smtp auths _ <<<"$linha"
   if [[ -n $imap ]]; then
     read -r h p s <<<"$imap"; E[imap_host]=${E[imap_host]:-$h}; E[imap_porta]=${E[imap_porta]:-$p}; E[imap_seg]=${E[imap_seg]:-$s}
     read -r h p s <<<"$smtp"; E[smtp_host]=${E[smtp_host]:-$h}; E[smtp_porta]=${E[smtp_porta]:-$p}; E[smtp_seg]=${E[smtp_seg]:-$s}
-  elif [[ -z ${E[imap_host]:-} && ${E[endereco]:-} == *@* ]] && command -v python3 >/dev/null; then
-    local k v
-    while IFS='=' read -r k v; do [[ $k == imap_* || $k == smtp_* ]] && E[$k]=$v; done < <(python3 "$EMAIL_PY" descobrir "${E[endereco]#*@}" 2>/dev/null)
   fi
   [[ -n ${E[auth]:-} ]] || E[auth]=${auths%% *}
   [[ ${E[auth]} == oauth ]] && [[ -z ${E[oauth_token_endpoint]:-} ]] && email_oauth_padrao "${E[provedor]}"
@@ -4932,12 +4941,19 @@ email_conta_nova_ui() {
   E[_slug]=$(email_slug "${E[nome]}")
   local opts=""; for op in $auths; do opts+="$op"$'\t'"$(email_rotulo_auth "$op")"$'\n'; done
   email_escolher 'E[auth]' 'Como entrar na conta?' "${auths%% *}" "${opts%$'\n'}" || return 0
-  [[ -n $dica ]] && printf '\nℹ %s\n' "$dica"
   email_aplicar_provedor
-  if [[ $prov == outro ]]; then printf '\nServidores %s.\n' "$([[ -n ${E[imap_host]:-} ]] && echo "descobertos para ${E[endereco]#*@}" || echo "não encontrados")"; email_avancado
+  if [[ $prov == outro && ${E[provedor]} != outro ]]; then # domínio próprio hospedado num provedor conhecido
+    linha=$(email_provedor "${E[provedor]}"); IFS='|' read -r _ _ _ _ _ dica <<<"$linha"
+    printf '\nℹ %s é hospedado em %s: servidores preenchidos; login por %s.\n' "${E[endereco]#*@}" \
+      "$(cut -d'|' -f2 <<<"$linha")" "$(email_rotulo_auth "${E[auth]}")"
+  fi
+  [[ -n $dica ]] && printf '\nℹ %s\n' "$dica"
+  if [[ ${E[provedor]} == outro ]]; then printf '\nServidores %s.\n' "$([[ -n ${E[imap_host]:-} ]] && echo "descobertos para ${E[endereco]#*@}" || echo "não encontrados")"; email_avancado
   elif [[ -t 0 ]]; then local aj; read -r -p $'\nAjustar servidores, portas ou usuário? (s/N) ' aj; [[ $aj == [sSyY]* ]] && email_avancado; fi
-  if ! erro=$(email_validar novo); then printf '\n✗ %s\n' "$erro"; email_pausa 'Enter fecha.'; return 0; fi
+  if ! erro=$(email_validar novo antes-do-segredo); then printf '\n✗ %s\n' "$erro"; email_pausa 'Enter fecha.'; return 0; fi
   email_pedir_segredo || { email_pausa 'Enter fecha.'; return 0; }
+  # De novo, agora com o client_id do OAuth (sem "novo": o segredo recém-gravado não é conta repetida).
+  if ! erro=$(email_validar); then printf '\n✗ %s\n' "$erro"; email_pausa 'Enter fecha.'; return 0; fi
   email_gravar; email_regerar "${E[_slug]}"
   printf '\n✔ Conta cadastrada:'; email_resumo
   if [[ ${E[auth]} == oauth ]]; then printf '\nAgora autorize o acesso:\n'; email_autorizar_slug "${E[_slug]}"; fi

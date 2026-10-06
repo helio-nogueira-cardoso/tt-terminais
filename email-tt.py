@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Auxiliar de e-mail do tt (só biblioteca padrão; roda também no Termux).
 
-  email-tt.py descobrir DOMINIO          -> imprime chave=valor (imap/smtp) pela base do Thunderbird
+  email-tt.py descobrir DOMINIO          -> imprime chave=valor (imap/smtp; provedor= se for Microsoft/Google)
+                                            pela base do Thunderbird ou pelo MX do domínio
   email-tt.py oauth-autorizar CONF       -> fluxo OAuth2 (código no aparelho ou navegador); grava o token
   email-tt.py oauth-token CONF           -> imprime um access token novo (renova pelo refresh token)
   email-tt.py testar CONF                -> testa login IMAP e SMTP; imprime ✓/✗ por serviço (rc 0 se ambos ok)
@@ -53,17 +54,95 @@ def ler_arquivo(caminho):
 
 
 # --- Descoberta pelo domínio (ISPDB do Thunderbird) ---------------------------------------------
-def descobrir(dominio):
-    url = f"https://autoconfig.thunderbird.net/v1.1/{urllib.parse.quote(dominio)}"
+# Provedor pelo nome do servidor (MX ou IMAP): domínio próprio hospedado na Microsoft ou no Google.
+PROVEDOR_POR_HOST = (("outlook.com", "microsoft"), ("office365.com", "microsoft"),
+                     ("google.com", "gmail"), ("googlemail.com", "gmail"), ("gmail.com", "gmail"))
+
+
+def provedor_de(host):
+    host = (host or "").lower().rstrip(".")
+    for sufixo, prov in PROVEDOR_POR_HOST:
+        if host == sufixo or host.endswith("." + sufixo):
+            return prov
+    return ""
+
+
+def servidores_dns():
+    """Servidor de nomes: TT_EMAIL_DNS (ip[:porta]) ou o do sistema (/etc/resolv.conf; no Termux, $PREFIX/etc)."""
+    if os.environ.get("TT_EMAIL_DNS"):
+        ip, _, porta = os.environ["TT_EMAIL_DNS"].rpartition(":") if os.environ["TT_EMAIL_DNS"].count(":") == 1 \
+            else (os.environ["TT_EMAIL_DNS"], "", "53")
+        return [(ip, int(porta or 53))]
+    ns = []
+    for arq in ("/etc/resolv.conf", os.path.join(os.environ.get("PREFIX", "/usr"), "etc/resolv.conf")):
+        try:
+            for linha in open(arq):
+                p = linha.split()
+                if len(p) >= 2 and p[0] == "nameserver" and (p[1], 53) not in ns:
+                    ns.append((p[1], 53))
+        except OSError:
+            pass
+    return ns
+
+
+def registros_mx(dominio):
+    """Servidores MX do domínio, do mais preferido ao menos (consulta DNS direta, só biblioteca padrão)."""
+    import random, struct
+    ident = random.randrange(65536)
+    pergunta = b"".join(bytes([len(r)]) + r.encode("idna") for r in dominio.rstrip(".").split(".")) + b"\0"
+    pacote = struct.pack(">HHHHHH", ident, 0x0100, 1, 0, 0, 0) + pergunta + struct.pack(">HH", 15, 1)
+
+    def nome(dados, i):
+        partes, saltou, fim = [], False, i
+        for _ in range(64):
+            n = dados[i]
+            if n == 0:
+                i += 1
+                break
+            if n & 0xC0 == 0xC0:
+                if not saltou:
+                    fim = i + 2
+                saltou, i = True, ((n & 0x3F) << 8) | dados[i + 1]
+                continue
+            partes.append(dados[i + 1:i + 1 + n].decode("ascii", "replace"))
+            i += 1 + n
+        return ".".join(partes), (fim if saltou else i)
+
+    for ip, porta in servidores_dns():
+        try:
+            fam = socket.getaddrinfo(ip, porta, proto=socket.IPPROTO_UDP)[0]
+            with socket.socket(fam[0], socket.SOCK_DGRAM) as s:
+                s.settimeout(3)
+                s.sendto(pacote, fam[4])
+                dados = s.recv(4096)
+            rid, flags, qd, an = struct.unpack(">HHHH", dados[:8])
+            if rid != ident or flags & 0x000F:
+                continue
+            i = 12
+            for _ in range(qd):
+                i = nome(dados, i)[1] + 4
+            mx = []
+            for _ in range(an):
+                i = nome(dados, i)[1]
+                tipo, _cls, _ttl, tam = struct.unpack(">HHIH", dados[i:i + 10])
+                i += 10
+                if tipo == 15:
+                    mx.append((struct.unpack(">H", dados[i:i + 2])[0], nome(dados, i + 2)[0]))
+                i += tam
+            return [h for _, h in sorted(mx)]
+        except (OSError, struct.error, IndexError, UnicodeError):
+            continue
+    return []
+
+
+def ispdb(dominio):
+    """Linhas chave=valor da base do Thunderbird (ISPDB) para o domínio, ou None se ela não o conhece."""
+    base = os.environ.get("TT_EMAIL_ISPDB", "https://autoconfig.thunderbird.net/v1.1/")
     try:
-        with urllib.request.urlopen(url, timeout=TIMEOUT) as r:
-            xml = r.read()
+        with urllib.request.urlopen(base + urllib.parse.quote(dominio), timeout=TIMEOUT) as r:
+            raiz = ET.fromstring(r.read())
     except Exception:
-        # Sem registro: o palpite mais comum (imap./smtp. do domínio).
-        print(f"imap_host=imap.{dominio}\nimap_porta=993\nimap_seg=tls")
-        print(f"smtp_host=smtp.{dominio}\nsmtp_porta=587\nsmtp_seg=starttls\norigem=palpite")
-        return 0
-    raiz = ET.fromstring(xml)
+        return None
     def escolher(tipo):
         melhor = None
         for s in raiz.iter(f"{tipo}Server" if tipo == "incoming" else "outgoingServer"):
@@ -74,16 +153,41 @@ def descobrir(dominio):
             if melhor is None or nota < melhor[0]:
                 melhor = (nota, s)
         return melhor[1] if melhor else None
+    linhas = []
     for tipo, pref in (("incoming", "imap"), ("outgoing", "smtp")):
         s = escolher(tipo)
         if s is None:
             continue
         seg = {"SSL": "tls", "STARTTLS": "starttls"}.get((s.findtext("socketType") or "").upper(), "nenhuma")
-        print(f"{pref}_host={s.findtext('hostname')}\n{pref}_porta={s.findtext('port')}\n{pref}_seg={seg}")
+        linhas += [f"{pref}_host={s.findtext('hostname')}", f"{pref}_porta={s.findtext('port')}", f"{pref}_seg={seg}"]
         auth = " ".join(a.text or "" for a in s.iter("authentication"))
         if pref == "imap" and "OAuth2" in auth:
-            print("oauth_possivel=1")
-    print("origem=ispdb")
+            linhas.append("oauth_possivel=1")
+    return linhas or None
+
+
+def descobrir(dominio):
+    """Como o Thunderbird: base ISPDB pelo domínio; senão, pelo MX (Microsoft 365 e Google Workspace
+    hospedam domínios próprios, e o MX entrega quem é); por fim, o palpite imap./smtp. do domínio."""
+    linhas, origem = ispdb(dominio), "ispdb"
+    if linhas is None:
+        mx = registros_mx(dominio)
+        if mx and provedor_de(mx[0]):
+            print(f"provedor={provedor_de(mx[0])}\nmx={mx[0].rstrip('.')}\norigem=mx")
+            return 0
+        if mx:
+            base = ".".join(mx[0].rstrip(".").split(".")[-2:])
+            if base != dominio:
+                linhas, origem = ispdb(base), "ispdb-mx"
+    if linhas is None:
+        print(f"imap_host=imap.{dominio}\nimap_porta=993\nimap_seg=tls")
+        print(f"smtp_host=smtp.{dominio}\nsmtp_porta=587\nsmtp_seg=starttls\norigem=palpite")
+        return 0
+    print("\n".join(linhas))
+    imap = next((l.split("=", 1)[1] for l in linhas if l.startswith("imap_host=")), "")
+    if provedor_de(imap):
+        print(f"provedor={provedor_de(imap)}")
+    print(f"origem={origem}")
     return 0
 
 
