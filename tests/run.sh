@@ -163,7 +163,7 @@ grep -Eq "read -r -s -p 'Senha" <<<"$corpo_seg" || falha 'e-mail/contas: senha d
 tmphome=$(mktemp -d)
 printf '#!/bin/sh\nexit 0\n' > "$tmphome/aerc"; chmod +x "$tmphome/aerc"
 printf 'gmail\nx@gmail.com\nContaTeste\nsenha\nSENHA_FICTICIA_TESTE\nSENHA_FICTICIA_TESTE\n\n' |
-  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
+  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" TT_EMAIL_SEM_REDE=1 bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
 # nota: EU aponta para um tt inexistente de propósito; a função nova_ui não reinvoca o tt.
 conta="$tmphome/.config/aerc/accounts.conf"; cred="$tmphome/.secrets/aerc-contateste.txt"
 rg -Fq '[ContaTeste]' "$conta" 2>/dev/null || falha 'e-mail/contas: bloco [ContaTeste] não foi gravado'
@@ -182,15 +182,15 @@ base=$falhas
 tmphome=$(mktemp -d)
 printf '#!/bin/sh\nexit 0\n' > "$tmphome/aerc"; chmod +x "$tmphome/aerc"
 printf 'gmail\np1@gmail.com\nPessoal\nsenha\nSENHA_UM\nSENHA_UM\n\n' |
-  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
+  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" TT_EMAIL_SEM_REDE=1 bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
 printf 'gmail\np2@gmail.com\npessoal!\nsenha\nSENHA_DOIS\nSENHA_DOIS\n\n' |
-  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
+  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" TT_EMAIL_SEM_REDE=1 bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
 conta="$tmphome/.config/aerc/accounts.conf"; cred="$tmphome/.secrets/aerc-pessoal.txt"
 [[ -f $cred && $(cat "$cred") == SENHA_UM ]] || falha 'e-mail/contas: colisão de slug sobrescreveu a senha da 1ª conta'
 [[ $(grep -c '^\[pessoal!\]$' "$conta" 2>/dev/null) == 0 ]] || falha 'e-mail/contas: 2ª conta com slug colidente foi cadastrada mesmo assim'
 # nome com colchete deve ser recusado (cabeçalho [Nome] quebraria)
 printf 'gmail\nt@gmail.com\nTra[balho]\nsenha\nSENHA_T\nSENHA_T\n\n' |
-  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
+  env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" TT_EMAIL_SEM_REDE=1 bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
 [[ $(grep -c '^\[Tra\[balho\]\]$' "$conta" 2>/dev/null) == 0 ]] || falha 'e-mail/contas: nome com [ ] não foi recusado'
 rm -rf "$tmphome"
 ((falhas == base)) && ok 'contas de e-mail: slug colidente e nome com [ ] são recusados (sem sobrescrever credencial)' || true
