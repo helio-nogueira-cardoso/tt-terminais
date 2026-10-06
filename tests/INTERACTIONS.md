@@ -8,7 +8,7 @@
 | Painel | mouse, botão direito, `Ctrl+B m` | menu; copiar; colar; dividir; maximizar; fechar |
 | Barra principal | toque, mouse, teclado | central, arquivos, e-mail, painel, ajustes, transferências e atalhos customizados |
 | E-mail | botão 📧, teclado/CLI `--email` | abre o cliente numa subjanela (popup) sobre a tela; ao sair volta à tela de baixo; sem sessão nem shell órfão; o tt garante no aerc o mouse ligado e a saída rápida (Q) em toda máquina, sem tocar nas contas |
-| Contas de e-mail | menu administrar, CLI `--email-contas` | cadastro guiado grava `[Nome]` no accounts.conf e a senha de app em `~/.secrets` (600), nunca no versionado; remover apaga bloco e credencial; nome duplicado, slug colidente (mesmo arquivo de credencial) e nome com `[`/`]` são recusados |
+| Contas de e-mail | menu administrar, CLI `--email-contas` / `--email-adicionar` / `--email-listar` / `--email-testar` / `--email-autorizar` / `--email-remover` | lista navegável (⏎ ações, ^n nova, ^t testar, ^d descadastrar); provedores prontos e "outro" com descoberta pelo domínio; autenticação por senha, comando externo ou OAuth2/SSO (código no aparelho ou navegador); avançado: servidores, portas, TLS/STARTTLS/nenhuma, usuário; segredos só em `~/.secrets` (600); o tt só mexe nos blocos com marcadores e importa as contas antigas; recusa nome repetido, slug colidente, `[ ]` e porta inválida (tests/test_email.sh) |
 | Botões F1–F10 | teclado/Termux | cada `bind F*` chama o respectivo `tt --botao` |
 | Central e seletor | mouse, toque, teclado | abrir linha; pino; ✕; busca; troca de máquina; prévia ligada/desligada |
 | Mouse fzf | SGR/PTY | pressão, soltura, arrasto, modificadores e sequência de bytes fragmentada |

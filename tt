@@ -1196,7 +1196,7 @@ versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md)
+ARQUIVOS_FONTE=(tt email-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -4080,13 +4080,22 @@ botao_email() {
 }
 
 # ─── Cadastro e gerência de contas de e-mail (aerc) ────────────────────────────
-# Objetivo: cadastrar/remover conta sem o dono editar accounts.conf à mão nem a senha de app
-# vazar para o versionado. A senha de app fica num arquivo próprio em ~/.secrets (600) e o
-# accounts.conf só guarda o COMANDO que a lê (source-cred-cmd/outgoing-cred-cmd). Nenhuma função
-# aqui imprime, versiona ou copia a senha; ela só transita por `read -s` e vai direto para o arquivo.
+# Cada conta do tt tem um arquivo chave=valor em ~/.config/tt/email/<slug>.conf (nada secreto:
+# provedor, servidores, portas, segurança, autenticação) e o segredo em ~/.secrets/aerc-<slug>.txt
+# (600): a senha, ou o token de renovação do OAuth2. O accounts.conf do aerc é GERADO: cada conta do
+# tt vira um bloco entre marcadores "# >>> tt e-mail: <slug> >>>"; blocos escritos à mão ficam
+# intactos. Nenhuma função aqui imprime, versiona ou copia o segredo.
 AERC_DIR="$HOME/.config/aerc"
 AERC_CONTAS="$AERC_DIR/accounts.conf"
 SECRETS_DIR="$HOME/.secrets"
+EMAIL_DIR="$CONF_DIR/email"
+EMAIL_PY="$DIR_TT/email-tt.py"
+[[ -f $EMAIL_PY ]] || EMAIL_PY="$(dirname "$EU")/email-tt.py"
+declare -A E=() # conta em edição (as funções declaram a sua cópia local com local -A E)
+# Chaves de uma conta, na ordem em que são gravadas.
+EMAIL_CHAVES=(nome endereco usuario nome_exibicao provedor auth imap_host imap_porta imap_seg smtp_host smtp_porta smtp_seg
+  pasta cred_cmd oauth_client_id oauth_auth_endpoint oauth_token_endpoint oauth_device_endpoint oauth_scope
+  extra_1 extra_2 extra_3 extra_4 extra_5 extra_6 extra_7 extra_8)
 
 # Nome de conta → slug seguro para nome de arquivo (minúsculas, só [a-z0-9_-]).
 email_slug() {
@@ -4099,91 +4108,432 @@ email_contas_nomes() {
   sed -n 's/^\[\(.*\)\]$/\1/p' "$AERC_CONTAS"
 }
 
-# Assistente de cadastro (roda dentro do popup). Guiado por perguntas; a senha nunca aparece na tela.
-email_conta_nova_ui() {
-  command -v aerc >/dev/null || { printf 'O aerc não está instalado nesta máquina.\nInstale o aerc e rode de novo. Enter fecha.'; read -r _; return; }
-  local nome email slug cred n
-  printf '📧 Nova conta de e-mail (Gmail via IMAP/SMTP, senha de app)\n\n'
-  printf 'Antes: gere uma SENHA DE APP em https://myaccount.google.com/apppasswords\n'
-  printf '(a verificação em duas etapas precisa estar ligada).\n\n'
-  read -r -p 'Nome da conta (ex.: Pessoal): ' nome
-  [[ -n $nome ]] || { printf 'Nome vazio. Enter fecha.'; read -r _; return; }
-  [[ $nome == *'['* || $nome == *']'* ]] && { printf 'O nome não pode conter [ nem ]. Enter fecha.'; read -r _; return; }
-  if email_contas_nomes | grep -qxF "$nome"; then
-    printf 'Já existe uma conta "%s". Remova-a primeiro em "gerenciar contas". Enter fecha.' "$nome"; read -r _; return
-  fi
-  # A credencial é indexada pelo slug: nomes distintos que gerem o mesmo slug
-  # (ex.: "Pessoal" e "pessoal!") colidiriam no mesmo arquivo e sobrescreveriam
-  # a senha um do outro. Recusa a colisão antes de pedir senha.
-  slug=$(email_slug "$nome"); cred="$SECRETS_DIR/aerc-$slug.txt"
-  if [[ -e $cred ]]; then
-    printf 'Já existe uma conta que usa o mesmo arquivo de credencial (%s).\nEscolha um nome distinto. Enter fecha.' "$cred"; read -r _; return
-  fi
-  read -r -p 'Endereço (ex.: voce@gmail.com): ' email
-  [[ $email == *@* ]] || { printf 'E-mail inválido. Enter fecha.'; read -r _; return; }
-  local senha senha2
-  read -r -s -p 'Senha de app (não aparece): ' senha; printf '\n'
-  read -r -s -p 'Repita a senha de app: ' senha2; printf '\n'
-  [[ -n $senha ]] || { printf 'Senha vazia. Enter fecha.'; read -r _; return; }
-  [[ $senha == "$senha2" ]] || { printf 'As senhas não conferem. Enter fecha.'; read -r _; return; }
+# Provedores conhecidos: "chave|rótulo|imap host porta seg|smtp host porta seg|autenticações|dica".
+EMAIL_PROVEDORES='gmail|Gmail / Google Workspace|imap.gmail.com 993 tls|smtp.gmail.com 465 tls|senha oauth comando|Senha de app: https://myaccount.google.com/apppasswords (precisa da verificação em 2 etapas)
+microsoft|Outlook / Hotmail / Microsoft 365|outlook.office365.com 993 tls|smtp.office365.com 587 starttls|oauth senha comando|A Microsoft desligou a senha comum: use OAuth2 (SSO). Contas de empresa podem exigir aprovação do administrador.
+yahoo|Yahoo Mail|imap.mail.yahoo.com 993 tls|smtp.mail.yahoo.com 465 tls|senha comando|Senha de app: Segurança da conta → Gerar senha de app
+icloud|iCloud Mail|imap.mail.me.com 993 tls|smtp.mail.me.com 587 starttls|senha comando|Senha específica de app: appleid.apple.com → Iniciar sessão e segurança
+fastmail|Fastmail|imap.fastmail.com 993 tls|smtp.fastmail.com 465 tls|senha comando|Senha de app: Configurações → Privacidade e segurança → Integrações
+zoho|Zoho Mail|imap.zoho.com 993 tls|smtp.zoho.com 465 tls|senha comando|Habilite o IMAP nas configurações do Zoho; com 2 etapas, use senha de app
+proton|Proton Mail (via Proton Bridge)|127.0.0.1 1143 nenhuma|127.0.0.1 1025 nenhuma|senha comando|Use o usuário e a senha que o Proton Bridge mostra (não a senha da conta)
+outro|Outro (descobrir pelo domínio ou configurar à mão)|||senha oauth comando|Os servidores são descobertos pelo domínio do endereço; confira e ajuste se preciso'
 
-  mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR" 2>/dev/null
-  ( umask 077; printf '%s' "$senha" > "$cred" ); chmod 600 "$cred"
-  unset senha senha2
+email_provedor() { awk -F'|' -v k="$1" '$1 == k' <<<"$EMAIL_PROVEDORES"; }
 
-  mkdir -p "$AERC_DIR"
-  [[ -f $AERC_CONTAS ]] || { : > "$AERC_CONTAS"; }
-  chmod 600 "$AERC_CONTAS" 2>/dev/null
-  # URL-encode do @ no userinfo (aerc exige %40), o resto do endereço vai literal.
-  local user=${email/@/%40}
-  { printf '\n[%s]\n' "$nome"
-    printf 'source        = imaps://%s@imap.gmail.com:993\n' "$user"
-    printf 'source-cred-cmd = cat %q\n' "$cred"
-    printf 'outgoing      = smtps://%s@smtp.gmail.com:465\n' "$user"
-    printf 'outgoing-cred-cmd = cat %q\n' "$cred"
-    printf 'from          = %s\n' "$email"
-    printf 'default       = INBOX\n'
-  } >> "$AERC_CONTAS"
-  printf '\n✔ Conta "%s" cadastrada.\n' "$nome"
-  printf 'A senha de app ficou em %s (600), fora de qualquer repositório.\n' "$cred"
-  printf 'Se o aerc estiver aberto, saia e reabra pelo 📧 para carregar a conta.\nEnter fecha.'
-  read -r _
+# Padrões de OAuth2 por provedor (o ID do app é do usuário; para a Microsoft há a opção do ID
+# público do Thunderbird, que muitos clientes livres usam).
+EMAIL_THUNDERBIRD_ID=9e5f94bc-e8a4-4e73-b8be-63364c29d753
+email_oauth_padrao() { # provedor → atribui em E[...]
+  case $1 in
+    microsoft)
+      E[oauth_device_endpoint]=https://login.microsoftonline.com/common/oauth2/v2.0/devicecode
+      E[oauth_token_endpoint]=https://login.microsoftonline.com/common/oauth2/v2.0/token
+      E[oauth_auth_endpoint]=https://login.microsoftonline.com/common/oauth2/v2.0/authorize
+      E[oauth_scope]="offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send" ;;
+    gmail)
+      E[oauth_auth_endpoint]=https://accounts.google.com/o/oauth2/auth
+      E[oauth_token_endpoint]=https://oauth2.googleapis.com/token
+      E[oauth_device_endpoint]=""
+      E[oauth_scope]=https://mail.google.com/ ;;
+  esac
 }
 
-# Gerência (roda dentro do popup): lista contas e permite remover uma.
+email_conf_arq() { echo "$EMAIL_DIR/$1.conf"; }
+email_cred_arq() { echo "$SECRETS_DIR/aerc-$1.txt"; }
+
+# Carrega a conta SLUG no array associativo global E.
+email_ler() {
+  local f k v; f=$(email_conf_arq "$1"); [[ -r $f ]] || return 1
+  E=(); E[_slug]=$1
+  while IFS= read -r l; do [[ $l == *=* && $l != \#* ]] || continue; k=${l%%=*}; v=${l#*=}; E[$k]=$v; done <"$f"
+}
+
+email_gravar() {
+  local slug=${E[_slug]} f k
+  mkdir -p "$EMAIL_DIR"; f=$(email_conf_arq "$slug")
+  { echo "# conta de e-mail do tt (sem segredos; o segredo fica em $(email_cred_arq "$slug"))"
+    for k in "${EMAIL_CHAVES[@]}"; do [[ -z ${E[$k]:-} ]] || printf '%s=%s\n' "$k" "${E[$k]}"; done; } >"$f.tmp" && mv "$f.tmp" "$f"
+}
+
+email_slugs() { local f; for f in "$EMAIL_DIR"/*.conf; do [[ -e $f ]] && basename "$f" .conf; done; }
+
+# URL do aerc: segurança → esquema; OAuth2 → +xoauth2 e parâmetros para o aerc renovar o token.
+email_url() { # imap|smtp
+  local t=$1 host porta seg usuario esq q=""
+  host=${E[${t}_host]}; porta=${E[${t}_porta]}; seg=${E[${t}_seg]:-tls}
+  usuario=${E[usuario]:-${E[endereco]}}; usuario=${usuario//@/%40}
+  case $t:$seg in
+    imap:tls) esq=imaps ;; imap:starttls) esq=imap ;; imap:*) esq=imap+insecure ;;
+    smtp:tls) esq=smtps ;; smtp:starttls) esq=smtp ;; smtp:*) esq=smtp+insecure ;;
+  esac
+  if [[ ${E[auth]} == oauth ]]; then
+    esq+=+xoauth2
+    q="?token_endpoint=$(email_urlenc "${E[oauth_token_endpoint]}")&client_id=$(email_urlenc "${E[oauth_client_id]}")"
+    [[ -s $SECRETS_DIR/aerc-${E[_slug]}.client_secret ]] && q+="&client_secret=$(email_urlenc "$(cat "$SECRETS_DIR/aerc-${E[_slug]}.client_secret")")"
+    [[ -n ${E[oauth_scope]} ]] && q+="&scope=$(email_urlenc "${E[oauth_scope]}")"
+  fi
+  printf '%s://%s@%s:%s%s' "$esq" "$usuario" "$host" "$porta" "$q"
+}
+email_urlenc() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"; }
+
+email_bloco() {
+  local cred; cred=$(email_cred_arq "${E[_slug]}")
+  local cmd; if [[ ${E[auth]} == comando ]]; then cmd=${E[cred_cmd]}; else cmd="cat $(printf %q "$cred")"; fi
+  echo "# >>> tt e-mail: ${E[_slug]} >>>"
+  printf '[%s]\n' "${E[nome]}"
+  printf 'source            = %s\n' "$(email_url imap)"
+  printf 'source-cred-cmd   = %s\n' "$cmd"
+  printf 'outgoing          = %s\n' "$(email_url smtp)"
+  printf 'outgoing-cred-cmd = %s\n' "$cmd"
+  if [[ -n ${E[nome_exibicao]:-} ]]; then printf 'from              = %s <%s>\n' "${E[nome_exibicao]}" "${E[endereco]}"
+  else printf 'from              = %s\n' "${E[endereco]}"; fi
+  printf 'default           = %s\n' "${E[pasta]:-INBOX}"
+  local i; for i in 1 2 3 4 5 6 7 8; do [[ -n ${E[extra_$i]:-} ]] && printf '%s\n' "${E[extra_$i]}"; done
+  echo "# <<< tt e-mail: ${E[_slug]} <<<"
+}
+
+# Regrava o bloco gerenciado da conta SLUG (ou o remove, com "remover") no accounts.conf.
+email_regerar() {
+  local slug=$1 modo=${2:-} tmp
+  mkdir -p "$AERC_DIR"; [[ -f $AERC_CONTAS ]] || : >"$AERC_CONTAS"; chmod 600 "$AERC_CONTAS" 2>/dev/null
+  tmp=$(mktemp) || return 1
+  awk -v i="# >>> tt e-mail: $slug >>>" -v f="# <<< tt e-mail: $slug <<<" '$0 == i { p = 1 } !p { print } $0 == f { p = 0 }' "$AERC_CONTAS" >"$tmp"
+  if [[ $modo != remover ]]; then
+    [[ -s $tmp && $(tail -c1 "$tmp" | od -An -c | tr -d ' ') != '\n' ]] && echo >>"$tmp"
+    email_bloco >>"$tmp"
+  fi
+  cat "$tmp" >"$AERC_CONTAS"; rm -f "$tmp"
+}
+
+# Contas criadas pelo cadastro antigo (Gmail com senha de app, sem marcadores) passam a ser
+# gerenciadas: cria o .conf e troca o bloco solto pelo bloco com marcadores.
+email_importar_legado() {
+  [[ -f $AERC_CONTAS ]] || return 0
+  local nome slug end tmp; local -A E=()
+  while IFS=$'\t' read -r nome end; do
+    slug=$(email_slug "$nome")
+    [[ -e $(email_conf_arq "$slug") || ! -f $(email_cred_arq "$slug") ]] && continue
+    E=([_slug]=$slug [nome]=$nome [endereco]=$end [provedor]=gmail [auth]=senha [imap_host]=imap.gmail.com [imap_porta]=993
+       [imap_seg]=tls [smtp_host]=smtp.gmail.com [smtp_porta]=465 [smtp_seg]=tls [pasta]=INBOX)
+    [[ -e $AERC_CONTAS.antes-tt ]] || cp -p "$AERC_CONTAS" "$AERC_CONTAS.antes-tt" # cópia antes da 1ª importação
+    tmp=$(mktemp)
+    awk -v alvo="[$nome]" '$0 == alvo { pula = 1; next } pula && /^\[.*\]$|^# >>> tt e-mail:/ { pula = 0 } !pula' "$AERC_CONTAS" >"$tmp" && cat "$tmp" >"$AERC_CONTAS"
+    rm -f "$tmp"; email_gravar; email_regerar "$slug"
+  done < <(awk '/^# >>> tt e-mail:/ { g = 1 } /^# <<< tt e-mail:/ { g = 0; next } g { next }
+    /^\[.*\]$/ { n = substr($0, 2, length($0) - 2); next }
+    n != "" && /^source[ \t]*=[ \t]*imaps:\/\/[^@]*@imap\.gmail\.com/ { src[n] = 1 }
+    n != "" && /^from[ \t]*=/ { sub(/^from[ \t]*=[ \t]*/, ""); fr[n] = $0 }
+    END { for (k in src) print k "\t" fr[k] }' "$AERC_CONTAS")
+}
+
+# Contas escritas à mão (fora dos marcadores): "nome" por linha.
+email_manuais() {
+  [[ -f $AERC_CONTAS ]] || return 0
+  awk '/^# >>> tt e-mail:/ { g = 1 } /^# <<< tt e-mail:/ { g = 0; next } !g && /^\[.*\]$/ { print substr($0, 2, length($0) - 2) }' "$AERC_CONTAS"
+}
+
+# Assume uma conta escrita à mão: lê o bloco [NOME] e o transforma numa conta do tt com o MESMO
+# efeito (o comando de senha vira autenticação "comando"; chaves desconhecidas como copy-to são
+# preservadas). Guarda accounts.conf.antes-tt na primeira vez.
+email_assumir() {
+  local nome=$1 slug k v url esq resto hp n=0 tmp; local -A E=()
+  slug=$(email_slug "$nome")
+  [[ -e $(email_conf_arq "$slug") ]] && { echo "Já existe uma conta do tt com o identificador $slug."; return 1; }
+  E=([_slug]=$slug [nome]=$nome [pasta]=INBOX [provedor]=outro)
+  while IFS= read -r l; do
+    [[ $l =~ ^[[:space:]]*([a-z-]+)[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $k in
+      source|outgoing)
+        url=$v; esq=${url%%://*}; resto=${url#*://}; [[ $resto == *@* ]] && { E[usuario]=${resto%%@*}; resto=${resto#*@}; }
+        hp=${resto%%[/?]*}; local t=imap; [[ $k == outgoing ]] && t=smtp
+        E[${t}_host]=${hp%%:*}; E[${t}_porta]=${hp##*:}; [[ $hp == *:* ]] || E[${t}_porta]=$([[ $t == imap ]] && echo 993 || echo 465)
+        case $esq in *s|*s+*) E[${t}_seg]=tls ;; *insecure*) E[${t}_seg]=nenhuma ;; *) E[${t}_seg]=starttls ;; esac
+        [[ $esq == *xoauth2* || $esq == *oauthbearer* ]] && E[auth]=oauth ;;
+      source-cred-cmd) E[cred_cmd]=$v ;;
+      outgoing-cred-cmd) ;;
+      from) if [[ $v =~ ^(.*)\<([^>]+)\>$ ]]; then E[nome_exibicao]=$(sed 's/[[:space:]]*$//' <<<"${BASH_REMATCH[1]}"); E[endereco]=${BASH_REMATCH[2]}; else E[endereco]=$v; fi ;;
+      default) E[pasta]=$v ;;
+      *) n=$((n + 1)); ((n <= 8)) && E[extra_$n]=$l ;;
+    esac
+  done < <(awk -v alvo="[$nome]" '$0 == alvo { p = 1; next } p && /^\[.*\]$|^# >>> tt e-mail:/ { p = 0 } p' "$AERC_CONTAS")
+  E[usuario]=${E[usuario]//%40/@}; [[ ${E[usuario]} == "${E[endereco]:-}" ]] && E[usuario]=""
+  [[ ${E[auth]:-} == oauth ]] || { E[auth]=comando; }
+  case ${E[imap_host]:-} in imap.gmail.com) E[provedor]=gmail ;; outlook.office365.com) E[provedor]=microsoft ;; imap.mail.yahoo.com) E[provedor]=yahoo ;; imap.mail.me.com) E[provedor]=icloud ;; imap.fastmail.com) E[provedor]=fastmail ;; esac
+  local erro; erro=$(email_validar) || { echo "Não consegui assumir \"$nome\": $erro"; return 1; }
+  [[ -e $AERC_CONTAS.antes-tt ]] || cp -p "$AERC_CONTAS" "$AERC_CONTAS.antes-tt"
+  tmp=$(mktemp)
+  awk -v alvo="[$nome]" '$0 == alvo { pula = 1; next } pula && /^\[.*\]$|^# >>> tt e-mail:/ { pula = 0 } !pula' "$AERC_CONTAS" >"$tmp" && cat "$tmp" >"$AERC_CONTAS"; rm -f "$tmp"
+  email_gravar; email_regerar "$slug"
+  echo "✔ \"$nome\" agora é gerenciada pelo tt (cópia anterior em $AERC_CONTAS.antes-tt)"
+}
+
+# Validação comum (cadastro e edição). Imprime o problema e falha.
+email_validar() {
+  local novo=${1:-}
+  [[ -n ${E[nome]:-} ]] || { echo "Nome vazio."; return 1; }
+  [[ ${E[nome]} == *'['* || ${E[nome]} == *']'* ]] && { echo "O nome não pode conter [ nem ]."; return 1; }
+  [[ ${E[endereco]:-} == ?*@?*.* ]] || { echo "Endereço inválido: ${E[endereco]:-vazio}."; return 1; }
+  [[ ${E[imap_host]:-} && ${E[smtp_host]:-} ]] || { echo "Faltam os servidores IMAP/SMTP."; return 1; }
+  [[ ${E[imap_porta]:-} =~ ^[0-9]+$ && ${E[smtp_porta]:-} =~ ^[0-9]+$ ]] || { echo "Porta inválida."; return 1; }
+  [[ ${E[imap_seg]} =~ ^(tls|starttls|nenhuma)$ && ${E[smtp_seg]} =~ ^(tls|starttls|nenhuma)$ ]] || { echo "Segurança deve ser tls, starttls ou nenhuma."; return 1; }
+  [[ ${E[auth]} =~ ^(senha|oauth|comando)$ ]] || { echo "Autenticação deve ser senha, oauth ou comando."; return 1; }
+  [[ ${E[auth]} != comando || -n ${E[cred_cmd]:-} ]] || { echo "Falta o comando que imprime a senha."; return 1; }
+  [[ ${E[auth]} != oauth || -n ${E[oauth_client_id]:-} ]] || { echo "Falta o ID do app OAuth (client_id)."; return 1; }
+  if [[ -n $novo ]]; then
+    email_contas_nomes | grep -qxF "${E[nome]}" && { echo "Já existe uma conta \"${E[nome]}\"."; return 1; }
+    [[ -e $(email_conf_arq "${E[_slug]}") || -e $(email_cred_arq "${E[_slug]}") ]] &&
+      { echo "Já existe uma conta que usa o mesmo identificador (${E[_slug]}); escolha um nome distinto."; return 1; }
+  fi
+  return 0
+}
+
+# Preenche servidores e autenticação a partir do provedor (e, em "outro", do domínio).
+email_aplicar_provedor() {
+  local linha imap smtp auths h p s
+  linha=$(email_provedor "${E[provedor]}"); IFS='|' read -r _ _ imap smtp auths _ <<<"$linha"
+  if [[ -n $imap ]]; then
+    read -r h p s <<<"$imap"; E[imap_host]=${E[imap_host]:-$h}; E[imap_porta]=${E[imap_porta]:-$p}; E[imap_seg]=${E[imap_seg]:-$s}
+    read -r h p s <<<"$smtp"; E[smtp_host]=${E[smtp_host]:-$h}; E[smtp_porta]=${E[smtp_porta]:-$p}; E[smtp_seg]=${E[smtp_seg]:-$s}
+  elif [[ -z ${E[imap_host]:-} && ${E[endereco]:-} == *@* ]] && command -v python3 >/dev/null; then
+    local k v
+    while IFS='=' read -r k v; do [[ $k == imap_* || $k == smtp_* ]] && E[$k]=$v; done < <(python3 "$EMAIL_PY" descobrir "${E[endereco]#*@}" 2>/dev/null)
+  fi
+  [[ -n ${E[auth]:-} ]] || E[auth]=${auths%% *}
+  [[ ${E[auth]} == oauth ]] && [[ -z ${E[oauth_token_endpoint]:-} ]] && email_oauth_padrao "${E[provedor]}"
+  E[pasta]=${E[pasta]:-INBOX}
+}
+
+# tt --email-adicionar chave=valor… [--senha-stdin]: cadastro sem interação (scripts e testes).
+# Chaves: as de EMAIL_CHAVES (nome, endereco, provedor, auth, imap_host, imap_porta, imap_seg, …).
+email_adicionar_cli() {
+  local -A E=() ; local a senha_stdin="" k
+  for a in "$@"; do
+    case $a in --senha-stdin) senha_stdin=1 ;; *=*) k=${a%%=*}; E[$k]=${a#*=} ;; *) echo "argumento inválido: $a"; return 2 ;; esac
+  done
+  E[provedor]=${E[provedor]:-outro}; E[nome]=${E[nome]:-${E[endereco]%@*}}; E[_slug]=$(email_slug "${E[nome]}")
+  email_aplicar_provedor
+  email_validar novo || return 1
+  if [[ ${E[auth]} == senha ]]; then
+    local senha; [[ -n $senha_stdin ]] && IFS= read -r senha
+    [[ -n ${senha:-} ]] || { echo "Senha vazia (use --senha-stdin)."; return 1; }
+    mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR" 2>/dev/null
+    ( umask 077; printf '%s' "$senha" >"$(email_cred_arq "${E[_slug]}")" ); chmod 600 "$(email_cred_arq "${E[_slug]}")"; unset senha
+  fi
+  email_gravar; email_regerar "${E[_slug]}"
+  echo "✔ conta \"${E[nome]}\" cadastrada (${E[_slug]})"
+}
+
+email_remover_slug() {
+  local slug=$1; local -A E=()
+  email_ler "$slug" || { echo "Conta não encontrada: $slug"; return 1; }
+  email_regerar "$slug" remover
+  rm -f "$(email_conf_arq "$slug")" "$(email_cred_arq "$slug")" "$SECRETS_DIR/aerc-$slug.client_secret"
+  echo "✔ conta \"${E[nome]}\" removida (bloco do aerc e segredos apagados)"
+}
+
+# Conta pelo nome ou slug → slug.
+email_achar() {
+  local s; s=$(email_slug "$1"); [[ -e $(email_conf_arq "$s") ]] && { echo "$s"; return 0; }
+  for s in $(email_slugs); do local -A E=(); email_ler "$s" && [[ ${E[nome]} == "$1" ]] && { echo "$s"; return 0; }; done
+  return 1
+}
+
+# TSV: slug, nome, endereço, provedor, autenticação, servidor IMAP.
+email_listar() {
+  email_importar_legado
+  local s n; for s in $(email_slugs); do local -A E=(); email_ler "$s" || continue
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$s" "${E[nome]}" "${E[endereco]}" "${E[provedor]:-outro}" "${E[auth]}" "${E[imap_host]}:${E[imap_porta]}"
+  done
+  # Escritas à mão: aparecem com slug "!NOME" (abrir assume a conta no tt).
+  while IFS= read -r n; do [[ -n $n ]] && printf '!%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$n" "-" manual "-" "-"; done < <(email_manuais)
+}
+
+email_testar_slug() {
+  command -v python3 >/dev/null || { echo "✗ precisa do python3 para testar"; return 1; }
+  [[ -e $(email_conf_arq "$1") ]] || { echo "Conta não encontrada: $1"; return 1; }
+  python3 "$EMAIL_PY" testar "$(email_conf_arq "$1")"
+}
+
+email_autorizar_slug() {
+  command -v python3 >/dev/null || { echo "✗ precisa do python3"; return 1; }
+  python3 "$EMAIL_PY" oauth-autorizar "$(email_conf_arq "$1")"
+}
+
+# ─── Telas (rodam dentro do popup) ─────────────────────────────────────────────
+# Pergunta com valor sugerido (Enter aceita). Sem terminal (testes, scripts), lê uma linha.
+email_pergunta() { # VAR texto [padrão]
+  local __v
+  if [[ -t 0 ]]; then read -r -e -p "$2: " -i "${3:-}" __v || return 1
+  else IFS= read -r __v || __v=""; [[ -z $__v ]] && __v=${3:-}; fi
+  printf -v "$1" '%s' "$__v"
+}
+# Escolha numa lista "chave<TAB>rótulo": fzf no terminal; sem terminal, lê a chave (ou o padrão).
+email_escolher() { # VAR título padrão "opções" (a resposta vem da entrada padrão quando não há terminal)
+  local __op=$4 __v
+  if [[ -t 0 && -t 1 ]] && command -v fzf >/dev/null; then
+    __v=$(fzf --ansi --layout=reverse --delimiter=$'\t' --with-nth=2 --no-input --height=~20 --header="$2" <<<"$__op" | cut -f1) || return 1
+  else
+    IFS= read -r __v || __v=""; [[ -z $__v ]] && __v=$3
+    grep -q "^$__v"$'\t' <<<"$__op" || return 1
+  fi
+  printf -v "$1" '%s' "$__v"
+}
+
+email_rotulo_auth() { case $1 in senha) echo "senha / senha de app" ;; oauth) echo "OAuth2 / SSO (login pelo navegador)" ;; comando) echo "comando externo (pass, secret-tool, Bitwarden…)" ;; esac; }
+
+# Pede o segredo conforme a autenticação. Senha: lida sem eco, direto para ~/.secrets (600).
+email_pedir_segredo() {
+  case ${E[auth]} in
+    senha)
+      local senha senha2 cred; cred=$(email_cred_arq "${E[_slug]}")
+      read -r -s -p 'Senha (não aparece): ' senha; printf '\n'
+      read -r -s -p 'Repita a senha: ' senha2; printf '\n'
+      [[ -n $senha ]] || { echo "Senha vazia."; return 1; }
+      [[ $senha == "$senha2" ]] || { echo "As senhas não conferem."; return 1; }
+      mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR" 2>/dev/null
+      ( umask 077; printf '%s' "$senha" >"$cred" ); chmod 600 "$cred"; unset senha senha2 ;;
+    comando)
+      printf 'Comando que imprime a senha (ex.: pass email/pessoal · secret-tool lookup email %s)\n' "${E[endereco]}"
+      email_pergunta 'E[cred_cmd]' 'Comando' "${E[cred_cmd]:-}" ;;
+    oauth)
+      printf '\nOAuth2 precisa do ID de um app registrado (client_id).\n'
+      if [[ ${E[provedor]} == microsoft ]]; then
+        printf 'Você pode registrar o seu (portal do Azure → Registros de aplicativo) ou usar o ID público\n'
+        printf 'do Thunderbird, que vários clientes livres usam (deixe em branco para usá-lo).\n'
+        email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-}"
+        E[oauth_client_id]=${E[oauth_client_id]:-$EMAIL_THUNDERBIRD_ID}
+      else
+        [[ ${E[provedor]} == gmail ]] && printf 'Google: crie um app do tipo "Desktop" em console.cloud.google.com (APIs e serviços → Credenciais).\n'
+        email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-}"
+        local seg; read -r -s -p 'client_secret (se houver; não aparece): ' seg; printf '\n'
+        if [[ -n $seg ]]; then mkdir -p "$SECRETS_DIR"; ( umask 077; printf '%s' "$seg" >"$SECRETS_DIR/aerc-${E[_slug]}.client_secret" ); fi; unset seg
+        if [[ ${E[provedor]} == outro ]]; then
+          email_pergunta 'E[oauth_auth_endpoint]' 'endereço de autorização' "${E[oauth_auth_endpoint]:-}"
+          email_pergunta 'E[oauth_token_endpoint]' 'endereço do token' "${E[oauth_token_endpoint]:-}"
+          email_pergunta 'E[oauth_device_endpoint]' 'endereço do código no aparelho (opcional)' "${E[oauth_device_endpoint]:-}"
+          email_pergunta 'E[oauth_scope]' 'escopos' "${E[oauth_scope]:-}"
+        fi
+      fi ;;
+  esac
+}
+
+email_avancado() {
+  printf '\n⚙ Servidores (Enter mantém o valor)\n'
+  email_pergunta 'E[imap_host]' 'IMAP (receber) — servidor' "${E[imap_host]:-}"
+  email_pergunta 'E[imap_porta]' 'IMAP — porta' "${E[imap_porta]:-993}"
+  email_escolher 'E[imap_seg]' 'IMAP — segurança' "${E[imap_seg]:-tls}" $'tls\tTLS (porta 993)\nstarttls\tSTARTTLS (porta 143)\nnenhuma\tnenhuma (só localhost, ex.: Proton Bridge)' || true
+  email_pergunta 'E[smtp_host]' 'SMTP (enviar) — servidor' "${E[smtp_host]:-}"
+  email_pergunta 'E[smtp_porta]' 'SMTP — porta' "${E[smtp_porta]:-465}"
+  email_escolher 'E[smtp_seg]' 'SMTP — segurança' "${E[smtp_seg]:-tls}" $'tls\tTLS (porta 465)\nstarttls\tSTARTTLS (porta 587)\nnenhuma\tnenhuma (só localhost)' || true
+  email_pergunta 'E[usuario]' 'Usuário de login (se diferente do endereço)' "${E[usuario]:-}"
+  email_pergunta 'E[pasta]' 'Pasta inicial' "${E[pasta]:-INBOX}"
+}
+
+email_resumo() {
+  printf '\n  %s  <%s>\n' "${E[nome]}" "${E[endereco]}"
+  printf '  provedor: %s · autenticação: %s\n' "${E[provedor]}" "$(email_rotulo_auth "${E[auth]}")"
+  printf '  IMAP: %s:%s (%s) · SMTP: %s:%s (%s)\n' "${E[imap_host]}" "${E[imap_porta]}" "${E[imap_seg]}" "${E[smtp_host]}" "${E[smtp_porta]}" "${E[smtp_seg]}"
+  [[ -n ${E[usuario]:-} ]] && printf '  usuário de login: %s\n' "${E[usuario]}"
+  return 0
+}
+
+email_pausa() { [[ -t 0 ]] && { printf '\n%s' "${1:-Enter volta.}"; read -r _; }; return 0; }
+
+# Assistente de cadastro: provedor → endereço → nome → autenticação → segredo → (avançado) → testar.
+email_conta_nova_ui() {
+  command -v aerc >/dev/null || { printf 'O aerc não está instalado nesta máquina.\nInstale o aerc e rode de novo.'; email_pausa 'Enter fecha.'; return; }
+  local -A E=(); local prov auths op linha dica erro
+  clear 2>/dev/null; printf '📧 Nova conta de e-mail\n\n'
+  email_escolher prov 'Qual é o seu e-mail?' gmail "$(cut -d'|' -f1,2 <<<"$EMAIL_PROVEDORES" | tr '|' '\t')" || return 0
+  E[provedor]=$prov; linha=$(email_provedor "$prov"); IFS='|' read -r _ _ _ _ auths dica <<<"$linha"
+  email_pergunta 'E[endereco]' 'Endereço (ex.: voce@exemplo.com)' || return 0
+  email_pergunta 'E[nome]' 'Nome da conta no aerc' "${E[endereco]%%@*}" || return 0
+  E[_slug]=$(email_slug "${E[nome]}")
+  local opts=""; for op in $auths; do opts+="$op"$'\t'"$(email_rotulo_auth "$op")"$'\n'; done
+  email_escolher 'E[auth]' 'Como entrar na conta?' "${auths%% *}" "${opts%$'\n'}" || return 0
+  [[ -n $dica ]] && printf '\nℹ %s\n' "$dica"
+  email_aplicar_provedor
+  if [[ $prov == outro ]]; then printf '\nServidores %s.\n' "$([[ -n ${E[imap_host]:-} ]] && echo "descobertos para ${E[endereco]#*@}" || echo "não encontrados")"; email_avancado
+  elif [[ -t 0 ]]; then local aj; read -r -p $'\nAjustar servidores, portas ou usuário? (s/N) ' aj; [[ $aj == [sSyY]* ]] && email_avancado; fi
+  if ! erro=$(email_validar novo); then printf '\n✗ %s\n' "$erro"; email_pausa 'Enter fecha.'; return 0; fi
+  email_pedir_segredo || { email_pausa 'Enter fecha.'; return 0; }
+  email_gravar; email_regerar "${E[_slug]}"
+  printf '\n✔ Conta cadastrada:'; email_resumo
+  if [[ ${E[auth]} == oauth ]]; then printf '\nAgora autorize o acesso:\n'; email_autorizar_slug "${E[_slug]}"; fi
+  if [[ -t 0 ]]; then local t; read -r -p $'\nTestar a conexão agora? (S/n) ' t; [[ $t == [nN]* ]] || { printf '\n'; email_testar_slug "${E[_slug]}"; }; fi
+  printf '\nSe o aerc estiver aberto, saia e reabra pelo 📧 para carregar a conta.'
+  email_pausa 'Enter volta.'
+}
+
+# Edição: os campos atuais vêm preenchidos; trocar a senha é opcional.
+email_editar_ui() {
+  local slug=$1 erro t; local -A E=(); email_ler "$slug" || return 0
+  clear 2>/dev/null; printf '✏ Editar conta'; email_resumo
+  email_pergunta 'E[endereco]' 'Endereço' "${E[endereco]}"
+  email_pergunta 'E[nome_exibicao]' 'Nome de exibição (no "De:"; opcional)' "${E[nome_exibicao]:-}"
+  email_avancado
+  if ! erro=$(email_validar); then printf '\n✗ %s\n' "$erro"; email_pausa; return 0; fi
+  read -r -p $'\nTrocar a senha/credencial? (s/N) ' t; [[ $t == [sSyY]* ]] && { email_pedir_segredo || { email_pausa; return 0; }; }
+  email_gravar; email_regerar "$slug"
+  [[ ${E[auth]} == oauth && $t == [sSyY]* ]] && email_autorizar_slug "$slug"
+  printf '\n✔ Conta atualizada.'; email_pausa
+}
+
+# Gerência: lista navegável das contas; Enter abre as ações da conta.
 email_contas_ui() {
-  local nomes n alvo slug cred tmp op c i
+  local escolha slug acao linhas c
+  email_importar_legado
   while :; do
-    clear 2>/dev/null
-    printf '📧 Contas de e-mail cadastradas\n\n'
-    mapfile -t nomes < <(email_contas_nomes)
-    if ((${#nomes[@]} == 0)); then printf '(nenhuma)\n'; else
-      i=0; for n in "${nomes[@]}"; do i=$((i+1)); printf '  %d) %s\n' "$i" "$n"; done
+    linhas=$(email_listar | awk -F'\t' '$4 == "manual" { printf "%s\t📧 %-16.16s \033[33m(escrita à mão · ⏎ assume no tt)\033[0m\n", $1, $2; next }
+      { printf "%s\t📧 %-16.16s %-30.30s \033[90m%s · %s · %s\033[0m\n", $1, $2, $3, $4, $5, $6 }')
+    escolha=$( { printf '+\t\033[32m＋ Cadastrar conta…\033[0m\n'; [[ -n $linhas ]] && printf '%s\n' "$linhas"; } |
+      fzf --ansi --layout=reverse --no-sort --delimiter=$'\t' --with-nth=2 --no-input \
+        --header=$'📧 Contas de e-mail · ⏎ abre · ^n nova · ^t testar · ^d descadastrar · Esc fecha' \
+        --expect=enter,ctrl-n,ctrl-t,ctrl-d) || return 0
+    acao=$(head -1 <<<"$escolha"); slug=$(sed -n 2p <<<"$escolha" | cut -f1)
+    [[ $acao == ctrl-n || $slug == + ]] && { email_conta_nova_ui; continue; }
+    [[ -n $slug ]] || continue
+    if [[ $slug == !* ]]; then # conta escrita à mão: assumir (com cópia) antes de gerenciar
+      clear; printf 'A conta "%s" foi escrita à mão no accounts.conf.\nO tt pode assumi-la (mesmo efeito, com cópia de segurança) para você editar e testar por aqui.\n\n' "${slug#!}"
+      read -r -p 'Assumir agora? (S/n) ' c; [[ $c == [nN]* ]] && continue
+      email_assumir "${slug#!}" || { email_pausa; continue; }
+      slug=$(email_slug "${slug#!}")
     fi
-    printf '\n[n] nova conta   [r] remover   [Enter] fechar\n> '
-    read -r op
+    case $acao in
+      ctrl-t) clear; email_testar_slug "$slug"; email_pausa ;;
+      ctrl-d) email_descadastrar_ui "$slug" ;;
+      *) email_conta_ui "$slug" ;;
+    esac
+  done
+}
+
+email_conta_ui() {
+  local slug=$1 op; local -A E=(); email_ler "$slug" || return 0
+  while :; do
+    email_ler "$slug" || return 0
+    op=$( { printf 't\t🔌 Testar conexão (receber e enviar)\n'
+            printf 'e\t✏ Editar (servidores, portas, segurança, usuário, senha)\n'
+            [[ ${E[auth]} == oauth ]] && printf 'a\t🔑 Autorizar de novo (OAuth2 / SSO)\n'
+            printf 'd\t🗑 Descadastrar\n'; printf 'v\t← Voltar\n'; } |
+      fzf --ansi --layout=reverse --no-sort --delimiter=$'\t' --with-nth=2 --no-input \
+        --header="$(email_resumo | sed '/^$/d')" | cut -f1) || return 0
     case $op in
-      n|N) email_conta_nova_ui ;;
-      r|R)
-        ((${#nomes[@]})) || { printf 'Nada para remover. '; read -rsn1 _; continue; }
-        read -r -p 'Número da conta a remover: ' alvo
-        [[ $alvo =~ ^[0-9]+$ ]] && ((alvo>=1 && alvo<=${#nomes[@]})) || { printf 'Inválido. (tecla segue) '; read -rsn1 _; continue; }
-        n=${nomes[alvo-1]}
-        read -r -p "Remover \"$n\"? apaga o bloco e a senha de app (s/N): " c
-        [[ $c == [sSyY]* ]] || { printf 'Cancelado. (tecla segue) '; read -rsn1 _; continue; }
-        # Remove o bloco [n] até o próximo cabeçalho [..] ou fim do arquivo.
-        tmp=$(mktemp)
-        awk -v alvo="[$n]" '
-          $0==alvo {pula=1; next}
-          pula && /^\[.*\]$/ {pula=0}
-          !pula {print}' "$AERC_CONTAS" > "$tmp" && cat "$tmp" > "$AERC_CONTAS"; rm -f "$tmp"
-        slug=$(email_slug "$n"); cred="$SECRETS_DIR/aerc-$slug.txt"
-        [[ -f $cred ]] && rm -f "$cred"
-        printf 'Removida "%s". ' "$n"
-        ;;
+      t) clear; email_testar_slug "$slug"; email_pausa ;;
+      e) email_editar_ui "$slug" ;;
+      a) clear; email_autorizar_slug "$slug"; email_pausa ;;
+      d) email_descadastrar_ui "$slug" && return 0 ;;
       *) return 0 ;;
     esac
   done
+}
+
+email_descadastrar_ui() {
+  local slug=$1 c; local -A E=(); email_ler "$slug" || return 1
+  clear 2>/dev/null; printf '🗑 Descadastrar'; email_resumo
+  read -r -p $'\nApaga o bloco do aerc e a senha/token desta conta (os e-mails no servidor não são tocados). Confirmar? (s/N) ' c
+  [[ $c == [sSyY]* ]] || return 1
+  email_remover_slug "$slug"; email_pausa; return 0
 }
 
 # Abre o gerenciador de contas numa subjanela (popup), como o próprio e-mail.
@@ -4797,6 +5147,12 @@ case "${1:-}" in
     c=${2:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
     botao_email_contas "$c"; exit ;;
   --email-contas-ui) email_contas_ui; exit ;;
+  --email-adicionar) shift; email_adicionar_cli "$@"; exit ;;
+  --email-listar) email_listar; exit ;;
+  --email-assumir) email_assumir "${2:?uso: tt --email-assumir NOME}"; exit ;;
+  --email-remover) s=$(email_achar "${2:?uso: tt --email-remover NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_remover_slug "$s"; exit ;;
+  --email-testar) s=$(email_achar "${2:?uso: tt --email-testar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_testar_slug "$s"; exit ;;
+  --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
   --email-conta-nova-ui) email_conta_nova_ui; exit ;;
   --configurar-bashrc) configurar_bashrc; exit ;;
   --remover-bashrc) remover_bashrc; exit ;;

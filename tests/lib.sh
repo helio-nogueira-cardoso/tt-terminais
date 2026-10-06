@@ -9,7 +9,7 @@ isolar() {
   T=$(mktemp -d)
   mkdir -p "$T/pkg" "$T/home/.config/tt" "$T/tmux" "$T/rt"
   local f
-  for f in tt tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
+  for f in tt email-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
            atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md; do
     [[ -e $RAIZ/$f ]] && cp "$RAIZ/$f" "$T/pkg/"
   done

@@ -151,13 +151,16 @@ rg -Fq -- '--email-conta-nova-ui)' "$tt" || falha 'e-mail/contas: verbo --email-
 rg -Fq -- '--email-contas|--email-conta)' "$tt" || falha 'e-mail/contas: verbo --email-contas ausente'
 rg -Fq 'Contas de e-mail' "$tt" || falha 'e-mail/contas: item de menu administrar ausente'
 # Senha nunca é ecoada: a leitura usa read -s.
+# (a senha é pedida em email_pedir_segredo, chamada pelo assistente e pela edição)
 corpo_nova=$(sed -n '/^email_conta_nova_ui()/,/^}/p' "$tt")
-grep -Eq 'read -r -s' <<<"$corpo_nova" || falha 'e-mail/contas: senha deve ser lida com read -s (sem eco)'
+corpo_seg=$(sed -n '/^email_pedir_segredo()/,/^}/p' "$tt")
+grep -q 'email_pedir_segredo' <<<"$corpo_nova" || falha 'e-mail/contas: assistente não pede o segredo por email_pedir_segredo'
+grep -Eq "read -r -s -p 'Senha" <<<"$corpo_seg" || falha 'e-mail/contas: senha deve ser lida com read -s (sem eco)'
 # Teste funcional em HOME isolado: cadastra uma conta e confirma que a senha vai para ~/.secrets
 # (600) e não para o accounts.conf. aerc é simulado via PATH; valores são fictícios.
 tmphome=$(mktemp -d)
 printf '#!/bin/sh\nexit 0\n' > "$tmphome/aerc"; chmod +x "$tmphome/aerc"
-printf 'ContaTeste\nx@gmail.com\nSENHA_FICTICIA_TESTE\nSENHA_FICTICIA_TESTE\n\n' |
+printf 'gmail\nx@gmail.com\nContaTeste\nsenha\nSENHA_FICTICIA_TESTE\nSENHA_FICTICIA_TESTE\n\n' |
   env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
 # nota: EU aponta para um tt inexistente de propósito; a função nova_ui não reinvoca o tt.
 conta="$tmphome/.config/aerc/accounts.conf"; cred="$tmphome/.secrets/aerc-contateste.txt"
@@ -176,15 +179,15 @@ rm -rf "$tmphome"
 base=$falhas
 tmphome=$(mktemp -d)
 printf '#!/bin/sh\nexit 0\n' > "$tmphome/aerc"; chmod +x "$tmphome/aerc"
-printf 'Pessoal\np1@gmail.com\nSENHA_UM\nSENHA_UM\n\n' |
+printf 'gmail\np1@gmail.com\nPessoal\nsenha\nSENHA_UM\nSENHA_UM\n\n' |
   env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
-printf 'pessoal!\np2@gmail.com\nSENHA_DOIS\nSENHA_DOIS\n\n' |
+printf 'gmail\np2@gmail.com\npessoal!\nsenha\nSENHA_DOIS\nSENHA_DOIS\n\n' |
   env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
 conta="$tmphome/.config/aerc/accounts.conf"; cred="$tmphome/.secrets/aerc-pessoal.txt"
 [[ -f $cred && $(cat "$cred") == SENHA_UM ]] || falha 'e-mail/contas: colisão de slug sobrescreveu a senha da 1ª conta'
 [[ $(grep -c '^\[pessoal!\]$' "$conta" 2>/dev/null) == 0 ]] || falha 'e-mail/contas: 2ª conta com slug colidente foi cadastrada mesmo assim'
 # nome com colchete deve ser recusado (cabeçalho [Nome] quebraria)
-printf 'Tra[balho]\nt@gmail.com\nSENHA_T\nSENHA_T\n\n' |
+printf 'gmail\nt@gmail.com\nTra[balho]\nsenha\nSENHA_T\nSENHA_T\n\n' |
   env HOME="$tmphome" PATH="$tmphome:$PATH" EU="$tmphome/tt" bash "$tt" --email-conta-nova-ui >/dev/null 2>&1
 [[ $(grep -c '^\[Tra\[balho\]\]$' "$conta" 2>/dev/null) == 0 ]] || falha 'e-mail/contas: nome com [ ] não foi recusado'
 rm -rf "$tmphome"
