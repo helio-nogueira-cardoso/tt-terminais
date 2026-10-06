@@ -4340,7 +4340,7 @@ botao_email() {
     return
   fi
   tmux display-popup -c "$cliente" -E "${geo[@]}" \
-    "cd ${HOME@Q}; $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Enter fecha.' \"\$?\"; read -r _; }"
+    "cd ${HOME@Q}; VAXIS_FORCE_UNICODE=1 $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Enter fecha.' \"\$?\"; read -r _; }"
 }
 
 # Sessão oculta com o aerc aberto. Marcada como "ponte" do tipo email: fica fora da central, do
@@ -4351,7 +4351,8 @@ email_sessao() {
   local cmd=$1 modo=$2 b="$HOME/.config/aerc/binds.conf" bo="$HOME/.cache/tt-aerc-binds-oculto.conf" pane_cmd
   if tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
     pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
-    if [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo) == "$modo" && $pane_cmd == aerc* ]]; then return 0; fi
+    if [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo) == "$modo" && $pane_cmd == aerc* &&
+          $(tmux show-environment -t "=$EMAIL_SESSAO" VAXIS_FORCE_UNICODE 2>/dev/null) == VAXIS_FORCE_UNICODE=1 ]]; then return 0; fi
     tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
   fi
   mkdir -p "$HOME/.cache"
@@ -4360,7 +4361,10 @@ email_sessao() {
         -e "s/^<C-q>[[:space:]]*=.*/<C-q> = :quit<Enter>/" "$b" >"$bo"
     cmd+=" -B $(printf %q "$bo")"
   fi
-  tmux new-session -d -s "$EMAIL_SESSAO" -x 150 -y 40 -c "$HOME" "$cmd" || return 1
+  # VAXIS_FORCE_UNICODE: o aerc mede emoji com seletor de variação (🕸️, ⚠️) como 2 colunas, igual ao
+  # tmux (3.5 e 3.6) e aos terminais. Sem isso ele contava 1, a linha ficava com uma coluna a mais e o
+  # fim dela (o horário) transbordava para a linha de baixo: dígitos soltos na coluna de pastas.
+  tmux new-session -d -s "$EMAIL_SESSAO" -x 150 -y 40 -c "$HOME" -e VAXIS_FORCE_UNICODE=1 "$cmd" || return 1
   tmux set -q -t "=$EMAIL_SESSAO:" @ponte email
   tmux set -q -t "=$EMAIL_SESSAO:" @tt_oculta 1
   tmux set -q -t "=$EMAIL_SESSAO:" @nome_auto 0
