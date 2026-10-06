@@ -1812,6 +1812,7 @@ border-char-vertical=│
 border-char-horizontal=─
 UI
   # HTML é o padrão quando o e-mail tem as duas versões (o w3m mostra tabelas, cores e links).
+  aerc_definir "$conf" statusline column-right '{{.TrayInfo}}  ? atalhos · F2 contas · q fecha'
   aerc_definir "$conf" viewer alternatives text/html,text/plain
   grep -q '^alternatives=text/plain,text/html$' "$conf" && aerc_definir "$conf" viewer alternatives text/html,text/plain forcar
   # HTML: sem o w3m o filtro "html" do aerc falha e o e-mail aparece vazio; troca pelo melhor disponível.
@@ -4318,7 +4319,13 @@ botao_email() {
     aerc_definir "$estreito" ui index-columns 'flags:3,name<12%,subject,date>=' forcar
     cmd+=" -C $(printf %q "$estreito")"
   fi
-  tmux display-popup -c "$cliente" -E $(tam_popup "$cliente") -T " 📧 e-mail · $dica " \
+  # aerc: tela cheia e sem borda. Um popup menor deixava a tela de baixo à mostra, e o que ela
+  # redesenhava (ex.: o Claude trabalhando) vazava para dentro do quadro (letras e números soltos); e a
+  # borda permitia arrastar o quadro com o mouse. A dica de teclas fica na barra de status do aerc.
+  # Outros clientes: quadro com título (que diz como sair).
+  local geo=(-B -w 100% -h 100%)
+  [[ ${prog##*/} == aerc ]] || geo=($(tam_popup "$cliente") -T " 📧 e-mail · $dica ")
+  tmux display-popup -c "$cliente" -E "${geo[@]}" \
     "cd ${HOME@Q}; $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Enter fecha.' \"\$?\"; read -r _; }"
 }
 
