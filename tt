@@ -1670,44 +1670,180 @@ remover_zshenv() {
 # só quando o cliente é o aerc e ele está instalado. Idempotente.
 AERC_BINDS_INI='# >>> tt (saída rápida do popup) >>>'
 AERC_BINDS_FIM='# <<< tt (saída rápida do popup) <<<'
+# Define KEY=VALUE na seção [SEÇÃO] do arquivo INI do aerc. Por padrão só ACRESCENTA (se a chave já
+# existe, mesmo com outro valor, é uma escolha do dono e fica); "forcar" substitui o valor.
+aerc_definir() { # arquivo seção chave valor [forcar]
+  local f=$1 sec=$2 k=$3 v=$4 forcar=${5:-} tmp
+  [[ -f $f ]] || : >"$f"
+  tmp=$(mktemp) || return 1
+  awk -v S="$sec" -v K="$k" -v V="$v" -v F="$forcar" '
+    function poe() { if (!feito) { print K "=" V; feito = 1 } }
+    /^\[.*\]/ { if (sec == S) poe(); sec = $0; gsub(/^\[|\].*$/, "", sec); print; next }
+    sec == S && $0 ~ "^[[:space:]]*" K "[[:space:]]*=" { if (F != "") { poe() } else { print; feito = 1 } next }
+    sec == S && F != "" && $0 ~ "^[[:space:]]*#[[:space:]]*" K "[[:space:]]*=" { poe(); next }
+    { print }
+    END { if (sec == S) poe(); if (!feito) { print ""; print "[" S "]"; print K "=" V } }' "$f" >"$tmp"
+  cmp -s "$tmp" "$f" || cat "$tmp" >"$f"; rm -f "$tmp"
+}
+
+# Conversor de HTML para o leitor: w3m (o filtro "html" do aerc) > lynx > o do tt (python, sempre há).
+aerc_filtro_html() {
+  if command -v w3m >/dev/null; then echo '! html'
+  elif command -v lynx >/dev/null; then echo 'lynx -assume_charset=utf-8 -display_charset=utf-8 -dump -force_html -stdin -width=100 | colorize'
+  else echo "python3 $DIR_TT/email-tt.py html | colorize"; fi
+}
+
+# Tema Catppuccin Mocha do aerc, igual ao resto do tt (arquivo do tt: reescrito a cada instalação).
+aerc_tema() {
+  cat <<'TEMA'
+# Catppuccin Mocha — tema do aerc gerado pelo tt (não edite: é reescrito a cada instalação;
+# para mudar, copie para outro nome e troque styleset-name no aerc.conf).
+*.default=true
+*.normal=true
+default.fg=#cdd6f4
+title.fg=#1e1e2e
+title.bg=#89b4fa
+title.bold=true
+header.fg=#89b4fa
+header.bold=true
+tab.fg=#a6adc8
+tab.bg=#313244
+tab.selected.fg=#1e1e2e
+tab.selected.bg=#cba6f7
+tab.selected.bold=true
+border.fg=#45475a
+statusline_default.fg=#cdd6f4
+statusline_default.bg=#313244
+statusline_error.fg=#f38ba8
+statusline_error.bold=true
+statusline_success.fg=#a6e3a1
+*error.fg=#f38ba8
+*error.bold=true
+*warning.fg=#f9e2af
+*success.fg=#a6e3a1
+dirlist_default.fg=#bac2de
+dirlist_unread.fg=#cdd6f4
+dirlist_unread.bold=true
+dirlist_recent.fg=#89dceb
+dirlist*.selected.fg=#1e1e2e
+dirlist*.selected.bg=#89b4fa
+dirlist*.selected.bold=true
+msglist_default.fg=#a6adc8
+msglist_unread.fg=#cdd6f4
+msglist_unread.bold=true
+msglist_read.fg=#9399b2
+msglist_flagged.fg=#f9e2af
+msglist_flagged.bold=true
+msglist_answered.fg=#94e2d5
+msglist_forwarded.fg=#94e2d5
+msglist_deleted.fg=#6c7086
+msglist_deleted.dim=true
+msglist_marked.fg=#1e1e2e
+msglist_marked.bg=#cba6f7
+msglist_result.fg=#1e1e2e
+msglist_result.bg=#fab387
+msglist_thread_folded.fg=#89dceb
+msglist_pill.fg=#1e1e2e
+msglist_pill.bg=#89b4fa
+msglist_*.selected.bg=#45475a
+msglist_*.selected.bold=true
+msglist_marked.selected.bg=#b4befe
+part_*.fg=#cdd6f4
+part_mimetype.fg=#7f849c
+part_*.selected.fg=#1e1e2e
+part_*.selected.bg=#89b4fa
+completion_default.fg=#cdd6f4
+completion_default.bg=#313244
+completion_default.selected.fg=#1e1e2e
+completion_default.selected.bg=#89b4fa
+completion_pill.fg=#89b4fa
+selector_focused.fg=#1e1e2e
+selector_focused.bg=#89b4fa
+selector_chooser.fg=#1e1e2e
+selector_chooser.bg=#cba6f7
+spinner.fg=#cba6f7
+default.selected.fg=#1e1e2e
+default.selected.bg=#89b4fa
+
+[viewer]
+*.default=true
+*.normal=true
+url.fg=#89b4fa
+url.underline=true
+header.fg=#89b4fa
+header.bold=true
+signature.fg=#7f849c
+signature.dim=true
+diff_meta.bold=true
+diff_chunk.fg=#89dceb
+diff_add.fg=#a6e3a1
+diff_del.fg=#f38ba8
+quote_*.fg=#94e2d5
+quote_*.dim=true
+quote_1.fg=#89dceb
+quote_1.dim=false
+TEMA
+}
+
 configurar_aerc() {
   [[ $(conf email) == aerc || -z $(conf email) ]] || return 0
   command -v aerc >/dev/null || return 0
-  local dir="$HOME/.config/aerc" conf="$HOME/.config/aerc/aerc.conf" binds="$HOME/.config/aerc/binds.conf" tmp
-  mkdir -p "$dir"
+  local dir="$HOME/.config/aerc" conf="$HOME/.config/aerc/aerc.conf" binds="$HOME/.config/aerc/binds.conf" tmp k v
+  mkdir -p "$dir/stylesets"
 
-  # aerc.conf: garante mouse-enabled=true dentro de [ui]. Se a chave existe (comentada ou não) na
-  # seção [ui], substitui; senão acrescenta logo após o cabeçalho [ui]; se não há [ui], cria a seção.
-  [[ -f $conf ]] || printf '[ui]\n' > "$conf"
-  tmp=$(mktemp) || return 1
-  awk '
-    BEGIN { sec=""; done=0 }
-    /^\[.*\]/ {
-      if (sec=="ui" && !done) { print "mouse-enabled=true"; done=1 }
-      sec=$0; gsub(/^\[|\].*$/,"",sec); print; next
-    }
-    sec=="ui" && /^[[:space:]]*#?[[:space:]]*mouse-enabled[[:space:]]*=/ {
-      if (!done) { print "mouse-enabled=true"; done=1 } next
-    }
-    { print }
-    END {
-      if (sec=="ui" && !done) { print "mouse-enabled=true"; done=1 }
-      if (!done) { print "[ui]"; print "mouse-enabled=true" }
-    }' "$conf" > "$tmp"
-  cmp -s "$tmp" "$conf" 2>/dev/null || cat "$tmp" > "$conf"; rm -f "$tmp"
+  # Visual e comportamento (só acrescenta o que o dono não definiu): tema Catppuccin, pastas em árvore
+  # com contagem de não lidas, conversas em fio, datas curtas, bordas finas, autocompletar com sugestões.
+  aerc_tema >"$dir/stylesets/tt-catppuccin"
+  aerc_definir "$conf" ui mouse-enabled true forcar
+  while IFS='=' read -r k v; do aerc_definir "$conf" ui "$k" "$v"; done <<'UI'
+styleset-name=tt-catppuccin
+sidebar-width=24
+dirlist-tree=true
+dirlist-right={{if .Unread}}{{humanReadable .Unread}}{{end}}
+threading-enabled=true
+fuzzy-complete=true
+completion-popovers=true
+timestamp-format=02/01/06
+this-day-time-format=15:04
+this-year-time-format=02 Jan
+border-char-vertical=│
+border-char-horizontal=─
+UI
+  aerc_definir "$conf" viewer alternatives text/plain,text/html
+  # HTML: sem o w3m o filtro "html" do aerc falha e o e-mail aparece vazio; troca pelo melhor disponível.
+  local f_html; f_html=$(aerc_filtro_html)
+  if ! grep -q '^[[:space:]]*text/html[[:space:]]*=' "$conf" 2>/dev/null ||
+     { grep -q '^[[:space:]]*text/html[[:space:]]*=[[:space:]]*!*[[:space:]]*html[[:space:]]*$' "$conf" && ! command -v w3m >/dev/null; } ||
+     grep -q '^[[:space:]]*text/html[[:space:]]*=.*email-tt.py html' "$conf"; then
+    aerc_definir "$conf" filters text/html "$f_html" forcar
+  fi
 
-  # binds.conf: bloco entre marcadores com saída instantânea, sem o prompt 'Quit?' do aerc. O título
-  # do popup instrui "q fecha"; para isso ser verdade, q (e Q, por hábito) saem na hora, no contexto
-  # global e na lista de mensagens.
+  # binds.conf: bloco do tt entre marcadores. q/Q saem na hora (o título do popup diz "q fecha") e
+  # ações comuns ganham teclas fáceis, na lista e na leitura da mensagem.
   [[ -f $binds ]] || : > "$binds"
   tmp=$(mktemp) || return 1
   { awk -v i="$AERC_BINDS_INI" -v f="$AERC_BINDS_FIM" '$0==i{p=1} !p{print} $0==f{p=0}' "$binds"
     echo "$AERC_BINDS_INI"
-    echo 'q = :quit<Enter>'
-    echo 'Q = :quit<Enter>'
+    # (nada antes do primeiro cabeçalho: o bloco fica no fim do arquivo, e linhas soltas cairiam na
+    # última seção do binds.conf — em geral [terminal], onde q fecharia o aerc no meio de um terminal)
     echo '[messages]'
     echo 'q = :quit<Enter>'
     echo 'Q = :quit<Enter>'
+    echo 'u = :read -t<Enter>'
+    echo '* = :flag -t<Enter>'
+    echo 'f = :forward<Enter>'
+    echo 'M = :move<space>'
+    echo 'Y = :copy<space>'
+    echo 'F = :filter -X Seen<Enter>'
+    echo '[view]'
+    echo 'q = :close<Enter>'
+    echo 'u = :read -t<Enter>:close<Enter>'
+    echo '* = :flag -t<Enter>'
+    echo 'f = :forward<Enter>'
+    echo 'M = :move<space>'
+    echo 'Y = :copy<space>'
+    echo 'a = :archive flat<Enter>'
+    echo 'd = :choose -o y '"'"'Apagar esta mensagem'"'"' delete-message<Enter>'
     echo "$AERC_BINDS_FIM"; } > "$tmp"
   cmp -s "$tmp" "$binds" 2>/dev/null || cat "$tmp" > "$binds"; rm -f "$tmp"
 }
@@ -4071,7 +4207,7 @@ botao_email() {
   # cliente sai. Mostra no título a tecla de saída do cliente para quem não a conhece.
   prog=${cmd%% *}
   case ${prog##*/} in
-    aerc)        dica="q fecha" ;;
+    aerc)        dica="q fecha · ? atalhos" ;;
     mutt|neomutt) dica="q fecha" ;;
     *)           dica="feche o cliente p/ sair" ;;
   esac

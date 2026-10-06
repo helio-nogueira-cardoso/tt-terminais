@@ -5,6 +5,7 @@
   email-tt.py oauth-autorizar CONF       -> fluxo OAuth2 (código no aparelho ou navegador); grava o token
   email-tt.py oauth-token CONF           -> imprime um access token novo (renova pelo refresh token)
   email-tt.py testar CONF                -> testa login IMAP e SMTP; imprime ✓/✗ por serviço (rc 0 se ambos ok)
+  email-tt.py html                       -> filtro do aerc: HTML (stdin) → texto legível, links numerados no fim
 
 CONF é o arquivo chave=valor da conta (~/.config/tt/email/<slug>.conf). Segredos ficam em
 ~/.secrets/aerc-<slug>.txt (senha ou refresh token) e ~/.secrets/aerc-<slug>.client_secret; este
@@ -289,7 +290,67 @@ def testar(c):
     return 0 if ok else 1
 
 
+# --- HTML → texto (filtro do aerc quando não há w3m/lynx) -----------------------------------------
+def html_para_texto(html):
+    from html.parser import HTMLParser
+    import re, textwrap, shutil
+    largura = max(40, min(int(os.environ.get("AERC_COLUMNS") or shutil.get_terminal_size((100, 24)).columns) - 2, 110))
+    class P(HTMLParser):
+        BLOCO = {"p", "div", "br", "tr", "table", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "hr", "section", "article", "header", "footer"}
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.saida, self.links, self.ignorar, self.href = [], [], 0, None
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if tag in ("script", "style", "head", "title"):
+                self.ignorar += 1
+            elif tag == "a":
+                self.href = a.get("href")
+            elif tag == "img" and a.get("alt"):
+                self.saida.append(f"[imagem: {a['alt']}]")
+            if tag in self.BLOCO:
+                self.saida.append("\n")
+            if tag == "li":
+                self.saida.append("  • ")
+            if tag in ("h1", "h2", "h3"):
+                self.saida.append("\n")
+        def handle_endtag(self, tag):
+            if tag in ("script", "style", "head", "title"):
+                self.ignorar = max(0, self.ignorar - 1)
+            elif tag == "a" and self.href:
+                h = self.href
+                if h.startswith(("http", "mailto:")) and h not in self.links:
+                    self.links.append(h)
+                if h in self.links:
+                    self.saida.append(f" [{self.links.index(h) + 1}]")
+                self.href = None
+            if tag in self.BLOCO:
+                self.saida.append("\n")
+        def handle_data(self, d):
+            if not self.ignorar:
+                self.saida.append(re.sub(r"\s+", " ", d))
+    p = P(); p.feed(html); p.close()
+    texto = "".join(p.saida)
+    linhas, vazio = [], 0
+    for l in texto.split("\n"):
+        l = l.strip()
+        if not l:
+            vazio += 1
+            if vazio <= 1: linhas.append("")
+            continue
+        vazio = 0
+        ind = "  " if l.startswith("•") else ""
+        linhas.extend(textwrap.wrap(l, largura, subsequent_indent=ind + "  " if ind else "") or [""])
+    corpo = "\n".join(linhas).strip()
+    if p.links:
+        corpo += "\n\n" + "\n".join(f"[{i}] {u}" for i, u in enumerate(p.links, 1))
+    return corpo + "\n"
+
+
 def main(a):
+    if a[:1] == ["html"]:
+        dados = sys.stdin.buffer.read()
+        sys.stdout.write(html_para_texto(dados.decode("utf-8", "replace"))); return 0
     if len(a) < 2:
         print(__doc__); return 2
     cmd, arg = a[0], a[1]
