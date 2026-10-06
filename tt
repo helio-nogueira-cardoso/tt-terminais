@@ -3032,6 +3032,98 @@ receber_copia() {
   rm -f "$t"
 }
 
+# --- Propagar uma conta de IA entre as máquinas -------------------------------
+#
+# Uma conta do ia-conta é a pasta ~/.local/share/claude-contas/<nome>. Só a credencial e os poucos
+# arquivos próprios dela são da conta; projects/history/sessions/settings são links para ~/.claude
+# (dados locais, compartilhados por todas as contas desta máquina). "tt --conta-propagar <nome>"
+# manda os arquivos próprios para as outras máquinas; cada uma recria os links para o seu ~/.claude
+# e o atalho claude-<nome>. Não vão links nem dados compartilhados: cada máquina tem os seus.
+CONTAS_RAIZ=$HOME/.local/share/claude-contas
+# Arquivos próprios de uma conta (o resto da pasta é link para ~/.claude e fica em cada máquina).
+CONTA_ITENS=(.credentials.json .account-email .claude.json backups)
+
+conta_propagar() {
+  local nome=${1:-}; shift || true
+  local -a alvos=("$@")
+  local dir dest rot alvo item
+  [[ -n $nome ]] || { echo "uso: tt --conta-propagar <nome> [rótulo…]" >&2; return 1; }
+  dir=$CONTAS_RAIZ/$nome
+  [[ -s $dir/.credentials.json && ! -L $dir/.credentials.json ]] ||
+    { echo "conta '$nome' não existe aqui (sem $dir/.credentials.json)" >&2; return 1; }
+  local -a presentes=()
+  for item in "${CONTA_ITENS[@]}"; do
+    [[ -e $dir/$item && ! -L $dir/$item ]] && presentes+=("$item")
+  done
+  echo "Propagando a conta '$nome' (${presentes[*]})"
+  while read -r dest rot; do
+    if ((${#alvos[@]})); then
+      for alvo in "${alvos[@]}"; do [[ $alvo == "$rot" ]] && break; alvo=""; done
+      [[ -n $alvo ]] || continue
+    fi
+    printf '  %-10s ' "$rot"
+    tar -C "$dir" -cf - "${presentes[@]}" 2>/dev/null |
+      timeout 20 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --conta-receber $(q "$nome")" 2>&1 |
+      tail -1 | sed 's/^[^:]*: //' || echo "✗ sem resposta"
+  done < <(maquinas)
+}
+
+# tt --conta-receber <nome>: recebe pelo stdin o tar com os itens próprios da conta e a instala
+# aqui, transacional. Exige ~/.claude (onde não há Claude Code — por exemplo um celular — a conta
+# não faz sentido e a função sai avisando, sem erro fatal para a propagação).
+conta_receber() {
+  local nome=${1:-}
+  local dir tmp item
+  [[ -n $nome ]] || { echo ": nome ausente" >&2; return 0; }
+  if [[ ! -d $HOME/.claude ]]; then echo "· sem Claude Code aqui, pulada"; cat >/dev/null; return 0; fi
+  dir=$CONTAS_RAIZ/$nome
+  mkdir -p "$CONTAS_RAIZ"
+  tmp=$(mktemp -d "$CONTAS_RAIZ/.$nome.novo.XXXXXX") 2>/dev/null ||
+    { echo "✗ sem onde gravar"; cat >/dev/null; return 0; }
+  if ! tar -C "$tmp" -xf - 2>/dev/null; then
+    rm -rf "$tmp"; echo "✗ pacote inválido"; return 0
+  fi
+  if [[ ! -s $tmp/.credentials.json ]]; then
+    rm -rf "$tmp"; echo "✗ sem credencial no pacote"; return 0
+  fi
+  mkdir -p "$dir"
+  for item in "${CONTA_ITENS[@]}"; do
+    [[ -e $tmp/$item ]] || continue
+    rm -rf "$dir/$item"
+    mv "$tmp/$item" "$dir/$item"
+  done
+  rm -rf "$tmp"
+  chmod 700 "$dir" 2>/dev/null
+  [[ -f $dir/.credentials.json ]] && chmod 600 "$dir/.credentials.json" 2>/dev/null
+  rm -f "$dir/.account-email" 2>/dev/null
+  conta_vincular_dados "$nome"
+  echo "✓ conta '$nome' instalada"
+}
+
+# Recria, para a conta <nome>, os links de dados compartilhados apontando para o ~/.claude DESTA
+# máquina e o atalho claude-<nome>. Espelha compartilhar_dados/criar_atalho do ia-conta, sem tocar
+# na credencial (que já foi gravada). Idempotente.
+conta_vincular_dados() {
+  local nome=$1 base=$HOME/.claude dir=$CONTAS_RAIZ/$nome item atalho
+  local -a compart=(projects history.jsonl file-history sessions settings.json settings.local.json plugins skills commands cache)
+  mkdir -p "$dir"
+  for item in "${compart[@]}"; do
+    [[ -e $base/$item || -L $base/$item ]] || continue
+    if [[ -L $dir/$item ]]; then
+      [[ $(readlink -f "$dir/$item") == "$(readlink -f "$base/$item")" ]] || continue
+    elif [[ -e $dir/$item ]]; then
+      continue
+    else
+      ln -s "$base/$item" "$dir/$item"
+    fi
+  done
+  atalho=$HOME/.local/bin/claude-$nome
+  if [[ ! -e $atalho && ! -L $atalho ]]; then
+    printf '#!/usr/bin/env bash\nexec %q %q "$@"' "$HOME/.local/bin/claude-conta" "$nome" >"$atalho"
+    chmod 700 "$atalho"
+  fi
+}
+
 # Lista do histórico (popup): Enter cola no painel (e vira a cópia atual), ^y só copia, ^x apaga
 # o item, Esc fecha. Prévia com o texto inteiro.
 historico_copias() {
@@ -5798,6 +5890,8 @@ case "${1:-}" in
   --copiar-tela) copiar_tela "$2" "$3"; exit 0 ;;
   --versao) versao; exit ;;
   --sincronizar) shift; sincronizar "$@"; exit ;;
+  --conta-propagar) shift; conta_propagar "$@"; exit ;;
+  --conta-receber) conta_receber "${2:-}"; exit ;;
   --atualizar) atualizar "${2:-}"; exit ;;
   --tema-agentes) "$DIR_TT/tema-agentes.sh" --aplicar; exit ;;
   --memoria-agentes) "$DIR_TT/memoria-agentes.sh" --aplicar; exit ;;
