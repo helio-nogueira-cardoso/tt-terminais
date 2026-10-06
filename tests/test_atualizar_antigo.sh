@@ -17,8 +17,7 @@ mkdir -p "$T/clone"; git -C "$REPO" archive "$VELHO" | tar -x -C "$T/clone"
 
 # "GitHub": a versão atual (arquivos do pacote em teste), dois commits → versão 2.
 mkdir -p "$T/gh"; "${G[@]}" -C "$T/gh" init -q; "${G[@]}" -C "$T/gh" commit -q --allow-empty -m a
-(cd "$T/pkg" && cp tt email-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
-  atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md "$T/gh/")
+for f in "$T"/pkg/*; do [[ ${f##*/} == VERSAO ]] || cp "$f" "$T/gh/"; done
 "${G[@]}" -C "$T/gh" add -A; "${G[@]}" -C "$T/gh" commit -qm b
 echo "fonte=$T/gh" >>"$XDG_CONFIG_HOME/tt/config"
 

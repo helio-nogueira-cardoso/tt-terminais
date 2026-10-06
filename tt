@@ -1216,7 +1216,8 @@ versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt email-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md)
+ARQUIVOS_FONTE=(tt email-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
+  ia-conta ia-rot contas-uso.py skill-rodizio-de-contas.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -1263,7 +1264,7 @@ pacote_valido() {
   for f in "${ARQUIVOS_PACOTE[@]}"; do
     [[ -s $dir/$f ]] || { echo "$(conf nome): ✗ pacote incompleto (falta $f), nada instalado"; return 1; }
   done
-  for f in tt tema-terminal.sh tema-agentes.sh memoria-agentes.sh; do
+  for f in tt tema-terminal.sh tema-agentes.sh memoria-agentes.sh ia-conta ia-rot; do
     bash -n "$dir/$f" 2>/dev/null || { echo "$(conf nome): ✗ $f com erro de sintaxe, nada instalado"; return 1; }
   done
 }
@@ -1418,6 +1419,7 @@ instalar_aqui() {
   fi
   chmod +x "$DIR_TT/tt" "$DIR_TT/tema-agentes.sh" "$DIR_TT/memoria-agentes.sh"
   instalar_politica_aidlc || return 1
+  instalar_contas_ia
   mkdir -p "$HOME/.local/bin"
   if [[ -f $HOME/.local/bin/tt && ! -L $HOME/.local/bin/tt ]]; then
     mv "$HOME/.local/bin/tt" "$HOME/.local/bin/tt.antes-instalacao"
@@ -1461,6 +1463,38 @@ CONF
     tmux run-shell -b "$HOME/.local/bin/tt --vigia"
   fi
   echo "$(conf nome): $(versao)"
+}
+
+# Seletor e rotator de contas de IA (ia-conta/ia-rot, com os nomes antigos claude-conta/claude-rot
+# como apelidos) em ~/.local/bin, e a skill rodizio-de-contas para o Claude, o Codex e o Kiro que
+# existirem aqui. Um claude-conta/claude-rot escrito à mão (que não é uma versão deste) fica intacto;
+# uma versão antiga deste vai para <nome>.antes-tt. No Termux os agentes rodam dentro do proot: nada.
+instalar_contas_ia() {
+  e_mobile && return 0
+  local n src alvo casa skill
+  [[ -f $DIR_TT/ia-conta && -f $DIR_TT/ia-rot ]] || return 0
+  chmod +x "$DIR_TT/ia-conta" "$DIR_TT/ia-rot" "$DIR_TT/contas-uso.py" 2>/dev/null
+  mkdir -p "$HOME/.local/bin" "$ESTADO_DIR/passagens"
+  for n in ia-conta claude-conta ia-rot claude-rot; do
+    case $n in *conta) src=$DIR_TT/ia-conta ;; *) src=$DIR_TT/ia-rot ;; esac
+    alvo=$HOME/.local/bin/$n
+    if [[ -f $alvo && ! -L $alvo ]]; then
+      if grep -qE '^# (claude-conta|claude-rot) —' "$alvo"; then
+        [[ -e $alvo.antes-tt ]] || cp -p "$alvo" "$alvo.antes-tt"
+      else
+        echo "$(conf nome): ⚠ $alvo não é do tt; mantido (o tt instalou ${src##*/})" >&2
+        continue
+      fi
+    fi
+    ln -sfn "$src" "$alvo"
+  done
+  for casa in "$HOME/.claude" "${CODEX_HOME:-$HOME/.codex}" "${KIRO_HOME:-$HOME/.kiro}"; do
+    [[ -d $casa ]] || continue
+    skill=$casa/skills/rodizio-de-contas
+    cmp -s "$DIR_TT/skill-rodizio-de-contas.md" "$skill/SKILL.md" && continue
+    mkdir -p "$skill" && cp "$DIR_TT/skill-rodizio-de-contas.md" "$skill/SKILL.md"
+  done
+  return 0
 }
 
 # Envia o pacote para DEST e instala lá. Imprime "rótulo: versão".

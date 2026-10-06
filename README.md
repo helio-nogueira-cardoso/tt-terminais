@@ -1,7 +1,7 @@
 # tt — central de terminais
 
-O nomeador automático usa o `~/.local/bin/claude-rot`, quando instalado com suporte
-a `--claude-only`, para alternar entre contas Claude com Haiku, sem ferramentas.
+O nomeador automático usa o rotator (`claude-rot`, ver [Contas de IA](#contas-de-ia)) com
+`--claude-only`, para alternar entre contas Claude com Haiku, sem ferramentas.
 Sem rotator, usa o Claude local. Falhas de execução, limites e respostas fora do
 formato de nome são rejeitados, inclusive quando vêm de outra máquina; o nome
 existente é preservado. O título da conversa continua sendo usado sem consulta
@@ -206,6 +206,36 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
                             credenciais ficam na config do próprio cliente, nunca aqui>
     ~/.config/tt/maquinas   host  usuario  nome  [oculta]  (uma máquina por linha)
 
+## Contas de IA
+
+O tt instala um seletor e um rotator de contas para os agentes de linha de comando: `ia-conta` e
+`ia-rot` (os nomes antigos `claude-conta` e `claude-rot` continuam valendo). Rotação: a conta
+principal do Claude (`~/.claude`), as contas do `ia-conta` em ordem alfabética, depois Codex e Kiro.
+
+    ia-conta adicionar trabalho      # login uma vez; cria o atalho claude-trabalho
+    ia-conta listar                  # todas as contas, com e-mail, estado e USO da janela
+    ia-conta renomear trabalho emp   # pasta, atalho, estado do rotator e botão da barra
+    ia-conta remover emp             # guarda em ~/.local/share/claude-contas.removidas
+    ia-conta uso --eu                # uso da conta desta sessão (saída 0 ok, 3 aviso, 4 passar)
+
+A coluna **USO** mostra a janela de 5 h e a semanal do Claude e do Codex (`5h 23% · 7d 65%`) e os
+créditos do mês do Kiro (o mesmo do `/usage`). O horário entre parênteses é quando a janela volta.
+Os tokens do Claude vencidos são renovados pelo próprio Claude, que sai antes de gastar qualquer uso;
+`listar --rapido` pula essa renovação e usa o último valor conhecido, marcado com `~`. Contas com
+sessão aberta não são renomeadas nem removidas, porque o Claude aberto perderia a credencial.
+
+O `ia-rot` roda um agente headless (`ia-rot -p "…"`, mesmos argumentos do `claude`) na primeira
+conta com login e janela livre. Antes de tentar uma conta, ele consulta o uso, com cache de 5 min:
+a partir de `CLAUDE_ROT_LIMITE` (95%) a conta fica para o fim e, em 100%, sai da rotação até a
+janela virar. `ia-rot --status` mostra o mesmo em TSV.
+
+**Passagem de tarefa:** `ia-rot --passar ARQUIVO [--yolo]` abre a próxima conta ou agente livre
+(nunca a conta desta sessão) mandando ler `ARQUIVO` e continuar. No tmux, abre numa janela nova da
+mesma aba; fora dele, roda em segundo plano com a saída em `ARQUIVO.saida`. A skill
+**rodizio-de-contas**, instalada para o Claude, o Codex e o Kiro de cada máquina, ensina os agentes
+a consultar o próprio uso em tarefas longas e, perto do limite, a escrever a passagem em
+`~/.local/state/tt/passagens/` e chamar o `--passar`.
+
 ## Contas de e-mail
 
 **Botão direito no 📧** → Contas (também ⚙ administrar → Contas de e-mail, `F2` dentro do e-mail ou
@@ -387,7 +417,7 @@ o arquivo: menu ⋯ do painel → **✏ Atalhos da barra** (⏎ edita emoji, com
 exclui ou desativa um padrão; ^r volta ao padrão). O arquivo continua editável à mão. Os botões “lado” e “baixo” ficam disponíveis no menu de
 painel, mas não ocupam mais a barra.
 
-As contas criadas por `claude-conta adicionar <nome>` aparecem automaticamente como `1️⃣`, `2️⃣`,
+As contas criadas por `ia-conta adicionar <nome>` (ou `claude-conta`) aparecem automaticamente como `1️⃣`, `2️⃣`,
 `3️⃣` etc.; as credenciais e os nomes dos perfis não entram no GitHub. O arquivo versionado pode ser
 alterado no repositório para que novos atalhos padrão cheguem a todas as máquinas.
 

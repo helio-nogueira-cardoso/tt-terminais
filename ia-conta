@@ -1,0 +1,462 @@
+#!/usr/bin/env bash
+# ia-conta (também claude-conta) — seletor de contas de IA: perfis de login do Claude Code com
+# conversas locais compartilhadas, e o uso da janela de todas as contas da rotação (Claude, Codex, Kiro).
+#
+# Cada perfil guarda apenas sua credencial em ~/.local/share/claude-contas/<nome>.
+# Projetos, transcrições, histórico, sessões e configurações continuam sendo os de ~/.claude.
+# O uso da janela (5 h / 7 dias do Claude e do Codex, créditos do mês do Kiro) vem do
+# contas-uso.py, ao lado deste arquivo no pacote do tt.
+
+set -euo pipefail
+
+BASE="$HOME/.claude"
+RAIZ="$HOME/.local/share/claude-contas"
+CLAUDE_BIN="$HOME/.local/bin/claude"
+[[ -x $CLAUDE_BIN ]] || CLAUDE_BIN=$(command -v claude 2>/dev/null || echo "$CLAUDE_BIN")
+[[ -x $CLAUDE_BIN ]] || CLAUDE_BIN=$(command -v claude 2>/dev/null || echo "$CLAUDE_BIN")
+AQUI=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+USO_PY="$AQUI/contas-uso.py"
+[[ -f $USO_PY ]] || USO_PY="$HOME/.local/share/tt/contas-uso.py"
+ESTADO_ROT="$HOME/.cache/claude-rot.state"
+ATUAL_ROT="$HOME/.cache/claude-rot.current"
+# Percentuais de referência (os mesmos do ia-rot): a partir do aviso, preparar a passagem; no
+# limite, passar a tarefa adiante.
+AVISO=${CLAUDE_ROT_AVISO:-85}
+LIMITE=${CLAUDE_ROT_LIMITE:-95}
+
+die() { printf 'ia-conta: %s\n' "$*" >&2; exit 1; }
+
+nome_valido() {
+  [[ $1 =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]
+}
+
+# Nomes que já têm outro significado na rotação ou nos subcomandos.
+nome_reservado() {
+  case $1 in
+    principal | codex | kiro | adicionar | entrar | renomear | remover | descadastrar | listar | uso | ajuda) return 0 ;;
+  esac
+  return 1
+}
+
+perfil() { printf '%s/%s' "$RAIZ" "$1"; }
+
+# Estes dados são independentes da conta e permanecem canônicos em ~/.claude. O link é criado
+# uma única vez por perfil; assim, uma conversa iniciada por qualquer conta pode ser retomada por
+# todas as outras, sem copiar nem dividir o histórico local.
+compartilhar_dados() {
+  local nome=$1 dir item
+  dir=$(perfil "$nome")
+  mkdir -p "$dir"
+  for item in projects history.jsonl file-history sessions settings.json settings.local.json plugins skills commands cache; do
+    [[ -e $BASE/$item || -L $BASE/$item ]] || continue
+    if [[ -e $dir/$item || -L $dir/$item ]]; then
+      [[ -L $dir/$item && $(readlink -f "$dir/$item") == "$(readlink -f "$BASE/$item")" ]] ||
+        die "o perfil '$nome' já tem '$item' próprio; não vou substituí-lo"
+    else
+      ln -s "$BASE/$item" "$dir/$item"
+    fi
+  done
+}
+
+uso() {
+  cat <<'EOF'
+Uso:
+  ia-conta principal [argumentos do claude]
+  ia-conta <conta> [argumentos do claude]
+  ia-conta adicionar <conta>
+  ia-conta entrar <conta>
+  ia-conta renomear <conta> <novo-nome>
+  ia-conta remover <conta> [--sim]
+  ia-conta listar [--rapido]
+  ia-conta uso [--eu | <conta>...]
+
+Exemplos:
+  ia-conta adicionar pessoal    # abre o login uma única vez para a conta
+  ia-conta adicionar trabalho
+  claude-pessoal                    # atalho criado automaticamente
+  claude-trabalho --resume
+  ia-conta renomear trabalho empresa
+  ia-conta remover pessoal      # tira da lista (e da rotação do ia-rot)
+  ia-conta uso --eu             # quanto a conta desta sessão já gastou da janela
+
+O nome antigo claude-conta continua valendo.
+
+"principal" usa a credencial que já estava em ~/.claude. Os demais perfis têm
+credenciais separadas, mas compartilham sessões, histórico e memórias locais.
+
+listar mostra todas as contas da rotação do ia-rot (Claude, Codex e Kiro) com a
+coluna USO: janela de 5 h e semanal do Claude e do Codex, créditos do mês do Kiro.
+Tokens vencidos do Claude são renovados pelo próprio Claude (--rapido pula isso e
+usa o último valor conhecido, marcado com ~).
+
+uso imprime "conta<TAB>pico%<TAB>situação<TAB>detalhe"; situação é ok, aviso (pico
+≥ CLAUDE_ROT_AVISO, padrão 85) ou passar (≥ CLAUDE_ROT_LIMITE, padrão 95). Saída 0
+= ok, 3 = aviso, 4 = passar, 2 = desconhecido.
+EOF
+}
+
+atalho_de() { printf '%s/.local/bin/claude-%s' "$HOME" "$1"; }
+texto_atalho() { printf '#!/usr/bin/env bash\nexec %q %q "$@"' "$HOME/.local/bin/claude-conta" "$1"; }
+
+criar_atalho() {
+  local nome=$1 alvo
+  alvo=$(atalho_de "$nome")
+  [[ -e $alvo || -L $alvo ]] && return
+  printf '%s\n' "$(texto_atalho "$nome")" >"$alvo"
+  chmod 700 "$alvo"
+}
+
+# Só apaga o atalho se ele é exatamente o que criar_atalho gerou (um claude-x escrito à mão fica).
+apagar_atalho() {
+  local alvo
+  alvo=$(atalho_de "$1")
+  if [[ -f $alvo && ! -L $alvo && $(cat "$alvo") == "$(texto_atalho "$1")" ]]; then
+    rm -f "$alvo"
+  fi
+}
+
+entrar() {
+  local nome=$1 dir
+  nome_valido "$nome" || die "nome inválido: use letras, números, - ou _"
+  nome_reservado "$nome" && die "'$nome' é reservado; escolha outro nome"
+  [[ -x $CLAUDE_BIN ]] || die "não achei o Claude Code em $CLAUDE_BIN"
+  [[ -d $BASE ]] || die "não achei a base local $BASE"
+  compartilhar_dados "$nome"
+  criar_atalho "$nome"
+  dir=$(perfil "$nome")
+  rm -f "$dir/.account-email" # outro login pode ser outro e-mail
+  printf 'Abrindo login da conta "%s". As sessões locais continuam compartilhadas.\n' "$nome"
+  CLAUDE_CONFIG_DIR="$dir" exec "$CLAUDE_BIN" auth login
+}
+
+# PIDs de processos (fora este) que rodam com CLAUDE_CONFIG_DIR apontando para DIR. Um Claude aberto
+# guarda o caminho: se a pasta muda de nome ou sai, ele perde a credencial no meio da conversa.
+em_uso() {
+  local dir=$1 f pid
+  for f in /proc/[0-9]*/environ; do
+    pid=${f#/proc/}; pid=${pid%/environ}
+    [[ $pid == "$$" || $pid == "$BASHPID" ]] && continue
+    grep -qzxF -e "CLAUDE_CONFIG_DIR=$dir" -e "CLAUDE_CONFIG_DIR=$dir/" "$f" 2>/dev/null && printf '%s ' "$pid"
+  done
+  return 0
+}
+
+recusar_em_uso() {
+  local nome=$1 pids
+  pids=$(em_uso "$(perfil "$nome")")
+  [[ -z $pids ]] && return 0
+  die "a conta '$nome' está aberta agora (processos: ${pids% }); feche essas sessões antes"
+}
+
+# Troca o nome NOME por NOVO nos arquivos de estado do ia-rot, do uso e dos atalhos do tt.
+trocar_nome_estado() {
+  local velho=$1 novo=$2 f
+  if [[ -f $ESTADO_ROT ]]; then
+    awk -F'\t' -v OFS='\t' -v a="$velho" -v b="$novo" '$1==a{$1=b} {print}' "$ESTADO_ROT" >"$ESTADO_ROT.novo" &&
+      mv "$ESTADO_ROT.novo" "$ESTADO_ROT"
+  fi
+  [[ $(cat "$ATUAL_ROT" 2>/dev/null) == "$velho" ]] && printf '%s' "$novo" >"$ATUAL_ROT"
+  f="$HOME/.cache/claude-rot.uso.json"
+  [[ -f $f ]] && python3 -I - "$f" "$velho" "$novo" <<'PY' 2>/dev/null || true
+import json, sys
+f, a, b = sys.argv[1:]
+d = json.load(open(f))
+if a in d:
+    d[b] = d.pop(a)
+    if str(d[b].get("alvo", "")).endswith("/" + a):
+        d[b]["alvo"] = d[b]["alvo"][: -len(a)] + b
+    json.dump(d, open(f, "w"))
+PY
+  # Atalho da barra do tt com ajuste local (desativado, outro emoji): o ID acompanha o nome.
+  f="${XDG_CONFIG_HOME:-$HOME/.config}/tt/atalhos"
+  if [[ -f $f ]] && grep -q "	claude-conta-$velho	" "$f"; then
+    awk -F'\t' -v OFS='\t' -v a="claude-conta-$velho" -v b="claude-conta-$novo" '$2==a{$2=b} {print}' "$f" >"$f.novo" &&
+      mv "$f.novo" "$f"
+  fi
+}
+
+redesenhar_tt() {
+  command -v tt >/dev/null 2>&1 && [[ -n ${TMUX:-} ]] && tt --redesenhar >/dev/null 2>&1 || true
+}
+
+renomear() {
+  local velho=$1 novo=$2 dir destino
+  [[ $velho == principal ]] && die "a principal é a credencial de ~/.claude; não tem pasta para renomear"
+  for n in "$velho" "$novo"; do nome_valido "$n" || die "nome inválido '$n': use letras, números, - ou _"; done
+  nome_reservado "$novo" && die "'$novo' é reservado; escolha outro nome"
+  dir=$(perfil "$velho"); destino=$(perfil "$novo")
+  [[ -d $dir && ! -L $dir ]] || die "não existe a conta '$velho' (veja: ia-conta listar)"
+  [[ -e $destino || -L $destino ]] && die "já existe uma conta '$novo'"
+  recusar_em_uso "$velho"
+  mv "$dir" "$destino"
+  apagar_atalho "$velho"
+  criar_atalho "$novo"
+  trocar_nome_estado "$velho" "$novo"
+  redesenhar_tt
+  printf 'Conta "%s" agora se chama "%s" (atalho: claude-%s).\n' "$velho" "$novo" "$novo"
+}
+
+# Tira o perfil da lista. Nada é apagado: a pasta vai para claude-contas.removidas (fora da rotação do
+# ia-rot) e volta com mv. Os links para ~/.claude são só links, a pasta compartilhada fica intacta.
+remover() {
+  local nome=$1 sim=$2 dir destino email resp
+  [[ $nome == principal ]] && die "a principal é a credencial de ~/.claude; não dá para removê-la daqui"
+  nome_valido "$nome" || die "nome inválido: use letras, números, - ou _"
+  dir=$(perfil "$nome")
+  [[ -d $dir ]] || die "não existe a conta '$nome' (veja: ia-conta listar)"
+  recusar_em_uso "$nome"
+  if [[ -s $dir/.credentials.json && $sim != 1 ]]; then
+    email=$(claude_status_email "$dir") || email='e-mail desconhecido'
+    [[ -t 0 ]] || die "a conta '$nome' está conectada ($email); confirme com: ia-conta remover $nome --sim"
+    read -r -p "A conta '$nome' está conectada ($email). Remover? [s/N] " resp
+    [[ $resp == [sS]* ]] || { echo 'Nada removido.'; return; }
+  fi
+  destino="$RAIZ.removidas/$nome-$(date +%Y%m%dT%H%M%S)"
+  mkdir -p "$RAIZ.removidas"
+  mv "$dir" "$destino"
+  apagar_atalho "$nome"
+  [[ $(cat "$ATUAL_ROT" 2>/dev/null) == "$nome" ]] && rm -f "$ATUAL_ROT"
+  redesenhar_tt
+  printf 'Conta "%s" removida. Guardada em %s\nPara desfazer: mv %q %q\n' "$nome" "$destino" "$destino" "$dir"
+}
+
+rodar() {
+  local nome=$1 dir
+  shift
+  if [[ $nome == principal ]]; then
+    IA_CONTA=principal exec env -u CLAUDE_CONFIG_DIR "$CLAUDE_BIN" "$@"
+  fi
+  nome_valido "$nome" || die "nome inválido: use letras, números, - ou _"
+  compartilhar_dados "$nome"
+  dir=$(perfil "$nome")
+  [[ -s $dir/.credentials.json ]] || die "a conta '$nome' ainda não foi conectada; rode: ia-conta adicionar $nome"
+  exec env IA_CONTA="$nome" CLAUDE_CONFIG_DIR="$dir" "$CLAUDE_BIN" "$@"
+}
+
+# Contas na ordem da rotação do ia-rot: principal, perfis (alfabética), codex, kiro.
+contas_rotacao() {
+  local dir
+  echo principal
+  if [[ -d $RAIZ ]]; then
+    for dir in "$RAIZ"/*/; do
+      dir=${dir%/}
+      [[ -d $dir && ! -L $dir ]] || continue
+      case ${dir##*/} in codex | kiro) continue ;; esac
+      echo "${dir##*/}"
+    done
+  fi
+  command -v codex >/dev/null 2>&1 && echo codex
+  command -v kiro-cli >/dev/null 2>&1 && echo kiro
+  return 0
+}
+
+pasta_claude() { if [[ $1 == principal ]]; then echo "$BASE"; else perfil "$1"; fi; }
+
+alvo_uso() {
+  case $1 in codex | kiro) echo "$1" ;; *) pasta_claude "$1" ;; esac
+}
+
+# Token do Claude vencido (ou perto de vencer): a consulta de uso precisa de um válido.
+token_vencido() {
+  python3 -I -c '
+import json, sys, time
+c = json.load(open(sys.argv[1])).get("claudeAiOauth") or {}
+sys.exit(0 if c.get("expiresAt", 0) / 1000 < time.time() + 60 else 1)' "$1/.credentials.json" 2>/dev/null
+}
+
+# Quem renova é o próprio Claude, ao iniciar (antes mesmo de ler o prompt): sem prompt, ele renova e
+# sai com erro, sem gastar nada da janela. Renovar por fora trocaria o refresh token e derrubaria a
+# sessão aberta da conta.
+renovar_tokens() {
+  local c dir pids=()
+  for c in "$@"; do
+    case $c in codex | kiro) continue ;; esac
+    dir=$(pasta_claude "$c")
+    [[ -s $dir/.credentials.json ]] && token_vencido "$dir" || continue
+    if [[ $c == principal ]]; then
+      (cd /tmp && env -u CLAUDE_CONFIG_DIR timeout 30 "$CLAUDE_BIN" -p --no-session-persistence </dev/null >/dev/null 2>&1) &
+    else
+      (cd /tmp && CLAUDE_CONFIG_DIR="$dir" timeout 30 "$CLAUDE_BIN" -p --no-session-persistence </dev/null >/dev/null 2>&1) &
+    fi
+    pids+=($!)
+  done
+  ((${#pids[@]})) && wait "${pids[@]}" 2>/dev/null
+  return 0
+}
+
+# TSV do contas-uso.py para as contas dadas: conta pico volta texto fonte email.
+consultar_uso() {
+  local c args=()
+  [[ -f $USO_PY ]] || return 0
+  for c in "$@"; do args+=("$c=$(alvo_uso "$c")"); done
+  python3 -I "$USO_PY" "${args[@]}" 2>/dev/null || true
+}
+
+hora_reset() {
+  local t=$1
+  [[ -n $t ]] || return 0
+  t=$((t + 30)) # 20:49:59.6 é 20:50
+  local f='+%d/%m %H:%M'
+  ((t - $(date +%s) < 72000)) && f=+%H:%M
+  date -d "@$t" "$f" 2>/dev/null || date -r "$t" "$f" 2>/dev/null || true # GNU / macOS
+}
+
+listar() {
+  local rapido=${1:-0} c dir email estado detalhe pico volta texto fonte em
+  local -a contas
+  local -A U_PICO U_TEXTO U_FONTE U_EMAIL U_VOLTA
+  mapfile -t contas < <(contas_rotacao)
+  [[ $rapido == 1 ]] || renovar_tokens "${contas[@]}"
+  while IFS=$'\t' read -r c pico volta texto fonte em; do
+    U_PICO[$c]=${pico#-} U_VOLTA[$c]=${volta#-} U_TEXTO[$c]=${texto#-} U_FONTE[$c]=$fonte U_EMAIL[$c]=${em#-}
+  done < <(consultar_uso "${contas[@]}")
+  local -a linhas=('CONTA	E-MAIL	ESTADO	USO')
+  for c in "${contas[@]}"; do
+    email='—'
+    case $c in
+      codex)
+        email=${U_EMAIL[$c]:-—}
+        if codex login status >/dev/null 2>&1; then estado='conectada'; else estado='sem login'; fi ;;
+      kiro)
+        email=$(timeout 20 kiro-cli whoami 2>/dev/null | sed -n 's/^Email: *//p' | head -n 1) || true
+        if [[ -n $email ]]; then estado='conectada'; else email='—'; estado='sem login'; fi ;;
+      *)
+        dir=$(pasta_claude "$c")
+        if [[ -s $dir/.credentials.json ]]; then
+          estado='conectada'
+          email=$(claude_status_email "$( [[ $c == principal ]] || echo "$dir")") || email='—'
+        elif [[ $c == principal && -x $CLAUDE_BIN ]]; then
+          estado='outra autenticação' # Keychain, chave de API, Bedrock: sem arquivo de credencial
+        else
+          estado='sem login'
+        fi ;;
+    esac
+    pico=${U_PICO[$c]:-}
+    if [[ $estado == conectada && -n $pico ]] && ((pico >= LIMITE)); then
+      estado="esgotada"
+    elif [[ $estado == conectada && $(cat "$ATUAL_ROT" 2>/dev/null) == "$c" ]]; then
+      estado='última do rot'
+    fi
+    texto=${U_TEXTO[$c]:-}
+    case ${U_FONTE[$c]:-desconhecido} in
+      cache | reiniciou) texto="~$texto" ;;
+      desconhecido) texto='?' ;;
+    esac
+    [[ $estado == 'sem login' ]] && texto='—'
+    linhas+=("$c"$'\t'"$email"$'\t'"$estado"$'\t'"$texto")
+  done
+  # Colunas na largura do maior valor (contado em caracteres: e-mails e "—" não são ASCII).
+  local -a larg=(0 0 0) campos
+  local l i
+  for l in "${linhas[@]}"; do
+    IFS=$'\t' read -r -a campos <<<"$l"
+    for i in 0 1 2; do ((${#campos[i]} > larg[i])) && larg[i]=${#campos[i]}; done
+  done
+  for l in "${linhas[@]}"; do
+    IFS=$'\t' read -r -a campos <<<"$l"
+    for i in 0 1 2; do printf '%s%*s  ' "${campos[i]}" $((larg[i] - ${#campos[i]})) ''; done
+    printf '%s\n' "${campos[3]}"
+  done
+}
+
+# Conta desta sessão: IA_CONTA (posta pelo ia-conta e pelo ia-rot), senão a pasta do
+# CLAUDE_CONFIG_DIR, senão a principal quando dentro do Claude Code.
+conta_atual() {
+  if [[ -n ${IA_CONTA:-} ]]; then echo "$IA_CONTA"; return; fi
+  if [[ -n ${CLAUDE_CONFIG_DIR:-} ]]; then
+    local d=${CLAUDE_CONFIG_DIR%/}
+    [[ $d == "$RAIZ"/* ]] && { echo "${d##*/}"; return; }
+    [[ $d == "$BASE" ]] && { echo principal; return; }
+  fi
+  [[ -n ${CLAUDECODE:-} ]] && { echo principal; return; }
+  [[ -n ${CODEX_SANDBOX:-}${CODEX_SANDBOX_NETWORK_DISABLED:-}${CODEX_THREAD_ID:-} ]] && { echo codex; return; }
+  return 1
+}
+
+uso_contas() {
+  local c pico volta texto fonte em situacao rc=0 r detalhe
+  local -a contas=()
+  for c in "$@"; do
+    if [[ $c == --eu ]]; then
+      c=$(conta_atual) || die "não sei qual conta esta sessão usa; diga qual: ia-conta uso <conta> (codex, kiro, principal…)"
+    fi
+    contas+=("$c")
+  done
+  ((${#contas[@]})) || mapfile -t contas < <(contas_rotacao)
+  for c in "${contas[@]}"; do
+    case $c in principal | codex | kiro) ;; *) [[ -d $(perfil "$c") ]] || die "não existe a conta '$c'" ;; esac
+  done
+  renovar_tokens "${contas[@]}"
+  while IFS=$'\t' read -r c pico volta texto fonte em; do
+    pico=${pico#-} volta=${volta#-} texto=${texto#-}
+    if [[ -z $pico ]]; then situacao=desconhecido; r=2
+    elif ((pico >= LIMITE)); then situacao=passar; r=4
+    elif ((pico >= AVISO)); then situacao=aviso; r=3
+    else situacao=ok; r=0
+    fi
+    detalhe=$texto
+    [[ $fonte == cache || $fonte == reiniciou ]] && detalhe+=" (último valor conhecido)"
+    [[ -n $volta && $situacao != ok ]] && detalhe+=" · reinicia $(hora_reset "$volta")"
+    printf '%s\t%s\t%s\t%s\n' "$c" "${pico:-?}" "$situacao" "$detalhe"
+    ((r > rc)) && rc=$r
+  done < <(consultar_uso "${contas[@]}")
+  return "$rc"
+}
+
+claude_status_email() {
+  local config_dir=$1 saida email cache_dir cache tentativa
+  cache_dir=${config_dir:-$BASE}
+  cache="$cache_dir/.account-email"
+  # O e-mail de uma credencial não muda (um novo login apaga o cache em entrar).
+  if [[ -s $cache ]]; then
+    IFS= read -r email <"$cache" || true
+    [[ -n $email ]] && { printf '%s\n' "$email"; return 0; }
+  fi
+  for tentativa in 1 2 3; do
+    if [[ -n $config_dir ]]; then
+      saida=$(CLAUDE_CONFIG_DIR="$config_dir" "$CLAUDE_BIN" auth status --json 2>/dev/null) || true
+    else
+      saida=$(env -u CLAUDE_CONFIG_DIR "$CLAUDE_BIN" auth status --json 2>/dev/null) || true
+    fi
+    email=$(printf '%s\n' "$saida" |
+      sed -n 's/^[[:space:]]*"email"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+      head -n 1) || email=''
+    if [[ -n $email ]]; then
+      printf '%s\n' "$email" >"$cache"
+      chmod 600 "$cache"
+      printf '%s\n' "$email"
+      return 0
+    fi
+    sleep 0.2
+  done
+  return 1
+}
+
+acao=${1:-}
+case $acao in
+  '' | -h | --help | ajuda) uso ;;
+  adicionar | entrar)
+    [[ $# == 2 ]] || { uso >&2; exit 2; }
+    entrar "$2"
+    ;;
+  renomear)
+    [[ $# == 3 ]] || { uso >&2; exit 2; }
+    renomear "$2" "$3"
+    ;;
+  remover | descadastrar)
+    case "$#:${3:-}" in
+      2:) remover "$2" 0 ;;
+      3:--sim | 3:-s) remover "$2" 1 ;;
+      *) uso >&2; exit 2 ;;
+    esac
+    ;;
+  listar)
+    case "$#:${2:-}" in
+      1:) listar 0 ;;
+      2:--rapido) listar 1 ;;
+      *) die 'uso: ia-conta listar [--rapido]' ;;
+    esac
+    ;;
+  uso) uso_contas "${@:2}" ;;
+  *) rodar "$acao" "${@:2}" ;;
+esac
