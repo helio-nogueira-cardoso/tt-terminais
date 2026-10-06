@@ -108,3 +108,10 @@ antigo "${t:-0}" 3.4 && echo "Aviso: tmux $t é mais antigo que o recomendado (3
 antigo "${f:-0}" 0.60 && echo "Aviso: fzf $f é mais antigo que o recomendado (0.60); a central pode não abrir direito."
 
 ./tt --instalar "$@"
+
+# Opcional: nomeador local de abas (modelo open source leve que roda só nesta máquina, sem conta).
+# Baixa uma vez (~1–2,5 GB, conforme a memória); dá para fazer depois pelo menu ⋯ → 🧠 Nomeador de abas.
+if [[ -t 0 ]] && sug=$(python3 -I ./nomeador-local.py estado 2>/dev/null | sed -n 's/^sugerido=//p') && [[ -n $sug ]]; then
+  read -r -p "Instalar o nomeador local de abas (modelo $sug, roda só aqui, sem conta)? (s/N) " r
+  [[ $r == [sSyY]* ]] && "$HOME/.local/bin/tt" --nomeador-local instalar "$sug" || true
+fi
