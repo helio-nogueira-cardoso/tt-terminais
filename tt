@@ -1812,7 +1812,9 @@ border-char-vertical=│
 border-char-horizontal=─
 UI
   # HTML é o padrão quando o e-mail tem as duas versões (o w3m mostra tabelas, cores e links).
-  aerc_definir "$conf" statusline column-right '{{.TrayInfo}}  ? atalhos · F2 contas · q fecha'
+  aerc_definir "$conf" statusline column-right '{{.TrayInfo}}  ? atalhos · F2 contas · Ctrl+r redesenha · q fecha'
+  grep -q '^column-right={{.TrayInfo}}  ? atalhos · F2 contas · q fecha$' "$conf" &&
+    aerc_definir "$conf" statusline column-right '{{.TrayInfo}}  ? atalhos · F2 contas · Ctrl+r redesenha · q fecha' forcar
   aerc_definir "$conf" viewer alternatives text/html,text/plain
   grep -q '^alternatives=text/plain,text/html$' "$conf" && aerc_definir "$conf" viewer alternatives text/html,text/plain forcar
   # HTML: sem o w3m o filtro "html" do aerc falha e o e-mail aparece vazio; troca pelo melhor disponível.
@@ -1843,6 +1845,7 @@ UI
     echo '[messages]'
     echo "? = :term $HOME/.local/bin/tt --email-atalhos<Enter>"
     echo "<F2> = :term $HOME/.local/bin/tt --email-contas-ui<Enter>"
+    echo '<C-r> = :redraw<Enter>'
     echo 'q = :quit<Enter>'
     echo 'Q = :quit<Enter>'
     echo 'u = :read -t<Enter>'
@@ -1855,6 +1858,7 @@ UI
     echo "? = :term $HOME/.local/bin/tt --email-atalhos<Enter>"
     echo "E = :save -a -f -p $HOME/.cache/tt-anexos/atual/<Enter>:term $HOME/.local/bin/tt --anexos-enviar<Enter>"
     echo 'q = :close<Enter>'
+    echo '<C-r> = :redraw<Enter>'
     echo 'u = :read -t<Enter>:close<Enter>'
     echo '* = :flag -t<Enter>'
     echo 'f = :forward<Enter>'
@@ -3772,6 +3776,7 @@ Várias	v  ou  espaço	selecionar / desmarcar (as ações valem para todas as se
 Várias	V	selecionar a conversa inteira
 Contas	F2	contas de e-mail: cadastrar, descadastrar, testar
 Contas	Ctrl+n / Ctrl+p	próxima / anterior conta (abas)
+Ajuda	Ctrl+r	redesenhar a tela (se aparecer algo estranho)
 Ajuda	?	esta tela
 AT
 )
@@ -4319,11 +4324,11 @@ botao_email() {
     aerc_definir "$estreito" ui index-columns 'flags:3,name<12%,subject,date>=' forcar
     cmd+=" -C $(printf %q "$estreito")"
   fi
-  # aerc: tela cheia e sem borda. Um popup menor deixava a tela de baixo à mostra, e o que ela
-  # redesenhava (ex.: o Claude trabalhando) vazava para dentro do quadro (letras e números soltos); e a
-  # borda permitia arrastar o quadro com o mouse. A dica de teclas fica na barra de status do aerc.
+  # aerc: subjanela por cima da tela, SEM a linha de borda (-b none): o tmux só deixa arrastar um
+  # popup quando o clique cai na borda, e o quadro era arrastado sem querer. A barra de abas e a de
+  # status do aerc delimitam o quadro; a dica de teclas fica na barra de status dele.
   # Outros clientes: quadro com título (que diz como sair).
-  local geo=(-B -w 100% -h 100%)
+  local geo=(-b none $(tam_popup "$cliente"))
   [[ ${prog##*/} == aerc ]] || geo=($(tam_popup "$cliente") -T " 📧 e-mail · $dica ")
   tmux display-popup -c "$cliente" -E "${geo[@]}" \
     "cd ${HOME@Q}; $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Enter fecha.' \"\$?\"; read -r _; }"
