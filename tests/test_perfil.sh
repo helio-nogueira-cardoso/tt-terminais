@@ -32,7 +32,7 @@ passou 'perfil: reinstalação preserva memória e a política própria do usuá
 # tmux.conf do perfil é carregado depois do pacote; sem ele, nada quebra.
 s=$T/perfil.sock
 tmux -S "$s" -f "$pkg/tmux.conf" new -d -s p 'sleep 30' || falhou 'tmux.conf sem perfil não carrega'
-tmux -S "$s" kill-server
+tmux -S "$s" kill-server; for _ in $(seq 50); do tmux -S "$s" has-session 2>/dev/null || break; sleep 0.1; done; rm -f "$s"
 echo 'set -g @perfil_ok sim' >"$XDG_CONFIG_HOME/tt/tmux.conf"
 tmux -S "$s" -f "$pkg/tmux.conf" new -d -s p 'sleep 30'
 [[ $(tmux -S "$s" show -gv @perfil_ok 2>/dev/null) == sim ]] || falhou 'tmux.conf do perfil não foi carregado'
