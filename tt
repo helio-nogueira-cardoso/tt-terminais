@@ -1172,6 +1172,25 @@ saude() {
     *) printf '  \033[31m●\033[0m %-16s %-14s %s\n' "$rot" "$est" "$(explicar_diagnostico "$est")" ;;
     esac
   done < <(maquinas)
+  saude_local
+}
+
+# Saude local: units do usuario em falha + ultimas falhas registradas pelo tt-onfailure
+# (~/.local/state/tt/unit-failures.tsv). Read-only; sem systemd do usuario (Termux) = pula.
+saude_local() {
+  local falhas n tsv=~/.local/state/tt/unit-failures.tsv
+  if command -v systemctl >/dev/null 2>&1 && falhas=$(systemctl --user --failed --plain --no-legend 2>/dev/null); then
+    falhas=$(awk 'NF { printf "%s%s", (n++ ? " " : ""), $1 }' <<<"$falhas")
+    if [[ -z $falhas ]]; then
+      printf '  \033[32m●\033[0m %-16s %s\n' "units locais" "0 em falha"
+    else
+      n=$(wc -w <<<"$falhas")
+      printf '  \033[31m●\033[0m %-16s %s\n' "units locais" "$n em falha: $falhas"
+    fi
+  fi
+  [[ -s $tsv ]] || return 0
+  echo "  ultimas falhas registradas ($tsv):"
+  tail -n 3 "$tsv" | while IFS=$'\t' read -r ts unit est; do printf '    %s  %s %s\n' "$ts" "$unit" "$est"; done
 }
 
 # Garante a chave publica desta maquina no authorized_keys do destino (idempotente). Precisa
@@ -5941,7 +5960,7 @@ esac
 
 case "${1:-}" in
   --listar) listar; exit ;;
-  --nome) echo "$MAQUINA"; exit ;;
+  --nome) m=${TT_MACHINE:-$MAQUINA}; echo "${m//_/-}"; exit ;;
   --copiar) copiar; exit 0 ;;
   --copiar-buffer) tmux save-buffer - 2>/dev/null | copiar; exit 0 ;;
   --copiado) copiado "$2"; exit 0 ;;
