@@ -1859,6 +1859,27 @@ quote_1.dim=false
 TEMA
 }
 
+# Reparo sob demanda do aerc (chamado por botao_email antes de abrir). A configuração completa roda na
+# instalação, mas o aerc pode ter sido instalado DEPOIS do tt, ou o filtro de HTML pode apontar para
+# uma ferramenta ausente; então o corpo HTML aparece VAZIO. Repara APENAS o filtro text/html, sem
+# tocar binds/tema/contas. Retorna sucesso somente quando alterou o filtro, para reiniciar o aerc.
+aerc_reparar_se_preciso() {
+  command -v aerc >/dev/null || return 1
+  local conf="$HOME/.config/aerc/aerc.conf"
+  [[ -f $conf ]] || return 1   # sem config: o fluxo de cadastro cuida
+  local linha_html
+  linha_html=$(grep -E '^[[:space:]]*text/html[[:space:]]*=' "$conf" 2>/dev/null | tail -1)
+  # (a) sem filtro text/html; (b) filtro "! html" sem w3m; (c) aponta para lynx/w3m ausente.
+  if [[ -z $linha_html ]] ||
+     { [[ $linha_html =~ ^[[:space:]]*text/html[[:space:]]*=[[:space:]]*!*[[:space:]]*html[[:space:]]*$ ]] && ! command -v w3m >/dev/null; } ||
+     { [[ $linha_html == *lynx* ]] && ! command -v lynx >/dev/null; } ||
+     { [[ $linha_html == *w3m* ]] && ! command -v w3m >/dev/null; }; then
+    aerc_definir "$conf" filters text/html "$(aerc_filtro_html)" forcar
+    return 0
+  fi
+  return 1
+}
+
 configurar_aerc() {
   # email= pode ser "aerc" ou um caminho para ele (ex.: ~/.local/bin/aerc); outro cliente: nada a fazer.
   local cli; cli=$(conf email); cli=${cli%% *}
@@ -4450,6 +4471,11 @@ botao_email() {
     botao_email_contas "$cliente"; return
   fi
   cmd=$(email_comando) || { botao_aviso "$cliente" "e-mail: instale o aerc (ou defina email=<cliente> em ~/.config/tt/config)"; return; }
+  # Auto-reparo: se o aerc foi instalado depois do tt ou perdeu o conversor HTML, corrige somente
+  # o filtro text/html. Quando houve reparo, reinicia a sessão oculta para carregar a configuração.
+  if [[ ${cmd%% *} == */aerc || ${cmd%% *} == aerc ]] && aerc_reparar_se_preciso; then
+    tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
+  fi
   # Dica de como fechar: display-popup não tem X clicável, então o popup só some quando o
   # cliente sai. Mostra no título a tecla de saída do cliente para quem não a conhece.
   prog=${cmd%% *}
