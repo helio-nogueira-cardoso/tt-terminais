@@ -13,6 +13,8 @@ cat >"$B/claude" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\t%s\n' "${CLAUDE_CONFIG_DIR:-principal}" "$*" >>"$HOME/claude.log"
 [[ $1 == auth ]] && { printf '{\n  "email": "x@exemplo.com"\n}\n'; exit 0; }
+# Sem prompt (renovação de token pelo ia-conta) o Claude de verdade sai com erro.
+[[ $* == *--no-session-persistence ]] && { echo 'Error: Input must be provided' >&2; exit 1; }
 for a; do :; done; echo "resposta de ${CLAUDE_CONFIG_DIR##*/}: $a"
 EOF
 chmod +x "$B/claude"
@@ -44,7 +46,12 @@ out=$(ia-conta listar --rapido)
 grep -qE '^principal +x@exemplo.com +esgotada +~5h 100%' <<<"$out" || falhou "listar: principal esgotada com uso do cache: $out"
 grep -qE '^alfa .*~5h 20% · 7d 50%' <<<"$out" || falhou "listar: uso da alfa: $out"
 grep -qE '^beta .* \?$' <<<"$out" || falhou "listar: beta sem dado deveria mostrar ?: $out"
-passou 'listar mostra a coluna USO (cache marcado com ~, desconhecido = ?)'
+# Sem --rapido renova os tokens vencidos (o Claude sem prompt sai com erro) e lista do mesmo jeito.
+: >"$HOME/claude.log"
+out2=$(ia-conta listar) || falhou 'listar com renovação de token saiu com erro'
+[[ $out2 == "$out" ]] || falhou "listar com renovação difere do --rapido: $out2"
+grep -q -- '-p --no-session-persistence' "$HOME/claude.log" || falhou 'listar não renovou os tokens vencidos'
+passou 'listar mostra a coluna USO (cache marcado com ~, desconhecido = ?), renovando tokens vencidos'
 
 set +e
 IA_CONTA=principal ia-conta uso --eu >"$T/uso"; rc=$?
