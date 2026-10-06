@@ -201,7 +201,8 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
 
 ## Contas de e-mail
 
-Menu ⚙ administrar → **Contas de e-mail** (ou `tt --email-contas`): uma lista com cada conta
+**Botão direito no 📧** → Contas (também ⚙ administrar → Contas de e-mail, `F2` dentro do e-mail ou
+`tt --email-contas`); sem nenhuma conta, o próprio 📧 abre o cadastro: uma lista com cada conta
 (provedor, autenticação, servidor). **⏎** abre as ações da conta (🔌 testar conexão, ✏ editar,
 🔑 autorizar de novo, 🗑 descadastrar); **^n** cadastra, **^t** testa, **^d** descadastra.
 
@@ -243,7 +244,13 @@ lidas**, conversas agrupadas em fios, datas curtas e e-mails em **HTML legíveis
 | `M` | mover para pasta (Tab completa) | `Y` | copiar para pasta |
 | `F` | só não lidos (Esc volta) | `/` | buscar |
 | `m` | escrever | `J` / `K` | próxima / anterior pasta |
-| `v` / espaço | selecionar várias (as ações valem para todas) | `?` | todos os atalhos |
+| `v` / espaço | selecionar várias (as ações valem para todas) | `?` | tela de atalhos, em português |
+| Ctrl+j / Ctrl+k | escolher anexo (na mensagem) | `O` / `S` | abrir / salvar o anexo |
+| `E` | **enviar os anexos para a pasta de recebidos de uma máquina do tt** (seletor visual) | `F2` | contas de e-mail |
+
+E-mails com versão HTML abrem nela, pelo `w3m` (tabelas, cores, links), na largura da janela. Em tela
+estreita (lado a lado, celular) o 📧 abre o aerc sem a barra de pastas (`J`/`K` trocam de pasta).
+**Botão direito no 📧**: abrir, contas (cadastrar, descadastrar, testar), nova conta e atalhos.
 
 ## Sessões fixadas
 

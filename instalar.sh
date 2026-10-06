@@ -6,27 +6,27 @@
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
-declare -A PACOTE_APT=(
+declare -A PACOTE_APT=( [w3m]=w3m
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python3
   [ssh]=openssh-client [tar]=tar [rg]=ripgrep
 )
-declare -A PACOTE_DNF=(
+declare -A PACOTE_DNF=( [w3m]=w3m
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python3
   [ssh]=openssh-clients [tar]=tar [rg]=ripgrep
 )
-declare -A PACOTE_PACMAN=(
+declare -A PACOTE_PACMAN=( [w3m]=w3m
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python
   [ssh]=openssh [tar]=tar [rg]=ripgrep
 )
-declare -A PACOTE_APK=(
+declare -A PACOTE_APK=( [w3m]=w3m
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python3
   [ssh]=openssh-client [tar]=tar [rg]=ripgrep
 )
-declare -A PACOTE_BREW=(
+declare -A PACOTE_BREW=( [w3m]=w3m
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python
   [ssh]=openssh [tar]=gnu-tar [rg]=ripgrep
 )
-declare -A PACOTE_PKG=(
+declare -A PACOTE_PKG=( [w3m]=w3m
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python
   [ssh]=openssh [tar]=tar [rg]=ripgrep
 )
@@ -87,6 +87,12 @@ instalar_pacotes() {
 }
 
 if ((${#faltam[@]})); then instalar_pacotes; fi
+
+# Opcional: com o aerc, o w3m mostra e-mails em HTML bem (tabelas, cores, links). Se não der para
+# instalar, segue: o tt usa o lynx ou o conversor próprio.
+if command -v aerc >/dev/null 2>&1 && ! command -v w3m >/dev/null 2>&1; then
+  faltam=(w3m); instalar_pacotes >/dev/null 2>&1 || echo "Aviso: não consegui instalar o w3m (opcional); e-mails em HTML usarão outro conversor." >&2
+fi
 
 faltam=()
 for c in "${necessarios[@]}"; do command -v "$c" >/dev/null 2>&1 || faltam+=("$c"); done

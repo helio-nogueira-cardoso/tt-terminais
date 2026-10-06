@@ -1811,15 +1811,26 @@ this-year-time-format=02 Jan
 border-char-vertical=│
 border-char-horizontal=─
 UI
-  aerc_definir "$conf" viewer alternatives text/plain,text/html
+  # HTML é o padrão quando o e-mail tem as duas versões (o w3m mostra tabelas, cores e links).
+  aerc_definir "$conf" viewer alternatives text/html,text/plain
+  grep -q '^alternatives=text/plain,text/html$' "$conf" && aerc_definir "$conf" viewer alternatives text/html,text/plain forcar
   # HTML: sem o w3m o filtro "html" do aerc falha e o e-mail aparece vazio; troca pelo melhor disponível.
   local f_html; f_html=$(aerc_filtro_html)
   if ! grep -q '^[[:space:]]*text/html[[:space:]]*=' "$conf" 2>/dev/null ||
      { grep -q '^[[:space:]]*text/html[[:space:]]*=[[:space:]]*!*[[:space:]]*html[[:space:]]*$' "$conf" && ! command -v w3m >/dev/null; } ||
-     grep -q '^[[:space:]]*text/html[[:space:]]*=.*email-tt.py html' "$conf"; then
+     grep -q '^[[:space:]]*text/html[[:space:]]*=.*email-tt.py html' "$conf" ||
+     { command -v w3m >/dev/null && grep -q '^[[:space:]]*text/html[[:space:]]*=[[:space:]]*lynx -assume_charset=utf-8' "$conf"; }; then
     aerc_definir "$conf" filters text/html "$f_html" forcar
   fi
 
+  # Sem binds.conf (ou sem os atalhos básicos), o arquivo do tt substituiria os padrões do aerc e
+  # nem o Enter abriria a mensagem: começa pela cópia do binds.conf que vem com o aerc.
+  if ! grep -q '^<Enter> = :view' "$binds" 2>/dev/null; then
+    local pd real; real=$(readlink -f "$(command -v aerc)")
+    for pd in "$HOME/.local/share/aerc" /usr/share/aerc /usr/local/share/aerc "${PREFIX:-/nonexistent}/share/aerc" "$(dirname "$real")/../share/aerc"; do
+      [[ -f $pd/binds.conf ]] && { { cat "$pd/binds.conf"; [[ ! -s $binds ]] || cat "$binds"; } >"$binds.novo" && mv "$binds.novo" "$binds"; break; }
+    done
+  fi
   # binds.conf: bloco do tt entre marcadores. q/Q saem na hora (o título do popup diz "q fecha") e
   # ações comuns ganham teclas fáceis, na lista e na leitura da mensagem.
   [[ -f $binds ]] || : > "$binds"
@@ -1829,6 +1840,8 @@ UI
     # (nada antes do primeiro cabeçalho: o bloco fica no fim do arquivo, e linhas soltas cairiam na
     # última seção do binds.conf — em geral [terminal], onde q fecharia o aerc no meio de um terminal)
     echo '[messages]'
+    echo "? = :term $HOME/.local/bin/tt --email-atalhos<Enter>"
+    echo "<F2> = :term $HOME/.local/bin/tt --email-contas-ui<Enter>"
     echo 'q = :quit<Enter>'
     echo 'Q = :quit<Enter>'
     echo 'u = :read -t<Enter>'
@@ -1838,6 +1851,8 @@ UI
     echo 'Y = :copy<space>'
     echo 'F = :filter -X Seen<Enter>'
     echo '[view]'
+    echo "? = :term $HOME/.local/bin/tt --email-atalhos<Enter>"
+    echo "E = :save -a -f -p $HOME/.cache/tt-anexos/atual/<Enter>:term $HOME/.local/bin/tt --anexos-enviar<Enter>"
     echo 'q = :close<Enter>'
     echo 'u = :read -t<Enter>:close<Enter>'
     echo '* = :flag -t<Enter>'
@@ -3687,9 +3702,85 @@ clique_direito() {
     at[0-9]*) atalho_info "$2" "${faixa#at}" ;;
     maquina) menu_admin "$2" "$3" ;;
     sessao) menu_sessao "$2" "$3" ;;
+    email) menu_email "$2" ;;
     *) menu_maquinas "$2" "$3" ;;
   esac
 }
+
+# Botão direito no 📧: tudo do e-mail num lugar só.
+menu_email() {
+  local c=$1
+  menu_popup "$c" "📧 e-mail" <<ITENS
+e	📧 Abrir o e-mail	$EU --email $(q "$c")
+c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
+n	＋ Cadastrar uma conta…	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
+a	⌨ Atalhos do e-mail	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' ⌨ atalhos do e-mail ' "$EU --email-atalhos"
+ITENS
+}
+
+# Anexos de um e-mail → pasta de recebidos de uma máquina do tt. A tecla E do aerc salva os anexos
+# da mensagem aberta em ~/.cache/tt-anexos/atual e abre isto: marca quais, escolhe a máquina no
+# mesmo seletor do ⇅ arquivos, e a cópia segue em segundo plano (barra mostra o andamento).
+anexos_enviar() {
+  local base="$HOME/.cache/tt-anexos" lote dst ddst escolha
+  local -a nomes=()
+  # lotes velhos (enviados há mais de 1 dia) somem
+  find "$base" -mindepth 1 -maxdepth 1 -type d ! -name atual -mtime +1 -exec rm -rf {} + 2>/dev/null
+  [[ -d $base/atual && -n $(ls -A "$base/atual" 2>/dev/null) ]] || { echo "Esta mensagem não tem anexos."; read -rsn1 -t 3; return 0; }
+  lote="$base/$(date +%Y%m%d-%H%M%S)"; mv "$base/atual" "$lote"
+  escolha=$(cd "$lote" && ls -1 | fzf --multi --bind 'start:select-all' --layout=reverse --height=~20 --border=rounded \
+    --border-label=' 📎 anexos para enviar (Tab marca/desmarca · ⏎ segue) ' --prompt='❯ ' --pointer='▶' --marker='✔' \
+    --preview 'f={}; printf "%s\n%s\n" "$(du -h "$f" | cut -f1)" "$(file -b "$f" 2>/dev/null)"' --preview-window=down,3) || { rm -rf "$lote"; return 0; }
+  mapfile -t nomes <<<"$escolha"; ((${#nomes[@]})) || { rm -rf "$lote"; return 0; }
+  dst=$(escolher_maquina "📤 enviar ${#nomes[@]} anexo(s) para") || { rm -rf "$lote"; return 0; }
+  [[ -n $dst ]] || { rm -rf "$lote"; return 0; }
+  ddst=$(rodar "$dst" --pasta-recebidos)
+  transferir . "$(encurtar "$lote")" "$dst" "$ddst" "${nomes[@]}"
+}
+
+# Tela de atalhos do aerc em português# Tela de atalhos do aerc em português, por assunto; digite para buscar, Esc ou q fecha.
+email_atalhos() {
+  local lista
+  lista=$(cat <<'AT'
+Ler	Enter	abrir a mensagem
+Ler	q	fechar a mensagem (na lista: fechar o e-mail)
+Ler	j / k  ou  setas	mensagem seguinte / anterior
+Ler	J / K	pasta seguinte / anterior
+Ler	Tab	recolher / abrir a conversa
+Organizar	u	marcar como lida ↔ não lida
+Organizar	*	estrela (importante) liga / desliga
+Organizar	a	arquivar
+Organizar	M	mover para uma pasta (Tab completa o nome)
+Organizar	Y	copiar para uma pasta
+Organizar	d	apagar (pergunta antes)
+Organizar	D	apagar sem perguntar
+Responder	Rr	responder ao remetente
+Responder	rr	responder a todos
+Responder	f	encaminhar
+Responder	m  ou  C	escrever uma mensagem nova
+Encontrar	/	buscar
+Encontrar	n / N	próximo / anterior resultado
+Encontrar	F	mostrar só as não lidas
+Encontrar	Esc	limpar busca e filtro
+Anexos	(na mensagem aberta)	a lista de partes e anexos aparece embaixo
+Anexos	Ctrl+j / Ctrl+k	escolher o anexo seguinte / anterior
+Anexos	O	abrir o anexo escolhido
+Anexos	S	salvar o anexo escolhido (Tab completa a pasta)
+Anexos	E	enviar os anexos para a pasta de recebidos de uma máquina do tt
+Várias	v  ou  espaço	selecionar / desmarcar (as ações valem para todas as selecionadas)
+Várias	V	selecionar a conversa inteira
+Contas	F2	contas de e-mail: cadastrar, descadastrar, testar
+Contas	Ctrl+n / Ctrl+p	próxima / anterior conta (abas)
+Ajuda	?	esta tela
+AT
+)
+  if [[ ! -t 1 ]] || ! command -v fzf >/dev/null; then column -t -s $'\t' <<<"$lista"; return 0; fi
+  awk -F'\t' '{ printf "\033[35m%-10s\033[0m \033[1;36m%-20s\033[0m %s\n", $1, $2, $3 }' <<<"$lista" |
+    fzf --ansi --layout=reverse --no-sort --disabled --prompt='' --header='⌨ Atalhos do e-mail (aerc) · Esc ou q fecha' \
+      --bind 'q:abort,enter:abort' --info=hidden >/dev/null
+  return 0
+}
+
 
 # O tmux não possui evento de movimento/hover. O botão direito funciona como tooltip explícito,
 # mostrando o comando completo sem executar nada; o clique normal continua abrindo a sessão.
@@ -4204,15 +4295,29 @@ email_comando() {
 # erro ficar visível, em vez de o popup sumir num piscar.
 botao_email() {
   local cliente=$1 cmd prog dica
+  # Sem nenhuma conta ainda: o aerc abriria o próprio assistente em inglês; vai direto ao cadastro do tt.
+  if [[ ! -s $HOME/.config/aerc/accounts.conf ]] || ! grep -q '^\[' "$HOME/.config/aerc/accounts.conf"; then
+    botao_email_contas "$cliente"; return
+  fi
   cmd=$(email_comando) || { botao_aviso "$cliente" "e-mail: instale o aerc (ou defina email=<cliente> em ~/.config/tt/config)"; return; }
   # Dica de como fechar: display-popup não tem X clicável, então o popup só some quando o
   # cliente sai. Mostra no título a tecla de saída do cliente para quem não a conhece.
   prog=${cmd%% *}
   case ${prog##*/} in
-    aerc)        dica="q fecha · ? atalhos" ;;
+    aerc)        dica="q fecha · ? atalhos · F2 contas · botão direito no 📧: menu" ;;
     mutt|neomutt) dica="q fecha" ;;
     *)           dica="feche o cliente p/ sair" ;;
   esac
+  # Tela estreita (lado a lado, celular): o aerc abre sem a barra de pastas (J/K trocam de pasta),
+  # numa cópia da configuração — a normal não muda. Senão a lista e o texto quebram linha a linha.
+  local larg; larg=$(do_cliente "$cliente" '#{client_width}')
+  if [[ ${prog##*/} == aerc && ${larg:-200} -lt 100 && -f $HOME/.config/aerc/aerc.conf ]]; then
+    local estreito="$HOME/.cache/tt-aerc-estreito.conf"; mkdir -p "$HOME/.cache"
+    cp "$HOME/.config/aerc/aerc.conf" "$estreito"
+    aerc_definir "$estreito" ui sidebar-width 0 forcar
+    aerc_definir "$estreito" ui index-columns 'flags:3,name<12%,subject,date>=' forcar
+    cmd+=" -C $(printf %q "$estreito")"
+  fi
   tmux display-popup -c "$cliente" -E $(tam_popup "$cliente") -T " 📧 e-mail · $dica " \
     "cd ${HOME@Q}; $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Enter fecha.' \"\$?\"; read -r _; }"
 }
@@ -4233,6 +4338,7 @@ declare -A E=() # conta em edição (as funções declaram a sua cópia local co
 # Chaves de uma conta, na ordem em que são gravadas.
 EMAIL_CHAVES=(nome endereco usuario nome_exibicao provedor auth imap_host imap_porta imap_seg smtp_host smtp_porta smtp_seg
   pasta cred_cmd oauth_client_id oauth_auth_endpoint oauth_token_endpoint oauth_device_endpoint oauth_scope
+  pasta_todos pasta_enviados pasta_lixeira pasta_rascunhos pasta_spam pasta_naoabre
   extra_1 extra_2 extra_3 extra_4 extra_5 extra_6 extra_7 extra_8)
 
 # Nome de conta → slug seguro para nome de arquivo (minúsculas, só [a-z0-9_-]).
@@ -4326,7 +4432,36 @@ email_bloco() {
   if [[ -n ${E[nome_exibicao]:-} ]]; then printf 'from              = %s <%s>\n' "${E[nome_exibicao]}" "${E[endereco]}"
   else printf 'from              = %s\n' "${E[endereco]}"; fi
   printf 'default           = %s\n' "${E[pasta]:-INBOX}"
-  local i; for i in 1 2 3 4 5 6 7 8; do [[ -n ${E[extra_$i]:-} ]] && printf '%s\n' "${E[extra_$i]}"; done
+  # Pastas: a pasta-mãe que não abre (ex.: [Gmail]) sai da lista e as de dentro sobem para o 1º
+  # nível; arquivar e rascunhos vão para as pastas especiais que o servidor indicou (o nome muda
+  # com o idioma da conta). O Gmail guarda sozinho o que se envia: sem copy-to (duplicaria).
+  local mae=${E[pasta_naoabre]:-} gmail=""; [[ ${E[imap_host]} == imap.gmail.com ]] && gmail=1
+  if [[ -n $mae ]]; then
+    printf '%s = %s/*\n' '*' "$mae" >"$AERC_DIR/tt-pastas-${E[_slug]}.map"
+    printf 'folder-map        = %s\n' "$AERC_DIR/tt-pastas-${E[_slug]}.map"
+    printf 'folders-exclude   = %s\n' "$mae"
+  fi
+  local pt; for pt in todos:archive rascunhos:postpone; do
+    local v=${E[pasta_${pt%%:*}]:-}; [[ -n $v ]] || continue
+    [[ -n $mae ]] && v=${v#"$mae"/}
+    printf '%-17s = %s\n' "${pt#*:}" "$v"
+  done
+  if [[ -z $gmail && -n ${E[pasta_enviados]:-} ]]; then
+    local v=${E[pasta_enviados]}; [[ -n $mae ]] && v=${v#"$mae"/}; printf 'copy-to           = %s\n' "$v"
+  fi
+  local i; for i in 1 2 3 4 5 6 7 8; do
+    [[ -n ${E[extra_$i]:-} ]] || continue
+    # chaves que o tt agora define (ou que não valem para o Gmail) não são repetidas
+    if [[ ${E[extra_$i]} =~ ^[[:space:]]*([a-z-]+)[[:space:]]*= ]]; then
+      case ${BASH_REMATCH[1]} in
+        copy-to) [[ -n $gmail || -n ${E[pasta_enviados]:-} ]] && continue ;;
+        archive) [[ -n ${E[pasta_todos]:-} ]] && continue ;;
+        postpone) [[ -n ${E[pasta_rascunhos]:-} ]] && continue ;;
+        folder-map|folders-exclude) [[ -n $mae ]] && continue ;;
+      esac
+    fi
+    printf '%s\n' "${E[extra_$i]}"
+  done
   echo "# <<< tt e-mail: ${E[_slug]} <<<"
 }
 
@@ -4403,6 +4538,7 @@ email_assumir() {
   tmp=$(mktemp)
   awk -v alvo="[$nome]" '$0 == alvo { pula = 1; next } pula && /^\[.*\]$|^# >>> tt e-mail:/ { pula = 0 } !pula' "$AERC_CONTAS" >"$tmp" && cat "$tmp" >"$AERC_CONTAS"; rm -f "$tmp"
   email_gravar; email_regerar "$slug"
+  [[ -n ${TT_EMAIL_SEM_REDE:-} ]] || email_detectar_pastas "$slug" || true
   echo "✔ \"$nome\" agora é gerenciada pelo tt (cópia anterior em $AERC_CONTAS.antes-tt)"
 }
 
@@ -4459,6 +4595,7 @@ email_adicionar_cli() {
     ( umask 077; printf '%s' "$senha" >"$(email_cred_arq "${E[_slug]}")" ); chmod 600 "$(email_cred_arq "${E[_slug]}")"; unset senha
   fi
   email_gravar; email_regerar "${E[_slug]}"
+  [[ -n ${TT_EMAIL_SEM_REDE:-} ]] || email_detectar_pastas "${E[_slug]}" || true
   echo "✔ conta \"${E[nome]}\" cadastrada (${E[_slug]})"
 }
 
@@ -4487,10 +4624,23 @@ email_listar() {
   while IFS= read -r n; do [[ -n $n ]] && printf '!%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$n" "-" manual "-" "-"; done < <(email_manuais)
 }
 
+# Pergunta ao servidor as pastas especiais e regrava o bloco. Sem rede/credencial: mantém o que havia.
+email_detectar_pastas() {
+  local slug=$1 k v saida; local -A E=()
+  command -v python3 >/dev/null || return 1
+  email_ler "$slug" || return 1
+  saida=$(timeout 40 python3 "$EMAIL_PY" pastas "$(email_conf_arq "$slug")" 2>/dev/null) || return 1
+  for k in todos enviados lixeira rascunhos spam naoabre; do E[pasta_$k]=""; done
+  while IFS='=' read -r k v; do [[ -n $k && -z ${E[pasta_$k]:-} ]] && E[pasta_$k]=$v; done <<<"$saida"
+  email_gravar; email_regerar "$slug"
+}
+
 email_testar_slug() {
   command -v python3 >/dev/null || { echo "✗ precisa do python3 para testar"; return 1; }
   [[ -e $(email_conf_arq "$1") ]] || { echo "Conta não encontrada: $1"; return 1; }
-  python3 "$EMAIL_PY" testar "$(email_conf_arq "$1")"
+  python3 "$EMAIL_PY" testar "$(email_conf_arq "$1")" || return 1
+  email_detectar_pastas "$1" && echo "✓ pastas especiais conferidas (arquivar, rascunhos, enviados)"
+  return 0
 }
 
 email_autorizar_slug() {
@@ -5288,6 +5438,10 @@ case "${1:-}" in
   --email-adicionar) shift; email_adicionar_cli "$@"; exit ;;
   --email-listar) email_listar; exit ;;
   --email-assumir) email_assumir "${2:?uso: tt --email-assumir NOME}"; exit ;;
+  --email-regerar) s=$(email_achar "${2:?uso: tt --email-regerar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; f_r() { local -A E=(); email_ler "$1" && email_regerar "$1"; }; f_r "$s"; exit ;;
+  --email-atalhos) email_atalhos; exit 0 ;;
+  --anexos-enviar) anexos_enviar; exit 0 ;;
+  --email-pastas) s=$(email_achar "${2:?uso: tt --email-pastas NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_detectar_pastas "$s" && echo "✔ pastas atualizadas"; exit ;;
   --email-remover) s=$(email_achar "${2:?uso: tt --email-remover NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_remover_slug "$s"; exit ;;
   --email-testar) s=$(email_achar "${2:?uso: tt --email-testar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_testar_slug "$s"; exit ;;
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;

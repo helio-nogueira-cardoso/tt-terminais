@@ -73,7 +73,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 s = http.server.HTTPServer(("127.0.0.1", 0), H); print(s.server_address[1], flush=True); s.serve_forever()
 PY
-python3 "$T/oauth.py" >"$T/porta" & sleep 1; P=$(cat "$T/porta")
+python3 "$T/oauth.py" >"$T/porta" </dev/null 2>/dev/null & OAUTH_PID=$!; sleep 1; P=$(cat "$T/porta")
 "$TT" --email-adicionar nome=SSO endereco=eu@sso.test imap_host=imap.sso.test imap_porta=993 imap_seg=tls smtp_host=smtp.sso.test \
   smtp_porta=587 smtp_seg=starttls auth=oauth oauth_client_id=cid "oauth_device_endpoint=http://127.0.0.1:$P/device" \
   "oauth_token_endpoint=http://127.0.0.1:$P/token" "oauth_scope=mail" >/dev/null || falhou 'cadastro OAuth genérico'
@@ -95,3 +95,17 @@ ef() { grep -v '^#' "$1" | grep -v '^$' | sed 's/ *= */=/' | sort; }
 diff <(ef "$B/.config/aerc/accounts.conf.antes-tt") <(ef "$B/.config/aerc/accounts.conf") >/dev/null || falhou 'conta assumida não ficou equivalente à original'
 grep -q '^# >>> tt e-mail: minha >>>' "$B/.config/aerc/accounts.conf" || falhou 'conta assumida sem marcadores'
 passou 'conta escrita à mão: listada como manual; assumida fica equivalente (comando de senha, copy-to, nome) e com cópia'
+
+# Pastas especiais (como o Gmail em português): mãe que não abre some, filhas sobem, arquivar e
+# rascunhos apontam para as pastas certas, sem copy-to no Gmail.
+f=$XDG_CONFIG_HOME/tt/email/pessoal.conf
+printf 'pasta_naoabre=[Gmail]\npasta_todos=[Gmail]/Todos os e-mails\npasta_rascunhos=[Gmail]/Rascunhos\npasta_enviados=[Gmail]/E-mails enviados\n' >>"$f"
+"$TT" --email-regerar Pessoal >/dev/null || falhou 'regerar bloco'
+b=$(sed -n '/# >>> tt e-mail: pessoal >>>/,/# <<< tt e-mail: pessoal <<</p' "$A")
+grep -q '^folders-exclude *= \[Gmail\]$' <<<"$b" || falhou "pasta-mãe [Gmail] não escondida: $b"
+grep -q '^archive *= Todos os e-mails$' <<<"$b" || falhou 'arquivar não aponta para Todos os e-mails'
+grep -q '^postpone *= Rascunhos$' <<<"$b" || falhou 'rascunhos não apontam para Rascunhos'
+grep -q '^copy-to' <<<"$b" && falhou 'Gmail não deveria ter copy-to'
+[[ $(cat "$HOME/.config/aerc/tt-pastas-pessoal.map" 2>/dev/null) == '* = [Gmail]/*' ]] || falhou 'folder-map do Gmail'
+passou 'pastas especiais: [Gmail] escondida, filhas no 1º nível, arquivar/rascunhos certos, sem copy-to no Gmail'
+kill "$OAUTH_PID" 2>/dev/null || true

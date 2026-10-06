@@ -5,6 +5,7 @@
   email-tt.py oauth-autorizar CONF       -> fluxo OAuth2 (código no aparelho ou navegador); grava o token
   email-tt.py oauth-token CONF           -> imprime um access token novo (renova pelo refresh token)
   email-tt.py testar CONF                -> testa login IMAP e SMTP; imprime ✓/✗ por serviço (rc 0 se ambos ok)
+  email-tt.py pastas CONF                -> pastas especiais pelo IMAP (SPECIAL-USE: todos, enviados, lixeira…)
   email-tt.py html                       -> filtro do aerc: HTML (stdin) → texto legível, links numerados no fim
 
 CONF é o arquivo chave=valor da conta (~/.config/tt/email/<slug>.conf). Segredos ficam em
@@ -274,6 +275,58 @@ def erro_curto(e):
     return str(e) or e.__class__.__name__
 
 
+def pastas(c):
+    """Pastas especiais pelas marcas do servidor (RFC 6154), que não dependem do idioma."""
+    tipo, segredo = credencial(c)
+    host, porta, seg = c["imap_host"], int(c.get("imap_porta") or 993), c.get("imap_seg", "tls")
+    ctx = ssl.create_default_context()
+    m = imaplib.IMAP4_SSL(host, porta, ssl_context=ctx, timeout=TIMEOUT) if seg == "tls" else imaplib.IMAP4(host, porta, timeout=TIMEOUT)
+    try:
+        if seg == "starttls":
+            m.starttls(ssl_context=ctx)
+        usuario = c.get("usuario") or c.get("endereco")
+        if tipo == "oauth":
+            m.authenticate("XOAUTH2", lambda _: xoauth2(usuario, segredo).encode())
+        else:
+            m.login(usuario, segredo)
+        st, linhas = m.list()
+        import re
+        marcas = {"\\All": "todos", "\\Sent": "enviados", "\\Trash": "lixeira", "\\Drafts": "rascunhos", "\\Junk": "spam", "\\Archive": "arquivo"}
+        for l in linhas or []:
+            l = l.decode("utf-8", "replace") if isinstance(l, bytes) else str(l)
+            r = re.match(r'\((?P<f>[^)]*)\) (?:"[^"]*"|NIL) (?P<n>.*)$', l)
+            if not r:
+                continue
+            nome = r.group("n").strip()
+            if nome.startswith('"') and nome.endswith('"'):
+                nome = nome[1:-1].replace('\\"', '"')
+            nome = decodificar_utf7(nome)
+            for marca, chave in marcas.items():
+                if marca in r.group("f"):
+                    print(f"{chave}={nome}")
+            if "\\Noselect" in r.group("f") or "\\NoSelect" in r.group("f"):
+                print(f"naoabre={nome}")
+        return 0
+    finally:
+        try:
+            m.logout()
+        except Exception:
+            pass
+
+
+def decodificar_utf7(s):
+    """Nomes de pasta IMAP vêm em UTF-7 modificado ("E-mails enviados" pode vir como &AOk-…)."""
+    import re
+    def dec(m):
+        t = m.group(1)
+        if t == "":
+            return "&"
+        b = t.replace(",", "/")
+        b += "=" * (-len(b) % 4)
+        return base64.b64decode(b).decode("utf-16-be")
+    return re.sub(r"&([A-Za-z0-9+,]*)-", dec, s)
+
+
 def testar(c):
     ok = True
     try:
@@ -366,6 +419,11 @@ def main(a):
             print(f"✗ {e}", file=sys.stderr); return 1
     if cmd == "testar":
         return testar(c)
+    if cmd == "pastas":
+        try:
+            return pastas(c)
+        except Exception as e:
+            print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
     print(__doc__); return 2
 
 
