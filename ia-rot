@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# ia-rot (também claude-rot) — roda um agente headless rotacionando entre contas quando a janela de creditos de uma acaba.
+# Ordem: contas do Claude (principal + as do ia-conta), depois Codex e Kiro. Conta sem credencial ou
+# deslogada e pulada sem bloqueio (volta a valer assim que logar); esgotada ("session/usage limit ...
+# resets HH:MMam", "try again in ...") fica bloqueada ate o reset. Antes de tentar, consulta o uso da
+# janela (contas-uso.py, cache de 5 min): conta com CLAUDE_ROT_LIMITE% (padrao 95) ou mais nem e tentada.
+# Codex e Kiro so entram com -p: o prompt vai para `codex exec` / `kiro-cli chat --no-interactive`.
+#
+#   ia-rot [--claude-only] [--exceto CONTA]... <argumentos do claude>
+#   ia-rot --status                    TSV: conta<TAB>estado<TAB>detalhe (detalhe traz o uso)
+#   ia-rot --passar ARQUIVO [--de CONTA] [--yolo] [--sem-tmux] [--claude-only]
+#       Passagem de tarefa: abre a proxima conta/agente disponivel (que nao seja CONTA, a desta sessao)
+#       mandando ler ARQUIVO e continuar. Dentro do tmux, numa janela nova da mesma sessao (interativo);
+#       fora dele, headless em segundo plano com a saida em ARQUIVO.saida.
+set -u
+AQUI=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+USO_PY="$AQUI/contas-uso.py"; [ -f "$USO_PY" ] || USO_PY="$HOME/.local/share/tt/contas-uso.py"
+LIMITE_USO=${CLAUDE_ROT_LIMITE:-95}
+RAIZ="$HOME/.local/share/claude-contas"
+CLAUDE="$HOME/.local/bin/claude"; [ -x "$CLAUDE" ] || CLAUDE=$(command -v claude 2>/dev/null || echo "$CLAUDE")
+CODEX=$(command -v codex 2>/dev/null); KIRO=$(command -v kiro-cli 2>/dev/null)
+STATE="$HOME/.cache/claude-rot.state"; CUR="$HOME/.cache/claude-rot.current"; mkdir -p "$HOME/.cache"
+now=$(date +%s)
+
+# Opcoes proprias, antes dos argumentos do claude.
+CLAUDE_ONLY=0; EXCETO=" "; PASSAR=""; DE=""; P_YOLO=0; SEM_TMUX=0; STATUS=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --claude-only) CLAUDE_ONLY=1 ;; # nomeacao de abas: nao aciona agentes de outros provedores
+    --exceto) EXCETO+="$2 "; shift ;;
+    --status) STATUS=1 ;;
+    --passar) PASSAR=$2; shift ;;
+    --de) DE=$2; shift ;;
+    --yolo) P_YOLO=1 ;;
+    --sem-tmux) SEM_TMUX=1 ;;
+    *) break ;;
+  esac
+  shift
+done
+
+contas=(principal)
+[ -d "$RAIZ" ] && for d in "$RAIZ"/*/; do
+  c=$(basename "$d"); case $c in codex|kiro) continue ;; esac; [ -d "$d" ] && [ ! -L "${d%/}" ] && contas+=("$c"); done
+[[ $CLAUDE_ONLY == 1 ]] || contas+=(codex kiro)
+blk(){ awk -F'\t' -v c="$1" '$1==c{v=$2} END{print v+0}' "$STATE" 2>/dev/null; }
+marca(){ printf '%s\t%s\n' "$1" "$2" >> "$STATE"; }
+
+# Motivo para nao usar a conta (vazio = pode usar).
+indisponivel(){
+  case $1 in
+    # Sem .credentials.json a principal ainda pode valer (Keychain no macOS, chave de API, Bedrock):
+    # se nao estiver logada, a saida "not logged in" da tentativa pula para a proxima.
+    principal) [ -x "$CLAUDE" ] || echo "claude nao instalado" ;;
+    codex) if [ -z "$CODEX" ]; then echo "codex nao instalado"
+           elif ! "$CODEX" login status >/dev/null 2>&1; then echo "sem login (codex login)"; fi ;;
+    kiro)  if [ -z "$KIRO" ]; then echo "kiro-cli nao instalado"
+           elif ! timeout 20 "$KIRO" whoami >/dev/null 2>&1; then echo "sem login (kiro-cli login)"; fi ;;
+    *)     [ -s "$RAIZ/$1/.credentials.json" ] || echo "sem credencial (ia-conta adicionar $1)" ;;
+  esac; }
+
+# Uso da janela (contas-uso.py): preenche U_PICO/U_VOLTA/U_TEXTO. TTL em segundos (cache do helper).
+# Kiro fica de fora da consulta automatica (o /usage leva ~3 s); entra no --status.
+declare -A U_PICO=() U_VOLTA=() U_TEXTO=()
+carregar_uso(){ local ttl=$1 c args=() pico volta texto fonte em; shift
+  [ "${CLAUDE_ROT_USO:-1}" = 0 ] || [ ! -f "$USO_PY" ] && return 0
+  for c in "$@"; do
+    case $c in
+      '') ;;
+      principal) args+=("$c=$HOME/.claude") ;;
+      codex) [ -n "$CODEX" ] && args+=("codex=codex") ;;
+      kiro) [ -n "$KIRO" ] && args+=("kiro=kiro") ;;
+      *) args+=("$c=$RAIZ/$c") ;;
+    esac
+  done
+  [ ${#args[@]} -gt 0 ] || return 0
+  while IFS=$'\t' read -r c pico volta texto fonte em; do
+    U_PICO[$c]=${pico#-}; U_VOLTA[$c]=${volta#-}; U_TEXTO[$c]=${texto#-}
+    [ "$fonte" = desconhecido ] && U_TEXTO[$c]=""
+  done < <(python3 -I "$USO_PY" --ttl "$ttl" "${args[@]}" 2>/dev/null)
+}
+# Conta cheia pelo uso consultado: bloqueia ate a janela virar e diz que sim.
+cheia_pelo_uso(){ local c=$1 p=${U_PICO[$1]:-} v=${U_VOLTA[$1]:-}
+  [ -n "$p" ] && [ "$p" -ge "$LIMITE_USO" ] 2>/dev/null || return 1
+  [ -n "$v" ] && [ "$v" -gt "$now" ] 2>/dev/null && [ "$(blk "$c")" -lt "$v" ] && marca "$c" "$v"
+  return 0; }
+
+if [ "$STATUS" = 1 ]; then
+  cur=$(cat "$CUR" 2>/dev/null)
+  carregar_uso 120 "${contas[@]}"
+  for c in "${contas[@]}"; do
+    b=$(blk "$c"); motivo=$(indisponivel "$c"); u=${U_TEXTO[$c]:-}
+    if [[ -z $motivo ]] && cheia_pelo_uso "$c"; then b=$(blk "$c"); fi
+    if [ -n "$b" ] && [ "$b" -gt "$now" ] 2>/dev/null; then printf '%s\tesgotada\treseta %s%s\n' "$c" "$(date -d @"$b" '+%d/%m %H:%M')" "${u:+ · $u}"
+    elif [[ $motivo == *"nao instalado" ]]; then printf '%s\tausente\t%s\n' "$c" "$motivo"
+    elif [ -n "$motivo" ]; then printf '%s\tdeslogada\t%s\n' "$c" "$motivo"
+    elif [ "$c" = "$cur" ]; then printf '%s\tem-uso\t%s\n' "$c" "$u"
+    else printf '%s\tdisponivel\t%s\n' "$c" "$u"; fi
+  done
+  exit 0
+fi
+
+# Conta desta sessao (para a passagem nao cair nela mesma).
+conta_atual(){
+  if [ -n "${IA_CONTA:-}" ]; then echo "$IA_CONTA"; return; fi
+  local d=${CLAUDE_CONFIG_DIR%/}
+  if [ -n "$d" ]; then case $d in "$RAIZ"/*) echo "${d##*/}"; return ;; "$HOME/.claude") echo principal; return ;; esac; fi
+  [ -n "${CLAUDECODE:-}" ] && { echo principal; return; }
+  [ -n "${CODEX_SANDBOX:-}${CODEX_SANDBOX_NETWORK_DISABLED:-}${CODEX_THREAD_ID:-}" ] && echo codex; }
+
+if [ -n "$PASSAR" ]; then
+  arq=$(readlink -f "$PASSAR" 2>/dev/null)
+  [ -n "$arq" ] && [ -s "$arq" ] || { echo "[ia-rot] passagem: arquivo '$PASSAR' vazio ou inexistente" >&2; exit 1; }
+  : "${DE:=$(conta_atual)}"
+  [ -n "$DE" ] && EXCETO+="$DE "
+  carregar_uso 60 "${contas[@]}"
+  # Quem passa a vez esta no fim da janela: fica fora da rotacao ate ela virar.
+  [ -n "$DE" ] && cheia_pelo_uso "$DE" >/dev/null
+  escolhida=""; volta_min=""
+  for c in "${contas[@]}"; do
+    case "$EXCETO" in *" $c "*) continue ;; esac
+    b=$(blk "$c"); if [ -n "$b" ] && [ "$b" -gt "$now" ] 2>/dev/null; then
+      { [ -z "$volta_min" ] || [ "$b" -lt "$volta_min" ]; } && volta_min=$b; continue; fi
+    [ -n "$(indisponivel "$c")" ] && continue
+    if cheia_pelo_uso "$c"; then v=${U_VOLTA[$c]:-}; [ -n "$v" ] && { [ -z "$volta_min" ] || [ "$v" -lt "$volta_min" ]; } && volta_min=$v; continue; fi
+    escolhida=$c; break
+  done
+  if [ -z "$escolhida" ]; then
+    echo "[ia-rot] passagem: nenhuma outra conta com login e janela livre${volta_min:+; a primeira volta $(date -d @"$volta_min" '+%d/%m %H:%M')}" >&2
+    exit 2
+  fi
+  pasta=$PWD
+  prompt="Voce esta continuando uma tarefa que outro agente${DE:+ (conta $DE)} passou adiante porque a janela de uso dele estava acabando. Leia por inteiro o arquivo de passagem $arq e continue a partir do proximo passo descrito nele, na pasta $pasta. Ao terminar, registre o resultado no proprio arquivo de passagem."
+  if [ -n "${TMUX:-}" ] && [ "$SEM_TMUX" = 0 ] && command -v tmux >/dev/null; then
+    case $escolhida in
+      codex) cmd=$(printf '%q ' "$CODEX"; [ "$P_YOLO" = 1 ] && printf '%s ' --dangerously-bypass-approvals-and-sandbox; printf '%q' "$prompt") ;;
+      kiro)  cmd=$(printf '%q ' "$KIRO" chat; [ "$P_YOLO" = 1 ] && printf '%s ' --trust-all-tools; printf '%q' "$prompt") ;;
+      *)     cmd=$(printf '%q %q ' "$HOME/.local/bin/ia-conta" "$escolhida"; [ "$P_YOLO" = 1 ] && printf '%s ' --dangerously-skip-permissions; printf '%q' "$prompt") ;;
+    esac
+    alvo=$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#{session_name}' 2>/dev/null)
+    # Ao sair do agente, a janela fica com um shell (da para ver o fim e seguir dali).
+    janela=$(tmux new-window -P -F '#{session_name}:#{window_index}' ${alvo:+-t "=$alvo:"} -c "$pasta" -n "↪$escolhida" \
+      "IA_CONTA=$escolhida $cmd; exec \${SHELL:-bash}") || { echo "[ia-rot] passagem: tmux recusou abrir a janela" >&2; exit 1; }
+    printf '%s' "$escolhida" > "$CUR"
+    echo "[ia-rot] tarefa passada para '$escolhida' na janela tmux $janela (passagem: $arq)"
+  else
+    yolo=(); [ "$P_YOLO" = 1 ] && yolo=(--dangerously-skip-permissions)
+    only=(); [ "$CLAUDE_ONLY" = 1 ] && only=(--claude-only)
+    exc=(); for c in $EXCETO; do exc+=(--exceto "$c"); done
+    setsid -f "$0" "${only[@]}" "${exc[@]}" -p "$prompt" "${yolo[@]}" </dev/null >"$arq.saida" 2>&1
+    echo "[ia-rot] tarefa passada (headless, comecando por '$escolhida'); saida em $arq.saida"
+  fi
+  exit 0
+fi
+
+# Prompt e permissoes tirados dos argumentos do claude, para repassar ao Codex/Kiro.
+PROMPT=""; MODO_P=0; YOLO=0; pos=()
+for ((i=1; i<=$#; i++)); do a=${!i}
+  case $a in
+    -p|--print) MODO_P=1 ;;
+    --dangerously-skip-permissions) YOLO=1 ;;
+    --model|--resume|-r|--session-id|--output-format|--input-format|--append-system-prompt|--system-prompt|\
+    --allowedTools|--allowed-tools|--disallowedTools|--disallowed-tools|--add-dir|--permission-mode|--settings|\
+    --mcp-config|--max-turns|--fallback-model|--agent|--agents|--tools) i=$((i+1)) ;;
+    -*) ;;
+    *) pos+=("$a") ;;
+  esac
+done
+[ "$MODO_P" = 1 ] && [ ${#pos[@]} -gt 0 ] && PROMPT=${pos[-1]}
+
+parse_reset(){ local t d h m s ap base
+  t=$(grep -oiE 'try again in[^.]*' "$1" | tail -1)
+  if [ -n "$t" ]; then
+    d=$(grep -oiE '[0-9]+ days?' <<<"$t" | grep -oE '[0-9]+'); h=$(grep -oiE '[0-9]+ hours?' <<<"$t" | grep -oE '[0-9]+')
+    m=$(grep -oiE '[0-9]+ min' <<<"$t" | grep -oE '[0-9]+'); s=$(( ${d:-0}*86400 + ${h:-0}*3600 + ${m:-0}*60 ))
+    [ "$s" -gt 0 ] && { echo $((now+s)); return; }
+  fi
+  t=$(grep -oiE 'try again at [^.]*' "$1" | tail -1 | sed -E 's/^try again at //I; s/([0-9])(st|nd|rd|th)/\1/g')
+  if [ -n "$t" ] && base=$(date -d "$t" +%s 2>/dev/null) && [ "$base" -gt "$now" ]; then echo "$base"; return; fi
+  t=$(grep -oiE 'reset[s]?[^0-9]{0,8}[0-9]{1,2}(:[0-9]{2})?[[:space:]]*(am|pm)?' "$1" | tail -1); [ -z "$t" ] && return
+  h=$(echo "$t" | grep -oE '[0-9]{1,2}' | head -1); m=$(echo "$t" | grep -oE ':[0-9]{2}' | tr -d ':'); : "${m:=0}"
+  ap=$(echo "$t" | grep -oiE 'am|pm' | tail -1 | tr '[:upper:]' '[:lower:]')
+  [ "$ap" = pm ] && [ "$h" -lt 12 ] 2>/dev/null && h=$((h+12)); [ "$ap" = am ] && [ "$h" = 12 ] && h=0
+  base=$(date -d "today $h:$m" +%s 2>/dev/null) || return; [ "$base" -le "$now" ] && base=$((base+86400)); echo "$base"; }
+rodar(){ local c="$1"; shift; export IA_CONTA=$c
+  case $c in
+    principal) env -u CLAUDE_CONFIG_DIR "$CLAUDE" "$@" ;;
+    codex) if [ "$YOLO" = 1 ]; then "$CODEX" exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -- "$PROMPT"
+           else "$CODEX" exec --skip-git-repo-check -s workspace-write -- "$PROMPT"; fi ;;
+    kiro)  if [ "$YOLO" = 1 ]; then "$KIRO" chat --no-interactive --trust-all-tools "$PROMPT"
+           else "$KIRO" chat --no-interactive "$PROMPT"; fi ;;
+    *) CLAUDE_CONFIG_DIR="$RAIZ/$c" "$CLAUDE" "$@" ;;
+  esac; }
+
+# A saida de cada tentativa fica num arquivo e so a tentativa que vale chega ao stdout (assim o log de quem
+# chama nao mistura o "Not logged in" de uma conta pulada). Se o ia-rot for morto, entrega o que houver.
+out=""
+trap '[ -n "$out" ] && cat "$out" 2>/dev/null; rm -f "$out"; exit 143' TERM INT HUP
+LIMITE='hit your (session|usage) limit|session limit|usage limit|out of credits|credit balance|limit.*(reset|will reset)|exceeded your|quota|monthly (request )?limit|reached (the|your) limit'
+LOGIN='not logged in|please run /login|invalid api key|authentication_error|oauth token has expired|token (has )?expired|please log ?in|(codex|kiro-cli) login|unauthorized'
+# Uma tentativa na conta C. 0 = valeu (a saida ja foi entregue e o rc fica em RC); 1 = proxima.
+tentar(){ local c=$1 rabo u; shift
+  out=$(mktemp); rodar "$c" "$@" >"$out" 2>&1; RC=$?
+  # So uma resposta curta ou com erro e mensagem do proprio CLI; um texto longo que fale de "usage limit" nao conta.
+  if [ "$RC" != 0 ] || [ "$(wc -c <"$out")" -lt 600 ]; then
+    rabo=$(tail -n 15 "$out")
+    if grep -qiE "$LIMITE" <<<"$rabo"; then
+      u=$(parse_reset "$out"); : "${u:=$((now+3600))}"; marca "$c" "$u"
+      echo "[ia-rot] conta '$c' sem creditos; bloqueada ate $(date -d @"$u" '+%F %H:%M'); proxima..." >&2; rm -f "$out"; out=""; return 1
+    fi
+    if grep -qiE "$LOGIN" <<<"$rabo"; then
+      echo "[ia-rot] conta '$c' deslogada; proxima..." >&2; rm -f "$out"; out=""; return 1
+    fi
+  fi
+  cat "$out"; rm -f "$out"; out=""; printf '%s' "$c" > "$CUR"; return 0; }
+
+usou_uso=0; quase=()
+for c in "${contas[@]}"; do
+  case "$EXCETO" in *" $c "*) continue ;; esac
+  b=$(blk "$c"); { [ -n "$b" ] && [ "$b" -gt "$now" ]; } 2>/dev/null && continue
+  case $c in codex|kiro) [ -z "$PROMPT" ] && continue ;; esac
+  motivo=$(indisponivel "$c"); [ -n "$motivo" ] && continue
+  # Consulta o uso so quando ha candidata (uma vez, todas as contas juntas; cache de 5 min; Kiro fora).
+  if [ "$usou_uso" = 0 ]; then usou_uso=1; sem_kiro=(); for x in "${contas[@]}"; do [ "$x" = kiro ] || sem_kiro+=("$x"); done
+    carregar_uso 300 "${sem_kiro[@]}"; fi
+  p=${U_PICO[$c]:-}
+  if [ -n "$p" ] && [ "$p" -ge "$LIMITE_USO" ] 2>/dev/null; then
+    # Quase cheia fica para o fim; 100% e esperar a janela virar.
+    if [ "$p" -lt 100 ]; then quase+=("$c"); else cheia_pelo_uso "$c"; fi
+    echo "[ia-rot] conta '$c' com $p% da janela; proxima..." >&2; continue
+  fi
+  tentar "$c" "$@" && exit "$RC"
+done
+# Todas as outras falharam: as quase cheias ainda tem um resto da janela.
+for c in "${quase[@]}"; do tentar "$c" "$@" && exit "$RC"; done
+echo "[ia-rot] nenhuma conta com creditos e login na janela atual" >&2; exit 2
