@@ -1786,7 +1786,9 @@ TEMA
 }
 
 configurar_aerc() {
-  [[ $(conf email) == aerc || -z $(conf email) ]] || return 0
+  # email= pode ser "aerc" ou um caminho para ele (ex.: ~/.local/bin/aerc); outro cliente: nada a fazer.
+  local cli; cli=$(conf email); cli=${cli%% *}
+  [[ -z $cli || ${cli##*/} == aerc ]] || return 0
   command -v aerc >/dev/null || return 0
   local dir="$HOME/.config/aerc" conf="$HOME/.config/aerc/aerc.conf" binds="$HOME/.config/aerc/binds.conf" tmp k v
   mkdir -p "$dir/stylesets"
