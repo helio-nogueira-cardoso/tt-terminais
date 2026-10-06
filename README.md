@@ -1,10 +1,10 @@
 # tt — central de terminais
 
-O nomeador automático usa o rotator (`claude-rot`, ver [Contas de IA](#contas-de-ia)) com
-`--claude-only`, para alternar entre contas Claude com Haiku, sem ferramentas.
-Sem rotator, usa o Claude local. Falhas de execução, limites e respostas fora do
-formato de nome são rejeitados, inclusive quando vêm de outra máquina; o nome
-existente é preservado. O título da conversa continua sendo usado sem consulta
+O nomeador automático de abas usa, nesta ordem, o [nomeador local](#nomeador-local-de-abas) (um
+modelo open source leve rodando na própria máquina, se instalado), o Haiku pelo rotator (`claude-rot`,
+ver [Contas de IA](#contas-de-ia), com `--claude-only`, sem ferramentas) ou outra máquina do tt.
+Falhas de execução, limites e respostas fora do formato de nome são rejeitados, inclusive quando vêm de
+outra máquina; o nome existente é preservado. O título da conversa continua sendo usado sem consulta
 ao modelo quando disponível.
 
 Um menu só para todas as sessões tmux de todas as suas máquinas: entre, crie, divida, busque e
@@ -309,7 +309,7 @@ acompanha o novo nome:
   se trata, tenta de novo 1 minuto depois da interação seguinte;
 - **renomeações seguintes**: por pontos. Cada pedido novo vale 3 (`TT_PESO_PEDIDO`) e cada minuto
   com uso vale 1; com 10 pontos (`TT_PONTOS_RENOMEAR`) e pelo menos 5 min desde o último nome
-  (`TT_T_RENOMEAR`, em segundos), o Haiku sugere o nome novo. Pedido é uma mensagem digitada na
+  (`TT_T_RENOMEAR`, em segundos), o nomeador sugere o nome novo. Pedido é uma mensagem digitada na
   conversa do Claude ou, nas outras abas, tecla/toque de verdade (saída na tela não conta). Sem
   pedido novo o assunto não mudou e o Haiku nem é chamado, por mais que a tela mude (um agente
   trabalhando sozinho no mesmo pedido). Mudar de pasta também renomeia. Nas abas do Claude o
@@ -318,6 +318,31 @@ acompanha o novo nome:
 
 O comando `^a`/“Nomear todas” faz isso sequencialmente nesta máquina e em todas as máquinas
 cadastradas que estiverem acessíveis.
+
+## Nomeador local de abas
+
+Para não depender de conta nem de rede para nomear as abas, o tt pode rodar um modelo open source
+leve na própria máquina: o [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT) com o Qwen3
+(Apache-2.0). Nada vai para fora da máquina, e a janela de uso das contas de IA fica para o trabalho.
+
+    tt --nomeador-local instalar     # baixa uma vez, com confirmação do sha256 (ou: menu ⋯ → 🧠 Nomeador de abas)
+    tt --nomeador-local estado       # instalado, modelo, memória e modelo sugerido
+    tt --nomeador-local remover      # apaga motor e modelo
+    tt --nomeador auto               # auto | local | claude | nenhum (nomeador= no config)
+
+- **Modelo pela memória:** Qwen3 4B Instruct (2,5 GB; nomes no nível do Haiku) com 8 GB de RAM ou mais;
+  Qwen3 1.7B (1,1 GB) entre 3 e 8 GB e no celular; abaixo de 3 GB, nada. O `instalar.sh` pergunta no
+  fim se quer instalar; nunca baixa sem confirmação.
+- **Onde fica:** `~/.local/share/tt-nomeador` (fora do pacote do tt). O motor é o binário oficial do
+  llama.cpp em versão fixa (Linux x64/arm64, WSL, macOS); no Termux vem do `pkg install llama-cpp`.
+  Motor e modelo têm o sha256 conferido antes de usar; um download interrompido continua de onde parou.
+- **Sem nada residente:** o servidor sobe a cada nome (≈1 s com o modelo no cache de disco), responde
+  e é derrubado; só um por vez na máquina. Cada nome leva de ~5 a ~30 s de CPU, conforme a máquina e a
+  carga; o vigia faz isso em segundo plano.
+- **Formato garantido:** uma gramática prende a saída em 1 a 3 palavras minúsculas com hífen, e o tt
+  ainda valida o nome. A entrada é curta: pasta, título, os 4 últimos pedidos e as linhas finais da tela.
+- **Modos:** `auto` (padrão) usa o local se instalado e cai no Haiku/outra máquina se ele falhar;
+  `local` só o modelo local (a tela nunca sai da máquina); `claude` só o Haiku; `nenhum` usa o nome da pasta.
 
 ## Memória local dos agentes
 
