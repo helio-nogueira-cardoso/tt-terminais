@@ -280,7 +280,8 @@ renovar_tokens() {
     fi
     pids+=($!)
   done
-  ((${#pids[@]})) && wait "${pids[@]}" 2>/dev/null
+  # O Claude sem prompt sai com erro (é o esperado): o status do wait não interessa.
+  ((${#pids[@]} == 0)) || wait "${pids[@]}" 2>/dev/null || true
   return 0
 }
 
