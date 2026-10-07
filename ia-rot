@@ -81,9 +81,10 @@ carregar_uso(){ local ttl=$1 c args=() pico volta texto fonte em; shift
   done
   [ ${#args[@]} -gt 0 ] || return 0
   while IFS=$'\t' read -r c pico volta texto fonte em; do
+    [ -n "$c" ] || continue
     U_PICO[$c]=${pico#-}; U_VOLTA[$c]=${volta#-}; U_TEXTO[$c]=${texto#-}
     [ "$fonte" = desconhecido ] && U_TEXTO[$c]=""
-  done < <(python3 -I "$USO_PY" --ttl "$ttl" "${args[@]}" 2>/dev/null)
+  done <<<"$(python3 -I "$USO_PY" --ttl "$ttl" "${args[@]}" 2>/dev/null)"
 }
 # Conta cheia pelo uso consultado: bloqueia ate a janela virar e diz que sim.
 cheia_pelo_uso(){ local c=$1 p=${U_PICO[$1]:-} v=${U_VOLTA[$1]:-}

@@ -1564,7 +1564,7 @@ CONF
 # existirem aqui. Um claude-conta/claude-rot escrito à mão (que não é uma versão deste) fica intacto;
 # uma versão antiga deste vai para <nome>.antes-tt. No Termux os agentes rodam dentro do proot: nada.
 instalar_contas_ia() {
-  e_mobile && return 0
+  if e_mobile; then instalar_contas_ia_proot; return 0; fi
   local n src alvo casa skill
   [[ -f $DIR_TT/ia-conta && -f $DIR_TT/ia-rot ]] || return 0
   chmod +x "$DIR_TT/ia-conta" "$DIR_TT/ia-rot" "$DIR_TT/ia-login" "$DIR_TT/contas-uso.py" 2>/dev/null
@@ -1588,6 +1588,42 @@ instalar_contas_ia() {
     skill=$casa/skills/rodizio-de-contas
     cmp -s "$DIR_TT/skill-rodizio-de-contas.md" "$skill/SKILL.md" && continue
     mkdir -p "$skill" && cp "$DIR_TT/skill-rodizio-de-contas.md" "$skill/SKILL.md"
+  done
+  return 0
+}
+
+# No celular os agentes rodam dentro do proot-distro. O Termux ganha só o ia-login (que pergunta ao
+# proot); dentro de cada proot onde já existe /root/.local/share/tt (quem quis ter as contas de IA lá),
+# o pacote é espelhado e ganham os links ia-conta/ia-rot/ia-login (+ claude-conta/claude-rot), a skill
+# e o link para o cadastro comum do Termux. Um proot sem essa pasta não é tocado.
+instalar_contas_ia_proot() {
+  local base=${PREFIX:-/nonexistent}/var/lib/proot-distro raiz r n src alvo casa f
+  if [[ -f $DIR_TT/ia-login ]]; then
+    mkdir -p "$HOME/.local/bin"; chmod +x "$DIR_TT/ia-login"
+    [[ -e $HOME/.local/bin/ia-login && ! -L $HOME/.local/bin/ia-login ]] || ln -sfn "$DIR_TT/ia-login" "$HOME/.local/bin/ia-login"
+  fi
+  for raiz in "$base"/containers/*/rootfs "$base"/installed-rootfs/*; do
+    r=$raiz/root
+    [[ -d $r/.local/share/tt ]] || continue
+    for f in "${ARQUIVOS_PACOTE[@]}"; do [[ -f $DIR_TT/$f ]] && cp -f "$DIR_TT/$f" "$r/.local/share/tt/$f"; done
+    chmod +x "$r/.local/share/tt/"{tt,ia-conta,ia-rot,ia-login,contas-uso.py} 2>/dev/null
+    mkdir -p "$r/.local/bin"
+    for n in ia-conta claude-conta ia-rot claude-rot ia-login; do
+      case $n in *conta) src=ia-conta ;; *rot) src=ia-rot ;; *) src=ia-login ;; esac
+      alvo=$r/.local/bin/$n
+      if [[ -f $alvo && ! -L $alvo ]]; then
+        grep -qE '^# (claude-conta|claude-rot) —' "$alvo" || continue # script alheio: fica
+        [[ -e $alvo.antes-tt ]] || cp -p "$alvo" "$alvo.antes-tt"
+      fi
+      ln -sfn "/root/.local/share/tt/$src" "$alvo"
+    done
+    for casa in "$r/.claude" "$r/.codex" "$r/.kiro"; do
+      [[ -d $casa ]] || continue
+      cmp -s "$DIR_TT/skill-rodizio-de-contas.md" "$casa/skills/rodizio-de-contas/SKILL.md" && continue
+      mkdir -p "$casa/skills/rodizio-de-contas" && cp "$DIR_TT/skill-rodizio-de-contas.md" "$casa/skills/rodizio-de-contas/SKILL.md"
+    done
+    mkdir -p "$r/.config/tt"
+    [[ -e $r/.config/tt/contas-ia || -L $r/.config/tt/contas-ia ]] || ln -s "$CONF_CONTAS_IA" "$r/.config/tt/contas-ia"
   done
   return 0
 }
