@@ -237,8 +237,10 @@ mostra o plano e faz os logins um por um, cada um num tmux isolado na máquina c
 tt-login`, longe das suas abas). Para cada um ele mostra o link (copiado para a área de
 transferência; QR code se houver `qrencode`), no Claude recebe o código que a página dá e o entrega
 (a página já abre com o e-mail esperado), no Codex/Kiro mostra o código do dispositivo e espera a
-aprovação; no fim confere o e-mail que entrou e avisa se não é o esperado. `ia-login --plano` só
-mostra o que falta. Kiro de organização: os argumentos do login (`--license`, `--identity-provider`,
+aprovação; no fim confere o e-mail que entrou e avisa se não é o esperado. Antes do plano ele junta
+o cadastro de todas as máquinas e entrega o completo a cada uma (não há comando separado de
+sincronizar: fora isso, cada mudança já é enviada na hora e o vigia confere a cada 30 min).
+`ia-login --plano` só mostra o que falta. Kiro de organização: os argumentos do login (`--license`, `--identity-provider`,
 `--region`) vão em `kiro_login=` no `~/.config/tt/config` da máquina. No celular, as contas ficam dentro do proot-distro: o tt
 espelha o pacote no proot que já tem `/root/.local/share/tt` (links, skill, cadastro do Termux), e o
 `ia-login` do Termux pergunta ao proot o que falta e roda lá os logins.

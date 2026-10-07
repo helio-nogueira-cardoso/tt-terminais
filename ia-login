@@ -189,9 +189,21 @@ declare -a PLANO=() RESULTADO=() NAO_USA=()
 montar_plano() {
   local dest rot tmp f p c e sit
   tmp=$(mktemp -d)
+  # O plano sai do cadastro mais completo: junta o das outras máquinas e entrega o resultado a cada
+  # uma antes de perguntar o que falta (uma que perdeu a rede sem reiniciar podia estar até 30 min
+  # atrás, e o plano dela sairia sem a conta nova).
+  command -v tt >/dev/null 2>&1 && tt --puxar-contas-ia >/dev/null 2>&1
+  local entrada=$CADASTRO
+  [[ -f $entrada ]] || entrada=/dev/null
   while IFS=$'\t' read -r dest rot; do
     if (($#)) && ! printf '%s\n' "$@" | grep -qxF -- "$rot"; then continue; fi
-    ( em "$dest" --faltas >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
+    if [[ $dest == . ]]; then
+      ( em . --faltas >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
+    else
+      ( timeout "${EM_TIMEOUT:-25}" ssh -o BatchMode=yes -o ConnectTimeout=6 "$dest" \
+          "$PATH_REMOTO tt --receber-contas-ia; $PATH_REMOTO ia-login --faltas" <"$entrada" >"$tmp/$rot.tsv" 2>/dev/null
+        echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
+    fi
   done <<<"$(maquinas)"
   wait
   for f in $(ls "$tmp"/*.dest 2>/dev/null | sort); do
