@@ -5,11 +5,13 @@ Uso: contas-uso.py [--ttl SEGUNDOS] CONTA=ALVO ...
   ALVO é a pasta da credencial do Claude (a principal é ~/.claude), ou "codex" / "kiro".
 
 Uma linha TSV por conta, na ordem pedida:
-  conta  pico  volta  texto  fonte  email
+  conta  pico  volta  texto  fonte  email  folga
 pico   maior percentual entre as janelas (0–100, inteiro; "-" = desconhecido; todo campo vazio sai "-")
 volta  epoch em que a janela mais cheia reinicia
 texto  resumo para gente: "5h 23% · 7d 65%", "mês 40%"
 fonte  ao-vivo | cache | reiniciou (a janela do cache já virou) | desconhecido
+folga  quanto dá para usar agora, 0–100, olhando todas as janelas e quando cada uma reinicia
+       (veja folga(); o ia-rot escolhe por ela)
 
 Nada de segredo sai daqui: o token só vai no cabeçalho da consulta ao próprio provedor. Token
 vencido não é renovado (a renovação troca o refresh token e derrubaria a sessão aberta da conta):
@@ -136,11 +138,40 @@ def resumir(janelas):
     return " · ".join(f"{r} {p}%" + (f" ({hora(v)})" if p >= 80 and v else "") for r, p, v in janelas)
 
 
+DURACAO = {"5h": 5 * 3600, "7d": 7 * 86400, "7d-opus": 7 * 86400, "mês": 30 * 86400}
+
+
+def duracao(rotulo):
+    if rotulo in DURACAO:
+        return DURACAO[rotulo]
+    m = re.fullmatch(r"(\d+)h", rotulo)
+    return int(m.group(1)) * 3600 if m else None
+
+
+def folga(janelas):
+    """Quanto dá para usar a conta agora, 0–100 (maior = melhor); a janela mais apertada manda.
+
+    Janela curta (até 1 dia, a de 5 h): o que sobra, mais o que volta se ela reinicia logo (90% usada
+    que vira em 10 min quase não pesa). Janela longa (semana, mês): o que sobra dividido pela fração
+    do período que ainda falta, isto é, a folga em relação a gastar por igual até o reinício. 20%
+    livres com 6 dias pela frente é pouco; os mesmos 20% a 3 h do reinício são "use ou perde".
+    """
+    notas = []
+    for rotulo, p, volta in janelas:
+        if rotulo == "limite":
+            return 0
+        resta = 100 - p
+        d = duracao(rotulo)
+        falta = 1.0 if not (d and volta) else max(0.02, min(1.0, (volta - AGORA) / d))
+        notas.append(resta + p * (1 - falta) if d and d <= 86400 else min(100, resta / falta))
+    return round(min(notas)) if notas else None
+
+
 def linha(conta, janelas, fonte, email):
     if not janelas:
-        return [conta, "", "", "", fonte, email]
+        return [conta, "", "", "", fonte, email, ""]
     rotulo, pico, volta = max(janelas, key=lambda j: (j[1], j[2] or 0))
-    return [conta, str(pico), str(int(volta)) if volta else "", resumir(janelas), fonte, email]
+    return [conta, str(pico), str(int(volta)) if volta else "", resumir(janelas), fonte, email, str(folga(janelas))]
 
 
 def main(args):

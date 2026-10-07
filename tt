@@ -4292,16 +4292,7 @@ atalhos_base() {
   local padrao=$ATALHOS_PADRAO
   e_mobile && [[ -f $DIR_TT/atalhos-padrao-mobile ]] && padrao=$DIR_TT/atalhos-padrao-mobile
   [[ -f $padrao ]] && sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' "$padrao"
-  # Contas do claude-conta são atalhos locais: só o nome do perfil entra na barra, nunca a
-  # credencial. Emojis numerados deixam as contas distinguíveis mesmo em telas estreitas.
-  e_mobile && return 0
-  local dir nome i=0 emoji
-  for dir in "$HOME"/.local/share/claude-contas/*; do
-    [[ -d $dir ]] || continue
-    nome=${dir##*/}; i=$((i + 1))
-    case $i in 1) emoji='1️⃣' ;; 2) emoji='2️⃣' ;; 3) emoji='3️⃣' ;; *) emoji='🔹' ;; esac
-    printf '%s\tclaude-conta-%s\t%s\t#fab387\n' "$emoji" "$nome" "claude-conta $(printf '%q' "$nome") --dangerously-skip-permissions --resume"
-  done
+  return 0
 }
 
 # A configuração local sobrescreve pelo ID (2ª coluna). Emoji '-' desativa um padrão; um ID
@@ -4337,18 +4328,49 @@ atalhos_barra() {
   done < <(atalhos_lista)
 }
 
+# Script que um atalho roda: em bash -lc para que comandos editados com argumentos, pipes ou
+# variáveis tenham o mesmo comportamento em qualquer máquina. Mantém o shell aberto e deixa o erro
+# visível quando o programa não existe ou termina imediatamente.
+# O Codex guarda as cores do terminal ao iniciar; o fundo precisa estar correto ANTES dele.
+script_atalho() {
+  local script quoted
+  script="$(q "$EU") --reforcar-padrao >/dev/null 2>&1"$'\n'$1$'\nrc=$?\nif (( rc != 0 )); then printf "\\natalho terminou com código %d; shell mantido aberto\\n" "$rc"; fi\nexec "${SHELL:-bash}"'
+  printf -v quoted '%q' "$script"
+  printf 'bash -lc %s' "$quoted"
+}
+
+# Atalho "@aqui CMD": troca o que roda no painel (um agente, que é fechado, ou o shell) por CMD,
+# no mesmo painel. {retomar} no CMD vira "--retomar ID" quando o painel tinha uma conversa do
+# Claude (o ia-conta abrir a continua se a próxima conta também for do Claude), ou some.
+atalho_aqui() {
+  local cliente=$1 pane=$2 pasta=$3 cmd=$4 id=$5 sessao pid conversa=""
+  [[ -n $pane ]] || pane=$(tmux display-message -p -c "$cliente" '#{pane_id}' 2>/dev/null)
+  [[ -n $pane ]] || { botao_aviso "$cliente" "atalho: nenhum painel ativo"; return; }
+  sessao=$(tmux display-message -p -t "$pane" '#{session_name}' 2>/dev/null)
+  if [[ -n $(tmux show-options -qv -t "=$sessao:" @ponte 2>/dev/null) ]]; then
+    botao_aviso "$cliente" "este painel é de outra máquina: use o atalho da barra de lá"; return
+  fi
+  pasta=$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || echo "$pasta")
+  if pid=$(claude_no_painel "$pane") && [[ -n $pid ]]; then
+    conversa=$(claude_info "$pid" 2>/dev/null | awk '{print $1}')
+  fi
+  [[ $conversa =~ ^[0-9a-fA-F-]{8,}$ ]] || conversa=""
+  cmd=${cmd//\{retomar\}/${conversa:+--retomar $conversa}}
+  # respawn -k fecha tudo o que roda no painel (agente e shell) e começa o novo ali mesmo.
+  tmux respawn-pane -k -t "$pane" -c "$pasta" "$(script_atalho "$cmd")" || {
+    botao_aviso "$cliente" "atalho: não consegui reabrir o painel"; return
+  }
+  tmux set-option -w -t "$pane" @tt_atalho "$id" 2>/dev/null || true
+  tmux refresh-client -S -t "$cliente" 2>/dev/null || true
+}
+
 atalho_executar() {
-  local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd nome script quoted
+  local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd nome
   IFS=$'\t' read -r emoji id cmd cor < <(atalhos_lista | sed -n "${i}p")
   [[ -n $cmd ]] || { tmux display-message -c "$cliente" "atalho indisponível" 2>/dev/null || true; return 0; }
+  if [[ $cmd == '@aqui '* ]]; then atalho_aqui "$cliente" "$pane" "$pasta" "${cmd#@aqui }" "$id"; return; fi
   nome=$(proximo_nome atalho)
-  # Executa sempre em bash -lc para que comandos editados com argumentos, pipes ou variáveis
-  # tenham o mesmo comportamento em qualquer máquina. Mantém o shell aberto e deixa o erro
-  # visível quando o programa não existe ou termina imediatamente.
-  # O Codex guarda as cores do terminal ao iniciar; o fundo precisa estar correto ANTES dele.
-  script="$(q "$EU") --reforcar-padrao >/dev/null 2>&1"$'\n'$cmd$'\nrc=$?\nif (( rc != 0 )); then printf "\\natalho terminou com código %d; shell mantido aberto\\n" "$rc"; fi\nexec "${SHELL:-bash}"'
-  printf -v quoted '%q' "$script"
-  tmux new-session -d -s "$nome" -c "$pasta" "bash -lc $quoted" || {
+  tmux new-session -d -s "$nome" -c "$pasta" "$(script_atalho "$cmd")" || {
     botao_aviso "$cliente" "atalho: não consegui abrir a sessão"; return
   }
   tmux set-option -w -t "=$nome:" @tt_papel atalho

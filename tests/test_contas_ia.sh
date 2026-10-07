@@ -77,12 +77,13 @@ grep -q 'está aberta' "$T/err" || falhou "mensagem de conta aberta: $(cat "$T/e
 kill $aberta; wait $aberta 2>/dev/null || true
 passou 'renomear: pasta, atalho e cache; recusa existente, reservado e conta aberta'
 
-# Rotação: principal está cheia pelo uso → o ia-rot nem tenta e vai para a próxima.
+# Rotação: principal está cheia pelo uso → o ia-rot nem tenta; vai para a de mais folga (gama, 20%),
+# não para a próxima da ordem (beta, uso desconhecido).
 : >"$HOME/claude.log"
 resp=$(cd /tmp && ia-rot --claude-only -p "diga oi" </dev/null 2>"$T/err")
-[[ $resp == 'resposta de beta: diga oi' ]] || falhou "rotação não pulou para beta pelo uso: '$resp' $(cat "$T/err")"
+[[ $resp == 'resposta de gama: diga oi' ]] || falhou "rotação não foi para gama (mais folga): '$resp' $(cat "$T/err")"
 grep -q 'principal' "$HOME/claude.log" && falhou 'ia-rot tentou a principal cheia'
-passou 'ia-rot pula conta com uso ≥ limite antes de tentar'
+passou 'ia-rot pula conta com uso ≥ limite e tenta a de mais folga primeiro'
 
 ia-conta remover gama --sim >/dev/null
 [[ ! -e $R/gama && ! -e $B/claude-gama ]] || falhou 'remover não tirou pasta/atalho'

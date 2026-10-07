@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ia-rot (também claude-rot) — roda um agente headless rotacionando entre contas quando a janela de creditos de uma acaba.
-# Ordem: contas do Claude (principal + as do ia-conta), depois Codex e Kiro. Conta sem credencial ou
-# deslogada e pulada sem bloqueio (volta a valer assim que logar); esgotada ("session/usage limit ...
-# resets HH:MMam", "try again in ...") fica bloqueada ate o reset. Antes de tentar, consulta o uso da
+# Contas: as do Claude (principal + as do ia-conta), o Codex e o Kiro, da com mais folga de uso para a
+# com menos (veja --melhor). Conta sem credencial ou deslogada e pulada sem bloqueio (volta a valer
+# assim que logar); esgotada ("session/usage limit ... resets HH:MMam", "try again in ...") fica
+# bloqueada ate o reset. Antes de tentar, consulta o uso da
 # janela (contas-uso.py, cache de 5 min): conta com CLAUDE_ROT_LIMITE% (padrao 95) ou mais nem e tentada.
 # Codex e Kiro so entram com -p: o prompt vai para `codex exec` / `kiro-cli chat --no-interactive`.
 #
@@ -12,6 +13,13 @@
 #       Passagem de tarefa: abre a proxima conta/agente disponivel (que nao seja CONTA, a desta sessao)
 #       mandando ler ARQUIVO e continuar. Dentro do tmux, numa janela nova da mesma sessao (interativo);
 #       fora dele, headless em segundo plano com a saida em ARQUIVO.saida.
+#   ia-rot --melhor [--exceto CONTA]...
+#       Conta com mais folga AGORA para uma sessao interativa (Claude, Codex ou Kiro):
+#       imprime "conta<TAB>pico<TAB>uso" e sai 0; sem nenhuma livre, sai 2.
+# A escolha nao segue uma roda fixa: entre as contas com login e fora do bloqueio, vence a de maior
+# folga (contas-uso.py): a janela de 5 h pelo que sobra (e pelo que volta se ela reinicia logo), a
+# semanal e a do mes pelo que sobra em relacao ao tempo ate reiniciarem; a mais apertada manda. Uso
+# desconhecido conta como pico PICO_DESCONHECIDO (padrao 80): fica atras das contas com folga.
 set -u
 AQUI=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 USO_PY="$AQUI/contas-uso.py"; [ -f "$USO_PY" ] || USO_PY="$HOME/.local/share/tt/contas-uso.py"
@@ -23,12 +31,13 @@ STATE="$HOME/.cache/claude-rot.state"; CUR="$HOME/.cache/claude-rot.current"; mk
 now=$(date +%s)
 
 # Opcoes proprias, antes dos argumentos do claude.
-CLAUDE_ONLY=0; EXCETO=" "; PASSAR=""; DE=""; P_YOLO=0; SEM_TMUX=0; STATUS=0
+CLAUDE_ONLY=0; EXCETO=" "; PASSAR=""; DE=""; P_YOLO=0; SEM_TMUX=0; STATUS=0; MELHOR=0
 while [ $# -gt 0 ]; do
   case $1 in
     --claude-only) CLAUDE_ONLY=1 ;; # nomeacao de abas: nao aciona agentes de outros provedores
     --exceto) EXCETO+="$2 "; shift ;;
     --status) STATUS=1 ;;
+    --melhor) MELHOR=1 ;;
     --passar) PASSAR=$2; shift ;;
     --de) DE=$2; shift ;;
     --yolo) P_YOLO=1 ;;
@@ -42,7 +51,17 @@ contas=(principal)
 [ -d "$RAIZ" ] && for d in "$RAIZ"/*/; do
   c=$(basename "$d"); case $c in codex|kiro) continue ;; esac; [ -d "$d" ] && [ ! -L "${d%/}" ] && contas+=("$c"); done
 [[ $CLAUDE_ONLY == 1 ]] || contas+=(codex kiro)
-blk(){ awk -F'\t' -v c="$1" '$1==c{v=$2} END{print v+0}' "$STATE" 2>/dev/null; }
+blk_marca(){ awk -F'\t' -v c="$1" '$1==c{v=$2} END{print v+0}' "$STATE" 2>/dev/null; }
+# Bloqueio vigente da conta. O uso medido no provedor vale mais que a marca tirada do texto de um erro
+# (falso positivo, ou a janela ja virou): com pico abaixo do limite numa leitura AO VIVO (feita agora,
+# portanto depois da marca) ou contra uma marca antiga sem hora, a marca cai.
+blk(){ local b p=${U_PICO[$1]:-} hora
+  b=$(blk_marca "$1")
+  if [ "$b" -gt "$now" ] 2>/dev/null && [ -n "$p" ] && [ "$p" -lt "$LIMITE_USO" ] 2>/dev/null; then
+    hora=$(awk -F'\t' -v c="$1" '$1==c{v=$3} END{print v}' "$STATE" 2>/dev/null)
+    if [ "${U_FONTE[$1]:-}" = ao-vivo ] || [ -z "$hora" ]; then printf '%s\t0\t%s\n' "$1" "$now" >> "$STATE"; b=0; fi
+  fi
+  echo "$b"; }
 # Identidade da conta: o par provedor:e-mail (o e-mail do Claude vem do cache que o ia-conta grava na
 # pasta). Duas contas com o mesmo par sao a mesma janela de uso: bloqueiam juntas e uma nunca recebe a
 # passagem da outra. Sem e-mail conhecido, a conta e a propria identidade.
@@ -50,7 +69,7 @@ par(){ local f
   case $1 in codex|kiro) echo "$1"; return ;; principal) f=$HOME/.claude/.account-email ;; *) f=$RAIZ/$1/.account-email ;; esac
   if [ -s "$f" ]; then echo "claude:$(head -n 1 "$f")"; else echo "conta:$1"; fi; }
 mesmo_par(){ local p x; p=$(par "$1"); for x in "${contas[@]}"; do [ "$(par "$x")" = "$p" ] && echo "$x"; done; }
-marca(){ local x; for x in $(mesmo_par "$1"); do printf '%s\t%s\n' "$x" "$2" >> "$STATE"; done; }
+marca(){ local x; for x in $(mesmo_par "$1"); do printf '%s\t%s\t%s\n' "$x" "$2" "$now" >> "$STATE"; done; }
 
 # Motivo para nao usar a conta (vazio = pode usar).
 indisponivel(){
@@ -67,8 +86,8 @@ indisponivel(){
 
 # Uso da janela (contas-uso.py): preenche U_PICO/U_VOLTA/U_TEXTO. TTL em segundos (cache do helper).
 # Kiro fica de fora da consulta automatica (o /usage leva ~3 s); entra no --status.
-declare -A U_PICO=() U_VOLTA=() U_TEXTO=()
-carregar_uso(){ local ttl=$1 c args=() pico volta texto fonte em; shift
+declare -A U_PICO=() U_VOLTA=() U_TEXTO=() U_FONTE=() U_FOLGA=()
+carregar_uso(){ local ttl=$1 c args=() pico volta texto fonte em folga; shift
   [ "${CLAUDE_ROT_USO:-1}" = 0 ] || [ ! -f "$USO_PY" ] && return 0
   for c in "$@"; do
     case $c in
@@ -80,17 +99,42 @@ carregar_uso(){ local ttl=$1 c args=() pico volta texto fonte em; shift
     esac
   done
   [ ${#args[@]} -gt 0 ] || return 0
-  while IFS=$'\t' read -r c pico volta texto fonte em; do
+  while IFS=$'\t' read -r c pico volta texto fonte em folga; do
     [ -n "$c" ] || continue
-    U_PICO[$c]=${pico#-}; U_VOLTA[$c]=${volta#-}; U_TEXTO[$c]=${texto#-}
+    U_PICO[$c]=${pico#-}; U_VOLTA[$c]=${volta#-}; U_TEXTO[$c]=${texto#-}; U_FONTE[$c]=$fonte; U_FOLGA[$c]=${folga#-}
     [ "$fonte" = desconhecido ] && U_TEXTO[$c]=""
   done <<<"$(python3 -I "$USO_PY" --ttl "$ttl" "${args[@]}" 2>/dev/null)"
 }
 # Conta cheia pelo uso consultado: bloqueia ate a janela virar e diz que sim.
 cheia_pelo_uso(){ local c=$1 p=${U_PICO[$1]:-} v=${U_VOLTA[$1]:-}
   [ -n "$p" ] && [ "$p" -ge "$LIMITE_USO" ] 2>/dev/null || return 1
-  [ -n "$v" ] && [ "$v" -gt "$now" ] 2>/dev/null && [ "$(blk "$c")" -lt "$v" ] && marca "$c" "$v"
+  [ -n "$v" ] && [ "$v" -gt "$now" ] 2>/dev/null && [ "$(blk_marca "$c")" -lt "$v" ] && marca "$c" "$v"
   return 0; }
+
+# Nota para ordenar: menor = mais folga (100 - folga do contas-uso.py, que pesa a janela de 5 h, a
+# semanal e a do mes pelo que sobra e por quando reiniciam). Sem folga (helper antigo), vale o pico.
+# Desconhecido fica atras das contas com folga conhecida.
+nota(){ local f=${U_FOLGA[$1]:-} p=${U_PICO[$1]:-}
+  if [ -n "$f" ]; then echo $((100 - f)); elif [ -n "$p" ]; then echo "$p"; else echo "${PICO_DESCONHECIDO:-80}"; fi; }
+# As contas dadas em ordem de folga (empate: a ordem original, principal primeiro).
+por_folga(){ local c i=0; for c in "$@"; do i=$((i+1)); printf '%s\t%s\t%s\n' "$(nota "$c")" "$i" "$c"; done |
+  sort -t "$(printf '\t')" -k1,1n -k2,2n | cut -f3; }
+
+if [ "$MELHOR" = 1 ]; then
+  carregar_uso 120 "${contas[@]}"
+  volta_min=""
+  for c in $(por_folga "${contas[@]}"); do
+    case "$EXCETO" in *" $c "*) continue ;; esac
+    b=$(blk "$c"); if [ -n "$b" ] && [ "$b" -gt "$now" ] 2>/dev/null; then
+      { [ -z "$volta_min" ] || [ "$b" -lt "$volta_min" ]; } && volta_min=$b; continue; fi
+    [ -n "$(indisponivel "$c")" ] && continue
+    if cheia_pelo_uso "$c"; then v=${U_VOLTA[$c]:-}; [ -n "$v" ] && { [ -z "$volta_min" ] || [ "$v" -lt "$volta_min" ]; } && volta_min=$v; continue; fi
+    printf '%s\t%s\t%s\n' "$c" "${U_PICO[$c]:-?}" "${U_TEXTO[$c]:-uso desconhecido}"
+    exit 0
+  done
+  echo "[ia-rot] nenhuma conta com login e janela livre${volta_min:+; a primeira volta $(date -d @"$volta_min" '+%d/%m %H:%M')}" >&2
+  exit 2
+fi
 
 if [ "$STATUS" = 1 ]; then
   cur=$(cat "$CUR" 2>/dev/null)
@@ -124,7 +168,7 @@ if [ -n "$PASSAR" ]; then
   # Quem passa a vez esta no fim da janela: fica fora da rotacao ate ela virar.
   [ -n "$DE" ] && cheia_pelo_uso "$DE" >/dev/null
   escolhida=""; volta_min=""
-  for c in "${contas[@]}"; do
+  for c in $(por_folga "${contas[@]}"); do
     case "$EXCETO" in *" $c "*) continue ;; esac
     b=$(blk "$c"); if [ -n "$b" ] && [ "$b" -gt "$now" ] 2>/dev/null; then
       { [ -z "$volta_min" ] || [ "$b" -lt "$volta_min" ]; } && volta_min=$b; continue; fi
@@ -221,15 +265,15 @@ tentar(){ local c=$1 rabo u; shift
   fi
   cat "$out"; rm -f "$out"; out=""; printf '%s' "$c" > "$CUR"; return 0; }
 
-usou_uso=0; quase=()
-for c in "${contas[@]}"; do
+# Uso de todas as contas de uma vez (cache de 5 min; Kiro fora, o /usage dele leva ~3 s), e a
+# tentativa vai da conta com mais folga para a com menos.
+quase=(); sem_kiro=(); for x in "${contas[@]}"; do [ "$x" = kiro ] || sem_kiro+=("$x"); done
+carregar_uso 300 "${sem_kiro[@]}"
+for c in $(por_folga "${contas[@]}"); do
   case "$EXCETO" in *" $c "*) continue ;; esac
   b=$(blk "$c"); { [ -n "$b" ] && [ "$b" -gt "$now" ]; } 2>/dev/null && continue
   case $c in codex|kiro) [ -z "$PROMPT" ] && continue ;; esac
   motivo=$(indisponivel "$c"); [ -n "$motivo" ] && continue
-  # Consulta o uso so quando ha candidata (uma vez, todas as contas juntas; cache de 5 min; Kiro fora).
-  if [ "$usou_uso" = 0 ]; then usou_uso=1; sem_kiro=(); for x in "${contas[@]}"; do [ "$x" = kiro ] || sem_kiro+=("$x"); done
-    carregar_uso 300 "${sem_kiro[@]}"; fi
   p=${U_PICO[$c]:-}
   if [ -n "$p" ] && [ "$p" -ge "$LIMITE_USO" ] 2>/dev/null; then
     # Quase cheia fica para o fim; 100% e esperar a janela virar.

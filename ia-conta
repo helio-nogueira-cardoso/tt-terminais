@@ -37,7 +37,7 @@ nome_valido() {
 # Nomes que já têm outro significado na rotação ou nos subcomandos.
 nome_reservado() {
   case $1 in
-    principal | codex | kiro | adicionar | entrar | renomear | remover | descadastrar | listar | uso | cadastro | ajuda) return 0 ;;
+    principal | codex | kiro | abrir | adicionar | entrar | renomear | remover | descadastrar | listar | uso | cadastro | ajuda) return 0 ;;
   esac
   return 1
 }
@@ -67,6 +67,7 @@ uso() {
 Uso:
   ia-conta principal [argumentos do claude]
   ia-conta <conta> [argumentos do claude]
+  ia-conta abrir [--retomar <id-da-conversa-do-claude>] [--exceto <conta>]...
   ia-conta adicionar <conta> [--email <e-mail>]
   ia-conta entrar <conta>
   ia-conta renomear <conta> <novo-nome>
@@ -83,8 +84,15 @@ Exemplos:
   ia-conta renomear trabalho empresa
   ia-conta remover pessoal      # tira da lista (e da rotação do ia-rot)
   ia-conta uso --eu             # quanto a conta desta sessão já gastou da janela
+  ia-conta abrir                # abre a IA com mais folga agora, já sem pedir permissões
 
 O nome antigo claude-conta continua valendo.
+
+abrir escolhe, entre todas as contas da rotação (Claude, Codex e Kiro), a com mais folga de uso
+neste momento (ia-rot --melhor) e a abre interativa no modo sem confirmações do provedor:
+claude --dangerously-skip-permissions, codex --yolo, kiro-cli chat --v3 --trust-all-tools.
+--retomar continua a conversa do Claude dada quando a escolhida também é do Claude (as conversas
+são compartilhadas entre as contas); se for Codex ou Kiro, abre uma sessão nova.
 
 "principal" usa a credencial que já estava em ~/.claude. Os demais perfis têm
 credenciais separadas, mas compartilham sessões, histórico e memórias locais.
@@ -303,7 +311,7 @@ renovar_tokens() {
   return 0
 }
 
-# TSV do contas-uso.py para as contas dadas: conta pico volta texto fonte email.
+# TSV do contas-uso.py para as contas dadas: conta pico volta texto fonte email folga.
 consultar_uso() {
   local c args=()
   [[ -f $USO_PY ]] || return 0
@@ -506,7 +514,7 @@ listar() {
   local -A U_PICO U_TEXTO U_FONTE U_EMAIL U_VOLTA
   mapfile -t contas <<<"$(contas_rotacao)"
   [[ $rapido == 1 ]] || renovar_tokens "${contas[@]}"
-  while IFS=$'\t' read -r c pico volta texto fonte em; do
+  while IFS=$'\t' read -r c pico volta texto fonte em _; do
     [[ -n $c ]] || continue
     U_PICO[$c]=${pico#-} U_VOLTA[$c]=${volta#-} U_TEXTO[$c]=${texto#-} U_FONTE[$c]=$fonte U_EMAIL[$c]=${em#-}
   done <<<"$(consultar_uso "${contas[@]}")"
@@ -588,7 +596,7 @@ uso_contas() {
     case $c in principal | codex | kiro) ;; *) [[ -d $(perfil "$c") ]] || die "não existe a conta '$c'" ;; esac
   done
   renovar_tokens "${contas[@]}"
-  while IFS=$'\t' read -r c pico volta texto fonte em; do
+  while IFS=$'\t' read -r c pico volta texto fonte em _; do
     [[ -n $c ]] || continue
     pico=${pico#-} volta=${volta#-} texto=${texto#-}
     if [[ -z $pico ]]; then situacao=desconhecido; r=2
@@ -634,6 +642,42 @@ claude_status_email() {
   return 1
 }
 
+# A IA com mais folga agora (ia-rot --melhor), interativa e sem pedir permissões.
+abrir() {
+  local retomar="" rot linha conta pico texto c
+  local -a exceto=() claude_contas=()
+  while (($#)); do
+    case $1 in
+      --retomar) retomar=${2:-}; shift ;;
+      --exceto) exceto+=(--exceto "${2:-}"); shift ;;
+      *) die "abrir: opção desconhecida '$1' (veja: ia-conta ajuda)" ;;
+    esac
+    shift
+  done
+  rot=$AQUI/ia-rot
+  [[ -x $rot ]] || rot=$(command -v ia-rot 2>/dev/null) || die 'não achei o ia-rot'
+  # Token vencido deixa o uso desconhecido (e a conta, para trás): o próprio Claude renova antes.
+  while read -r c; do case $c in codex | kiro) ;; *) claude_contas+=("$c") ;; esac; done <<<"$(contas_rotacao)"
+  renovar_tokens "${claude_contas[@]}"
+  linha=$("$rot" --melhor "${exceto[@]}") || exit 2
+  IFS=$'\t' read -r conta pico texto <<<"$linha"
+  printf '%s' "$conta" >"$ATUAL_ROT" 2>/dev/null || true
+  printf '→ %s (%s)\n' "$conta" "$texto"
+  # Como root (Debian do proot no celular) o Claude só aceita pular permissões em ambiente isolado.
+  [[ $EUID == 0 ]] && export IS_SANDBOX=1
+  case $conta in
+    codex)
+      [[ -n $retomar ]] && echo '(conversa do Claude não continua no Codex: sessão nova)'
+      exec env IA_CONTA=codex codex --yolo ;;
+    kiro)
+      [[ -n $retomar ]] && echo '(conversa do Claude não continua no Kiro: sessão nova)'
+      exec env IA_CONTA=kiro kiro-cli chat --v3 --trust-all-tools ;;
+    *)
+      if [[ -n $retomar ]]; then rodar "$conta" --dangerously-skip-permissions --resume "$retomar"
+      else rodar "$conta" --dangerously-skip-permissions; fi ;;
+  esac
+}
+
 acao=${1:-}
 case $acao in
   '' | -h | --help | ajuda) uso ;;
@@ -663,6 +707,7 @@ case $acao in
     esac
     ;;
   uso) uso_contas "${@:2}" ;;
+  abrir) abrir "${@:2}" ;;
   cadastro) cadastro "${@:2}" ;;
   *) rodar "$acao" "${@:2}" ;;
 esac
