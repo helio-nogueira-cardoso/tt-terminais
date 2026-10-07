@@ -345,7 +345,7 @@ vigiar() {
   sleep 1
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
-  local ultima_puxada=0 ultima_contas=0 ultima_tema=0 ultima_atualizacao=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_puxada=0 ultima_contas=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
   # cópia em arquivo para sobreviver a reinícios. Não ficam em opções do tmux: qualquer
@@ -381,6 +381,13 @@ vigiar() {
     if ((agora - ultima_contas >= 1800)); then
       ultima_contas=$agora
       ("$EU" --puxar-contas-ia >/dev/null 2>&1 &)
+    fi
+    # E-mail com sync local (sync_local=1): espelha as contas pelo mbsync. TT_EMAIL_SYNC=0 desliga;
+    # padrão 180 s. Fire-and-forget; cada conta tem trava própria (sem sobreposição).
+    local t_email_sync=${TT_EMAIL_SYNC:-180}
+    if ((t_email_sync > 0 && agora - ultima_email_sync >= t_email_sync)); then
+      ultima_email_sync=$agora
+      ("$EU" --email-sync >/dev/null 2>&1 &)
     fi
     # Reforça o padrão completo e redesenha os clientes em até 5 min, inclusive os aninhados.
     if ((agora - ${ultima_tema:-0} >= 300)); then
@@ -4160,10 +4167,11 @@ abrir_tarefas() {
     -T ' 📋 tarefas · q fecha ' -E "TT_CLIENTE=$(q "$c") $EU --tarefas-ui"
 }
 
-# Conteúdo que roda DENTRO do slide-over: loop com fzf para a lista; criar e confirmar remoção
-# usam `read` (prompt de linha), NÃO um segundo fzf — fzf aninhado dentro do mesmo popup brigava
-# pelo terminal e fechava o painel. ⏎ alterna feita/aberta, ^n nova, ^x remove (confirma),
-# ^l limpa as feitas, esc/q sai (recolhe). Sem fzf, cai no modo texto da CLI.
+# Conteúdo que roda DENTRO do slide-over. O fzf fica aberto o tempo todo; cada ação é um --bind
+# que chama o tt e dá reload (mesmo padrão da central e do seletor). Nada de fzf aninhado nem de
+# --expect saindo a cada tecla — era isso que fechava o painel. enter alterna feita/aberta; ctrl-n
+# cria (prompt de linha via execute, que recebe o TTY); ctrl-x remove com confirmação; ctrl-l
+# limpa as feitas; esc fecha. Sem fzf, cai no modo texto da CLI.
 tarefas_ui() {
   if ! command -v fzf >/dev/null; then
     local t nt
@@ -4179,39 +4187,44 @@ tarefas_ui() {
     done
     return 0
   fi
-  local sel id acao nova txt resp
-  while :; do
-    sel=$(tarefas_vivas | awk -F'\t' '{
-        mark = ($2=="feita") ? "✔" : "▢"
-        printf "%s\t%s %s\n", $1, mark, $5
-      }' | fzf --with-nth=2.. --delimiter='\t' \
-        --layout=reverse --height=100% --border=none --info=inline \
-        --prompt='tarefa ❯ ' --pointer='▶' \
-        --header=$'enter alterna | ctrl-n nova | ctrl-x remove | ctrl-l limpa feitas | esc fecha' \
-        --bind 'q:abort' \
-        --expect=enter,ctrl-n,ctrl-x,ctrl-l,esc) || break
-    acao=$(sed -n 1p <<<"$sel"); id=$(sed -n 2p <<<"$sel" | cut -f1)
-    case $acao in
-      enter) [[ -n $id ]] && tarefa_alternar "$id" ;;
-      ctrl-n)
-        # Prompt de linha, sem fzf aninhado: limpa a tela, pede o texto e volta ao loop.
-        clear 2>/dev/null
-        printf '📋 nova tarefa (Enter cria, vazio cancela)\n❯ '
-        IFS= read -r nova
-        [[ -n ${nova:-} ]] && tarefa_add "$nova" >/dev/null ;;
-      ctrl-x)
-        if [[ -n $id ]]; then
-          txt=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
-          clear 2>/dev/null
-          printf 'remover: %s\n\ndigite "sim" para confirmar (qualquer outra coisa cancela)\n❯ ' "$txt"
-          IFS= read -r resp
-          [[ ${resp:-} == sim ]] && tarefa_remover "$id"
-        fi ;;
-      ctrl-l) tarefa_limpar_feitas ;;
-      esc) break ;;
-      *) break ;;
-    esac
-  done
+  fzf --with-nth=2.. --delimiter='\t' \
+    --layout=reverse --height=100% --border=none --info=inline --no-separator \
+    --prompt='tarefa ❯ ' --pointer='▶' --header-first \
+    --header=$'enter alterna | ctrl-n nova | ctrl-x remove | ctrl-l limpa feitas | esc fecha' \
+    --color='bg:#1e1e2e,fg:#cdd6f4,header:#a6adc8,pointer:#f9e2af,prompt:#f9e2af,fg+:#cdd6f4,bg+:#313244,info:#6c7086' \
+    --bind="start:reload($EU --tarefas-lista)" \
+    --bind="enter:execute-silent($EU --tarefa-toggle {1})+reload($EU --tarefas-lista)" \
+    --bind="ctrl-n:execute($EU --tarefa-nova-prompt)+reload($EU --tarefas-lista)" \
+    --bind="ctrl-x:execute($EU --tarefa-remover-prompt {1})+reload($EU --tarefas-lista)" \
+    --bind="ctrl-l:execute-silent($EU --tarefa-limpar)+reload($EU --tarefas-lista)" \
+    --bind='q:abort' --bind='esc:abort' >/dev/null 2>&1 || true
+}
+
+# Linhas para o fzf do painel: "id<TAB>marca texto" (uma por tarefa viva).
+tarefas_lista_fzf() {
+  tarefas_vivas | awk -F'\t' '{ printf "%s\t%s %s\n", $1, ($2=="feita"?"✔":"▢"), $5 }'
+}
+
+# Prompt de nova tarefa (chamado por execute() do fzf: tem o TTY). Lê uma linha e cria.
+tarefa_nova_prompt() {
+  local t
+  clear 2>/dev/null
+  printf '📋 nova tarefa (Enter cria, vazio cancela)\n❯ '
+  IFS= read -r t || return 0
+  [[ -n ${t:-} ]] && tarefa_add "$t" >/dev/null
+  return 0
+}
+
+# Confirmação de remoção (chamado por execute() do fzf: tem o TTY).
+tarefa_remover_prompt() {
+  local id=$1 txt resp
+  [[ -n $id ]] || return 0
+  txt=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
+  clear 2>/dev/null
+  printf 'remover: %s\n\ndigite "sim" e Enter para confirmar (qualquer outra coisa cancela)\n❯ ' "$txt"
+  IFS= read -r resp || return 0
+  [[ ${resp:-} == sim ]] && tarefa_remover "$id"
+  return 0
 }
 
 # Saída texto (CLI pura): usada por `tt --tarefas` fora do tmux e como fallback sem fzf.
@@ -5384,6 +5397,7 @@ cred|$(email_cred_arq "$slug")
 client_secret|$SECRETS_DIR/aerc-$slug.client_secret
 accounts|$AERC_CONTAS
 pastas|$AERC_DIR/tt-pastas-$slug.map
+mbsyncrc|$EMAIL_MBSYNC_DIR/$slug.mbsyncrc
 EOF
   printf '%s' "$d"
 }
@@ -5399,12 +5413,18 @@ cred|$(email_cred_arq "$slug")
 client_secret|$SECRETS_DIR/aerc-$slug.client_secret
 accounts|$AERC_CONTAS
 pastas|$AERC_DIR/tt-pastas-$slug.map
+mbsyncrc|$EMAIL_MBSYNC_DIR/$slug.mbsyncrc
 EOF
   rm -rf "$d"
 }
 
 email_salvar_validado() { # snapshot autorizar_oauth(0|1)
   local snap=$1 autorizar=${2:-0} slug=${E[_slug]}
+  # Sync local exige mbsync instalado: recusa antes de gravar, sem fingir que ligou.
+  if [[ ${E[sync_local]:-} == 1 ]] && ! command -v mbsync >/dev/null; then
+    email_snapshot_restaurar "$snap" "$slug"
+    echo "✗ Sync local pede o mbsync (isync) instalado. Instale-o ou deixe sync_local vazio."; return 1
+  fi
   if ! email_gravar || ! email_regerar "$slug"; then
     email_snapshot_restaurar "$snap" "$slug"
     echo "✗ Não consegui gravar a conta. Nada foi alterado."; return 1
@@ -5425,6 +5445,8 @@ email_salvar_validado() { # snapshot autorizar_oauth(0|1)
   esac
   rm -rf "$snap"
   tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null || true
+  # Primeiro espelho em segundo plano, para o maildir já ter conteúdo quando o aerc abrir.
+  [[ ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-sync "$slug" >/dev/null 2>&1 &)
   return 0
 }
 
@@ -5511,6 +5533,87 @@ email_regerar() {
     email_bloco >>"$tmp"
   fi
   cat "$tmp" >"$AERC_CONTAS"; rm -f "$tmp"
+  # O .mbsyncrc acompanha a conta: criado/atualizado quando sync_local=1, removido caso contrário.
+  email_mbsyncrc_gerar "$modo"
+}
+
+# ---- Sync local opcional (mbsync/isync) --------------------------------------------------------
+#
+# Opt-in estrito por conta (sync_local=1): o mbsync espelha o IMAP num maildir em
+# ~/.cache/tt/maildir/<slug> e o aerc lê de lá (abertura instantânea, busca local, offline
+# parcial). O envio continua pelo SMTP online. Desligado por padrão; sem o flag, nada muda
+# (a conta segue com source=imaps:// e o cache-headers do aerc). As flags (lido, arquivado,
+# apagado) e a chegada de mensagens novas sobem/descem no próximo sync (vigia ou --email-sync).
+EMAIL_MBSYNC_DIR="$CONF_DIR/mbsync"
+email_mbsyncrc() { echo "$EMAIL_MBSYNC_DIR/$1.mbsyncrc"; }
+
+# PassCmd do mbsync para a conta em E: senha de app (arquivo em ~/.secrets), comando externo do
+# usuário, ou, no OAuth2, o access token renovado pelo email-tt.py. Nunca grava o segredo no .mbsyncrc.
+email_mbsync_passcmd() {
+  local slug=${E[_slug]} conf; conf=$(email_conf_arq "$slug")
+  case ${E[auth]} in
+    comando) printf '%s' "${E[cred_cmd]}" ;;
+    oauth)   printf 'python3 %s oauth-token %s' "$(printf %q "$EMAIL_PY")" "$(printf %q "$conf")" ;;
+    *)       printf 'cat %s' "$(printf %q "$(email_cred_arq "$slug")")" ;;
+  esac
+}
+
+# Gera (ou remove, com "remover") o ~/.config/tt/mbsync/<slug>.mbsyncrc da conta em E. O arquivo não
+# tem segredo: a senha vem por PassCmd em tempo de execução. Espelha todas as pastas nos dois sentidos.
+email_mbsyncrc_gerar() {
+  local slug=${E[_slug]} modo=${1:-} rc; rc=$(email_mbsyncrc "$slug")
+  if [[ $modo == remover || ${E[sync_local]:-} != 1 ]]; then rm -f "$rc"; return 0; fi
+  mkdir -p "$EMAIL_MBSYNC_DIR"; chmod 700 "$EMAIL_MBSYNC_DIR" 2>/dev/null
+  local host=${E[imap_host]} porta=${E[imap_porta]:-993} seg=${E[imap_seg]:-tls}
+  local usuario=${E[usuario]:-${E[endereco]}} maildir; maildir=$(email_maildir "$slug")
+  local sslt="IMAPS"; case $seg in starttls) sslt="STARTTLS" ;; nenhuma) sslt="None" ;; esac
+  local authmech=""; [[ ${E[auth]} == oauth ]] && authmech=$'AuthMechs XOAUTH2\n'
+  mkdir -p "$maildir"
+  { printf 'IMAPAccount %s\n' "$slug"
+    printf 'Host %s\n' "$host"
+    printf 'Port %s\n' "$porta"
+    printf 'User %s\n' "$usuario"
+    printf 'PassCmd "%s"\n' "$(email_mbsync_passcmd)"
+    printf '%s' "$authmech"
+    case $sslt in None) printf 'SSLType None\n' ;; STARTTLS) printf 'SSLType STARTTLS\n' ;; *) printf 'SSLType IMAPS\n' ;; esac
+    printf '\n'
+    printf 'IMAPStore %s-remote\n' "$slug"
+    printf 'Account %s\n' "$slug"
+    printf '\n'
+    printf 'MaildirStore %s-local\n' "$slug"
+    printf 'Path %s/\n' "$maildir"
+    printf 'Inbox %s/INBOX\n' "$maildir"
+    printf 'SubFolders Verbatim\n'
+    printf '\n'
+    printf 'Channel %s\n' "$slug"
+    printf 'Far :%s-remote:\n' "$slug"
+    printf 'Near :%s-local:\n' "$slug"
+    printf 'Patterns *\n'
+    printf 'Create Both\n'
+    printf 'Expunge Both\n'
+    printf 'SyncState *\n'; } >"$rc.tmp" && mv "$rc.tmp" "$rc"
+  chmod 600 "$rc" 2>/dev/null
+}
+
+# Roda o mbsync de uma conta, com trava por slug (sem duas sincronizações simultâneas da mesma
+# conta). Silencioso; o vigia chama em segundo plano. Sem mbsync instalado ou sem o flag, não faz nada.
+email_sync() {
+  local slug=$1 rc lock; rc=$(email_mbsyncrc "$slug")
+  command -v mbsync >/dev/null || return 0
+  [[ -f $rc ]] || return 0
+  lock="$EMAIL_MBSYNC_DIR/$slug.lock"
+  exec 9>"$lock" 2>/dev/null || return 0
+  flock -n 9 || return 0   # já há um sync desta conta em curso
+  timeout 120 mbsync -c "$rc" "$slug" >/dev/null 2>&1
+}
+
+# Sincroniza todas as contas com sync_local=1 (chamado pelo vigia e por --email-sync sem argumento).
+email_sync_todas() {
+  local slug; local -A E=()
+  for slug in $(email_slugs); do
+    E=(); email_ler "$slug" || continue
+    [[ ${E[sync_local]:-} == 1 ]] && email_sync "$slug"
+  done
 }
 
 # Contas criadas pelo cadastro antigo (Gmail com senha de app, sem marcadores) passam a ser
@@ -5651,6 +5754,9 @@ email_adicionar_cli() {
   E[provedor]=${E[provedor]:-outro}; E[nome]=${E[nome]:-${E[endereco]%@*}}; E[_slug]=$(email_slug "${E[nome]}")
   email_aplicar_provedor
   email_validar novo || return 1
+  if [[ ${E[sync_local]:-} == 1 ]] && ! command -v mbsync >/dev/null; then
+    echo "✗ Sync local pede o mbsync (isync) instalado. Instale-o ou deixe sync_local vazio."; return 1
+  fi
   if [[ ${E[auth]} == senha ]]; then
     local senha; [[ -n $senha_stdin ]] && IFS= read -r senha
     [[ -n ${senha:-} ]] || { echo "Senha vazia (use --senha-stdin)."; return 1; }
@@ -5659,6 +5765,7 @@ email_adicionar_cli() {
   fi
   email_gravar; email_regerar "${E[_slug]}"
   [[ -n ${TT_EMAIL_SEM_REDE:-} ]] || email_detectar_pastas "${E[_slug]}" || true
+  [[ ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-sync "${E[_slug]}" >/dev/null 2>&1 &)
   echo "✔ conta \"${E[nome]}\" cadastrada (${E[_slug]})"
 }
 
@@ -5667,6 +5774,7 @@ email_remover_slug() {
   email_ler "$slug" || { echo "Conta não encontrada: $slug"; return 1; }
   email_regerar "$slug" remover
   rm -f "$(email_conf_arq "$slug")" "$(email_cred_arq "$slug")" "$SECRETS_DIR/aerc-$slug.client_secret"
+  rm -rf "$(email_maildir "$slug")" "$EMAIL_MBSYNC_DIR/$slug.lock"
   echo "✔ conta \"${E[nome]}\" removida (bloco do aerc e segredos apagados)"
 }
 
@@ -6502,7 +6610,7 @@ sair_menu() { limpar_estado; }
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --fixada-scroll | --aplicar-fixadas | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia)
+  --ir-fixada | --mover-fixada | --fixada-scroll | --aplicar-fixadas | --email-sync | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -6583,6 +6691,10 @@ case "${1:-}" in
     if [[ -n $c ]] && tmux list-sessions >/dev/null 2>&1; then abrir_tarefas "$c"; else tarefas_listar; fi
     exit ;;
   --tarefas-ui) tarefas_ui; exit ;;
+  --tarefas-lista) tarefas_lista_fzf; exit ;;
+  --tarefa-toggle) [[ -n ${2:-} ]] && tarefa_alternar "$2"; exit ;;
+  --tarefa-nova-prompt) tarefa_nova_prompt; exit ;;
+  --tarefa-remover-prompt) tarefa_remover_prompt "${2:-}"; exit ;;
   --tarefa-add) shift; [[ -n ${1:-} ]] && tarefa_add "$*" >/dev/null || { echo 'uso: tt --tarefa-add "texto"'; exit 1; }; exit ;;
   --tarefa-add-ui)
     # UI mínima de uma linha (usada pelo menu do botão direito, num popup pequeno).
@@ -6599,6 +6711,12 @@ case "${1:-}" in
   --email-pastas) s=$(email_achar "${2:?uso: tt --email-pastas NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_detectar_pastas "$s" && echo "✔ pastas atualizadas"; exit ;;
   --email-remover) s=$(email_achar "${2:?uso: tt --email-remover NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_remover_slug "$s"; exit ;;
   --email-testar) s=$(email_achar "${2:?uso: tt --email-testar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_testar_slug "$s"; exit ;;
+  --email-sync) # sem NOME: todas as contas com sync_local=1; com NOME: só essa
+    if [[ -n ${2:-} ]]; then
+      s=$(email_achar "$2") || { echo "Conta não encontrada: $2"; exit 1; }
+      f_s() { local -A E=(); email_ler "$1" && email_sync "$1"; }; f_s "$s"
+    else email_sync_todas; fi
+    exit ;;
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
   --email-conta-nova-ui) email_conta_nova_ui; exit ;;
   --configurar-bashrc) configurar_bashrc; exit ;;

@@ -325,11 +325,33 @@ E-mails com versão HTML abrem nela, pelo `w3m` (tabelas, cores, links), na larg
 estreita (lado a lado, celular) o 📧 abre o aerc sem a barra de pastas (`J`/`K` trocam de pasta).
 **Botão direito no 📧**: abrir, contas (cadastrar, descadastrar, testar), nova conta e atalhos.
 
+### Consulta mais rápida
+
+Por padrão o aerc guarda os cabeçalhos em disco (`cache-headers`, em `~/.cache/aerc`): abrir uma pasta
+deixa de rebaixar tudo pela rede a cada vez, o que acelera caixas grandes ou conexões lentas sem
+depender de nada além do próprio aerc.
+
+Para quem precisa de mais, cada conta pode manter um **espelho local completo** (opt-in, desligado por
+padrão), com o [`mbsync`](https://isync.sourceforge.io/) (pacote `isync`): o aerc passa a ler de um
+`maildir` em `~/.cache/tt/maildir/<conta>` (abertura instantânea, busca local, leitura offline do que
+já baixou), e o envio continua pelo SMTP normal. As marcas (lido, arquivado, apagado) e as mensagens
+novas sobem e descem no próximo sync. Ligue por conta no cadastro:
+
+    tt --email-adicionar nome=Pessoal endereco=eu@gmail.com provedor=gmail auth=senha sync_local=1 --senha-stdin
+
+O tt gera um `~/.config/tt/mbsync/<conta>.mbsyncrc` sem segredo (a senha vem por `PassCmd`: o arquivo
+de senha, o seu comando externo, ou, no OAuth2, um token renovado na hora). O vigia sincroniza em
+segundo plano a cada `TT_EMAIL_SYNC` segundos (padrão 180; `0` desliga); `tt --email-sync [conta]`
+força agora. Sem o `mbsync` instalado o cadastro com `sync_local=1` é recusado, em vez de fingir que
+ligou. Contas sem o flag seguem lendo direto do servidor (IMAP) com o cache de cabeçalhos acima.
+
 ## Sessões fixadas
 
 Uma segunda linha na barra com as sessões que você usa sempre (desta ou de outras máquinas): um
-toque vai direto para ela ao pressionar, e o ✕ ao lado desafixa; botão direito num item: ir, desafixar, mover para
-os lados. Para fixar a sessão em uso: o pino ao lado do nome dela na barra (📍 = não fixada, um
+toque vai direto para ela ao pressionar, e o ✕ ao lado desafixa; botão direito num item: ir, desafixar e
+mover (um passo, para o início ou para o fim). Quando há mais fixadas do que cabem, a faixa vira uma
+janela com setas `‹`/`›` que rolam de página em página (a sessão em uso é sempre trazida para a janela
+visível). Para fixar a sessão em uso: o pino ao lado do nome dela na barra (📍 = não fixada, um
 clique fixa; 📌 = fixada, um clique desafixa). Também: menu da sessão (botão direito em
 "sessão ▾") → "📌 Fixar na barra", `^f` no seletor, ou `tt --fixar [máquina:]sessão`. A lista é a mesma em todas as máquinas (cada mudança é copiada
 para as cadastradas; quem estava desligada puxa a mais nova sozinha ao voltar, em até 5 min), então
