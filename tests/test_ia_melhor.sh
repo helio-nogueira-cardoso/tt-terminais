@@ -95,7 +95,10 @@ uso 50 70 90 5
 ia-conta abrir --retomar 1234abcd-0000 >"$T/saida" </dev/null
 grep -qP '^codex\t--yolo$' "$HOME/agente.log" || falhou "abrir não abriu o codex --yolo: $(cat "$HOME/agente.log")"
 grep -q 'sessão nova' "$T/saida" || falhou 'abrir no codex não avisou que a conversa do Claude não continua'
-passou 'ia-conta abrir: codex com --yolo (conversa do Claude vira sessão nova)'
+: >"$HOME/agente.log"
+ANDROID_ROOT=/system ia-conta abrir >/dev/null </dev/null
+grep -qP '^codex\t--no-daemon --yolo$' "$HOME/agente.log" || falhou "no Android o codex precisa de --no-daemon: $(cat "$HOME/agente.log")"
+passou 'ia-conta abrir: codex com --yolo (e --no-daemon no Android); conversa do Claude vira sessão nova'
 
 # --- atalhos da barra do tt -----------------------------------------------------------------------
 ids() { "$TT" --atalhos-lista | cut -f2 | tr '\n' ' '; }
