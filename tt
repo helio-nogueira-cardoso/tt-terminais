@@ -3914,8 +3914,27 @@ desafixar_item() {
     r=""; s=""
   done < <(fixadas)
   [[ -n $s ]] || return 0
-  alternar_fixada "$r" "$s" >/dev/null
+  # Só remove, nunca alterna: o ✕ dispara no apertar e no soltar e, num toque lento (> 0,5 s), os
+  # dois rodam juntos; com alternar, o segundo achava a sessão já fora da lista e fixava de novo.
+  remover_fixada "$r" "$s" "$id"
   tmux display-message -c "$c" -d 2500 "📌 desafixada: $([[ $r == "$MAQUINA" ]] && echo "$s" || echo "$r:$s")"
+}
+
+# Tira da lista a fixada de R com nome S ou identificador ID (o nome pode ter mudado num rename entre
+# o clique e a trava). Idempotente: se já saiu, não faz nada.
+remover_fixada() {
+  local r=$1 s=$2 id=${3:-}
+  [[ -f $CONF_FIX ]] || return 0
+  travar_fixadas || return 1
+  if ! awk -F'\t' -v r="$r" -v s="$s" -v id="$id" '$1 == r && ($2 == s || (id != "" && $3 == id)) { f = 1 } END { exit !f }' "$CONF_FIX"; then
+    destravar_fixadas; return 0
+  fi
+  awk -F'\t' -v r="$r" -v s="$s" -v id="$id" '!($1 == r && ($2 == s || (id != "" && $3 == id)))' "$CONF_FIX" >"$CONF_FIX.novo"
+  mv "$CONF_FIX.novo" "$CONF_FIX"
+  marcar_fixadas
+  destravar_fixadas
+  aplicar_fixadas
+  propagar_fixadas
 }
 
 # Pino ao lado do nome da sessão, na barra (mesma convenção do seletor): 📍 = não fixada, o clique
