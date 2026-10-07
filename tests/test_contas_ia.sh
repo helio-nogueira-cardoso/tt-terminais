@@ -119,7 +119,14 @@ out=$(ia-conta listar --rapido)
 grep -q $'^novo@exemplo.com\tnovo-2\t' "$C" || falhou "nome em conflito: $(cat "$C")"
 grep -q 'faltam aqui' <<<"$out" && grep -q 'dois  b@x.com  → ia-conta adicionar dois' <<<"$out" || falhou "faltam aqui: $out"
 grep -q 'novo  é "novo-2" no cadastro  → ia-conta renomear novo novo-2' <<<"$out" || falhou "nome diferente: $out"
-passou 'listar: registra com nome livre, mostra o que falta aqui e nome local diferente do cadastro'
+# Falta aqui uma conta cujo nome é de outra conta local: a dica manda renomear antes de adicionar.
+t=$(($(date +%s) + 100)) # mais nova que o registro automático
+printf 'outro@x.com\tbeta\t%s\nbeta@exemplo.com\tsigma\t%s\n' $t $t | "$TT" --receber-contas-ia
+out=$(ia-conta listar --rapido)
+grep -q 'beta  outro@x.com  → antes, ia-conta renomear beta sigma; depois ia-conta adicionar beta' <<<"$out" ||
+  falhou "dica de nome ocupado: $out"
+printf 'outro@x.com\t-\t%s\nbeta@exemplo.com\tbeta\t%s\n' $((t + 1)) $((t + 1)) | "$TT" --receber-contas-ia
+passou 'listar: registra com nome livre, mostra o que falta aqui (sem atropelar nome local) e nome diferente'
 
 ia-conta cadastro nomear b@x.com tres >/dev/null
 grep -q $'^b@x.com\ttres\t' "$C" || falhou 'cadastro nomear'
