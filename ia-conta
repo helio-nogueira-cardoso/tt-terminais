@@ -367,7 +367,7 @@ pares_locais() {
   while read -r c; do
     email=$(email_local "$c")
     [[ $email == *@* ]] && printf '%s\t%s\t%s\n' "$c" "$(provedor_de "$c")" "$email"
-  done < <(contas_rotacao)
+  done <<<"$(contas_rotacao)"
   return 0
 }
 
@@ -417,7 +417,7 @@ cadastro_resumo() { # linhas "conta<TAB>provedor<TAB>e-mail" daqui
     else
       faltam+="  $nome  $email  → ia-conta adicionar $nome"$'\n'
     fi
-  done < <(cadastro_linhas)
+  done <<<"$(cadastro_linhas)"
   while IFS=$'\t' read -r c p email; do
     [[ $p == claude && $c != principal ]] || continue
     n=$(cadastro_nome claude "$email")
@@ -451,16 +451,16 @@ cadastro() {
     '')
       [[ -s $CADASTRO ]] || { echo 'Cadastro vazio: o ia-conta listar registra as contas desta máquina.'; return 0; }
       local -A aqui=()
-      while IFS=$'\t' read -r c p email; do aqui[$p$'\t'$email]+="${aqui[$p$'\t'$email]:+, }$c"; done < <(pares_locais)
+      while IFS=$'\t' read -r c p email; do [[ -n $c ]] && aqui[$p$'\t'$email]+="${aqui[$p$'\t'$email]:+, }$c"; done <<<"$(pares_locais)"
       { printf 'PROVEDOR\tAPELIDO\tE-MAIL\tAQUI\n'
         while IFS=$'\t' read -r p email c _; do
-          [[ $c == - ]] && continue
+          [[ -n $p && $c != - ]] || continue
           aq=${aqui[$p$'\t'$email]:-falta}
           # Codex e Kiro sem CLI aqui não "faltam": a máquina simplesmente não usa o provedor.
           [[ $aq == falta && $p != claude ]] && ! command -v "$( [[ $p == kiro ]] && echo kiro-cli || echo "$p")" >/dev/null 2>&1 &&
             aq='não instalado'
           printf '%s\t%s\t%s\t%s\n' "$p" "$c" "$email" "$aq"
-        done < <(cadastro_linhas | sort -t$'\t' -k1,1 -k3,3)
+        done <<<"$(cadastro_linhas | sort -t$'\t' -k1,1 -k3,3)"
       } | tabela
       ;;
     nomear | esquecer)
@@ -504,11 +504,12 @@ listar() {
   local rapido=${1:-0} c dir email estado detalhe pico volta texto fonte em
   local -a contas
   local -A U_PICO U_TEXTO U_FONTE U_EMAIL U_VOLTA
-  mapfile -t contas < <(contas_rotacao)
+  mapfile -t contas <<<"$(contas_rotacao)"
   [[ $rapido == 1 ]] || renovar_tokens "${contas[@]}"
   while IFS=$'\t' read -r c pico volta texto fonte em; do
+    [[ -n $c ]] || continue
     U_PICO[$c]=${pico#-} U_VOLTA[$c]=${volta#-} U_TEXTO[$c]=${texto#-} U_FONTE[$c]=$fonte U_EMAIL[$c]=${em#-}
-  done < <(consultar_uso "${contas[@]}")
+  done <<<"$(consultar_uso "${contas[@]}")"
   local -a linhas=('CONTA	PROVEDOR	E-MAIL	ESTADO	USO')
   local locais="" emails_cli=""
   for c in "${contas[@]}"; do
@@ -582,12 +583,13 @@ uso_contas() {
     fi
     contas+=("$c")
   done
-  ((${#contas[@]})) || mapfile -t contas < <(contas_rotacao)
+  ((${#contas[@]})) || mapfile -t contas <<<"$(contas_rotacao)"
   for c in "${contas[@]}"; do
     case $c in principal | codex | kiro) ;; *) [[ -d $(perfil "$c") ]] || die "não existe a conta '$c'" ;; esac
   done
   renovar_tokens "${contas[@]}"
   while IFS=$'\t' read -r c pico volta texto fonte em; do
+    [[ -n $c ]] || continue
     pico=${pico#-} volta=${volta#-} texto=${texto#-}
     if [[ -z $pico ]]; then situacao=desconhecido; r=2
     elif ((pico >= LIMITE)); then situacao=passar; r=4
@@ -599,7 +601,7 @@ uso_contas() {
     [[ -n $volta && $situacao != ok ]] && detalhe+=" · reinicia $(hora_reset "$volta")"
     printf '%s\t%s\t%s\t%s\n' "$c" "${pico:-?}" "$situacao" "$detalhe"
     ((r > rc)) && rc=$r
-  done < <(consultar_uso "${contas[@]}")
+  done <<<"$(consultar_uso "${contas[@]}")"
   return "$rc"
 }
 

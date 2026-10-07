@@ -26,6 +26,20 @@ PATH_REMOTO='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"'
 ESPERA_LINK=${IA_LOGIN_ESPERA:-40}      # segundos até o link aparecer
 ESPERA_APROVACAO=${IA_LOGIN_APROVACAO:-900}
 
+# No Termux (celular) os agentes ficam dentro do proot-distro: o que falta e a conferência são
+# perguntados lá dentro (onde o tt instalou o ia-login), e a sessão de login fica no tmux do Termux
+# rodando o comando dentro do proot. Fora do Termux, PROOT fica vazio e nada muda.
+PROOT=""
+if [[ ${PREFIX:-} == *com.termux* && ! -x $CLAUDE_BIN ]] && command -v proot-distro >/dev/null 2>&1; then
+  for raiz in "$PREFIX"/var/lib/proot-distro/containers/*/rootfs "$PREFIX"/var/lib/proot-distro/installed-rootfs/*; do
+    [[ -x $raiz/root/.local/share/tt/ia-login ]] || continue
+    if [[ $raiz == */rootfs ]]; then PROOT=${raiz%/rootfs}; PROOT=${PROOT##*/}; else PROOT=${raiz##*/}; fi
+    break
+  done
+fi
+PROOT_ENV=(env HOME=/root PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin)
+no_proot() { proot-distro login "$PROOT" -- "${PROOT_ENV[@]}" "$@" 2>/dev/null; }
+
 tm() { tmux -L tt-login -f /dev/null "$@"; }
 die() { printf 'ia-login: %s\n' "$*" >&2; exit 1; }
 conf() { awk -v k="$1" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { print v }' "$CONF_DIR/config" 2>/dev/null; }
@@ -53,6 +67,7 @@ cadastro() {
 # O que falta aqui: "provedor<TAB>conta<TAB>e-mail esperado<TAB>situação" (falta | sem login | nome ocupado).
 # E-mail desconhecido sai "-": o read do bash junta tabs seguidos (campo vazio deslocaria as colunas).
 faltas() {
+  if [[ -n $PROOT ]]; then no_proot ia-login --faltas; return; fi
   local dir nome email apelido p esperado tem
   local -A email_de=() sem_cred=()
   if [[ -x $CLAUDE_BIN ]]; then
@@ -78,7 +93,7 @@ faltas() {
       else
         printf 'claude\t%s\t%s\tfalta\n' "$apelido" "$email"
       fi
-    done < <(cadastro)
+    done <<<"$(cadastro)"
   fi
   # Codex e Kiro: um login por máquina; o e-mail esperado só quando o cadastro tem um só.
   if command -v codex >/dev/null 2>&1 && ! codex login status >/dev/null 2>&1; then
@@ -99,9 +114,11 @@ iniciar() {
   [[ -n $(conferir "$p" "$c") ]] && die "$p $c já está logada aqui; nada iniciado"
   s="login-$p-$c"
   tm kill-session -t "=$s" 2>/dev/null
+  local ia_conta=$IA_CONTA
+  [[ -n $PROOT ]] && ia_conta=/root/.local/bin/ia-conta
   case $p in
     # Sem navegador nesta tela (BROWSER=true, sem DISPLAY): o Claude mostra o link e pede o código.
-    claude) cmd=$(printf 'env -u DISPLAY -u WAYLAND_DISPLAY BROWSER=true %q adicionar %q' "$IA_CONTA" "$c")
+    claude) cmd=$(printf 'env -u DISPLAY -u WAYLAND_DISPLAY BROWSER=true %q adicionar %q' "$ia_conta" "$c")
             [[ -n $e ]] && cmd+=$(printf ' --email %q' "$e") ;;
     codex) cmd='codex login --device-auth' ;;
     # Kiro de organização (Identity Center) precisa de --license/--identity-provider/--region: vão em
@@ -109,6 +126,7 @@ iniciar() {
     kiro) args=$(conf kiro_login); cmd="kiro-cli login ${args:---use-device-flow}" ;;
     *) die "provedor desconhecido: $p" ;;
   esac
+  [[ -n $PROOT ]] && cmd="proot-distro login $(printf '%q' "$PROOT") -- ${PROOT_ENV[*]} bash -c $(printf '%q' "$cmd")"
   tm new-session -d -x 400 -y 60 -s "$s" "$cmd; rc=\$?; echo; echo \"[ia-login: fim \$rc]\"; sleep 900" || die 'tmux não abriu a sessão de login'
   echo "$s"
 }
@@ -120,6 +138,7 @@ encerrar() { tm kill-session -t "=$1" 2>/dev/null; return 0; }
 
 conferir() { # provedor conta → e-mail logado (vazio = ainda não)
   local p=$1 c=$2
+  if [[ -n $PROOT ]]; then no_proot ia-login --conferir "$p" "$c"; return 0; fi
   case $p in
     claude) if [[ $c == principal ]]; then email_claude "$BASE"; else email_claude "$RAIZ/$c"; fi ;;
     codex) codex login status >/dev/null 2>&1 || return 0
@@ -173,7 +192,7 @@ montar_plano() {
   while IFS=$'\t' read -r dest rot; do
     if (($#)) && ! printf '%s\n' "$@" | grep -qxF -- "$rot"; then continue; fi
     ( em "$dest" --faltas >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   wait
   for f in $(ls "$tmp"/*.dest 2>/dev/null | sort); do
     [[ -e $f ]] || continue
@@ -185,7 +204,7 @@ montar_plano() {
     esac
     while IFS=$'\t' read -r p c e sit; do
       [[ -n $p ]] && PLANO+=("$rot"$'\t'"$dest"$'\t'"$p"$'\t'"$c"$'\t'"${e:--}"$'\t'"$sit")
-    done < <(sort -t$'\t' -k1,1 -k2,2 "$tmp/$rot.tsv") # ordem estável: provedor, conta
+    done <<<"$(sort -t$'\t' -k1,1 -k2,2 "$tmp/$rot.tsv")" # ordem estável: provedor, conta
   done
   rm -rf "$tmp"
 }

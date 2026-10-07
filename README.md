@@ -239,7 +239,9 @@ transferência; QR code se houver `qrencode`), no Claude recebe o código que a 
 (a página já abre com o e-mail esperado), no Codex/Kiro mostra o código do dispositivo e espera a
 aprovação; no fim confere o e-mail que entrou e avisa se não é o esperado. `ia-login --plano` só
 mostra o que falta. Kiro de organização: os argumentos do login (`--license`, `--identity-provider`,
-`--region`) vão em `kiro_login=` no `~/.config/tt/config` da máquina.
+`--region`) vão em `kiro_login=` no `~/.config/tt/config` da máquina. No celular, as contas ficam dentro do proot-distro: o tt
+espelha o pacote no proot que já tem `/root/.local/share/tt` (links, skill, cadastro do Termux), e o
+`ia-login` do Termux pergunta ao proot o que falta e roda lá os logins.
 
 A coluna **USO** mostra a janela de 5 h e a semanal do Claude e do Codex (`5h 23% · 7d 65%`) e os
 créditos do mês do Kiro (o mesmo do `/usage`). O horário entre parênteses é quando a janela volta.
