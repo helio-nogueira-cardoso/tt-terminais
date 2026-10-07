@@ -67,7 +67,7 @@ uso() {
 Uso:
   ia-conta principal [argumentos do claude]
   ia-conta <conta> [argumentos do claude]
-  ia-conta adicionar <conta>
+  ia-conta adicionar <conta> [--email <e-mail>]
   ia-conta entrar <conta>
   ia-conta renomear <conta> <novo-nome>
   ia-conta remover <conta> [--sim]
@@ -127,7 +127,7 @@ apagar_atalho() {
 }
 
 entrar() {
-  local nome=$1 dir
+  local nome=$1 email=${2:-} dir
   nome_valido "$nome" || die "nome inválido: use letras, números, - ou _"
   nome_reservado "$nome" && die "'$nome' é reservado; escolha outro nome"
   [[ -x $CLAUDE_BIN ]] || die "não achei o Claude Code em $CLAUDE_BIN"
@@ -137,7 +137,8 @@ entrar() {
   dir=$(perfil "$nome")
   rm -f "$dir/.account-email" # outro login pode ser outro e-mail
   printf 'Abrindo login da conta "%s". As sessões locais continuam compartilhadas.\n' "$nome"
-  CLAUDE_CONFIG_DIR="$dir" exec "$CLAUDE_BIN" auth login
+  # Com o e-mail esperado (ia-login), a página de login já abre nele: menos chance de entrar na errada.
+  CLAUDE_CONFIG_DIR="$dir" exec "$CLAUDE_BIN" auth login ${email:+--email "$email"}
 }
 
 # PIDs de processos (fora este) que rodam com CLAUDE_CONFIG_DIR apontando para DIR. Um Claude aberto
@@ -633,8 +634,11 @@ acao=${1:-}
 case $acao in
   '' | -h | --help | ajuda) uso ;;
   adicionar | entrar)
-    [[ $# == 2 ]] || { uso >&2; exit 2; }
-    entrar "$2"
+    case "$#:${3:-}" in
+      2:) entrar "$2" ;;
+      4:--email) entrar "$2" "$4" ;;
+      *) uso >&2; exit 2 ;;
+    esac
     ;;
   renomear)
     [[ $# == 3 ]] || { uso >&2; exit 2; }
