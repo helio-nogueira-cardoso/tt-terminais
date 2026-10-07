@@ -7,7 +7,8 @@
   email-tt.py oauth-token CONF           -> imprime um access token novo (renova pelo refresh token)
   email-tt.py testar CONF                -> testa login IMAP e SMTP; imprime ✓/✗ por serviço (rc 0 se ambos ok)
   email-tt.py pastas CONF                -> pastas especiais pelo IMAP (SPECIAL-USE: todos, enviados, lixeira…)
-  email-tt.py html                       -> filtro do aerc: HTML (stdin) → texto legível, links numerados no fim
+  email-tt.py html                       -> filtro do aerc: HTML (stdin) → texto legível, links OSC 8 clicáveis
+  email-tt.py linkify                    -> pós-filtro: texto (stdin) com [N]/References → links OSC 8 clicáveis
 
 CONF é o arquivo chave=valor da conta (~/.config/tt/email/<slug>.conf). Segredos ficam em
 ~/.secrets/aerc-<slug>.txt (senha ou refresh token) e ~/.secrets/aerc-<slug>.client_secret; este
@@ -448,6 +449,48 @@ def testar(c):
 
 
 # --- HTML → texto (filtro do aerc quando não há w3m/lynx) -----------------------------------------
+# --- Links clicáveis (OSC 8) ----------------------------------------------------------------------
+# Hyperlink de terminal: a URL fica no escape, o texto visível é o rótulo. O terminal abre a URL
+# inteira num clique (Ctrl+clique no GNOME Terminal/VTE; toque no Termux), mesmo que o rótulo esteja
+# quebrado em várias linhas na tela — era aí que o clique pegava só um pedaço e caía em "wrong link".
+# Terminais sem suporte a OSC 8 ignoram o escape e mostram só o rótulo, sem prejuízo.
+def osc8(url, texto):
+    return "\033]8;;{}\033\\{}\033]8;;\033\\".format(url, texto)
+
+
+# Pós-filtro para a saída do w3m/lynx, inclusive já colorida pelo filtro "colorize" do aerc (que
+# roda antes): torna cada [N] e cada URL da seção "References" clicáveis via OSC 8. É tolerante a
+# códigos ANSI (SGR) ao redor do texto: a URL dentro do escape OSC 8 fica SEM ANSI (senão o terminal
+# recebe uma URL corrompida e o clique falha), e o texto visível mantém as cores. Idempotente e
+# seguro: sem References, devolve a entrada intacta.
+def linkify(texto):
+    import re
+    ANSI = re.compile(r'\033\[[0-9;]*m')
+    def limpo(s):
+        return ANSI.sub('', s)
+    # "References:" pode vir cercado de ANSI (ex.: \033[1;34mReferences:\033[0m).
+    partes = re.split(r'\n[ \t]*(?:\033\[[0-9;]*m)*References:(?:\033\[[0-9;]*m)*[ \t]*\n', texto, maxsplit=1)
+    corpo = partes[0]
+    refs = {}
+    if len(partes) == 2:
+        for linha in partes[1].splitlines():
+            m = re.match(r'\s*\[(\d+)\]\s+(.+?)\s*$', limpo(linha))
+            if m and m.group(2):
+                refs[m.group(1)] = m.group(2)
+    if not refs:
+        return texto
+    # No corpo, o [N] também pode estar colorido; casa o número ignorando ANSI entre os colchetes.
+    def env_marca(m):
+        n = re.match(r'\[(\d+)\]', limpo(m.group(0)))
+        return osc8(refs[n.group(1)], m.group(0)) if n and n.group(1) in refs else m.group(0)
+    corpo = re.sub(r'\[(?:\033\[[0-9;]*m)*\d+(?:\033\[[0-9;]*m)*\]', env_marca, corpo)
+    linhas = [corpo.rstrip("\n"), "", "References:", ""]
+    for n, u in sorted(refs.items(), key=lambda x: int(x[0])):
+        # Rótulo visível = a URL (sem ANSI, para ficar legível e copiável); alvo = a mesma URL limpa.
+        linhas.append("[{}] {}".format(n, osc8(u, u)))
+    return "\n".join(linhas) + "\n"
+
+
 def html_para_texto(html):
     from html.parser import HTMLParser
     import re, textwrap, shutil
@@ -508,6 +551,8 @@ def main(a):
     if a[:1] == ["html"]:
         dados = sys.stdin.buffer.read()
         sys.stdout.write(html_para_texto(dados.decode("utf-8", "replace"))); return 0
+    if a[:1] == ["linkify"]:
+        sys.stdout.write(linkify(sys.stdin.buffer.read().decode("utf-8", "replace"))); return 0
     if len(a) < 2:
         print(__doc__); return 2
     cmd, arg = a[0], a[1]

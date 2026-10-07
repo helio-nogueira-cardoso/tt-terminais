@@ -21,9 +21,9 @@ grep -q '^dirlist-right={{if .Unread}}' "$C" || falhou 'contagem de não lidas n
 passou 'visual: tema Catppuccin, pastas em árvore com não lidas, fios, cache de cabeçalhos; escolhas do dono preservadas; idempotente'
 
 h=$(v filters text/html)
-if PATH="$T/bin:/usr/bin:/bin" command -v w3m >/dev/null; then [[ $h == '! html' ]] || falhou "com w3m deveria manter '! html' (está: $h)"
-elif PATH="$T/bin:/usr/bin:/bin" command -v lynx >/dev/null; then [[ $h == lynx* ]] || falhou "sem w3m deveria usar lynx (está: $h)"
-else [[ $h == *email-tt.py\ html* ]] || falhou "sem w3m/lynx deveria usar o conversor do tt (está: $h)"; fi
+if PATH="$T/bin:/usr/bin:/bin" command -v w3m >/dev/null; then [[ $h == '! html'*linkify* ]] || falhou "com w3m deveria ser '! html … linkify' (está: $h)"
+elif PATH="$T/bin:/usr/bin:/bin" command -v lynx >/dev/null; then [[ $h == lynx*linkify* ]] || falhou "sem w3m deveria usar lynx + linkify (está: $h)"
+else [[ $h == *email-tt.py\ html*linkify* ]] || falhou "sem w3m/lynx deveria usar o conversor do tt + linkify (está: $h)"; fi
 r=$(printf '<p>Oi <a href="https://x.y/z">link</a></p>' | python3 "$TT_DIR/email-tt.py" html)
 [[ $r == *"Oi link [1]"* && $r == *"[1] https://x.y/z"* ]] || falhou "conversor de HTML do tt: $r"
 passou "HTML: filtro que funciona nesta máquina ($h) e conversor próprio como reserva"
