@@ -4343,7 +4343,7 @@ tarefas_ui() {
     --bind="enter:execute-silent($EU --tarefa-toggle {1})+reload($EU --tarefas-lista)" \
     --bind="left-click:execute-silent($EU --tarefa-toggle {1})+reload($EU --tarefas-lista)" \
     --bind="double-click:execute-silent($EU --tarefa-expandir {1})+reload($EU --tarefas-lista)" \
-    --bind="click-header:execute-silent($EU --tarefa-cabecalho-clique {fzf:click-header-word})+reload($EU --tarefas-lista)+change-header($EU --tarefas-cabecalho)" \
+    --bind="click-header:transform-header($EU --tarefa-cabecalho-clique \"\$FZF_CLICK_HEADER_WORD\"; $EU --tarefas-cabecalho)+reload($EU --tarefas-lista)" \
     --bind="space:execute-silent($EU --tarefa-expandir {1})+reload($EU --tarefas-lista)" \
     --bind="ctrl-n:execute($EU --tarefa-nova-prompt)+reload($EU --tarefas-lista)" \
     --bind="ctrl-s:execute($EU --tarefa-sub-prompt {1})+reload($EU --tarefas-lista)" \
@@ -4352,8 +4352,8 @@ tarefas_ui() {
     --bind="ctrl-k:execute-silent($EU --tarefa-sub-mover {1} cima)+reload($EU --tarefas-lista)" \
     --bind="ctrl-j:execute-silent($EU --tarefa-sub-mover {1} baixo)+reload($EU --tarefas-lista)" \
     --bind="ctrl-x:execute($EU --tarefa-remover-prompt {1})+reload($EU --tarefas-lista)" \
-    --bind="tab:execute-silent($EU --tarefa-filtro-ciclar)+reload($EU --tarefas-lista)+change-header($EU --tarefas-cabecalho)" \
-    --bind="ctrl-f:execute-silent($EU --tarefa-filtro-ciclar)+reload($EU --tarefas-lista)+change-header($EU --tarefas-cabecalho)" \
+    --bind="tab:transform-header($EU --tarefa-filtro-ciclar; $EU --tarefas-cabecalho)+reload($EU --tarefas-lista)" \
+    --bind="ctrl-f:transform-header($EU --tarefa-filtro-ciclar; $EU --tarefas-cabecalho)+reload($EU --tarefas-lista)" \
     --bind="ctrl-l:execute-silent($EU --tarefa-limpar)+reload($EU --tarefas-lista)" \
     --bind='q:abort' --bind='esc:abort' >/dev/null 2>&1 || true
 }
