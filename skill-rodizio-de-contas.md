@@ -9,7 +9,7 @@ Esta máquina tem várias contas de IA numa rotação (contas do Claude, depois 
 gerenciadas pelo tt-terminais:
 
 - `ia-conta` (também `claude-conta`): seletor de contas e consulta de uso.
-- `ia-rot` (também `claude-rot`): rotator; escolhe a próxima conta com login e janela livre.
+- `ia-rot` (também `claude-rot`): rotator; escolhe, entre as contas com login e janela livre, a de mais folga de uso agora (5 h, semana e mês, pelo tempo até reiniciar).
 
 O uso é por conta, somado entre todas as sessões que usam a mesma conta. Por isso ele pode subir
 mesmo quando você trabalha pouco.

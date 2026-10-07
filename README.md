@@ -209,8 +209,17 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
 ## Contas de IA
 
 O tt instala um seletor e um rotator de contas para os agentes de linha de comando: `ia-conta` e
-`ia-rot` (os nomes antigos `claude-conta` e `claude-rot` continuam valendo). Rotação: a conta
-principal do Claude (`~/.claude`), as contas do `ia-conta` em ordem alfabética, depois Codex e Kiro.
+`ia-rot` (os nomes antigos `claude-conta` e `claude-rot` continuam valendo). Contas: a principal do
+Claude (`~/.claude`), as do `ia-conta`, o Codex e o Kiro. A ordem não é fixa: vai da conta com mais
+**folga** agora para a com menos. A folga olha todas as janelas e quando cada uma reinicia: na de 5 h,
+o que sobra (90% usada que reinicia em 10 min quase não pesa); na semanal e no mês do Kiro, o que
+sobra em relação ao tempo até o reinício (20% livres com 6 dias pela frente é pouco, os mesmos 20% a
+3 h do reinício são "use ou perde"). Vale a janela mais apertada; conta com alguma janela a 95% ou
+mais fica de fora.
+
+    ia-conta abrir                   # a IA com mais folga agora, interativa e sem pedir permissões
+    ia-conta abrir --retomar ID      # idem, continuando a conversa ID se a escolhida for do Claude
+    ia-rot --melhor                  # só diz qual seria: conta, pico e uso (sai 2 se nenhuma livre)
 
     ia-conta adicionar trabalho      # login uma vez; cria o atalho claude-trabalho
     ia-conta listar                  # todas as contas, com e-mail, estado e USO da janela
@@ -451,9 +460,16 @@ O `CL` e o `DBN` usam o `claude` local; no Termux, o do Debian (`proot-distro`).
 ## Atalhos de comandos
 
 A barra também mostra um emoji por comando em `atalhos-padrao`, versionado junto com o tt. O padrão
-usa 👻 para Kiro, 🦀 para Claude e ⚪ para Codex. Um toque
-abre uma sessão nova na máquina atual e muda para ela. Os padrões incluem Kiro v3, Claude com
-permissões liberadas e o fluxo de resume.
+são dois botões, iguais no PC e no celular, que abrem a IA com mais folga de uso **agora** (`ia-conta
+abrir`, veja [Contas de IA](#contas-de-ia)) já sem pedir permissões:
+
+- 🤖 **ia-nova** abre numa sessão nova e muda para ela;
+- 🔄 **ia-aqui** troca o que roda no painel atual (fecha o agente que estiver nele, ou parte do
+  shell), na mesma pasta. Se ali havia uma conversa do Claude e a escolhida também é do Claude, a
+  conversa continua (`{retomar}` vira `--retomar ID`); Codex e Kiro abrem uma sessão nova.
+
+Um comando que começa com `@aqui ` roda no painel atual em vez de numa sessão nova. No celular os
+dois entram no Debian (`proot-distro login debian --shared-tmp -- bash -lc '…'`).
 
 Cada máquina pode sobrescrever, desativar ou acrescentar atalhos em `~/.config/tt/atalhos`, no mesmo
 formato `emoji<TAB>id<TAB>comando<TAB>cor-de-fundo` (a quarta coluna é opcional, em hexadecimal,
@@ -464,14 +480,13 @@ como `#cba6f7`). A segunda coluna é o ID estável: uma linha local com o mesmo 
     -	codex
     🧪	meu-teste	ssh servidor
 
-Os padrões são três: 👻 Kiro, 🦀 Claude (retomando a conversa) e ⚪ Codex. Para editar sem abrir
+Para editar sem abrir
 o arquivo: menu ⋯ do painel → **✏ Atalhos da barra** (⏎ edita emoji, comando e cor; ^n novo; ^x
 exclui ou desativa um padrão; ^r volta ao padrão). O arquivo continua editável à mão. Os botões “lado” e “baixo” ficam disponíveis no menu de
 painel, mas não ocupam mais a barra.
 
-As contas criadas por `ia-conta adicionar <nome>` (ou `claude-conta`) aparecem automaticamente como `1️⃣`, `2️⃣`,
-`3️⃣` etc.; as credenciais e os nomes dos perfis não entram no GitHub. O arquivo versionado pode ser
-alterado no repositório para que novos atalhos padrão cheguem a todas as máquinas.
+As contas não ganham mais um botão cada: os dois atalhos escolhem entre todas. O arquivo versionado
+pode ser alterado no repositório para que novos atalhos padrão cheguem a todas as máquinas.
 
 ## Atalhos da central
 
