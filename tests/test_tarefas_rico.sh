@@ -54,6 +54,18 @@ primeira_sub=$(grep -m1 '    ▢ sub' <<<"$lista2")
 grep -q 'sub dois' <<<"$primeira_sub" || fail "mover sub p/ cima não reordenou (1ª sub: $primeira_sub)"
 echo "ok: subtarefa reordenada (sub dois subiu)"
 
+# clique na mãe expande e recolhe (toggle). Mãe começa expandida (criar sub expande).
+grep -q '▾' <<<"$(run --tarefas-lista)" || fail "mãe deveria iniciar expandida (▾) após criar subtarefas"
+run --tarefa-clique "$id" >/dev/null 2>&1   # 1º clique: recolhe
+lista_rec=$(run --tarefas-lista)
+grep -q '▸' <<<"$lista_rec" || fail "clique na mãe não recolheu (sem ▸)"
+[[ $(grep -c '    ▢ sub' <<<"$lista_rec") == 0 ]] || fail "mãe recolhida ainda mostra subtarefas"
+run --tarefa-clique "$id" >/dev/null 2>&1   # 2º clique: expande de novo (regressão do grep rc=1)
+lista_exp=$(run --tarefas-lista)
+grep -q '▾' <<<"$lista_exp" || fail "clique na mãe não expandiu de volta (bug grep rc=1)"
+[[ $(grep -c '    ▢ sub' <<<"$lista_exp") == 2 ]] || fail "mãe reexpandida não mostra as 2 subtarefas"
+echo "ok: clique na mãe expande e recolhe (toggle estável nos dois sentidos)"
+
 # descrição editável (editor simulado), guardada em base64, restaurada no preview
 run --tarefa-add "com descricao" >/dev/null
 idd=$(awk -F'\t' '$5=="com descricao"{print $1}' "$C")

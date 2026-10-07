@@ -4096,6 +4096,15 @@ tarefa_alternar() {
   [[ $est == feita ]] && tarefa_estado "$id" aberta || tarefa_estado "$id" feita
 }
 
+# Clique esquerdo numa linha: se a tarefa tem subtarefas (é mãe), o clique expande/recolhe — a
+# setinha ▸/▾ fica no começo da linha, então clicar nela faz o esperado; marcar a mãe como feita
+# fica no Enter. Numa tarefa sem filhas (folha ou subtarefa), o clique alterna feita/aberta.
+tarefa_clique() {
+  local id=$1
+  [[ -n $id ]] || return 0
+  if [[ -n $(tarefas_filhas "$id") ]]; then tarefas_exp_alternar "$id"; else tarefa_alternar "$id"; fi
+}
+
 tarefa_remover()  { tarefa_estado "$1" removida; }
 tarefa_limpar_feitas() {
   local id
@@ -4307,7 +4316,7 @@ tarefas_cabecalho_clique() {
 tarefas_exp_tem() { grep -qxF "exp=$1" "$(tarefas_estado_arq)" 2>/dev/null; }
 tarefas_exp_alternar() {
   local id=$1 arq; arq=$(tarefas_estado_arq); mkdir -p "$RT"; touch "$arq"
-  if tarefas_exp_tem "$id"; then grep -vxF "exp=$id" "$arq" >"$arq.tmp" && mv "$arq.tmp" "$arq"
+  if tarefas_exp_tem "$id"; then grep -vxF "exp=$id" "$arq" >"$arq.tmp" || true; mv "$arq.tmp" "$arq"
   else printf 'exp=%s\n' "$id" >>"$arq"; fi
 }
 
@@ -4348,7 +4357,7 @@ tarefas_ui() {
     --bind='ctrl-/:toggle-preview' \
     --bind="start:reload($EU --tarefas-lista)" \
     --bind="enter:execute-silent($EU --tarefa-toggle {1})+reload($EU --tarefas-lista)" \
-    --bind="left-click:execute-silent($EU --tarefa-toggle {1})+reload($EU --tarefas-lista)" \
+    --bind="left-click:execute-silent($EU --tarefa-clique {1})+reload($EU --tarefas-lista)" \
     --bind="double-click:execute-silent($EU --tarefa-expandir {1})+reload($EU --tarefas-lista)" \
     --bind="click-header:transform($EU --tarefa-cabecalho-clique)" \
     --bind="space:execute-silent($EU --tarefa-expandir {1})+reload($EU --tarefas-lista)" \
@@ -4526,21 +4535,21 @@ calendario_tui() { # [epoch_inicial]
     local titulo
     titulo=$(printf '%s, %02d de %s de %s' "${TT_DIAS_SEMANA[$(date -d "$y-$m-$d" +%w)]^}" "$d" "${TT_MESES[$((m-1))]}" "$y")
     { printf '\n  %s%s%s%s\n\n' "$roxo" "$neg" "$titulo" "$z"
-      printf '  %s      seg ter qua qui sex sáb dom%s\n' "$cinza" "$z"
+      printf '  %s       seg ter qua qui sex sáb dom%s\n' "$cinza" "$z"
       # começa na segunda; converte prim_dow (0=dom) para offset com semana ISO (seg=0)
       local off=$(( (prim_dow + 6) % 7 ))
       local diapos=1 linha semana_num
       while ((diapos <= ult)); do
         semana_num=$(date -d "$y-$m-$diapos" +%V 2>/dev/null)
-        printf '  %ssem %s%s ' "$cinza" "$semana_num" "$z"
+        printf '  %ssem %2s %s' "$cinza" "$semana_num" "$z"
         local c
         for ((c=0;c<7;c++)); do
           if ((diapos==1 && c<off)); then printf '    '; continue; fi
           ((diapos>ult)) && { printf '    '; continue; }
-          dstr=$(printf '%2d' "$diapos")
+          dstr=$(printf '%3d' "$diapos")
           if ((diapos==d)); then printf '%s%s%s%s ' "$roxo" "$inv" "$dstr" "$z"
           elif ((y==hoje_y && m==hoje_m && diapos==hoje_d)); then printf '%s%s%s%s ' "$amar" "$sub" "$dstr" "$z"
-          else printf '%s%s ' "$dstr" ""; fi
+          else printf '%s ' "$dstr"; fi
           ((diapos++))
         done
         printf '\n'
@@ -7067,6 +7076,7 @@ case "${1:-}" in
   --tarefas-ui) tarefas_ui; exit ;;
   --tarefas-lista) tarefas_lista_fzf; exit ;;
   --tarefa-toggle) [[ -n ${2:-} ]] && tarefa_alternar "$2"; exit ;;
+  --tarefa-clique) [[ -n ${2:-} ]] && tarefa_clique "$2"; exit ;;
   --tarefa-nova-prompt) tarefa_nova_prompt; exit ;;
   --tarefa-remover-prompt) tarefa_remover_prompt "${2:-}"; exit ;;
   --tarefa-expandir) [[ -n ${2:-} ]] && tarefas_exp_alternar "$2"; exit ;;
