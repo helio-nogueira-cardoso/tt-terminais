@@ -4160,11 +4160,26 @@ abrir_tarefas() {
     -T ' 📋 tarefas · q fecha ' -E "TT_CLIENTE=$(q "$c") $EU --tarefas-ui"
 }
 
-# Conteúdo que roda DENTRO do slide-over: loop com fzf. ⏎ alterna feita/aberta, ^n nova, ^x remove
-# (com confirmação), ^l limpa as feitas, esc/q sai (recolhe). Sem fzf, cai no modo texto da CLI.
+# Conteúdo que roda DENTRO do slide-over: loop com fzf para a lista; criar e confirmar remoção
+# usam `read` (prompt de linha), NÃO um segundo fzf — fzf aninhado dentro do mesmo popup brigava
+# pelo terminal e fechava o painel. ⏎ alterna feita/aberta, ^n nova, ^x remove (confirma),
+# ^l limpa as feitas, esc/q sai (recolhe). Sem fzf, cai no modo texto da CLI.
 tarefas_ui() {
-  if ! command -v fzf >/dev/null; then tarefas_listar; echo; read -rsn1 -t 30 -p 'Enter fecha'; return 0; fi
-  local sel id acao
+  if ! command -v fzf >/dev/null; then
+    local t nt
+    while :; do
+      clear 2>/dev/null
+      tarefas_listar
+      printf '\n[n] nova  [Enter] fecha\n❯ '
+      IFS= read -r t || break
+      [[ -z $t ]] && break
+      case $t in
+        n) printf 'nova tarefa (vazio cancela)\n❯ '; IFS= read -r nt; [[ -n ${nt:-} ]] && tarefa_add "$nt" >/dev/null ;;
+      esac
+    done
+    return 0
+  fi
+  local sel id acao nova txt resp
   while :; do
     sel=$(tarefas_vivas | awk -F'\t' '{
         mark = ($2=="feita") ? "✔" : "▢"
@@ -4172,22 +4187,25 @@ tarefas_ui() {
       }' | fzf --with-nth=2.. --delimiter='\t' \
         --layout=reverse --height=100% --border=none --info=inline \
         --prompt='tarefa ❯ ' --pointer='▶' \
-        --header=$'⏎ alterna · ^n nova · ^x remove · ^l limpa feitas · esc fecha' \
+        --header=$'enter alterna | ctrl-n nova | ctrl-x remove | ctrl-l limpa feitas | esc fecha' \
         --bind 'q:abort' \
         --expect=enter,ctrl-n,ctrl-x,ctrl-l,esc) || break
     acao=$(sed -n 1p <<<"$sel"); id=$(sed -n 2p <<<"$sel" | cut -f1)
     case $acao in
       enter) [[ -n $id ]] && tarefa_alternar "$id" ;;
       ctrl-n)
-        local novo; novo=$(printf '' | fzf --print-query --prompt='nova tarefa ❯ ' --height=3 --border=rounded --header='digite e ⏎ (esc cancela)' --layout=reverse 2>/dev/null | sed -n 1p)
-        [[ -n $novo ]] && tarefa_add "$novo" >/dev/null ;;
+        # Prompt de linha, sem fzf aninhado: limpa a tela, pede o texto e volta ao loop.
+        clear 2>/dev/null
+        printf '📋 nova tarefa (Enter cria, vazio cancela)\n❯ '
+        IFS= read -r nova
+        [[ -n ${nova:-} ]] && tarefa_add "$nova" >/dev/null ;;
       ctrl-x)
         if [[ -n $id ]]; then
-          local txt; txt=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
-          if printf 'sim, remover\nnao\n' | fzf --prompt='confirmar? ' --height=5 --border=rounded \
-               --header="remover: $txt" | grep -qx 'sim, remover'; then
-            tarefa_remover "$id"
-          fi
+          txt=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
+          clear 2>/dev/null
+          printf 'remover: %s\n\ndigite "sim" para confirmar (qualquer outra coisa cancela)\n❯ ' "$txt"
+          IFS= read -r resp
+          [[ ${resp:-} == sim ]] && tarefa_remover "$id"
         fi ;;
       ctrl-l) tarefa_limpar_feitas ;;
       esc) break ;;
@@ -5291,7 +5309,7 @@ declare -A E=() # conta em edição (as funções declaram a sua cópia local co
 # Chaves de uma conta, na ordem em que são gravadas.
 EMAIL_CHAVES=(nome endereco usuario nome_exibicao provedor auth imap_host imap_porta imap_seg smtp_host smtp_porta smtp_seg
   pasta cred_cmd oauth_client_id oauth_auth_endpoint oauth_token_endpoint oauth_device_endpoint oauth_scope
-  pasta_todos pasta_enviados pasta_lixeira pasta_rascunhos pasta_spam pasta_naoabre
+  pasta_todos pasta_enviados pasta_lixeira pasta_rascunhos pasta_spam pasta_naoabre sync_local
   extra_1 extra_2 extra_3 extra_4 extra_5 extra_6 extra_7 extra_8)
 
 # Nome de conta → slug seguro para nome de arquivo (minúsculas, só [a-z0-9_-]).
@@ -5413,8 +5431,13 @@ email_salvar_validado() { # snapshot autorizar_oauth(0|1)
 email_slugs() { local f; for f in "$EMAIL_DIR"/*.conf; do [[ -e $f ]] && basename "$f" .conf; done; }
 
 # URL do aerc: segurança → esquema; OAuth2 → +xoauth2 e parâmetros para o aerc renovar o token.
+# Com sync_local=1, o IMAP de entrada vira um maildir local (espelho mantido pelo mbsync): o aerc lê
+# do disco (abertura instantânea, busca local, offline parcial). O envio (smtp) permanece online.
+EMAIL_MAILDIR_BASE="$HOME/.cache/tt/maildir"
+email_maildir() { echo "$EMAIL_MAILDIR_BASE/$1"; }
 email_url() { # imap|smtp
   local t=$1 host porta seg usuario esq q=""
+  if [[ $t == imap && ${E[sync_local]:-} == 1 ]]; then printf 'maildir://%s' "$(email_maildir "${E[_slug]}")"; return; fi
   host=${E[${t}_host]}; porta=${E[${t}_porta]}; seg=${E[${t}_seg]:-tls}
   usuario=${E[usuario]:-${E[endereco]}}; usuario=$(email_urlenc "$usuario")
   case $t:$seg in
@@ -5437,7 +5460,8 @@ email_bloco() {
   echo "# >>> tt e-mail: ${E[_slug]} >>>"
   printf '[%s]\n' "${E[nome]}"
   printf 'source            = %s\n' "$(email_url imap)"
-  printf 'source-cred-cmd   = %s\n' "$cmd"
+  # Entrada por maildir (sync_local) não autentica: o mbsync é quem fala IMAP. Só o envio usa a credencial.
+  [[ ${E[sync_local]:-} == 1 ]] || printf 'source-cred-cmd   = %s\n' "$cmd"
   printf 'outgoing          = %s\n' "$(email_url smtp)"
   printf 'outgoing-cred-cmd = %s\n' "$cmd"
   if [[ -n ${E[nome_exibicao]:-} ]]; then printf 'from              = %s <%s>\n' "${E[nome_exibicao]}" "${E[endereco]}"
