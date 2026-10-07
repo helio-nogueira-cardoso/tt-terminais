@@ -2617,6 +2617,27 @@ aviso_ciclo() {
   echo "Abrir uma dentro da outra cria um ciclo, e a tela encolhe até sumir."
 }
 
+# Escape automático de ciclo na TROCA de sessão (ir_para): ir para S deixaria S mostrando o painel
+# onde este cliente está (CONTAINER), o que fecha um ciclo e encolhe a tela. Em vez de só avisar e
+# voltar ao mesmo erro, quebramos o ciclo desanexando as vistas aninhadas (clientes rodando dentro
+# de um painel: TERM tmux*/screen*) que estão DENTRO de S — isto e o mesmo que a guarda_tamanho faz
+# quando a tela encolhe, mas feito antes da troca para que ela possa concluir. Retorna 0 se quebrou
+# algo (a troca pode prosseguir), 1 se nao havia o que desanexar (deixa o chamador decidir).
+quebrar_ciclo_para() {
+  local alvo=$1 n=0 c term w h s
+  while read -r c term w h s; do
+    [[ $term == tmux* || $term == screen* ]] || continue
+    # Desanexa a vista aninhada cujo painel pertence a cadeia que leva ao alvo (inclui o proprio S).
+    if [[ $s == "$alvo" ]] || alcanca "$s" "$alvo"; then
+      tmux detach-client -t "$c" 2>/dev/null && {
+        n=$((n + 1))
+        echo "$(date '+%F %T') ciclo: desanexei a vista aninhada $c (sessao $s) para liberar a troca para $alvo" >>"$HOME/.cache/tt-vigia.log"
+      }
+    fi
+  done < <(tmux list-clients -F '#{client_name} #{client_termname} #{client_width} #{client_height} #{session_name}' 2>/dev/null)
+  ((n > 0))
+}
+
 # Rede de segurança (ganchos de tamanho): desliga vistas aninhadas (clientes que rodam dentro de um
 # painel: TERM tmux*/screen*) que encolheram demais — sinal de ciclo, talvez passando por outra
 # máquina, que daqui não dá para ver inteiro.
@@ -2761,8 +2782,12 @@ ir_para() {
   local container
   container=$( [[ -n ${TT_CLIENTE:-} ]] && contem_cliente "$TT_CLIENTE")
   if [[ -n $container && $dest == . ]] && fecha_ciclo "$s" "$container"; then
-    aviso_ciclo "$s" "$container"; read -rp "Enter para voltar."
-    return 1
+    # Escape automático: quebra o ciclo desanexando as vistas aninhadas que levam ao alvo e segue.
+    # Só avisa e volta se não houve nada para desanexar (ciclo que não sabemos desfazer sozinhos).
+    if ! quebrar_ciclo_para "$s"; then
+      aviso_ciclo "$s" "$container"; read -rp "Enter para voltar."
+      return 1
+    fi
   fi
   # Dentro do tmux sem saber qual é a tela: resolve pelo painel que abriu o menu. Não escolha a
   # primeira tela da sessão: ela pode ser outra tela do mesmo computador.
