@@ -111,7 +111,7 @@ grep -qx 'legacy.example  carol  legado' "$caso/config/tt/maquinas" && ok 'CLI: 
 # Cada range desenhado pela barra deve chegar a uma rota explícita em clique(). Isto é o contrato
 # comum para mouse, toque e os ranges que o tmux classifica de forma diferente por terminal.
 base=$falhas
-for rota in maquina sessao fixar ajustar tt painel arquivos email transferencias copias 'at[0-9]*' 'fx*' 'fxx*' fixprev fixnext; do
+for rota in maquina sessao fixar ajustar tt painel arquivos email transferencias copias 'at[0-9]*' 'fx*' 'fxx*' fixprev fixnext tarefas; do
   rg -Fq "$rota)" "$tt" || falha "rota de interação ausente: $rota"
 done
 ((falhas == base)) && ok 'contrato: todos os controles da barra têm rota de ação' || true
@@ -141,6 +141,35 @@ pos_rel=$(rg -n '%H:%M' "$tema" | head -1 | cut -d: -f1)
 [[ -n $pos_arq && -n $pos_eml && -n $pos_rel && $pos_arq -lt $pos_eml && $pos_eml -lt $pos_rel ]] ||
   falha 'e-mail: 📧 não está entre arquivos e relógio na barra'
 ((falhas == base)) && ok 'botão de e-mail: barra, rota, botão, verbo e posição' || true
+
+# Botão de tarefas (📋): range na 2ª linha da barra (ao lado da versão), rota de clique (esquerdo
+# abre o slide-over, direito abre o menu), verbos de CLI, atalho de teclado e sincronização.
+base=$falhas
+rg -q 'range=user\|tarefas' "$tt" || falha 'tarefas: range do botão ausente (barra_tarefas_fmt no tt)'
+rg -q '@barra_tarefas' "$tema" || falha 'tarefas: @barra_tarefas ausente no status-format[1]'
+rg -Fq 'tarefas) abrir_tarefas' "$tt" || falha 'tarefas: clique esquerdo não abre o painel'
+rg -Fq 'tarefas) menu_tarefas' "$tt" || falha 'tarefas: clique direito não abre o menu'
+rg -Fq -- '--tarefas)' "$tt" || falha 'tarefas: verbo --tarefas ausente'
+rg -Fq -- '--tarefa-add)' "$tt" || falha 'tarefas: verbo --tarefa-add ausente'
+rg -Fq -- '--tarefa-ok)' "$tt" || falha 'tarefas: verbo --tarefa-ok ausente'
+rg -Fq -- '--tarefa-rm)' "$tt" || falha 'tarefas: verbo --tarefa-rm ausente'
+rg -Fq -- '--receber-tarefas)' "$tt" || falha 'tarefas: verbo --receber-tarefas (sync P2P) ausente'
+rg -q 'bind t run-shell.*--clique tarefas' "$conf" || falha 'tarefas: atalho de teclado (bind t) ausente ou com rota diferente do botão'
+# O slide-over abre em subjanela (display-popup), ancorado à direita (-x), NÃO cria sessão.
+corpo_abrir=$(sed -n '/^abrir_tarefas()/,/^}/p' "$tt")
+grep -Fq 'display-popup' <<<"$corpo_abrir" || falha 'tarefas: abrir_tarefas deve usar display-popup (subjanela)'
+grep -Fq -- '-x ' <<<"$corpo_abrir" || falha 'tarefas: slide-over deve ancorar com -x (lateral)'
+grep -Fq 'new-session' <<<"$corpo_abrir" && falha 'tarefas: abrir_tarefas não deve criar sessão (é popup)'
+# Merge por tarefa e sync configurável: o contrato que faz P2P e git interoperarem sem perder.
+rg -q '^tarefas_merge\(\)' "$tt" || falha 'tarefas: tarefas_merge (merge por tarefa) ausente'
+rg -q '^tarefas_sync_modo\(\)' "$tt" || falha 'tarefas: modo de sync configurável ausente'
+rg -q 'tarefas_repo' "$tt" || falha 'tarefas: repositório git pessoal (tarefas_repo) ausente'
+rg -Fq -- '--tarefas-puxar' "$tt" || falha 'tarefas: vigia não puxa tarefas (--tarefas-puxar ausente)'
+# A versão continua no canto direito; o 📋 vem antes dela na 2ª linha.
+pos_tar=$(rg -n '@barra_tarefas' "$tema" | head -1 | cut -d: -f1)
+pos_ver=$(rg -n '@barra_versao' "$tema" | head -1 | cut -d: -f1)
+[[ -n $pos_tar && -n $pos_ver && $pos_tar -le $pos_ver ]] || falha 'tarefas: 📋 deveria vir antes da versão na 2ª linha'
+((falhas == base)) && ok 'botão de tarefas: barra, rotas, verbos, atalho, slide-over e sync' || true
 
 # Gerência de contas de e-mail (cadastro guiado): funções, verbos e item de menu existem; o
 # wizard grava a conta e a senha de app FORA do accounts.conf (só o cred-cmd fica lá).

@@ -374,6 +374,7 @@ vigiar() {
       ultima_puxada=$agora
       ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
       ("$EU" --reconciliar-fixadas >/dev/null 2>&1 &)
+      ("$EU" --tarefas-puxar >/dev/null 2>&1 &)
     fi
     # Cadastro das contas de IA: muda pouco e cada mudança já é enviada na hora; isto é só a rede de
     # segurança de quem estava desligada.
@@ -3912,6 +3913,306 @@ aplicar_fixadas() {
   atualizar_barras
 }
 
+# --- Tarefas ---------------------------------------------------------------
+#
+# Lista de tarefas simples do usuário (afazeres), guardada no perfil em ~/.config/tt/tarefas.
+# Cada linha é um registro TAB-separado com identidade estável, para que a sincronização entre
+# máquinas (P2P por ssh, como as fixadas, e/ou um repositório git pessoal) junte as duas pontas
+# SEM perder tarefa: o merge é POR TAREFA (vence o registro de maior "mudada"), não arquivo
+# inteiro. Formato de cada linha:
+#
+#   id <TAB> estado <TAB> criada <TAB> mudada <TAB> texto
+#
+#   id     12 hex estáveis (sha256 de origem+criada+texto, cortado); nunca muda após criada.
+#   estado aberta | feita | removida (lápide: a remoção é um estado, para o merge propagar que a
+#          tarefa saiu em vez de ela "ressurgir" vinda de outra máquina com cópia antiga).
+#   criada epoch em segundos (quando a tarefa nasceu).
+#   mudada epoch em segundos da última alteração (chave do merge: maior vence).
+#   texto  o afazer, numa linha (TAB e quebra viram espaço).
+#
+# A sincronização é configurável e interoperável (~/.config/tt/config):
+#   tarefas_sync = p2p | git | ambos | off   (padrão p2p)
+#   tarefas_repo = <url git>                  (só quando git/ambos; credencial fica no git/ssh)
+
+CONF_TAREFAS=$CONF_DIR/tarefas
+
+# Lápides são podadas da exibição, mas mantidas no arquivo por um tempo para o merge propagar a
+# remoção às outras máquinas; depois somem (poda em tarefas_compactar).
+TAREFAS_LAPIDE_DIAS=${TT_TAREFAS_LAPIDE_DIAS:-30}
+
+tarefas_sync_modo() { local m; m=$(conf tarefas_sync); echo "${m:-p2p}"; }
+tarefas_repo_url()  { conf tarefas_repo; }
+
+# Todas as linhas válidas do arquivo (inclui lápides). Sanitiza silenciosamente linhas quebradas.
+tarefas_raw() {
+  [[ -f $CONF_TAREFAS ]] || return 0
+  awk -F'\t' 'NF >= 5 && $1 ~ /^[0-9a-f]{6,}$/ { print }' "$CONF_TAREFAS"
+}
+
+# Só as vivas (não removidas), ordenadas: abertas antes de feitas, cada grupo da mais nova para a
+# mais velha.
+tarefas_vivas() {
+  tarefas_raw | awk -F'\t' '$2 == "aberta" || $2 == "feita"' |
+    sort -t$'\t' -k2,2 -k4,4nr
+}
+
+tarefas_abertas_n() { tarefas_raw | awk -F'\t' '$2 == "aberta"' | wc -l | tr -d ' '; }
+
+# Identidade estável: não pode mudar quando o texto é editado, então entra a hora de criação e um
+# nonce da máquina. 12 hex deixam folga no argumento range=user|X do tmux (limite de 15 bytes).
+tarefas_novo_id() {
+  printf '%s\0%s\0%s\0%s' "$MAQUINA" "$(date +%s%N)" "$$" "${1:-}" | sha256sum | cut -c1-12
+}
+
+# Texto numa linha só: TAB e quebras viram espaço (o formato é TAB-separado).
+tarefas_limpa_texto() { printf '%s' "$1" | tr '\t\n\r' '   ' | sed 's/  */ /g; s/^ //; s/ $//'; }
+
+tarefas_travar()   { local t=$CONF_TAREFAS.trava i; mkdir -p "$CONF_DIR"; for ((i=0;i<200;i++)); do mkdir "$t" 2>/dev/null && return 0; (($(idade_arquivo "$t") > 20)) && rmdir "$t" 2>/dev/null; sleep 0.05; done; return 1; }
+tarefas_destravar(){ rmdir "$CONF_TAREFAS.trava" 2>/dev/null; return 0; }
+versao_tarefas()   { local v; v=$(cat "$CONF_TAREFAS.v" 2>/dev/null); echo "${v:-0}"; }
+marcar_tarefas()   { date +%s%N >"$CONF_TAREFAS.v"; }
+
+# Une duas ou mais fontes de tarefas (arquivos) por id, vencendo o maior "mudada" (empate: estado
+# removida ganha de feita, que ganha de aberta — a remoção não pode ser perdida). Imprime o
+# conjunto unido no formato canônico, ordenado.
+tarefas_merge() {
+  awk -F'\t' -v OFS='\t' '
+    function rank(e){ return e=="removida"?3:(e=="feita"?2:1) }
+    NF >= 5 && $1 ~ /^[0-9a-f]{6,}$/ {
+      id=$1
+      if (!(id in m) || $4+0 > md[id]+0 || ($4+0==md[id]+0 && rank($2) > rank(st[id]))) {
+        m[id]=$0; md[id]=$4; st[id]=$2
+      }
+    }
+    END { for (id in m) print m[id] }
+  ' "$@" | sort -t$'\t' -k2,2 -k4,4nr
+}
+
+# Recebe uma lista (stdin) de outra máquina/repo e funde na local. Não re-propaga (evita eco).
+receber_tarefas() {
+  local tmp_in tmp_out
+  tmp_in=$(mktemp) || return 1; cat >"$tmp_in"
+  tarefas_travar || { rm -f "$tmp_in"; return 1; }
+  mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
+  tmp_out=$(mktemp "$CONF_TAREFAS.XXXXXX") || { tarefas_destravar; rm -f "$tmp_in"; return 1; }
+  tarefas_merge "$CONF_TAREFAS" "$tmp_in" >"$tmp_out"
+  if cmp -s "$tmp_out" "$CONF_TAREFAS"; then rm -f "$tmp_out"; else mv "$tmp_out" "$CONF_TAREFAS"; marcar_tarefas; fi
+  tarefas_destravar; rm -f "$tmp_in"
+  atualizar_barras 2>/dev/null
+  return 0
+}
+
+# Poda lápides velhas (removidas há mais de TAREFAS_LAPIDE_DIAS). Mantém o resto.
+tarefas_compactar() {
+  [[ -f $CONF_TAREFAS ]] || return 0
+  local corte; corte=$(( $(date +%s) - TAREFAS_LAPIDE_DIAS * 86400 ))
+  tarefas_travar || return 1
+  local tmp; tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
+  awk -F'\t' -v c="$corte" 'NF>=5 && !($2=="removida" && $4+0 < c)' "$CONF_TAREFAS" >"$tmp"
+  cmp -s "$tmp" "$CONF_TAREFAS" && rm -f "$tmp" || mv "$tmp" "$CONF_TAREFAS"
+  tarefas_destravar
+}
+
+# --- operações de alto nível (usadas pela UI e pela CLI) ---
+
+tarefa_add() {
+  local txt id now
+  txt=$(tarefas_limpa_texto "$1"); [[ -n $txt ]] || return 1
+  id=$(tarefas_novo_id "$txt"); now=$(date +%s)
+  tarefas_travar || return 1
+  mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
+  { cat "$CONF_TAREFAS"; printf '%s\t%s\t%s\t%s\t%s\n' "$id" aberta "$now" "$now" "$txt"; } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
+  mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tarefas_destravar
+  atualizar_barras 2>/dev/null
+  ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
+  printf '%s\n' "$id"
+}
+
+# Muda o estado de uma tarefa (feita/aberta/removida), atualizando "mudada".
+tarefa_estado() {
+  local id=$1 novo=$2 now; now=$(date +%s)
+  [[ -f $CONF_TAREFAS ]] || return 1
+  tarefas_travar || return 1
+  local tmp; tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
+  awk -F'\t' -v OFS='\t' -v id="$id" -v e="$novo" -v now="$now" '
+    NF>=5 { if ($1==id) { $2=e; $4=now } print }' "$CONF_TAREFAS" >"$tmp"
+  mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tarefas_destravar
+  atualizar_barras 2>/dev/null
+  ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
+}
+
+# Alterna aberta<->feita.
+tarefa_alternar() {
+  local id=$1 est
+  est=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $2; exit}')
+  [[ $est == feita ]] && tarefa_estado "$id" aberta || tarefa_estado "$id" feita
+}
+
+tarefa_remover()  { tarefa_estado "$1" removida; }
+tarefa_limpar_feitas() {
+  local id
+  while read -r id; do tarefa_estado "$id" removida; done < <(tarefas_raw | awk -F'\t' '$2=="feita"{print $1}')
+}
+
+# --- sincronização ---------------------------------------------------------
+
+# P2P: empurra a lista para as máquinas cadastradas (como as fixadas), em segundo plano.
+propagar_tarefas() {
+  [[ -f $CONF_TAREFAS ]] || return 0
+  local dest rot
+  while read -r dest rot; do
+    (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-tarefas" <"$CONF_TAREFAS" >/dev/null 2>&1 &)
+  done < <(maquinas)
+}
+
+# P2P: puxa de todas e funde (o vigia chama ao iniciar e a cada 5 min).
+puxar_tarefas() {
+  local dest rot
+  while read -r dest rot; do
+    timeout 6 ssh "${SSH_OPC[@]}" "$dest" 'cat ~/.config/tt/tarefas 2>/dev/null' </dev/null 2>/dev/null
+  done < <(maquinas) | receber_tarefas
+}
+
+# Diretório do clone git do repositório pessoal de tarefas (quando configurado).
+tarefas_git_dir() { echo "$ESTADO_DIR/tarefas-git"; }
+
+# Garante o clone local do repositório pessoal; ecoa o diretório pronto, ou nada em caso de falha.
+tarefas_git_prep() {
+  local url dir; url=$(tarefas_repo_url); [[ -n $url ]] || return 1
+  command -v git >/dev/null || return 1
+  dir=$(tarefas_git_dir)
+  if [[ ! -d $dir/.git ]]; then
+    mkdir -p "$ESTADO_DIR"
+    timeout 30 git clone --depth 1 "$url" "$dir" >/dev/null 2>&1 || return 1
+  fi
+  printf '%s\n' "$dir"
+}
+
+# Git: puxa o arquivo do repositório pessoal e funde na lista local.
+puxar_tarefas_git() {
+  local dir; dir=$(tarefas_git_prep) || return 1
+  ( cd "$dir" && timeout 30 git pull --ff-only >/dev/null 2>&1 )
+  [[ -f $dir/tarefas ]] && receber_tarefas <"$dir/tarefas"
+}
+
+# Git: funde a lista local no arquivo do repo pessoal e empurra (merge por tarefa, nunca perde).
+empurrar_tarefas_git() {
+  local dir; dir=$(tarefas_git_prep) || return 1
+  [[ -f $CONF_TAREFAS ]] || return 0
+  ( cd "$dir" && timeout 30 git pull --ff-only >/dev/null 2>&1 )
+  local merged; merged=$(mktemp)
+  tarefas_merge "$dir/tarefas" "$CONF_TAREFAS" 2>/dev/null >"$merged"
+  if ! cmp -s "$merged" "$dir/tarefas" 2>/dev/null; then
+    cp "$merged" "$dir/tarefas"
+    ( cd "$dir" && git add tarefas &&
+      git -c user.name="${TT_GIT_NAME:-tt}" -c user.email="${TT_GIT_EMAIL:-tt@localhost}" commit -q -m "tarefas: sync de $MAQUINA" >/dev/null 2>&1 &&
+      timeout 30 git push >/dev/null 2>&1 )
+  fi
+  rm -f "$merged"
+}
+
+# Espelha a lista local conforme o modo configurado (chamado em segundo plano após cada mudança).
+tarefas_espelhar() {
+  case $(tarefas_sync_modo) in
+    off) : ;;
+    p2p) propagar_tarefas ;;
+    git) empurrar_tarefas_git ;;
+    ambos) propagar_tarefas; empurrar_tarefas_git ;;
+  esac
+}
+
+# Puxa de todas as fontes conforme o modo (chamado pelo vigia).
+tarefas_puxar_tudo() {
+  case $(tarefas_sync_modo) in
+    off) : ;;
+    p2p) puxar_tarefas ;;
+    git) puxar_tarefas_git ;;
+    ambos) puxar_tarefas; puxar_tarefas_git ;;
+  esac
+  tarefas_compactar
+}
+
+# --- barra e UI ------------------------------------------------------------
+
+# Botão do canto direito da 2ª linha, ao lado do relógio/versão: 📋 com a contagem de abertas.
+barra_tarefas_fmt() {
+  local n; n=$(tarefas_abertas_n)
+  if ((n > 0)); then
+    printf '#[range=user|tarefas]#[fg=#1e1e2e,bg=#f9e2af,bold] 📋 %s #[norange]#[default] ' "$n"
+  else
+    printf '#[range=user|tarefas]#[fg=#a6adc8] 📋 #[norange]#[default] '
+  fi
+}
+
+# Abre o painel de tarefas como um slide-over ANCORADO À DIREITA (display-popup -x), altura toda.
+# Recolher = sair da UI interna (q/esc), que fecha o popup. Em tela estreita (celular) ocupa tudo.
+abrir_tarefas() {
+  local c=$1 cw ch w x
+  read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
+  if ((${cw:-80} < 80)); then
+    w=$cw; x=0
+  else
+    w=42; ((w > cw)) && w=$cw; x=$((cw - w))
+  fi
+  tmux display-popup -c "$c" -x "$x" -y S -w "$w" -h 100% -b rounded -S 'fg=#f9e2af' \
+    -T ' 📋 tarefas · q fecha ' -E "TT_CLIENTE=$(q "$c") $EU --tarefas-ui"
+}
+
+# Conteúdo que roda DENTRO do slide-over: loop com fzf. ⏎ alterna feita/aberta, ^n nova, ^x remove
+# (com confirmação), ^l limpa as feitas, esc/q sai (recolhe). Sem fzf, cai no modo texto da CLI.
+tarefas_ui() {
+  if ! command -v fzf >/dev/null; then tarefas_listar; echo; read -rsn1 -t 30 -p 'Enter fecha'; return 0; fi
+  local sel id acao
+  while :; do
+    sel=$(tarefas_vivas | awk -F'\t' '{
+        mark = ($2=="feita") ? "✔" : "▢"
+        printf "%s\t%s %s\n", $1, mark, $5
+      }' | fzf --with-nth=2.. --delimiter='\t' \
+        --layout=reverse --height=100% --border=none --info=inline \
+        --prompt='tarefa ❯ ' --pointer='▶' \
+        --header=$'⏎ alterna · ^n nova · ^x remove · ^l limpa feitas · esc fecha' \
+        --bind 'q:abort' \
+        --expect=enter,ctrl-n,ctrl-x,ctrl-l,esc) || break
+    acao=$(sed -n 1p <<<"$sel"); id=$(sed -n 2p <<<"$sel" | cut -f1)
+    case $acao in
+      enter) [[ -n $id ]] && tarefa_alternar "$id" ;;
+      ctrl-n)
+        local novo; novo=$(printf '' | fzf --print-query --prompt='nova tarefa ❯ ' --height=3 --border=rounded --header='digite e ⏎ (esc cancela)' --layout=reverse 2>/dev/null | sed -n 1p)
+        [[ -n $novo ]] && tarefa_add "$novo" >/dev/null ;;
+      ctrl-x)
+        if [[ -n $id ]]; then
+          local txt; txt=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
+          if printf 'sim, remover\nnao\n' | fzf --prompt='confirmar? ' --height=5 --border=rounded \
+               --header="remover: $txt" | grep -qx 'sim, remover'; then
+            tarefa_remover "$id"
+          fi
+        fi ;;
+      ctrl-l) tarefa_limpar_feitas ;;
+      esc) break ;;
+      *) break ;;
+    esac
+  done
+}
+
+# Saída texto (CLI pura): usada por `tt --tarefas` fora do tmux e como fallback sem fzf.
+tarefas_listar() {
+  local n; n=$(tarefas_abertas_n)
+  printf '📋 tarefas (%s aberta%s)\n' "$n" "$( ((n==1)) || printf s )"
+  tarefas_vivas | awk -F'\t' '{ printf "  %s  %s  [%s]\n", ($2=="feita"?"✔":"▢"), $5, substr($1,1,6) }'
+}
+
+# Botão direito no 📋: ações rápidas sem abrir o painel inteiro.
+menu_tarefas() {
+  local c=$1
+  menu_popup "$c" "📋 tarefas" <<ITENS
+t	📋 Abrir o painel de tarefas	$EU --tarefas $(q "$c")
+n	＋ Nova tarefa…	tmux display-popup -c $(q "$c") -E -w 70 -h 7 -T ' nova tarefa ' $(q "$EU --tarefa-add-ui")
+l	🧹 Limpar as tarefas feitas	$EU --tarefa-limpar
+ITENS
+}
+
 # Fixa ou desafixa a sessão S da máquina de rótulo R. Ao fixar uma sessão daqui, o vigia para de
 # renomeá-la (senão o item da barra ficaria apontando para um nome que sumiu).
 alternar_fixada() {
@@ -4127,12 +4428,13 @@ versao_barra() { printf '#[fg=#6c7086]v%s ' "$(versao_num)"; }
 atualizar_barras() {
   tmux list-sessions >/dev/null 2>&1 || return 0
   local nome valor mudou="" c
-  for nome in fixadas atalhos transf versao; do
+  for nome in fixadas atalhos transf versao tarefas; do
     case $nome in
       fixadas) valor=$(barra_fixadas_fmt) ;;
       atalhos) valor=$(atalhos_barra) ;;
       transf) valor=$(transferencias_barra) ;;
       versao) valor=$(versao_barra) ;;
+      tarefas) valor=$(barra_tarefas_fmt) ;;
     esac
     [[ $valor == "$(tmux show -gqv "@barra_$nome")" ]] && continue
     tmux set -g "@barra_$nome" "$valor"; mudou=1
@@ -4264,6 +4566,7 @@ clique_direito() {
     maquina) menu_admin "$2" "$3" ;;
     sessao) menu_sessao "$2" "$3" ;;
     email) menu_email "$2" ;;
+    tarefas) menu_tarefas "$2" ;;
     *) menu_maquinas "$2" "$3" ;;
   esac
 }
@@ -4474,6 +4777,7 @@ clique() {
     fixnext) fixada_scroll next ;;
     fixar) fixar_atual "$2" ;;
     fx*) ir_fixada "$2" "$faixa" ;;
+    tarefas) abrir_tarefas "$2" ;;
     tt) tmux display-popup -c "$2" -E $(tam_popup "$2") "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
     lado) tmux split-window -h -t "$3" -c "$4" ;;
     baixo) tmux split-window -v -t "$3" -c "$4" ;;
@@ -6249,6 +6553,25 @@ case "${1:-}" in
   --email-regerar) s=$(email_achar "${2:?uso: tt --email-regerar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; f_r() { local -A E=(); email_ler "$1" && email_regerar "$1"; }; f_r "$s"; exit ;;
   --email-atalhos) email_atalhos; exit 0 ;;
   --anexos-enviar) anexos_enviar; exit 0 ;;
+  --tarefas)
+    # Abre o painel de tarefas: slide-over no tmux, ou lista texto fora dele.
+    c=${2:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
+    if [[ -n $c ]] && tmux list-sessions >/dev/null 2>&1; then abrir_tarefas "$c"; else tarefas_listar; fi
+    exit ;;
+  --tarefas-ui) tarefas_ui; exit ;;
+  --tarefa-add) shift; [[ -n ${1:-} ]] && tarefa_add "$*" >/dev/null || { echo 'uso: tt --tarefa-add "texto"'; exit 1; }; exit ;;
+  --tarefa-add-ui)
+    # UI mínima de uma linha (usada pelo menu do botão direito, num popup pequeno).
+    printf '📋 nova tarefa (Enter cria, vazio cancela):\n❯ '; IFS= read -r t
+    [[ -n ${t:-} ]] && tarefa_add "$t" >/dev/null && echo '✔ adicionada'; exit ;;
+  --tarefa-ok) tarefa_estado "${2:?uso: tt --tarefa-ok ID}" feita; exit ;;
+  --tarefa-abrir) tarefa_estado "${2:?uso: tt --tarefa-abrir ID}" aberta; exit ;;
+  --tarefa-rm) tarefa_remover "${2:?uso: tt --tarefa-rm ID}"; exit ;;
+  --tarefa-limpar) tarefa_limpar_feitas; exit ;;
+  --receber-tarefas) receber_tarefas; exit ;;
+  --tarefas-espelhar) tarefas_espelhar; exit ;;
+  --tarefas-puxar) tarefas_puxar_tudo; exit ;;
+  --tarefas-barra) barra_tarefas_fmt; exit ;;
   --email-pastas) s=$(email_achar "${2:?uso: tt --email-pastas NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_detectar_pastas "$s" && echo "✔ pastas atualizadas"; exit ;;
   --email-remover) s=$(email_achar "${2:?uso: tt --email-remover NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_remover_slug "$s"; exit ;;
   --email-testar) s=$(email_achar "${2:?uso: tt --email-testar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_testar_slug "$s"; exit ;;
