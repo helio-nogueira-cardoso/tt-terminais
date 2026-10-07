@@ -92,6 +92,9 @@ faltas() {
 
 iniciar() {
   local p=$1 c=$2 e=${3:-} s cmd args
+  # Nunca abre login de conta já logada: o `codex login` derruba a credencial que existe ao começar
+  # (aconteceu no dell, 06/10), e o do Claude grava por cima do perfil.
+  [[ -n $(conferir "$p" "$c") ]] && die "$p $c já está logada aqui; nada iniciado"
   s="login-$p-$c"
   tm kill-session -t "=$s" 2>/dev/null
   case $p in
@@ -160,20 +163,24 @@ copiar() { # o link vai para a área de transferência (e, pelo tt, para as outr
   return 1
 }
 
-declare -a PLANO=() RESULTADO=()
+declare -a PLANO=() RESULTADO=() NAO_USA=()
 
 montar_plano() {
   local dest rot tmp f p c e sit
   tmp=$(mktemp -d)
   while IFS=$'\t' read -r dest rot; do
     if (($#)) && ! printf '%s\n' "$@" | grep -qxF -- "$rot"; then continue; fi
-    ( em "$dest" --faltas >"$tmp/$rot.tsv" 2>/dev/null || echo "$dest" >"$tmp/$rot.erro"; echo "$dest" >"$tmp/$rot.dest" ) &
+    ( em "$dest" --faltas >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
   done < <(maquinas)
   wait
   for f in $(ls "$tmp"/*.dest 2>/dev/null | sort); do
     [[ -e $f ]] || continue
     rot=$(basename "$f" .dest); dest=$(cat "$f")
-    if [[ -e $tmp/$rot.erro ]]; then PLANO+=("$rot"$'\t'"$dest"$'\t-\t-\t-\tsem resposta'); continue; fi
+    case $(cat "$tmp/$rot.rc") in
+      0) ;;
+      127) NAO_USA+=("$rot"); continue ;; # sem ia-login (celular: os agentes ficam no proot)
+      *) PLANO+=("$rot"$'\t'"$dest"$'\t-\t-\t-\tsem resposta'); continue ;;
+    esac
     while IFS=$'\t' read -r p c e sit; do
       [[ -n $p ]] && PLANO+=("$rot"$'\t'"$dest"$'\t'"$p"$'\t'"$c"$'\t'"${e:--}"$'\t'"$sit")
     done < <(sort -t$'\t' -k1,1 -k2,2 "$tmp/$rot.tsv") # ordem estável: provedor, conta
@@ -263,7 +270,9 @@ orquestrar() {
   montar_plano "$@"
   for l in "${PLANO[@]}"; do IFS=$'\t' read -r rot dest p c e sit <<<"$l"; [[ $sit == falta || $sit == 'sem login' ]] && total=$((total + 1)); done
   if ((${#PLANO[@]} == 0)); then echo 'Nada a fazer: todas as contas do cadastro estão logadas em todas as máquinas.'; return 0; fi
-  echo; mostrar_plano; echo
+  echo; mostrar_plano
+  ((${#NAO_USA[@]})) && echo "(sem contas de IA para logar: ${NAO_USA[*]})"
+  echo
   ((total)) || { echo 'Nenhum login a fazer daqui (veja a situação acima).'; return 0; }
   [[ $so_plano == 1 ]] && return 0
   read -r -p "Fazer os $total login(s) agora, um de cada vez? [S/n] " resp || resp=n
