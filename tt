@@ -345,7 +345,7 @@ vigiar() {
   sleep 1
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
-  local ultima_puxada=0 ultima_tema=0 ultima_atualizacao=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_puxada=0 ultima_contas=0 ultima_tema=0 ultima_atualizacao=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
   # cópia em arquivo para sobreviver a reinícios. Não ficam em opções do tmux: qualquer
@@ -374,6 +374,12 @@ vigiar() {
       ultima_puxada=$agora
       ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
       ("$EU" --reconciliar-fixadas >/dev/null 2>&1 &)
+    fi
+    # Cadastro das contas de IA: muda pouco e cada mudança já é enviada na hora; isto é só a rede de
+    # segurança de quem estava desligada.
+    if ((agora - ultima_contas >= 1800)); then
+      ultima_contas=$agora
+      ("$EU" --puxar-contas-ia >/dev/null 2>&1 &)
     fi
     # Reforça o padrão completo e redesenha os clientes em até 5 min, inclusive os aninhados.
     if ((agora - ${ultima_tema:-0} >= 300)); then
@@ -3805,6 +3811,47 @@ puxar_fixadas() {
   timeout 8 ssh "${SSH_OPC[@]}" "$melhor_d" 'cat ~/.config/tt/fixadas 2>/dev/null' </dev/null 2>/dev/null | receber_fixadas "$melhor_v"
 }
 
+# Cadastro comum das contas de IA (ia-conta): "e-mail<TAB>nome<TAB>hora" por conta, igual em todas as
+# máquinas. Cada máquina faz o próprio login (copiar a credencial derrubaria a outra na renovação do
+# token); o cadastro diz só que nome cada e-mail tem e o que falta em cada máquina. Mesclar é por
+# e-mail e a mudança mais nova vence (nome "-" = esquecida): a ordem de chegada não importa.
+CONF_CONTAS_IA=$CONF_DIR/contas-ia
+receber_contas_ia() {
+  local tmp t=$CONF_CONTAS_IA.trava i
+  mkdir -p "$CONF_DIR"
+  tmp=$(mktemp "$CONF_CONTAS_IA.XXXXXX") || return 1
+  cat >"$tmp.in"
+  for ((i = 0; i < 200; i++)); do
+    mkdir "$t" 2>/dev/null && break
+    (($(idade_arquivo "$t") > 20)) && rmdir "$t" 2>/dev/null
+    sleep 0.05
+  done
+  awk -F'\t' -v OFS='\t' '
+    NF >= 3 && $1 ~ /^[^ ]+@[^ ]+$/ && ($2 == "-" || $2 ~ /^[A-Za-z0-9][A-Za-z0-9_-]*$/) && $3 ~ /^[0-9]+$/ {
+      if (!($1 in ts) || $3 + 0 > ts[$1] + 0 || ($3 + 0 == ts[$1] + 0 && $2 > nome[$1])) { ts[$1] = $3; nome[$1] = $2 }
+    }
+    END { for (e in ts) print e, nome[e], ts[e] }' "$CONF_CONTAS_IA" "$tmp.in" 2>/dev/null | sort >"$tmp"
+  if cmp -s "$tmp" "$CONF_CONTAS_IA"; then rm -f "$tmp"; else mv "$tmp" "$CONF_CONTAS_IA"; fi
+  rm -f "$tmp.in"; rmdir "$t" 2>/dev/null
+  return 0
+}
+
+propagar_contas_ia() {
+  local dest rot
+  [[ -s $CONF_CONTAS_IA ]] || return 0
+  while read -r dest rot; do
+    (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-contas-ia" <"$CONF_CONTAS_IA" >/dev/null 2>&1 &)
+  done < <(maquinas)
+}
+
+# Junta os cadastros das outras máquinas (o vigia chama ao iniciar e a cada 30 min).
+puxar_contas_ia() {
+  local dest rot
+  while read -r dest rot; do
+    timeout 6 ssh "${SSH_OPC[@]}" "$dest" 'cat ~/.config/tt/contas-ia 2>/dev/null' </dev/null 2>/dev/null
+  done < <(maquinas) | receber_contas_ia
+}
+
 # Liga/desliga a 2ª linha e força a barra a se redesenhar já (o #() da barra muda de comando).
 aplicar_fixadas() {
   tmux list-sessions >/dev/null 2>&1 || return 0
@@ -6125,6 +6172,9 @@ case "${1:-}" in
   --barra-fixadas) barra_fixadas "${2:-}"; exit ;;
   --aplicar-fixadas | --barras) aplicar_fixadas; exit ;;
   --receber-fixadas) receber_fixadas "${2:-0}"; exit ;;
+  --receber-contas-ia) receber_contas_ia; exit ;;
+  --propagar-contas-ia) propagar_contas_ia; exit ;;
+  --puxar-contas-ia) puxar_contas_ia; exit ;;
   --puxar-fixadas) puxar_fixadas; exit ;;
   --reconciliar-fixadas) reconciliar_fixadas; exit ;;
   --marcar-fixadas) marcar_fixadas; exit ;;

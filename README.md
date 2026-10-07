@@ -218,6 +218,16 @@ principal do Claude (`~/.claude`), as contas do `ia-conta` em ordem alfabética,
     ia-conta remover emp             # guarda em ~/.local/share/claude-contas.removidas
     ia-conta uso --eu                # uso da conta desta sessão (saída 0 ok, 3 aviso, 4 passar)
 
+    ia-conta cadastro                # contas de todas as máquinas: nome, e-mail e o nome aqui (ou falta)
+
+**Cadastro comum:** o `listar` registra cada conta do Claude desta máquina pelo e-mail num cadastro
+igual em todas as máquinas (`~/.config/tt/contas-ia`, enviado a cada mudança e conferido pelo vigia a
+cada 30 min) e, depois da tabela, mostra as contas do cadastro que faltam aqui e os nomes locais
+diferentes do cadastro. A credencial não é copiada: cada máquina faz o próprio login (`ia-conta
+adicionar <nome>`), porque duas máquinas com a mesma cópia se derrubariam quando o token renovasse.
+`ia-conta cadastro nomear <nome|e-mail> <novo>` muda o nome no cadastro e `ia-conta cadastro
+esquecer <nome|e-mail>` tira a conta dele; `renomear` local leva junto o nome do cadastro.
+
 A coluna **USO** mostra a janela de 5 h e a semanal do Claude e do Codex (`5h 23% · 7d 65%`) e os
 créditos do mês do Kiro (o mesmo do `/usage`). O horário entre parênteses é quando a janela volta.
 Os tokens do Claude vencidos são renovados pelo próprio Claude, que sai antes de gastar qualquer uso;

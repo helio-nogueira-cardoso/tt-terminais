@@ -12,7 +12,8 @@ printf '#!/usr/bin/env bash\n# claude-rot — roda um agente headless (antigo)\n
 cat >"$B/claude" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\t%s\n' "${CLAUDE_CONFIG_DIR:-principal}" "$*" >>"$HOME/claude.log"
-[[ $1 == auth ]] && { printf '{\n  "email": "x@exemplo.com"\n}\n'; exit 0; }
+c=${CLAUDE_CONFIG_DIR:-/principal}; c=${c##*/}
+[[ $1 == auth ]] && { printf '{\n  "email": "%s@exemplo.com"\n}\n' "$c"; exit 0; }
 # Sem prompt (renovação de token pelo ia-conta) o Claude de verdade sai com erro.
 [[ $* == *--no-session-persistence ]] && { echo 'Error: Input must be provided' >&2; exit 1; }
 for a; do :; done; echo "resposta de ${CLAUDE_CONFIG_DIR##*/}: $a"
@@ -43,7 +44,7 @@ cat >"$HOME/.cache/claude-rot.uso.json" <<EOF
 EOF
 
 out=$(ia-conta listar --rapido)
-grep -qE '^principal +x@exemplo.com +esgotada +~5h 100%' <<<"$out" || falhou "listar: principal esgotada com uso do cache: $out"
+grep -qE '^principal +principal@exemplo.com +esgotada +~5h 100%' <<<"$out" || falhou "listar: principal esgotada com uso do cache: $out"
 grep -qE '^alfa .*~5h 20% · 7d 50%' <<<"$out" || falhou "listar: uso da alfa: $out"
 grep -qE '^beta .* \?$' <<<"$out" || falhou "listar: beta sem dado deveria mostrar ?: $out"
 # Sem --rapido renova os tokens vencidos (o Claude sem prompt sai com erro) e lista do mesmo jeito.
@@ -98,3 +99,36 @@ for _ in $(seq 50); do grep -q 'passagem.md' "$HOME/claude.log" && break; sleep 
 linha=$(grep 'passagem.md' "$HOME/claude.log") || falhou 'próxima conta não recebeu o arquivo de passagem'
 [[ $linha == "$R/beta"* && $linha == *"$T/proj"* ]] || falhou "passagem: conta/pasta erradas: $linha"
 passou 'ia-rot --passar abre a próxima conta numa janela da mesma aba, lendo a passagem'
+
+# Cadastro comum (e-mail → nome, igual em todas as máquinas). O listar acima já registrou as daqui.
+C=$XDG_CONFIG_HOME/tt/contas-ia
+# (alfa foi renomeada para gama, e o cadastro acompanhou; "principal" é reservado: vira principal-ia.)
+[[ $(awk -F'\t' '{print $1 "=" $2}' "$C" | sort | tr '\n' ' ') == 'alfa@exemplo.com=gama beta@exemplo.com=beta principal@exemplo.com=principal-ia ' ]] ||
+  falhou "registro automático: $(cat "$C")"
+# Mesclar: por e-mail, a mudança mais nova vence, a ordem de chegada não importa, lixo é ignorado.
+printf 'a@x.com\tum\t100\nb@x.com\tdois\t100\nlixo\nc@x.com\tnome com espaço\t1\n' | "$TT" --receber-contas-ia
+printf 'a@x.com\tnovo\t200\nb@x.com\tvelho\t50\n' | "$TT" --receber-contas-ia
+printf 'a@x.com\tum\t100\n' | "$TT" --receber-contas-ia
+[[ $(grep -c . "$C") == 5 ]] && grep -qx $'a@x.com\tnovo\t200' "$C" && grep -qx $'b@x.com\tdois\t100' "$C" ||
+  falhou "mesclagem do cadastro: $(cat "$C")"
+passou 'cadastro: registro automático; mescla por e-mail, a mais nova vence, lixo fora'
+
+# Conta local com nome já tomado por outro e-mail no cadastro: entra com outro nome; o listar avisa.
+mkdir -p "$R/novo"; echo "$cred" >"$R/novo/.credentials.json"
+out=$(ia-conta listar --rapido)
+grep -q $'^novo@exemplo.com\tnovo-2\t' "$C" || falhou "nome em conflito: $(cat "$C")"
+grep -q 'faltam aqui' <<<"$out" && grep -q 'dois  b@x.com  → ia-conta adicionar dois' <<<"$out" || falhou "faltam aqui: $out"
+grep -q 'novo  é "novo-2" no cadastro  → ia-conta renomear novo novo-2' <<<"$out" || falhou "nome diferente: $out"
+passou 'listar: registra com nome livre, mostra o que falta aqui e nome local diferente do cadastro'
+
+ia-conta cadastro nomear b@x.com tres >/dev/null
+grep -q $'^b@x.com\ttres\t' "$C" || falhou 'cadastro nomear'
+ia-conta cadastro nomear tres beta 2>/dev/null && falhou 'nomear com nome de outro e-mail'
+ia-conta cadastro esquecer novo >/dev/null
+grep -q $'^a@x.com\t-\t' "$C" || falhou 'cadastro esquecer'
+out=$(ia-conta cadastro)
+grep -q 'a@x.com' <<<"$out" && falhou "esquecida ainda listada: $out"
+grep -qE '^beta +beta@exemplo.com +beta$' <<<"$out" && grep -qE '^tres +b@x.com +falta$' <<<"$out" || falhou "cadastro: $out"
+ia-conta renomear beta zeta >/dev/null
+grep -q $'^beta@exemplo.com\tzeta\t' "$C" || falhou "renomear local não levou o nome do cadastro: $(cat "$C")"
+passou 'cadastro: nomear, esquecer, lista com onde está; renomear local acompanha o cadastro'
