@@ -4289,12 +4289,19 @@ tarefas_filtro_rotulo() {
     feitas) echo "feitas" ;; prazo) echo "com prazo" ;; todas) echo "todas" ;; *) echo "abertas" ;;
   esac
 }
-# Clique numa aba de filtro do cabeçalho: a palavra clicada ("abertas"/"feitas"/"prazo"/"todas")
-# vira o filtro ativo. Palavras fora dessas quatro são ignoradas (clique no texto de dica).
+# Clique numa aba de filtro do cabeçalho (ação do fzf via transform). O fzf entrega a LINHA
+# clicada (com cores) e a coluna; achamos a palavra pela coluna, trocamos o filtro e devolvemos as
+# ações do fzf (recarregar a lista e redesenhar o cabeçalho). Clique fora das abas só redesenha.
 tarefas_cabecalho_clique() {
-  case $1 in
-    abertas|feitas|prazo|todas) tarefas_filtro_set "$1" ;;
-  esac
+  local l=${FZF_CLICK_HEADER_LINE:-0} c=${FZF_CLICK_HEADER_COLUMN:-0} texto w
+  if ((l == 1)); then
+    texto=$(tarefas_cabecalho | sed -n '1p' | sed 's/\x1b\[[0-9;]*m//g')
+    w=$(palavra_em "$texto" "$c")
+    case $w in
+      abertas|feitas|prazo|todas) tarefas_filtro_set "$w" ;;
+    esac
+  fi
+  echo "reload($EU --tarefas-lista)+transform-header($EU --tarefas-cabecalho)"
 }
 # Um nó (tarefa com filhas) está expandido? Estado em linhas "exp=<id>" no arquivo da UI.
 tarefas_exp_tem() { grep -qxF "exp=$1" "$(tarefas_estado_arq)" 2>/dev/null; }
@@ -4343,7 +4350,7 @@ tarefas_ui() {
     --bind="enter:execute-silent($EU --tarefa-toggle {1})+reload($EU --tarefas-lista)" \
     --bind="left-click:execute-silent($EU --tarefa-toggle {1})+reload($EU --tarefas-lista)" \
     --bind="double-click:execute-silent($EU --tarefa-expandir {1})+reload($EU --tarefas-lista)" \
-    --bind="click-header:transform-header($EU --tarefa-cabecalho-clique \"\$FZF_CLICK_HEADER_WORD\"; $EU --tarefas-cabecalho)+reload($EU --tarefas-lista)" \
+    --bind="click-header:transform($EU --tarefa-cabecalho-clique)" \
     --bind="space:execute-silent($EU --tarefa-expandir {1})+reload($EU --tarefas-lista)" \
     --bind="ctrl-n:execute($EU --tarefa-nova-prompt)+reload($EU --tarefas-lista)" \
     --bind="ctrl-s:execute($EU --tarefa-sub-prompt {1})+reload($EU --tarefas-lista)" \
@@ -4352,8 +4359,8 @@ tarefas_ui() {
     --bind="ctrl-k:execute-silent($EU --tarefa-sub-mover {1} cima)+reload($EU --tarefas-lista)" \
     --bind="ctrl-j:execute-silent($EU --tarefa-sub-mover {1} baixo)+reload($EU --tarefas-lista)" \
     --bind="ctrl-x:execute($EU --tarefa-remover-prompt {1})+reload($EU --tarefas-lista)" \
-    --bind="tab:transform-header($EU --tarefa-filtro-ciclar; $EU --tarefas-cabecalho)+reload($EU --tarefas-lista)" \
-    --bind="ctrl-f:transform-header($EU --tarefa-filtro-ciclar; $EU --tarefas-cabecalho)+reload($EU --tarefas-lista)" \
+    --bind="tab:execute-silent($EU --tarefa-filtro-ciclar)+reload($EU --tarefas-lista)+transform-header($EU --tarefas-cabecalho)" \
+    --bind="ctrl-f:execute-silent($EU --tarefa-filtro-ciclar)+reload($EU --tarefas-lista)+transform-header($EU --tarefas-cabecalho)" \
     --bind="ctrl-l:execute-silent($EU --tarefa-limpar)+reload($EU --tarefas-lista)" \
     --bind='q:abort' --bind='esc:abort' >/dev/null 2>&1 || true
 }
@@ -4539,7 +4546,8 @@ calendario_tui() { # [epoch_inicial]
         printf '\n'
         ((diapos>ult)) && break
       done
-      printf '\n  %s← → dia · ↑ ↓ semana · < > mês · - + ano · t hoje · x limpar · ⏎ escolher · esc sai%s\n' "$cinza" "$z"
+      printf '\n  %s← → dia · ↑ ↓ semana · < > mês · - + ano%s\n' "$cinza" "$z"
+      printf '  %st hoje · x limpar · ⏎ escolher · esc sai%s\n' "$cinza" "$z"
     } >/dev/tty
   }
   local tecla rest
@@ -5174,7 +5182,7 @@ clique() {
     fixar) fixar_atual "$2" ;;
     fx*) ir_fixada "$2" "$faixa" ;;
     tarefas) abrir_tarefas "$2" ;;
-    relogio) tmux display-popup -c "$2" -w 44 -h 16 -b rounded -T ' 📅 calendário ' -E "$EU --calendario" ;;
+    relogio) tmux display-popup -c "$2" -w 56 -h 18 -b rounded -T ' 📅 calendário ' -E "$EU --calendario" ;;
     tt) tmux display-popup -c "$2" -E $(tam_popup "$2") "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
     lado) tmux split-window -h -t "$3" -c "$4" ;;
     baixo) tmux split-window -v -t "$3" -c "$4" ;;
@@ -7068,7 +7076,7 @@ case "${1:-}" in
   --tarefa-sub-mover) [[ -n ${2:-} ]] && tarefa_sub_mover "$2" "${3:-cima}"; exit ;;
   --tarefa-filtro-ciclar) tarefas_filtro_ciclar; exit ;;
   --tarefas-cabecalho) tarefas_cabecalho; exit ;;
-  --tarefa-cabecalho-clique) tarefas_cabecalho_clique "${2:-}"; exit ;;
+  --tarefa-cabecalho-clique) tarefas_cabecalho_clique; exit ;;
   --tarefa-preview) tarefa_preview "${2:-}"; exit ;;
   --calendario) calendario_tui "${2:-}"; exit ;;
   --tarefa-add) shift; [[ -n ${1:-} ]] && tarefa_add "$*" >/dev/null || { echo 'uso: tt --tarefa-add "texto"'; exit 1; }; exit ;;
