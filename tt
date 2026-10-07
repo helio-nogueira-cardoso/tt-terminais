@@ -4284,18 +4284,18 @@ tarefas_filtro_set() {
   local f=$1 arq; arq=$(tarefas_estado_arq); mkdir -p "$RT"
   { grep -v '^filtro=' "$arq" 2>/dev/null; printf 'filtro=%s\n' "$f"; } >"$arq.tmp" && mv "$arq.tmp" "$arq"
 }
-# Ciclo do filtro: abertas -> feitas -> prazo (só com deadline) -> todas -> abertas.
+# Ciclo do filtro: todas -> abertas -> feitas -> prazo (só com deadline) -> todas.
 tarefas_filtro_ciclar() {
   case $(tarefas_filtro) in
-    ''|abertas) tarefas_filtro_set feitas ;;
+    ''|todas) tarefas_filtro_set abertas ;;
+    abertas) tarefas_filtro_set feitas ;;
     feitas) tarefas_filtro_set prazo ;;
-    prazo) tarefas_filtro_set todas ;;
-    *) tarefas_filtro_set abertas ;;
+    *) tarefas_filtro_set todas ;;
   esac
 }
 tarefas_filtro_rotulo() {
   case $(tarefas_filtro) in
-    feitas) echo "feitas" ;; prazo) echo "com prazo" ;; todas) echo "todas" ;; *) echo "abertas" ;;
+    abertas) echo "abertas" ;; feitas) echo "feitas" ;; prazo) echo "com prazo" ;; *) echo "todas" ;;
   esac
 }
 # Clique numa aba de filtro do cabeçalho (ação do fzf via transform). O fzf entrega a LINHA
@@ -4377,7 +4377,7 @@ tarefas_ui() {
 # Cabeçalho do painel: 1ª linha é a barra de FILTROS como abas (a ativa realçada, clicável);
 # 2ª e 3ª linhas são os atalhos, compactos, cabendo na largura do slide-over.
 tarefas_cabecalho() {
-  local f; f=$(tarefas_filtro); f=${f:-abertas}
+  local f; f=$(tarefas_filtro); f=${f:-todas}
   local aba
   aba() { if [[ $1 == "$f" ]]; then printf '\033[7;1m %s \033[0m' "$2"; else printf '\033[90m %s \033[0m' "$2"; fi; }
   printf '%s%s%s%s   \033[90m(Tab/clique)\033[0m\n' \
@@ -4391,7 +4391,7 @@ tarefas_cabecalho() {
 # abaixo. O prazo e a marca de descrição (¶) entram no fim da linha. O --wrap do fzf quebra o texto
 # longo em várias linhas visuais em vez de cortar.
 tarefas_lista_fzf() {
-  local filtro; filtro=$(tarefas_filtro); filtro=${filtro:-abertas}
+  local filtro; filtro=$(tarefas_filtro); filtro=${filtro:-todas}
   local id est m txt pai prazo marca sub pr desc exp
   # id, estado, meta e texto. A meta vazia vira "-" no awk e volta a "" aqui: sem isso, dois TABs
   # adjacentes (meta vazia no meio) seriam colapsados pelo read e o texto cairia no campo errado.
@@ -4472,12 +4472,12 @@ tarefa_sub_prompt() {
   return 0
 }
 
-# Edita a descrição longa de ID num editor (EDITOR/VISUAL, senão nano/vi). Multi-linha.
+# Edita a descrição longa de ID num editor (EDITOR/VISUAL, senão vim/vi). Multi-linha.
 tarefa_desc_prompt() {
   local id=$1 ed tmp
   [[ -n $id ]] || return 0
   ed=${VISUAL:-${EDITOR:-}}
-  [[ -z $ed ]] && { command -v nano >/dev/null && ed=nano || ed=vi; }
+  [[ -z $ed ]] && { command -v vim >/dev/null && ed=vim || ed=vi; }
   tmp=$(mktemp "${TMPDIR:-/tmp}/tt-desc.XXXXXX") || return 0
   tarefa_get_desc "$id" >"$tmp"
   # Só usa /dev/tty se der para abri-lo (num fluxo headless/teste ele pode existir mas não abrir).
@@ -6872,8 +6872,11 @@ com_x() {
   local g w ini
   g=$(geometria_x) || { cat; return; }
   read -r w ini <<<"$g"
-  local fx="" r sn d
-  while IFS=$'\t' read -r r sn; do
+  local fx="" r sn id d
+  # fixadas() tem 3 campos (rótulo, sessão, id). Sem a 3ª variável, o id entrava em $sn (com o
+  # TAB) e a chave "$d|$sn" nunca casava com "destino|sessão" da linha: o pino da central ficava
+  # sempre 📍 mesmo com a sessão fixada.
+  while IFS=$'\t' read -r r sn id; do
     d=$(dest_de "$r"); [[ -n $d ]] && fx+="$d|$sn"$'\n'
   done < <(fixadas)
   python3 -c '
