@@ -96,3 +96,27 @@ ia-conta codex --version 2>/dev/null && falhou 'ia-conta codex rodou como perfil
 [[ -e $R/kiro ]] && falhou 'criou pasta de perfil kiro'
 ia-conta kiro 2>/dev/null || true; [[ -e $R/kiro ]] && falhou 'ia-conta kiro criou pasta de perfil'
 passou 'e-mail vazio não desloca colunas; codex/kiro não viram perfil do Claude'
+
+# Antes do plano, o ia-login junta os cadastros e entrega o completo a cada máquina: uma que ficou sem
+# rede (cópia velha) não deixa a conta nova de fora do plano. ssh falso = outra máquina noutro HOME.
+R2=$T/remota
+mkdir -p "$R2/.config/tt" "$R2/.local/bin" "$R2/.claude"; printf 'nome=remota\n' >"$R2/.config/tt/config"
+HOME=$R2 XDG_CONFIG_HOME=$R2/.config TT_DIR=$R2/.local/share/tt "$T/pkg/tt" --instalar-aqui >/dev/null 2>&1 || falhou 'instalação da remota'
+cp "$B/claude" "$R2/.local/bin/claude"
+cat >"$B/ssh" <<EOS
+#!/usr/bin/env bash
+while [[ \$1 == -* ]]; do case \$1 in -o|-p) shift 2 ;; *) shift ;; esac; done
+shift # destino
+exec env HOME=$R2 XDG_CONFIG_HOME=$R2/.config TT_DIR=$R2/.local/share/tt bash -c "\$*"
+EOS
+chmod +x "$B/ssh"
+printf 'host-remota usuario remota\n' >"$XDG_CONFIG_HOME/tt/maquinas"
+agora=$(date +%s)
+printf 'claude\tnova@x.com\tnova\t%s\n' "$agora" >>"$C"                       # só aqui
+printf 'claude\tso-la@x.com\tsola\t%s\n' "$agora" >"$R2/.config/tt/contas-ia"   # só lá
+out=$(ia-login --plano)
+grep -q $'^claude\tnova@x.com\tnova\t' "$R2/.config/tt/contas-ia" || falhou "remota não recebeu o cadastro: $(cat "$R2/.config/tt/contas-ia")"
+grep -q $'^claude\tso-la@x.com\tsola\t' "$C" || falhou "não puxou o cadastro da remota: $(cat "$C")"
+grep -qE '^remota +claude +nova +nova@x.com +falta' <<<"$out" || falhou "plano da remota sem a conta nova: $out"
+grep -qE '^teste +claude +sola +so-la@x.com +falta' <<<"$out" || falhou "plano daqui sem a conta da remota: $out"
+passou 'ia-login sincroniza o cadastro (puxa e entrega) antes do plano'
