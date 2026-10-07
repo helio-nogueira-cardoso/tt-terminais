@@ -463,8 +463,8 @@ A barra também mostra um emoji por comando em `atalhos-padrao`, versionado junt
 são dois botões, iguais no PC e no celular, que abrem a IA com mais folga de uso **agora** (`ia-conta
 abrir`, veja [Contas de IA](#contas-de-ia)) já sem pedir permissões:
 
-- 🤖 **ia-nova** abre numa sessão nova e muda para ela;
-- 🔄 **ia-aqui** troca o que roda no painel atual (fecha o agente que estiver nele, ou parte do
+- 🚀 **ia-nova** abre numa sessão nova e muda para ela;
+- 👇 **ia-aqui** troca o que roda no painel atual (fecha o agente que estiver nele, ou parte do
   shell), na mesma pasta. Se ali havia uma conversa do Claude e a escolhida também é do Claude, a
   conversa continua (`{retomar}` vira `--retomar ID`); Codex e Kiro abrem uma sessão nova.
 

@@ -102,7 +102,7 @@ ids() { "$TT" --atalhos-lista | cut -f2 | tr '\n' ' '; }
 [[ $(ids) == "ia-nova ia-aqui " ]] || falhou "padrão deveria ter só ia-nova e ia-aqui: $(ids)"
 m=$(PREFIX=/data/data/com.termux/files/usr "$TT" --atalhos-lista)
 [[ $(cut -f2 <<<"$m" | tr '\n' ' ') == "ia-nova ia-aqui " ]] || falhou "celular: $(cut -f2 <<<"$m")"
-grep -q "^🔄"$'\t'"ia-aqui"$'\t'"@aqui proot-distro login debian .*'ia-conta abrir {retomar}'" <<<"$m" ||
+grep -q "^👇"$'\t'"ia-aqui"$'\t'"@aqui proot-distro login debian .*'ia-conta abrir {retomar}'" <<<"$m" ||
   falhou "celular: ia-aqui não entra no Debian: $m"
 passou 'atalhos: dois padrões (ia-nova, ia-aqui) no PC e no celular (via proot)'
 
@@ -112,7 +112,7 @@ mkdir -p "$T/falso"
 # O processo se chama claude, como o de verdade (um link para o sleep não serve: ele pode ser multichamada).
 printf '#!/usr/bin/env bash\nprintf claude >/proc/$$/comm\nwhile :; do sleep 1; done\n' >"$T/falso/claude"
 chmod +x "$T/falso/claude"
-printf '🔄\tia-aqui\t@aqui echo "[{retomar}]" >%q\t\n' "$T/aqui.out" >"$XDG_CONFIG_HOME/tt/atalhos"
+printf '👇\tia-aqui\t@aqui echo "[{retomar}]" >%q\t\n' "$T/aqui.out" >"$XDG_CONFIG_HOME/tt/atalhos"
 tmux new-session -d -s trabalho -x 120 -y 30 -c "$T" "bash -c '$T/falso/claude; exec bash'"
 pane=$(tmux display-message -p -t '=trabalho:' '#{pane_id}')
 sleep 0.5
