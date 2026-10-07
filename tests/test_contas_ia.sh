@@ -39,6 +39,11 @@ R=$HOME/.local/share/claude-contas
 cred='{"claudeAiOauth":{"accessToken":"t","expiresAt":0}}'
 echo "$cred" >"$HOME/.claude/.credentials.json"
 for c in alfa beta; do mkdir -p "$R/$c"; echo "$cred" >"$R/$c/.credentials.json"; done
+# Pastas auxiliares não são contas, mesmo se contiverem credencial ou e-mail.
+for c in x.lock 'nome com espaço' '-invalida'; do
+  mkdir -p "$R/$c"; echo "$cred" >"$R/$c/.credentials.json"
+done
+printf 'trava preservada\n' >"$R/x.lock/dono"
 agora=$(date +%s)
 cat >"$HOME/.cache/claude-rot.uso.json" <<EOF
 {"principal": {"alvo": "$HOME/.claude", "quando": $agora, "janelas": [["5h", 100, $((agora + 3600))], ["7d", 40, $((agora + 86400))]], "email": ""},
@@ -46,6 +51,15 @@ cat >"$HOME/.cache/claude-rot.uso.json" <<EOF
 EOF
 
 out=$(ia-conta listar --rapido)
+status=$(CLAUDE_ROT_USO=0 ia-rot --claude-only --status)
+for c in x.lock 'nome com espaço' '-invalida'; do
+  grep -Fq -- "$c" <<<"$out" && falhou "listar incluiu pasta auxiliar: $c"
+  grep -Fq -- "$c" <<<"$status" && falhou "ia-rot --status incluiu pasta auxiliar: $c"
+  [[ -f $R/$c/.credentials.json && ! -e $R/$c/.account-email ]] || falhou "listagem mexeu na pasta auxiliar: $c"
+done
+grep -q $'^alfa\t' <<<"$status" || falhou 'ia-rot --status omitiu conta válida'
+[[ $(cat "$R/x.lock/dono") == 'trava preservada' ]] || falhou 'listagem alterou trava'
+passou 'listar e status ignoram nomes inválidos e preservam pastas de trava'
 grep -qE '^principal +claude +principal@exemplo.com +esgotada +~5h 100%' <<<"$out" || falhou "listar: principal esgotada com uso do cache: $out"
 grep -qE '^alfa .*~5h 20% · 7d 50%' <<<"$out" || falhou "listar: uso da alfa: $out"
 grep -qE '^beta .* \?$' <<<"$out" || falhou "listar: beta sem dado deveria mostrar ?: $out"

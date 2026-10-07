@@ -75,6 +75,7 @@ faltas() {
     for dir in "$RAIZ"/*/; do
       dir=${dir%/}; [[ -d $dir && ! -L $dir ]] || continue
       nome=${dir##*/}
+      [[ $nome =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || continue # travas não precisam de login
       case $nome in codex | kiro) continue ;; esac # não são perfis do Claude
       if [[ -s $dir/.credentials.json ]]; then email_de[$nome]=$(email_cache "$dir"); else sem_cred[$nome]=1; fi
     done

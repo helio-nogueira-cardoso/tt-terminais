@@ -49,10 +49,15 @@ echo '{"claudeAiOauth":{}}' >"$R/gama/.credentials.json"; echo 'outro@x.com' >"$
 printf 'claude\ta@x.com\talfa\t1\nclaude\tb@x.com\tbeta\t1\nclaude\tg@x.com\tgama\t1\ncodex\tcx@x.com\tcx\t1\n' >"$C"
 
 mkdir -p "$R/codex" # pasta estranha (ia-conta codex antigo): não é perfil do Claude
+mkdir -p "$R/x.lock" "$R/nome com espaço" "$R/-invalida"
+printf 'trava preservada\n' >"$R/x.lock/dono"
 plano=$(ia-login --faltas | sort)
 esperado=$(printf 'claude\talfa\ta@x.com\tfalta\nclaude\tbeta\tb@x.com\tsem login\nclaude\tgama\tg@x.com\tnome ocupado\ncodex\tcodex\tcx@x.com\tsem login\n' | sort)
 [[ $plano == "$esperado" ]] || falhou "faltas: $plano"
 out=$(ia-login --plano)
+grep -Eq 'x\.lock|nome com espaço|-invalida' <<<"$out" && falhou "plano incluiu pasta auxiliar: $out"
+[[ $(cat "$R/x.lock/dono") == 'trava preservada' ]] || falhou 'plano alterou trava'
+passou 'faltas e plano ignoram pastas auxiliares e preservam a trava'
 grep -qE '^teste +claude +gama +g@x.com +nome ocupado por outro e-mail' <<<"$out" || falhou "plano: $out"
 passou 'faltas: conta do cadastro ausente, perfil sem credencial, nome ocupado e Codex deslogado'
 
