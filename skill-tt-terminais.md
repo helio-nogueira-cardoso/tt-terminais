@@ -338,6 +338,98 @@ nomeador), aerc (e-mail), mbsync/isync (sync local), git (sync de tarefas por re
 pelo Homebrew; comandos remotos levam o PATH do Homebrew (o instalador acrescenta um bloco ao
 `~/.zshenv`).
 
+## Agente lança agente em outra máquina
+
+Caso de uso: uma IA rodando numa máquina precisa de ajuda numa tarefa que só faz sentido em
+OUTRA máquina (ex.: depurar algo no celular). Em vez de operar a outra máquina por controle
+remoto de tela, ela **lança um agente lá**, que roda no ambiente nativo daquela máquina e devolve
+o resultado. Para o agente remoto é muito mais fácil atuar localmente (ele tem o shell, os
+binários e os dispositivos da máquina dele) do que o agente de origem tentar tudo por cima da rede.
+
+Importante: o tt **não** tem um verbo único `tt --spawn-agente`. O que existe são primitivas que se
+compõem. A conexão ssh já vem pronta e autenticada (Tailscale + `SSH_OPC`, multiplexada 12 h), e os
+agentes já estão instalados em cada máquina (`ia-conta`/`ia-rot`/`claude`/`codex`/`kiro`). O caminho
+suportado é: **ssh + `tmux new-session` com o agente como comando** (o mesmo padrão que
+`atalho_executar` usa localmente, só que disparado por ssh).
+
+### Passo a passo
+
+1. **Descobrir a máquina alvo**: `tt --maquinas` (rótulo → `usuario@host`). Ex.: `helio@s23-...  s23`.
+2. **Lançar o agente lá, numa sessão tmux nomeada** (headless, destacada):
+   ```bash
+   # a partir de qualquer máquina do mesh, para o rótulo "s23":
+   dest=$(tt --maquinas | awk '$2=="s23"{print $1}')
+   ssh "$dest" 'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH";
+     tmux new-session -d -s ajuda-adb -c ~ \
+       "ia-conta abrir -p \"<prompt da tarefa, com contexto e onde gravar o resultado>\"; exec bash"'
+   ```
+   - `ia-conta abrir` escolhe a conta de IA com mais folga de uso naquela máquina e abre sem pedir
+     permissões; dá para trocar por `codex`/`kiro-cli chat`/`claude` conforme o motor desejado.
+     No celular (Termux), o agente roda dentro do Debian via proot (atalho `dbn`/F4).
+   - `tt --nova nome` cria uma sessão remota, mas **sem** comando — por isso o `tmux new-session`
+     com o comando do agente é montado à mão.
+   - A sessão fica com um shell ao fim (`exec bash`), então dá para entrar e ver como terminou.
+3. **Acompanhar/operar o agente remoto** (opcional), por uma **ponte**: na central (`tt`), abra a
+   sessão da outra máquina — o tt faz `ssh -t ... tmux attach -t =ajuda-adb` num painel local
+   (`abrir_painel`/`ponte`/`ir_ponte`). Você vê e digita no agente de lá como se fosse local.
+4. **Descobrir o que roda lá** (polling): `ssh "$dest" 'tt --listar-tudo --para-ia'` devolve o TSV
+   das sessões daquela máquina (coluna `agente` indica claude/codex/kiro/… vivo no pane, `ultima_linha`
+   mostra a última linha de conteúdo).
+5. **Receber o resultado de volta**, opções reais:
+   - **Arquivo** (melhor para resultado estruturado/grande): o agente remoto grava um arquivo e
+     manda com `tt --enviar resultado.md <rótulo-de-origem>`, ou o chamador puxa com
+     `tt --trazer s23:~/resultado.md .` (tar+ssh, chega na pasta de recebidos; nunca sobrescreve).
+   - **Clipboard broadcast** (texto curto, ≤ 2 MB, best-effort): o agente remoto copia o texto e ele
+     aparece no histórico de cópias de todas as máquinas (`tt --copias`). É broadcast, não endereçado.
+   - **tt-mesh** (canal git append-only entre as sessões-chefe): só se as máquinas participam do
+     enxame; é lento (timers de 10–60 min) e é o fluxo do enxame, não um RPC sob demanda.
+
+### O que NÃO existe pronto (componha à mão)
+
+- Nenhum verbo `tt --spawn-agente maquina "prompt"`: o `new-session` com comando remoto é ssh cru.
+- `ia-rot --passar` (handoff da skill `rodizio-de-contas`) é **local**: passa a tarefa para outra
+  CONTA/agente da mesma máquina, não cross-máquina. Para cross-máquina seria copiar o arquivo de
+  passagem e rodar `ia-rot --passar` via ssh no destino, manualmente.
+- `ai-memory` (`memoria-agentes.sh`) é local por máquina e não sincroniza entre máquinas; não é
+  canal entre agentes de máquinas diferentes.
+- `--listar-tudo --para-ia` é por máquina; para ver todas, faça um laço sobre `tt --maquinas`.
+
+### Exemplo prático (celular: Shizuku + adb no Debian proot, fora do Wi-Fi)
+
+Situação real: uma sessão Kiro CLI numa máquina precisava entender como o celular (`s23`) usa o
+**Shizuku** para coordenar o **adb** numa depuração **sem Wi-Fi** (adb por USB/par local), e isso só
+podia ser investigado de dentro do próprio aparelho — ainda por cima com o agente rodando dentro do
+**Debian via proot**, que não enxerga o adb do Android diretamente. Em vez de tentar operar o celular
+por ponte de tela, a sessão lançou um agente no `s23` para investigar localmente e relatar:
+
+```bash
+# 1) achar o celular no mesh
+dest=$(tt --maquinas | awk '$2=="s23"{print $1}')
+
+# 2) lançar um agente no s23, numa sessão nomeada, com o prompt da investigação.
+#    No Termux o agente roda no Debian (proot); o prompt orienta a usar o Shizuku como
+#    ponte de privilegio para o adb do Android, ja que o proot nao acessa o adb direto.
+ssh "$dest" 'PATH="$HOME/.local/bin:$PATH";
+  tmux new-session -d -s ajuda-adb -c ~ "ia-conta abrir -p \
+    \"Investigue, nesta maquina (celular Android, Termux + Debian proot), como coordenar o adb \
+      via Shizuku SEM Wi-Fi (USB/par local). O agente roda no proot e NAO ve o adb do Android \
+      direto: descubra o caminho real (rish/shizuku no Termux chamando o adb do lado Android, \
+      ou adb sobre a porta local do par) e descreva os comandos exatos. Grave o achado em \
+      ~/resultado-adb.md e no fim rode: tt --enviar ~/resultado-adb.md <rotulo-de-origem>.\"; \
+    exec bash"'
+
+# 3) (opcional) acompanhar ao vivo pela central (ponte), ou fazer polling:
+ssh "$dest" 'tt --listar-tudo --para-ia' | grep -i ajuda-adb
+
+# 4) o resultado chega pela pasta de recebidos quando o agente remoto roda o tt --enviar do prompt;
+#    ou puxe voce mesmo:  tt --trazer s23:~/resultado-adb.md .
+```
+
+Por que isto é melhor do que operar o celular remotamente: o agente no `s23` executa `rish`/
+`shizuku`, `pm`, `adb` e inspeciona o lado Android **de dentro do aparelho**, com os privilegios que
+o Shizuku concede, sem depender de o adb estar exposto na rede; e devolve so a conclusao (um arquivo)
+pela conexao do mesh. O agente de origem continua livre para outra frente enquanto isso.
+
 ## Fluxos comuns (receitas)
 
 - **Publicar uma mudança para todas as máquinas**: edite no clone de origem (`repo=`), rode
