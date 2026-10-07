@@ -43,3 +43,18 @@ lista | grep -q 'teste:gama' && falha 'sessão fechada continuou fixada'
 lista | grep -q 'teste:beta' || falha 'beta sumiu na reconciliação seguinte'
 
 echo 'ok: fixadas com tmux real (reconciliar, rename, concorrência)'
+
+# ✕ apertado e solto devagar (> 0,5 s, toque no celular): dois cliques ao mesmo tempo. Os dois acham a
+# fixada antes da trava; o segundo não pode fixar de novo o que o primeiro acabou de desafixar.
+: >"$XDG_CONFIG_HOME/tt/maquinas"
+lista | grep -q 'teste:beta' || tt --fixar beta >/dev/null # --fixar alterna: só se ainda não está
+lista | grep -q 'teste:beta' || falha 'beta devia estar fixada antes do ✕'
+chave=$(printf '%s\t%s' teste "$(awk -F'\t' '$2 == "beta" { print $3 }' "$XDG_CONFIG_HOME/tt/fixadas")" | sha256sum | cut -c1-12)
+mkdir "$XDG_CONFIG_HOME/tt/fixadas.trava"
+tt --clique "user|fxx$chave" cliente-aperta '' "$HOME" 0 &
+tt --clique "user|fxx$chave" cliente-solta '' "$HOME" 0 &
+sleep 1
+rmdir "$XDG_CONFIG_HOME/tt/fixadas.trava"
+wait
+lista | grep -q 'teste:beta' && falha '✕ com apertar e soltar lentos fixou de novo'
+passou '✕ lento (apertar e soltar juntos) desafixa de vez'
