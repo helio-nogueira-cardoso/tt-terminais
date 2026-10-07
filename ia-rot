@@ -43,7 +43,14 @@ contas=(principal)
   c=$(basename "$d"); case $c in codex|kiro) continue ;; esac; [ -d "$d" ] && [ ! -L "${d%/}" ] && contas+=("$c"); done
 [[ $CLAUDE_ONLY == 1 ]] || contas+=(codex kiro)
 blk(){ awk -F'\t' -v c="$1" '$1==c{v=$2} END{print v+0}' "$STATE" 2>/dev/null; }
-marca(){ printf '%s\t%s\n' "$1" "$2" >> "$STATE"; }
+# Identidade da conta: o par provedor:e-mail (o e-mail do Claude vem do cache que o ia-conta grava na
+# pasta). Duas contas com o mesmo par sao a mesma janela de uso: bloqueiam juntas e uma nunca recebe a
+# passagem da outra. Sem e-mail conhecido, a conta e a propria identidade.
+par(){ local f
+  case $1 in codex|kiro) echo "$1"; return ;; principal) f=$HOME/.claude/.account-email ;; *) f=$RAIZ/$1/.account-email ;; esac
+  if [ -s "$f" ]; then echo "claude:$(head -n 1 "$f")"; else echo "conta:$1"; fi; }
+mesmo_par(){ local p x; p=$(par "$1"); for x in "${contas[@]}"; do [ "$(par "$x")" = "$p" ] && echo "$x"; done; }
+marca(){ local x; for x in $(mesmo_par "$1"); do printf '%s\t%s\n' "$x" "$2" >> "$STATE"; done; }
 
 # Motivo para nao usar a conta (vazio = pode usar).
 indisponivel(){
@@ -111,7 +118,7 @@ if [ -n "$PASSAR" ]; then
   arq=$(readlink -f "$PASSAR" 2>/dev/null)
   [ -n "$arq" ] && [ -s "$arq" ] || { echo "[ia-rot] passagem: arquivo '$PASSAR' vazio ou inexistente" >&2; exit 1; }
   : "${DE:=$(conta_atual)}"
-  [ -n "$DE" ] && EXCETO+="$DE "
+  if [ -n "$DE" ]; then for x in $DE $(mesmo_par "$DE"); do EXCETO+="$x "; done; fi
   carregar_uso 60 "${contas[@]}"
   # Quem passa a vez esta no fim da janela: fica fora da rotacao ate ela virar.
   [ -n "$DE" ] && cheia_pelo_uso "$DE" >/dev/null

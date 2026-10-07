@@ -13,7 +13,9 @@ cat >"$B/claude" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\t%s\n' "${CLAUDE_CONFIG_DIR:-principal}" "$*" >>"$HOME/claude.log"
 c=${CLAUDE_CONFIG_DIR:-/principal}; c=${c##*/}
-[[ $1 == auth ]] && { printf '{\n  "email": "%s@exemplo.com"\n}\n' "$c"; exit 0; }
+e="$c@exemplo.com"; [[ -f ${CLAUDE_CONFIG_DIR:-/x}/email-falso ]] && e=$(cat "$CLAUDE_CONFIG_DIR/email-falso")
+[[ $1 == auth ]] && { printf '{\n  "email": "%s"\n}\n' "$e"; exit 0; }
+[[ -f ${CLAUDE_CONFIG_DIR:-/x}/limite-falso ]] && { echo "You've hit your limit · resets 5pm"; exit 1; }
 # Sem prompt (renovação de token pelo ia-conta) o Claude de verdade sai com erro.
 [[ $* == *--no-session-persistence ]] && { echo 'Error: Input must be provided' >&2; exit 1; }
 for a; do :; done; echo "resposta de ${CLAUDE_CONFIG_DIR##*/}: $a"
@@ -44,7 +46,7 @@ cat >"$HOME/.cache/claude-rot.uso.json" <<EOF
 EOF
 
 out=$(ia-conta listar --rapido)
-grep -qE '^principal +principal@exemplo.com +esgotada +~5h 100%' <<<"$out" || falhou "listar: principal esgotada com uso do cache: $out"
+grep -qE '^principal +claude +principal@exemplo.com +esgotada +~5h 100%' <<<"$out" || falhou "listar: principal esgotada com uso do cache: $out"
 grep -qE '^alfa .*~5h 20% · 7d 50%' <<<"$out" || falhou "listar: uso da alfa: $out"
 grep -qE '^beta .* \?$' <<<"$out" || falhou "listar: beta sem dado deveria mostrar ?: $out"
 # Sem --rapido renova os tokens vencidos (o Claude sem prompt sai com erro) e lista do mesmo jeito.
@@ -100,42 +102,76 @@ linha=$(grep 'passagem.md' "$HOME/claude.log") || falhou 'próxima conta não re
 [[ $linha == "$R/beta"* && $linha == *"$T/proj"* ]] || falhou "passagem: conta/pasta erradas: $linha"
 passou 'ia-rot --passar abre a próxima conta numa janela da mesma aba, lendo a passagem'
 
-# Cadastro comum (e-mail → nome, igual em todas as máquinas). O listar acima já registrou as daqui.
+# Cadastro comum: conta = par (provedor, e-mail), apelido é rótulo. O listar acima registrou as daqui.
 C=$XDG_CONFIG_HOME/tt/contas-ia
 # (alfa foi renomeada para gama, e o cadastro acompanhou; "principal" é reservado: vira principal-ia.)
-[[ $(awk -F'\t' '{print $1 "=" $2}' "$C" | sort | tr '\n' ' ') == 'alfa@exemplo.com=gama beta@exemplo.com=beta principal@exemplo.com=principal-ia ' ]] ||
+[[ $(awk -F'\t' '{print $1 ":" $2 "=" $3}' "$C" | sort | tr '\n' ' ') == 'claude:alfa@exemplo.com=gama claude:beta@exemplo.com=beta claude:principal@exemplo.com=principal-ia ' ]] ||
   falhou "registro automático: $(cat "$C")"
-# Mesclar: por e-mail, a mudança mais nova vence, a ordem de chegada não importa, lixo é ignorado.
+# Mesclar: por par; linha antiga (sem provedor) é do Claude; o mesmo e-mail noutro provedor é outra
+# conta; a mudança mais nova vence, a ordem de chegada não importa, lixo é ignorado.
 printf 'a@x.com\tum\t100\nb@x.com\tdois\t100\nlixo\nc@x.com\tnome com espaço\t1\n' | "$TT" --receber-contas-ia
-printf 'a@x.com\tnovo\t200\nb@x.com\tvelho\t50\n' | "$TT" --receber-contas-ia
+printf 'claude\ta@x.com\tnovo\t200\nclaude\tb@x.com\tvelho\t50\ncodex\ta@x.com\tum\t100\n' | "$TT" --receber-contas-ia
 printf 'a@x.com\tum\t100\n' | "$TT" --receber-contas-ia
-[[ $(grep -c . "$C") == 5 ]] && grep -qx $'a@x.com\tnovo\t200' "$C" && grep -qx $'b@x.com\tdois\t100' "$C" ||
-  falhou "mesclagem do cadastro: $(cat "$C")"
-passou 'cadastro: registro automático; mescla por e-mail, a mais nova vence, lixo fora'
+[[ $(grep -c . "$C") == 6 ]] && grep -qx $'claude\ta@x.com\tnovo\t200' "$C" && grep -qx $'claude\tb@x.com\tdois\t100' "$C" &&
+  grep -qx $'codex\ta@x.com\tum\t100' "$C" || falhou "mesclagem do cadastro: $(cat "$C")"
+passou 'cadastro: chave (provedor, e-mail); linha antiga vira claude; a mais nova vence; lixo fora'
 
-# Conta local com nome já tomado por outro e-mail no cadastro: entra com outro nome; o listar avisa.
+# Codex daqui entra como (codex, e-mail); conta local com apelido já tomado ganha outro; o listar tem a
+# coluna PROVEDOR e avisa o que falta (só Claude) e apelido diferente.
+printf '#!/bin/sh\nexit 0\n' >"$B/codex"; chmod +x "$B/codex"
+python3 -I - "$HOME/.cache/claude-rot.uso.json" <<'PY2'
+import json, sys, time
+d = json.load(open(sys.argv[1])); d["codex"] = {"alvo": "codex", "quando": time.time(), "janelas": [], "email": "cx@exemplo.com"}
+json.dump(d, open(sys.argv[1], "w"))
+PY2
 mkdir -p "$R/novo"; echo "$cred" >"$R/novo/.credentials.json"
 out=$(ia-conta listar --rapido)
-grep -q $'^novo@exemplo.com\tnovo-2\t' "$C" || falhou "nome em conflito: $(cat "$C")"
+grep -qE '^CONTA +PROVEDOR +E-MAIL +ESTADO +USO$' <<<"$out" && grep -qE '^codex +codex +cx@exemplo.com +conectada' <<<"$out" ||
+  falhou "coluna PROVEDOR: $out"
+grep -q $'^codex\tcx@exemplo.com\tcx\t' "$C" || falhou "codex no cadastro: $(cat "$C")"
+grep -q $'^claude\tnovo@exemplo.com\tnovo-2\t' "$C" || falhou "apelido em conflito: $(cat "$C")"
 grep -q 'faltam aqui' <<<"$out" && grep -q 'dois  b@x.com  → ia-conta adicionar dois' <<<"$out" || falhou "faltam aqui: $out"
-grep -q 'novo  é "novo-2" no cadastro  → ia-conta renomear novo novo-2' <<<"$out" || falhou "nome diferente: $out"
-# Falta aqui uma conta cujo nome é de outra conta local: a dica manda renomear antes de adicionar.
+grep -q 'um  a@x.com' <<<"$out" && falhou "conta do Codex listada como falta: $out"
+grep -q 'novo  é "novo-2" no cadastro  → ia-conta renomear novo novo-2' <<<"$out" || falhou "apelido diferente: $out"
+# Falta aqui uma conta cujo apelido é de outra conta local: a dica manda renomear antes de adicionar.
 t=$(($(date +%s) + 100)) # mais nova que o registro automático
-printf 'outro@x.com\tbeta\t%s\nbeta@exemplo.com\tsigma\t%s\n' $t $t | "$TT" --receber-contas-ia
+printf 'claude\toutro@x.com\tbeta\t%s\nclaude\tbeta@exemplo.com\tsigma\t%s\n' $t $t | "$TT" --receber-contas-ia
 out=$(ia-conta listar --rapido)
 grep -q 'beta  outro@x.com  → antes, ia-conta renomear beta sigma; depois ia-conta adicionar beta' <<<"$out" ||
   falhou "dica de nome ocupado: $out"
-printf 'outro@x.com\t-\t%s\nbeta@exemplo.com\tbeta\t%s\n' $((t + 1)) $((t + 1)) | "$TT" --receber-contas-ia
-passou 'listar: registra com nome livre, mostra o que falta aqui (sem atropelar nome local) e nome diferente'
+printf 'claude\toutro@x.com\t-\t%s\nclaude\tbeta@exemplo.com\tbeta\t%s\n' $((t + 1)) $((t + 1)) | "$TT" --receber-contas-ia
+passou 'listar: coluna PROVEDOR; Codex no cadastro; falta aqui (só Claude, sem atropelar nome local)'
 
 ia-conta cadastro nomear b@x.com tres >/dev/null
-grep -q $'^b@x.com\ttres\t' "$C" || falhou 'cadastro nomear'
-ia-conta cadastro nomear tres beta 2>/dev/null && falhou 'nomear com nome de outro e-mail'
-ia-conta cadastro esquecer novo >/dev/null
-grep -q $'^a@x.com\t-\t' "$C" || falhou 'cadastro esquecer'
+grep -q $'^claude\tb@x.com\ttres\t' "$C" || falhou 'cadastro nomear'
+ia-conta cadastro nomear tres beta 2>/dev/null && falhou 'nomear com apelido de outra conta do provedor'
+ia-conta cadastro nomear a@x.com zz 2>"$T/err" && falhou 'nomear e-mail de dois provedores sem dizer qual'
+grep -q 'provedor:e-mail' "$T/err" || falhou "ambiguidade: $(cat "$T/err")"
+ia-conta cadastro nomear codex:a@x.com novo >/dev/null || falhou 'mesmo apelido em provedor diferente'
+ia-conta cadastro esquecer novo 2>/dev/null && falhou 'esquecer apelido de dois provedores sem dizer qual'
+ia-conta cadastro esquecer claude:a@x.com >/dev/null
+grep -q $'^claude\ta@x.com\t-\t' "$C" && grep -q $'^codex\ta@x.com\tnovo\t' "$C" || falhou "cadastro esquecer: $(cat "$C")"
 out=$(ia-conta cadastro)
-grep -q 'a@x.com' <<<"$out" && falhou "esquecida ainda listada: $out"
-grep -qE '^beta +beta@exemplo.com +beta$' <<<"$out" && grep -qE '^tres +b@x.com +falta$' <<<"$out" || falhou "cadastro: $out"
+grep -qE '^claude +novo ' <<<"$out" && falhou "esquecida ainda listada: $out"
+grep -qE '^claude +beta +beta@exemplo.com +beta$' <<<"$out" && grep -qE '^claude +tres +b@x.com +falta$' <<<"$out" &&
+  grep -qE '^codex +cx +cx@exemplo.com +codex$' <<<"$out" || falhou "cadastro: $out"
 ia-conta renomear beta zeta >/dev/null
-grep -q $'^beta@exemplo.com\tzeta\t' "$C" || falhou "renomear local não levou o nome do cadastro: $(cat "$C")"
-passou 'cadastro: nomear, esquecer, lista com onde está; renomear local acompanha o cadastro'
+grep -q $'^claude\tbeta@exemplo.com\tzeta\t' "$C" || falhou "renomear local não levou o apelido: $(cat "$C")"
+passou 'cadastro: nomear/esquecer por apelido, e-mail ou provedor:e-mail; lista com provedor; renomear acompanha'
+
+# Duas contas com o mesmo par são a mesma janela: o limite de uma bloqueia a outra, e a passagem
+# nunca vai de uma para a outra.
+for c in p1 p2; do mkdir -p "$R/$c"; echo "$cred" >"$R/$c/.credentials.json"; echo 'mesma@x.com' >"$R/$c/email-falso"; done
+ia-conta listar --rapido >/dev/null # grava o e-mail de cada conta
+touch "$R/p1/limite-falso"
+: >"$HOME/claude.log"
+(cd /tmp && ia-rot --claude-only --exceto novo --exceto zeta -p 'oi' </dev/null >/dev/null 2>&1) && falhou 'rotação devia esgotar'
+grep -q "$R/p2" "$HOME/claude.log" && falhou 'tentou p2, mesmo par da p1 que bateu o limite'
+grep -q "$R/p1" "$HOME/claude.log" || falhou 'nem tentou a p1'
+: >"$HOME/.cache/claude-rot.state"
+rm "$R/p1/limite-falso"
+set +e
+(cd /tmp && IA_CONTA=p2 ia-rot --exceto novo --exceto zeta --exceto codex --sem-tmux --passar "$T/passagem.md" >"$T/out" 2>&1); rc=$?
+set -e
+[[ $rc == 2 ]] || falhou "passagem foi para a mesma janela (rc=$rc): $(cat "$T/out")"
+passou 'mesmo par (provedor, e-mail) = mesma janela: bloqueia junto e não recebe a passagem'
