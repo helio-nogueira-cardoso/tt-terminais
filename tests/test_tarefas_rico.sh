@@ -15,7 +15,7 @@ done
 grep -q -- '--wrap' "$TT" || { echo "FALHOU: fzf de tarefas sem --wrap (texto não quebra)"; exit 1; }
 grep -q 'range=user|relogio' "$ROOT/tema-tmux.conf" || { echo "FALHOU: relógio sem range p/ calendário"; exit 1; }
 
-mkdir -p "$T/home/.config/tt" "$T/bin"
+mkdir -p "$T/home/.config/tt" "$T/bin" "$T/rt"
 printf 'nome=A\n' >"$T/home/.config/tt/config"
 printf '#!/usr/bin/env bash\ncase ${1:-} in list-sessions) exit 1;; display-message) echo cx;; *) exit 0;; esac\n' >"$T/bin/tmux"
 chmod +x "$T/bin/tmux"
@@ -28,7 +28,7 @@ fail(){ echo "FALHOU: $1" >&2; exit 1; }
 
 # retrocompatibilidade: linha antiga de 5 campos
 printf '%s\taberta\t100\t100\ttarefa antiga\n' aaaaaaaaaaaa >"$C"
-run --tarefas-lista | grep -q 'tarefa antiga' || fail "linha antiga de 5 campos não é lida"
+grep -q 'tarefa antiga' <<<"$(run --tarefas-lista)" || fail "linha antiga de 5 campos não é lida"
 echo "ok: modelo antigo (5 campos) continua válido"
 
 # add + subtarefas
@@ -88,6 +88,14 @@ run --tarefa-filtro-ciclar; grep -q 'com prazo' <<<"$(run --tarefas-lista)" || f
 run --tarefa-filtro-ciclar; grep -q 'mae com texto' <<<"$(run --tarefas-lista)" || fail "filtro todas não mostra tudo"
 run --tarefa-filtro-ciclar >/dev/null  # volta p/ abertas
 echo "ok: filtro cicla abertas → feitas → com prazo → todas"
+
+# cabeçalho com abas: as 4 abas aparecem; clicar numa aba troca o filtro ativo
+cab=$(run --tarefas-cabecalho)
+{ grep -q 'abertas' <<<"$cab" && grep -q 'feitas' <<<"$cab" && grep -q 'prazo' <<<"$cab" && grep -q 'todas' <<<"$cab"; } || fail "cabeçalho não mostra as 4 abas de filtro"
+run --tarefa-cabecalho-clique feitas
+grep -q 'feitas' <<<"$(cat "$T/rt/"tt-tarefas-ui-* 2>/dev/null)" || fail "clique na aba não gravou o filtro"
+run --tarefa-cabecalho-clique abertas
+echo "ok: cabeçalho mostra abas de filtro e o clique troca o filtro ativo"
 
 # cascata: remover a mãe remove as subtarefas
 run --tarefa-rm "$id"

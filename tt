@@ -4262,7 +4262,7 @@ abrir_tarefas() {
   if ((${cw:-80} < 80)); then
     w=$cw; x=0
   else
-    w=52; ((w > cw)) && w=$cw; x=$((cw - w))
+    w=64; ((w > cw)) && w=$cw; x=$((cw - w))
   fi
   tmux display-popup -c "$c" -x "$x" -y S -w "$w" -h 100% -b rounded -S 'fg=#f9e2af' \
     -T ' 📋 tarefas · q fecha ' -E "TT_CLIENTE=$(q "$c") $EU --tarefas-ui"
@@ -4287,6 +4287,13 @@ tarefas_filtro_ciclar() {
 tarefas_filtro_rotulo() {
   case $(tarefas_filtro) in
     feitas) echo "feitas" ;; prazo) echo "com prazo" ;; todas) echo "todas" ;; *) echo "abertas" ;;
+  esac
+}
+# Clique numa aba de filtro do cabeçalho: a palavra clicada ("abertas"/"feitas"/"prazo"/"todas")
+# vira o filtro ativo. Palavras fora dessas quatro são ignoradas (clique no texto de dica).
+tarefas_cabecalho_clique() {
+  case $1 in
+    abertas|feitas|prazo|todas) tarefas_filtro_set "$1" ;;
   esac
 }
 # Um nó (tarefa com filhas) está expandido? Estado em linhas "exp=<id>" no arquivo da UI.
@@ -4325,15 +4332,18 @@ tarefas_ui() {
     done
     return 0
   fi
-  fzf --with-nth=2.. --delimiter='\t' --wrap \
+  fzf --with-nth=2.. --delimiter='\t' --wrap --wrap-sign=' ↳ ' \
     --layout=reverse --height=100% --border=none --info=inline --no-separator \
-    --prompt='tarefa ❯ ' --pointer='▶' --header-first \
-    --header=$'enter alterna · ␣ expande · ^n nova · ^s subtarefa · ^e descrição · ^d prazo\n^k/^j move sub · ^x remove · ^f filtro · ^l limpa feitas · esc fecha' \
-    --color='bg:#1e1e2e,fg:#cdd6f4,header:#a6adc8,pointer:#f9e2af,prompt:#f9e2af,fg+:#cdd6f4,bg+:#313244,info:#6c7086' \
-    --preview="$EU --tarefa-preview {1}" --preview-window='down,6,border-top,wrap,hidden' \
+    --prompt='  ❯ ' --pointer='▸' --marker='✔' --header-first \
+    --header="$(tarefas_cabecalho)" \
+    --color='bg:#1e1e2e,fg:#cdd6f4,header:#89b4fa,pointer:#f9e2af,prompt:#f9e2af,fg+:#f9e2af,bg+:#313244,gutter:#1e1e2e,info:#6c7086,border:#45475a' \
+    --preview="$EU --tarefa-preview {1}" --preview-window='down,40%,border-top,wrap,hidden' \
     --bind='ctrl-/:toggle-preview' \
     --bind="start:reload($EU --tarefas-lista)" \
     --bind="enter:execute-silent($EU --tarefa-toggle {1})+reload($EU --tarefas-lista)" \
+    --bind="left-click:execute-silent($EU --tarefa-toggle {1})+reload($EU --tarefas-lista)" \
+    --bind="double-click:execute-silent($EU --tarefa-expandir {1})+reload($EU --tarefas-lista)" \
+    --bind="click-header:execute-silent($EU --tarefa-cabecalho-clique {fzf:click-header-word})+reload($EU --tarefas-lista)+change-header($EU --tarefas-cabecalho)" \
     --bind="space:execute-silent($EU --tarefa-expandir {1})+reload($EU --tarefas-lista)" \
     --bind="ctrl-n:execute($EU --tarefa-nova-prompt)+reload($EU --tarefas-lista)" \
     --bind="ctrl-s:execute($EU --tarefa-sub-prompt {1})+reload($EU --tarefas-lista)" \
@@ -4342,9 +4352,22 @@ tarefas_ui() {
     --bind="ctrl-k:execute-silent($EU --tarefa-sub-mover {1} cima)+reload($EU --tarefas-lista)" \
     --bind="ctrl-j:execute-silent($EU --tarefa-sub-mover {1} baixo)+reload($EU --tarefas-lista)" \
     --bind="ctrl-x:execute($EU --tarefa-remover-prompt {1})+reload($EU --tarefas-lista)" \
-    --bind="ctrl-f:execute-silent($EU --tarefa-filtro-ciclar)+reload($EU --tarefas-lista)" \
+    --bind="tab:execute-silent($EU --tarefa-filtro-ciclar)+reload($EU --tarefas-lista)+change-header($EU --tarefas-cabecalho)" \
+    --bind="ctrl-f:execute-silent($EU --tarefa-filtro-ciclar)+reload($EU --tarefas-lista)+change-header($EU --tarefas-cabecalho)" \
     --bind="ctrl-l:execute-silent($EU --tarefa-limpar)+reload($EU --tarefas-lista)" \
     --bind='q:abort' --bind='esc:abort' >/dev/null 2>&1 || true
+}
+
+# Cabeçalho do painel: 1ª linha é a barra de FILTROS como abas (a ativa realçada, clicável);
+# 2ª e 3ª linhas são os atalhos, compactos, cabendo na largura do slide-over.
+tarefas_cabecalho() {
+  local f; f=$(tarefas_filtro); f=${f:-abertas}
+  local aba
+  aba() { if [[ $1 == "$f" ]]; then printf '\033[7;1m %s \033[0m' "$2"; else printf '\033[90m %s \033[0m' "$2"; fi; }
+  printf '%s%s%s%s   \033[90m(Tab/clique)\033[0m\n' \
+    "$(aba abertas '▢ abertas')" "$(aba feitas '✔ feitas')" "$(aba prazo '📅 prazo')" "$(aba todas '∗ todas')"
+  printf '\033[90m⏎ marca · ␣ abre · ^n nova · ^s sub · ^e descr · ^d prazo\033[0m\n'
+  printf '\033[90m^k/^j move · ^x apaga · ^l limpa · ^/ prévia · esc fecha\033[0m'
 }
 
 # Linhas para o fzf do painel: "id<TAB>render". Mostra as tarefas de topo conforme o filtro; cada
@@ -4353,11 +4376,14 @@ tarefas_ui() {
 # longo em várias linhas visuais em vez de cortar.
 tarefas_lista_fzf() {
   local filtro; filtro=$(tarefas_filtro); filtro=${filtro:-abertas}
-  local id est txt m pai prazo marca sub pr desc exp
-  while IFS=$'\t' read -r id est txt m; do
+  local id est m txt pai prazo marca sub pr desc exp
+  # id, estado, meta e texto. A meta vazia vira "-" no awk e volta a "" aqui: sem isso, dois TABs
+  # adjacentes (meta vazia no meio) seriam colapsados pelo read e o texto cairia no campo errado.
+  while IFS=$'\t' read -r id est m txt; do
+    [[ -n $id ]] || continue
+    [[ $m == - ]] && m=""
     pai=$(tarefas_meta_get "$m" pai); [[ -n $pai ]] && continue   # subtarefas entram sob a mãe
     prazo=$(tarefas_meta_get "$m" prazo)
-    # filtro
     case $filtro in
       abertas) [[ $est == aberta ]] || continue ;;
       feitas)  [[ $est == feita ]] || continue ;;
@@ -4378,7 +4404,7 @@ tarefas_lista_fzf() {
     else
       printf '%s\t  %s %s%s%s\n' "$id" "$marca" "$txt" "$desc" "${pr:+  $pr}"
     fi
-  done < <(tarefas_vivas | awk -F'\t' '{print $1"\t"$2"\t"$5"\t"$6}')
+  done < <(tarefas_vivas | awk -F'\t' '{m=($6==""?"-":$6); print $1"\t"$2"\t"m"\t"$5}')
 }
 
 # Prévia de uma tarefa no painel (janela inferior do fzf): texto, prazo e descrição.
@@ -7041,6 +7067,8 @@ case "${1:-}" in
   --tarefa-prazo-prompt) tarefa_prazo_prompt "${2:-}"; exit ;;
   --tarefa-sub-mover) [[ -n ${2:-} ]] && tarefa_sub_mover "$2" "${3:-cima}"; exit ;;
   --tarefa-filtro-ciclar) tarefas_filtro_ciclar; exit ;;
+  --tarefas-cabecalho) tarefas_cabecalho; exit ;;
+  --tarefa-cabecalho-clique) tarefas_cabecalho_clique "${2:-}"; exit ;;
   --tarefa-preview) tarefa_preview "${2:-}"; exit ;;
   --calendario) calendario_tui "${2:-}"; exit ;;
   --tarefa-add) shift; [[ -n ${1:-} ]] && tarefa_add "$*" >/dev/null || { echo 'uso: tt --tarefa-add "texto"'; exit 1; }; exit ;;
