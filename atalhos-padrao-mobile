@@ -6,5 +6,5 @@
 #
 # Os mesmos dois atalhos do PC: a IA com mais folga agora numa sessao nova, ou no painel atual
 # ("@aqui" fecha o que roda nele; {retomar} continua a conversa do Claude que estava ali).
-🤖	ia-nova	proot-distro login debian --shared-tmp -- bash -lc 'ia-conta abrir'	#a6e3a1
-🔄	ia-aqui	@aqui proot-distro login debian --shared-tmp -- bash -lc 'ia-conta abrir {retomar}'	#89b4fa
+🚀	ia-nova	proot-distro login debian --shared-tmp -- bash -lc 'ia-conta abrir'	#a6e3a1
+👇	ia-aqui	@aqui proot-distro login debian --shared-tmp -- bash -lc 'ia-conta abrir {retomar}'	#89b4fa

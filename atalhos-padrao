@@ -3,5 +3,5 @@
 # já abre sem pedir permissões) numa sessão nova, ou no lugar do que roda no painel atual.
 # "@aqui" troca o painel atual (fecha o agente que estiver nele); {retomar} continua a conversa do
 # Claude que estava ali quando a próxima conta também é do Claude.
-🤖	ia-nova	ia-conta abrir	#a6e3a1
-🔄	ia-aqui	@aqui ia-conta abrir {retomar}	#89b4fa
+🚀	ia-nova	ia-conta abrir	#a6e3a1
+👇	ia-aqui	@aqui ia-conta abrir {retomar}	#89b4fa
