@@ -48,6 +48,7 @@ for c in beta gama; do mkdir -p "$R/$c"; done
 echo '{"claudeAiOauth":{}}' >"$R/gama/.credentials.json"; echo 'outro@x.com' >"$R/gama/.account-email"
 printf 'claude\ta@x.com\talfa\t1\nclaude\tb@x.com\tbeta\t1\nclaude\tg@x.com\tgama\t1\ncodex\tcx@x.com\tcx\t1\n' >"$C"
 
+mkdir -p "$R/codex" # pasta estranha (ia-conta codex antigo): não é perfil do Claude
 plano=$(ia-login --faltas | sort)
 esperado=$(printf 'claude\talfa\ta@x.com\tfalta\nclaude\tbeta\tb@x.com\tsem login\nclaude\tgama\tg@x.com\tnome ocupado\ncodex\tcodex\tcx@x.com\tsem login\n' | sort)
 [[ $plano == "$esperado" ]] || falhou "faltas: $plano"
@@ -86,3 +87,12 @@ grep -q 'já está logada' "$T/err" || falhou "recusa: $(cat "$T/err")"
 ia-login --iniciar claude alfa a@x.com 2>/dev/null && falhou 'iniciou login de perfil já logado'
 tmux -L tt-login list-sessions 2>/dev/null | grep -q login- && falhou 'abriu sessão de login para conta logada'
 passou 'conta já logada nunca recebe login por cima'
+
+# Perfil sem e-mail esperado: a coluna sai "-" (campo vazio deslocava as colunas do plano).
+mkdir -p "$R/delta"
+grep -q $'^claude\tdelta\t-\tsem login$' <(ia-login --faltas) || falhou "e-mail vazio: $(ia-login --faltas)"
+ia-login --plano >"$T/plano"; grep -qE "^teste +claude +delta +- +sem login *$" "$T/plano" || falhou "plano com e-mail vazio: $(grep delta "$T/plano" | cat -A)"
+ia-conta codex --version 2>/dev/null && falhou 'ia-conta codex rodou como perfil'
+[[ -e $R/kiro ]] && falhou 'criou pasta de perfil kiro'
+ia-conta kiro 2>/dev/null || true; [[ -e $R/kiro ]] && falhou 'ia-conta kiro criou pasta de perfil'
+passou 'e-mail vazio não desloca colunas; codex/kiro não viram perfil do Claude'
