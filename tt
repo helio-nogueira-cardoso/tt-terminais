@@ -1900,10 +1900,13 @@ aerc_definir() { # arquivo seção chave valor [forcar]
 }
 
 # Conversor de HTML para o leitor: w3m (o filtro "html" do aerc) > lynx > o do tt (python, sempre há).
+# Em todos os caminhos, os links viram hyperlinks OSC 8 clicáveis (email-tt.py linkify no w3m/lynx;
+# nativo no conversor do tt): o terminal abre a URL inteira num clique, mesmo que ela esteja quebrada
+# em várias linhas na tela. Antes, o clique pegava só o pedaço da linha e caía em "wrong link".
 aerc_filtro_html() {
-  if command -v w3m >/dev/null; then echo '! html'
-  elif command -v lynx >/dev/null; then echo 'lynx -assume_charset=utf-8 -display_charset=utf-8 -dump -force_html -stdin -width=100 | colorize'
-  else echo "python3 $DIR_TT/email-tt.py html | colorize"; fi
+  if command -v w3m >/dev/null; then echo "! html | colorize | python3 $DIR_TT/email-tt.py linkify"
+  elif command -v lynx >/dev/null; then echo "lynx -assume_charset=utf-8 -display_charset=utf-8 -dump -force_html -stdin -width=100 | colorize | python3 $DIR_TT/email-tt.py linkify"
+  else echo "python3 $DIR_TT/email-tt.py html | colorize | python3 $DIR_TT/email-tt.py linkify"; fi
 }
 
 # Tema Catppuccin Mocha do aerc, igual ao resto do tt (arquivo do tt: reescrito a cada instalação).
@@ -2008,11 +2011,15 @@ aerc_reparar_se_preciso() {
   [[ -f $conf ]] || return 1   # sem config: o fluxo de cadastro cuida
   local linha_html
   linha_html=$(grep -E '^[[:space:]]*text/html[[:space:]]*=' "$conf" 2>/dev/null | tail -1)
-  # (a) sem filtro text/html; (b) filtro "! html" sem w3m; (c) aponta para lynx/w3m ausente.
+  # (a) sem filtro text/html; (b) filtro "! html" sem w3m; (c) aponta para lynx/w3m ausente;
+  # (d) usa w3m/lynx/conversor próprio mas sem o pós-filtro linkify (anterior ao OSC 8): migra.
   if [[ -z $linha_html ]] ||
-     { [[ $linha_html =~ ^[[:space:]]*text/html[[:space:]]*=[[:space:]]*!*[[:space:]]*html[[:space:]]*$ ]] && ! command -v w3m >/dev/null; } ||
+     { [[ $linha_html =~ ^[[:space:]]*text/html[[:space:]]*=[[:space:]]*!*[[:space:]]*html([[:space:]]|$) ]] && ! command -v w3m >/dev/null; } ||
      { [[ $linha_html == *lynx* ]] && ! command -v lynx >/dev/null; } ||
-     { [[ $linha_html == *w3m* ]] && ! command -v w3m >/dev/null; }; then
+     { [[ $linha_html == *w3m* ]] && ! command -v w3m >/dev/null; } ||
+     { command -v w3m >/dev/null && [[ $linha_html == *'! html'* && $linha_html != *linkify* ]]; } ||
+     { command -v lynx >/dev/null && [[ $linha_html == *lynx* && $linha_html != *linkify* ]]; } ||
+     { ! command -v w3m >/dev/null && ! command -v lynx >/dev/null && [[ $linha_html == *email-tt.py\ html* && $linha_html != *linkify* ]]; }; then
     aerc_definir "$conf" filters text/html "$(aerc_filtro_html)" forcar
     return 0
   fi
@@ -2069,13 +2076,22 @@ UI
   aerc_definir "$conf" viewer alternatives text/html,text/plain
   grep -q '^alternatives=text/plain,text/html$' "$conf" && aerc_definir "$conf" viewer alternatives text/html,text/plain forcar
   # HTML: sem o w3m o filtro "html" do aerc falha e o e-mail aparece vazio; troca pelo melhor disponível.
+  # Também migra o filtro antigo (w3m/lynx sem o pós-filtro linkify) para a versão com links OSC 8.
   local f_html; f_html=$(aerc_filtro_html)
   if ! grep -q '^[[:space:]]*text/html[[:space:]]*=' "$conf" 2>/dev/null ||
      { grep -q '^[[:space:]]*text/html[[:space:]]*=[[:space:]]*!*[[:space:]]*html[[:space:]]*$' "$conf" && ! command -v w3m >/dev/null; } ||
-     grep -q '^[[:space:]]*text/html[[:space:]]*=.*email-tt.py html' "$conf" ||
-     { command -v w3m >/dev/null && grep -q '^[[:space:]]*text/html[[:space:]]*=[[:space:]]*lynx -assume_charset=utf-8' "$conf"; }; then
+     { grep -q '^[[:space:]]*text/html[[:space:]]*=.*email-tt.py html' "$conf" && ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*linkify' "$conf"; } ||
+     { command -v w3m >/dev/null && grep -qE '^[[:space:]]*text/html[[:space:]]*=.*! *html' "$conf" && ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*linkify' "$conf"; } ||
+     { command -v w3m >/dev/null && grep -q '^[[:space:]]*text/html[[:space:]]*=[[:space:]]*lynx -assume_charset=utf-8' "$conf"; } ||
+     { command -v lynx >/dev/null && grep -q '^[[:space:]]*text/html[[:space:]]*=.*lynx' "$conf" && ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*linkify' "$conf"; }; then
     aerc_definir "$conf" filters text/html "$f_html" forcar
   fi
+
+  # Abertura de link (:open-link, Ctrl+l): o tt --abrir-url escolhe o abridor da plataforma (xdg-open
+  # no desktop, termux-open-url no Termux) e, sem GUI (ssh), copia a URL para a área de transferência
+  # para colar em outro aparelho. {} é a URL, com aspas postas pelo aerc.
+  aerc_definir "$conf" openers 'x-scheme-handler/http*' "$HOME/.local/bin/tt --abrir-url {}"
+  aerc_definir "$conf" openers 'x-scheme-handler/https*' "$HOME/.local/bin/tt --abrir-url {}"
 
   # Sem binds.conf (ou sem os atalhos básicos), o arquivo do tt substituiria os padrões do aerc e
   # nem o Enter abriria a mensagem: começa pela cópia do binds.conf que vem com o aerc.
@@ -3151,6 +3167,19 @@ copiar_local() {
   elif command -v termux-clipboard-set >/dev/null; then
     termux-clipboard-set <"$t" >/dev/null 2>&1
   fi
+  return 0
+}
+
+# Abre uma URL de e-mail (opener do aerc, :open-link). Usa o abridor da plataforma; sem GUI (ssh),
+# copia a URL para a área de transferência (mesma rota da cópia do tt, inclusive OSC 52), para
+# colar em outro aparelho. Calado e sempre com sucesso: erro na tela esconderia a mensagem do aerc.
+abrir_url() {
+  local u=${1:-}
+  [[ -n $u ]] || return 0
+  if command -v xdg-open >/dev/null; then setsid xdg-open "$u" >/dev/null 2>&1 </dev/null && return 0; fi
+  if command -v termux-open-url >/dev/null; then termux-open-url "$u" >/dev/null 2>&1 && return 0; fi
+  if [[ -n ${BROWSER:-} ]]; then setsid "$BROWSER" "$u" >/dev/null 2>&1 </dev/null && return 0; fi
+  local t; t=$(mktemp) && printf '%s' "$u" >"$t" && copiar_local "$t"; rm -f "$t"
   return 0
 }
 
@@ -7070,6 +7099,7 @@ case "${1:-}" in
   --email-assumir) email_assumir "${2:?uso: tt --email-assumir NOME}"; exit ;;
   --email-regerar) s=$(email_achar "${2:?uso: tt --email-regerar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; f_r() { local -A E=(); email_ler "$1" && email_regerar "$1"; }; f_r "$s"; exit ;;
   --email-atalhos) email_atalhos; exit 0 ;;
+  --abrir-url) abrir_url "${2:-}"; exit 0 ;;
   --anexos-enviar) anexos_enviar; exit 0 ;;
   --tarefas)
     # Abre o painel de tarefas: slide-over no tmux, ou lista texto fora dele.
