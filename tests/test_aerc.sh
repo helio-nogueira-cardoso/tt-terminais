@@ -15,8 +15,10 @@ v() { awk -v S="$1" -v K="$2" '/^\[.*\]/ { s = $0; gsub(/^\[|\].*$/, "", s); nex
 [[ $(v ui mouse-enabled) == true && $(grep -c 'mouse-enabled' "$C") == 1 ]] || falhou 'mouse não ligado uma vez só'
 [[ $(v ui threading-enabled) == true && $(v ui dirlist-tree) == true ]] || falhou 'fios/árvore de pastas não ligados'
 grep -q '^dirlist-right={{if .Unread}}' "$C" || falhou 'contagem de não lidas nas pastas ausente'
+[[ $(v ui cache-headers) == true ]] || falhou 'cache-headers=true ausente (consulta de e-mail não é acelerada)'
+[[ $(grep -c '^cache-headers' "$C") == 1 ]] || falhou 'cache-headers duplicado (não idempotente)'
 [[ $(grep -c '^\[ui\]' "$C") == 1 ]] || falhou 'seção [ui] duplicada'
-passou 'visual: tema Catppuccin, pastas em árvore com não lidas, fios; escolhas do dono preservadas; idempotente'
+passou 'visual: tema Catppuccin, pastas em árvore com não lidas, fios, cache de cabeçalhos; escolhas do dono preservadas; idempotente'
 
 h=$(v filters text/html)
 if PATH="$T/bin:/usr/bin:/bin" command -v w3m >/dev/null; then [[ $h == '! html' ]] || falhou "com w3m deveria manter '! html' (está: $h)"
