@@ -79,3 +79,10 @@ saida=$(printf 's\ncerto-outra@x.com\n' | IA_LOGIN_ESPERA=10 ia-login 2>&1)
 set -e
 grep -q '⚠ logou em outra@x.com, mas o esperado era b@x.com' <<<"$saida" || falhou "e-mail trocado não avisado: $saida"
 passou 'login em conta diferente da esperada é avisado'
+
+# Conta já logada: --iniciar recusa (o codex login derruba a credencial existente ao começar).
+ia-login --iniciar codex codex '' 2>"$T/err" && falhou 'iniciou login do Codex já logado'
+grep -q 'já está logada' "$T/err" || falhou "recusa: $(cat "$T/err")"
+ia-login --iniciar claude alfa a@x.com 2>/dev/null && falhou 'iniciou login de perfil já logado'
+tmux -L tt-login list-sessions 2>/dev/null | grep -q login- && falhou 'abriu sessão de login para conta logada'
+passou 'conta já logada nunca recebe login por cima'
