@@ -1311,7 +1311,7 @@ versao_num() { versao | awk '{ print $1 + 0 }'; }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
-  ia-conta ia-rot contas-uso.py skill-rodizio-de-contas.md nomeador-local.py)
+  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -1358,7 +1358,7 @@ pacote_valido() {
   for f in "${ARQUIVOS_PACOTE[@]}"; do
     [[ -s $dir/$f ]] || { echo "$(conf nome): ✗ pacote incompleto (falta $f), nada instalado"; return 1; }
   done
-  for f in tt tema-terminal.sh tema-agentes.sh memoria-agentes.sh ia-conta ia-rot; do
+  for f in tt tema-terminal.sh tema-agentes.sh memoria-agentes.sh ia-conta ia-rot ia-login; do
     bash -n "$dir/$f" 2>/dev/null || { echo "$(conf nome): ✗ $f com erro de sintaxe, nada instalado"; return 1; }
   done
 }
@@ -1567,8 +1567,9 @@ instalar_contas_ia() {
   e_mobile && return 0
   local n src alvo casa skill
   [[ -f $DIR_TT/ia-conta && -f $DIR_TT/ia-rot ]] || return 0
-  chmod +x "$DIR_TT/ia-conta" "$DIR_TT/ia-rot" "$DIR_TT/contas-uso.py" 2>/dev/null
+  chmod +x "$DIR_TT/ia-conta" "$DIR_TT/ia-rot" "$DIR_TT/ia-login" "$DIR_TT/contas-uso.py" 2>/dev/null
   mkdir -p "$HOME/.local/bin" "$ESTADO_DIR/passagens"
+  [[ -f $DIR_TT/ia-login ]] && ln -sfn "$DIR_TT/ia-login" "$HOME/.local/bin/ia-login"
   for n in ia-conta claude-conta ia-rot claude-rot; do
     case $n in *conta) src=$DIR_TT/ia-conta ;; *) src=$DIR_TT/ia-rot ;; esac
     alvo=$HOME/.local/bin/$n

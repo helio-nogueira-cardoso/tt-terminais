@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+# ia-login — loga, de um lugar só, as contas de IA que faltam em todas as máquinas do tt.
+#
+# Cada máquina continua com o próprio login (copiar a credencial derrubaria a outra quando o token
+# renovasse). O ia-login só faz o trabalho chato: pergunta a cada máquina o que falta (contas do
+# Claude do cadastro que ela não tem, perfis sem credencial, Codex/Kiro instalados e deslogados), roda
+# cada login num tmux isolado na máquina certa (tmux -L tt-login, longe das suas abas), mostra o link
+# (e o código, no Codex/Kiro), recebe o código do Claude e o entrega, espera as aprovações e confere
+# o e-mail que entrou.
+#
+#   ia-login [máquina...]      plano + logins (sem argumento: esta máquina e todas as do tt)
+#   ia-login --plano [máq...]  só o plano
+# Usados entre máquinas (pelo próprio ia-login, via ssh):
+#   --faltas | --iniciar P C E | --tela S | --codigo S X | --enter S | --conferir P C | --encerrar S
+set -uo pipefail
+
+AQUI=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+IA_CONTA="$AQUI/ia-conta"; [[ -x $IA_CONTA ]] || IA_CONTA=$(command -v ia-conta 2>/dev/null || echo ia-conta)
+BASE="$HOME/.claude"
+RAIZ="$HOME/.local/share/claude-contas"
+CLAUDE_BIN="$HOME/.local/bin/claude"
+[[ -x $CLAUDE_BIN ]] || CLAUDE_BIN=$(command -v claude 2>/dev/null || echo "$CLAUDE_BIN")
+CONF_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/tt
+CADASTRO=$CONF_DIR/contas-ia
+PATH_REMOTO='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"'
+ESPERA_LINK=${IA_LOGIN_ESPERA:-40}      # segundos até o link aparecer
+ESPERA_APROVACAO=${IA_LOGIN_APROVACAO:-900}
+
+tm() { tmux -L tt-login -f /dev/null "$@"; }
+die() { printf 'ia-login: %s\n' "$*" >&2; exit 1; }
+conf() { awk -v k="$1" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { print v }' "$CONF_DIR/config" 2>/dev/null; }
+
+# ───────────── lado da máquina ─────────────
+
+email_claude() { # pasta → e-mail logado (vazio se não há login)
+  local dir=$1 saida email
+  [[ -s $dir/.credentials.json ]] || return 0
+  if [[ $dir == "$BASE" ]]; then saida=$(env -u CLAUDE_CONFIG_DIR "$CLAUDE_BIN" auth status --json 2>/dev/null)
+  else saida=$(CLAUDE_CONFIG_DIR="$dir" "$CLAUDE_BIN" auth status --json 2>/dev/null); fi
+  email=$(sed -n 's/^[[:space:]]*"email"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$saida" | head -n 1)
+  if [[ -n $email ]]; then printf '%s\n' "$email" >"$dir/.account-email"; chmod 600 "$dir/.account-email"; echo "$email"; fi
+  return 0
+}
+
+email_cache() { local f=$1/.account-email; [[ -s $f ]] && head -n 1 "$f"; return 0; }
+
+# Cadastro normalizado: "provedor<TAB>e-mail<TAB>apelido" das contas vivas.
+cadastro() {
+  awk -F'\t' -v OFS='\t' 'NF == 3 && $1 ~ /@/ { $0 = "claude\t" $0 } NF >= 4 && $3 != "-" { print $1, $2, $3 }' "$CADASTRO" 2>/dev/null
+  return 0
+}
+
+# O que falta aqui: "provedor<TAB>conta<TAB>e-mail esperado<TAB>situação" (falta | sem login | nome ocupado).
+faltas() {
+  local dir nome email apelido p esperado tem
+  local -A email_de=() sem_cred=()
+  if [[ -x $CLAUDE_BIN ]]; then
+    [[ -s $BASE/.credentials.json ]] && email_de[principal]=$(email_cache "$BASE")
+    for dir in "$RAIZ"/*/; do
+      dir=${dir%/}; [[ -d $dir && ! -L $dir ]] || continue
+      nome=${dir##*/}
+      if [[ -s $dir/.credentials.json ]]; then email_de[$nome]=$(email_cache "$dir"); else sem_cred[$nome]=1; fi
+    done
+    # Perfis sem credencial: entram com o e-mail que o cadastro dá ao apelido (se der).
+    for nome in "${!sem_cred[@]}"; do
+      esperado=$(cadastro | awk -F'\t' -v n="$nome" '$1 == "claude" && $3 == n { print $2; exit }')
+      printf 'claude\t%s\t%s\tsem login\n' "$nome" "$esperado"
+    done
+    while IFS=$'\t' read -r p email apelido; do
+      [[ $p == claude ]] || continue
+      tem=""
+      for nome in "${!email_de[@]}"; do [[ ${email_de[$nome]} == "$email" ]] && tem=1; done
+      [[ -n $tem || -n ${sem_cred[$apelido]:-} ]] && continue
+      if [[ -n ${email_de[$apelido]:-} || $apelido == principal ]]; then
+        printf 'claude\t%s\t%s\tnome ocupado\n' "$apelido" "$email"
+      else
+        printf 'claude\t%s\t%s\tfalta\n' "$apelido" "$email"
+      fi
+    done < <(cadastro)
+  fi
+  # Codex e Kiro: um login por máquina; o e-mail esperado só quando o cadastro tem um só.
+  if command -v codex >/dev/null 2>&1 && ! codex login status >/dev/null 2>&1; then
+    esperado=$(cadastro | awk -F'\t' '$1 == "codex" { n++; e = $2 } END { if (n == 1) print e }')
+    printf 'codex\tcodex\t%s\tsem login\n' "$esperado"
+  fi
+  if command -v kiro-cli >/dev/null 2>&1 && ! timeout 20 kiro-cli whoami >/dev/null 2>&1; then
+    esperado=$(cadastro | awk -F'\t' '$1 == "kiro" { n++; e = $2 } END { if (n == 1) print e }')
+    printf 'kiro\tkiro\t%s\tsem login\n' "$esperado"
+  fi
+  return 0
+}
+
+iniciar() {
+  local p=$1 c=$2 e=${3:-} s cmd args
+  s="login-$p-$c"
+  tm kill-session -t "=$s" 2>/dev/null
+  case $p in
+    # Sem navegador nesta tela (BROWSER=true, sem DISPLAY): o Claude mostra o link e pede o código.
+    claude) cmd=$(printf 'env -u DISPLAY -u WAYLAND_DISPLAY BROWSER=true %q adicionar %q' "$IA_CONTA" "$c")
+            [[ -n $e ]] && cmd+=$(printf ' --email %q' "$e") ;;
+    codex) cmd='codex login --device-auth' ;;
+    # Kiro de organização (Identity Center) precisa de --license/--identity-provider/--region: vão em
+    # kiro_login= no ~/.config/tt/config da máquina.
+    kiro) args=$(conf kiro_login); cmd="kiro-cli login ${args:---use-device-flow}" ;;
+    *) die "provedor desconhecido: $p" ;;
+  esac
+  tm new-session -d -x 400 -y 60 -s "$s" "$cmd; rc=\$?; echo; echo \"[ia-login: fim \$rc]\"; sleep 900" || die 'tmux não abriu a sessão de login'
+  echo "$s"
+}
+
+tela() { tm capture-pane -J -p -t "=$1:" 2>/dev/null; return 0; }
+codigo() { tm send-keys -t "=$1:" -l "$2" && tm send-keys -t "=$1:" Enter; }
+enter() { tm send-keys -t "=$1:" Enter; }
+encerrar() { tm kill-session -t "=$1" 2>/dev/null; return 0; }
+
+conferir() { # provedor conta → e-mail logado (vazio = ainda não)
+  local p=$1 c=$2
+  case $p in
+    claude) if [[ $c == principal ]]; then email_claude "$BASE"; else email_claude "$RAIZ/$c"; fi ;;
+    codex) codex login status >/dev/null 2>&1 || return 0
+           python3 -I "$AQUI/contas-uso.py" codex=codex 2>/dev/null | awk -F'\t' '{ print ($6 != "-" && $6 != "") ? $6 : "(logado)" }' ;;
+    kiro) timeout 20 kiro-cli whoami 2>/dev/null | sed -n 's/^Email: *//p' | head -n 1 ;;
+  esac
+  return 0
+}
+
+# ───────────── orquestrador ─────────────
+
+# Máquinas: "destino<TAB>rótulo"; "." é esta.
+maquinas() {
+  local nome
+  nome=$(conf nome); printf '.\t%s\n' "${nome:-$(hostname -s)}"
+  awk '!/^[[:space:]]*#/ && NF >= 3 && $2 != "-" { print $2 "@" $1 "\t" $3 }' "$CONF_DIR/maquinas" 2>/dev/null
+  return 0
+}
+
+em() { # destino comando... (stdin nunca vai para o ssh: as respostas do usuário são lidas aqui)
+  local dest=$1; shift
+  if [[ $dest == . ]]; then "$AQUI/ia-login" "$@" </dev/null
+  else timeout "${EM_TIMEOUT:-25}" ssh -n -o BatchMode=yes -o ConnectTimeout=6 "$dest" "$PATH_REMOTO ia-login $(printf '%q ' "$@")"; fi
+}
+
+tabela() { # TSV do stdin alinhado (larguras em caracteres)
+  local -a linhas campos larg=(); local l i n
+  mapfile -t linhas
+  for l in "${linhas[@]}"; do IFS=$'\t' read -r -a campos <<<"$l"; n=${#campos[@]}
+    for ((i = 0; i < n - 1; i++)); do ((${#campos[i]} > ${larg[i]:-0})) && larg[i]=${#campos[i]}; done; done
+  for l in "${linhas[@]}"; do IFS=$'\t' read -r -a campos <<<"$l"; n=${#campos[@]}
+    for ((i = 0; i < n - 1; i++)); do printf '%s%*s  ' "${campos[i]}" $((${larg[i]:-0} - ${#campos[i]})) ''; done
+    printf '%s\n' "${campos[n - 1]}"; done
+}
+
+# Link de login na tela (o mais longo: o do Claude é enorme e vem inteiro com capture -J).
+achar_link() { grep -oE 'https://[^[:space:]"<>]+' <<<"$1" | awk '{ print length, $0 }' | sort -rn | head -n 1 | cut -d' ' -f2-; }
+achar_codigo() { grep -oE '\b[A-Z0-9]{4}-[A-Z0-9]{4,}\b' <<<"$1" | tail -n 1; }
+
+copiar() { # o link vai para a área de transferência (e, pelo tt, para as outras máquinas)
+  [[ -n ${IA_LOGIN_SEM_COPIAR:-} ]] && return 1
+  command -v tt >/dev/null 2>&1 && printf '%s' "$1" | tt --copiar >/dev/null 2>&1 && return 0
+  return 1
+}
+
+declare -a PLANO=() RESULTADO=()
+
+montar_plano() {
+  local dest rot tmp f p c e sit
+  tmp=$(mktemp -d)
+  while IFS=$'\t' read -r dest rot; do
+    if (($#)) && ! printf '%s\n' "$@" | grep -qxF -- "$rot"; then continue; fi
+    ( em "$dest" --faltas >"$tmp/$rot.tsv" 2>/dev/null || echo "$dest" >"$tmp/$rot.erro"; echo "$dest" >"$tmp/$rot.dest" ) &
+  done < <(maquinas)
+  wait
+  for f in $(ls "$tmp"/*.dest 2>/dev/null | sort); do
+    [[ -e $f ]] || continue
+    rot=$(basename "$f" .dest); dest=$(cat "$f")
+    if [[ -e $tmp/$rot.erro ]]; then PLANO+=("$rot"$'\t'"$dest"$'\t-\t-\t-\tsem resposta'); continue; fi
+    while IFS=$'\t' read -r p c e sit; do
+      [[ -n $p ]] && PLANO+=("$rot"$'\t'"$dest"$'\t'"$p"$'\t'"$c"$'\t'"${e:--}"$'\t'"$sit")
+    done < <(sort -t$'\t' -k1,1 -k2,2 "$tmp/$rot.tsv") # ordem estável: provedor, conta
+  done
+  rm -rf "$tmp"
+}
+
+mostrar_plano() {
+  local l rot dest p c e sit
+  { printf 'MÁQUINA\tPROVEDOR\tCONTA\tE-MAIL ESPERADO\tSITUAÇÃO\n'
+    for l in "${PLANO[@]}"; do
+      IFS=$'\t' read -r rot dest p c e sit <<<"$l"
+      case $sit in 'nome ocupado') sit="nome ocupado por outro e-mail (ia-conta renomear $c <outro> antes)" ;; esac
+      printf '%s\t%s\t%s\t%s\t%s\n' "$rot" "$p" "$c" "$e" "$sit"
+    done; } | tabela
+}
+
+# Um login: devolve 0 se terminou com login (e-mail conferido), 1 se não.
+um_login() {
+  local rot=$1 dest=$2 p=$3 c=$4 e=$5 s t="" link="" cod="" resp enters=0 i email fim
+  [[ $e == - ]] && e=""
+  s=$(em "$dest" --iniciar "$p" "$c" "$e") || { echo "  ✗ não consegui iniciar o login em $rot"; return 1; }
+  # Espera o link (e o código, nos fluxos de dispositivo).
+  for ((i = 0; i < ESPERA_LINK * 2; i++)); do
+    t=$(em "$dest" --tela "$s")
+    link=$(achar_link "$t")
+    [[ $p == claude ]] || cod=$(achar_codigo "$t")
+    [[ -n $link && ( $p == claude || -n ${cod:-} ) ]] && break
+    grep -q '^\[ia-login: fim' <<<"$t" && break
+    # Kiro pergunta URL/região mesmo com elas na linha de comando: Enter aceita o padrão.
+    if [[ $p == kiro && -z $link ]] && ((enters < 3)) && grep -qiE '(start url|region|região)' <<<"$(tail -n 3 <<<"$t")"; then
+      em "$dest" --enter "$s" >/dev/null; enters=$((enters + 1))
+    fi
+    sleep 0.5
+  done
+  if [[ -z $link ]]; then
+    echo "  ✗ a tela de login não mostrou link. Últimas linhas:"; tail -n 6 <<<"$t" | sed 's/^/    /'
+    printf '  Para terminar na mão: %s\n' "$( [[ $dest == . ]] && echo "tmux -L tt-login attach -t $s" || echo "ssh -t $dest tmux -L tt-login attach -t $s")"
+    read -r -p '  Enter quando terminar (ou para pular): ' resp
+    email=$(em "$dest" --conferir "$p" "$c"); em "$dest" --encerrar "$s" >/dev/null
+    [[ -n $email ]] && { conferir_email "$email" "$e"; return 0; }
+    return 1
+  fi
+  echo "  Abra este link (no celular ou aqui):"; echo; echo "    $link"; echo
+  copiar "$link" && echo "  (link copiado para a área de transferência)"
+  command -v qrencode >/dev/null 2>&1 && [[ ${#link} -lt 400 ]] && qrencode -t ANSIUTF8 -m 1 "$link" | sed 's/^/    /'
+  if [[ $p == claude ]]; then
+    [[ -n $e ]] && echo "  Entre com $e. No fim, a página mostra um código."
+    read -r -p '  Cole o código aqui (Enter vazio pula): ' resp || resp=""
+    resp=${resp//[[:space:]]/}
+    if [[ -z $resp ]]; then em "$dest" --encerrar "$s" >/dev/null; echo '  — pulado'; return 1; fi
+    em "$dest" --codigo "$s" "$resp" >/dev/null
+    for ((i = 0; i < 60; i++)); do
+      t=$(em "$dest" --tela "$s"); grep -q '^\[ia-login: fim' <<<"$t" && break; sleep 0.5
+    done
+    fim=$(grep -oE '^\[ia-login: fim [0-9]+' <<<"$t" | grep -oE '[0-9]+$')
+  else
+    echo "  Código: $cod   (vale ~10–15 min)"
+    echo "  Aguardando a aprovação… (Enter pula)"
+    for ((i = 0; i < ESPERA_APROVACAO / 3; i++)); do
+      t=$(em "$dest" --tela "$s"); grep -q '^\[ia-login: fim' <<<"$t" && break
+      if read -r -t 3 resp; then break; else (($? > 128)) || sleep 3; fi
+    done
+    fim=$(grep -oE '^\[ia-login: fim [0-9]+' <<<"$t" | grep -oE '[0-9]+$')
+  fi
+  email=$(em "$dest" --conferir "$p" "$c")
+  em "$dest" --encerrar "$s" >/dev/null
+  if [[ -z $email ]]; then
+    echo "  ✗ não entrou${fim:+ (o login saiu com $fim)}. Últimas linhas:"; grep -v '^\[ia-login' <<<"$t" | tail -n 4 | sed 's/^/    /'
+    return 1
+  fi
+  conferir_email "$email" "$e"
+}
+
+conferir_email() {
+  local email=$1 esperado=$2
+  if [[ $email == '(logado)' ]]; then echo '  ✓ logado'
+  elif [[ -z $esperado || $email == "$esperado" ]]; then echo "  ✓ logado ($email)"
+  else echo "  ⚠ logou em $email, mas o esperado era $esperado — confira (ia-conta listar)"; fi
+  return 0
+}
+
+orquestrar() {
+  local so_plano=$1; shift
+  local l rot dest p c e sit n=0 total=0 ok=0 resp
+  echo 'Perguntando às máquinas o que falta…'
+  montar_plano "$@"
+  for l in "${PLANO[@]}"; do IFS=$'\t' read -r rot dest p c e sit <<<"$l"; [[ $sit == falta || $sit == 'sem login' ]] && total=$((total + 1)); done
+  if ((${#PLANO[@]} == 0)); then echo 'Nada a fazer: todas as contas do cadastro estão logadas em todas as máquinas.'; return 0; fi
+  echo; mostrar_plano; echo
+  ((total)) || { echo 'Nenhum login a fazer daqui (veja a situação acima).'; return 0; }
+  [[ $so_plano == 1 ]] && return 0
+  read -r -p "Fazer os $total login(s) agora, um de cada vez? [S/n] " resp || resp=n
+  [[ -z $resp || $resp == [sS]* ]] || { echo 'Nada feito.'; return 0; }
+  for l in "${PLANO[@]}"; do
+    IFS=$'\t' read -r rot dest p c e sit <<<"$l"
+    [[ $sit == falta || $sit == 'sem login' ]] || continue
+    n=$((n + 1))
+    printf '\n[%d/%d] %s · %s · %s%s\n' "$n" "$total" "$rot" "$p" "$c" "$( [[ $e != - ]] && echo " ($e)")"
+    if um_login "$rot" "$dest" "$p" "$c" "$e"; then ok=$((ok + 1)); RESULTADO+=("✓ $rot $p $c"); else RESULTADO+=("✗ $rot $p $c"); fi
+  done
+  printf '\nResumo: %d de %d\n' "$ok" "$total"; printf '  %s\n' "${RESULTADO[@]}"
+  ((ok == total))
+}
+
+case ${1:-} in
+  --faltas) faltas ;;
+  --iniciar) iniciar "$2" "$3" "${4:-}" ;;
+  --tela) tela "$2" ;;
+  --codigo) codigo "$2" "$3" ;;
+  --enter) enter "$2" ;;
+  --conferir) conferir "$2" "$3" ;;
+  --encerrar) encerrar "$2" ;;
+  --plano) orquestrar 1 "${@:2}" ;;
+  -h | --help | ajuda) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) orquestrar 0 "$@" ;;
+esac

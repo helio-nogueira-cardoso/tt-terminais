@@ -231,6 +231,16 @@ token renovasse. `ia-conta cadastro nomear <apelido|e-mail|provedor:e-mail> <nov
 principal e um perfil logados no mesmo e-mail) são a mesma janela de uso: o `ia-rot` bloqueia as duas
 juntas e nunca passa a tarefa de uma para a outra.
 
+**Logar o que falta, de um lugar só:** `ia-login` pergunta a cada máquina do tt o que falta (contas do
+Claude do cadastro que ela não tem, perfis sem credencial, Codex/Kiro instalados e deslogados),
+mostra o plano e faz os logins um por um, cada um num tmux isolado na máquina certa (`tmux -L
+tt-login`, longe das suas abas). Para cada um ele mostra o link (copiado para a área de
+transferência; QR code se houver `qrencode`), no Claude recebe o código que a página dá e o entrega
+(a página já abre com o e-mail esperado), no Codex/Kiro mostra o código do dispositivo e espera a
+aprovação; no fim confere o e-mail que entrou e avisa se não é o esperado. `ia-login --plano` só
+mostra o que falta. Kiro de organização: os argumentos do login (`--license`, `--identity-provider`,
+`--region`) vão em `kiro_login=` no `~/.config/tt/config` da máquina.
+
 A coluna **USO** mostra a janela de 5 h e a semanal do Claude e do Codex (`5h 23% · 7d 65%`) e os
 créditos do mês do Kiro (o mesmo do `/usage`). O horário entre parênteses é quando a janela volta.
 Os tokens do Claude vencidos são renovados pelo próprio Claude, que sai antes de gastar qualquer uso;
