@@ -181,7 +181,7 @@ rg -q '^tarefa_add_sub\(\)' "$tt" || falha 'tarefas: subtarefas ausentes'
 rg -q '^tarefa_sub_mover\(\)' "$tt" || falha 'tarefas: reordenação de subtarefa ausente'
 rg -q '^tarefas_filtro_ciclar\(\)' "$tt" || falha 'tarefas: filtro (abertas/feitas/prazo/todas) ausente'
 rg -q '^calendario_tui\(\)' "$tt" || falha 'tarefas: calendário interativo ausente'
-for v in --tarefa-sub-prompt --tarefa-desc-prompt --tarefa-prazo-prompt --tarefa-sub-mover --tarefa-filtro-ciclar --tarefa-expandir --tarefa-preview --calendario; do
+for v in --tarefa-sub-prompt --tarefa-desc-prompt --tarefa-prazo-prompt --tarefa-sub-mover --tarefa-filtro-ciclar --tarefa-expandir --tarefa-preview --calendario --tarefas-cabecalho --tarefa-cabecalho-clique; do
   rg -Fq -- "$v)" "$tt" || falha "tarefas: verbo $v ausente"
 done
 # o 6º campo não quebra o merge: ainda chaveado por id, com NF>=5
@@ -189,6 +189,12 @@ rg -q 'NF >= 5' "$tt" || falha 'tarefas: merge perdeu a tolerância NF>=5 (quebr
 # clique no relógio abre o calendário num popup
 rg -Fq 'relogio) tmux display-popup' "$tt" || falha 'tarefas: clique no relógio não abre o calendário'
 rg -q 'range=user\|relogio' "$tema" || falha 'tarefas: relógio sem range clicável no tema'
+# painel mais clicável e com abas de filtro: left-click alterna, double-click expande, click-header troca filtro
+corpo_ui=$(sed -n '/^tarefas_ui()/,/^}/p' "$tt")
+grep -Fq 'left-click:execute-silent' <<<"$corpo_ui" || falha 'tarefas: left-click não alterna o item'
+grep -Fq 'double-click:execute-silent' <<<"$corpo_ui" || falha 'tarefas: double-click não expande'
+grep -Fq 'click-header:execute-silent' <<<"$corpo_ui" || falha 'tarefas: cabeçalho (abas de filtro) não é clicável'
+rg -q '^tarefas_cabecalho\(\)' "$tt" || falha 'tarefas: cabeçalho com abas de filtro ausente'
 ((falhas == base)) && ok 'tarefas ricas: wrap, descrição, prazo, subtarefas, filtro e calendário' || true
 
 # Gerência de contas de e-mail (cadastro guiado): funções, verbos e item de menu existem; o
