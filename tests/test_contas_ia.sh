@@ -151,7 +151,9 @@ ia-conta cadastro nomear codex:a@x.com novo >/dev/null || falhou 'mesmo apelido 
 ia-conta cadastro esquecer novo 2>/dev/null && falhou 'esquecer apelido de dois provedores sem dizer qual'
 ia-conta cadastro esquecer claude:a@x.com >/dev/null
 grep -q $'^claude\ta@x.com\t-\t' "$C" && grep -q $'^codex\ta@x.com\tnovo\t' "$C" || falhou "cadastro esquecer: $(cat "$C")"
+printf 'kiro\tk@x.com\tk\t%s\n' "$(date +%s)" | "$TT" --receber-contas-ia
 out=$(ia-conta cadastro)
+grep -qE '^kiro +k +k@x.com +não instalado$' <<<"$out" || falhou "provedor sem CLI aqui: $out"
 grep -qE '^claude +novo ' <<<"$out" && falhou "esquecida ainda listada: $out"
 grep -qE '^claude +beta +beta@exemplo.com +beta$' <<<"$out" && grep -qE '^claude +tres +b@x.com +falta$' <<<"$out" &&
   grep -qE '^codex +cx +cx@exemplo.com +codex$' <<<"$out" || falhou "cadastro: $out"

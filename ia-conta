@@ -443,7 +443,7 @@ resolver_par() {
 
 # ia-conta cadastro [nomear <apelido|e-mail|provedor:e-mail> <novo> | esquecer <...>]
 cadastro() {
-  local acao=${1:-} alvo=${2:-} novo=${3:-} p email c par
+  local acao=${1:-} alvo=${2:-} novo=${3:-} p email c par aq
   case $acao in
     '')
       [[ -s $CADASTRO ]] || { echo 'Cadastro vazio: o ia-conta listar registra as contas desta máquina.'; return 0; }
@@ -452,7 +452,11 @@ cadastro() {
       { printf 'PROVEDOR\tAPELIDO\tE-MAIL\tAQUI\n'
         while IFS=$'\t' read -r p email c _; do
           [[ $c == - ]] && continue
-          printf '%s\t%s\t%s\t%s\n' "$p" "$c" "$email" "${aqui[$p$'\t'$email]:-falta}"
+          aq=${aqui[$p$'\t'$email]:-falta}
+          # Codex e Kiro sem CLI aqui não "faltam": a máquina simplesmente não usa o provedor.
+          [[ $aq == falta && $p != claude ]] && ! command -v "$( [[ $p == kiro ]] && echo kiro-cli || echo "$p")" >/dev/null 2>&1 &&
+            aq='não instalado'
+          printf '%s\t%s\t%s\t%s\n' "$p" "$c" "$email" "$aq"
         done < <(cadastro_linhas | sort -t$'\t' -k1,1 -k3,3)
       } | tabela
       ;;
