@@ -90,8 +90,8 @@ O nome antigo claude-conta continua valendo.
 
 abrir escolhe, entre todas as contas da rotação (Claude, Codex e Kiro), a com mais folga de uso
 neste momento (ia-rot --melhor) e a abre interativa no modo sem confirmações do provedor:
-claude --dangerously-skip-permissions, codex --yolo, kiro-cli chat --v3 --trust-all-tools.
---retomar continua a conversa do Claude dada quando a escolhida também é do Claude (as conversas
+claude --dangerously-skip-permissions, codex --yolo (no Android, também --no-daemon),
+kiro-cli chat --v3 --trust-all-tools. --retomar continua a conversa do Claude dada quando a escolhida também é do Claude (as conversas
 são compartilhadas entre as contas); se for Codex ou Kiro, abre uma sessão nova.
 
 "principal" usa a credencial que já estava em ~/.claude. Os demais perfis têm
@@ -668,6 +668,8 @@ abrir() {
   case $conta in
     codex)
       [[ -n $retomar ]] && echo '(conversa do Claude não continua no Codex: sessão nova)'
+      # No Android (proot) o Codex não tem o pacote do servidor em segundo plano e sai com erro.
+      if [[ -n ${ANDROID_ROOT:-} ]]; then exec env IA_CONTA=codex codex --no-daemon --yolo; fi
       exec env IA_CONTA=codex codex --yolo ;;
     kiro)
       [[ -n $retomar ]] && echo '(conversa do Claude não continua no Kiro: sessão nova)'
