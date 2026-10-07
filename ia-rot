@@ -49,7 +49,11 @@ done
 
 contas=(principal)
 [ -d "$RAIZ" ] && for d in "$RAIZ"/*/; do
-  c=$(basename "$d"); case $c in codex|kiro) continue ;; esac; [ -d "$d" ] && [ ! -L "${d%/}" ] && contas+=("$c"); done
+  c=$(basename "$d")
+  [[ $c =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || continue # ignora travas (.lock) e outras pastas
+  case $c in codex|kiro) continue ;; esac
+  [ -d "$d" ] && [ ! -L "${d%/}" ] && contas+=("$c")
+done
 [[ $CLAUDE_ONLY == 1 ]] || contas+=(codex kiro)
 blk_marca(){ awk -F'\t' -v c="$1" '$1==c{v=$2} END{print v+0}' "$STATE" 2>/dev/null; }
 # Bloqueio vigente da conta. O uso medido no provedor vale mais que a marca tirada do texto de um erro

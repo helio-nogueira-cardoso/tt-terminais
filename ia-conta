@@ -267,6 +267,7 @@ contas_rotacao() {
     for dir in "$RAIZ"/*/; do
       dir=${dir%/}
       [[ -d $dir && ! -L $dir ]] || continue
+      nome_valido "${dir##*/}" || continue # travas (.lock) e outras pastas não são contas
       case ${dir##*/} in codex | kiro) continue ;; esac
       echo "${dir##*/}"
     done
