@@ -239,6 +239,8 @@ remover() {
 rodar() {
   local nome=$1 dir
   shift
+  # codex/kiro são outros provedores, não perfis do Claude (criar a pasta deixava um perfil vazio).
+  case $nome in codex | kiro) die "'$nome' não é conta do Claude; rode $( [[ $nome == kiro ]] && echo kiro-cli || echo codex) direto (ou veja: ia-conta uso $nome)" ;; esac
   if [[ $nome == principal ]]; then
     IA_CONTA=principal exec env -u CLAUDE_CONFIG_DIR "$CLAUDE_BIN" "$@"
   fi

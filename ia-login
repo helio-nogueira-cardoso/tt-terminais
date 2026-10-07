@@ -51,6 +51,7 @@ cadastro() {
 }
 
 # O que falta aqui: "provedor<TAB>conta<TAB>e-mail esperado<TAB>situação" (falta | sem login | nome ocupado).
+# E-mail desconhecido sai "-": o read do bash junta tabs seguidos (campo vazio deslocaria as colunas).
 faltas() {
   local dir nome email apelido p esperado tem
   local -A email_de=() sem_cred=()
@@ -59,12 +60,13 @@ faltas() {
     for dir in "$RAIZ"/*/; do
       dir=${dir%/}; [[ -d $dir && ! -L $dir ]] || continue
       nome=${dir##*/}
+      case $nome in codex | kiro) continue ;; esac # não são perfis do Claude
       if [[ -s $dir/.credentials.json ]]; then email_de[$nome]=$(email_cache "$dir"); else sem_cred[$nome]=1; fi
     done
     # Perfis sem credencial: entram com o e-mail que o cadastro dá ao apelido (se der).
     for nome in "${!sem_cred[@]}"; do
       esperado=$(cadastro | awk -F'\t' -v n="$nome" '$1 == "claude" && $3 == n { print $2; exit }')
-      printf 'claude\t%s\t%s\tsem login\n' "$nome" "$esperado"
+      printf 'claude\t%s\t%s\tsem login\n' "$nome" "${esperado:--}"
     done
     while IFS=$'\t' read -r p email apelido; do
       [[ $p == claude ]] || continue
@@ -81,11 +83,11 @@ faltas() {
   # Codex e Kiro: um login por máquina; o e-mail esperado só quando o cadastro tem um só.
   if command -v codex >/dev/null 2>&1 && ! codex login status >/dev/null 2>&1; then
     esperado=$(cadastro | awk -F'\t' '$1 == "codex" { n++; e = $2 } END { if (n == 1) print e }')
-    printf 'codex\tcodex\t%s\tsem login\n' "$esperado"
+    printf 'codex\tcodex\t%s\tsem login\n' "${esperado:--}"
   fi
   if command -v kiro-cli >/dev/null 2>&1 && ! timeout 20 kiro-cli whoami >/dev/null 2>&1; then
     esperado=$(cadastro | awk -F'\t' '$1 == "kiro" { n++; e = $2 } END { if (n == 1) print e }')
-    printf 'kiro\tkiro\t%s\tsem login\n' "$esperado"
+    printf 'kiro\tkiro\t%s\tsem login\n' "${esperado:--}"
   fi
   return 0
 }
