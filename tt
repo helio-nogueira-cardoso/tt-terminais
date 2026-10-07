@@ -2754,7 +2754,7 @@ ir_para() {
   local dest=$1 s=$2 origem om op
   origem=$(origem_ponte "${TT_CLIENTE:-}")
   om=${origem%%|*} op=${origem#*|}
-  if [[ -n $origem && -n $op ]] && ssh "${SSH_OPC[@]}" "$(dest_de "$om")" "$TT_REMOTO --ir-ponte $(q "$op" "$(rotulo "$dest")" "$s")" </dev/null; then
+  if [[ $dest != . && -n $origem && -n $op ]] && ssh "${SSH_OPC[@]}" "$(dest_de "$om")" "$TT_REMOTO --ir-ponte $(q "$op" "$(rotulo "$dest")" "$s")" </dev/null; then
     sair_menu
     return 0
   fi
