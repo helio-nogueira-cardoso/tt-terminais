@@ -203,7 +203,7 @@ renomear() {
   trocar_nome_estado "$velho" "$novo"
   email=$(email_local "$novo")
   if [[ -n $email && $(cadastro_nome "$email") == "$velho" ]] && [[ -z $(cadastro_email "$novo") ]]; then
-    printf '%s\t%s\t%s\n' "$email" "$novo" "$(date +%s)" | cadastro_gravar
+    printf '%s\t%s\t%s\n' "$email" "$novo" "$(hora_mudanca "$email")" | cadastro_gravar
   fi
   redesenhar_tt
   printf 'Conta "%s" agora se chama "%s" (atalho: claude-%s).\n' "$velho" "$novo" "$novo"
@@ -321,6 +321,16 @@ cadastro_linhas() { awk -F'\t' 'NF >= 3' "$CADASTRO" 2>/dev/null || true; }
 cadastro_nome() { cadastro_linhas | awk -F'\t' -v e="$1" '$1 == e { print $2 }'; }
 cadastro_email() { cadastro_linhas | awk -F'\t' -v n="$1" '$2 == n { print $1 }'; }
 
+# Hora para uma mudança no e-mail E: agora, ou a da entrada atual + 1 se ela estiver no futuro
+# (relógio adiantado em outra máquina): senão a mudança perderia na mesclagem.
+hora_mudanca() {
+  local agora t
+  agora=$(date +%s)
+  t=$(cadastro_linhas | awk -F'\t' -v e="$1" '$1 == e { print $3 }')
+  ((${t:-0} >= agora)) && agora=$((t + 1))
+  echo "$agora"
+}
+
 # Grava as linhas do stdin no cadastro (o tt mescla, com trava) e envia às outras máquinas.
 cadastro_gravar() {
   if [[ -z $TT_BIN ]]; then cat >/dev/null; return 0; fi
@@ -372,8 +382,15 @@ cadastro_resumo() { # linhas "conta<TAB>e-mail" das contas Claude daqui
   [[ -s $CADASTRO ]] || return 0
   while IFS=$'\t' read -r email nome ts; do
     [[ $nome == - ]] && continue
-    awk -F'\t' -v e="$email" '$2 == e { f = 1 } END { exit !f }' <<<"$locais" ||
+    awk -F'\t' -v e="$email" '$2 == e { f = 1 } END { exit !f }' <<<"$locais" && continue
+    # O nome já é de outra conta daqui: adicionar por cima trocaria o login dela.
+    c=$(awk -F'\t' -v n="$nome" '$1 == n { print $2 }' <<<"$locais")
+    if [[ -n $c ]]; then
+      n=$(cadastro_nome "$c"); [[ -z $n || $n == - || $n == "$nome" ]] && n='<outro-nome>'
+      faltam+="  $nome  $email  → antes, ia-conta renomear $nome $n; depois ia-conta adicionar $nome"$'\n'
+    else
       faltam+="  $nome  $email  → ia-conta adicionar $nome"$'\n'
+    fi
   done < <(cadastro_linhas)
   while IFS=$'\t' read -r c email; do
     [[ $c == principal || $email != *@* ]] && continue
@@ -407,7 +424,7 @@ cadastro() {
       if [[ $alvo == *@* ]]; then email=$alvo; else email=$(cadastro_email "$alvo"); fi
       [[ -n $email && -n $(cadastro_nome "$email") ]] || die "'$alvo' não está no cadastro (veja: ia-conta cadastro)"
       if [[ $acao == esquecer ]]; then
-        printf '%s\t-\t%s\n' "$email" "$(date +%s)" | cadastro_gravar
+        printf '%s\t-\t%s\n' "$email" "$(hora_mudanca "$email")" | cadastro_gravar
         echo "\"$email\" saiu do cadastro de todas as máquinas (as contas já logadas continuam)."
         return 0
       fi
@@ -415,7 +432,7 @@ cadastro() {
       nome_reservado "$novo" && die "'$novo' é reservado; escolha outro nome"
       c=$(cadastro_email "$novo")
       [[ -z $c || $c == "$email" ]] || die "'$novo' já é o nome de $c no cadastro"
-      printf '%s\t%s\t%s\n' "$email" "$novo" "$(date +%s)" | cadastro_gravar
+      printf '%s\t%s\t%s\n' "$email" "$novo" "$(hora_mudanca "$email")" | cadastro_gravar
       echo "No cadastro, $email agora é \"$novo\" (nas máquinas: ia-conta renomear <nome-local> $novo)."
       ;;
     *) uso >&2; exit 2 ;;
