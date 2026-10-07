@@ -218,15 +218,18 @@ principal do Claude (`~/.claude`), as contas do `ia-conta` em ordem alfabética,
     ia-conta remover emp             # guarda em ~/.local/share/claude-contas.removidas
     ia-conta uso --eu                # uso da conta desta sessão (saída 0 ok, 3 aviso, 4 passar)
 
-    ia-conta cadastro                # contas de todas as máquinas: nome, e-mail e o nome aqui (ou falta)
+    ia-conta cadastro                # contas de todas as máquinas: provedor, apelido, e-mail, nome aqui
 
-**Cadastro comum:** o `listar` registra cada conta do Claude desta máquina pelo e-mail num cadastro
-igual em todas as máquinas (`~/.config/tt/contas-ia`, enviado a cada mudança e conferido pelo vigia a
-cada 30 min) e, depois da tabela, mostra as contas do cadastro que faltam aqui e os nomes locais
-diferentes do cadastro. A credencial não é copiada: cada máquina faz o próprio login (`ia-conta
-adicionar <nome>`), porque duas máquinas com a mesma cópia se derrubariam quando o token renovasse.
-`ia-conta cadastro nomear <nome|e-mail> <novo>` muda o nome no cadastro e `ia-conta cadastro
-esquecer <nome|e-mail>` tira a conta dele; `renomear` local leva junto o nome do cadastro.
+**Cadastro comum:** uma conta é o par **(provedor, e-mail)** — `claude`, `codex` ou `kiro` — e o
+apelido é só um rótulo. O `listar` (que tem a coluna PROVEDOR) registra as contas desta máquina num
+cadastro igual em todas (`~/.config/tt/contas-ia`, enviado a cada mudança e conferido pelo vigia a
+cada 30 min) e, depois da tabela, mostra as contas do Claude do cadastro que faltam aqui (o Claude é
+o único com vários perfis por máquina) e apelidos locais diferentes, que são opcionais. A credencial
+não é copiada: cada máquina faz o próprio login, porque duas com a mesma cópia se derrubariam quando o
+token renovasse. `ia-conta cadastro nomear <apelido|e-mail|provedor:e-mail> <novo>` muda o apelido e
+`ia-conta cadastro esquecer <…>` tira a conta do cadastro. Duas contas locais com o mesmo par (a
+principal e um perfil logados no mesmo e-mail) são a mesma janela de uso: o `ia-rot` bloqueia as duas
+juntas e nunca passa a tarefa de uma para a outra.
 
 A coluna **USO** mostra a janela de 5 h e a semanal do Claude e do Codex (`5h 23% · 7d 65%`) e os
 créditos do mês do Kiro (o mesmo do `/usage`). O horário entre parênteses é quando a janela volta.

@@ -21,6 +21,7 @@ CADASTRO="${XDG_CONFIG_HOME:-$HOME/.config}/tt/contas-ia"
 TT_BIN="$AQUI/tt"
 [[ -x $TT_BIN ]] || TT_BIN=$(command -v tt 2>/dev/null || true)
 ESTADO_ROT="$HOME/.cache/claude-rot.state"
+EMAILS_CACHE="$HOME/.cache/ia-conta.emails" # e-mail do Codex e do Kiro daqui (o do Claude fica na pasta)
 ATUAL_ROT="$HOME/.cache/claude-rot.current"
 # Percentuais de referência (os mesmos do ia-rot): a partir do aviso, preparar a passagem; no
 # limite, passar a tarefa adiante.
@@ -72,7 +73,7 @@ Uso:
   ia-conta remover <conta> [--sim]
   ia-conta listar [--rapido]
   ia-conta uso [--eu | <conta>...]
-  ia-conta cadastro [nomear <nome|e-mail> <novo> | esquecer <nome|e-mail>]
+  ia-conta cadastro [nomear <apelido|e-mail|provedor:e-mail> <novo> | esquecer <...>]
 
 Exemplos:
   ia-conta adicionar pessoal    # abre o login uma única vez para a conta
@@ -93,10 +94,11 @@ coluna USO: janela de 5 h e semanal do Claude e do Codex, créditos do mês do K
 Tokens vencidos do Claude são renovados pelo próprio Claude (--rapido pula isso e
 usa o último valor conhecido, marcado com ~).
 
-cadastro é a lista comum de contas do Claude (e-mail → nome) de todas as máquinas do tt,
-preenchida pelo listar. Cada máquina faz o próprio login (copiar a credencial derrubaria a
-outra quando o token renovasse); o listar mostra as contas do cadastro que faltam aqui e os
-nomes locais diferentes do cadastro. nomear muda o nome no cadastro; esquecer tira dele.
+cadastro é a lista comum de contas de todas as máquinas do tt, identificadas pelo par
+(provedor, e-mail) — claude, codex, kiro — com um apelido que é só rótulo; o listar a preenche.
+Cada máquina faz o próprio login (copiar a credencial derrubaria a outra quando o token
+renovasse); o listar mostra as contas do Claude do cadastro que faltam aqui. nomear muda o
+apelido; esquecer tira a conta do cadastro.
 
 uso imprime "conta<TAB>pico%<TAB>situação<TAB>detalhe"; situação é ok, aviso (pico
 ≥ CLAUDE_ROT_AVISO, padrão 85) ou passar (≥ CLAUDE_ROT_LIMITE, padrão 95). Saída 0
@@ -202,8 +204,8 @@ renomear() {
   criar_atalho "$novo"
   trocar_nome_estado "$velho" "$novo"
   email=$(email_local "$novo")
-  if [[ -n $email && $(cadastro_nome "$email") == "$velho" ]] && [[ -z $(cadastro_email "$novo") ]]; then
-    printf '%s\t%s\t%s\n' "$email" "$novo" "$(hora_mudanca "$email")" | cadastro_gravar
+  if [[ -n $email && $(cadastro_nome claude "$email") == "$velho" ]] && [[ -z $(cadastro_par "$novo" claude) ]]; then
+    printf 'claude\t%s\t%s\t%s\n' "$email" "$novo" "$(hora_mudanca claude "$email")" | cadastro_gravar
   fi
   redesenhar_tt
   printf 'Conta "%s" agora se chama "%s" (atalho: claude-%s).\n' "$velho" "$novo" "$novo"
@@ -315,18 +317,22 @@ hora_reset() {
   date -d "@$t" "$f" 2>/dev/null || date -r "$t" "$f" 2>/dev/null || true # GNU / macOS
 }
 
-# Cadastro comum (todas as máquinas, mantido pelo tt): "e-mail<TAB>nome<TAB>hora"; nome "-" = esquecida.
-# Só contas do Claude: Codex e Kiro têm um login por máquina, sem perfis.
-cadastro_linhas() { awk -F'\t' 'NF >= 3' "$CADASTRO" 2>/dev/null || true; }
-cadastro_nome() { cadastro_linhas | awk -F'\t' -v e="$1" '$1 == e { print $2 }'; }
-cadastro_email() { cadastro_linhas | awk -F'\t' -v n="$1" '$2 == n { print $1 }'; }
+# Cadastro comum (todas as máquinas, mantido pelo tt): "provedor<TAB>e-mail<TAB>apelido<TAB>hora".
+# A identidade de uma conta é o par (provedor, e-mail): o apelido é só o rótulo (apelido "-" =
+# esquecida). Linhas antigas "e-mail<TAB>apelido<TAB>hora" são do Claude.
+cadastro_linhas() {
+  awk -F'\t' -v OFS='\t' 'NF == 3 && $1 ~ /@/ { print "claude", $0; next } NF >= 4' "$CADASTRO" 2>/dev/null || true
+}
+cadastro_nome() { cadastro_linhas | awk -F'\t' -v p="$1" -v e="$2" '$1 == p && $2 == e { print $3 }'; }
+# Pares "provedor<TAB>e-mail" com o apelido N (de qualquer provedor, ou só do provedor P).
+cadastro_par() { cadastro_linhas | awk -F'\t' -v OFS='\t' -v n="$1" -v p="${2:-}" '$3 == n && (p == "" || $1 == p) { print $1, $2 }'; }
 
-# Hora para uma mudança no e-mail E: agora, ou a da entrada atual + 1 se ela estiver no futuro
+# Hora para uma mudança no par P E: agora, ou a da entrada atual + 1 se ela estiver no futuro
 # (relógio adiantado em outra máquina): senão a mudança perderia na mesclagem.
 hora_mudanca() {
   local agora t
   agora=$(date +%s)
-  t=$(cadastro_linhas | awk -F'\t' -v e="$1" '$1 == e { print $3 }')
+  t=$(cadastro_linhas | awk -F'\t' -v p="$1" -v e="$2" '$1 == p && $2 == e { print $4 }')
   ((${t:-0} >= agora)) && agora=$((t + 1))
   echo "$agora"
 }
@@ -339,19 +345,36 @@ cadastro_gravar() {
   return 0
 }
 
-# E-mail da conta local C só pelo cache (sem chamar o Claude).
+provedor_de() { case $1 in codex | kiro) echo "$1" ;; *) echo claude ;; esac; }
+
+# E-mail da conta local C só por cache (sem chamar CLI nem rede): o do Claude fica na pasta da
+# conta; o do Codex e o do Kiro, no cache que o listar grava.
 email_local() {
   local f
-  f=$(pasta_claude "$1")/.account-email
-  [[ -s $f ]] && head -n 1 "$f"
+  case $1 in
+    codex | kiro) awk -F'\t' -v c="$1" '$1 == c { print $2 }' "$EMAILS_CACHE" 2>/dev/null | tail -n 1 ;;
+    *) f=$(pasta_claude "$1")/.account-email; [[ -s $f ]] && head -n 1 "$f" ;;
+  esac
   return 0
 }
 
-# Nome para um e-mail que ainda não está no cadastro: o nome local, se livre; senão o começo do
-# e-mail (helio.cardoso@x → helio-cardoso), com -2, -3… se preciso. USADOS: nomes já tomados.
+# Contas daqui com e-mail conhecido: "conta<TAB>provedor<TAB>e-mail".
+pares_locais() {
+  local c email
+  while read -r c; do
+    email=$(email_local "$c")
+    [[ $email == *@* ]] && printf '%s\t%s\t%s\n' "$c" "$(provedor_de "$c")" "$email"
+  done < <(contas_rotacao)
+  return 0
+}
+
+# Apelido para um par que ainda não está no cadastro: o nome local (perfil do Claude), se livre no
+# provedor; senão o começo do e-mail (helio.cardoso@x → helio-cardoso), com -2, -3… se preciso.
+# USADOS: apelidos já tomados no provedor.
 nome_novo() {
   local email=$1 local_=$2 usados=$3 base n=2 nome
-  if [[ -n $local_ && $local_ != principal ]] && ! grep -qxF -- "$local_" <<<"$usados"; then echo "$local_"; return; fi
+  if [[ -n $local_ && $local_ != principal && $local_ != codex && $local_ != kiro ]] &&
+     ! grep -qxF -- "$local_" <<<"$usados"; then echo "$local_"; return; fi
   base=${email%%@*}; base=${base,,}; base=${base//[^a-z0-9_]/-}; base=${base#-}; base=${base:-conta}
   nome_reservado "$base" && base="$base-ia"
   nome=$base
@@ -359,84 +382,115 @@ nome_novo() {
   echo "$nome"
 }
 
-# Põe no cadastro as contas daqui que ele ainda não conhece. Recebe linhas "conta<TAB>e-mail".
+# Põe no cadastro os pares daqui que ele ainda não conhece. Recebe "conta<TAB>provedor<TAB>e-mail".
 cadastro_registrar() {
-  local c email usados novas="" nome agora
+  local c p email usados novas="" nome agora
   agora=$(date +%s)
-  usados=$(cadastro_linhas | awk -F'\t' '$2 != "-" { print $2 }')
-  while IFS=$'\t' read -r c email; do
+  while IFS=$'\t' read -r c p email; do
     [[ $email == *@* ]] || continue
-    cadastro_linhas | awk -F'\t' -v e="$email" '$1 == e { f = 1 } END { exit !f }' && continue # conhecida (ou esquecida)
-    grep -qF -- "$email"$'\t' <<<"$novas" && continue
+    [[ -n $(cadastro_nome "$p" "$email") ]] && continue # conhecido (ou esquecido)
+    grep -qF -- "$p"$'\t'"$email"$'\t' <<<"$novas" && continue
+    usados=$( { cadastro_linhas; printf '%s' "$novas"; } | awk -F'\t' -v p="$p" '$1 == p && $3 != "-" { print $3 }')
     nome=$(nome_novo "$email" "$c" "$usados")
-    usados+=$'\n'$nome
-    novas+="$email"$'\t'"$nome"$'\t'"$agora"$'\n'
+    novas+="$p"$'\t'"$email"$'\t'"$nome"$'\t'"$agora"$'\n'
   done
   [[ -n $novas ]] && printf '%s' "$novas" | cadastro_gravar
   return 0
 }
 
-# Depois da tabela: o que o cadastro tem e esta máquina não, e nomes locais diferentes do cadastro.
-cadastro_resumo() { # linhas "conta<TAB>e-mail" das contas Claude daqui
-  local locais=$1 email nome ts c n faltam="" difere=""
+# Depois da tabela: contas do Claude do cadastro que faltam aqui (o Claude é o único provedor com
+# vários perfis por máquina; Codex e Kiro têm um login só) e apelidos locais diferentes (só rótulo).
+cadastro_resumo() { # linhas "conta<TAB>provedor<TAB>e-mail" daqui
+  local locais=$1 p email nome ts c n faltam="" difere=""
   [[ -s $CADASTRO ]] || return 0
-  while IFS=$'\t' read -r email nome ts; do
-    [[ $nome == - ]] && continue
-    awk -F'\t' -v e="$email" '$2 == e { f = 1 } END { exit !f }' <<<"$locais" && continue
+  while IFS=$'\t' read -r p email nome ts; do
+    [[ $p == claude && $nome != - ]] || continue
+    awk -F'\t' -v e="$email" '$2 == "claude" && $3 == e { f = 1 } END { exit !f }' <<<"$locais" && continue
     # O nome já é de outra conta daqui: adicionar por cima trocaria o login dela.
-    c=$(awk -F'\t' -v n="$nome" '$1 == n { print $2 }' <<<"$locais")
+    c=$(awk -F'\t' -v n="$nome" '$1 == n { print $3 }' <<<"$locais")
     if [[ -n $c ]]; then
-      n=$(cadastro_nome "$c"); [[ -z $n || $n == - || $n == "$nome" ]] && n='<outro-nome>'
+      n=$(cadastro_nome claude "$c"); [[ -z $n || $n == - || $n == "$nome" ]] && n='<outro-nome>'
       faltam+="  $nome  $email  → antes, ia-conta renomear $nome $n; depois ia-conta adicionar $nome"$'\n'
     else
       faltam+="  $nome  $email  → ia-conta adicionar $nome"$'\n'
     fi
   done < <(cadastro_linhas)
-  while IFS=$'\t' read -r c email; do
-    [[ $c == principal || $email != *@* ]] && continue
-    n=$(cadastro_nome "$email")
+  while IFS=$'\t' read -r c p email; do
+    [[ $p == claude && $c != principal ]] || continue
+    n=$(cadastro_nome claude "$email")
     [[ -n $n && $n != - && $n != "$c" ]] && difere+="  $c  é \"$n\" no cadastro  → ia-conta renomear $c $n"$'\n'
   done <<<"$locais"
-  [[ -n $faltam ]] && printf '\nNo cadastro das máquinas, faltam aqui:\n%s' "$faltam"
-  [[ -n $difere ]] && printf '\nNomes diferentes do cadastro:\n%s' "$difere"
+  [[ -n $faltam ]] && printf '\nNo cadastro das máquinas, faltam aqui (Claude):\n%s' "$faltam"
+  [[ -n $difere ]] && printf '\nApelidos diferentes do cadastro (opcional, só rótulo):\n%s' "$difere"
   return 0
 }
 
-# ia-conta cadastro [nomear <nome|e-mail> <novo> | esquecer <nome|e-mail>]
+# Resolve ALVO (apelido, e-mail ou provedor:e-mail) para um único par "provedor<TAB>e-mail".
+resolver_par() {
+  local alvo=$1 pares n
+  if [[ $alvo == *:*@* ]]; then
+    pares=$(cadastro_linhas | awk -F'\t' -v OFS='\t' -v p="${alvo%%:*}" -v e="${alvo#*:}" '$1 == p && $2 == e && $3 != "-" { print $1, $2 }')
+  elif [[ $alvo == *@* ]]; then
+    pares=$(cadastro_linhas | awk -F'\t' -v OFS='\t' -v e="$alvo" '$2 == e && $3 != "-" { print $1, $2 }')
+  else
+    pares=$(cadastro_par "$alvo")
+  fi
+  n=$(grep -c . <<<"$pares")
+  [[ -n $pares ]] || die "'$alvo' não está no cadastro (veja: ia-conta cadastro)"
+  ((n == 1)) || die "'$alvo' é mais de uma conta ($(tr '\t\n' ': ' <<<"$pares")); use provedor:e-mail"
+  echo "$pares"
+}
+
+# ia-conta cadastro [nomear <apelido|e-mail|provedor:e-mail> <novo> | esquecer <...>]
 cadastro() {
-  local acao=${1:-} alvo=${2:-} novo=${3:-} email c
+  local acao=${1:-} alvo=${2:-} novo=${3:-} p email c par
   case $acao in
     '')
       [[ -s $CADASTRO ]] || { echo 'Cadastro vazio: o ia-conta listar registra as contas desta máquina.'; return 0; }
-      printf '%-18s %-40s %s\n' NOME E-MAIL AQUI
       local -A aqui=()
-      while read -r c; do
-        case $c in codex | kiro) continue ;; esac
-        email=$(email_local "$c"); [[ -n $email ]] && aqui[$email]+="${aqui[$email]:+, }$c"
-      done < <(contas_rotacao)
-      while IFS=$'\t' read -r email c _; do
-        [[ $c == - ]] && continue
-        printf '%-18s %-40s %s\n' "$c" "$email" "${aqui[$email]:-falta}"
-      done < <(cadastro_linhas)
+      while IFS=$'\t' read -r c p email; do aqui[$p$'\t'$email]+="${aqui[$p$'\t'$email]:+, }$c"; done < <(pares_locais)
+      { printf 'PROVEDOR\tAPELIDO\tE-MAIL\tAQUI\n'
+        while IFS=$'\t' read -r p email c _; do
+          [[ $c == - ]] && continue
+          printf '%s\t%s\t%s\t%s\n' "$p" "$c" "$email" "${aqui[$p$'\t'$email]:-falta}"
+        done < <(cadastro_linhas | sort -t$'\t' -k1,1 -k3,3)
+      } | tabela
       ;;
     nomear | esquecer)
       [[ -n $alvo ]] || { uso >&2; exit 2; }
-      if [[ $alvo == *@* ]]; then email=$alvo; else email=$(cadastro_email "$alvo"); fi
-      [[ -n $email && -n $(cadastro_nome "$email") ]] || die "'$alvo' não está no cadastro (veja: ia-conta cadastro)"
+      par=$(resolver_par "$alvo"); p=${par%%$'\t'*}; email=${par#*$'\t'}
       if [[ $acao == esquecer ]]; then
-        printf '%s\t-\t%s\n' "$email" "$(hora_mudanca "$email")" | cadastro_gravar
-        echo "\"$email\" saiu do cadastro de todas as máquinas (as contas já logadas continuam)."
+        printf '%s\t%s\t-\t%s\n' "$p" "$email" "$(hora_mudanca "$p" "$email")" | cadastro_gravar
+        echo "$p $email saiu do cadastro de todas as máquinas (os logins já feitos continuam)."
         return 0
       fi
       nome_valido "$novo" || die "nome inválido '$novo': use letras, números, - ou _"
       nome_reservado "$novo" && die "'$novo' é reservado; escolha outro nome"
-      c=$(cadastro_email "$novo")
-      [[ -z $c || $c == "$email" ]] || die "'$novo' já é o nome de $c no cadastro"
-      printf '%s\t%s\t%s\n' "$email" "$novo" "$(hora_mudanca "$email")" | cadastro_gravar
-      echo "No cadastro, $email agora é \"$novo\" (nas máquinas: ia-conta renomear <nome-local> $novo)."
+      c=$(cadastro_par "$novo" "$p")
+      [[ -z $c || $c == "$par" ]] || die "'$novo' já é o apelido de ${c#*$'\t'} ($p) no cadastro"
+      printf '%s\t%s\t%s\t%s\n' "$p" "$email" "$novo" "$(hora_mudanca "$p" "$email")" | cadastro_gravar
+      echo "No cadastro, $p $email agora é \"$novo\"."
       ;;
     *) uso >&2; exit 2 ;;
   esac
+}
+
+# Imprime o TSV do stdin alinhado (larguras em caracteres; a última coluna fica solta).
+tabela() {
+  local -a linhas campos larg=()
+  local l i n
+  mapfile -t linhas
+  for l in "${linhas[@]}"; do
+    IFS=$'\t' read -r -a campos <<<"$l"
+    n=${#campos[@]}
+    for ((i = 0; i < n - 1; i++)); do ((${#campos[i]} > ${larg[i]:-0})) && larg[i]=${#campos[i]}; done
+  done
+  for l in "${linhas[@]}"; do
+    IFS=$'\t' read -r -a campos <<<"$l"
+    n=${#campos[@]}
+    for ((i = 0; i < n - 1; i++)); do printf '%s%*s  ' "${campos[i]}" $((${larg[i]:-0} - ${#campos[i]})) ''; done
+    printf '%s\n' "${campos[n - 1]}"
+  done
 }
 
 listar() {
@@ -448,13 +502,15 @@ listar() {
   while IFS=$'\t' read -r c pico volta texto fonte em; do
     U_PICO[$c]=${pico#-} U_VOLTA[$c]=${volta#-} U_TEXTO[$c]=${texto#-} U_FONTE[$c]=$fonte U_EMAIL[$c]=${em#-}
   done < <(consultar_uso "${contas[@]}")
-  local -a linhas=('CONTA	E-MAIL	ESTADO	USO')
-  local locais=""
+  local -a linhas=('CONTA	PROVEDOR	E-MAIL	ESTADO	USO')
+  local locais="" emails_cli=""
   for c in "${contas[@]}"; do
     email='—'
     case $c in
       codex)
-        email=${U_EMAIL[$c]:-—}
+        email=${U_EMAIL[$c]:-}
+        [[ -n $email ]] || email=$(email_local codex)
+        [[ -n $email ]] || email='—'
         if codex login status >/dev/null 2>&1; then estado='conectada'; else estado='sem login'; fi ;;
       kiro)
         email=$(timeout 20 kiro-cli whoami 2>/dev/null | sed -n 's/^Email: *//p' | head -n 1) || true
@@ -464,7 +520,6 @@ listar() {
         if [[ -s $dir/.credentials.json ]]; then
           estado='conectada'
           email=$(claude_status_email "$( [[ $c == principal ]] || echo "$dir")") || email='—'
-          locais+="$c"$'\t'"$email"$'\n'
         elif [[ $c == principal && -x $CLAUDE_BIN ]]; then
           estado='outra autenticação' # Keychain, chave de API, Bedrock: sem arquivo de credencial
         else
@@ -483,20 +538,14 @@ listar() {
       desconhecido) texto='?' ;;
     esac
     [[ $estado == 'sem login' ]] && texto='—'
-    linhas+=("$c"$'\t'"$email"$'\t'"$estado"$'\t'"$texto")
+    if [[ $email == *@* && $estado != 'sem login' ]]; then
+      locais+="$c"$'\t'"$(provedor_de "$c")"$'\t'"$email"$'\n'
+      case $c in codex | kiro) emails_cli+="$c"$'\t'"$email"$'\n' ;; esac
+    fi
+    linhas+=("$c"$'\t'"$(provedor_de "$c")"$'\t'"$email"$'\t'"$estado"$'\t'"$texto")
   done
-  # Colunas na largura do maior valor (contado em caracteres: e-mails e "—" não são ASCII).
-  local -a larg=(0 0 0) campos
-  local l i
-  for l in "${linhas[@]}"; do
-    IFS=$'\t' read -r -a campos <<<"$l"
-    for i in 0 1 2; do ((${#campos[i]} > larg[i])) && larg[i]=${#campos[i]}; done
-  done
-  for l in "${linhas[@]}"; do
-    IFS=$'\t' read -r -a campos <<<"$l"
-    for i in 0 1 2; do printf '%s%*s  ' "${campos[i]}" $((larg[i] - ${#campos[i]})) ''; done
-    printf '%s\n' "${campos[3]}"
-  done
+  [[ -n $emails_cli ]] && { mkdir -p "${EMAILS_CACHE%/*}"; printf '%s' "$emails_cli" >"$EMAILS_CACHE"; }
+  printf '%s\n' "${linhas[@]}" | tabela
   # A principal por último: com o mesmo e-mail de um perfil, o nome do perfil é o que vale.
   printf '%s' "$locais" | awk -F'\t' '$1 != "principal" { print } $1 == "principal" { p = $0 } END { if (p != "") print p }' |
     cadastro_registrar
