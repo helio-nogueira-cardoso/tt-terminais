@@ -77,10 +77,34 @@ passou 'instalação baixa motor e modelo, confere sha256 e grava a configuraç�
 r=$(printf 'Pasta: ~/projeto\nÚltimos pedidos do usuário:\n- consertar o relatório\nTela:\n$ make\n' | "$TT" --nomear-texto) || falhou 'nomear-texto falhou com modelo local'
 [[ $r == tarefa-teste ]] || falhou "nome do modelo local: $r"
 python3 - "$TT_NOMEADOR_DIR/pedido.json" <<'PY' || falhou 'pedido ao llama-server sem gramática/temperatura/instrução'
-import json, sys
+import json, re, sys
 p = json.load(open(sys.argv[1]))
 assert "root ::=" in p["grammar"] and p["temperature"] == 0 and p["max_tokens"] <= 16
 assert p["messages"][0]["role"] == "system" and "consertar o relatório" in p["messages"][1]["content"]
+# A gramática aceita somente 1–3 palavras de 1–16 caracteres alfanuméricos.
+regras = dict(l.split(" ::= ", 1) for l in p["grammar"].strip().splitlines())
+palavra = regras["palavra"]
+padrao = regras["root"].replace('"', '').replace('palavra', '(?:' + palavra + ')')
+padrao = re.compile(re.sub(r'\s+', '', padrao))
+for nome in ('a', 'contas-corrigidas', 'a-b-c', 'a' * 16, 'a' * 16 + '-0-' + 'b' * 16):
+    assert padrao.fullmatch(nome), nome
+for nome in ('', 'a' * 17, 'a-b-c-d', '-a', 'a-', 'a--b', 'Nome', 'ação', 'a b'):
+    assert not padrao.fullmatch(nome), nome
+# Conta derivações por comprimento: cada palavra precisa ter uma só. O padrão
+# antigo de opcionais independentes tinha C(15, n-1) caminhos e travava no Termux.
+token = r'\[a-z0-9\](?:\?|\{\d+,\d+\})?'
+assert not re.sub(token, '', palavra).strip(), palavra
+contagens = {0: 1}
+for item in re.findall(token, palavra):
+    if item.endswith('?'): minimo, maximo = 0, 1
+    elif '{' in item: minimo, maximo = map(int, item.split('{')[1].rstrip('}').split(','))
+    else: minimo = maximo = 1
+    novas = {}
+    for antes, caminhos in contagens.items():
+        for tamanho in range(minimo, maximo + 1):
+            novas[antes + tamanho] = novas.get(antes + tamanho, 0) + caminhos
+    contagens = novas
+assert contagens == dict.fromkeys(range(1, 17), 1), contagens
 PY
 pid=$(cat "$TT_NOMEADOR_DIR/falso.pid"); sleep 0.3
 kill -0 "$pid" 2>/dev/null && falhou 'llama-server continuou rodando depois do nome'
