@@ -92,9 +92,15 @@ echo "ok: filtro cicla abertas → feitas → com prazo → todas"
 # cabeçalho com abas: as 4 abas aparecem; clicar numa aba troca o filtro ativo
 cab=$(run --tarefas-cabecalho)
 { grep -q 'abertas' <<<"$cab" && grep -q 'feitas' <<<"$cab" && grep -q 'prazo' <<<"$cab" && grep -q 'todas' <<<"$cab"; } || fail "cabeçalho não mostra as 4 abas de filtro"
-run --tarefa-cabecalho-clique feitas
-grep -q 'feitas' <<<"$(cat "$T/rt/"tt-tarefas-ui-* 2>/dev/null)" || fail "clique na aba não gravou o filtro"
-run --tarefa-cabecalho-clique abertas
+# simula o clique do fzf na aba "feitas": linha 1, coluna da palavra (env FZF_CLICK_HEADER_*)
+l1=$(run --tarefas-cabecalho | sed -n '1p' | sed 's/\x1b\[[0-9;]*m//g')
+colf=$(awk -v s="$l1" 'BEGIN{print index(s,"feitas")}')
+acoes=$(env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/home/.local/state" \
+  TT_RT="$T/rt" TT_MACHINE=A PATH="$T/bin:$PATH" FZF_CLICK_HEADER_LINE=1 FZF_CLICK_HEADER_COLUMN="$colf" \
+  "$TT" --tarefa-cabecalho-clique)
+grep -q 'reload(' <<<"$acoes" || fail "clique no cabeçalho não devolve ações do fzf (reload)"
+grep -q 'feitas' <<<"$(cat "$T/rt/"tt-tarefas-ui-* 2>/dev/null)" || fail "clique na aba não gravou o filtro feitas"
+run --tarefa-cabecalho-clique >/dev/null 2>&1 || true  # clique fora de aba não quebra
 echo "ok: cabeçalho mostra abas de filtro e o clique troca o filtro ativo"
 
 # cascata: remover a mãe remove as subtarefas
