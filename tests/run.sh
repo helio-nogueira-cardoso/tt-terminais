@@ -254,6 +254,25 @@ grep -Fq 'Q = :quit<Enter>' "$th/.config/aerc/binds.conf" || falha 'aerc: binds.
 rm -rf "$th"
 ((falhas == base)) && ok 'aerc: tt garante mouse e saída rápida sem tocar contas (idempotente)' || true
 
+# Sync local opcional de e-mail (mbsync/isync + maildir): contrato estrutural. O comportamento
+# completo (opt-in, maildir sem cred-cmd, .mbsyncrc sem segredo, remoção limpa) está em
+# tests/test_email_sync.sh; aqui só garantimos que as peças existem e são chamadas nos lugares certos.
+base=$falhas
+rg -q '^email_mbsyncrc_gerar\(\)' "$tt" || falha 'sync: email_mbsyncrc_gerar ausente'
+rg -q '^email_sync\(\)' "$tt" || falha 'sync: email_sync ausente'
+rg -q '^email_sync_todas\(\)' "$tt" || falha 'sync: email_sync_todas ausente'
+rg -q 'sync_local' "$tt" || falha 'sync: chave sync_local ausente de EMAIL_CHAVES'
+rg -Fq -- '--email-sync)' "$tt" || falha 'sync: verbo --email-sync ausente no dispatch'
+rg -q 'maildir://' "$tt" || falha 'sync: email_url não gera source maildir://'
+# O .mbsyncrc entra no snapshot (rollback) e o vigia dispara o sync periódico (TT_EMAIL_SYNC).
+rg -q 'mbsyncrc\|' "$tt" || falha 'sync: .mbsyncrc fora do snapshot de rollback'
+rg -q 'TT_EMAIL_SYNC' "$tt" || falha 'sync: vigia não agenda --email-sync (TT_EMAIL_SYNC)'
+# O --email-sync é silencioso (chamado pelo vigia em segundo plano).
+rg -q -- '--email-sync \| |\| --email-sync' "$tt" || falha 'sync: --email-sync fora da lista de verbos silenciosos'
+# A credencial nunca é gravada em claro no .mbsyncrc: PassCmd sempre deriva de arquivo/comando.
+rg -q 'email_mbsync_passcmd\(\)' "$tt" || falha 'sync: email_mbsync_passcmd (PassCmd sem segredo) ausente'
+((falhas == base)) && ok 'sync local de e-mail: peças, verbo, snapshot, vigia e PassCmd sem segredo' || true
+
 # Especificação executável da captura SGR: o pressionar esquerdo é registrado, soltura/arrasto não,
 # e a mesma sequência continua correta quando chega em pedaços pelo pty.
 python3 - <<'PY'
