@@ -7568,15 +7568,16 @@ barra_fixadas_fmt() {
   # Primeiro com os visíveis no piso (16); só depois, um item só, cada vez menor.
   for ((vis = teto == total ? total - 1 : teto; vis >= 1; vis--)); do _fx_estouro "${KCAP[16]}" "$vis"; done
   for cap in 12 8 6; do _fx_estouro "${KCAP[$cap]}" 1; done
-  # Só regrava as opções @fx… quando o conteúdo mudou: o carimbo (cksum do cfg) já viaja no fim de
-  # @barra_fixadas, e um source-file igual ao que está no servidor redesenhava a tela inteira de
-  # todos os clientes a cada atualizar_barras (vigia por minuto, tarefas/fixadas recebidas…).
-  local carimbo vigente; carimbo=$(printf '%s' "$cfg" | cksum | cut -d' ' -f1)
-  vigente=$(tmux show -gqv @barra_fixadas 2>/dev/null); vigente=${vigente##*#\{\?,}; vigente=${vigente%%,\}*}
-  # (carimbo igual mas @fx0_1 ausente = opções apagadas à mão ou servidor novo: grava de novo)
-  if [[ $vigente != "$carimbo" || -z $(tmux show -gqv @fx0_1 2>/dev/null) ]]; then
+  # Só regrava as opções @fx… quando o conteúdo mudou: um source-file igual ao que está no servidor
+  # redesenhava a tela inteira de todos os clientes a cada atualizar_barras (vigia por minuto,
+  # tarefas/fixadas recebidas…). O carimbo (cksum do cfg) fica em @fx_carimbo, gravado no MESMO
+  # source-file — um atualizar_barras concorrente já o encontra gravado — e também viaja no fim de
+  # @barra_fixadas, para o formato mudar junto com o conteúdo.
+  local carimbo; carimbo=$(printf '%s' "$cfg" | cksum | cut -d' ' -f1)
+  # (carimbo igual mas @fx0_1 ausente = opções apagadas à mão: grava de novo)
+  if [[ $(tmux show -gqv @fx_carimbo 2>/dev/null) != "$carimbo" || -z $(tmux show -gqv @fx0_1 2>/dev/null) ]]; then
     mkdir -p "$RT"; arq=$(mktemp "$RT/tt-fixadas-fmt.XXXXXX") || return 0
-    printf '%s' "$cfg" >"$arq"; tmux source-file "$arq" 2>/dev/null; rm -f "$arq"
+    printf '%sset -g @fx_carimbo %s\n' "$cfg" "$carimbo" >"$arq"; tmux source-file "$arq" 2>/dev/null; rm -f "$arq"
   fi
   printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
   # Largura forçada (testes): só a versão que cabe nela.
