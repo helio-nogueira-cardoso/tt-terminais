@@ -8720,7 +8720,8 @@ email_resumo() {
   return 0
 }
 
-email_pausa() { [[ -t 0 ]] && { printf '\n%s' "${1:-Enter volta.}"; read -r _; }; return 0; }
+# read -e (readline): setas e outras teclas especiais não viram ^[[A na tela.
+email_pausa() { [[ -t 0 ]] && { printf '\n'; read -r -e -p "${1:-Enter volta.}" _; }; return 0; }
 
 # Assistente de cadastro: provedor/endereço → descoberta → autenticação → segredo → teste obrigatório.
 email_conta_nova_ui() {
@@ -8749,7 +8750,7 @@ email_conta_nova_ui() {
     printf '\nServidores %s.\n' "$([[ -n ${E[imap_host]:-} ]] && echo "descobertos para ${E[endereco]#*@}" || echo "não encontrados")"
     email_avancado || return 0
   elif [[ -t 0 ]]; then
-    local aj; read -r -p $'\nAjustar servidores, portas ou usuário técnico? (s/N) ' aj || return 0
+    local aj; read -r -e -p $'\nAjustar servidores, portas ou usuário técnico? (s/N) ' aj || return 0
     if [[ $aj == [sSyY]* ]]; then email_avancado || return 0; fi
   fi
   if ! erro=$(email_validar novo antes-do-segredo); then printf '\n✗ %s\nNada foi salvo.\n' "$erro"; email_pausa 'Enter volta.'; return 0; fi
@@ -8779,7 +8780,7 @@ email_editar_ui() {
   if ! erro=$(email_validar "" antes-do-segredo); then printf '\n✗ %s\nNada foi alterado.\n' "$erro"; email_pausa; return 0; fi
 
   if [[ ${E[auth]} != "$auth_antiga" ]]; then t=s
-  else read -r -p $'\nTrocar a senha/credencial? (s/N) ' t || return 0; fi
+  else read -r -e -p $'\nTrocar a senha/credencial? (s/N) ' t || return 0; fi
   snap=$(email_snapshot_criar "$slug") || { echo '✗ Não consegui criar o snapshot de segurança.'; email_pausa; return 0; }
   if [[ $t == [sSyY]* ]]; then
     if ! email_pedir_segredo; then email_snapshot_restaurar "$snap" "$slug"; email_pausa 'Nada foi alterado. Enter volta.'; return 0; fi
@@ -8809,7 +8810,7 @@ email_contas_ui() {
     [[ -n $slug ]] || continue
     if [[ $slug == !* ]]; then # conta escrita à mão: assumir (com cópia) antes de gerenciar
       clear; printf 'A conta "%s" foi escrita à mão no accounts.conf.\nO tt pode assumi-la (mesmo efeito, com cópia de segurança) para você editar e testar por aqui.\n\n' "${slug#!}"
-      read -r -p 'Assumir agora? (S/n) ' c; [[ $c == [nN]* ]] && continue
+      read -r -e -p 'Assumir agora? (S/n) ' c; [[ $c == [nN]* ]] && continue
       email_assumir "${slug#!}" || { email_pausa; continue; }
       slug=$(email_slug "${slug#!}")
     fi
@@ -8839,7 +8840,7 @@ email_conta_ui() {
       a) clear; email_autorizar_slug "$slug"; email_pausa ;;
       s) clear
          if [[ ${E[sync_local]:-} == 1 ]]; then
-           read -r -p 'Desligar o sync local (o aerc volta a ler direto do servidor)? (s/N) ' op
+           read -r -e -p 'Desligar o sync local (o aerc volta a ler direto do servidor)? (s/N) ' op
            [[ $op == [sSyY]* ]] && email_sync_local_definir "$slug" 0
          else
            command -v "$(mbsync_bin)" >/dev/null || pedir_sudo_pendencias email-sync
@@ -8855,7 +8856,7 @@ email_conta_ui() {
 email_descadastrar_ui() {
   local slug=$1 c; local -A E=(); email_ler "$slug" || return 1
   clear 2>/dev/null; printf '🗑 Descadastrar'; email_resumo
-  read -r -p $'\nApaga o bloco do aerc e a senha/token desta conta (os e-mails no servidor não são tocados). Confirmar? (s/N) ' c
+  read -r -e -p $'\nApaga o bloco do aerc e a senha/token desta conta (os e-mails no servidor não são tocados). Confirmar? (s/N) ' c
   [[ $c == [sSyY]* ]] || return 1
   email_remover_slug "$slug"; email_pausa; return 0
 }
