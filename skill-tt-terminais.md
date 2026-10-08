@@ -226,7 +226,8 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --email-sync-agora [cliente]` — ⟳ Sincronizar agora (botão `sync` de EMAIL_BOTOES com o estado
   em `@tt_email_sync`; `<C-s>` em [messages]/[view] do bloco do tt; item do menu do 📧): INBOX de
   todas as contas com espelho em paralelo (`email_sync_manual`: espera a trava até 20 s; se a volta
-  completa a segura, `pkill` do mbsync dela e segue — não respeita a espera do vigia), conta não
+  completa a segura, marca `<slug>.interrompida` + `pkill` do mbsync dela e segue — a rodada
+  derrubada fica no registro como `interrompida`, não erro; não respeita a espera do vigia), conta não
   lidas antes/depois (`email_nao_lidas_inbox`), retorno por display-message no cliente, "✓ N novos"
   no botão por 6 s, e F11 (`:check-mail`, só com o aerc na frente) para as contas só IMAP.
 - `tt --email-sync [NOME] [--completo]` — espelha por mbsync as contas com `sync_local=1` (padrão só

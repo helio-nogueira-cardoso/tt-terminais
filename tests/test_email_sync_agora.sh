@@ -13,7 +13,9 @@ cat >"$T/bin/mbsync" <<'EOF'
 [[ $1 == --version ]] && { echo "isync 1.4.4"; exit 0; }
 rc=$2; alvo=$3; slug=${alvo%-inbox}
 md=$(sed -n 's/^Path \(.*\)\/$/\1/p' "$rc")
-[[ -n ${MBSYNC_LENTO:-} ]] && sleep "$MBSYNC_LENTO"
+# lento (a volta completa de verdade): morre no SIGTERM como o mbsync, em vez de esperar o sleep
+# (o sleep fecha o fd 9 da trava e morre junto: senão ele a seguraria depois do mbsync falso cair)
+if [[ -n ${MBSYNC_LENTO:-} ]]; then trap 'kill $! 2>/dev/null; exit 143' TERM; sleep "$MBSYNC_LENTO" 9>&- & wait $!; fi
 n=$(date +%s%N)
 printf 'From: a@x\nSubject: chegou %s\n\ncorpo\n' "$n" >"$md/INBOX/new/$n"
 echo "$alvo" >>"${MBSYNC_LOG:-/dev/null}"
@@ -52,6 +54,21 @@ grep -q '^um-inbox$' "$MBSYNC_LOG" || falhou "o INBOX da conta travada deveria t
 grep -q '✓ caixa de entrada atualizada' <<<"$out" || falhou "retorno com a completa na frente: $out"
 rm -f "$HOME/.local/state/tt/email-sync/um.andamento"
 passou 'volta completa segurando a trava: derrubada, e o INBOX é consultado'
+
+# 3b) a completa derrubada (uma rodada de verdade, pelo tt) fica registrada como "interrompida": sem
+#     erro, sem espera, e o estado da conta segue ok; o vigia a refaz depois
+log=$HOME/.local/state/tt/email-sync/um; : >"$log"; rm -f "$log.erro" "$log.falhas" "$log.espera"
+MBSYNC_LENTO=120 tt --email-sync Um --completo >/dev/null 2>&1 &
+sleep 1.5; [[ -f $log.andamento ]] || falhou 'a completa de verdade não começou'
+: >"$MBSYNC_LOG"
+out=$(tt --email-sync-agora) || falhou "manual com a completa de verdade: $out"
+sleep 1
+grep -q $'^interrompida\t' "$log" || falhou "a completa derrubada deveria ficar como interrompida: $(cat "$log")"
+grep -q $'^completo\t' "$log" && falhou "a completa derrubada não deveria constar como completo (erro): $(cat "$log")"
+[[ -e $log.erro || -e $log.falhas || -e $log.espera ]] && falhou 'completa derrubada não pode deixar erro/falhas/espera'
+grep -q '^um-inbox$' "$MBSYNC_LOG" || falhou 'o INBOX deveria ter sido consultado depois de derrubar'
+[[ $(tt --email-sync-estado curto | grep '^um' | cut -f2) == ok ]] || falhou "estado da conta deveria seguir ok: $(tt --email-sync-estado curto)"
+passou 'completa derrubada pelo ⟳ vira "interrompida" (sem erro, sem espera); estado segue ok'
 
 # 4) retorno na tela do cliente e no botão (@tt_email_sync), binds Ctrl+s/F11, item do menu, botão na barra
 tmux -f /dev/null new -d -s base -x 150 -y 40 'sleep 600'
