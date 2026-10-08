@@ -160,7 +160,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `--destinos`, `--definir-recebidos`, `--anexos-enviar` (anexos do aerc → recebidos de uma máquina).
   `--imagens` (tecla `i` do aerc: lista as imagens do e-mail cru em stdin e abre as escolhidas; as da
   web só são baixadas sob demanda, via `email-tt.py baixar-imagem`) e `--abrir-imagem ARQ` (opener `image/*`).
-  `--email-sync-local CONTA 0|1` (liga/desliga o espelho mbsync pós-cadastro; botão 🔄 em F2).
+  `--email-adicionar provedor=gmail auth=oauth` sem client_id usa o app OAuth embutido do tt (EMAIL_GMAIL_ID; segredo montado em partes, gravado por conta em ~/.secrets). `--email-sync-local CONTA 0|1` (liga/desliga o espelho mbsync pós-cadastro; botão 🔄 em F2).
   `--pedir-sudo [id…]` (modal único das pendências de instalação com sudo: navegadores, email-sync,
   email-html; aceitar tudo / selecionar / recusar por 7 dias; pacotes por gerenciador, mbsync→isync).
 

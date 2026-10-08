@@ -348,6 +348,11 @@ segundo plano a cada `TT_EMAIL_SYNC` segundos (padrão 180; `0` desliga); `tt --
 força agora. Sem o `mbsync` instalado o cadastro com `sync_local=1` é recusado, em vez de fingir que
 ligou. Contas sem o flag seguem lendo direto do servidor (IMAP) com o cache de cabeçalhos acima.
 
+Gmail com OAuth2 funciona **de fábrica**: sem informar `client_id`, o cadastro usa o app
+"Desktop" do próprio tt no Google (num app instalado o client_secret não é confidencial — o
+fluxo nativo do Google assume isso, e rclone e Thunderbird embutem os deles). Quem preferir o
+próprio app continua passando `oauth_client_id=`.
+
 Tudo o que o tt quer instalar com administrador (curl/unzip dos navegadores de links, as
 bibliotecas do sistema que o Chrome/Carbonyl baixados pedem, `isync` do sync local, `w3m` do
 HTML) se junta num **modal único** (`tt --pedir-sudo`): instalar tudo,

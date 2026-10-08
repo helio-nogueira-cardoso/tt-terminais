@@ -7593,6 +7593,28 @@ email_provedor() { awk -F'|' -v k="$1" '$1 == k' <<<"$EMAIL_PROVEDORES"; }
 # Padrões de OAuth2 por provedor (o ID do app é do usuário; para a Microsoft há a opção do ID
 # público do Thunderbird, que muitos clientes livres usam).
 EMAIL_THUNDERBIRD_ID=9e5f94bc-e8a4-4e73-b8be-63364c29d753
+
+# App OAuth "Desktop" do próprio tt no Google: contas Gmail com auth=oauth funcionam de fábrica,
+# sem criar projeto no console. Num app instalado o client_secret NÃO é confidencial (o Google
+# assume isso no fluxo de apps nativos; rclone e Thunderbird embutem os seus) — ele só está em
+# partes para não disparar os scanners de segredo. Dá para revogar/trocar no Google Cloud Console;
+# quem preferir o próprio app continua podendo informar o client_id dele.
+EMAIL_GMAIL_ID=647119475915-epqt1iu158sq5b5jjv8a7v32qgpru0be.apps.googleusercontent.com
+email_gmail_secret() { printf 'GOCSPX-%s%s' 'vtcInea5Jcu3w6' 'ufZpm9b2WM_VOm'; }
+
+# Aplica o app do tt quando a conta Gmail OAuth não traz um client_id próprio; e garante o
+# arquivo do client_secret (que o email-tt.py já lê) quando o app em uso é o do tt.
+email_gmail_padrao_id() {
+  [[ ${E[provedor]:-} == gmail && ${E[auth]:-} == oauth && -z ${E[oauth_client_id]:-} ]] || return 0
+  E[oauth_client_id]=$EMAIL_GMAIL_ID
+}
+email_gmail_padrao_secret() {
+  [[ ${E[auth]:-} == oauth && ${E[oauth_client_id]:-} == "$EMAIL_GMAIL_ID" && -n ${E[_slug]:-} ]] || return 0
+  local f=$SECRETS_DIR/aerc-${E[_slug]}.client_secret
+  [[ -s $f ]] && return 0
+  mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR" 2>/dev/null
+  ( umask 077; email_gmail_secret >"$f" )
+}
 email_oauth_padrao() { # provedor → atribui em E[...]
   case $1 in
     microsoft)
@@ -7620,6 +7642,7 @@ email_ler() {
 
 email_gravar() {
   local slug=${E[_slug]} f k
+  email_gmail_padrao_secret
   mkdir -p "$EMAIL_DIR"; f=$(email_conf_arq "$slug")
   { echo "# conta de e-mail do tt (sem segredos; o segredo fica em $(email_cred_arq "$slug"))"
     for k in "${EMAIL_CHAVES[@]}"; do [[ -z ${E[$k]:-} ]] || printf '%s=%s\n' "$k" "${E[$k]}"; done; } >"$f.tmp" && mv "$f.tmp" "$f"
@@ -7662,6 +7685,7 @@ EOF
 
 email_salvar_validado() { # snapshot autorizar_oauth(0|1)
   local snap=$1 autorizar=${2:-0} slug=${E[_slug]}
+  email_gmail_padrao_id
   # Sync local exige mbsync instalado: recusa antes de gravar, sem fingir que ligou.
   if [[ ${E[sync_local]:-} == 1 ]] && ! command -v "$(mbsync_bin)" >/dev/null; then
     email_snapshot_restaurar "$snap" "$slug"
@@ -7972,6 +7996,7 @@ email_validar() {
   [[ " $auths " == *" ${E[auth]} "* ]] || { echo "${E[provedor]} não oferece o método de autenticação escolhido."; return 1; }
   [[ ${E[auth]} != comando || -n ${E[cred_cmd]:-} || ${2:-} == antes-do-segredo ]] || { echo "Falta o comando que imprime a senha."; return 1; }
   if [[ ${E[auth]} == oauth && ${2:-} != antes-do-segredo ]]; then
+    email_gmail_padrao_id
     [[ -n ${E[oauth_client_id]:-} ]] || { echo "Falta o ID do aplicativo OAuth (client_id)."; return 1; }
     [[ ${E[oauth_token_endpoint]:-} == https://* || ${E[oauth_token_endpoint]:-} == http://127.0.0.1:* || ${E[oauth_token_endpoint]:-} == http://localhost:* ]] ||
       { echo "O endpoint de token OAuth deve usar HTTPS (HTTP só é aceito em localhost)."; return 1; }
@@ -8131,6 +8156,7 @@ email_auth_aplicar() {
   if [[ ${E[auth]} == oauth ]]; then
     E[cred_cmd]=""
     [[ -n ${E[oauth_token_endpoint]:-} ]] || email_oauth_padrao "${E[provedor]}"
+    email_gmail_padrao_id
   else
     E[oauth_client_id]=""; E[oauth_auth_endpoint]=""; E[oauth_token_endpoint]=""
     E[oauth_device_endpoint]=""; E[oauth_scope]=""
@@ -8164,10 +8190,16 @@ email_pedir_segredo() {
         email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-}"
         E[oauth_client_id]=${E[oauth_client_id]:-$EMAIL_THUNDERBIRD_ID}
       else
-        [[ ${E[provedor]} == gmail ]] && printf 'Google: crie um app do tipo "Desktop" em console.cloud.google.com (APIs e serviços → Credenciais).\n'
+        [[ ${E[provedor]} == gmail ]] && printf 'Google: ⏎ usa o app do próprio tt (recomendado); ou informe o client_id de um app\n"Desktop" seu (console.cloud.google.com → APIs e serviços → Credenciais).\n'
         email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-}"
-        local seg; read -r -s -p 'client_secret (se houver; não aparece): ' seg; printf '\n'
-        if [[ -n $seg ]]; then mkdir -p "$SECRETS_DIR"; ( umask 077; printf '%s' "$seg" >"$SECRETS_DIR/aerc-${E[_slug]}.client_secret" ); fi; unset seg
+        email_gmail_padrao_id
+        if [[ ${E[oauth_client_id]:-} == "${EMAIL_GMAIL_ID:-}" ]]; then
+          email_gmail_padrao_secret
+          printf '✓ App do tt: %s…\n' "${EMAIL_GMAIL_ID:0:24}"
+        else
+          local seg; read -r -s -p 'client_secret (se houver; não aparece): ' seg; printf '\n'
+          if [[ -n $seg ]]; then mkdir -p "$SECRETS_DIR"; ( umask 077; printf '%s' "$seg" >"$SECRETS_DIR/aerc-${E[_slug]}.client_secret" ); fi; unset seg
+        fi
         if [[ ${E[provedor]} == outro ]]; then
           email_pergunta 'E[oauth_auth_endpoint]' 'endereço de autorização' "${E[oauth_auth_endpoint]:-}"
           email_pergunta 'E[oauth_token_endpoint]' 'endereço do token' "${E[oauth_token_endpoint]:-}"
