@@ -129,6 +129,11 @@ base=$falhas
 rg -q 'range=user\|email' "$tema" || falha 'e-mail: range ausente no tema'
 rg -q '@barra_email' "$tema" && rg -q '^barra_email_fmt\(\)' "$tt" || falha 'e-mail: botão 📧 deve vir de @barra_email (não lidas e estado do sync, sem processo na barra)'
 rg -q '^email_novos_avisar\(\)' "$tt" || falha 'e-mail: aviso de e-mail novo (email_novos_avisar) ausente'
+rg -Fq 'em_*) email_botao_acao' "$tt" && rg -q '^email_barra_fmt\(\)' "$tt" || falha 'e-mail: botões clicáveis do popup (em_*) sem rota'
+# toda ação listada em EMAIL_BOTOES tem a sua tecla em email_botao_acao
+for acao in $(sed -n "/^EMAIL_BOTOES=(/,/^)/p" "$tt" | grep -o "^  '[a-z]*" | tr -d " '"); do
+  sed -n '/^email_botao_acao()/,/^}/p' "$tt" | grep -q "\b$acao)" || falha "e-mail: botão $acao sem tecla em email_botao_acao"
+done
 rg -Fq 'email) botao_email' "$tt" || falha 'e-mail: case de botão ausente'
 rg -Fq -- '--email)' "$tt" || falha 'e-mail: verbo --email ausente'
 rg -q '^email_comando\(\)' "$tt" && rg -q 'c=\$\{c:-aerc\}' "$tt" || falha 'e-mail: email_comando com default aerc ausente'

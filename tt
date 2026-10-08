@@ -2140,18 +2140,34 @@ fuzzy-complete=true
 completion-popovers=true
 timestamp-format=02/01/06
 this-day-time-format=15:04
-this-year-time-format=02 Jan
+this-year-time-format=02/01
 border-char-vertical=│
 border-char-horizontal=─
+tab-title-account={{.Account}}{{if .Unread}} ({{.Unread}}){{end}}
+icon-new=●
+icon-old=○
+icon-attachment=📎
+icon-flagged=★
+icon-replied=↩
+icon-forwarded=↪
+icon-marked=✔
+icon-deleted=✕
+icon-draft=✎
+message-list-split=horizontal 14
+auto-mark-read-split=true
 UI
+  # Datas em português: o Go só sabe nomes de mês em inglês ("Oct 07"), então o formato do ano
+  # corrente passa a numérico; migra só o valor que o próprio tt tinha posto.
+  grep -q '^this-year-time-format=02 Jan$' "$conf" && aerc_definir "$conf" ui this-year-time-format 02/01 forcar
   # Cabeçalhos em disco (~/.cache/aerc): abrir uma pasta deixa de rebaixar tudo pela rede a cada
   # vez; a consulta reusa o que já foi buscado e só pede o que mudou. É o ganho de velocidade mais
   # barato para caixas grandes ou link lento, sem store local nem dependência nova.
   aerc_definir "$conf" ui cache-headers true
   # HTML é o padrão quando o e-mail tem as duas versões (o w3m mostra tabelas, cores e links).
-  aerc_definir "$conf" statusline column-right '{{.TrayInfo}}  ? atalhos · F2 contas · Ctrl+r redesenha · q fecha'
-  grep -q '^column-right={{.TrayInfo}}  ? atalhos · F2 contas · q fecha$' "$conf" &&
-    aerc_definir "$conf" statusline column-right '{{.TrayInfo}}  ? atalhos · F2 contas · Ctrl+r redesenha · q fecha' forcar
+  # Linha de status curta (a versão longa era cortada em telas comuns); os botões do popup já dizem o resto.
+  aerc_definir "$conf" statusline column-right '{{.TrayInfo}}  ? atalhos · q fecha'
+  grep -q '^column-right={{.TrayInfo}}  ? atalhos · F2 contas.*$' "$conf" &&
+    aerc_definir "$conf" statusline column-right '{{.TrayInfo}}  ? atalhos · q fecha' forcar
   aerc_definir "$conf" viewer alternatives text/html,text/plain
   grep -q '^alternatives=text/plain,text/html$' "$conf" && aerc_definir "$conf" viewer alternatives text/html,text/plain forcar
   # HTML: sem o w3m o filtro "html" do aerc falha e o e-mail aparece vazio; troca pelo melhor disponível.
@@ -7576,6 +7592,7 @@ clique() {
     fixar) fixar_atual "$2" ;;
     fx*) ir_fixada "$2" "$faixa" ;;
     tarefas) abrir_tarefas "$2" ;;
+    em_*) email_botao_acao "${faixa#em_}" ;;
     relogio) abrir_calendario "$2" ;;
     tt) tmux display-popup -c "$2" -E $(tam_popup "$2") "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
     lado) tmux split-window -h -t "$3" -c "$4" ;;
@@ -8003,15 +8020,25 @@ botao_email() {
     mutt|neomutt) dica="q fecha" ;;
     *)           dica="feche o cliente p/ sair" ;;
   esac
-  # Tela estreita (lado a lado, celular): o aerc abre sem a barra de pastas (J/K trocam de pasta),
-  # numa cópia da configuração — a normal não muda. Senão a lista e o texto quebram linha a linha.
-  local larg; larg=$(do_cliente "$cliente" '#{client_width}')
-  if [[ ${prog##*/} == aerc && ${larg:-200} -lt 100 && -f $HOME/.config/aerc/aerc.conf ]]; then
-    local estreito="$HOME/.cache/tt-aerc-estreito.conf"; mkdir -p "$HOME/.cache"
-    cp "$HOME/.config/aerc/aerc.conf" "$estreito"
-    aerc_definir "$estreito" ui sidebar-width 0 forcar
-    aerc_definir "$estreito" ui index-columns 'flags:3,name<12%,subject,date>=' forcar
-    cmd+=" -C $(printf %q "$estreito")"
+  # A prévia da mensagem acompanha a tela: estreita (< 100: lado a lado, celular) — sem prévia e
+  # sem a barra de pastas (J/K trocam de pasta); média — prévia EMBAIXO, com a largura toda (HTML
+  # lê melhor); muito larga (≥ 180) — prévia AO LADO. As variantes são cópias da configuração em
+  # ~/.cache; a normal não muda.
+  local larg modo=largo; larg=$(do_cliente "$cliente" '#{client_width}')
+  if [[ ${prog##*/} == aerc && -f $HOME/.config/aerc/aerc.conf ]]; then
+    local copia=""
+    if ((${larg:-200} < 100)); then
+      modo=estreito; copia="$HOME/.cache/tt-aerc-estreito.conf"; mkdir -p "$HOME/.cache"
+      cp "$HOME/.config/aerc/aerc.conf" "$copia"
+      aerc_definir "$copia" ui sidebar-width 0 forcar
+      aerc_definir "$copia" ui index-columns 'flags:3,name<12%,subject,date>=' forcar
+      sed -i '/^[[:space:]]*message-list-split[[:space:]]*=/d' "$copia"
+    elif ((${larg:-200} >= 180)); then
+      modo=amplo; copia="$HOME/.cache/tt-aerc-amplo.conf"; mkdir -p "$HOME/.cache"
+      cp "$HOME/.config/aerc/aerc.conf" "$copia"
+      aerc_definir "$copia" ui message-list-split 'vertical 70' forcar
+    fi
+    [[ -n $copia ]] && cmd+=" -C $(printf %q "$copia")"
   fi
   # Subjanela por cima da tela, com borda arredondada na cor do tema e título. (O tmux deixa arrastar
   # um popup pela linha da borda e não tem opção para desligar isso; o dono prefere a borda.)
@@ -8020,7 +8047,6 @@ botao_email() {
     # aerc fica aberto e conectado numa sessão oculta: abrir de novo é instantâneo (antes, ~6 s
     # reconectando às contas a cada vez), e e-mail novo chega com ele fechado. q só esconde a
     # subjanela; Ctrl+q encerra o aerc de verdade.
-    local modo=largo; [[ $cmd == *" -C "* ]] && modo=estreito
     email_sessao "$cmd" "$modo" || { botao_aviso "$cliente" "e-mail: não consegui abrir o aerc"; return; }
     # Se o aerc morrer logo ao abrir (tema/config/conta inválidos), a sessão fica num shell com o
     # erro em vez de o popup abrir e sumir vazio. Dá um instante para ele iniciar e checa o estado.
@@ -8053,7 +8079,7 @@ email_sessao() {
   if tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
     pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
     if [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo) == "$modo" && $pane_cmd == aerc* &&
-          $(tmux show-environment -t "=$EMAIL_SESSAO" VAXIS_FORCE_UNICODE 2>/dev/null) == VAXIS_FORCE_UNICODE=1 ]]; then return 0; fi
+          $(tmux show-environment -t "=$EMAIL_SESSAO" VAXIS_FORCE_UNICODE 2>/dev/null) == VAXIS_FORCE_UNICODE=1 ]]; then email_sessao_botoes; return 0; fi
     tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
   fi
   mkdir -p "$HOME/.cache"
@@ -8062,6 +8088,12 @@ email_sessao() {
         -e "s/^<C-q>[[:space:]]*=.*/<C-q> = :quit<Enter>/" "$b" >"$bo"
     cmd+=" -B $(printf %q "$bo")"
   fi
+  email_sessao_criar "$cmd" "$modo" || return 1
+  email_sessao_botoes
+  return 0
+}
+email_sessao_criar() {
+  local cmd=$1 modo=$2
   # VAXIS_FORCE_UNICODE: o aerc mede emoji com seletor de variação (🕸️, ⚠️) como 2 colunas, igual ao
   # tmux (3.5 e 3.6) e aos terminais. Sem isso ele contava 1, a linha ficava com uma coluna a mais e o
   # fim dela (o horário) transbordava para a linha de baixo: dígitos soltos na coluna de pastas.
@@ -8070,8 +8102,55 @@ email_sessao() {
   tmux set -q -t "=$EMAIL_SESSAO:" @tt_oculta 1
   tmux set -q -t "=$EMAIL_SESSAO:" @nome_auto 0
   tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_modo "$modo"
-  tmux set -q -t "=$EMAIL_SESSAO:" status off
   return 0
+}
+
+# Barra de botões do e-mail: a linha de status da sessão oculta (aparece no rodapé do popup). Cada
+# botão é um range user|em_<ação>; o clique chega pelo mesmo caminho dos botões da barra principal
+# (MouseDown1Status → tt --clique) e vira a tecla do aerc (email_botao_acao). Em tela estreita
+# (< 100) ficam só os ícones. Aplicada toda vez que o popup abre (a sessão pode ser antiga).
+email_sessao_botoes() {
+  tmux set -q -t "=$EMAIL_SESSAO:" status on
+  tmux set -q -t "=$EMAIL_SESSAO:" status-position bottom
+  tmux set -q -t "=$EMAIL_SESSAO:" status-style 'bg=#181825,fg=#cdd6f4'
+  tmux set -q -t "=$EMAIL_SESSAO:" 'status-format[0]' "$(email_barra_fmt)"
+}
+# Os botões: ação, ícone, rótulo (cor de fundo própria para os destrutivos).
+EMAIL_BOTOES=(
+  'abrir|📖|Abrir'
+  'nova|+|Nova'
+  'resp|↩|Responder'
+  'todos|↩↩|Todos'
+  'enc|↪|Encaminhar'
+  'arq|▤|Arquivar'
+  'apagar|✕|Apagar'
+  'pasta|📁|Pasta'
+  'contas|👤|Contas'
+  'atalhos|?|Atalhos'
+)
+email_barra_fmt() {
+  local b acao ic rot est out=""
+  for b in "${EMAIL_BOTOES[@]}"; do
+    IFS='|' read -r acao ic rot <<<"$b"
+    case $acao in
+      abrir) est='#[fg=#1e1e2e,bg=#89b4fa,bold]' ;;
+      apagar) est='#[fg=#1e1e2e,bg=#f38ba8,bold]' ;;
+      *) est='#[fg=#cdd6f4,bg=#45475a]' ;;
+    esac
+    out+="#[range=user|em_$acao]$est $ic#{?#{e|<:#{client_width},100},, $rot} #[norange]#[default] "
+  done
+  printf '%s' "$out"
+}
+# Clique num botão do popup do e-mail: manda a tecla correspondente ao aerc da sessão oculta.
+email_botao_acao() { # ação
+  tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null || return 0
+  local -a k
+  case $1 in
+    abrir) k=(Enter) ;; nova) k=(m) ;; resp) k=(R r) ;; todos) k=(r r) ;; enc) k=(f) ;;
+    arq) k=(a) ;; apagar) k=(d) ;; pasta) k=(M) ;; contas) k=(F2) ;; atalhos) k=('?') ;;
+    *) return 0 ;;
+  esac
+  tmux send-keys -t "=$EMAIL_SESSAO:" "${k[@]}"
 }
 
 # ─── Cadastro e gerência de contas de e-mail (aerc) ────────────────────────────

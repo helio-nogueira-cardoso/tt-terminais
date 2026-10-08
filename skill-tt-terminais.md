@@ -203,6 +203,13 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   preenche `@barra_email` (não lidas do espelho; ⚠ vermelho se `--email-sync-estado curto` tem
   erro/parado), referenciada pelo range `email` do tema.
 - `tt --email-atalhos` — tela de atalhos do aerc em português.
+- Popup do e-mail: `email_sessao` cria a sessão oculta `_tt-email` e `email_sessao_botoes` liga nela
+  uma linha de status própria com a barra de botões (`email_barra_fmt`, ranges `user|em_<ação>`,
+  lista `EMAIL_BOTOES`); o clique chega por `MouseDown1Status → tt --clique` e `em_*)` em `clique()`
+  chama `email_botao_acao`, que manda a tecla ao aerc (`send-keys -t =_tt-email:`). Duplo clique no
+  painel da sessão `_tt-email` = Enter (abre), via `if -F` no `DoubleClick1Pane` do tmux.conf.
+  `configurar_aerc` também põe ícones (`icon-*`), `tab-title-account` com não lidas, datas numéricas,
+  `message-list-split horizontal 14` + `auto-mark-read-split` (cópias em ~/.cache: tela < 100 sem split e sem sidebar, modo estreito; ≥ 180 `vertical 70`, modo amplo).
 
 ### Nomeador de abas
 - `tt --nomeador [auto|local|claude|nenhum]` — define a fonte do nome automático.
