@@ -4069,7 +4069,7 @@ menu_tmux() {
   [[ -n $p ]] || p=$(do_cliente "$c" '#{pane_id}')
   [[ $(tmux show-options -wv -t "$win" synchronize-panes) == on ]] && sinc="✓ ligado" || sinc="desligado"
   [[ $(tmux show-options -gv mouse) == on ]] && mouse="✓ ligado" || mouse="desligado"
-  ed=${EDITOR:-nano}
+  ed=$(editor_tt)
   menu_popup "$c" "tmux $(tmux display-message -p '#{version}') · $sess" <<ITENS
 c	Nova janela nesta sessão	tmux new-window -t $(q "=$sess:") -c $(q "$(tmux display-message -p -t "$p" '#{pane_current_path}')")
 n	Próxima janela	tmux next-window -t $(q "=$sess:")
@@ -4189,7 +4189,7 @@ editar_atalhos() {
 }
 
 menu_atalhos() {
-  local c=$1 ed=${EDITOR:-nano}
+  local c=$1 ed; ed=$(editor_tt)
   mkdir -p "$CONF_DIR"
   touch "$CONF_ATALHOS"
   menu_popup "$c" "atalhos de comandos" <<ITENS
@@ -5775,19 +5775,63 @@ tarefa_renomear_prompt() {
   return 0
 }
 
-# Edita a descrição longa de ID num editor (EDITOR/VISUAL, senão nano/vim/vi). Multi-linha.
+# Editor de texto do tt: VISUAL/EDITOR do usuário mandam; sem eles, o vim com a configuração
+# bonita do próprio tt (cores, mouse, quebra de linha, Ctrl+S salva e sai — sem tocar no seu
+# ~/.vimrc), senão vi, senão nano. Imprime o comando (pode ter mais de uma palavra).
+editor_tt() {
+  local ed=${VISUAL:-${EDITOR:-}}
+  if [[ -n $ed ]]; then echo "$ed"; return 0; fi
+  if command -v vim >/dev/null; then vimrc_tt_garantir; echo "vim -u $DIR_TT/vimrc-tt"
+  elif command -v vi >/dev/null; then echo vi
+  else echo nano; fi
+}
+
+# O vimrc do tt (gerado; vim -u ele, o ~/.vimrc do usuário fica em paz).
+vimrc_tt_garantir() {
+  local f=$DIR_TT/vimrc-tt tmp
+  tmp=$(mktemp) || return 0
+  cat >"$tmp" <<'VIMRC'
+" Editor do tt — bonito e direto. Salvar e sair: Ctrl+S (ou ZZ, ou :x). Cancelar: :q!
+set nocompatible
+syntax on
+set background=dark
+if has('termguicolors') && ($COLORTERM ==# 'truecolor' || $COLORTERM ==# '24bit')
+  set termguicolors
+endif
+silent! colorscheme habamax
+set mouse=a                      " clique posiciona, roda rola, arrasto seleciona
+set clipboard^=unnamed,unnamedplus
+set number cursorline scrolloff=3
+set wrap linebreak breakindent display=lastline
+set backspace=indent,eol,start whichwrap+=<,>,[,]
+set incsearch hlsearch ignorecase smartcase
+set wildmenu ttimeoutlen=50 shortmess+=I
+set noswapfile nobackup undofile undodir=~/.cache/tt-vim-undo//
+silent! call mkdir(expand('~/.cache/tt-vim-undo'), 'p', 0700)
+set laststatus=2
+let &statusline = ' %t %m%=Ctrl+S salva e sai · :q! cancela  %l/%L '
+nnoremap <silent> <C-s> :x<CR>
+inoremap <silent> <C-s> <Esc>:x<CR>
+vnoremap <silent> <C-s> <Esc>:x<CR>
+" Arquivo vazio: já começa escrevendo.
+autocmd VimEnter * if line('$') == 1 && empty(getline(1)) | startinsert | endif
+VIMRC
+  mkdir -p "$DIR_TT" 2>/dev/null
+  cmp -s "$tmp" "$f" 2>/dev/null || cat "$tmp" >"$f"
+  rm -f "$tmp"
+}
+
+# Edita a descrição longa de ID num editor (editor_tt). Multi-linha.
 tarefa_desc_prompt() {
-  local id=$1 ed tmp
+  local id=$1 tmp
   [[ -n $id ]] || return 0
-  ed=${VISUAL:-${EDITOR:-}}
-  if [[ -z $ed ]]; then
-    for ed in nano vim vi; do command -v "$ed" >/dev/null && break; done
-  fi
+  local -a ed; read -ra ed <<<"$(editor_tt)"
+  [[ ${ed[0]##*/} == nano ]] && ed+=(-t)   # -t: ^X salva e sai, sem perguntar
   tmp=$(mktemp "${TMPDIR:-/tmp}/tt-nota.XXXXXX") || return 0
   tarefa_get_desc "$id" >"$tmp"
   # Só usa /dev/tty se der para abri-lo (num fluxo headless/teste ele pode existir mas não abrir).
-  if { : >/dev/tty; } 2>/dev/null; then "$ed" "$tmp" </dev/tty >/dev/tty 2>&1 || { rm -f "$tmp"; return 0; }
-  else "$ed" "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; return 0; }; fi
+  if { : >/dev/tty; } 2>/dev/null; then "${ed[@]}" "$tmp" </dev/tty >/dev/tty 2>&1 || { rm -f "$tmp"; return 0; }
+  else "${ed[@]}" "$tmp" </dev/null >/dev/null 2>&1 || { rm -f "$tmp"; return 0; }; fi
   tarefa_set_desc "$id" "$(cat "$tmp")"
   rm -f "$tmp"
   return 0
