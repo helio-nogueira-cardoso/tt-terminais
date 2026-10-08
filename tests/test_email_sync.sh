@@ -41,6 +41,7 @@ rc=$(RC local)
 [[ -f $rc ]] || falhou '.mbsyncrc não foi gerado'
 grep -q '^Host imap.gmail.com$' "$rc" || falhou '.mbsyncrc sem Host correto'
 grep -q '^User eu@gmail.com$' "$rc" || falhou '.mbsyncrc sem User correto'
+grep -q '^Timeout 60$' "$rc" || falhou '.mbsyncrc sem Timeout 60 (o Gmail trava mais que os 20 s padrão)'
 grep -q '^PassCmd "cat .*aerc-local.txt"$' "$rc" || falhou ".mbsyncrc PassCmd não aponta para o arquivo de senha: $(grep PassCmd "$rc")"
 grep -q '^Channel local-inbox$' "$rc" || falhou '.mbsyncrc sem o canal do INBOX'
 grep -q '^Channel local-pastas$' "$rc" && grep -q '^Patterns \* !INBOX$' "$rc" || falhou ".mbsyncrc sem o canal das outras pastas (sem rótulos conhecidos ainda): $(grep Patterns "$rc")"
