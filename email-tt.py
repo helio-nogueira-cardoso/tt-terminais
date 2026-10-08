@@ -12,6 +12,9 @@
   email-tt.py imagens DESTINO            -> e-mail cru (stdin): salva as imagens embutidas/anexas em DESTINO e lista
                                             (TSV: arq|url, rótulo) também as <img> remotas do HTML; sem baixar nada
   email-tt.py baixar-imagem URL ARQUIVO  -> baixa uma imagem remota (só http/https, até 20 MB, só image/*)
+  email-tt.py contatos-indexar [--sem=END,…] MAILDIR…
+                                         -> "endereço<TAB>nome<TAB>vezes" dos remetentes e destinatários
+                                            dos e-mails (só os cabeçalhos), os mais frequentes primeiro
 
 CONF é o arquivo chave=valor da conta (~/.config/tt/email/<slug>.conf). Segredos ficam em
 ~/.secrets/aerc-<slug>.txt (senha ou refresh token) e ~/.secrets/aerc-<slug>.client_secret; este
@@ -893,7 +896,71 @@ def baixar_imagem(url, arquivo):
     return 0
 
 
+# --- Destinatários: quem já escreveu e para quem já se escreveu ---------------------------------
+def _cabecalhos(caminho, limite=65536):
+    """Os bytes do cabeçalho de uma mensagem (até a linha em branco), sem ler o corpo."""
+    dados = b""
+    with open(caminho, "rb") as f:
+        while len(dados) < limite:
+            bloco = f.read(8192)
+            if not bloco:
+                break
+            dados += bloco
+            cortes = [i for i in (dados.find(b"\n\n"), dados.find(b"\r\n\r\n")) if i >= 0]
+            if cortes:
+                return dados[:min(cortes)]
+    return dados
+
+
+# Endereços automáticos (ninguém escreve para eles).
+AUTOMATICOS = ("noreply", "no-reply", "no_reply", "naoresponda", "nao-responda", "nao_responda",
+               "donotreply", "do-not-reply", "mailer-daemon", "postmaster", "bounce")
+
+
+def contatos_indexar(args):
+    import email, email.policy, email.utils
+    from collections import Counter, defaultdict
+    sem, raizes = set(), []
+    for a in args:
+        if a.startswith("--sem="):
+            sem.update(x.strip().lower() for x in a[6:].split(",") if x.strip())
+        else:
+            raizes.append(a)
+    vezes, nomes = Counter(), defaultdict(Counter)
+    for raiz in raizes:
+        for pasta, _, arquivos in os.walk(raiz):
+            if os.path.basename(pasta) not in ("cur", "new"):
+                continue
+            for arq in arquivos:
+                try:
+                    msg = email.message_from_bytes(_cabecalhos(os.path.join(pasta, arq)) + b"\n\n",
+                                                   policy=email.policy.default)
+                    campos = []
+                    for h in ("From", "To", "Cc", "Reply-To"):
+                        campos.extend(str(v) for v in (msg.get_all(h) or []))
+                    pares = email.utils.getaddresses(campos)
+                except Exception:
+                    continue
+                for nome, end in pares:
+                    end = end.strip().lower()
+                    if "@" not in end or end in sem:
+                        continue
+                    local = end.split("@", 1)[0]
+                    if any(local.startswith(p) or local.endswith(p) for p in AUTOMATICOS):
+                        continue
+                    vezes[end] += 1
+                    nome = " ".join(nome.split())
+                    if nome and nome.lower() != end:
+                        nomes[end][nome] += 1
+    for end, n in sorted(vezes.items(), key=lambda kv: (-kv[1], kv[0])):
+        nome = nomes[end].most_common(1)[0][0] if nomes[end] else ""
+        print(f"{end}\t{nome}\t{n}")
+    return 0
+
+
 def main(a):
+    if a[:1] == ["contatos-indexar"] and len(a) >= 2:
+        return contatos_indexar(a[1:])
     if a[:1] == ["html"]:
         dados = sys.stdin.buffer.read()
         sys.stdout.write(html_para_texto(dados.decode("utf-8", "replace"))); return 0

@@ -197,6 +197,22 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   Sonda o tt de lá (`--sonda` → `pronto existe=0|1 mbsync=0|1`) antes de mandar o segredo; tt antigo
   não recebe nada. Na chegada: só os 3 nomes de membro aceitos, validação, snapshot, segredos 600,
   `email_regerar`; sync_local=1 sem mbsync chega desligado com aviso; já existente só com --sobrescrever.
+- Escrever (seção "Escrever e-mails" do tt; `configurar_aerc` põe em `[compose]`: `editor=tt --email-editor`,
+  `format-flowed=true`, `empty-subject-warning=true`, `no-attachment-warning=^[^>]*(anex[oa]|anexei|attach)`,
+  `address-book-cmd=tt --email-contatos %s`, `file-picker-cmd=tt --email-anexos-escolher %f`; binds
+  `[compose::review]` a = `:attach -m` (seletor), A = `:attach<space>`): `tt --email-editor ARQ` =
+  `editor_tt` + (se vim) `--cmd let g:tt_spelllang=… -S $DIR_TT/vimrc-tt-email` (`email_vimrc_garantir`:
+  ft=mail, tw=72 fo+=w, spell, sem number, insert acima da citação; `TT_EMAIL_EDITOR_MOSTRAR=1` só
+  imprime o comando); dicionário `~/.vim/spell/pt.utf-8.spl` por `email_vim_spell_garantir`
+  (`TT_VIM_SPELL_URL`; baixa em 2º plano na instalação/1º uso; sem ele spelllang=en); `tt
+  --email-contatos TEXTO` lê `~/.config/tt/email/contatos.tsv` (manual) + `~/.cache/tt/email-contatos.tsv`
+  (índice `email-tt.py contatos-indexar --sem=próprios MAILDIR…`, refeito por `email_contatos_indexar`
+  ao fim de cada sync completo ou em 2º plano se > 1 h); `tt --email-anexos-escolher ARQ` (fzf multi
+  sobre recebidos + $HOME, sem terminal lê stdin); assinatura em `~/.config/tt/email/<slug>.assinatura`
+  (`email_assinatura_editar`, `tt --email-assinatura CONTA`, `assinatura=` no --email-adicionar, pergunta
+  no assistente, item g na tela da conta; `email_bloco` emite `signature-file` salvo se extra_* já tem
+  `signature-`; entra no snapshot, no --email-remover e no pacote da propagação). Pendência de sudo
+  `email-editor` (vim).
 - `tt --email-sync [NOME] [--completo]` — espelha por mbsync as contas com `sync_local=1` (padrão só
   o INBOX; `--completo` o grupo inteiro); `tt --email-sync-estado [curto]` — última rodada por conta
   e modo (estado em `$ESTADO_DIR/email-sync/<slug>`, erro em `<slug>.erro`; `curto` = ok|erro|nunca|

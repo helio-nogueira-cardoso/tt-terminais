@@ -2198,6 +2198,20 @@ UI
   aerc_definir "$conf" openers 'x-scheme-handler/https*' "$HOME/.local/bin/tt --abrir-link {}" $f_op
   aerc_definir "$conf" openers 'image/*' "$HOME/.local/bin/tt --abrir-imagem {}" $f_op
 
+  # Escrever bem: o editor padronizado do tt (vim com largura 72 em format=flowed, ortografia em
+  # português e inglês), avisos de assunto vazio e de anexo esquecido, destinatários completados a
+  # partir dos e-mails já trocados e seletor de anexos. Só acrescenta o que o dono não definiu.
+  # (sem barra invertida no regex: awk -v interpretaria "\b"; "anex[oa]" pega anexo/anexa/anexos/anexado)
+  aerc_definir "$conf" compose editor "$HOME/.local/bin/tt --email-editor"
+  aerc_definir "$conf" compose format-flowed true
+  aerc_definir "$conf" compose empty-subject-warning true
+  aerc_definir "$conf" compose no-attachment-warning '^[^>]*(anex[oa]|anexei|attach)'
+  aerc_definir "$conf" compose address-book-cmd "$HOME/.local/bin/tt --email-contatos %s"
+  aerc_definir "$conf" compose file-picker-cmd "$HOME/.local/bin/tt --email-anexos-escolher %f"
+  # O dicionário de português do vim (2,6 MB) baixa uma vez, em segundo plano; sem ele o editor
+  # corrige só em inglês até a próxima vez.
+  if [[ -z ${TT_EMAIL_SEM_REDE:-} ]] && command -v vim >/dev/null; then (email_vim_spell_garantir >/dev/null 2>&1 &); fi
+
   # Sem binds.conf (ou sem os atalhos básicos), o arquivo do tt substituiria os padrões do aerc e
   # nem o Enter abriria a mensagem: começa pela cópia do binds.conf que vem com o aerc.
   if ! grep -q '^<Enter> = :view' "$binds" 2>/dev/null; then
@@ -2239,6 +2253,10 @@ UI
     echo 'Y = :copy<space>'
     echo 'a = :archive flat<Enter>'
     echo 'd = :choose -o y '"'"'Apagar esta mensagem'"'"' delete-message<Enter>'
+    # Revisão da mensagem: a abre o seletor de anexos (file-picker-cmd); A pede o caminho digitado.
+    echo '[compose::review]'
+    echo 'a = :attach -m<Enter> # Anexar (seletor)'
+    echo 'A = :attach<space> # Anexar (caminho)'
     echo "$AERC_BINDS_FIM"; } > "$tmp"
   cmp -s "$tmp" "$binds" 2>/dev/null || cat "$tmp" > "$binds"; rm -f "$tmp"
   # .mbsyncrc antigos (canal único) passam ao formato de canais + grupo.
@@ -3558,6 +3576,7 @@ sudo_pendencias() {
   if tem_conta_email || ((${#so[@]})); then
     pend email-sync "mbsync" "sync local do e-mail: espelho offline, abre na hora e funciona sem rede"
     pend email-html "w3m" "mostrar e-mails em HTML bem (tabelas, cores, links)"
+    pend email-editor "vim" "escrever e-mails no editor padronizado do tt (largura certa, ortografia em português)"
   fi
   return 0
 }
@@ -7488,7 +7507,14 @@ Anexos	E	enviar os anexos para a pasta de recebidos de uma máquina do tt
 Anexos	i	imagens do e-mail (anexadas e da web): lista e abre no visualizador de imagens
 Várias	v  ou  espaço	selecionar / desmarcar (as ações valem para todas as selecionadas)
 Várias	V	selecionar a conversa inteira
-Contas	F2	contas de e-mail: cadastrar, descadastrar, testar, propagar (q ou Esc volta)
+Escrever	m  ou  C	mensagem nova (no vim do tt: largura certa, ortografia em português; z= corrige a palavra)
+Escrever	Tab / Ctrl+j / Ctrl+k	campo seguinte / anterior (Para, Cc, Assunto…)
+Escrever	Ctrl+S  (no editor)	salva o texto e vai para a revisão da mensagem
+Escrever	y / n / p	na revisão: enviar / descartar / adiar (vira rascunho)
+Escrever	a / A / d	na revisão: anexar pelo seletor / anexar por caminho / tirar anexo
+Escrever	e / v	na revisão: voltar a editar / ver como vai ficar
+Escrever	Ctrl+x	linha de comando do aerc dentro da mensagem (ex.: :attach, :cc)
+Contas	F2	contas de e-mail: cadastrar, descadastrar, testar, assinatura, propagar (q ou Esc volta)
 Contas	Ctrl+n / Ctrl+p	próxima / anterior conta (abas)
 Ajuda	Ctrl+r	redesenhar a tela (se aparecer algo estranho)
 Ajuda	?	esta tela (q, Esc ou o botão de novo fecha; os botões do rodapé valem com ela aberta)
@@ -8245,6 +8271,129 @@ email_tela_fechar() {
   return 0
 }
 
+# ─── Escrever e-mails (compose do aerc) ──────────────────────────────────────
+#
+# O aerc chama o tt em três pontos do compose (aerc.conf [compose], posto por configurar_aerc):
+#   editor            tt --email-editor ARQ        o editor padronizado (abaixo)
+#   address-book-cmd  tt --email-contatos TEXTO    destinatários a partir dos e-mails já trocados
+#   file-picker-cmd   tt --email-anexos-escolher F  seletor de anexos (tecla a na revisão)
+# e ganha, por conta, a assinatura (signature-file no bloco do accounts.conf, arquivo
+# ~/.config/tt/email/<slug>.assinatura) e os avisos de assunto vazio e de anexo esquecido.
+
+# Editor das mensagens: o editor_tt (VISUAL/EDITOR do dono mandam; senão o vim com a configuração
+# do tt) mais o jeito de e-mail quando é o vim — largura 72 com format=flowed (fo+=w: o vim deixa
+# o espaço no fim da linha quebrada, e o aerc manda text/plain; format=flowed, que o leitor do
+# outro lado reflui à largura dele), ortografia em português e inglês (z= sugere), sem números de
+# linha, começa escrevendo acima da citação. Sem vim: vi ou nano, como estão.
+email_editor() { # [arquivo…]
+  local -a ed; read -ra ed <<<"$(editor_tt)"
+  case ${ed[0]##*/} in
+    vim|nvim)
+      local spell=en
+      if email_vim_spell_tem; then spell=pt_br,en
+      elif [[ -z ${TT_EMAIL_SEM_REDE:-} ]]; then (email_vim_spell_garantir >/dev/null 2>&1 &); fi
+      email_vimrc_garantir
+      ed+=(--cmd "let g:tt_spelllang='$spell'" -S "$DIR_TT/vimrc-tt-email") ;;
+    nano) ed+=(-r 72) ;;
+  esac
+  if [[ -n ${TT_EMAIL_EDITOR_MOSTRAR:-} ]]; then printf '%q ' "${ed[@]}" "$@"; echo; return 0; fi
+  exec "${ed[@]}" "$@"
+}
+# O trecho de e-mail do vim (vim -S ele, depois do vimrc que estiver valendo).
+email_vimrc_garantir() {
+  local f=$DIR_TT/vimrc-tt-email tmp
+  tmp=$(mktemp) || return 0
+  cat >"$tmp" <<'VIMRC'
+" E-mail no editor do tt: largura 72 em format=flowed, ortografia pt/en, sem números de linha.
+setlocal filetype=mail
+setlocal textwidth=72 formatoptions+=w formatoptions+=q formatoptions-=l
+setlocal nonumber norelativenumber
+execute 'setlocal spelllang=' . get(g:, 'tt_spelllang', 'en')
+setlocal spell
+let &l:statusline = ' ✉ %m%=Ctrl+S salva e volta à revisão · :q! cancela · z= corrige a palavra  %l/%L '
+" Começa escrevendo no alto; se já há texto (a citação da resposta), numa linha nova acima dele.
+if !(line('$') == 1 && empty(getline(1))) | call append(0, '') | endif
+call cursor(1, 1)
+startinsert
+VIMRC
+  mkdir -p "$DIR_TT" 2>/dev/null
+  cmp -s "$tmp" "$f" 2>/dev/null || cat "$tmp" >"$f"
+  rm -f "$tmp"
+}
+# Dicionário de português do vim (~/.vim/spell/pt.utf-8.spl, de onde o próprio vim o leria).
+EMAIL_VIM_SPELL="$HOME/.vim/spell/pt.utf-8.spl"
+EMAIL_VIM_SPELL_URL=${TT_VIM_SPELL_URL:-https://ftp.nluug.nl/pub/vim/runtime/spell/pt.utf-8.spl}
+email_vim_spell_tem() { [[ -s $EMAIL_VIM_SPELL ]]; }
+email_vim_spell_garantir() {
+  email_vim_spell_tem && return 0
+  command -v curl >/dev/null || return 1
+  mkdir -p "${EMAIL_VIM_SPELL%/*}" || return 1
+  curl -sfL --max-time 120 -o "$EMAIL_VIM_SPELL.tmp" "$EMAIL_VIM_SPELL_URL" && [[ -s $EMAIL_VIM_SPELL.tmp ]] &&
+    mv "$EMAIL_VIM_SPELL.tmp" "$EMAIL_VIM_SPELL" || { rm -f "$EMAIL_VIM_SPELL.tmp"; return 1; }
+}
+
+# Destinatários: índice "endereço<TAB>nome<TAB>vezes" dos remetentes e destinatários de todos os
+# e-mails nos maildirs (contas com sync local), refeito ao fim de cada volta completa do sync e,
+# se está velho (> 1 h) quando o aerc pede, em segundo plano. Contatos escritos à mão em
+# ~/.config/tt/email/contatos.tsv (endereço<TAB>nome) vêm primeiro. (EMAIL_CONTATOS_* ficam junto
+# de EMAIL_DIR, na seção de cadastro.)
+email_contatos_indexar() {
+  local -a mds=(); local s meus=""; local -A E=()
+  for s in $(email_slugs); do
+    [[ -d $(email_maildir "$s") ]] && mds+=("$(email_maildir "$s")")
+    E=(); email_ler "$s" 2>/dev/null && [[ -n ${E[endereco]:-} ]] && meus+="${meus:+,}${E[endereco]}" # os próprios endereços ficam de fora
+  done
+  mkdir -p "${EMAIL_CONTATOS_CACHE%/*}"
+  ((${#mds[@]})) || { : >"$EMAIL_CONTATOS_CACHE"; return 0; }
+  python3 -I "$EMAIL_PY" contatos-indexar "--sem=$meus" "${mds[@]}" >"$EMAIL_CONTATOS_CACHE.tmp" 2>/dev/null &&
+    mv "$EMAIL_CONTATOS_CACHE.tmp" "$EMAIL_CONTATOS_CACHE" || rm -f "$EMAIL_CONTATOS_CACHE.tmp"
+}
+# tt --email-contatos TEXTO (address-book-cmd): "endereço<TAB>nome" dos que casam com TEXTO (no
+# nome ou no endereço, sem distinguir maiúsculas), manuais primeiro, depois os mais frequentes.
+email_contatos() {
+  local q=${1:-}
+  if [[ ! -f $EMAIL_CONTATOS_CACHE ]] || (( $(date +%s) - $(stat -c %Y "$EMAIL_CONTATOS_CACHE" 2>/dev/null || echo 0) > 3600 )); then
+    mkdir -p "${EMAIL_CONTATOS_CACHE%/*}"; touch "$EMAIL_CONTATOS_CACHE" # a idade zera já: uma indexação por vez
+    ("$EU" --email-contatos-indexar >/dev/null 2>&1 &)
+  fi
+  { [[ -f $EMAIL_CONTATOS_MANUAL ]] && grep -v '^#' "$EMAIL_CONTATOS_MANUAL"; cut -f1,2 "$EMAIL_CONTATOS_CACHE"; } 2>/dev/null |
+    awk -F'\t' -v q="${q,,}" 'NF && $1 != "" { l = tolower($0); if (q == "" || index(l, q)) { k = tolower($1); if (!(k in v)) { v[k] = 1; print $1 "\t" $2; if (++n >= 50) exit } } }'
+}
+
+# Seletor de anexos (file-picker-cmd; tecla a na revisão): os arquivos da pasta de recebidos e da
+# pasta pessoal, os mais recentes primeiro, Tab marca vários; grava os escolhidos no arquivo que
+# o aerc indica (%f). Sem terminal, lê os caminhos da entrada padrão.
+email_anexos_escolher() { # arquivo-de-saída
+  local saida=${1:?uso: tt --email-anexos-escolher ARQUIVO} esc rec; local -a raizes=()
+  rec=$(pasta_recebidos </dev/null 2>/dev/null); [[ -n $rec && -d $rec ]] && raizes+=("$rec") # (</dev/null: no WSL o cmd.exe de pasta_recebidos comeria a entrada)
+  raizes+=("$HOME")
+  if [[ -t 0 && -t 1 ]] && command -v fzf >/dev/null; then
+    esc=$(find "${raizes[@]}" -maxdepth 4 -type f ! -path '*/.*' ! -path '*/node_modules/*' -printf '%T@\t%p\n' 2>/dev/null |
+      sort -rn | cut -f2 | awk '!s[$0]++' | head -20000 |
+      fzf --multi --layout=reverse --prompt='📎 ' --header='Tab marca vários · ⏎ anexa · Esc cancela' \
+        --preview 'ls -lh {} 2>/dev/null | cut -d" " -f5-' --preview-window=down,3,wrap) || esc=""
+  else esc=$(cat); fi
+  printf '%s\n' "$esc" | sed '/^$/d' >"$saida"
+  return 0
+}
+
+# Assinatura da conta: ~/.config/tt/email/<slug>.assinatura (texto livre, várias linhas); o bloco
+# do aerc ganha signature-file quando o arquivo tem conteúdo. tt --email-assinatura CONTA abre o
+# editor_tt nele (sem terminal: lê a entrada padrão); vazio = sem assinatura.
+email_assinatura_arq() { echo "$EMAIL_DIR/$1.assinatura"; }
+email_assinatura_editar() { # slug
+  local slug=$1 f; f=$(email_assinatura_arq "$slug")
+  mkdir -p "$EMAIL_DIR"
+  if [[ -t 0 ]] && { : >/dev/tty; } 2>/dev/null; then
+    local -a ed; read -ra ed <<<"$(editor_tt)"; [[ ${ed[0]##*/} == nano ]] && ed+=(-t)
+    "${ed[@]}" "$f" </dev/tty >/dev/tty 2>&1 || true
+  else cat >"$f"; fi
+  [[ -s $f ]] || rm -f "$f"
+  local -A E=(); email_ler "$slug" && email_regerar "$slug"
+  if [[ -s $f ]]; then echo "✓ assinatura de ${E[nome]:-$slug} gravada ($(wc -l <"$f") linha$( (($(wc -l <"$f") > 1)) && echo s))"
+  else echo "· ${E[nome]:-$slug} fica sem assinatura"; fi
+}
+
 # ─── Cadastro e gerência de contas de e-mail (aerc) ────────────────────────────
 # Cada conta do tt tem um arquivo chave=valor em ~/.config/tt/email/<slug>.conf (nada secreto:
 # provedor, servidores, portas, segurança, autenticação) e o segredo em ~/.secrets/aerc-<slug>.txt
@@ -8257,6 +8406,8 @@ SECRETS_DIR="$HOME/.secrets"
 EMAIL_DIR="$CONF_DIR/email"
 EMAIL_PY="$DIR_TT/email-tt.py"
 [[ -f $EMAIL_PY ]] || EMAIL_PY="${EU%/*}/email-tt.py"
+EMAIL_CONTATOS_CACHE="$HOME/.cache/tt/email-contatos.tsv" # índice de destinatários (email_contatos_indexar)
+EMAIL_CONTATOS_MANUAL="$EMAIL_DIR/contatos.tsv"            # contatos escritos à mão: endereço<TAB>nome
 declare -A E=() # conta em edição (as funções declaram a sua cópia local com local -A E)
 # Chaves de uma conta, na ordem em que são gravadas.
 EMAIL_CHAVES=(nome endereco usuario nome_exibicao provedor auth imap_host imap_porta imap_seg smtp_host smtp_porta smtp_seg
@@ -8360,6 +8511,7 @@ client_secret|$SECRETS_DIR/aerc-$slug.client_secret
 accounts|$AERC_CONTAS
 pastas|$AERC_DIR/tt-pastas-$slug.map
 mbsyncrc|$EMAIL_MBSYNC_DIR/$slug.mbsyncrc
+assinatura|$EMAIL_DIR/$slug.assinatura
 EOF
   printf '%s' "$d"
 }
@@ -8376,6 +8528,7 @@ client_secret|$SECRETS_DIR/aerc-$slug.client_secret
 accounts|$AERC_CONTAS
 pastas|$AERC_DIR/tt-pastas-$slug.map
 mbsyncrc|$EMAIL_MBSYNC_DIR/$slug.mbsyncrc
+assinatura|$EMAIL_DIR/$slug.assinatura
 EOF
   rm -rf "$d"
 }
@@ -8469,7 +8622,13 @@ email_bloco() {
   if [[ -z $gmail && -n ${E[pasta_enviados]:-} ]]; then
     local v=${E[pasta_enviados]}; [[ -n $mae ]] && v=${v#"$mae"/}; printf 'copy-to           = %s\n' "$v"
   fi
-  local i; for i in 1 2 3 4 5 6 7 8; do
+  # Assinatura da conta (arquivo do tt), a não ser que o dono já tenha a dele nas linhas extras.
+  local ass i; ass=$(email_assinatura_arq "${E[_slug]}")
+  if [[ -s $ass ]]; then
+    for i in 1 2 3 4 5 6 7 8; do [[ ${E[extra_$i]:-} =~ ^[[:space:]]*signature- ]] && ass=""; done
+    [[ -n $ass ]] && printf 'signature-file    = %s\n' "$ass"
+  fi
+  for i in 1 2 3 4 5 6 7 8; do
     [[ -n ${E[extra_$i]:-} ]] || continue
     # chaves que o tt agora define (ou que não valem para o Gmail) não são repetidas
     if [[ ${E[extra_$i]} =~ ^[[:space:]]*([a-z-]+)[[:space:]]*= ]]; then
@@ -8665,6 +8824,8 @@ email_sync() { # slug [inbox|completo]
   rm -f "${dir:?}/${slug:?}.andamento"
   email_novos_avisar "$slug"
   atualizar_barras 2>/dev/null
+  # Volta completa boa: refaz o índice de destinatários (quem já escreveu / para quem já se escreveu).
+  [[ $modo == completo && $st == 0 ]] && email_contatos_indexar
   return $st
 }
 
@@ -8909,6 +9070,8 @@ email_adicionar_cli() {
     mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR" 2>/dev/null
     ( umask 077; printf '%s' "$senha" >"$(email_cred_arq "${E[_slug]}")" ); chmod 600 "$(email_cred_arq "${E[_slug]}")"; unset senha
   fi
+  # assinatura=texto (uma linha; várias com tt --email-assinatura CONTA). Não fica no .conf.
+  if [[ -n ${E[assinatura]:-} ]]; then mkdir -p "$EMAIL_DIR"; printf '%s\n' "${E[assinatura]}" >"$(email_assinatura_arq "${E[_slug]}")"; fi
   email_gravar; email_regerar "${E[_slug]}"
   [[ -n ${TT_EMAIL_SEM_REDE:-} ]] || email_detectar_pastas "${E[_slug]}" || true
   [[ ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-sync "${E[_slug]}" --completo >/dev/null 2>&1 &)
@@ -8924,7 +9087,7 @@ email_remover_slug() {
   local slug=$1; local -A E=()
   email_ler "$slug" || { echo "Conta não encontrada: $slug"; return 1; }
   email_regerar "$slug" remover
-  rm -f "$(email_conf_arq "$slug")" "$(email_cred_arq "$slug")" "$SECRETS_DIR/aerc-$slug.client_secret"
+  rm -f "$(email_conf_arq "$slug")" "$(email_cred_arq "$slug")" "$SECRETS_DIR/aerc-$slug.client_secret" "$(email_assinatura_arq "$slug")"
   rm -rf "$(email_maildir "$slug")" "$EMAIL_MBSYNC_DIR/$slug.lock"
   echo "✔ conta \"${E[nome]}\" removida (bloco do aerc e segredos apagados)"
 }
@@ -8949,6 +9112,7 @@ email_pacote_itens() { # slug
 $EMAIL_DIR|$slug.conf
 $SECRETS_DIR|aerc-$slug.txt
 $SECRETS_DIR|aerc-$slug.client_secret
+$EMAIL_DIR|$slug.assinatura
 EOF
   return 0
 }
@@ -9040,7 +9204,7 @@ email_receber() {
     rm -rf "$tmp"; echo "✗ pacote inválido"; return 1
   fi
   while IFS= read -r m; do
-    case $m in "$slug.conf" | "aerc-$slug.txt" | "aerc-$slug.client_secret") ;;
+    case $m in "$slug.conf" | "aerc-$slug.txt" | "aerc-$slug.client_secret" | "$slug.assinatura") ;;
       *) rm -rf "$tmp"; echo "✗ pacote com conteúdo inesperado ($m)"; return 1 ;; esac
   done <<<"$lista"
   ( umask 077; tar -C "$tmp" -xf "$tmp/pacote.tar" ) 2>/dev/null || { rm -rf "$tmp"; echo "✗ pacote inválido"; return 1; }
@@ -9060,8 +9224,11 @@ email_receber() {
   [[ ${E[auth]} == comando ]] && avisos+=" · autenticação por comando: confira que '${E[cred_cmd]}' funciona aqui"
   snap=$(email_snapshot_criar "$slug") || { rm -rf "$tmp"; echo "✗ sem onde guardar o estado anterior"; return 1; }
   mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR" 2>/dev/null
+  # A assinatura acompanha a conta: a do pacote substitui a daqui (ou a tira, se o pacote não tem).
+  local ass; ass=$(email_assinatura_arq "$slug")
   if ! { [[ ! -s $cred ]] || email_segredo_instalar "$cred" "$(email_cred_arq "$slug")"; } ||
      ! { [[ ! -s $cs ]] || email_segredo_instalar "$cs" "$SECRETS_DIR/aerc-$slug.client_secret"; } ||
+     ! { mkdir -p "$EMAIL_DIR" && rm -f "$ass" && { [[ ! -s $tmp/$slug.assinatura ]] || cp "$tmp/$slug.assinatura" "$ass"; }; } ||
      ! email_gravar || ! email_regerar "$slug"; then
     email_snapshot_restaurar "$snap" "$slug"; rm -rf "$tmp"
     echo "✗ não consegui gravar a conta; nada foi alterado"; return 1
@@ -9314,6 +9481,11 @@ email_conta_nova_ui() {
   printf '\nValidando IMAP e SMTP antes de salvar…\n'
   if ! email_salvar_validado "$snap" 1; then email_pausa 'Enter volta para corrigir.'; return 0; fi
   printf '\n✔ Conta cadastrada e validada:'; email_resumo
+  # Assinatura (opcional, uma linha aqui; várias depois em F2 → conta → ✎ Assinatura).
+  printf '\n'
+  if email_pergunta 'E[assinatura]' 'Assinatura no fim das mensagens (opcional; Enter pula)' '' && [[ -n ${E[assinatura]:-} ]]; then
+    mkdir -p "$EMAIL_DIR"; printf '%s\n' "${E[assinatura]}" >"$(email_assinatura_arq "${E[_slug]}")"; email_regerar "${E[_slug]}"
+  fi
   email_propagar_oferecer "${E[_slug]}"
   email_pausa 'Enter volta.'
 }
@@ -9383,6 +9555,8 @@ email_conta_ui() {
             [[ ${E[auth]} == oauth ]] && printf 'a\t🔑 Autorizar de novo (OAuth2 / SSO)\n'
             if [[ ${E[sync_local]:-} == 1 ]]; then printf 's\t🔄 Sync local: ✓ ligado (espelho offline dos e-mails)\n'
             else printf 's\t🔄 Sync local: desligado (espelho offline: abre na hora e funciona sem rede)\n'; fi
+            if [[ -s $(email_assinatura_arq "$slug") ]]; then printf 'g\t✎ Assinatura: %s\n' "$(head -c 60 "$(email_assinatura_arq "$slug")" | head -1)"
+            else printf 'g\t✎ Assinatura (fim das mensagens): nenhuma\n'; fi
             printf 'p\t⇪ Propagar para as máquinas da rede… (configuração + senha/token, por ssh)\n'
             printf 'd\t🗑 Descadastrar\n'; printf 'v\t← Voltar\n'; } |
       fzf --ansi --layout=reverse --no-sort --delimiter=$'\t' --with-nth=2 --no-input \
@@ -9400,6 +9574,7 @@ email_conta_ui() {
            if command -v "$(mbsync_bin)" >/dev/null; then email_sync_local_definir "$slug" 1
            else echo 'Sem o mbsync (isync), o sync local fica desligado.'; fi
          fi; email_pausa ;;
+      g) clear; email_assinatura_editar "$slug"; email_pausa ;;
       p) email_propagar_ui "$slug" ;;
       d) email_descadastrar_ui "$slug" && return 0 ;;
       *) return 0 ;;
@@ -10396,6 +10571,11 @@ case "${1:-}" in
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
   --email-conta-nova-ui) email_conta_nova_ui; exit ;;
   --email-tela) email_tela "${2:-}"; exit 0 ;;
+  --email-editor) shift; email_editor "$@"; exit ;;
+  --email-contatos) email_contatos "${2:-}"; exit 0 ;;
+  --email-contatos-indexar) email_contatos_indexar; exit 0 ;;
+  --email-anexos-escolher) email_anexos_escolher "${2:-}"; exit ;;
+  --email-assinatura) s=$(email_achar "${2:?uso: tt --email-assinatura NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_assinatura_editar "$s"; exit ;;
   --email-propagar) shift; email_propagar "$@"; exit ;;
   --email-receber) shift; email_receber "$@"; exit ;;
   --email-propagar-ui) s=$(email_achar "${2:?uso: tt --email-propagar-ui NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_propagar_ui "$s"; exit ;;
