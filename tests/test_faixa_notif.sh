@@ -22,28 +22,30 @@ passou 'faixa ligada: status 3, blocos na linha 2, fixadas 100% livres'
 
 TT_FAIXA_LARGURA=140 tt --notificar "📧 Ana — Reunião de sexta" 120 >/dev/null 2>&1
 TT_FAIXA_LARGURA=140 tt --barras >/dev/null 2>&1; n=$(tmux show -gqv @barra_notifs)
-grep -q 'Ana — Reunião' <<<"$n" || falhou "aviso não entrou na faixa: $n"
-grep -q 'range=user|notifs' <<<"$n" || falhou "faixa de avisos sem o range clicável"
+grep -q 'Ana — Reunião' <<<"$(tmux show -gqv @barra_aviso)" || falhou "aviso não entrou na faixa (via @barra_aviso): $(tmux show -gqv @barra_aviso)"
+grep -q 'range=user|notifx' <<<"$n" || falhou "faixa de avisos sem o range clicável (notifx)"
 grep -q '│' <<<"$n" || falhou "slot sem os delimitadores │ │"
 TT_FAIXA_LARGURA=140 tt --notificar "$(printf 'A%.0s' {1..200})" 120 >/dev/null 2>&1
 TT_FAIXA_LARGURA=140 tt --barras >/dev/null 2>&1; n=$(tmux show -gqv @barra_notifs)
-grep -q '…' <<<"$n" || falhou "aviso comprido não foi truncado pelo orçamento"
-[[ ${#n} -lt 300 ]] || falhou "slot estourou o orçamento (len=${#n})"
+grep -q '…' <<<"$(tmux show -gqv @barra_aviso)" || falhou "aviso comprido não foi truncado pelo orçamento"
+a=$(tmux show -gqv @barra_aviso); [[ ${#a} -lt 300 ]] || falhou "slot estourou o orçamento (len=${#a})"
 TT_FAIXA_LARGURA=70 tt --barras >/dev/null 2>&1; n=$(tmux show -gqv @barra_notifs)
-grep -q '🔔 [0-9]' <<<"$n" || falhou "janela estreita deveria virar crachá 🔔 N: $n"
+grep -q "🔔" <<<"$n" && falhou "estreito não deve ter 2º sino no miolo: $n"
+grep -q "notifs_n" <<<"$(tmux show -gqv @barra_faixa)" || falhou "contador do sino ausente do segmento esquerdo"
 
 # clique com destino: aviso guarda a ação; a mais recente com ação ganha o clique; histórico marca ↗
 tt --notificar "📧 com destino" 120 email >/dev/null 2>&1
 ult=$(ls -1r "$HOME/.local/state/tt/notifs" | head -1)
 [[ $(cut -f3 "$HOME/.local/state/tt/notifs/$ult") == email ]] || falhou 'ação não gravada no aviso'
-rg -q 'notifs\) notifs_clique' "$TT" || falhou 'clique na faixa não passa pelo notifs_clique'
+rg -q 'notifs\) notifs_popup' "$TT" || falhou 'sino não abre sempre a central'
+rg -q 'notifx\) notifs_clique' "$TT" || falhou 'texto do aviso não abre o destino (range notifx)' 
 rg -q 'email\) botao_email' "$TT" || falhou 'destino email não abre o 📧'
 grep -q '↗' <<<"$("$TT" --notifs-ui 2>/dev/null)" || falhou 'histórico não marca avisos com destino (↗)'
 passou 'clique nas notificações: 📧 abre o e-mail; histórico com ⏎ nos destinos'
 
 # 🔔 sempre visível (porta do histórico mesmo sem aviso) e ticker: fontes, linha e passo do letreiro
 rm -f "$HOME/.local/state/tt/notifs"/*; tt --barras >/dev/null 2>&1
-grep -q 'range=user|notifs.* 🔔 ' <<<"$(tmux show -gqv @barra_faixa)" || falhou 'sininho não está ancorado à esquerda (junto aos chips)'
+grep -q 'range=user|notifs.* 🔔' <<<"$(tmux show -gqv @barra_faixa)" || falhou 'sininho não está ancorado à esquerda (junto aos chips)'
 grep -q '@barra_ticker' <<<"$(tmux show -gqv @barra_notifs)" || falhou 'slot vazio não dá lugar ao ticker'
 printf 'indicadores=frases
 ' >>"$XDG_CONFIG_HOME/tt/config"
@@ -54,7 +56,7 @@ grep -q 'dolar,frases,noticias' "$TT" || falhou 'letreiro não vem ligado de fá
 passou 'sininho permanente e ticker: fontes com cache, dolar/frases/noticias no motor'
 tt --notificar "📧 Ana — Reunião de sexta" 120 email >/dev/null 2>&1  # o histórico abaixo precisa dele
 tt --notificar "⏳ efêmero" 1 >/dev/null 2>&1; sleep 2; tt --barras >/dev/null 2>&1
-grep -q 'efêmero' <<<"$(tmux show -gqv @barra_notifs)" && falhou 'aviso expirado continuou na faixa'
+grep -q 'efêmero' <<<"$(tmux show -gqv @barra_aviso)" && falhou "aviso expirado continuou na faixa"
 grep -q 'Ana — Reunião' <<<"$("$TT" --notifs-ui)" || falhou 'histórico não lista o aviso'
 passou 'notificar: aparece com range, expira sozinho, histórico lista'
 
