@@ -75,3 +75,35 @@ grep -Fq '62%' <<<"$b" && grep -Fq '2.0M/s' <<<"$b" || { kill $pidw; fail "barra
 kill $pidw 2>/dev/null || true; sleep 0.2
 b=$($E bash "$TT" --transferencias-barra); [[ -z $b ]] || fail "barra sem ativos deveria ficar vazia: $b"
 echo "ok — barra: andamento somado"
+
+# 7) conferir / destino-info
+rm -rf "$T/orig" "$T/dest"; mkdir -p "$T/orig/pasta/sub" "$T/dest"
+printf 'aaaa' >"$T/orig/um.txt"; printf 'bbbbbb' >"$T/orig/pasta/sub/dois.txt"
+r=$($E bash "$TT" --conferir "$T/orig" um.txt pasta); [[ $r == "2 10" ]] || fail "conferir deveria dar '2 10', deu '$r'"
+h1=$($E bash "$TT" --conferir --hash "$T/orig" um.txt pasta); [[ ${#h1} == 64 ]] || fail "hash inválido: $h1"
+printf 'x' >"$T/dest/um.txt"
+r=$($E bash "$TT" --destino-info "$T/dest" um.txt pasta); read -r livre conf <<<"$r"
+[[ $conf == 1 && $livre -gt 0 ]] || fail "destino-info deveria achar 1 conflito e espaço livre: $r"
+
+# cópia local ponta a ponta: termina conferida (contagem/tamanho e, com TT_CONFERIR=1, sha256)
+espera_fim(){ local i; for i in $(seq 1 60); do grep -Fq -- "$1" "$D"/*.log 2>/dev/null && return 0; sleep 0.5; done; fail "log não mostrou: $1"; }
+rm -f "$D"/*; rm -rf "$T/dest"; mkdir -p "$T/dest"
+$E TT_SEM_CONFIRMAR=1 bash "$TT" --enviar "$T/orig/um.txt" "$T/orig/pasta" "A:$T/dest" >/dev/null 2>&1
+espera_fim 'Conferido (contagem e tamanho)'
+[[ -f $T/dest/um.txt && -f $T/dest/pasta/sub/dois.txt ]] || fail 'a cópia local não chegou inteira'
+rm -f "$D"/*; rm -rf "$T/dest"; mkdir -p "$T/dest"
+$E TT_SEM_CONFIRMAR=1 TT_CONFERIR=1 bash "$TT" --enviar "$T/orig/um.txt" "A:$T/dest" >/dev/null 2>&1
+espera_fim 'Conferido (sha256)'
+
+# confirmação: mostra itens/tamanho/conflito; ⏎ aceita, Esc recusa
+mkdir -p "$T/dest"; printf 'x' >"$T/dest/um.txt"
+tmux -L $S kill-server 2>/dev/null || true
+tmux -L $S -f /dev/null new-session -d -x 100 -y 24 -s x "$E bash $TT --confirmar-transferencia . $T/orig . $T/dest um.txt pasta; echo RC=\$?; sleep 30"
+espera 'Confirmar a transferência'
+tela | grep -Fq '2 itens' || fail 'confirmação deveria dizer 2 itens'
+tela | grep -Fq '1 já existe lá' || fail 'confirmação deveria avisar do conflito'
+tmux -L $S send-keys -t x Escape; espera 'RC=1'
+tmux -L $S kill-server 2>/dev/null || true
+tmux -L $S -f /dev/null new-session -d -x 100 -y 24 -s x "$E bash $TT --confirmar-transferencia . $T/orig . $T/dest um.txt; echo RC=\$?; sleep 30"
+espera 'Confirmar a transferência'; tmux -L $S send-keys -t x Enter; espera 'RC=0'
+echo "ok — conferência, confirmação e cópia local verificada"
