@@ -395,7 +395,20 @@ subtarefas estiverem feitas: antes disso, ⏎, duplo clique, ✓ Feita, o menu e
 concluem — o painel avisa o que falta (linha ⚠ no topo) e abre a tarefa. Concluir a última subtarefa
 **não** conclui a tarefa (você decide quando). Reabrir uma subtarefa, ou criar uma nova, numa tarefa
 já feita reabre a tarefa. Numa tarefa que repete, concluir avança o prazo e **reabre as subtarefas**
-(o checklist volta no próximo ciclo). *Limpar feitas* não apaga subtarefas feitas de tarefa aberta.
+(o checklist volta no próximo ciclo).
+
+**Arquivo (histórico).** Em vez de só apagar, as tarefas feitas podem ser **arquivadas**: saem da
+lista, da agenda e das contas, mas ficam guardadas. `Ctrl+L` (ou, no botão direito do 📋, *Arquivar ou
+apagar as tarefas feitas…*) pergunta o que fazer com as feitas: **▤ Arquivar** (o padrão, ⏎) guarda
+no histórico; **✕ Apagar de vez** some sem histórico; *Cancelar* não faz nada. Para uma tarefa
+sozinha, aberta ou feita: menu ⋯ → **▤ Arquivar**. A tarefa vai com as subtarefas; subtarefa não se
+arquiva sozinha, e a subtarefa feita de uma tarefa ainda aberta fica (é o checklist dela). A aba
+**Arquivo** mostra o histórico, do arquivado mais recente ao mais antigo, com a data, e a busca vale
+lá dentro; abra uma tarefa arquivada e clique em **↩ restaurar** (ou menu ⋯ → *Restaurar*) para ela
+voltar à lista como estava, com as subtarefas — ou em **✕ apagar de vez**. O arquivo fica no próprio
+`~/.config/tt/tarefas` (estado `arquivada`, com a data) e sincroniza com as outras máquinas como as
+tarefas: arquivar e restaurar valem em todas, e uma cópia antiga noutra máquina não desfaz. Milhares
+de arquivadas não pesam na lista do dia a dia.
 
 **Prazo, horário e agenda.** O horário é opcional: sem ele o prazo vale o dia todo. **◷ Prazo**
 (`Ctrl+D`) abre o calendário dizendo de qual tarefa é o prazo: clique no dia e, se quiser, num horário
@@ -415,7 +428,7 @@ as tarefas do dia escolhido (um clique marca feita) e **+ Nova tarefa** naquele 
 - **duplo clique** marca/desmarca como feita (☐ → ☑); numa subtarefa basta um clique;
 - **botão direito** abre o menu da tarefa: feita, renomear, descrição, subtarefa, prazo e horário,
   prioridade (alta/média/sem) e repetição (não/dia/semana/mês) como escolhas, subir/descer e apagar;
-- no topo, as **abas** (Hoje · Abertas · Feitas · Agenda · Todas, cada uma com o contador),
+- no topo, as **abas** (Hoje · Abertas · Feitas · Agenda · Todas · Arquivo, cada uma com o contador),
   **▦ Calendário** e os **botões** (+ Nova, ✓ Feita, ↳ Subtarefa, ✎ Descrição, ◷ Prazo, ! Prioridade,
   ↻ Repetir, ↑ ↓, ✕ Apagar, ⋯ Mais, ? Ajuda), que agem na tarefa em foco;
 - o calendário é todo clicável: dias, ‹ › (ou a roda do mouse) para o mês, *hoje*, os horários,
@@ -423,9 +436,9 @@ as tarefas do dia escolhido (um clique marca feita) e **+ Nova tarefa** naquele 
 
 **Teclado:** `⏎` feita/aberta · `→`/`espaço` abre · `←` fecha · `Tab` próxima aba · `Ctrl+N` nova ·
 `Ctrl+S` subtarefa · `Ctrl+E` descrição · `Ctrl+D` prazo · `Ctrl+T` calendário · `Ctrl+P`
-prioridade · `Ctrl+R` repetir · `Ctrl+K`/`Ctrl+J` sobe/desce · `Ctrl+X` apaga · `Ctrl+L` limpa as
-feitas · `Ctrl+O` mais ações · `F2` renomeia · `Ctrl+/` descrição (cartão) · `?` ajuda · `esc` volta, limpa a
-busca ou fecha. Apagar e limpar sempre pedem confirmação. No calendário: setas mudam o dia, `<` `>`
+prioridade · `Ctrl+R` repetir · `Ctrl+K`/`Ctrl+J` sobe/desce · `Ctrl+X` apaga · `Ctrl+L` arquiva ou
+apaga as feitas · `Ctrl+O` mais ações · `F2` renomeia · `Ctrl+/` descrição (cartão) · `?` ajuda · `esc` volta, limpa a
+busca ou fecha. Apagar sempre pede confirmação. No calendário: setas mudam o dia, `<` `>`
 o mês, `t` hoje, dígitos digitam a hora, `d` volta ao dia todo, `x` sem prazo, `esc` sai.
 
 **Símbolos:** ☐ aberta · ☑ feita · ● vermelho/amarelo prioridade alta/média · ◷ prazo, com a hora
@@ -434,7 +447,9 @@ quando houver (vermelho quando venceu) · ↻ repete · ━━━ 1/2 subtarefas
 
 **Linha de comando:** `tt --tarefa-add-natural "texto @amanha !alta"`, `tt --tarefa-add "texto"`,
 `tt --tarefa-ok ID`, `tt --tarefa-abrir ID`, `tt --tarefa-rm ID`, `tt --tarefa-renomear ID "texto"`,
-`tt --tarefa-limpar`, `tt --tarefas` (fora do tmux, lista em texto).
+`tt --tarefa-limpar` (apaga as feitas de vez), `tt --tarefas-arquivar-feitas`, `tt --tarefa-arquivar ID`,
+`tt --tarefa-restaurar ID`, `tt --tarefas-arquivadas` (o histórico em texto), `tt --tarefas` (fora do
+tmux, lista em texto).
 
 As tarefas ficam em `~/.config/tt/tarefas` e vão para as outras máquinas sozinhas:
 `tarefas_sync=p2p|git|ambos|off` no `~/.config/tt/config` (com `tarefas_repo=<url>` para usar um

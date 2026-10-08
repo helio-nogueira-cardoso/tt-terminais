@@ -110,7 +110,9 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --tarefas [cliente]` — abre o painel: slide-over ancorado à direita (no tmux) ou lista texto
   (fora dele). Também `Ctrl+B t`.
 - `tt --tarefa-add "texto"` — adiciona; `tt --tarefa-ok ID` conclui; `tt --tarefa-abrir ID` reabre;
-  `tt --tarefa-rm ID` remove (lápide); `tt --tarefa-limpar` remove as feitas.
+  `tt --tarefa-rm ID` remove (lápide); `tt --tarefa-limpar` remove as feitas de vez;
+  `tt --tarefas-arquivar-feitas`, `tt --tarefa-arquivar ID` (só de topo; leva as subtarefas),
+  `tt --tarefa-restaurar ID`, `tt --tarefas-arquivadas` (histórico em texto).
 - `tt --tarefa-add-natural "frase @sex 14h !alta *semanal #tag"` (multi-linha: 1ª linha é o título, o resto vira descrição) — cria lendo prazo
   (com horário opcional: `@sex 14h`, `@amanha às 9h30`, `@14:30`), prioridade, repetição, etiqueta e
   `tt --tarefa-renomear ID "texto"`; `tt --tarefas-ajuda` imprime o
@@ -121,6 +123,13 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `--tarefa-ok` sai 1 com a lista). A última subtarefa não conclui a mãe. Reabrir/criar subtarefa
   numa mãe feita reabre a mãe. Recorrente: avança o prazo (com `hora`) e reabre as subtarefas.
   `tarefa_limpar_feitas` só remove feitas de topo (cascata leva as subtarefas delas).
+- Arquivo: estado `arquivada` no mesmo arquivo `tarefas`, meta `arq=EPOCH:a|f` (quando + estado de
+  antes), via `tarefas_arquivo_mudar arquivar|restaurar --feitas|ID…` (uma passada de awk; mãe leva
+  as subtarefas). `valida()` só aceita aberta/feita, então arquivadas ficam fora de lista, contas,
+  agenda, calendário e lembrete; a aba `filtro=arquivo` (ARQ no awk) as mostra. Merge: rank
+  removida > arquivada > feita > aberta no empate; `tarefas_compactar` só poda `removida`, então o
+  histórico é permanente e sincroniza como as tarefas. `^l` = `tarefas_escolha` (a Arquivar padrão /
+  x Apagar de vez / esc).
 - Meta `hora=1`: o prazo tem horário (vence quando a hora passa; sem ela vale o dia todo, epoch às
   12:00). Lembrete (`--tarefas-lembrete`, a cada volta do vigia): com horário avisa
   `TT_TAREFAS_ANTECEDENCIA` (10) min antes, uma vez por prazo; sem horário, uma vez por dia. Avisa

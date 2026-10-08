@@ -4536,7 +4536,7 @@ tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|
   local meta=$1 chave=$2 valor=$3 k out="" par; local -A M=(); local IFS='|'
   for par in $meta; do [[ $par == *=* ]] && M[${par%%=*}]=${par#*=}; done
   M[$chave]=$valor
-  for k in desc prazo hora prio rep tags pai ord; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
+  for k in desc prazo hora prio rep tags pai ord arq; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
   printf '%s' "$out"
 }
 tarefas_b64()   { printf '%s' "$1" | base64 | tr -d '\n'; }
@@ -4565,7 +4565,7 @@ marcar_tarefas()   { date +%s%N >"$CONF_TAREFAS.v"; }
 # conjunto unido no formato canônico, ordenado.
 tarefas_merge() {
   awk -F'\t' -v OFS='\t' '
-    function rank(e){ return e=="removida"?3:(e=="feita"?2:1) }
+    function rank(e){ return e=="removida"?4:(e=="arquivada"?3:(e=="feita"?2:1)) }
     NF >= 5 && $1 ~ /^[0-9a-f]{6,}$/ {
       id=$1
       if (!(id in m) || $4+0 > md[id]+0 || ($4+0==md[id]+0 && rank($2) > rank(st[id]))) {
@@ -4731,7 +4731,7 @@ tarefa_estado() {
   # Remover uma tarefa remove junto as subtarefas dela (não deixa filha órfã na lista).
   if [[ $novo == removida ]]; then
     local f
-    for f in $(tarefas_raw | awk -F'\t' '($2=="aberta"||$2=="feita"){print $1"\t"$6}' |
+    for f in $(tarefas_raw | awk -F'\t' '($2=="aberta"||$2=="feita"||$2=="arquivada"){print $1"\t"$6}' |
                  while IFS=$'\t' read -r fid fmeta; do [[ $(tarefas_meta_get "$fmeta" pai) == "$id" ]] && printf '%s\n' "$fid"; done); do
       tarefa_estado "$f" removida
     done
@@ -4784,6 +4784,67 @@ tarefa_clique() {
 }
 
 tarefa_remover()  { tarefa_estado "$1" removida; }
+
+# --- arquivo ----------------------------------------------------------------
+#
+# Arquivar guarda a tarefa como histórico: estado "arquivada" no mesmo arquivo de tarefas, com a
+# meta arq=EPOCH:a|f (quando e o estado de antes). Fica fora da lista, da agenda, das contas e
+# do lembrete, aparece na aba Arquivo e sincroniza como qualquer tarefa (merge por id; arquivar e
+# restaurar atualizam "mudada", então uma cópia velha noutra máquina não a devolve à lista). Só
+# tarefas de topo se arquivam, sempre com as subtarefas; subtarefa feita de mãe aberta fica.
+tarefas_arquivo_mudar() { # arquivar|restaurar --feitas|ID...
+  local op=$1; shift
+  [[ -f $CONF_TAREFAS ]] || return 1
+  local now ids="" feitas="" n
+  now=$(date +%s)
+  if [[ ${1:-} == --feitas ]]; then feitas=1; else ids=" $* "; fi
+  tarefas_travar || return 1
+  local tmp; tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
+  awk -F'\t' -v OFS='\t' -v op="$op" -v now="$now" -v ids="$ids" -v feitas="$feitas" '
+    function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
+    function semarq(m,   n, a, i, o) { n = split(m, a, "|"); o = ""; for (i = 1; i <= n; i++) if (a[i] !~ /^arq=/) o = o (o == "" ? "" : "|") a[i]; return o }
+    NR == FNR {
+      if (NF >= 5) {
+        pai[$1] = mv($6, "pai")
+        if (pai[$1] == "") {
+          if (op == "arquivar" && ($2 == "aberta" || $2 == "feita") && ((feitas && $2 == "feita") || (!feitas && index(ids, " " $1 " ")))) alvo[$1] = 1
+          if (op == "restaurar" && $2 == "arquivada" && index(ids, " " $1 " ")) alvo[$1] = 1
+        }
+      }
+      next
+    }
+    NF >= 5 {
+      if (($1 in alvo) || (pai[$1] != "" && (pai[$1] in alvo))) {
+        if (op == "arquivar" && ($2 == "aberta" || $2 == "feita")) {
+          m = (NF >= 6 ? $6 : ""); $6 = (m == "" ? "" : m "|") "arq=" now ":" substr($2, 1, 1); $2 = "arquivada"; $4 = now; if ($1 in alvo) n++
+        } else if (op == "restaurar" && $2 == "arquivada") {
+          a = mv($6, "arq"); $2 = (a ~ /:a$/ ? "aberta" : "feita"); $6 = semarq($6); $4 = now; if ($1 in alvo) n++
+        }
+      }
+      print
+    }
+    END { print n + 0 > "/dev/stderr" }' "$CONF_TAREFAS" "$CONF_TAREFAS" >"$tmp" 2>"$tmp.n"
+  n=$(cat "$tmp.n" 2>/dev/null); rm -f "$tmp.n"
+  mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tarefas_destravar
+  atualizar_barras 2>/dev/null
+  ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
+  echo "${n:-0}"
+}
+tarefa_arquivar()        { tarefas_arquivo_mudar arquivar "$@" >/dev/null; }
+tarefas_arquivar_feitas() { tarefas_arquivo_mudar arquivar --feitas; }
+tarefa_restaurar()       { tarefas_arquivo_mudar restaurar "$@" >/dev/null; }
+
+# Histórico em texto (CLI): data de arquivamento, ☑/☐ de antes, texto e id; mais recentes primeiro.
+tarefas_arquivadas_listar() {
+  [[ -s $CONF_TAREFAS ]] || return 0
+  local agora tz; read -r agora tz < <(tarefas_relogio)
+  LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" "$TAREFAS_AWK"'
+    NF >= 5 && $2 == "arquivada" && mv($6, "pai") == "" {
+      a = mv($6, "arq"); e = a; sub(/:.*/, "", e); civil(dia(e + 0))
+      printf "%010d\t%02d/%02d/%04d  %s  %s  [%s]\n", e, CD, CM, CY, (a ~ /:a$/ ? "☐" : "☑"), $5, substr($1, 1, 6)
+    }' "$CONF_TAREFAS" | sort -t$'\t' -k1,1nr | cut -f2-
+}
 # Remove as tarefas feitas (com as subtarefas delas). Subtarefa feita de mãe ainda aberta fica: é
 # o checklist da mãe.
 tarefa_limpar_feitas() {
@@ -5171,7 +5232,7 @@ tarefas_relogio() { # -> "agora deslocamento-do-fuso-em-segundos"
 # Contagem das tarefas de topo: "hoje abertas feitas com-prazo todas" (hoje = abertas vencidas ou
 # que vencem hoje). Uma passada só; serve às abas do painel e ao botão da barra.
 tarefas_contagens() {
-  [[ -s $CONF_TAREFAS ]] || { echo "0 0 0 0 0"; return 0; }
+  [[ -s $CONF_TAREFAS ]] || { echo "0 0 0 0 0 0"; return 0; }
   local agora tz; read -r agora tz < <(tarefas_relogio)
   LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" "$TAREFAS_AWK"'
     NF >= 5 && valida($1, $2) && !($1 in v) && mv($6, "pai") == "" {
@@ -5180,7 +5241,8 @@ tarefas_contagens() {
       p = mv($6, "prazo")
       if (p != "" && $2 == "aberta") { z++; if (dia(p) <= dia(NOW)) h++ }
     }
-    END { printf "%d %d %d %d %d\n", h, a, f, z, t }' "$CONF_TAREFAS"
+    NF >= 5 && $2 == "arquivada" && !($1 in w) && mv($6, "pai") == "" { w[$1] = 1; q++ }
+    END { printf "%d %d %d %d %d %d\n", h, a, f, z, t, q }' "$CONF_TAREFAS"
 }
 tarefas_hoje_n() { local c; read -ra c < <(tarefas_contagens); echo "${c[0]}"; }
 barra_tarefas_fmt() {
@@ -5225,6 +5287,7 @@ tarefas_filtro_ciclar() {
     abertas) tarefas_filtro_set feitas ;;
     feitas) tarefas_filtro_set prazo ;;
     prazo) tarefas_filtro_set todas ;;
+    todas) tarefas_filtro_set arquivo ;;
     *) tarefas_filtro_set hoje ;;
   esac
 }
@@ -5366,7 +5429,7 @@ tarefas_cabecalho() {
       _item " ‹ Voltar " "$ativo ‹ Voltar $z" voltar
       _item "Ações: $t" "${sub}Ações: $neg$txt$t$z" "" ;;
     *)
-      local h ab fe pz to; read -r h ab fe pz to < <(tarefas_contagens)
+      local h ab fe pz to ar; read -r h ab fe pz to ar < <(tarefas_contagens)
       _aba() { # chave rótulo contador
         local n=""; (($3 > 0)) && n=" $3"
         if [[ $1 == "$f" ]]; then _item " $2$n " "$ativo $2$n $z" "filtro:$1"
@@ -5374,7 +5437,7 @@ tarefas_cabecalho() {
         else _item " $2$n " "$bg$sub $2$amar$n $z" "filtro:$1"; fi
       }
       _aba hoje Hoje "$h"; _aba abertas Abertas "$ab"; _aba feitas Feitas "$fe"
-      _aba prazo Agenda "$pz"; _aba todas Todas "$to"
+      _aba prazo Agenda "$pz"; _aba todas Todas "$to"; _aba arquivo Arquivo "$ar"
       _item " ▦ Calendário " "$bg$txt ▦ Calendário $z" calendario
       _quebra
       _botao '+ Nova' nova; _botao '✓ Feita' feita; _botao '↳ Subtarefa' sub; _botao '✎ Descrição' desc
@@ -5389,8 +5452,8 @@ tarefas_cabecalho() {
       if [[ -n $av ]]; then
         tarefas_ui_set aviso ""
         _quebra
-        ((${#av} > larg - 3)) && av="${av:0:$((larg - 4))}…"
-        _item "⚠ $av" "$verm$neg⚠ $av$z" ""
+        ((${#av} > larg - 1)) && av="${av:0:$((larg - 2))}…"
+        if [[ $av == ⚠* ]]; then _item "$av" "$verm$neg$av$z" ""; else _item "$av" $'\e[38;2;137;180;250m'"$neg$av$z" ""; fi
       fi ;;
   esac
   _quebra
@@ -5431,6 +5494,15 @@ tarefas_lista_fzf() { # [busca]
     }
     function linha_topo(i, aberto, tagtxt,   id, est, meta, prazo, hora, venc, nfil, tem, s, ex, p, r, n, dl, k) {
       id = TID[i]; est = TEST[i]; meta = TMETA[i]; prazo = mv(meta, "prazo"); hora = (mv(meta, "hora") == 1)
+      if (est == "arquivada") {
+        r = mv(meta, "arq")
+        s = " " (NFI[id] + 0 > 0 || TDESC[i] != "" ? AZUL : DIM) (aberto ? "▾" : "▸") Z " " DIM (r ~ /:a$/ ? "☐" : "☑") " " TTXT[i] Z
+        ex = "  " DIM "▤ arquivada " quando(TARQ[i]) Z
+        if (tagtxt != "") ex = ex "  " DIM tagtxt Z
+        if (TDESC[i] != "") ex = ex "  " DIM "≡" Z
+        printf "%s\t%s%s\n", id, s, ex
+        return
+      }
       nfil = NFI[id] + 0; venc = (prazo != "" && est == "aberta" && vencida(prazo, hora))
       tem = (nfil > 0 || TDESC[i] != "")
       s = " " (tem ? AZUL NEG : DIM) (aberto ? "▾" : "▸") Z " " caixa(est, venc) " "
@@ -5465,6 +5537,12 @@ tarefas_lista_fzf() { # [busca]
         while (k >= 1 && (FORD[S[k]] > FORD[v] || (FORD[S[k]] == FORD[v] && FCRI[S[k]] > FCRI[v]))) { S[k + 1] = S[k]; k-- }
         S[k + 1] = v
       }
+      if (TEST[i] == "arquivada") {
+        for (j = 1; j <= n; j++) { f = S[j]; printf "\t%s%s%s %s%s\n", ind, DIM, (FARQ[f] ~ /:a$/ ? "☐" : "☑"), FTXT[f], Z }
+        printf "rest:%s\t%s%s↩ restaurar para a lista%s %s(volta com as subtarefas, como estava)%s\n", id, ind, AZUL, Z, DIM, Z
+        printf "apag:%s\t%s%s✕ apagar de vez%s %s(sem histórico)%s\n", id, ind, VERM, Z, DIM, Z
+        return
+      }
       for (j = 1; j <= n; j++) {
         f = S[j]
         printf "%s\t%s%s %s\n", FID[f], ind, caixa(FEST[f], 0), (FEST[f] == "feita" ? DIM RISCO FTXT[f] Z : TXT FTXT[f] Z)
@@ -5484,19 +5562,21 @@ tarefas_lista_fzf() { # [busca]
     BEGIN {
       cores(); HOJE = dia(NOW); civil(HOJE); ANO = CY
       split("domingo segunda terça quarta quinta sexta sábado", DOWL, " ")
-      AGENDA = (FILTRO == "prazo" || FILTRO == "hoje")
+      AGENDA = (FILTRO == "prazo" || FILTRO == "hoje"); ARQ = (FILTRO == "arquivo")
       Q = ENVIRON["TQ"]; QL = ENVIRON["TQL"]; EXP = ENVIRON["TEXP"]
     }
-    NF >= 5 && valida($1, $2) && !($1 in VISTO) {
+    NF >= 5 && (valida($1, $2) || (ARQ && $2 == "arquivada" && valida($1, "feita"))) && !($1 in VISTO) {
       VISTO[$1] = 1; meta = (NF >= 6 ? $6 : ""); pai = mv(meta, "pai")
       if (pai != "") {
-        nf++; FID[nf] = $1; FEST[nf] = $2; FTXT[nf] = $5; FPAI[nf] = pai
+        nf++; FID[nf] = $1; FEST[nf] = $2; FTXT[nf] = $5; FPAI[nf] = pai; FARQ[nf] = mv(meta, "arq")
         FORD[nf] = mv(meta, "ord") + 0; FCRI[nf] = $3 + 0
         next
       }
       nt++; TID[nt] = $1; TEST[nt] = $2; TTXT[nt] = $5; TMETA[nt] = meta
       d64 = mv(meta, "desc"); TDESC[nt] = (d64 != "" ? b64d(d64) : "")
       TKEY[nt] = chave_ordem($1, $2, $3, meta)
+      # Arquivo: o arquivado mais recente primeiro.
+      if (ARQ) { a = mv(meta, "arq"); sub(/:.*/, "", a); TARQ[nt] = a + 0; TKEY[nt] = sprintf("%010d", 9999999999 - a) $1 }
       # Agenda (abas Hoje e Agenda): atrasadas primeiro, depois por dia; no dia, o "dia todo" antes
       # e as com horário na ordem da hora.
       p = mv(meta, "prazo")
@@ -5519,6 +5599,7 @@ tarefas_lista_fzf() { # [busca]
       vistas = 0; grupo = ""
       for (k = 1; k <= nt; k++) {
         i = O[k]; id = TID[i]; est = TEST[i]; prazo = mv(TMETA[i], "prazo")
+        if (ARQ != (est == "arquivada")) continue
         if (FILTRO == "abertas" && est != "aberta") continue
         if (FILTRO == "feitas" && est != "feita") continue
         if (FILTRO == "prazo" && !(est == "aberta" && prazo != "")) continue
@@ -5541,13 +5622,16 @@ tarefas_lista_fzf() { # [busca]
         linha_topo(i, aberto, tagtxt)
         if (aberto) detalhes(i)
       }
-      if (Q != "") {
+      if (Q != "" && ARQ) {
+        if (vistas == 0) printf "\t   %snada no arquivo com “%s”%s\n", DIM, Q, Z
+      } else if (Q != "") {
         printf "criar\t %s+ criar tarefa:%s %s%s%s  %s⏎%s\n", AZUL NEG, Z, AMAR, Q, Z, DIM, Z
         if (vistas == 0) printf "\t   %snenhuma tarefa existente com “%s”%s\n", DIM, Q, Z
       } else if (vistas == 0) {
         if (FILTRO == "hoje")         { m1 = "Nada vence hoje."; m2 = "Aproveite. As outras estão na aba Abertas." }
         else if (FILTRO == "feitas")  { m1 = "Nenhuma tarefa concluída ainda."; m2 = "Marque uma com ⏎, duplo clique ou ✓ Feita." }
         else if (FILTRO == "prazo")   { m1 = "Nada agendado."; m2 = "Use ◷ Prazo, ou escreva @sex 14h ao criar. ▦ Calendário mostra o mês." }
+        else if (FILTRO == "arquivo") { m1 = "O arquivo está vazio."; m2 = "^l (ou ▤ Arquivar no menu ⋯) guarda as feitas aqui, sem perder o histórico." }
         else if (FILTRO == "abertas") { m1 = "Tudo feito por aqui!"; m2 = "Digite no campo acima e tecle ⏎ para criar outra." }
         else                          { m1 = "Nenhuma tarefa ainda."; m2 = "Digite no campo acima e tecle ⏎ para criar a primeira." }
         printf "\t\n\t   %s%s%s\n\t   %s%s%s\n\t\n\t   %s? mostra como usar o painel%s\n", TXT NEG, m1, Z, SUB, m2, Z, DIM, Z
@@ -5584,6 +5668,12 @@ tarefas_ajuda_linhas() {
   printf '\t   concluir a última não conclui a tarefa: você decide. Reabrir ou criar\n'
   printf '\t   uma subtarefa reabre a tarefa. Numa tarefa que repete, concluir\n'
   printf '\t   avança o prazo e reabre as subtarefas (o checklist volta).\n'
+  printf '\t\n\t %sARQUIVO (HISTÓRICO)%s\n' "$a" "$z"
+  printf '\t   %s^l%s pergunta o que fazer com as feitas: %s▤ Arquivar%s (⏎) guarda no\n' "$y" "$z" "$y" "$z"
+  printf '\t   histórico; %s✕ Apagar de vez%s some sem histórico. Uma tarefa sozinha:\n' "$y" "$z"
+  printf '\t   menu ⋯ → ▤ Arquivar (leva as subtarefas; subtarefa não vai sozinha).\n'
+  printf '\t   A aba %sArquivo%s mostra o histórico (a busca vale lá dentro); abra uma\n' "$y" "$z"
+  printf '\t   tarefa e clique em %s↩ restaurar%s para ela voltar como estava.\n' "$a" "$z"
   printf '\t\n\t %sPRAZO E HORÁRIO%s\n' "$a" "$z"
   printf '\t   %s◷ Prazo%s (^d) abre o calendário: clique no dia e, se quiser,\n' "$y" "$z"
   printf '\t   num horário (ou digite 1430); %s✓ Definir prazo%s grava. Sem\n' "$y" "$z"
@@ -5604,7 +5694,7 @@ tarefas_ajuda_linhas() {
   printf '\t   %s⏎%s feita/aberta   %s→ ␣%s abre   %s←%s fecha   %sTab%s próxima aba\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^n%s nova   %s^s%s subtarefa   %s^e%s descrição   %s^d%s prazo   %sF2%s renomear\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^p%s prioridade   %s^r%s repetir   %s^k ^j%s sobe/desce   %s^x%s apaga\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
-  printf '\t   %s^t%s calendário   %s^o%s mais ações   %s^l%s limpa as feitas   %s^/%s prévia\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
+  printf '\t   %s^t%s calendário   %s^o%s mais ações   %s^l%s arquiva/apaga as feitas   %s^/%s descrição\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s?%s ajuda   %sesc%s volta/fecha\n' "$y" "$z" "$y" "$z"
   printf '\t   %s(^n = Ctrl+N)%s\n' "$d" "$z"
   printf '\t\n\t %sSÍMBOLOS%s\n' "$a" "$z"
@@ -5636,6 +5726,11 @@ tarefas_menu_linhas() { # id
     else printf 'act:%s:%s\t     %s○ %s%s\n' "$1" "$id" "$d" "$t$3" "$z"; fi
   }
   printf 'voltar\t %s‹ voltar para a lista%s\n\t\n' "$a$n" "$z"
+  if [[ $est == arquivada ]]; then
+    _op restaurar "$a↩ Restaurar para a lista" 'volta com as subtarefas, como estava'
+    _op apagar "$r✕ Apagar de vez…" 'sem histórico'
+    return 0
+  fi
   local nfalta; nfalta=$(tarefas_subs_abertas "$id" | grep -c . || true)
   if [[ $est == feita ]]; then _op feita "$t↺ Reabrir (marcar como não feita)" '⏎'
   elif ((nfalta > 0)); then _op feita "$d☑ Marcar como feita" "falta$( ((nfalta > 1)) && echo m) $nfalta subtarefa$( ((nfalta > 1)) && echo s)"
@@ -5659,13 +5754,14 @@ tarefas_menu_linhas() { # id
   fi
   _op cima "$t↑ Subir" '^k'
   _op baixo "$t↓ Descer" '^j'
-  _op apagar "$r✕ Apagar…" '^x'
+  [[ -z $pai ]] && _op arquivar "$t▤ Arquivar" 'sai da lista e fica no histórico (aba Arquivo)'
+  _op apagar "$r✕ Apagar…" '^x · sem histórico'
 }
 
 # O id da tarefa por trás de uma chave de linha ("desc:ID", "sub:ID", "menu:ID" ou o próprio ID).
 tarefas_id_da_chave() {
   case $1 in
-    desc:*|sub:*|menu:*) echo "${1#*:}" ;;
+    desc:*|sub:*|menu:*|rest:*|apag:*) echo "${1#*:}" ;;
     act:*) echo "${1##*:}" ;;
     criar|voltar|dia:*|'') : ;;
     *) echo "$1" ;;
@@ -5760,13 +5856,37 @@ tarefa_acao() { # evento chave
     falta=$(tarefa_alternar "$1") && { echo "$rl+$hd"; return; }
     if [[ -n $falta ]]; then
       n=$(grep -c . <<<"$falta")
-      tarefas_ui_set aviso "Para concluir, falta$( ((n > 1)) && echo m) $n subtarefa$( ((n > 1)) && echo s): $(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' <<<"$falta")"
+      tarefas_ui_set aviso "⚠ Para concluir, falta$( ((n > 1)) && echo m) $n subtarefa$( ((n > 1)) && echo s): $(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' <<<"$falta")"
       tarefas_exp_definir "$1" 1
     fi
     echo "$rl+$hd"
   }
   if [[ $ev == duplo ]]; then
     [[ $ultimo == "$chave" ]] || { echo ignore; return; }
+  fi
+  local txt_t; txt_t=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
+  # Arquivo: restaurar e apagar de vez; o resto não mexe numa tarefa arquivada.
+  case $chave in
+    rest:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
+            tarefa_restaurar "$id"; tarefas_ui_set aviso "↩ Restaurada para a lista: $txt_t"; echo "$rl+$hd"; return ;;
+    apag:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
+            echo "execute($EU --tarefa-remover-prompt $id)+$rl+$hd"; return ;;
+  esac
+  case $ev in
+    arquivar)
+      if [[ -n $pai ]]; then tarefas_ui_set aviso "⚠ Subtarefa não se arquiva sozinha: arquive a tarefa (leva as subtarefas)"
+      else tarefa_arquivar "$id"; tarefas_ui_set aviso "▤ Arquivada: $txt_t · está na aba Arquivo"; fi
+      echo "$rl+$hd"; return ;;
+    restaurar) tarefa_restaurar "${pai:-$id}"; tarefas_ui_set aviso "↩ Restaurada para a lista: $txt_t"; echo "$rl+$hd"; return ;;
+  esac
+  if [[ $(tarefas_estado_de "${pai:-$id}") == arquivada ]]; then
+    case $ev in
+      enter|clique|duplo)
+        [[ -z $pai && $chave == "$id" ]] && { tarefas_exp_alternar "$id"; echo "$rl"; return; }
+        [[ $chave == desc:* ]] || { echo ignore; return; } ;;
+      menu|mais|espaco|direita|esquerda|apagar|desc) ;;
+      *) tarefas_ui_set aviso "⚠ Tarefa arquivada: ↩ restaure (menu ⋯ ou a linha ↩) para mexer nela"; echo "$rl+$hd"; return ;;
+    esac
   fi
   case $ev in
     enter|clique)
@@ -5834,12 +5954,18 @@ tarefa_preview() { # chave
   desc=$(tarefa_get_desc "$id")
   if [[ -n $desc ]]; then printf '%s\n' "$desc"
   else printf '%sSem descrição. ^e (ou ✎ Descrição) escreve uma.%s\n' "$d" "$z"; fi
+  local arq; arq=$(tarefas_meta_get "$m" arq)
+  [[ -n $arq ]] && printf '%s▤ Arquivada em %s · ↩ restaura pelo menu ⋯%s\n' "$d" "$(tt_fmt_epoch "${arq%%:*}" +%d/%m/%Y)" "$z"
   local sid sest stxt nf=0 nt=0 subs=""
   while IFS=$'\t' read -r sid sest stxt; do
     [[ -n $sid ]] || continue
     nt=$((nt + 1)); [[ $sest == feita ]] && nf=$((nf + 1))
     subs+="  $([[ $sest == feita ]] && echo "$verde☑$z $d$stxt$z" || echo "$t☐ $stxt$z")"$'\n'
-  done < <(tarefas_filhas "$id")
+  done < <(tarefas_raw | awk -F'\t' -v p="$id" '
+    function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
+    mv($6, "pai") == p && ($2 == "aberta" || $2 == "feita" || $2 == "arquivada") {
+      e = $2; if (e == "arquivada") e = (mv($6, "arq") ~ /:a$/ ? "aberta" : "feita")
+      print mv($6, "ord") + 0 "\t" $1 "\t" e "\t" $5 }' | sort -t$'\t' -k1,1n | cut -f2-)
   ((nt > 0)) && printf '\n%sSubtarefas %s/%s%s\n%s' "$s" "$nf" "$nt" "$z" "$subs"
   return 0
 }
@@ -5954,19 +6080,83 @@ tarefa_remover_prompt() {
   txt=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
   [[ -n $txt ]] || return 0
   nsub=$(tarefas_filhas "$id" | grep -c . || true)
-  tarefas_confirmar "Apagar esta tarefa?" "$txt$( ((nsub > 0)) && printf ' (e %s subtarefa%s)' "$nsub" "$( ((nsub > 1)) && echo s)")" Apagar &&
+  tarefas_confirmar "Apagar esta tarefa de vez?" "$txt$( ((nsub > 0)) && printf ' (e %s subtarefa%s)' "$nsub" "$( ((nsub > 1)) && echo s)") — sem histórico; para guardar, use ▤ Arquivar" Apagar &&
     tarefa_remover "$id"
   return 0
 }
 
-# Confirmação antes de limpar as feitas (apaga várias de uma vez).
+# Escolha entre botões clicáveis (tela cheia, dentro do popup). Cada opção é "tecla|rótulo"; a
+# 1ª é a padrão (⏎) e vem destacada; esc, n ou q cancelam. Imprime a tecla escolhida (nada se
+# cancelou). Sem terminal (testes): lê uma linha — vazia escolhe a 1ª, uma tecla escolhe a dela.
+tarefas_escolha() { # título detalhe opção...
+  local tit=$1 det=$2; shift 2
+  local -a tec=() rot=() x1=() x2=()
+  local o k resto i x=3 z=$'\e[0m' n=$'\e[1m' d=$'\e[38;2;108;112;134m' t=$'\e[38;2;205;214;244m'
+  local b1=$'\e[48;2;137;180;250m\e[38;2;30;30;46m\e[1m' bo=$'\e[48;2;49;50;68m\e[38;2;205;214;244m'
+  for o in "$@"; do tec+=("${o%%|*}"); rot+=("${o#*|}"); done
+  if ! [[ -t 0 ]]; then
+    IFS= read -r k || return 0
+    [[ -z $k ]] && { echo "${tec[0]}"; return 0; }
+    for i in "${!tec[@]}"; do [[ ${k,,} == "${tec[i]}" ]] && { echo "${tec[i]}"; return 0; }; done
+    return 0
+  fi
+  clear >/dev/tty 2>/dev/null
+  printf '\n  %s%s%s\n\n' "$n$t" "$tit" "$z" >/dev/tty
+  printf '%s\n' "$det" | sed "s/^/  $d/; s/\$/$z/" >/dev/tty
+  printf '\n' >/dev/tty
+  # Um botão por linha (cabe em tela estreita): linha de cada um em lin[], colunas em x1/x2.
+  local -a lin=() ; local y=$(( 4 + $(printf '%s\n' "$det" | wc -l) + 1 )) r
+  for i in "${!tec[@]}"; do
+    r=" ${tec[i]}  ${rot[i]} "
+    lin+=("$y"); x1+=(3); x2+=("$((2 + ${#r}))"); y=$((y + 2))
+    printf '  %s%s%s\n\n' "$( ((i == 0)) && echo "$b1" || echo "$bo")" "$r" "$z" >/dev/tty
+  done
+  r=" esc  Cancelar "; lin+=("$y"); x1+=(3); x2+=("$((2 + ${#r}))")
+  printf '  %s%s%s\n\n  %s⏎ escolhe o destacado · clique num botão%s\n' "$bo" "$r" "$z" "$d" "$z" >/dev/tty
+  printf '\e[?1000h\e[?1006h' >/dev/tty
+  local esc=""
+  while IFS= read -rsn1 k </dev/tty; do
+    case $k in
+      '') esc=${tec[0]}; break ;;
+      n|N|q) break ;;
+      $'\e')
+        IFS= read -rsn1 -t 0.05 resto </dev/tty || break
+        [[ $resto == '[' ]] || break
+        IFS= read -rsn1 -t 0.05 resto </dev/tty || break
+        [[ $resto == '<' ]] || break
+        local ev=""; while IFS= read -rsn1 -t 0.05 resto </dev/tty; do ev+=$resto; [[ $resto == [Mm] ]] && break; done
+        [[ $ev == *M ]] || continue
+        local b xx yy hit=-1; IFS=';' read -r b xx yy <<<"${ev%M}"
+        ((b == 0)) || continue
+        for i in "${!lin[@]}"; do ((yy == lin[i] && xx >= x1[i] && xx <= x2[i])) && { hit=$i; break; }; done
+        ((hit >= 0)) || continue
+        ((hit < ${#tec[@]})) && esc=${tec[hit]}
+        break ;;
+      *) for i in "${!tec[@]}"; do [[ ${k,,} == "${tec[i]}" ]] && { esc=${tec[i]}; break 2; }; done ;;
+    esac
+  done
+  printf '\e[?1000l\e[?1006l' >/dev/tty
+  [[ -n $esc ]] && echo "$esc"
+  return 0
+}
+
+# ^l / menu do 📋: o que fazer com as tarefas feitas — arquivar (padrão: guarda o histórico) ou
+# apagar de vez. Subtarefas feitas de tarefa aberta ficam (são o checklist dela).
 tarefa_limpar_prompt() {
-  local n; n=$(tarefas_raw | awk -F'\t' '$2=="feita"' | wc -l | tr -d ' ')
-  ((n > 0)) || return 0
-  local det="1 tarefa concluída vai sair da lista."
-  ((n > 1)) && det="$n tarefas concluídas vão sair da lista."
-  tarefas_confirmar "Limpar as tarefas feitas?" "$det" Limpar &&
-    tarefa_limpar_feitas
+  local n c det
+  n=$(tarefas_raw | awk -F'\t' '$2 == "feita" && $6 !~ /(^|\|)pai=/' | wc -l | tr -d ' ')
+  if ((n == 0)); then
+    [[ -t 0 ]] && { clear 2>/dev/null; printf '\n  Nenhuma tarefa feita para arquivar ou apagar.\n'; sleep 1.2; }
+    return 0
+  fi
+  det="$n tarefa$( ((n > 1)) && echo s) feita$( ((n > 1)) && echo s) (com as subtarefas) $( ((n > 1)) && echo saem || echo sai) da lista.
+Arquivar guarda no histórico (aba Arquivo; dá para restaurar).
+Apagar de vez não guarda nada: some sem histórico."
+  c=$(tarefas_escolha "O que fazer com as tarefas feitas?" "$det" "a|▤ Arquivar (guarda no histórico)" "x|✕ Apagar de vez (sem histórico)")
+  case $c in
+    a) tarefas_arquivar_feitas >/dev/null ;;
+    x) tarefa_limpar_feitas ;;
+  esac
   return 0
 }
 
@@ -6436,7 +6626,7 @@ menu_tarefas() {
 t	📋 Abrir o painel de tarefas	$EU --tarefas $(q "$c")
 a	▦ Agenda (calendário do mês)	$EU --clique relogio $(q "$c") x "$HOME" 0
 n	+ Nova tarefa…	tmux display-popup -c $(q "$c") -E -w 72 -h 14 -b rounded -T ' + nova tarefa ' $(q "$EU --tarefa-add-ui")
-l	🧹 Limpar as tarefas feitas…	tmux display-popup -c $(q "$c") -E -w 60 -h 10 -b rounded $(q "$EU --tarefa-limpar-prompt")
+l	▤ Arquivar ou apagar as tarefas feitas…	tmux display-popup -c $(q "$c") -E -w 72 -h 13 -b rounded $(q "$EU --tarefa-limpar-prompt")
 ITENS
 }
 
@@ -9121,6 +9311,15 @@ case "${1:-}" in
   --tarefa-abrir) tarefa_estado "${2:?uso: tt --tarefa-abrir ID}" aberta; exit ;;
   --tarefa-rm) tarefa_remover "${2:?uso: tt --tarefa-rm ID}"; exit ;;
   --tarefa-limpar) tarefa_limpar_feitas; exit ;;
+  --tarefa-arquivar)
+    [[ -n ${2:-} ]] || { echo 'uso: tt --tarefa-arquivar ID'; exit 1; }
+    [[ -n $(tarefas_meta_get "$(tarefas_meta_de "$2")" pai) ]] && { echo 'Subtarefa não se arquiva sozinha: arquive a tarefa (ela leva as subtarefas).' >&2; exit 1; }
+    n=$(tarefas_arquivo_mudar arquivar "$2"); ((n > 0)) || { echo 'Nada arquivado (id não existe, já arquivada ou removida).' >&2; exit 1; }; exit 0 ;;
+  --tarefas-arquivar-feitas) n=$(tarefas_arquivar_feitas); echo "$n arquivada$( ((n == 1)) || echo s)"; exit 0 ;;
+  --tarefa-restaurar)
+    [[ -n ${2:-} ]] || { echo 'uso: tt --tarefa-restaurar ID'; exit 1; }
+    n=$(tarefas_arquivo_mudar restaurar "$2"); ((n > 0)) || { echo 'Nada restaurado (não está no arquivo).' >&2; exit 1; }; exit 0 ;;
+  --tarefas-arquivadas) tarefas_arquivadas_listar; exit 0 ;;
   --receber-tarefas) receber_tarefas; exit ;;
   --tarefas-espelhar) tarefas_espelhar; exit ;;
   --tarefas-puxar) tarefas_puxar_tudo; exit ;;
