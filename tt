@@ -8531,10 +8531,10 @@ barra_email_fmt() {
     n=$((n + $(find "$md/new" -type f 2>/dev/null | wc -l) + $(find "$md/cur" -type f ! -name '*:2,*S*' 2>/dev/null | wc -l)))
   done
   while IFS=$'\t' read -r slug est; do [[ $est == erro || $est == parado ]] && alerta=1; done < <(email_sync_estado curto 2>/dev/null)
-  local rot='#{?#{e|<:#{client_width},90},, email}'
-  if [[ -n $alerta ]]; then printf '#[fg=#1e1e2e,bg=#f38ba8,bold] 📧%s ⚠ ' "$( ((n > 0)) && echo " $n")"
-  elif ((n > 0)); then printf '#[fg=#1e1e2e,bg=#f9e2af,bold] 📧 %s%s ' "$n" "$rot"
-  else printf '#[fg=#cdd6f4,bg=#45475a] 📧%s ' "$rot"; fi
+  # Contagem entre parênteses e sem rótulo: "📧 (896)" (pedido do dono; mais limpo que "896 email").
+  if [[ -n $alerta ]]; then printf '#[fg=#1e1e2e,bg=#f38ba8,bold] 📧%s ⚠ ' "$( ((n > 0)) && echo " ($n)")"
+  elif ((n > 0)); then printf '#[fg=#1e1e2e,bg=#f9e2af,bold] 📧 (%s) ' "$n"
+  else printf '#[fg=#cdd6f4,bg=#45475a] 📧 '; fi
 }
 
 # Sincroniza todas as contas com sync_local=1 (vigia e --email-sync sem NOME), no MODO dado.
