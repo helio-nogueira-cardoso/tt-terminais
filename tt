@@ -46,7 +46,15 @@ CONF=$CONF_DIR/config
 # que o tt gera sozinho (memória dos agentes, avisos, estado do celular).
 ESTADO_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/tt
 CONF_MAQ=$CONF_DIR/maquinas
-conf() { sed -n "s/^$1=//p" "$CONF" 2>/dev/null | tail -1; }
+# Valor de uma chave do config (a última ocorrência vale). Em bash puro: cada chamada custava dois
+# processos (sed e tail), e o tt lê o config em quase todo subcomando — inclusive nos ganchos do tmux.
+conf() {
+  local l v=""
+  [[ -r $CONF ]] || return 0
+  while IFS= read -r l || [[ -n $l ]]; do [[ $l == "$1="* ]] && v=${l#*=}; done <"$CONF"
+  [[ -n $v ]] && printf '%s\n' "$v"
+  return 0
+}
 # Nome desta máquina no menu: ~/.config/tt/config (nome=…); sem ele, o hostname.
 MAQUINA=$(conf nome)
 MAQUINA=${MAQUINA:-$(hostname -s)}
@@ -273,7 +281,7 @@ validar_nome_sugerido() {
 # Quem sugere os nomes (nomeador= no config): auto (padrão: o modelo local, se instalado; senão o
 # Haiku; senão outra máquina), local (só o modelo local), claude (só o Haiku) ou nenhum (nome da pasta).
 modo_nomeador() { local m; m=$(conf nomeador); [[ $m == @(auto|local|claude|nenhum) ]] || m=auto; echo "$m"; }
-nomeador_py() { local f=$DIR_TT/nomeador-local.py; [[ -f $f ]] || f=$(dirname "$EU")/nomeador-local.py; echo "$f"; }
+nomeador_py() { local f=$DIR_TT/nomeador-local.py; [[ -f $f ]] || f=${EU%/*}/nomeador-local.py; echo "$f"; }
 nomeador_local_pronto() { python3 -I "$(nomeador_py)" estado 2>/dev/null | grep -qx 'instalado=1'; }
 
 # Lê "pasta, programa e tela" na entrada e responde o nome sugerido pelo modelo local ou pelo Haiku
@@ -325,6 +333,27 @@ renomear() {
 
 generico() { [[ $1 =~ ^(janela|claude|atalho)-[0-9]+$ ]]; }
 
+# Faxina ao iniciar o vigia: o que processos interrompidos deixam para trás. Estado de vigias de
+# servidores tmux que já morreram; sidecars de menus e marcas de tema com mais de um dia; arquivos
+# temporários de gravações atômicas (fixadas.XXXXXX etc.) que um processo morto não renomeou; o
+# próprio registro do vigia, que crescia sem limite. Nada aqui é dado do usuário.
+faxina_vigia() {
+  local f pid log=$HOME/.cache/tt-vigia.log
+  for f in "$RT"/tt-vigia-estado-"$UID"-*; do
+    [[ -e $f ]] || continue
+    pid=${f##*-}
+    [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || rm -f "$f"
+  done
+  for f in "$RT"/tt-menu.* "$RT"/tt-menu-itens.* "$RT"/tt-atalhos.* "$RT"/tt-tema-*; do
+    [[ -f $f ]] && (($(idade_arquivo "$f") > 86400)) && rm -f "$f"
+  done
+  for f in "$CONF_DIR"/{fixadas,tarefas,contas-ia,atalhos}.??????; do
+    [[ -f $f && $f =~ \.[A-Za-z0-9]{6}$ ]] && (($(idade_arquivo "$f") > 3600)) && rm -f "$f"
+  done
+  if [[ -f $log ]] && (($(wc -l <"$log") > 3000)); then tail -n 1500 "$log" >"$log.c" && mv -f "$log.c" "$log"; fi
+  return 0
+}
+
 # Vigia: roda em segundo plano enquanto o tmux existir (iniciado pelo ~/.tmux.conf) e vai
 # renomeando semanticamente as sessões conforme o uso. Depois de algumas interações, também
 # revisa sessões que já tinham um nome escolhido; nomes fixados acompanham o rename.
@@ -334,7 +363,7 @@ generico() { [[ $1 =~ ^(janela|claude|atalho)-[0-9]+$ ]]; }
 #           5 min desde o último nome, pergunta ao Haiku; mudar de pasta também. Sem pedido novo,
 #           nunca. No Claude o Haiku lê os últimos pedidos, e o nome acompanha a tarefa atual.
 vigiar() {
-  local pidf="$RT/tt-vigia-$(id -u).pid" log="$HOME/.cache/tt-vigia.log" outro
+  local pidf="$RT/tt-vigia-$UID.pid" log="$HOME/.cache/tt-vigia.log" outro
   mkdir -p "$HOME/.cache"
   # Uma instância só: se o PID registrado ainda é um vigia vivo, sai.
   outro=$(cat "$pidf" 2>/dev/null)
@@ -345,7 +374,8 @@ vigiar() {
   sleep 1
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
-  local ultima_puxada=0 ultima_contas=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  faxina_vigia
+  local ultima_puxada=0 ultima_contas=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
   # cópia em arquivo para sobreviver a reinícios. Não ficam em opções do tmux: qualquer
@@ -354,24 +384,33 @@ vigiar() {
   local -A V_EM=() V_INTER=() V_PASTA=() V_PRIMEIRA=() V_ESPERA=() V_NOMEADO=()
   local -A V_PED=() V_ENT=() V_ARQ=() V_TAM=()
   local t_renomear=${TT_T_RENOMEAR:-300} entrada arq tam novos pedidos pontos
-  local estado_vigia="$RT/tt-vigia-estado-$(id -u)-$(tmux display-message -p '#{pid}' 2>/dev/null)"
+  local estado_vigia="$RT/tt-vigia-estado-$UID-$(tmux display-message -p '#{pid}' 2>/dev/null)"
   [[ -r $estado_vigia ]] && source "$estado_vigia" 2>/dev/null
-  local t_generico=${TT_T_GENERICO:-300} t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60}
+  local t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60} t_info=${TT_T_INFO:-300}
   # A atualização não bloqueia uma sessão sem rede; o vigia tenta de novo no próximo ciclo.
-  # TT_T_ATUALIZACAO=0 força uma tentativa a cada volta (útil em teste); o padrão é cinco minutos.
-  local t_atualizacao=${TT_T_ATUALIZACAO:-300}
+  # TT_T_ATUALIZACAO=0 força uma tentativa a cada volta (útil em teste); o padrão é meia hora: cada
+  # consulta é um git fetch no GitHub (a cada 5 min eram ~290 por dia por máquina, celular inclusive),
+  # e quem publica já instala nas máquinas ligadas pelo --sincronizar; a consulta só cobre a que
+  # estava desligada na hora.
+  local t_atualizacao=${TT_T_ATUALIZACAO:-1800}
   # Renomeação seguinte por pontos: cada pedido novo vale TT_PESO_PEDIDO (3) e cada minuto com uso
   # vale 1; ao somar TT_PONTOS_RENOMEAR (10), com ao menos um pedido novo, pergunta ao Haiku.
   local peso_pedido=${TT_PESO_PEDIDO:-3} pontos_renomear=${TT_PONTOS_RENOMEAR:-10}
   while tmux list-sessions >/dev/null 2>&1; do
-    proximo=$pausa
+    proximo=$pausa sondar=""
     atualizar_barras
     [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || { echo "$(date '+%F %T') vigia $$ saiu: há outro" >>"$log"; exit 0; }
-    [[ -s $CONF_MAQ ]] && atualizar_info >/dev/null 2>&1 &
     agora=$(date +%s)
-    # Fixadas: puxa a lista mais nova das outras máquinas ao iniciar e a cada 5 min.
+    # Sessões e versão de cada máquina (menu de máquinas): a cada 5 min (TT_T_INFO), não a cada volta —
+    # eram três ssh por minuto por máquina, o dia inteiro; o menu consulta de novo ao abrir.
+    if [[ -s $CONF_MAQ ]] && ((agora - ultima_info >= t_info)); then
+      ultima_info=$agora
+      (atualizar_info >/dev/null 2>&1 &)
+    fi
+    # Fixadas: puxa a lista mais nova das outras máquinas ao iniciar e a cada 5 min. Na mesma volta as
+    # pontes órfãs são sondadas por ssh (fechar_pontes_ociosas): sondar a cada minuto era um ssh por ponte.
     if ((agora - ${ultima_puxada:-0} >= 300)); then
-      ultima_puxada=$agora
+      ultima_puxada=$agora sondar=1
       ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
       ("$EU" --reconciliar-fixadas >/dev/null 2>&1 &)
       ("$EU" --tarefas-puxar >/dev/null 2>&1 &)
@@ -398,7 +437,7 @@ vigiar() {
     fi
     # Limpeza conservadora: somente sessões sem processo, sem histórico e desanexadas há 5 min.
     fechar_paradas "$agora"
-    fechar_pontes_ociosas "$agora"
+    fechar_pontes_ociosas "$agora" "$sondar"
     encerrar_claude_duplicados
     fechadas=$(fechar_vazias_expiradas "$agora")
     [[ -z $fechadas ]] || echo "$(date '+%F %T') fechadas $fechadas sessão(ões) vazia(s) abandonada(s)" >>"$log"
@@ -976,7 +1015,7 @@ CONF_ATALHOS=$CONF_DIR/atalhos
 # Repositório de origem (só na máquina onde se desenvolve): TT_REPO, "repo=" no config, ou a pasta
 # deste tt, se ele estiver rodando de dentro de um clone.
 REPO_TT=${TT_REPO:-$(conf repo)}
-[[ -z $REPO_TT && -d $(dirname "$EU")/.git && -f $(dirname "$EU")/tmux.conf ]] && REPO_TT=$(dirname "$EU")
+[[ -z $REPO_TT && -d ${EU%/*}/.git && -f ${EU%/*}/tmux.conf ]] && REPO_TT=${EU%/*}
 SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new
   -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%r@%h" -o ControlPersist=12h
   -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
@@ -988,17 +1027,17 @@ TT_REMOTO='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" ~/.loc
 # Estado compartilhado entre processos do tt (pidfile do vigia, caches, transferências): sempre o
 # mesmo diretório, venha o processo do tmux, de um popup, do ssh ou do vigia. Não depende de
 # XDG_RUNTIME_DIR, que uns têm e outros não (a barra e a tela olhavam pastas diferentes).
-RT=${TT_RT:-/run/user/$(id -u)}
+RT=${TT_RT:-/run/user/$UID}
 [[ -d $RT && -w $RT ]] || RT=${TMPDIR:-/tmp}
 # O que se soube de cada máquina na última consulta (rótulo = nome dela na barra): as sessões que ela
 # mostrou e "quantas-sessões versão". Os menus abrem na hora com isso e atualizam em segundo plano.
-cache_bloco() { echo "$RT/tt-bloco-$(id -u)-$1"; }
-info_maquina() { echo "$RT/tt-info-$(id -u)-$1"; }
+cache_bloco() { echo "$RT/tt-bloco-$UID-$1"; }
+info_maquina() { echo "$RT/tt-info-$UID-$1"; }
 
 # Máquinas cadastradas e acessíveis: "usuario@host rótulo". Guarda 20 s em cache: a barra e os
 # menus chamam isso a cada clique.
 maquinas() {
-  local cache="$RT/tt-maquinas-$(id -u)"
+  local cache="$RT/tt-maquinas-$UID"
   if [[ -f $cache ]] && [[ $cache -nt $CONF_MAQ || ! -f $CONF_MAQ ]] && (($(date +%s) - $(stat -c %Y "$cache") < 20)); then
     cat "$cache"; return
   fi
@@ -1020,7 +1059,7 @@ atualizar_info() {
   done < <(maquinas)
   wait
 }
-limpar_cache_maquinas() { rm -f "$RT/tt-maquinas-$(id -u)"; }
+limpar_cache_maquinas() { rm -f "$RT/tt-maquinas-$UID"; }
 
 # Lê ~/.config/tt/maquinas; com o Tailscale, pula as desligadas e usa o nome completo
 # (host.tailnet.ts.net: o nome curto pode coincidir com o desta máquina — por exemplo, um WSL
@@ -1318,6 +1357,12 @@ mostrar_maquina() {
 versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
+# tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
+ajuda() {
+  sed -n '2,36p' "$EU" | sed 's/^# \{0,1\}//'
+  printf '\nVersão instalada: %s\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao)" "$DIR_TT" "$DIR_TT"
+}
+
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md)
@@ -1493,7 +1538,7 @@ redesenhar_todos() {
 # aponta ~/.local/bin/tt para ela, faz o ~/.tmux.conf carregar o tmux.conf dela e recarrega o tmux.
 instalar_aqui() {
   local origem nome=${TT_NOME:-} pidf pid
-  origem=$(dirname "$EU")
+  origem=${EU%/*}
   # Nunca troca uma pasta que é um repositório git (TT_DIR apontado para um clone num teste apagou
   # o clone inteiro, .git inclusive): a instalação só substitui pastas que são instalações.
   if [[ -e $DIR_TT/.git ]]; then
@@ -1558,7 +1603,7 @@ CONF
     # O vigia em execução é da versão antiga: troca por um novo.
     # (versões antigas gravavam o pidfile onde o XDG_RUNTIME_DIR do momento apontasse: procura em todos)
     for pidf in "$RT" "${XDG_RUNTIME_DIR:-$RT}" "${TMPDIR:-/tmp}" /tmp; do
-      pidf="$pidf/tt-vigia-$(id -u).pid"
+      pidf="$pidf/tt-vigia-$UID.pid"
       pid=$(cat "$pidf" 2>/dev/null)
       if [[ -n $pid ]] && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--vigia'; then kill "$pid"; fi
       rm -f "$pidf"
@@ -2310,7 +2355,7 @@ listar_tudo_() {
   done
   rm -rf "$tmp"
 }
-cache_lista() { echo "$RT/tt-lista-$(id -u)-$1"; }
+cache_lista() { echo "$RT/tt-lista-$UID-$1"; }
 
 # Mestre de obras (fase 1, só recomendar): `tt --listar-tudo --tsv|--para-ia [-n N]` descreve as
 # sessões DESTA máquina para um chefe IA decidir o que podar. Nunca fecha nada. Contrato fechado no
@@ -2427,9 +2472,39 @@ cabecalho() {
   echo "^f filtrar   ^e busca   ⚙ tmux…   🖥 máquinas…   esc sair"
 }
 
-# Palavra do texto que contém a coluna C (conta caracteres, não bytes; tolera a coluna vizinha).
+# Palavra do texto sob a coluna C (1 = primeira). O fzf informa a coluna em CÉLULAS de tela: emoji e
+# ideogramas ocupam duas, então contar caracteres errava uma coluna por emoji à esquerda do clique
+# (📅 hoje · ▢ abertas · ✔ feitas · 🗓 prazo · ∗ todas: "todas" ficava fora do alcance). Tolera a
+# coluna vizinha (C+1, depois C-1). Sem python3, conta caracteres como antes.
 palavra_em() {
   local t=$1 c=$2 i a b
+  if command -v python3 >/dev/null; then
+    python3 -c '
+import sys, unicodedata
+t, c = sys.argv[1], int(sys.argv[2])
+def larg(ch):
+    if unicodedata.combining(ch) or ch in "‍️": return 0
+    return 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+ini, col = [], 1
+for ch in t:
+    ini.append(col); col += larg(ch)
+def em(col):
+    for i, a in enumerate(ini):
+        if a <= col < a + max(larg(t[i]), 1) and t[i] != " ": return i
+    return -1
+for col in (c, c + 1, c - 1):
+    i = em(col)
+    if i >= 0: break
+else:
+    sys.exit(0)
+a = i
+while a > 0 and t[a - 1] != " ": a -= 1
+b = i
+while b < len(t) - 1 and t[b + 1] != " ": b += 1
+print(t[a:b + 1])
+' "$t" "$c"
+    return 0
+  fi
   for i in $((c - 1)) "$c" $((c - 2)); do
     ((i >= 0 && i < ${#t})) && [[ ${t:i:1} != " " ]] && break
     i=-1
@@ -2740,7 +2815,7 @@ quebrar_ciclo_para() {
 # painel: TERM tmux*/screen*) que encolheram demais — sinal de ciclo, talvez passando por outra
 # máquina, que daqui não dá para ver inteiro.
 guarda_tamanho() {
-  local c term w h s n=0 trava="$RT/tt-guarda-$(id -u)"
+  local c term w h s n=0 trava="$RT/tt-guarda-$UID"
   mkdir "$trava" 2>/dev/null || return 0 # já tem uma rodando (vários ganchos disparam juntos)
   trap 'rmdir "$trava" 2>/dev/null' RETURN
   sleep 0.2
@@ -2801,15 +2876,18 @@ criar_ponte() {
 # Além das ociosas, saneia pontes órfãs: aquelas cujo alvo (sessão da outra máquina) já não existe
 # mais — a sessão de lá foi fechada ou renomeada. Sem isso, a ponte vira uma sessão fantasma, viva
 # aqui e sem par real no destino. Só encerramos quando o destino RESPONDE e confirma que a sessão
-# sumiu; destino mudo (rede/SSH caiu) é transitório e a ponte é preservada.
+# sumiu; destino mudo (rede/SSH caiu) é transitório e a ponte é preservada. A sonda custa dois ssh
+# por ponte: só roda com SONDAR (o vigia marca uma volta a cada 5 min); o fechamento por ociosidade
+# é local e roda em toda volta.
 fechar_pontes_ociosas() {
-  local agora=$1 limite=${TT_T_PONTE:-1800} s anexada ult dest alvo rs
+  local agora=$1 sondar=${2:-} limite=${TT_T_PONTE:-1800} s anexada ult dest alvo rs
   while IFS='|' read -r s anexada ult dest alvo; do
     [[ $s == _tt-* ]] && continue # sessões ocultas do tt (e-mail aberto em segundo plano)
     if ((anexada == 0 && ult > 0 && agora - ult >= limite)); then
       tmux kill-session -t "=$s" 2>/dev/null
       continue
     fi
+    [[ -n $sondar ]] || continue
     # Órfã: o alvo é "dest|sessão"; se o destino responde e a sessão não existe lá, encerra já,
     # sem esperar o tempo de ociosidade. Pontes anexadas também: uma sessão fantasma anexada é
     # justamente o sintoma a corrigir. As sondas são opcionais: se não estiverem no escopo (ex.: a
@@ -3184,7 +3262,7 @@ copiar_local() {
     if command -v iconv >/dev/null; then iconv -f utf-8 -t utf-16le <"$t" | "$clip" >/dev/null 2>&1
     else "$clip" <"$t" >/dev/null 2>&1; fi
   elif command -v wl-copy >/dev/null; then
-    local run=${XDG_RUNTIME_DIR:-/run/user/$(id -u)} w=${WAYLAND_DISPLAY:-} s
+    local run=${XDG_RUNTIME_DIR:-/run/user/$UID} w=${WAYLAND_DISPLAY:-} s
     if [[ -z $w ]]; then
       for s in "$run"/wayland-*; do [[ -S $s ]] && { w=${s##*/}; break; }; done
     fi
@@ -3682,7 +3760,8 @@ conta_receber() {
 # máquina e o atalho claude-<nome>. Espelha compartilhar_dados/criar_atalho do ia-conta, sem tocar
 # na credencial (que já foi gravada). Idempotente.
 conta_vincular_dados() {
-  local nome=$1 base=$HOME/.claude dir=$CONTAS_RAIZ/$nome item atalho
+  local nome=$1 base=$HOME/.claude dir item atalho
+  dir=$CONTAS_RAIZ/$nome # fora do `local` acima: lá, $nome ainda seria o de quem chamou
   local -a compart=(projects history.jsonl file-history sessions settings.json settings.local.json plugins skills commands cache)
   mkdir -p "$dir"
   for item in "${compart[@]}"; do
@@ -3847,7 +3926,7 @@ tema_cliente() {
 
 menu_popup() {
   local c=$1 titulo=$2 arq w h x cw ch
-  arq=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu-itens.XXXXXX")
+  arq=$(mktemp "$RT/tt-menu-itens.XXXXXX")
   cat >"$arq"
   read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
   cw=${cw:-80} ch=${ch:-24}
@@ -3983,16 +4062,16 @@ amostra_cor() { # "#rrggbb" → bloco de cor (truecolor)
 }
 
 linhas_editor_atalhos() {
-  local emoji id cmd cor origem base local padrao
+  local emoji id cmd cor origem base loc padrao
   base=$(atalhos_base)
   printf '+\t\033[32m＋ Novo atalho…\033[0m\n'
   while IFS=$'\t' read -r emoji id cmd cor; do
     [[ -n $id ]] || continue
-    local=$(awk -F '\t' -v id="$id" '$2 == id { print; exit }' "$CONF_ATALHOS" 2>/dev/null)
+    loc=$(awk -F '\t' -v id="$id" '$2 == id { print; exit }' "$CONF_ATALHOS" 2>/dev/null)
     padrao=$(awk -F '\t' -v id="$id" '$2 == id { print; exit }' <<<"$base")
-    if [[ -z $local ]]; then
+    if [[ -z $loc ]]; then
       origem=$'\033[90mpadrão\033[0m'
-    elif [[ -n $padrao && $local == "$padrao" ]]; then
+    elif [[ -n $padrao && $loc == "$padrao" ]]; then
       origem=$'\033[90mpadrão\033[0m'
     elif [[ -n $padrao ]]; then
       origem=$'\033[33mpersonalizado\033[0m'
@@ -4501,7 +4580,10 @@ tarefas_token_prazo() { # token-sem-@
       local d=${t%%/*} m=${t##*/} y; y=$(date +%Y)
       tt_epoch_de "$(printf '%04d-%02d-%02d' "$y" "$m" "$d")" ;;
     [0-9][0-9]/[0-9][0-9]/[0-9][0-9][0-9][0-9])
-      local d=${t%%/*} rest=${t#*/} m=${rest%%/*} y=${rest##*/}
+      # Em dois passos: num mesmo `local`, $rest ainda não existe quando m= e y= são expandidos
+      # (com set -u o token morria em "rest: unbound variable" e ficava no texto, sem prazo).
+      local d=${t%%/*} rest=${t#*/} m y
+      m=${rest%%/*} y=${rest##*/}
       tt_epoch_de "$(printf '%04d-%02d-%02d' "$y" "$m" "$d")" ;;
     *) return 1 ;;
   esac
@@ -4968,8 +5050,8 @@ abrir_tarefas() {
 }
 
 # Estado da UI (filtro, modo e tarefas abertas) para sobreviver aos reloads do fzf.
-tarefas_estado_arq() { echo "$RT/tt-tarefas-ui-$(id -u)"; }
-tarefas_mapa_arq() { echo "$RT/tt-tarefas-mapa-$(id -u)"; }
+tarefas_estado_arq() { echo "$RT/tt-tarefas-ui-$UID"; }
+tarefas_mapa_arq() { echo "$RT/tt-tarefas-mapa-$UID"; }
 tarefas_ui_get() { sed -n "s/^$1=//p" "$(tarefas_estado_arq)" 2>/dev/null | tail -1; }
 tarefas_ui_set() { # chave valor
   local arq; arq=$(tarefas_estado_arq); mkdir -p "$RT"
@@ -5686,7 +5768,7 @@ TT_MESES=(janeiro fevereiro março abril maio junho julho agosto setembro outubr
 TT_DIAS_SEMANA=(domingo segunda-feira terça-feira quarta-feira quinta-feira sexta-feira sábado)
 
 calendario_tui() { # [epoch_inicial]
-  local ini=${1:-} ano mes dia hoje_y hoje_m hoje_d
+  local ini=${1:-} hoje_y hoje_m hoje_d
   local foco_y foco_m foco_d
   hoje_y=$(date +%Y); hoje_m=$(date +%-m); hoje_d=$(date +%-d)
   if [[ -n $ini && $ini =~ ^[0-9]+$ ]]; then
@@ -5982,7 +6064,6 @@ reconciliar_fixadas() {
       novo=${resposta%%$'\t'*}; novo_id=${resposta#*$'\t'}
       [[ -n $novo ]] || { mudou=1; continue; }
     fi
-    [[ $novo == "$s" || $novo_id != "$id" ]] || true
     [[ $novo == "$s" && $novo_id == "$id" ]] || mudou=1
     printf '%s\t%s\t%s\n' "$r" "$novo" "$novo_id" >>"$tmp"
   done < <(fixadas)
@@ -6420,7 +6501,7 @@ atalho_aqui() {
 }
 
 atalho_executar() {
-  local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd nome
+  local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd cor nome
   IFS=$'\t' read -r emoji id cmd cor < <(atalhos_lista | sed -n "${i}p")
   [[ -n $cmd ]] || { tmux display-message -c "$cliente" "atalho indisponível" 2>/dev/null || true; return 0; }
   if [[ $cmd == '@aqui '* ]]; then atalho_aqui "$cliente" "$pane" "$pasta" "${cmd#@aqui }" "$id"; return; fi
@@ -6439,7 +6520,7 @@ clique() {
   # Algumas versões/configurações do tmux devolvem o tipo junto no range (user|at1).
   # Normalizar aqui evita que um clique válido seja descartado silenciosamente.
   local faixa=${1#user|}
-  local marca="$RT/tt-clique-$(id -u)" agora anterior cliente_anterior faixa_anterior
+  local marca="$RT/tt-clique-$UID" agora anterior cliente_anterior faixa_anterior
   agora=$(date +%s%N)
   if read -r anterior cliente_anterior faixa_anterior <"$marca" 2>/dev/null &&
      [[ $cliente_anterior == "$2" && $faixa_anterior == "$faixa" ]] &&
@@ -6574,7 +6655,7 @@ abrir_pasta() {
   if grep -qi microsoft /proc/version 2>/dev/null && [[ -x /mnt/c/Windows/explorer.exe ]]; then
     (cd /mnt/c && /mnt/c/Windows/explorer.exe "$(wslpath -w "$dir")") && return
   fi
-  if [[ -n ${WAYLAND_DISPLAY:-}${DISPLAY:-} ]] || [[ -S ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/wayland-0 ]]; then
+  if [[ -n ${WAYLAND_DISPLAY:-}${DISPLAY:-} ]] || [[ -S ${XDG_RUNTIME_DIR:-/run/user/$UID}/wayland-0 ]]; then
     WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0} setsid xdg-open "$dir" >/dev/null 2>&1 </dev/null && return
   fi
   sess=$( [[ -n $c ]] && do_cliente "$c" '#{session_name}')
@@ -6972,7 +7053,7 @@ AERC_CONTAS="$AERC_DIR/accounts.conf"
 SECRETS_DIR="$HOME/.secrets"
 EMAIL_DIR="$CONF_DIR/email"
 EMAIL_PY="$DIR_TT/email-tt.py"
-[[ -f $EMAIL_PY ]] || EMAIL_PY="$(dirname "$EU")/email-tt.py"
+[[ -f $EMAIL_PY ]] || EMAIL_PY="${EU%/*}/email-tt.py"
 declare -A E=() # conta em edição (as funções declaram a sua cópia local com local -A E)
 # Chaves de uma conta, na ordem em que são gravadas.
 EMAIL_CHAVES=(nome endereco usuario nome_exibicao provedor auth imap_host imap_porta imap_seg smtp_host smtp_porta smtp_seg
@@ -7076,7 +7157,7 @@ EOF
 email_salvar_validado() { # snapshot autorizar_oauth(0|1)
   local snap=$1 autorizar=${2:-0} slug=${E[_slug]}
   # Sync local exige mbsync instalado: recusa antes de gravar, sem fingir que ligou.
-  if [[ ${E[sync_local]:-} == 1 ]] && ! command -v mbsync >/dev/null; then
+  if [[ ${E[sync_local]:-} == 1 ]] && ! command -v "$(mbsync_bin)" >/dev/null; then
     email_snapshot_restaurar "$snap" "$slug"
     echo "✗ Sync local pede o mbsync (isync) instalado. Instale-o ou deixe sync_local vazio."; return 1
   fi
@@ -7200,7 +7281,7 @@ email_sync_local_definir() {
   slug=$(email_achar "$1") || { echo "Conta não encontrada: $1"; return 1; }
   email_ler "$slug" || return 1
   if [[ $valor == 1 ]]; then
-    command -v mbsync >/dev/null || { echo "✗ Sync local pede o mbsync (isync) instalado."; return 1; }
+    command -v "$(mbsync_bin)" >/dev/null || { echo "✗ Sync local pede o mbsync (isync) instalado."; return 1; }
     E[sync_local]=1
   else
     E[sync_local]=
@@ -7223,6 +7304,8 @@ email_sync_local_definir() {
 # apagado) e a chegada de mensagens novas sobem/descem no próximo sync (vigia ou --email-sync).
 EMAIL_MBSYNC_DIR="$CONF_DIR/mbsync"
 email_mbsyncrc() { echo "$EMAIL_MBSYNC_DIR/$1.mbsyncrc"; }
+# O executável do mbsync (TT_MBSYNC troca, para os testes simularem uma máquina sem ele).
+mbsync_bin() { echo "${TT_MBSYNC:-mbsync}"; }
 
 # PassCmd do mbsync para a conta em E: senha de app (arquivo em ~/.secrets), comando externo do
 # usuário, ou, no OAuth2, o access token renovado pelo email-tt.py. Nunca grava o segredo no .mbsyncrc.
@@ -7276,12 +7359,12 @@ email_mbsyncrc_gerar() {
 # conta). Silencioso; o vigia chama em segundo plano. Sem mbsync instalado ou sem o flag, não faz nada.
 email_sync() {
   local slug=$1 rc lock; rc=$(email_mbsyncrc "$slug")
-  command -v mbsync >/dev/null || return 0
+  command -v "$(mbsync_bin)" >/dev/null || return 0
   [[ -f $rc ]] || return 0
   lock="$EMAIL_MBSYNC_DIR/$slug.lock"
   exec 9>"$lock" 2>/dev/null || return 0
   flock -n 9 || return 0   # já há um sync desta conta em curso
-  timeout 120 mbsync -c "$rc" "$slug" >/dev/null 2>&1
+  timeout 120 "$(mbsync_bin)" -c "$rc" "$slug" >/dev/null 2>&1
 }
 
 # Sincroniza todas as contas com sync_local=1 (chamado pelo vigia e por --email-sync sem argumento).
@@ -7431,7 +7514,7 @@ email_adicionar_cli() {
   E[provedor]=${E[provedor]:-outro}; E[nome]=${E[nome]:-${E[endereco]%@*}}; E[_slug]=$(email_slug "${E[nome]}")
   email_aplicar_provedor
   email_validar novo || return 1
-  if [[ ${E[sync_local]:-} == 1 ]] && ! command -v mbsync >/dev/null; then
+  if [[ ${E[sync_local]:-} == 1 ]] && ! command -v "$(mbsync_bin)" >/dev/null; then
     echo "✗ Sync local pede o mbsync (isync) instalado. Instale-o ou deixe sync_local vazio."; return 1
   fi
   if [[ ${E[auth]} == senha ]]; then
@@ -7733,8 +7816,8 @@ email_conta_ui() {
            read -r -p 'Desligar o sync local (o aerc volta a ler direto do servidor)? (s/N) ' op
            [[ $op == [sSyY]* ]] && email_sync_local_definir "$slug" 0
          else
-           command -v mbsync >/dev/null || pedir_sudo_pendencias email-sync
-           if command -v mbsync >/dev/null; then email_sync_local_definir "$slug" 1
+           command -v "$(mbsync_bin)" >/dev/null || pedir_sudo_pendencias email-sync
+           if command -v "$(mbsync_bin)" >/dev/null; then email_sync_local_definir "$slug" 1
            else echo 'Sem o mbsync (isync), o sync local fica desligado.'; fi
          fi; email_pausa ;;
       d) email_descadastrar_ui "$slug" && return 0 ;;
@@ -7809,7 +7892,7 @@ humano() { awk -v b="${1:-0}" 'BEGIN { split("B K M G T", u); i = 1; while (b >=
 # Trabalhos de cópia persistem neste diretório até serem concluídos; o popup que os iniciou fica
 # livre imediatamente para novas sessões, menus e outras operações. Por trabalho: ID.info (origem e
 # destino), ID.status (estado), ID.pid (o trabalhador) e ID.log.
-dir_transferencias() { echo "$RT/tt-transferencias-$(id -u)"; }
+dir_transferencias() { echo "$RT/tt-transferencias-$UID"; }
 
 atualizar_transferencia() {
   local id=$1 estado=$2 d
@@ -8466,7 +8549,7 @@ case "${1:-}" in
   --destinos) destinos; exit ;;
   --definir-recebidos) definir_recebidos "$2"; exit ;;
   --pasta-padrao)
-    TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
+    TT_ESTADO=$(mktemp "$RT/tt-menu.XXXXXX"); export TT_ESTADO
     trap limpar_estado EXIT
     pasta_padrao_cli "${2:-}"; exit ;;
   --caminho-visivel) caminho_visivel "$2"; exit ;;
@@ -8480,7 +8563,7 @@ case "${1:-}" in
   --atualizar-info) atualizar_info; exit ;;
   --menu-popup-ui) menu_popup_ui "$2"; exit ;;
   --enviar | --trazer)
-    TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
+    TT_ESTADO=$(mktemp "$RT/tt-menu.XXXXXX"); export TT_ESTADO
     trap limpar_estado EXIT
     a=$1; shift
     if [[ $a == --enviar ]]; then enviar_cli "$@"; else trazer_cli "$@"; fi
@@ -8532,7 +8615,7 @@ case "${1:-}" in
   --cabecalho-seletor) cabecalho_seletor; exit ;;
   --clique-seletor) clique_seletor "${2:-}"; exit ;;
   --seletor-em) seletor_em "$2" "${3:-}" "${4:-}"; exit ;;
-  --seletor) TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX"); export TT_ESTADO
+  --seletor) TT_ESTADO=$(mktemp "$RT/tt-menu.XXXXXX"); export TT_ESTADO
              trap limpar_estado EXIT; seletor; exit ;;
   --ir-ponte) ir_ponte "$2" "$3" "$4"; exit ;;
   --ponte) ponte "$2" "$3" "$4"; exit ;;
@@ -8549,9 +8632,12 @@ case "${1:-}" in
   --nomear-todas-local) nomear_todas_local; exit ;;
   --vigia) vigiar; exit ;;
   --janela) exec tmux new-session -s "$(proximo_nome)" ;;
+  -h | --help | ajuda) ajuda; exit 0 ;;
+  # Opção que não existe: antes abria a central em silêncio (um erro de digitação parecia funcionar).
+  -*) echo "tt: opção desconhecida: $1 (tt --help mostra as principais)" >&2; exit 2 ;;
 esac
 
-TT_ESTADO=$(mktemp "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/tt-menu.XXXXXX")
+TT_ESTADO=$(mktemp "$RT/tt-menu.XXXXXX")
 export TT_ESTADO
 trap sair_menu EXIT
 

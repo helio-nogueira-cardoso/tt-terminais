@@ -603,9 +603,11 @@ isolamento de rede do leitor de e-mail.
     tt --atualizar           instala a versão mais nova publicada no GitHub nesta máquina
     tt --atualizar --todas   … e nas máquinas cadastradas
 
-O vigia consulta a fonte publicada a cada 5 min e instala automaticamente uma versão superior
-nesta máquina; sem rede, mantém o tt em funcionamento e tenta de novo no ciclo seguinte.
-`TT_T_ATUALIZACAO=0` força a consulta em cada volta do vigia (útil para teste). O menu de máquinas
+O vigia consulta a fonte publicada a cada 30 min e instala automaticamente uma versão superior
+nesta máquina; sem rede, mantém o tt em funcionamento e tenta de novo no ciclo seguinte. (Quem
+publica já instala nas máquinas ligadas com `tt --sincronizar`; a consulta só cobre a que estava
+desligada na hora.) `TT_T_ATUALIZACAO=0` força a consulta em cada volta do vigia (útil para teste);
+`TT_T_ATUALIZACAO=300` volta aos 5 min. O menu de máquinas
 continua oferecendo "⟳ Atualizar do GitHub". Para seguir um fork, ponha `fonte=<url do repositório>` no
 `~/.config/tt/config`.
 

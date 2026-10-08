@@ -216,7 +216,7 @@ for ((i=1; i<=$#; i++)); do a=${!i}
     --dangerously-skip-permissions) YOLO=1 ;;
     --model|--resume|-r|--session-id|--output-format|--input-format|--append-system-prompt|--system-prompt|\
     --allowedTools|--allowed-tools|--disallowedTools|--disallowed-tools|--add-dir|--permission-mode|--settings|\
-    --mcp-config|--max-turns|--fallback-model|--agent|--agents|--tools) i=$((i+1)) ;;
+    --mcp-config|--max-turns|--fallback-model|--agent|--agents|--tools|--effort) i=$((i+1)) ;;
     -*) ;;
     *) pos+=("$a") ;;
   esac

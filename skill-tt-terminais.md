@@ -61,6 +61,8 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --atualizar [--todas]` — instala a versão publicada mais nova nesta máquina (e nas cadastradas).
 - `tt --verificar-atualizacao` / `tt --garantir-atualizacao` — checa / força estar na última.
 - `tt --versao` — versão instalada ("N hash data").
+- `tt --help` (`-h`, `ajuda`) — os verbos do dia a dia, a versão e onde está o resto. Uma opção
+  desconhecida (`tt --xyz`) sai com código 2 e aponta para a ajuda (não abre a central).
 - `tt --pacote` (interno) — emite o tar do pacote no stdout.
 - `tt --aidlc [raiz]` — bootstrap AI-DLC no projeto (idempotente).
 
@@ -271,9 +273,13 @@ incompleto.
 
 ## O vigia (`tt --vigia`)
 
-Loop em segundo plano, instância única por pidfile em `$RT`. Log em `~/.cache/tt-vigia.log`. A cada
-volta: `atualizar_barras`; atualiza info das máquinas. Em intervalos:
-- Fixadas/tarefas a cada 300 s: `--puxar-fixadas`, `--reconciliar-fixadas`, `--tarefas-puxar`.
+Loop em segundo plano, instância única por pidfile em `$RT`. Log em `~/.cache/tt-vigia.log` (cortado
+a 1500 linhas ao passar de 3000). Ao iniciar, `faxina_vigia` remove restos: estado de vigias de
+servidores tmux mortos, sidecars de menu e marcas de tema com mais de um dia, temporários de gravações
+atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar_barras`. Em intervalos:
+- Info das máquinas (sessões e versão, para o menu de máquinas) a cada `TT_T_INFO` s (300).
+- Fixadas/tarefas a cada 300 s: `--puxar-fixadas`, `--reconciliar-fixadas`, `--tarefas-puxar`; na
+  mesma volta, a sonda por ssh das pontes órfãs (o fechamento por ociosidade é local e roda sempre).
 - Contas de IA a cada 1800 s: `--puxar-contas-ia`.
 - E-mail (sync local) a cada `TT_EMAIL_SYNC` s (default 180; 0 desliga): `--email-sync`.
 - Padrão visual + memória a cada 300 s: `--reforcar-padrao`, `--memoria-agentes`.
@@ -282,8 +288,8 @@ volta: `atualizar_barras`; atualiza info das máquinas. Em intervalos:
 - Nomeação automática por sessão (título do Claude; primeiro nome; revisão por pontos).
 
 ### Variáveis de ajuste (defaults)
-`TT_T_PRIMEIRO`=60, `TT_T_RENOMEAR`=300, `TT_T_GENERICO`=300, `TT_T_PASTA`=120, `TT_T_REVISAO`=1800,
-`TT_PAUSA`=60, `TT_T_ATUALIZACAO`=300 (0 = toda volta), `TT_PESO_PEDIDO`=3, `TT_PONTOS_RENOMEAR`=10,
+`TT_T_PRIMEIRO`=60, `TT_T_RENOMEAR`=300, `TT_T_PASTA`=120, `TT_T_REVISAO`=1800, `TT_T_INFO`=300,
+`TT_T_PONTE`=1800, `TT_PAUSA`=60, `TT_T_ATUALIZACAO`=1800 (0 = toda volta), `TT_PESO_PEDIDO`=3, `TT_PONTOS_RENOMEAR`=10,
 `TT_EMAIL_SYNC`=180, `TT_FIX_VISIVEIS`=8, `TT_TAREFAS_LAPIDE_DIAS`=30. Flags: `TT_FORCAR` (pula
 proteção de downgrade), `TT_SEM_BASHRC` (instala sem mexer no `~/.bashrc`), `NOTMUX=1 bash` (abre
 terminal sem tmux), `TT_AI_MEMORY_DIR` (dir da memória de agentes), `TT_GIT_NAME`/`TT_GIT_EMAIL`

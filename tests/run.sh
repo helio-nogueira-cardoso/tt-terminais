@@ -28,6 +28,13 @@ for cmd in bash python3 rg tmux; do exige "$cmd"; done
 
 if bash -n "$tt"; then ok 'sintaxe Bash'; else falha 'sintaxe Bash'; fi
 
+# tt --help mostra os verbos; uma opção desconhecida é recusada (antes abria a central em silêncio).
+# (saída capturada antes do rg: com pipefail, o `rg -q` fecha o cano e o sed do --help morre com SIGPIPE)
+ajuda_saida=$("$tt" --help 2>/dev/null || true)
+rg -q -- 'tt --vigia' <<<"$ajuda_saida" && ok 'tt --help lista os verbos' || falha 'tt --help não lista os verbos'
+rc=0; "$tt" --opcao-que-nao-existe >/dev/null 2>&1 || rc=$?
+[[ $rc == 2 ]] && ok 'opção desconhecida é recusada com erro' || falha "opção desconhecida não foi recusada (rc=$rc)"
+
 awk '/^  codigo=\$\(cat <<'\''PYEOF'\''/{captura=1; next} captura && /^PYEOF$/{exit} captura {print}' "$tt" |
   python3 -c 'import sys; compile(sys.stdin.read(), "com_mouse", "exec")'
 ok 'sintaxe Python da ponte de mouse'
@@ -39,7 +46,7 @@ tem "$tt" ': >"\$arq"' &&
   tem "$tt" 'resto\.rfind' && ok 'ponte de mouse: estado e pacotes fragmentados' ||
   falha 'ponte de mouse não protege contra coordenada velha/pacote fragmentado'
 
-tem "$tt" 't_atualizacao=\$\{TT_T_ATUALIZACAO:-300\}' &&
+tem "$tt" 't_atualizacao=\$\{TT_T_ATUALIZACAO:-1800\}' &&
   tem "$tt" -- '--garantir-atualizacao' &&
   tem "$tt" 'REPO_TT=\$DIR_FONTE' &&
   tem "$tt" '\(\(n > atual\)\)' && ok 'vigia exige a versão publicada mais nova' ||

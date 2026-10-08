@@ -14,8 +14,10 @@ RC() { echo "$HOME/.config/tt/mbsync/$1.mbsyncrc"; }
 MD() { echo "$HOME/.cache/tt/maildir/$1"; }
 
 # --- Sem mbsync instalado: sync_local=1 é recusado -----------------------------------------------
-export PATH="$T/bin:/usr/bin:/bin"   # sem mbsync aqui
-echo 'SENHA_X' | "$TT" --email-adicionar nome=SemMbsync endereco=a@x.com provedor=gmail auth=senha sync_local=1 --senha-stdin >/dev/null 2>&1 \
+export PATH="$T/bin:/usr/bin:/bin"
+# TT_MBSYNC aponta para um executável inexistente: simula a máquina sem mbsync mesmo onde ele está
+# em /usr/bin (o Dell tem; só tirar do PATH não bastava).
+echo 'SENHA_X' | TT_MBSYNC=/nonexistent/mbsync "$TT" --email-adicionar nome=SemMbsync endereco=a@x.com provedor=gmail auth=senha sync_local=1 --senha-stdin >/dev/null 2>&1 \
   && falhou 'aceitou sync_local=1 sem mbsync instalado'
 [[ -e $HOME/.config/tt/email/semmbsync.conf ]] && falhou 'conta recusada deixou resíduo .conf'
 passou 'sync_local=1 sem mbsync instalado é recusado, sem resíduo'
@@ -79,7 +81,7 @@ grep -q '^source *= imaps://on%40gmail.com@imap.gmail.com:993$' "$A" || falhou '
 awk '/^\[Online\]$/{f=1} f&&/^source-cred-cmd/{print "ACHOU"} f&&/^$/{f=0}' "$A" | grep -q ACHOU || falhou 'desligar não devolveu o source-cred-cmd'
 [[ ! -e $(RC online) ]] || falhou 'desligar não removeu o .mbsyncrc'
 grep -q '^sync_local=' "$HOME/.config/tt/email/online.conf" && falhou 'desligar deixou o flag no .conf'
-PATH="/usr/bin:/bin" "$TT" --email-sync-local Online 1 >/dev/null 2>&1 && falhou 'ligou sync local sem mbsync instalado'
+TT_MBSYNC=/nonexistent/mbsync "$TT" --email-sync-local Online 1 >/dev/null 2>&1 && falhou 'ligou sync local sem mbsync instalado'
 grep -q '^sync_local=' "$HOME/.config/tt/email/online.conf" && falhou 'recusa por falta de mbsync gravou o flag'
 passou 'liga/desliga pós-cadastro: maildir+mbsyncrc ao ligar, volta limpa ao desligar, sem mbsync recusa'
 
