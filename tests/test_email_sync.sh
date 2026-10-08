@@ -69,4 +69,18 @@ mkdir -p "$(MD local)/INBOX/cur"
 grep -q '^\[Local\]$' "$A" && falhou 'remover não tirou o bloco do accounts.conf'
 passou 'remover a conta apaga bloco, .mbsyncrc e maildir'
 
+# --- Liga/desliga depois do cadastro (o botão 🔄 da tela de contas chama isto) -------------------
+"$TT" --email-sync-local Online 1 >/dev/null || falhou 'ligar sync local numa conta existente'
+grep -q "^source *= maildir://$HOME/.cache/tt/maildir/online$" "$A" || falhou 'ligar não trocou a conta para maildir'
+[[ -f $(RC online) ]] || falhou 'ligar não gerou o .mbsyncrc'
+grep -q '^sync_local=1$' "$HOME/.config/tt/email/online.conf" || falhou 'ligar não gravou o flag no .conf'
+"$TT" --email-sync-local Online 0 >/dev/null || falhou 'desligar sync local'
+grep -q '^source *= imaps://on%40gmail.com@imap.gmail.com:993$' "$A" || falhou 'desligar não voltou a imaps://'
+awk '/^\[Online\]$/{f=1} f&&/^source-cred-cmd/{print "ACHOU"} f&&/^$/{f=0}' "$A" | grep -q ACHOU || falhou 'desligar não devolveu o source-cred-cmd'
+[[ ! -e $(RC online) ]] || falhou 'desligar não removeu o .mbsyncrc'
+grep -q '^sync_local=' "$HOME/.config/tt/email/online.conf" && falhou 'desligar deixou o flag no .conf'
+PATH="/usr/bin:/bin" "$TT" --email-sync-local Online 1 >/dev/null 2>&1 && falhou 'ligou sync local sem mbsync instalado'
+grep -q '^sync_local=' "$HOME/.config/tt/email/online.conf" && falhou 'recusa por falta de mbsync gravou o flag'
+passou 'liga/desliga pós-cadastro: maildir+mbsyncrc ao ligar, volta limpa ao desligar, sem mbsync recusa'
+
 echo 'ok: sync local opcional (mbsync + maildir) — opt-in por conta, sem segredo em claro, remoção limpa'
