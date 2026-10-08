@@ -115,7 +115,10 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `tt --tarefa-restaurar ID`, `tt --tarefas-arquivadas` (histórico em texto).
 - `tt --tarefa-add-natural "frase @sex 14h !alta *semanal #tag"` (multi-linha: 1ª linha é o título, o resto vira descrição) — cria lendo prazo
   (com horário opcional: `@sex 14h`, `@amanha às 9h30`, `@14:30`), prioridade, repetição, etiqueta e
-  `tt --tarefa-renomear ID "texto"`; `tt --tarefas-ajuda` imprime o
+  `tt --tarefa-editar ID "frase"` (relê a frase como na criação: texto, @prazo, !prio, *rep, #tag;
+  marcador ausente tira o atributo; linhas além da 1ª substituem a descrição, senão ela fica;
+  subtarefa: só o texto), `tt --tarefa-frase ID` (a frase atual: `tarefas_frase_de`, inversa de
+  `tarefas_frase_ler`), `tt --tarefa-renomear ID "texto"` (só o texto); `tt --tarefas-ajuda` imprime o
   "Como usar" do painel. `tt --calendario [epoch]` é o seletor de prazo (imprime `EPOCH`, `EPOCH 1`
   com horário, `limpar` ou nada); `tt --calendario-agenda [dia]` é a agenda (relógio da barra).
 - Conclusão (`tarefa_concluir`): mãe só conclui com todas as subtarefas feitas (senão imprime as
@@ -137,7 +140,9 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - Internos da UI: `--tarefas-ui`, `--tarefas-lista [busca]`, `--tarefas-cabecalho`,
   `--tarefa-acao EVENTO CHAVE` (despachante único: toda tecla, clique e botão do painel passa por
   ele e devolve as ações do fzf), `--tarefa-nova-prompt`, `--tarefa-sub-prompt`,
-  `--tarefa-desc-prompt` (editor_tt; `--tarefa-desc-editor` é o nome antigo), `--tarefa-prazo-prompt`, `--tarefa-renomear-prompt`,
+  `--tarefa-desc-prompt` (editor_tt; `--tarefa-desc-editor` é o nome antigo), `--tarefa-prazo-prompt`, `--tarefa-editar-prompt`
+  (frase preenchida; Ctrl+E abre o editor com a descrição embaixo e, nesse caso, `tarefa_editar … --desc` faz a
+  descrição que voltou valer, mesmo vazia; `--tarefa-renomear-prompt` é o nome antigo),
   `--tarefa-remover-prompt`, `--tarefa-limpar-prompt`, `--tarefa-add-ui`, `--tarefas-barra`. Sync:
   `--receber-tarefas`, `--tarefas-espelhar`, `--tarefas-puxar`.
 - Painel: um fzf com três modos (lista, ajuda, menu de ações de uma tarefa) guardados em
@@ -160,7 +165,8 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - Teclado no painel: `⏎` alterna feita (ou cria o que foi digitado), `→`/`␣` abre, `←` fecha,
   `^n` nova, `^s` subtarefa, `^e` descrição, `^d` prazo, `^t` calendário, `^o` mais ações, `^p`
   prioridade, `^r` repetir, `^k`/`^j` move, `^x` apaga (confirma), `^l` limpa feitas (confirma), `F2`
-  renomeia, `Tab` troca a aba, `?`/`F1` ajuda, `esc` volta/limpa a busca/fecha.
+  edita (= botão ✎ Editar e ⋯ menu → ✎ Editar: a frase com os marcadores volta para mexer), `Tab`
+  troca a aba, `?`/`F1` ajuda, `esc` volta/limpa a busca/fecha.
 
 ### Atalhos de barra
 - `tt --editar-atalhos` — edita os atalhos locais. `--atalhos-barra`/`--atalhos-lista` (internos)

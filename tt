@@ -4913,7 +4913,8 @@ tarefas_token_prazo() { # token-sem-@
       # (com set -u o token morria em "rest: unbound variable" e ficava no texto, sem prazo).
       local d=${t%%/*} rest=${t#*/} m y
       m=${rest%%/*} y=${rest##*/}
-      tt_epoch_de "$(printf '%04d-%02d-%02d' "$y" "$m" "$d")" ;;
+      # 10#: "08" e "09" no printf %d seriam octais inválidos (a data virava 00-00)
+      tt_epoch_de "$(printf '%04d-%02d-%02d' "$((10#$y))" "$((10#$m))" "$((10#$d))")" ;;
     *) return 1 ;;
   esac
 }
@@ -4925,13 +4926,16 @@ tarefas_token_hora() {
   printf '%02d:%02d' "$((10#${BASH_REMATCH[1]}))" "$((10#${BASH_REMATCH[3]:-${BASH_REMATCH[4]:-0}}))"
 }
 
-# Cria uma tarefa a partir de uma frase com tokens. Imprime o id criado. Texto com várias linhas
+# Lê uma frase nas variáveis TT_F_TXT (o texto sem os tokens), TT_F_DESC, TT_F_PRAZO (epoch),
+# TT_F_HORA (1 quando o prazo tem horário), TT_F_PRIO, TT_F_REP e TT_F_TAGS. É a leitura da criação
+# e da edição: a mesma frase dá a mesma tarefa pelos dois caminhos. Texto com várias linhas
 # (colado, ou escrito no editor): a 1ª linha é o título (com os tokens), o resto é a descrição.
 #   @sex 14h · @sex às 14:30 · @14h (hoje; amanhã se a hora já passou) -> prazo com horário
-tarefa_add_natural() {
+# Falha (1) quando não sobra texto.
+tarefas_frase_ler() { # frase
   local frase=$1 tok prazo="" hora="" prio="" rep="" tags="" desc="" resto=() i j n hh
   if [[ $frase == *$'\n'* ]]; then
-    desc=$(printf '%s\n' "${frase#*$'\n'}" | sed 's/[[:space:]]*$//' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
+    desc=$(printf '%s\n' "${frase#*$'\n'}" | sed 's/[[:space:]]*$//' | sed '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
     frase=${frase%%$'\n'*}
   fi
   local -a toks; read -ra toks <<<"$frase"
@@ -4968,17 +4972,83 @@ tarefa_add_natural() {
       prazo=$(tt_epoch_de "$(tt_fmt_epoch "$prazo" +%Y-%m-%d) $hora")
     fi
   fi
-  local txt="${resto[*]}" id meta=""
-  txt=$(tarefas_limpa_texto "$txt"); [[ -n $txt ]] || return 1
-  id=$(tarefa_add "$txt") || return 1
-  [[ -n $desc ]] && meta=$(tarefas_meta_set "$meta" desc "$(tarefas_b64 "$desc")")
-  [[ -n $prazo ]] && meta=$(tarefas_meta_set "$meta" prazo "$prazo")
-  [[ -n $hora ]] && meta=$(tarefas_meta_set "$meta" hora 1)
-  [[ -n $prio ]] && meta=$(tarefas_meta_set "$meta" prio "$prio")
-  [[ -n $rep ]] && meta=$(tarefas_meta_set "$meta" rep "$rep")
-  [[ -n $tags ]] && meta=$(tarefas_meta_set "$meta" tags "$tags")
+  TT_F_TXT=$(tarefas_limpa_texto "${resto[*]}")
+  TT_F_DESC=$desc TT_F_PRAZO=$prazo TT_F_HORA=${hora:+1} TT_F_PRIO=$prio TT_F_REP=$rep TT_F_TAGS=$tags
+  [[ -n $TT_F_TXT ]]
+}
+
+# Cria uma tarefa a partir de uma frase com tokens (tarefas_frase_ler). Imprime o id criado.
+tarefa_add_natural() {
+  local id meta=""
+  tarefas_frase_ler "$1" || return 1
+  id=$(tarefa_add "$TT_F_TXT") || return 1
+  [[ -n $TT_F_DESC ]] && meta=$(tarefas_meta_set "$meta" desc "$(tarefas_b64 "$TT_F_DESC")")
+  [[ -n $TT_F_PRAZO ]] && meta=$(tarefas_meta_set "$meta" prazo "$TT_F_PRAZO")
+  [[ -n $TT_F_HORA ]] && meta=$(tarefas_meta_set "$meta" hora 1)
+  [[ -n $TT_F_PRIO ]] && meta=$(tarefas_meta_set "$meta" prio "$TT_F_PRIO")
+  [[ -n $TT_F_REP ]] && meta=$(tarefas_meta_set "$meta" rep "$TT_F_REP")
+  [[ -n $TT_F_TAGS ]] && meta=$(tarefas_meta_set "$meta" tags "$TT_F_TAGS")
   [[ -n $meta ]] && tarefa_set_meta "$id" "$meta"
   printf '%s\n' "$id"
+}
+
+# A frase de uma tarefa como se fosse escrita de novo: o texto e os marcadores que ela tem —
+# @DD/MM (ou @DD/MM/AAAA quando esse dia não é o próximo a chegar: atrasada, ano que vem), o
+# horário (14h, 9h30), !alta/!media, *diaria/*semanal/*mensal e as #etiquetas. É o que ✎ Editar
+# mostra; lida de volta por tarefas_frase_ler, dá a mesma tarefa. Subtarefa: só o texto.
+tarefas_frase_de() { # id
+  local id=$1 txt m f prazo dia hh h mi tgs
+  IFS=$'\t' read -r txt m < <(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5"\t"($6==""?"-":$6); exit}')
+  [[ -n $txt ]] || return 1
+  [[ $m == - ]] && m=""
+  f=$txt
+  [[ -n $(tarefas_meta_get "$m" pai) ]] && { printf '%s\n' "$f"; return 0; }
+  prazo=$(tarefas_meta_get "$m" prazo)
+  if [[ -n $prazo ]]; then
+    dia=$(tt_fmt_epoch "$prazo" +%d/%m)
+    [[ $(tarefas_token_prazo "$dia") == "$(tt_epoch_de "$(tt_fmt_epoch "$prazo" +%Y-%m-%d)")" ]] || dia=$(tt_fmt_epoch "$prazo" +%d/%m/%Y)
+    f+=" @$dia"
+    if [[ $(tarefas_meta_get "$m" hora) == 1 ]]; then
+      hh=$(tt_fmt_epoch "$prazo" +%H:%M); h=$((10#${hh%%:*})); mi=${hh##*:}
+      f+=" ${h}h"; [[ $mi != 00 ]] && f+=$mi
+    fi
+  fi
+  case $(tarefas_meta_get "$m" prio) in 1) f+=' !alta' ;; 2) f+=' !media' ;; esac
+  case $(tarefas_meta_get "$m" rep) in d) f+=' *diaria' ;; w) f+=' *semanal' ;; m) f+=' *mensal' ;; esac
+  tgs=$(tarefas_meta_get "$m" tags); [[ -n $tgs ]] && f+=" #${tgs//,/ #}"
+  printf '%s\n' "$f"
+}
+
+# Edita uma tarefa relendo a frase como na criação: o texto e os marcadores @prazo (com horário),
+# !prioridade, *repetição e #etiquetas vêm da frase, e marcador que não está mais nela tira o
+# atributo — sem @ fica sem prazo, sem ! sem prioridade, sem * deixa de repetir, sem # sem
+# etiquetas. A descrição não é marcador: só muda quando a frase traz linhas além da 1ª (elas a
+# substituem) ou com --desc (o editor a mostrou, então o que voltou vale, mesmo vazio); senão fica.
+# Subtarefa: só o texto muda (na criação dela a frase também não é lida). Mãe, ordem, estado e
+# arquivo ficam. Falha (1) sem texto.
+tarefa_editar() { # id frase [--desc]
+  local id=$1 frase=$2 forca_desc=${3:-} meta now tmp
+  [[ -n $id && -f $CONF_TAREFAS ]] || return 1
+  meta=$(tarefas_meta_de "$id")
+  if [[ -n $(tarefas_meta_get "$meta" pai) ]]; then tarefa_renomear "$id" "${frase%%$'\n'*}"; return; fi
+  tarefas_frase_ler "$frase" || return 1
+  meta=$(tarefas_meta_set "$meta" prazo "$TT_F_PRAZO")
+  meta=$(tarefas_meta_set "$meta" hora "${TT_F_PRAZO:+$TT_F_HORA}")
+  meta=$(tarefas_meta_set "$meta" prio "$TT_F_PRIO")
+  meta=$(tarefas_meta_set "$meta" rep "$TT_F_REP")
+  meta=$(tarefas_meta_set "$meta" tags "$TT_F_TAGS")
+  if [[ -n $TT_F_DESC || $forca_desc == --desc ]]; then
+    meta=$(tarefas_meta_set "$meta" desc "$([[ -n $TT_F_DESC ]] && tarefas_b64 "$TT_F_DESC")")
+  fi
+  now=$(date +%s)
+  tarefas_travar || return 1
+  tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
+  TT_TXT=$TT_F_TXT awk -F'\t' -v OFS='\t' -v id="$id" -v now="$now" -v meta="$meta" '
+    NF>=5 { if ($1==id) { $4=now; $5=ENVIRON["TT_TXT"]; $6=meta } print }' "$CONF_TAREFAS" >"$tmp"
+  mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tarefas_destravar
+  atualizar_barras 2>/dev/null
+  ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
 }
 
 # Muda o estado de uma tarefa (feita/aberta/removida), atualizando "mudada".
@@ -5870,7 +5940,7 @@ tarefas_ui() {
     --bind="esc:transform($a esc {1})" \
     --bind="?:transform($a interrogacao {1})" \
     --bind="f1:transform($a ajuda {1})" \
-    --bind="f2:transform($a renomear {1})" \
+    --bind="f2:transform($a editar {1})" \
     --bind="ctrl-n:transform($a nova {1})" \
     --bind="ctrl-s:transform($a sub {1})" \
     --bind="ctrl-e:transform($a desc {1})" \
@@ -5938,7 +6008,7 @@ tarefas_cabecalho() {
       _aba prazo Agenda "$pz"; _aba todas Todas "$to"; _aba arquivo Arquivo "$ar"
       _item " ▦ Calendário " "$bg$txt ▦ Calendário $z" calendario
       _quebra
-      _botao '+ Nova' nova; _botao '✓ Feita' feita; _botao '↳ Subtarefa' sub; _botao '✎ Descrição' desc
+      _botao '+ Nova' nova; _botao '✓ Feita' feita; _botao '✎ Editar' editar; _botao '↳ Subtarefa' sub; _botao '✎ Descrição' desc
       _botao '◷ Prazo' prazo; _botao '! Prioridade' prio; _botao '↻ Repetir' rep
       # ↑ e ↓ numa pílula só, cada seta com a sua ação; as duas metades nunca se separam
       ((col > 1 && col + 6 > larg)) && _quebra
@@ -6151,6 +6221,9 @@ tarefas_ajuda_linhas() {
   printf '\t   %s*semanal%s      repetir: *diaria *semanal *mensal (*d *w *m)\n' "$y" "$z"
   printf '\t   %s#casa%s         etiqueta (a busca também acha por #casa)\n' "$y" "$z"
   printf '\t   %sex.:%s Reunião com a Ana @sex 14h !alta\n' "$d" "$z"
+  printf '\t   %s✎ Editar%s (F2) reabre o título com esses marcadores: mude, tire ou\n' "$y" "$z"
+  printf '\t   acrescente um e a tarefa muda junto (sem @ fica sem prazo, sem !\n'
+  printf '\t   sem prioridade, sem * não repete, sem # sem etiqueta).\n'
   printf '\t\n\t %sDESCRIÇÃO%s\n' "$a" "$z"
   printf '\t   Tarefa com descrição mostra %s≡%s no fim da linha. Para ler, abra a\n' "$s" "$z"
   printf '\t   tarefa (▾) e tecle %s^/%s (ou %s⋯ menu%s → Ver a descrição): a descrição inteira\n' "$y" "$z" "$a" "$z"
@@ -6186,7 +6259,7 @@ tarefas_ajuda_linhas() {
   printf '\t   são clicáveis\n'
   printf '\t\n\t %sTECLADO%s\n' "$a" "$z"
   printf '\t   %s⏎%s feita/aberta   %s→ ␣%s abre   %s←%s fecha   %sTab%s próxima aba\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
-  printf '\t   %s^n%s nova   %s^s%s subtarefa   %s^e%s descrição   %s^d%s prazo   %sF2%s renomear\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
+  printf '\t   %s^n%s nova   %s^s%s subtarefa   %s^e%s descrição   %s^d%s prazo   %sF2%s editar\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^p%s prioridade   %s^r%s repetir   %s^k ^j%s sobe/desce   %s^x%s apaga\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^t%s calendário   %s^o%s mais ações   %s^l%s arquiva/apaga as feitas   %s^/%s descrição\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s?%s ajuda   %sesc%s volta/fecha\n' "$y" "$z" "$y" "$z"
@@ -6229,7 +6302,8 @@ tarefas_menu_linhas() { # id
   if [[ $est == feita ]]; then _op feita "$t↺ Reabrir (marcar como não feita)" '⏎'
   elif ((nfalta > 0)); then _op feita "$d☑ Marcar como feita" "falta$( ((nfalta > 1)) && echo m) $nfalta subtarefa$( ((nfalta > 1)) && echo s)"
   else _op feita "$g☑ Marcar como feita" '⏎ ou duplo clique'; fi
-  _op renomear "$t✎ Renomear…" F2
+  if [[ -z $pai ]]; then _op editar "$t✎ Editar…" 'F2 · texto e @prazo !prioridade *repetir #etiqueta'
+  else _op editar "$t✎ Editar…" 'F2 · o texto'; fi
   [[ -n $(tarefas_meta_get "$m" desc) ]] && _op ver "$t≡ Ver a descrição (cartão)" '^/'
   _op desc "$t✎ Descrição…" "$([[ -n $(tarefas_meta_get "$m" desc) ]] && echo 'editar · ^e' || echo 'escrever · ^e')"
   [[ -z $pai ]] && _op sub "$t↳ Adicionar subtarefa…" '^s'
@@ -6417,7 +6491,7 @@ tarefa_acao() { # evento chave
       echo "execute($EU --tarefa-sub-prompt $id)+$rl+$hd" ;;
     desc) echo "execute($EU --tarefa-desc-prompt $id)+$rl" ;;
     prazo) [[ -n $pai ]] && id=$pai; echo "execute($EU --tarefa-prazo-prompt $id)+$rl+$hd" ;;
-    renomear) echo "execute($EU --tarefa-renomear-prompt $id)+$rl" ;;
+    editar|renomear) echo "execute($EU --tarefa-editar-prompt $id)+$rl+$hd" ;;
     prio) [[ -n $pai ]] && id=$pai; tarefa_prio_ciclar "$id"; echo "$rl" ;;
     rep) [[ -n $pai ]] && id=$pai; tarefa_rep_ciclar "$id"; echo "$rl" ;;
     cima|baixo) tarefa_mover "$id" "$ev"; echo "$rl" ;;
@@ -6480,20 +6554,22 @@ tarefas_dica_frase() {
 
 # Lê o texto de uma tarefa nova em TT_NOVA: uma linha com edição; colar texto com várias linhas
 # traz tudo (a 1ª linha é o título, o resto a descrição) e Ctrl+E abre o editor do tt com o que já
-# foi digitado (título em cima, descrição embaixo) e cria ao salvar. Sem terminal (testes), lê a
-# entrada inteira.
-tarefas_ler_nova() { # [rótulo]
-  TT_NOVA=""
+# foi digitado (título em cima, descrição embaixo) e cria ao salvar. Na edição, a linha vem
+# preenchida com a frase da tarefa e o editor mostra a descrição atual embaixo; TT_NOVA_EDITOR=1
+# diz que o texto passou pelo editor. Sem terminal (testes), lê a entrada inteira.
+tarefas_ler_nova() { # [rótulo] [texto-inicial] [descrição-para-o-editor]
+  TT_NOVA="" TT_NOVA_EDITOR=""
   if ! [[ -t 0 ]]; then TT_NOVA=$(cat); return 0; fi
-  _tt_nova_buf=""
+  _tt_nova_buf="" _tt_nova_desc=${3:-}
   _tt_nova_guarda() { _tt_nova_buf=$READLINE_LINE; }
   _tt_nova_editor() {
     local tmp; tmp=$(mktemp "${TMPDIR:-/tmp}/tt-tarefa-nova.XXXXXX") || return 0
     printf '%s\n' "$READLINE_LINE" >"$tmp"
+    [[ -n $_tt_nova_desc ]] && printf '\n%s\n' "$_tt_nova_desc" >>"$tmp"
     local -a ed; read -ra ed <<<"$(editor_tt)"
     [[ ${ed[0]##*/} == nano ]] && ed+=(-t)
     "${ed[@]}" "$tmp" </dev/tty >/dev/tty 2>&1
-    _tt_nova_buf=$(cat "$tmp"); rm -f "$tmp"
+    _tt_nova_buf=$(cat "$tmp"); rm -f "$tmp"; TT_NOVA_EDITOR=1
     READLINE_LINE=${_tt_nova_buf%%$'\n'*}; READLINE_POINT=${#READLINE_LINE}
   }
   # ⏎ guarda o buffer inteiro antes de confirmar (o read corta na 1ª quebra de linha);
@@ -6503,7 +6579,7 @@ tarefas_ler_nova() { # [rótulo]
   bind '"\C-m": "\C-x\C-y\C-j"' 2>/dev/null
   bind '"\C-e": "\C-x\C-v\C-j"' 2>/dev/null
   local v rc=0
-  IFS= read -r -e -p "  ${1:+$1 }❯ " v || rc=1
+  IFS= read -r -e ${2:+-i "$2"} -p "  ${1:+$1 }❯ " v || rc=1
   # devolve o ⏎ e o Ctrl+E ao normal: o processo pode abrir outros prompts depois (calendário)
   bind '"\C-m": accept-line' 2>/dev/null; bind '"\C-e": end-of-line' 2>/dev/null
   ((rc == 0)) || return 1
@@ -6682,17 +6758,35 @@ tarefa_renomear() { # id texto
   atualizar_barras 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
 }
-tarefa_renomear_prompt() {
-  local id=$1 t txt z=$'\e[0m' a=$'\e[38;2;137;180;250m\e[1m' d=$'\e[38;2;108;112;134m'
+# Prompt de edição (F2, ✎ Editar na barra, ⋯ menu; chamado por execute() do fzf: tem o TTY): a
+# frase da tarefa volta preenchida — título com @prazo !prioridade *repetição #etiquetas — para
+# mudar, tirar ou acrescentar; ⏎ grava relendo como na criação (tarefa_editar), Ctrl+E abre o
+# editor com a descrição embaixo (o que voltar vale, descrição inclusive), ⏎ vazio ou a frase
+# igual cancela. Subtarefa: só o texto. Sem terminal (testes), lê a entrada inteira.
+tarefa_editar_prompt() {
+  local id=$1 t txt frase z=$'\e[0m' a=$'\e[38;2;137;180;250m\e[1m' d=$'\e[38;2;108;112;134m' y=$'\e[38;2;249;226;175m'
   [[ -n $id ]] || return 0
   txt=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
   [[ -n $txt ]] || return 0
   clear 2>/dev/null
-  printf '\n  %s✎ Renomear%s\n  %sEdite e tecle ⏎ · apague tudo para cancelar%s\n\n' "$a" "$z" "$d" "$z"
-  tarefas_ler_linha t "$txt" || return 0
-  [[ -n ${t:-} && $t != "$txt" ]] && tarefa_renomear "$id" "$t"
+  if [[ -n $(tarefas_pai_de "$id") ]]; then
+    printf '\n  %s✎ Editar subtarefa%s\n  %sEdite e tecle ⏎ · apague tudo para cancelar%s\n\n' "$a" "$z" "$d" "$z"
+    tarefas_ler_linha t "$txt" || return 0
+    [[ -n ${t:-} && $t != "$txt" ]] && tarefa_renomear "$id" "$t"
+    return 0
+  fi
+  frase=$(tarefas_frase_de "$id")
+  printf '\n  %s✎ Editar tarefa%s\n' "$a" "$z"
+  printf '  %s⏎ grava · %sCtrl+E%s%s abre no editor, com a descrição embaixo · ⏎ vazio cancela%s\n' "$d" "$y" "$z" "$d" "$z"
+  printf '  %sTire um marcador para tirar o atributo: sem @ fica sem prazo, sem ! sem prioridade,\n  sem * não repete, sem # sem etiqueta. A descrição só muda pelo editor.%s\n\n' "$d" "$z"
+  tarefas_dica_frase
+  tarefas_ler_nova "Tarefa" "$frase" "$(tarefa_get_desc "$id")" || return 0
+  [[ -n ${TT_NOVA//[[:space:]]/} ]] || return 0
+  [[ -z $TT_NOVA_EDITOR && $TT_NOVA == "$frase" ]] && return 0
+  tarefa_editar "$id" "$TT_NOVA" ${TT_NOVA_EDITOR:+--desc}
   return 0
 }
+tarefa_renomear_prompt() { tarefa_editar_prompt "$@"; }   # nome antigo
 
 # Editor de texto do tt: VISUAL/EDITOR do usuário mandam; sem eles, o vim com a configuração
 # bonita do próprio tt (cores, mouse, quebra de linha, Ctrl+S salva e sai — sem tocar no seu
@@ -11054,7 +11148,9 @@ case "${1:-}" in
   --tarefa-cabecalho-clique) tarefa_acao cabecalho "${2:-}"; exit ;;
   --tarefa-acao) shift; tarefa_acao "$@"; exit ;;
   --tarefa-limpar-prompt) tarefa_limpar_prompt; exit ;;
-  --tarefa-renomear-prompt) tarefa_renomear_prompt "${2:-}"; exit ;;
+  --tarefa-editar-prompt|--tarefa-renomear-prompt) tarefa_editar_prompt "${2:-}"; exit ;;
+  --tarefa-editar) [[ -n ${2:-} && -n ${3:-} ]] && tarefa_editar "$2" "${*:3}" || { echo 'uso: tt --tarefa-editar ID "texto @prazo !prio *rep #tag"'; exit 1; }; exit ;;
+  --tarefa-frase) [[ -n ${2:-} ]] && tarefas_frase_de "$2" || { echo 'uso: tt --tarefa-frase ID'; exit 1; }; exit ;;
   --tarefa-renomear) [[ -n ${2:-} && -n ${3:-} ]] && tarefa_renomear "$2" "${*:3}" || { echo 'uso: tt --tarefa-renomear ID "texto novo"'; exit 1; }; exit ;;
   --tarefas-ajuda) tarefas_ajuda_linhas | cut -f2- | sed 's/\x1b\[[0-9;]*m//g'; exit ;;
   --tarefa-preview) tarefa_preview "${2:-}"; exit ;;
