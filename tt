@@ -9024,6 +9024,15 @@ email_sync() { # slug [inbox|completo] [vigia]
   ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
   timeout "$teto" "$(mbsync_bin)" -c "$rc" "$alvo" >/dev/null 2>"$dir/$slug.erro.tmp"; st=$?
   fim=$(date +%s)
+  # Volta completa derrubada pelo ⟳ sincronizar agora (marca de email_sync_manual, ou morte por
+  # SIGTERM): não é erro — fica registrada como "interrompida", sem .erro nem espera; o vigia a
+  # refaz na próxima vez, e o INBOX que o dono pediu vem logo em seguida (é ele quem avisa).
+  if [[ $modo == completo && $st != 0 ]] && { [[ -e $dir/$slug.interrompida ]] || ((st == 15 || st == 143)); }; then
+    rm -f "${dir:?}/${slug:?}.interrompida" "${dir:?}/${slug:?}.erro.tmp" "${dir:?}/${slug:?}.andamento"
+    printf 'interrompida\t%s\t%s\t%s\n' "$ini" "$fim" "$st" >>"$dir/$slug"
+    tail -n 200 "$dir/$slug" >"$dir/$slug.tmp" 2>/dev/null && mv "$dir/$slug.tmp" "$dir/$slug"
+    return 0
+  fi
   printf '%s\t%s\t%s\t%s\n' "$modo" "$ini" "$fim" "$st" >>"$dir/$slug"
   tail -n 200 "$dir/$slug" >"$dir/$slug.tmp" 2>/dev/null && mv "$dir/$slug.tmp" "$dir/$slug"
   if ((st == 0)); then rm -f "${dir:?}/${slug:?}.erro" "${dir:?}/${slug:?}.erro.tmp" "${dir:?}/${slug:?}.espera" "${dir:?}/${slug:?}.falhas"
@@ -9137,7 +9146,12 @@ email_sync_manual() { # slug
   if [[ -e $lock ]] && ! flock -n -w 0 "$lock" true 2>/dev/null; then
     if ! flock -w 20 "$lock" true 2>/dev/null; then
       read -r m _ <"$ESTADO_DIR/email-sync/$slug.andamento" 2>/dev/null
-      if [[ ${m:-} == completo ]]; then pkill -f "mbsync -c $rc " 2>/dev/null; flock -w 30 "$lock" true 2>/dev/null || return 1
+      if [[ ${m:-} == completo ]]; then
+        # (a marca diz à rodada derrubada que ela foi interrompida de propósito, não que falhou)
+        touch "$ESTADO_DIR/email-sync/$slug.interrompida" 2>/dev/null
+        pkill -f "mbsync -c $rc " 2>/dev/null
+        flock -w 30 "$lock" true 2>/dev/null || { rm -f "$ESTADO_DIR/email-sync/$slug.interrompida"; return 1; }
+        rm -f "$ESTADO_DIR/email-sync/$slug.interrompida" # (se ninguém a consumiu)
       else flock -w 120 "$lock" true 2>/dev/null || return 1; fi
     fi
   fi
