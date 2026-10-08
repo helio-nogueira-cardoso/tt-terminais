@@ -5398,12 +5398,11 @@ barra_notifs_avisos() {
 }
 
 barra_notifs_fmt() {
-  local itens n sino
+  local itens n
   IFS=$'\t' read -r n itens <<<"$(barra_notifs_avisos)"
-  # O sininho é a porta das notificações e fica SEMPRE visível, alinhado à esquerda do slot.
-  sino='#[range=user|notifs]#[fg=#a6adc8] 🔔 #[norange]'
+  # O 🔔 mora no segmento ESQUERDO da faixa (fixo, junto aos chips); aqui é só o conteúdo central.
   if [[ -z $itens ]]; then
-    printf '%s#{E:@barra_ticker}#[default]' "$sino"
+    printf '#{E:@barra_ticker}#[default]'
     return 0
   fi
   local larg orcamento
@@ -5434,7 +5433,7 @@ sys.stdout.write(t if corte == len(t) else t[:corte].rstrip() + "…")' <<<"$ite
     ((${#itens} * 2 > orcamento)) && itens="${itens:0:orcamento/2}…"
   fi
   itens=${itens//#/##}
-  printf '%s #[fg=#45475a]│#[range=user|notifs]#[fg=#f9e2af]  %s  #[norange]#[fg=#45475a]│#[default]  ' "$sino" "$itens"
+  printf '  #[fg=#45475a]│#[range=user|notifs]#[fg=#f9e2af]  %s  #[norange]#[fg=#45475a]│#[default]  ' "$itens"
 }
 
 # --- Ticker do slot (sem aviso novo, infos roladas: dólar, frases… indicadores= no config) ----
@@ -5446,7 +5445,12 @@ sys.stdout.write(t if corte == len(t) else t[:corte].rstrip() + "…")' <<<"$ite
 # em ticker_fonte_atualizar + uma linha no README.
 DIR_TICKER=$HOME/.cache/tt-ticker
 
-ticker_fontes() { conf indicadores | tr ', ' '\n\n' | awk 'NF'; }
+ticker_fontes() {
+  local v; v=$(conf indicadores)
+  [[ $v == 0 ]] && return 0
+  [[ -n $v ]] || v="dolar,frases,noticias" # ligado de fábrica; indicadores=0 desliga
+  tr ', ' '\n\n' <<<"$v" | awk 'NF'
+}
 
 ticker_fonte_atualizar() { # fonte  (escreve $DIR_TICKER/<fonte> se o TTL venceu)
   local f=$1 arq="$DIR_TICKER/$1" ttl=600 agora; agora=$(date +%s)
@@ -7507,7 +7511,7 @@ atualizar_barras() {
       notifs) valor=$(barra_notifs_fmt) ;;
       notifs_slot) valor="#{E:@barra_notifs}" ;;
       faixa)
-        if faixa_notif_ativa; then valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{E:@barra_tarefas}"
+        if faixa_notif_ativa; then valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{E:@barra_tarefas}#[range=user|notifs]#[fg=#a6adc8] 🔔 #[norange]#[default]"
         else valor=""; fi ;;
       faixa_dir)
         if faixa_notif_ativa; then valor="#[range=user|relogio]#[fg=#a6adc8]#{E:@barra_data}%H:%M #[norange]#[default] #{E:@barra_versao}"
