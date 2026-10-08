@@ -75,4 +75,5 @@ grep -q '@barra_tarefas' <<<"$(tmux show -gqv @barra_lado1)" || falhou 'desligad
 grep -q '@barra_email' <<<"$(tmux show -gqv @barra_fim0)" || falhou 'desligada, 📧/relógio deveriam voltar à linha 0'
 passou 'faixa_notif=0: layout de 2 linhas de volta, sem perder nada'
 
+rg -q 'pkill -f "tt --ticker-loop"' "$TT" || falhou 'instalador não mata o laço antigo do letreiro (ficava rodando com código velho)'
 echo 'ok: faixa de notificações — 3ª linha com 📧/📋/avisos/data/versão, espelho central, desligável'
