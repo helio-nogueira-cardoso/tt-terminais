@@ -375,8 +375,9 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   faxina_vigia
-  local ultima_puxada=0 ultima_contas=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_email_completo=0 ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_puxada=0 ultima_contas=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_email_completo=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
+  ultima_email_completo=$(email_ultima_completa)
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
   # cópia em arquivo para sobreviver a reinícios. Não ficam em opções do tmux: qualquer
   # set-option, até de uma opção @ que nada desenha, redesenha a tela inteira de todos os clientes,
@@ -424,15 +425,25 @@ vigiar() {
       ("$EU" --puxar-contas-ia >/dev/null 2>&1 &)
     fi
     # E-mail com sync local (sync_local=1): o INBOX a cada TT_EMAIL_SYNC (120 s; leva segundos) e a
-    # volta completa (todas as pastas) a cada TT_EMAIL_SYNC_COMPLETO (1800 s), a primeira já ao
-    # iniciar. TT_EMAIL_SYNC=0 desliga. Fire-and-forget; cada conta tem trava própria.
+    # volta completa (todas as pastas) a cada TT_EMAIL_SYNC_COMPLETO (1800 s). TT_EMAIL_SYNC=0
+    # desliga. Fire-and-forget; cada conta tem trava própria. As mesmas contas costumam estar em
+    # vários aparelhos, e o Gmail atrasa as respostas de quem o procura demais: sem terminal em uso
+    # aqui nos últimos 10 min, o INBOX vai a cada TT_EMAIL_SYNC_OCIOSO (300 s); a completa ao iniciar
+    # o vigia (que reinicia a cada versão nova) só sai se a última registrada já passou do prazo.
     local t_email_sync=${TT_EMAIL_SYNC:-120} t_email_completo=${TT_EMAIL_SYNC_COMPLETO:-1800}
+    if ((t_email_sync > 0)); then
+      if ((agora - email_uso_visto >= 60)); then
+        email_uso_visto=$agora; email_ocioso=1; cliente_ativo_desde $((agora - 600)) && email_ocioso=0
+      fi
+      ((email_ocioso && ${TT_EMAIL_SYNC_OCIOSO:-300} > t_email_sync)) && t_email_sync=${TT_EMAIL_SYNC_OCIOSO:-300}
+      [[ $t_email_sync == "$email_intervalo" ]] || { email_intervalo=$t_email_sync; email_intervalo_gravar "$t_email_sync"; }
+    fi
     if ((t_email_sync > 0 && agora - ultima_email_completo >= t_email_completo)); then
       ultima_email_completo=$agora; ultima_email_sync=$agora
-      ("$EU" --email-sync --completo >/dev/null 2>&1 &)
+      ("$EU" --email-sync --completo --vigia >/dev/null 2>&1 &)
     elif ((t_email_sync > 0 && agora - ultima_email_sync >= t_email_sync)); then
       ultima_email_sync=$agora
-      ("$EU" --email-sync >/dev/null 2>&1 &)
+      ("$EU" --email-sync --vigia >/dev/null 2>&1 &)
     fi
     # Reforça o padrão completo e redesenha os clientes em até 5 min, inclusive os aninhados.
     if ((agora - ${ultima_tema:-0} >= 300)); then
@@ -8954,7 +8965,7 @@ email_mbsyncrc_gerar() {
   chmod 600 "$rc" 2>/dev/null
 }
 
-# Migra os .mbsyncrc do formato antigo (um canal só, Patterns *) para o de canais + grupo. A
+# Migra os .mbsyncrc do formato antigo (um canal só, Patterns *, ou sem Timeout) para o atual. A
 # instalação chama; idempotente. Os .mbsyncstate das pastas continuam válidos (mesmos caminhos),
 # então nada é baixado de novo. Conta antiga sem as pastas especiais no .conf: descobre em segundo
 # plano (tt --email-pastas) e regrava.
@@ -8962,7 +8973,9 @@ email_mbsyncrc_migrar() {
   local slug rc; local -A E=()
   for slug in $(email_slugs); do
     rc=$(email_mbsyncrc "$slug"); [[ -f $rc ]] || continue
-    grep -q "^Group $slug\$" "$rc" && continue
+    # (rc em canais gerado antes da v202 ficou sem "Timeout 60": no padrão de 20 s o login lento
+    # do Gmail estourava e a rodada falhava — era o grosso do ⚠ na barra)
+    grep -q "^Group $slug\$" "$rc" && grep -q '^Timeout ' "$rc" && continue
     E=(); email_ler "$slug" || continue
     [[ ${E[sync_local]:-} == 1 ]] || continue
     email_mbsyncrc_gerar
@@ -8971,29 +8984,42 @@ email_mbsyncrc_migrar() {
   return 0
 }
 
-# Roda o mbsync de uma conta: MODO "inbox" (só o INBOX — segundos; teto 120 s, e a trava impede
+# Roda o mbsync de uma conta: MODO "inbox" (só o INBOX — segundos; teto 240 s, e a trava impede
 # que a rodada seguinte comece antes de esta acabar) ou "completo" (o grupo inteiro; teto
 # TT_EMAIL_SYNC_TETO=600 s). Trava por conta (nunca duas ao mesmo tempo).
 # Registra cada rodada em $ESTADO_DIR/email-sync/<slug> (modo, início, fim, código; últimas 200) e
 # as últimas linhas de erro em <slug>.erro — é o que --email-sync-estado e a barra leem. Silencioso.
-email_sync() { # slug [inbox|completo]
-  local slug=${1:?} modo=${2:-inbox} rc lock dir alvo teto ini fim st
+# Rodada que encontra a trava ocupada (a volta completa segurando o INBOX) fica registrada como
+# "pulada": não é parada. Depois de um erro a conta espera mais (<slug>.espera: 2×, 4×… o intervalo,
+# até 15 min; zera no 1º sucesso) — o Gmail responde devagar quando é muito procurado (4 aparelhos
+# na mesma conta), e insistir piorava. Só o vigia (QUEM=vigia) respeita a espera; à mão, sincroniza já.
+email_sync() { # slug [inbox|completo] [vigia]
+  local slug=${1:?} modo=${2:-inbox} quem=${3:-} rc lock dir alvo teto ini fim st agora k esp base
   rc=$(email_mbsyncrc "$slug")
   command -v "$(mbsync_bin)" >/dev/null || return 0
   [[ -f $rc ]] || return 0
+  dir="${ESTADO_DIR:?}/email-sync"; mkdir -p "$dir"; agora=$(date +%s)
+  [[ $quem == vigia ]] && ((agora < $(cat "$dir/$slug.espera" 2>/dev/null || echo 0))) && return 0
   lock="$EMAIL_MBSYNC_DIR/$slug.lock"
   exec 9>"$lock" 2>/dev/null || return 0
-  flock -n 9 || return 0   # já há um sync desta conta em curso
-  dir="${ESTADO_DIR:?}/email-sync"; mkdir -p "$dir"
+  if ! flock -n 9; then   # já há um sync desta conta em curso
+    printf 'pulada\t%s\t%s\t0\n' "$agora" "$agora" >>"$dir/$slug"; return 0
+  fi
   if [[ $modo == completo ]]; then alvo=$slug; teto=${TT_EMAIL_SYNC_TETO:-600}
-  else alvo="$slug-inbox"; teto=120; grep -q "^Channel $slug-inbox\$" "$rc" || alvo=$slug; fi   # rc antigo: canal único
+  else alvo="$slug-inbox"; teto=${TT_EMAIL_SYNC_TETO_INBOX:-240}; grep -q "^Channel $slug-inbox\$" "$rc" || alvo=$slug; fi   # rc antigo: canal único
   ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
   timeout "$teto" "$(mbsync_bin)" -c "$rc" "$alvo" >/dev/null 2>"$dir/$slug.erro.tmp"; st=$?
   fim=$(date +%s)
   printf '%s\t%s\t%s\t%s\n' "$modo" "$ini" "$fim" "$st" >>"$dir/$slug"
   tail -n 200 "$dir/$slug" >"$dir/$slug.tmp" 2>/dev/null && mv "$dir/$slug.tmp" "$dir/$slug"
-  if ((st == 0)); then rm -f "${dir:?}/${slug:?}.erro" "${dir:?}/${slug:?}.erro.tmp"
-  else { ((st == 124)) && echo "tempo esgotado ($teto s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } >"$dir/$slug.erro"; rm -f "${dir:?}/${slug:?}.erro.tmp"; fi
+  if ((st == 0)); then rm -f "${dir:?}/${slug:?}.erro" "${dir:?}/${slug:?}.erro.tmp" "${dir:?}/${slug:?}.espera" "${dir:?}/${slug:?}.falhas"
+  else
+    { ((st == 124)) && echo "tempo esgotado ($teto s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } >"$dir/$slug.erro"; rm -f "${dir:?}/${slug:?}.erro.tmp"
+    k=$(( $(cat "$dir/$slug.falhas" 2>/dev/null || echo 0) + 1 )); echo "$k" >"$dir/$slug.falhas"
+    base=${TT_EMAIL_SYNC:-120}; ((base > 0)) || base=120
+    esp=$((base << (k < 4 ? k : 4))); ((esp > 900)) && esp=900
+    echo $((fim + esp)) >"$dir/$slug.espera"
+  fi
   rm -f "${dir:?}/${slug:?}.andamento"
   email_novos_avisar "$slug"
   atualizar_barras 2>/dev/null
@@ -9036,7 +9062,7 @@ email_novos_avisar() { # slug
 # Botão 📧 da barra (vai para @barra_email; recalculado por atualizar_barras — a barra não roda
 # processo): as não lidas do INBOX das contas com espelho local, lidas do próprio maildir (new/ e,
 # em cur/, sem a marca S), e o estado do sync — vermelho com ⚠ quando alguma conta está com erro
-# ou parada (--email-sync-estado conta o resto). Contas só IMAP não entram na soma (sem abrir o
+# persistente ou parada, âmbar com ⏳ quando só atrasou (--email-sync-estado conta o resto). Contas só IMAP não entram na soma (sem abrir o
 # aerc não há como saber). Em tela estreita (< 90) some a palavra "email", como antes.
 barra_email_fmt() {
   local n=0 alerta="" slug est md; local -A E=()
@@ -9047,43 +9073,94 @@ barra_email_fmt() {
     [[ -d $md ]] || continue
     n=$((n + $(find "$md/new" -type f 2>/dev/null | wc -l) + $(find "$md/cur" -type f ! -name '*:2,*S*' 2>/dev/null | wc -l)))
   done
-  while IFS=$'\t' read -r slug est; do [[ $est == erro || $est == parado ]] && alerta=1; done < <(email_sync_estado curto 2>/dev/null)
+  local atraso=""
+  while IFS=$'\t' read -r slug est; do
+    [[ $est == erro || $est == parado ]] && alerta=1
+    [[ $est == atrasado ]] && atraso=1
+  done < <(email_sync_estado curto 2>/dev/null)
   # Contagem entre parênteses e sem rótulo: "📧 (896)" (pedido do dono; mais limpo que "896 email").
+  # Vermelho ⚠ só para problema que persiste; falha passageira (o Gmail lento) fica âmbar ⏳.
   if [[ -n $alerta ]]; then printf '#[fg=#1e1e2e,bg=#f38ba8,bold] 📧%s ⚠ ' "$( ((n > 0)) && echo " ($n)")"
+  elif [[ -n $atraso ]]; then printf '#[fg=#1e1e2e,bg=#fab387,bold] 📧%s ⏳ ' "$( ((n > 0)) && echo " ($n)")"
   elif ((n > 0)); then printf '#[fg=#1e1e2e,bg=#f9e2af,bold] 📧 (%s) ' "$n"
   else printf '#[fg=#cdd6f4,bg=#45475a] 📧 '; fi
 }
 
+# Fim da volta completa mais antiga entre as contas com sync_local=1 (0 se alguma nunca fez): o vigia
+# parte daqui, em vez de refazer a volta completa a cada reinício.
+email_ultima_completa() {
+  local slug f m=""; local -A E=()
+  for slug in $(email_slugs 2>/dev/null); do
+    E=(); email_ler "$slug" 2>/dev/null || continue
+    [[ ${E[sync_local]:-} == 1 ]] || continue
+    f=$(awk -F'\t' '$1 == "completo" { f = $3 } END { print f + 0 }' "$ESTADO_DIR/email-sync/$slug" 2>/dev/null); f=${f:-0}
+    [[ -z $m ]] || ((f < m)) && m=$f
+  done
+  echo "${m:-0}"
+}
+
+# Algum terminal (cliente tmux) foi usado desde EPOCH?
+cliente_ativo_desde() { tmux list-clients -F '#{client_activity}' 2>/dev/null | awk -v t="$1" '$1 >= t { a = 1 } END { exit !a }'; }
+
+# Intervalo do INBOX em uso pelo vigia (para --email-sync-estado julgar "parado" com a régua certa).
+email_intervalo_gravar() { mkdir -p "$ESTADO_DIR/email-sync" && echo "$1" >"$ESTADO_DIR/email-sync/.intervalo"; }
+
 # Sincroniza todas as contas com sync_local=1 (vigia e --email-sync sem NOME), no MODO dado.
-email_sync_todas() { # [inbox|completo]
+email_sync_todas() { # [inbox|completo] [vigia]
   local slug; local -A E=()
   for slug in $(email_slugs); do
     E=(); email_ler "$slug" || continue
-    [[ ${E[sync_local]:-} == 1 ]] && email_sync "$slug" "${1:-inbox}"
+    [[ ${E[sync_local]:-} == 1 ]] && email_sync "$slug" "${1:-inbox}" "${2:-}"
   done
   return 0
 }
 
 # Estado do sync local por conta (tt --email-sync-estado): a última rodada de cada modo, há quanto
-# tempo, duração, se deu certo, e o erro (se houve). Com "curto": uma palavra por conta
-# (ok | erro | nunca | parado), para a barra.
+# tempo, duração, se deu certo, e o erro (se houve). Com "curto": uma palavra por conta, para a barra:
+#   ok · nunca · atrasado (falha passageira: 1 ou 2 seguidas, há menos de 10 min do último INBOX bom)
+#   erro (persistente: 3 falhas seguidas, mais de 10 min sem INBOX bom, ou senha recusada — na hora)
+#   parado (nenhuma rodada há mais de 3 intervalos; não conta rodada em andamento, rodada pulada pela
+#   trava da volta completa, nem a espera proposital depois de um erro).
+# Antes, uma falha só bastava para o vermelho: com o Gmail lento, a barra piscava o dia todo.
+EMAIL_ERRO_SENHA='AUTHENTICATIONFAILED|Invalid credentials|login failed|authentication failed|Web login required|Application-specific password|Username and Password not accepted'
+email_sync_resumo() { # slug → ok|nunca|atrasado|erro|parado
+  local slug=$1 dir="$ESTADO_DIR/email-sync" agora intervalo ultimo st ok seq vivo ini esp
+  agora=$(date +%s)
+  read -r ultimo st ok seq vivo < <(awk -F'\t' '
+    $1 == "inbox" { ultimo = $3; st = $4; if ($4 == 0) { ok = $3; seq = 0 } else seq++ }
+    $1 == "completo" && $4 == 0 { ok = $3; seq = 0 }
+    $3 > vivo { vivo = $3 }
+    END { printf "%d %d %d %d %d\n", ultimo, st, ok, seq, vivo }' "$dir/$slug" 2>/dev/null)
+  if [[ -f $dir/$slug.andamento ]]; then
+    read -r _ ini <"$dir/$slug.andamento"
+    ((agora - ${ini:-0} < ${TT_EMAIL_SYNC_TETO:-600} + 60)) && vivo=$agora   # andamento velho = processo que morreu
+  fi
+  if ((${ultimo:-0} == 0 && ${vivo:-0} == 0)); then echo nunca; return; fi
+  if ((${st:-0} != 0)); then
+    if grep -qiE "$EMAIL_ERRO_SENHA" "$dir/$slug.erro" 2>/dev/null || ((seq >= 3 || (ok > 0 && agora - ok > 600))); then echo erro
+    else echo atrasado; fi
+    return
+  fi
+  intervalo=${TT_EMAIL_SYNC:-120}
+  if ((intervalo > 0)); then
+    intervalo=$(cat "$dir/.intervalo" 2>/dev/null || echo "$intervalo")
+    esp=$(cat "$dir/$slug.espera" 2>/dev/null || echo 0)
+    if ((agora - vivo > 3 * intervalo + 120 && agora >= esp)); then echo parado; return; fi
+  fi
+  echo ok
+}
+
 email_sync_estado() { # [curto]
-  local dir="$ESTADO_DIR/email-sync" slug modo ini fim st agora resumo; agora=$(date +%s); local -A E=()
+  local dir="$ESTADO_DIR/email-sync" slug modo ini fim st agora esp; agora=$(date +%s); local -A E=()
   _dur() { local x=$1; if ((x < 60)); then echo "${x}s"; elif ((x < 3600)); then echo "$((x / 60)) min"; else echo "$((x / 3600)) h $(( (x % 3600) / 60 )) min"; fi; }
   for slug in $(email_slugs); do
     E=(); email_ler "$slug" || continue
     [[ ${E[sync_local]:-} == 1 ]] || continue
-    if [[ ${1:-} == curto ]]; then
-      fim=""; st=0
-      read -r _ _ fim st < <(awk -F'\t' '$1 == "inbox"' "$dir/$slug" 2>/dev/null | tail -1)
-      if [[ -z ${fim:-} ]]; then resumo=nunca
-      elif ((st != 0)); then resumo=erro
-      elif ((${TT_EMAIL_SYNC:-120} > 0 && agora - fim > 3 * ${TT_EMAIL_SYNC:-120} + 120)); then resumo=parado
-      else resumo=ok; fi
-      printf '%s\t%s\n' "$slug" "$resumo"; continue
-    fi
+    if [[ ${1:-} == curto ]]; then printf '%s\t%s\n' "$slug" "$(email_sync_resumo "$slug")"; continue; fi
     printf '%s (%s)\n' "${E[nome]}" "$slug"
     if [[ -f $dir/$slug.andamento ]]; then read -r modo ini <"$dir/$slug.andamento"; printf '  ⏳ sincronizando agora (%s), há %s\n' "$modo" "$(_dur $((agora - ini)))"; fi
+    esp=$(cat "$dir/$slug.espera" 2>/dev/null || echo 0)
+    ((esp > agora)) && printf '  ⏸ %s falha(s) seguida(s): o vigia tenta de novo em %s (à mão: tt --email-sync %s)\n' "$(cat "$dir/$slug.falhas" 2>/dev/null || echo 1)" "$(_dur $((esp - agora)))" "$slug"
     for modo in inbox completo; do
       ini=""; fim=""; st=0
       read -r _ ini fim st < <(awk -F'\t' -v m="$modo" '$1 == m' "$dir/$slug" 2>/dev/null | tail -1)
@@ -10732,12 +10809,12 @@ case "${1:-}" in
   --email-remover) s=$(email_achar "${2:?uso: tt --email-remover NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_remover_slug "$s"; exit ;;
   --email-testar) s=$(email_achar "${2:?uso: tt --email-testar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_testar_slug "$s"; exit ;;
   --email-sync) # [NOME] [--completo]: sem NOME, todas as contas com sync_local=1; padrão só o INBOX
-    es_modo=inbox; es_nome=""
-    for a in "${@:2}"; do case $a in --completo) es_modo=completo ;; *) es_nome=$a ;; esac; done
+    es_modo=inbox; es_nome=""; es_quem=""
+    for a in "${@:2}"; do case $a in --completo) es_modo=completo ;; --vigia) es_quem=vigia ;; *) es_nome=$a ;; esac; done
     if [[ -n $es_nome ]]; then
       s=$(email_achar "$es_nome") || { echo "Conta não encontrada: $es_nome"; exit 1; }
-      f_s() { local -A E=(); email_ler "$1" && email_sync "$1" "$2"; }; f_s "$s" "$es_modo"
-    else email_sync_todas "$es_modo"; fi
+      f_s() { local -A E=(); email_ler "$1" && email_sync "$1" "$2" "$3"; }; f_s "$s" "$es_modo" "$es_quem"
+    else email_sync_todas "$es_modo" "$es_quem"; fi
     exit ;;
   --email-sync-estado) email_sync_estado "${2:-}"; exit 0 ;;
   --barra-email) barra_email_fmt; exit 0 ;;
