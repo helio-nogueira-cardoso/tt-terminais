@@ -346,6 +346,58 @@ segundo plano a cada `TT_EMAIL_SYNC` segundos (padrão 180; `0` desliga); `tt --
 força agora. Sem o `mbsync` instalado o cadastro com `sync_local=1` é recusado, em vez de fingir que
 ligou. Contas sem o flag seguem lendo direto do servidor (IMAP) com o cache de cabeçalhos acima.
 
+## Tarefas
+
+Uma lista de afazeres que acompanha você em todas as máquinas. O botão 📋 na 2ª linha da barra
+(ou `Ctrl+B t`) abre o painel deslizando pela direita; `esc` fecha. O botão mostra quantas estão
+abertas e fica vermelho (⚠ N) quando alguma vence hoje ou já venceu. Dentro do painel, `?` mostra
+este mesmo "Como usar" (ou `tt --tarefas-ajuda` no terminal).
+
+**Criar.** Digite no campo *buscar ou criar* e tecle ⏎: se nenhuma tarefa tiver esse texto, aparece
+**+ criar tarefa** e o ⏎ cria. Também pelo botão **+ Nova** (ou `Ctrl+N`). Na própria frase dá para
+dizer, em qualquer ponto:
+
+| na frase | vira | exemplos |
+|---|---|---|
+| `@…` | prazo | `@hoje` `@amanha` `@seg` … `@dom` `@25/12` `@25/12/2027` |
+| `!…` | prioridade | `!alta` `!media` |
+| `*…` | repetir | `*diaria` `*semanal` `*mensal` (ou `*d` `*w` `*m`) |
+| `#…` | etiqueta | `#casa` (a busca também acha por `#casa`) |
+
+Ex.: `Pagar aluguel @05/11 !alta *mensal #casa`. Concluir uma tarefa que repete avança o prazo e ela
+continua aberta.
+
+**Mouse** — tudo é clicável:
+
+- **clique** numa tarefa abre/fecha os detalhes (o triângulo vira ▸ fechada / ▾ aberta): a nota, as
+  subtarefas, **+ adicionar subtarefa** e **⋯ mais ações**, todas clicáveis;
+- **duplo clique** marca/desmarca como feita (☐ → ☑); numa subtarefa basta um clique;
+- **botão direito** abre o menu da tarefa: feita, renomear, nota, subtarefa, prazo, prioridade
+  (alta/média/sem) e repetição (não/dia/semana/mês) como escolhas, subir/descer e apagar;
+- no topo, as **abas** (Hoje · Abertas · Feitas · Com prazo · Todas, cada uma com o contador) e os
+  **botões** (+ Nova, ✓ Feita, ↳ Subtarefa, ✎ Nota, ◷ Prazo, ! Prioridade, ↻ Repetir, ↑ ↓, ✕ Apagar,
+  ⋯ Mais, ? Ajuda) agem na tarefa em foco;
+- o calendário do prazo também é clicável: um dia escolhe, ‹ › trocam o mês (ou a roda do mouse),
+  e há botões *hoje*, *sem prazo* e *cancelar*.
+
+**Teclado:** `⏎` feita/aberta · `→`/`espaço` abre · `←` fecha · `Tab` próxima aba · `Ctrl+N` nova ·
+`Ctrl+S` subtarefa · `Ctrl+E` nota · `Ctrl+D` prazo · `Ctrl+P` prioridade · `Ctrl+R` repetir ·
+`Ctrl+K`/`Ctrl+J` sobe/desce · `Ctrl+X` apaga · `Ctrl+L` limpa as feitas · `F2` renomeia ·
+`Ctrl+/` prévia · `?` ajuda · `esc` volta, limpa a busca ou fecha. Apagar e limpar sempre pedem
+confirmação.
+
+**Símbolos:** ☐ aberta · ☑ feita · ● vermelho/amarelo prioridade alta/média · ◷ prazo (vermelho
+quando venceu) · ↻ repete · ━━━ 1/2 subtarefas feitas · ✎ tem nota · `#tag`.
+
+**Linha de comando:** `tt --tarefa-add-natural "texto @amanha !alta"`, `tt --tarefa-add "texto"`,
+`tt --tarefa-ok ID`, `tt --tarefa-abrir ID`, `tt --tarefa-rm ID`, `tt --tarefa-renomear ID "texto"`,
+`tt --tarefa-limpar`, `tt --tarefas` (fora do tmux, lista em texto).
+
+As tarefas ficam em `~/.config/tt/tarefas` e vão para as outras máquinas sozinhas:
+`tarefas_sync=p2p|git|ambos|off` no `~/.config/tt/config` (com `tarefas_repo=<url>` para usar um
+repositório git seu). A junção é por tarefa (a alteração mais recente vence; apagar nunca
+"ressuscita").
+
 ## Sessões fixadas
 
 Uma segunda linha na barra com as sessões que você usa sempre (desta ou de outras máquinas): um

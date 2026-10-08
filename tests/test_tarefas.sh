@@ -103,8 +103,8 @@ TMUX
 chmod +x "$TEST_DIR/bin/tmux"
 : >"$TEST_DIR/popup.log"
 tt --tarefas clienteX
-# largura 64, cliente 120 => x = 56; altura 100%; borda arredondada
-grep -Fq -- '-x 56' "$TEST_DIR/popup.log" || fail "slide-over deveria ancorar a direita (x = largura - 64)"
+# largura 72 (cliente com 120 colunas ou mais), cliente 120 => x = 48; altura 100%; borda arredondada
+grep -Fq -- '-x 48' "$TEST_DIR/popup.log" || fail "slide-over deveria ancorar a direita (x = largura - 72)"
 grep -Fq -- '-h 100%' "$TEST_DIR/popup.log" || fail "slide-over deveria ocupar a altura toda"
 grep -Fq -- '-b rounded' "$TEST_DIR/popup.log" || fail "slide-over deveria ter borda arredondada"
 grep -Fq -- '--tarefas-ui' "$TEST_DIR/popup.log" || fail "slide-over deveria rodar a UI de tarefas"

@@ -194,9 +194,12 @@ rg -q 'relogio\) tmux display-popup -c "\$2" -w (5[6-9]|[6-9][0-9])' "$tt" || fa
 rg -q 'range=user\|relogio' "$tema" || falha 'tarefas: relógio sem range clicável no tema'
 # painel mais clicável e com abas de filtro: left-click alterna, double-click expande, click-header troca filtro
 corpo_ui=$(sed -n '/^tarefas_ui()/,/^}/p' "$tt")
-grep -Fq 'left-click:execute-silent' <<<"$corpo_ui" || falha 'tarefas: left-click não alterna o item'
-grep -Fq 'double-click:execute-silent' <<<"$corpo_ui" || falha 'tarefas: double-click não expande'
-grep -Fq 'click-header:execute-silent' <<<"$corpo_ui" || falha 'tarefas: cabeçalho (abas de filtro) não é clicável'
+# toda tecla, clique e botão passa pelo mesmo despachante (tarefa_acao): mesma ação por qualquer canal
+for ev in left-click double-click right-click click-header enter space esc ctrl-n ctrl-x tab; do
+  grep -Fq -- "$ev:transform(\$a " <<<"$corpo_ui" || falha "tarefas: $ev não passa pelo despachante tarefa_acao"
+done
+grep -Fq -- "--bind=\"q:" <<<"$corpo_ui" && falha 'tarefas: q não pode fechar o painel (impede digitar tarefas com q)'
+grep -Fq -- '--id-nth' <<<"$corpo_ui" && falha 'tarefas: --id-nth faz o fzf perder o 2º clique durante a recarga'
 rg -q '^tarefas_cabecalho\(\)' "$tt" || falha 'tarefas: cabeçalho com abas de filtro ausente'
 ((falhas == base)) && ok 'tarefas ricas: wrap, descrição, prazo, subtarefas, filtro e calendário' || true
 

@@ -109,11 +109,29 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   (fora dele). Também `Ctrl+B t`.
 - `tt --tarefa-add "texto"` — adiciona; `tt --tarefa-ok ID` conclui; `tt --tarefa-abrir ID` reabre;
   `tt --tarefa-rm ID` remove (lápide); `tt --tarefa-limpar` remove as feitas.
-- Internos da UI: `--tarefas-ui`, `--tarefas-lista`, `--tarefa-toggle`, `--tarefa-nova-prompt`,
-  `--tarefa-remover-prompt`, `--tarefa-add-ui`, `--tarefas-barra`. Sync: `--receber-tarefas`,
-  `--tarefas-espelhar`, `--tarefas-puxar`.
-- Dentro do painel: `enter` alterna feita/aberta, `ctrl-n` cria, `ctrl-x` remove com confirmação,
-  `ctrl-l` limpa as feitas, `esc`/`q` fecha.
+- `tt --tarefa-add-natural "frase @amanha !alta *semanal #tag"` — cria lendo prazo/prioridade/
+  repetição/etiqueta da frase; `tt --tarefa-renomear ID "texto"`; `tt --tarefas-ajuda` imprime o
+  "Como usar" do painel.
+- Internos da UI: `--tarefas-ui`, `--tarefas-lista [busca]`, `--tarefas-cabecalho`,
+  `--tarefa-acao EVENTO CHAVE` (despachante único: toda tecla, clique e botão do painel passa por
+  ele e devolve as ações do fzf), `--tarefa-nova-prompt`, `--tarefa-sub-prompt`,
+  `--tarefa-desc-prompt`, `--tarefa-prazo-prompt`, `--tarefa-renomear-prompt`,
+  `--tarefa-remover-prompt`, `--tarefa-limpar-prompt`, `--tarefa-add-ui`, `--tarefas-barra`. Sync:
+  `--receber-tarefas`, `--tarefas-espelhar`, `--tarefas-puxar`.
+- Painel: um fzf com três modos (lista, ajuda, menu de ações de uma tarefa) guardados em
+  `$RT/tt-tarefas-ui-UID` (`filtro=`, `modo=`, `exp=ID` por tarefa aberta, `clique=` para o duplo
+  clique). Cada linha é `chave<TAB>desenho`: `ID`, `nota:ID`, `sub:ID`, `menu:ID`, `act:AÇÃO:ID`,
+  `criar`, `voltar` ou vazia. A lista é renderizada numa passada de awk (`TAREFAS_AWK`, LC_ALL=C,
+  sem strftime) — centenas de tarefas em ~0,1 s. O cabeçalho grava `$RT/tt-tarefas-mapa-UID`
+  (linha, colunas, ação de cada aba/botão) e o clique consulta o mapa (FZF_CLICK_HEADER_*).
+- Mouse no painel: clique numa tarefa abre/fecha (▸/▾); 2º clique na mesma linha em < 400 ms =
+  duplo (marca feita) — detectado pelo tt, porque a recarga do 1º clique faz o fzf entregar dois
+  cliques simples; botão direito = menu de ações. Não use `--id-nth` (o fzf perde o clique que
+  chega durante a recarga) nem ligue `q` (impediria digitar tarefas com q).
+- Teclado no painel: `⏎` alterna feita (ou cria o que foi digitado), `→`/`␣` abre, `←` fecha,
+  `^n` nova, `^s` subtarefa, `^e` nota, `^d` prazo, `^p` prioridade, `^r` repetir, `^k`/`^j` move,
+  `^x` apaga (confirma), `^l` limpa feitas (confirma), `F2` renomeia, `Tab` troca a aba, `?`/`F1`
+  ajuda, `esc` volta/limpa a busca/fecha.
 
 ### Atalhos de barra
 - `tt --editar-atalhos` — edita os atalhos locais. `--atalhos-barra`/`--atalhos-lista` (internos)
