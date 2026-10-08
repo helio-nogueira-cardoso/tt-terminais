@@ -9152,7 +9152,7 @@ transferencias() {
           cheio=$((pct / 5))
           prog="$(printf '%*s' "$cheio" '' | sed 's/ /█/g')$(printf '%*s' $((20 - cheio)) '' | sed 's/ /░/g') $(printf '%3d' "$pct")%  $(humano "${feitos:-0}") de $(humano "${total:-0}")  $(humano "${taxa:-0}")/s" ;;
         concluída*) cor=32 sinal='✓' prog="concluída  $(cat "$d/$id.resumo" 2>/dev/null)" ;;
-        cancelada) cor=90 sinal='⊘' prog='cancelada  (r tenta de novo)' ;;
+        cancelada) cor=90 sinal='⊘' prog='cancelada  (r tenta de novo; se era arquivo grande, retoma de onde parou)' ;;
         interrompida) cor=31 sinal='✗' prog='interrompida: o processo parou (máquina suspensa ou desligada?)  (r tenta de novo)' ;;
         *) cor=31 sinal='✗' prog="falhou: $(causa_falha "$d/$id.log")  (l log · r tenta de novo)" ;;
       esac
@@ -9301,6 +9301,38 @@ recebidos() {
   else abrir_pasta "$dir" "${TT_CLIENTE:-}"; fi
 }
 
+# --- Cópia retomável de arquivo único -------------------------------------------------------
+# "TAMANHO MTIME" se NOME é um arquivo regular em DIR; nada caso contrário.
+info_arquivo() { local dir; dir=$(expandir "$1"); [[ -f $dir/$2 && ! -L $dir/$2 ]] && stat -c '%s %Y' -- "$dir/$2"; }
+
+# Bytes já guardados no destino para a chave (0 se nenhum). Partes sem mudança há 3 dias somem.
+parte_tamanho() {
+  local dir; dir=$(expandir "$1"); mkdir -p "$dir" || return 1
+  find "$dir" -maxdepth 1 -name '.tt-parte.*' -mtime +3 -delete 2>/dev/null
+  if [[ -f $dir/.tt-parte.$2 ]]; then stat -c %s -- "$dir/.tt-parte.$2"; else echo 0; fi
+}
+
+# O arquivo a partir do byte OFFSET (0 = inteiro).
+empacotar_de() { local dir; dir=$(expandir "$1"); tail -c "+$(($3 + 1))" -- "$dir/$2"; }
+
+# Acrescenta o stdin à parte; quando ela chega a TAM bytes vira o arquivo final (nunca sobrescreve:
+# conflito vira "nome (2)"). Fim de dados antes do tamanho (conexão caída) deixa a parte e falha.
+receber_parte() {
+  local dir chave=$2 nome=$3 tam=$4 parte atual base ext i alvo
+  dir=$(expandir "$1"); mkdir -p "$dir" || return 1
+  parte=$dir/.tt-parte.$chave
+  cat >>"$parte" || return 1
+  atual=$(stat -c %s -- "$parte" 2>/dev/null || echo 0)
+  ((atual == tam)) || { echo "parte incompleta: $atual de $tam bytes" >&2; return 1; }
+  alvo=$dir/$nome
+  if [[ -e $alvo ]]; then
+    base=$nome ext=""; [[ $nome == ?*.* ]] && base=${nome%.*} ext=".${nome##*.}"
+    i=2; while [[ -e "$dir/$base ($i)$ext" ]]; do i=$((i + 1)); done
+    alvo="$dir/$base ($i)$ext"
+  fi
+  mv -- "$parte" "$alvo" && basename "$alvo"
+}
+
 transferir_fundo() {
   local id=$1; shift
   printf '%s\n' "$$" >"$(dir_transferencias)/$id.pid"
@@ -9372,7 +9404,24 @@ transferir_bloqueante() {
   local h=""; [[ ${TT_CONFERIR:-} == 1 ]] && h=--hash
   local antes depois; local -a nomes_recebidos
   antes=$(rodar "$src" --conferir $h "$dsrc" "$@" 2>/dev/null)
-  recebidos=$(rodar_io "$src" --empacotar "$dsrc" "$@" | contador "$(dir_transferencias)/$id.prog" "${bytes:-0}" | rodar_io "$dst" --receber "$ddst")
+  # Arquivo único e grande: copia por deslocamento, num ".tt-parte" no destino. Se a conexão cair, o
+  # que já chegou fica lá e "r" (ou enviar de novo) continua dali, em vez de recomeçar do zero.
+  # Pastas e vários itens seguem no pacote tar (sem retomada). Máquina com tt antigo cai no tar.
+  local info tam mt chave off=""
+  if (($# == 1)); then
+    info=$(rodar "$src" --info-arquivo "$dsrc" "$1" 2>/dev/null); read -r tam mt <<<"$info"
+    if [[ ${tam:-} =~ ^[0-9]+$ && ${mt:-} =~ ^[0-9]+$ ]] && ((tam >= ${TT_RETOMAR_MIN:-104857600})); then
+      chave=$(printf '%s' "$(rotulo "$src"):$dsrc/$1:$tam:$mt" | sha1sum | cut -c1-16)
+      off=$(rodar "$dst" --parte-tamanho "$ddst" "$chave" 2>/dev/null)
+      [[ $off =~ ^[0-9]+$ ]] && ((off <= tam)) || off=""
+    fi
+  fi
+  if [[ -n $off ]]; then
+    if ((off > 0)); then printf '\033[33m↻ Retomando de %s (já chegou no destino).\033[0m\n' "$(humano "$off")"; else echo "Cópia retomável (arquivo grande)."; fi
+    recebidos=$(rodar_io "$src" --empacotar-de "$dsrc" "$1" "$off" | contador "$(dir_transferencias)/$id.prog" "$((tam - off))" | rodar_io "$dst" --receber-parte "$ddst" "$chave" "$1" "$tam")
+  else
+    recebidos=$(rodar_io "$src" --empacotar "$dsrc" "$@" | contador "$(dir_transferencias)/$id.prog" "${bytes:-0}" | rodar_io "$dst" --receber "$ddst")
+  fi
   n=$(grep -c . <<<"$recebidos")
   if ((n == 0)); then echo "✗ Nada chegou."; return 1; fi
   # Conferência: mesma contagem e bytes (ou o mesmo sha256 com TT_CONFERIR=1). Máquina com tt antigo
@@ -9932,6 +9981,10 @@ case "${1:-}" in
   --empacotar) shift; empacotar "$@"; exit ;;
   --tamanho) shift; tamanho "$@"; exit ;;
   --conferir) shift; conferir "$@"; exit ;;
+  --info-arquivo) shift; info_arquivo "$@"; exit ;;
+  --parte-tamanho) shift; parte_tamanho "$@"; exit ;;
+  --empacotar-de) shift; empacotar_de "$@"; exit ;;
+  --receber-parte) shift; receber_parte "$@"; exit ;;
   --registrar-recebido) shift; registrar_recebido "$@"; exit ;;
   --recebidos) recebidos; exit ;;
   --confirmar-transferencia) shift; confirmar_transferencia "$@"; exit $? ;;
