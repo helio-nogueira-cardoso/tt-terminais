@@ -107,3 +107,18 @@ tmux -L $S kill-server 2>/dev/null || true
 tmux -L $S -f /dev/null new-session -d -x 100 -y 24 -s x "$E bash $TT --confirmar-transferencia . $T/orig . $T/dest um.txt; echo RC=\$?; sleep 30"
 espera 'Confirmar a transferência'; tmux -L $S send-keys -t x Enter; espera 'RC=0'
 echo "ok — conferência, confirmação e cópia local verificada"
+
+# 8) stdin vira arquivo; itens da mesma pasta = 1 trabalho; registro de recebidos
+rm -f "$D"/*; rm -rf "$T/dest" "$T/state"; mkdir -p "$T/dest"
+printf 'olá pelo pipe\n' | $E TT_SEM_CONFIRMAR=1 bash "$TT" --enviar --stdin saida.txt "A:$T/dest" >/dev/null 2>&1
+for i in $(seq 1 40); do [[ -f $T/dest/saida.txt ]] && break; sleep 0.5; done
+[[ $(cat "$T/dest/saida.txt" 2>/dev/null) == 'olá pelo pipe' ]] || fail 'stdin não chegou como saida.txt'
+rm -f "$D"/*; rm -rf "$T/dest"; mkdir -p "$T/dest"
+printf 'b' >"$T/orig/dois.txt"
+$E TT_SEM_CONFIRMAR=1 bash "$TT" --enviar "$T/orig/um.txt" "$T/orig/dois.txt" "A:$T/dest" >/dev/null 2>&1
+for i in $(seq 1 40); do [[ -f $T/dest/um.txt && -f $T/dest/dois.txt ]] && break; sleep 0.5; done
+[[ -f $T/dest/um.txt && -f $T/dest/dois.txt ]] || fail 'os dois arquivos não chegaram'
+[[ $(ls "$D"/*.status | wc -l) == 1 ]] || fail 'itens da mesma pasta deveriam ser um trabalho só'
+sleep 1
+grep -q 'dois.txt' "$T/state/tt/recebidos.tsv" 2>/dev/null || fail 'recebidos.tsv não registrou a chegada'
+echo "ok — stdin, agrupamento por pasta e registro de recebidos"
