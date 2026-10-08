@@ -722,7 +722,7 @@ Claude guarda as conversas e qual `claude` usar, inclusive no Termux, com o Clau
 Clique num link em qualquer painel, Enter (ou `ESC M`) num link no leitor de e-mail, ⏎ no link do
 cadastro de conta OAuth e Ctrl+B u abrem o mesmo seletor com três opções (mais "📋 Só copiar o link"):
 
-- **Google Chrome interno**: o estável, extraído do .deb oficial sem sudo, janela gráfica (WSLg ou X11); atualiza sozinho, no máximo uma vez por dia;
+- **Google Chrome interno**: o estável, extraído do .deb oficial sem sudo, janela gráfica (WSLg ou X11); atualiza sozinho, no máximo uma vez por dia. Acha a tela mesmo numa sessão do tmux que perdeu o `DISPLAY` (anexada por ssh ou mosh); se ainda assim não abrir, avisa o motivo, abre no navegador do sistema e guarda o erro em `~/.cache/tt/chrome.log`;
 - **Carbonyl embutido**: Chromium que desenha no terminal, num popup do tmux (Ctrl+Q ou Ctrl+C fecha). É um build
   de 2023 sem atualizações: use para ler, não para logins sensíveis;
 - **Navegador padrão do sistema**: `xdg-open`, que no WSL abre o do Windows.

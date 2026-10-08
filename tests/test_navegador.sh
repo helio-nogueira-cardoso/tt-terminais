@@ -79,6 +79,36 @@ grep -q 'garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (j
   falhou "instalar_aqui não dispara a pré-instalação nos dois caminhos"
 passou "instalar_aqui dispara a pré-instalação (já instalada e instalação nova)"
 
+# 8b) Chrome interno numa sessão do tmux sem DISPLAY (anexada por ssh/mosh/outro aparelho): a tela vem
+# do ambiente global do tmux ou dos sockets; sem tela nenhuma, avisa e abre no navegador do sistema
+# (antes o Chrome morria calado com "Missing X server or $DISPLAY").
+cr=$HOME/.local/share/tt-navegadores/chrome/opt/google/chrome; mkdir -p "$cr"
+date +%s >"$HOME/.local/share/tt-navegadores/chrome/ultima-checagem"   # sem checar atualização (rede)
+cat >"$cr/chrome" <<FALSO
+#!/bin/sh
+echo "DISPLAY=\$DISPLAY WAYLAND=\$WAYLAND_DISPLAY URL=\$(for a; do u=\$a; done; echo \$u)" >> $T/chrome.log
+[ -n "\$DISPLAY\$WAYLAND_DISPLAY" ] || { echo "[1:1:ERROR:ozone_platform_x11.cc:257] Missing X server or \\\$DISPLAY" >&2; exit 1; }
+FALSO
+chmod +x "$cr/chrome"
+mkdir -p "$T/x11" "$T/run"; export TT_X11_DIR=$T/x11
+cfg navegador=chromium
+abre_chrome() { : >"$T/chrome.log"; : >"$LOG"; env -u DISPLAY -u WAYLAND_DISPLAY XDG_RUNTIME_DIR="$T/run" TT_FORCAR_GUI=1 "$TT" --abrir-link "$U" </dev/null; sleep 1.5; }
+tmux new -d -s s 'sleep 60'; tmux set-environment -g DISPLAY :7; tmux set-environment -g -u WAYLAND_DISPLAY
+abre_chrome
+grep -q "DISPLAY=:7 .*URL=$U" "$T/chrome.log" || falhou "sessão sem DISPLAY: Chrome não recebeu a tela do tmux: '$(cat "$T/chrome.log")'"
+passou "Chrome interno: sem DISPLAY na sessão, usa a tela do ambiente global do tmux"
+tmux set-environment -g -u DISPLAY
+python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$T/x11/X5"
+abre_chrome
+grep -q "DISPLAY=:5 " "$T/chrome.log" || falhou "Chrome não achou a tela pelo socket X11: '$(cat "$T/chrome.log")'"
+passou "Chrome interno: sem DISPLAY em lugar nenhum, acha a tela pelo socket"
+rm -f "$T/x11/X5"
+abre_chrome
+[[ $(cat "$LOG") == "$U" ]] || falhou "Chrome sem tela deveria cair no navegador do sistema: '$(cat "$LOG")' / $(cat "$HOME/.cache/tt/chrome.log" 2>/dev/null)"
+grep -q 'Missing X server' "$HOME/.cache/tt/chrome.log" || falhou "erro do Chrome não ficou no log"
+tmux kill-server; unset TT_X11_DIR
+passou "Chrome interno sem tela nenhuma: abre no navegador do sistema e guarda o motivo em ~/.cache/tt/chrome.log"
+
 # 9) Modal do sudo: mostra as pendências e o comando; recusar não roda sudo e grava a recusa.
 printf '#!/bin/sh\n:\n' >"$B/apt-get"; chmod +x "$B/apt-get"
 printf '#!/bin/sh\necho "$@" >> %s/sudo.log\n' "$T" >"$B/sudo"; chmod +x "$B/sudo"

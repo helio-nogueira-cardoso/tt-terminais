@@ -3309,7 +3309,10 @@ copiar_local() {
 abrir_url() {
   local u=${1:-}
   [[ -n $u ]] || return 0
-  if command -v xdg-open >/dev/null; then setsid xdg-open "$u" >/dev/null 2>&1 </dev/null && return 0; fi
+  if command -v xdg-open >/dev/null; then
+    local d w x; { read -r d; read -r w; read -r x; } < <(tela_grafica) # a sessão pode ter perdido o DISPLAY
+    DISPLAY=$d WAYLAND_DISPLAY=$w XDG_RUNTIME_DIR=$x setsid xdg-open "$u" >/dev/null 2>&1 </dev/null && return 0
+  fi
   # WSL sem xdg-open (ou com ele falhando): navegador padrão do Windows. rundll32 abre a URL como
   # o Explorer, aguenta & e % melhor que cmd /c start, e o interop funciona até dentro do
   # unshare --net do leitor de e-mail. Antes disto, "sistema" aqui só copiava a URL, mudo.
@@ -3702,6 +3705,30 @@ garantir_chrome_libs() {
   [[ -z $(chrome_libs_faltando) ]]
 }
 
+# Tela gráfica para o Chrome interno. A sessão do tmux pode estar com DISPLAY/WAYLAND_DISPLAY
+# removidos (a última anexação veio de um terminal sem eles: ssh, mosh, outro aparelho), e tudo o
+# que roda nela herda isso: o Chrome morria calado com "Missing X server or $DISPLAY". Procura no
+# ambiente, no ambiente global do tmux e nos sockets (WSLg, X11, Wayland). Uma linha para cada.
+tela_grafica() { # → DISPLAY, WAYLAND_DISPLAY, XDG_RUNTIME_DIR
+  local d=${DISPLAY:-} w=${WAYLAND_DISPLAY:-} x=${XDG_RUNTIME_DIR:-} s
+  [[ -n $x ]] || x=/run/user/$(id -u)
+  [[ -n $d ]] || d=$(tmux show-environment -g DISPLAY 2>/dev/null | sed -n 's/^DISPLAY=//p')
+  [[ -n $w ]] || w=$(tmux show-environment -g WAYLAND_DISPLAY 2>/dev/null | sed -n 's/^WAYLAND_DISPLAY=//p')
+  if [[ -z $d ]]; then for s in "${TT_X11_DIR:-/tmp/.X11-unix}"/X*; do [[ -S $s ]] && { d=:${s##*/X}; break; }; done; fi
+  if [[ -z $w ]]; then for s in "$x"/wayland-[0-9]*; do [[ -S $s ]] && { w=${s##*/}; break; }; done; fi
+  printf '%s\n%s\n%s\n' "$d" "$w" "$x"
+}
+
+# tt --chrome-falhou CLIENTE URL: o Chrome interno não subiu. Diz por quê (a última linha de erro dele)
+# e abre no navegador do sistema.
+chrome_falhou() {
+  local c=$1 u=$2 motivo
+  motivo=$(grep -v 'CHROME_VERSION_EXTRA' "$HOME/.cache/tt/chrome.log" 2>/dev/null | grep -m1 -oE '(Missing X server[^]]*|[A-Z][^]]*failed[^]]*)$')
+  [[ -n $c ]] || c=$(cliente_externo 2>/dev/null)
+  tmux display-message ${c:+-c "$c"} -d 5000 "🌐 Chrome interno não abriu${motivo:+ ($motivo)} — abri no navegador do sistema. Detalhes: ~/.cache/tt/chrome.log" 2>/dev/null
+  abrir_url "$u"
+}
+
 abrir_com() {
   local qual=$1 u=$2 disp=${DISPLAY:-} way=${WAYLAND_DISPLAY:-} xdg=${XDG_RUNTIME_DIR:-}
   case $qual in
@@ -3711,7 +3738,12 @@ abrir_com() {
       navegador_instalar chromium || return 1
       garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
       (chrome_atualizar_se_velho >/dev/null 2>&1 &)
-      rodar_fora 0 "export DISPLAY=$(q "$disp") WAYLAND_DISPLAY=$(q "$way") XDG_RUNTIME_DIR=$(q "$xdg"); setsid $(q "$(bin_chromium)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-chrome") --no-first-run --no-default-browser-check $(q "$u") >/dev/null 2>&1 </dev/null &" ;;
+      { read -r disp; read -r way; read -r xdg; } < <(tela_grafica)
+      local log=$HOME/.cache/tt/chrome.log; mkdir -p "${log%/*}"
+      # Saída 0 também quando só entrega a URL a uma janela já aberta. Erro logo na partida (sem tela,
+      # perfil travado…) avisa e abre no navegador do sistema, em vez de sumir calado; um erro horas
+      # depois (Chrome fechado à força) não conta.
+      rodar_fora 0 "export DISPLAY=$(q "$disp") WAYLAND_DISPLAY=$(q "$way") XDG_RUNTIME_DIR=$(q "$xdg"); t0=\$(date +%s); { setsid $(q "$(bin_chromium)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-chrome") --no-first-run --no-default-browser-check $(q "$u") >$(q "$log") 2>&1 </dev/null || { [ \$(( \$(date +%s) - t0 )) -lt 15 ] && $(q "$EU") --chrome-falhou $(q "${TT_LINK_CLIENTE:-}") $(q "$u"); }; } &" ;;
     carbonyl)
       navegador_instalar carbonyl || return 1
       garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
@@ -10137,7 +10169,7 @@ sair_menu() { limpar_estado; }
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela)
+  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela | --chrome-falhou)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -10213,6 +10245,7 @@ case "${1:-}" in
   --email-atalhos) email_atalhos; exit 0 ;;
   --abrir-url) abrir_url "${2:-}"; exit 0 ;;
   --abrir-link) abrir_link "${2:-}"; exit 0 ;;
+  --chrome-falhou) chrome_falhou "${2:-}" "${3:-}"; exit 0 ;;
   --link-abrir) link_abrir "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit 0 ;;
   --link-copiar) link_copiar "${2:-}" "${3:-}"; exit 0 ;;
   --links-tela) links_tela "${2:?uso: tt --links-tela CLIENTE PAINEL}" "${3:?uso: tt --links-tela CLIENTE PAINEL}"; exit 0 ;;
