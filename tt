@@ -5485,8 +5485,29 @@ barra_notifs_fmt() {
     # só limpa se havia algo: gravação sem desvio redesenha a barra à toa (e balança o cursor)
     [[ -n $(tmux show -gqv @barra_aviso 2>/dev/null) ]] && tmux set -gu @barra_aviso 2>/dev/null
     # transferência ativa tem o slot antes do letreiro (nada cobre as linhas de cima)
-    if [[ -n $(tmux show -gqv @barra_transf 2>/dev/null) ]]; then
-      printf '  #[fg=#45475a]│#[default]  #{E:@barra_transf} #[fg=#45475a]│#[default]  '
+    local _tx
+    _tx=$(tmux show -gqv @barra_transf 2>/dev/null | sed 's/#\[[^]]*\]//g; s/#{[^}]*}//g')
+    if [[ -n ${_tx// /} ]]; then
+      # transferência CONFINADA ao slot: texto plano, truncado por células como o letreiro
+      local larg orc
+      larg=${TT_FAIXA_LARGURA:-$(tmux list-clients -F '#{client_width}' 2>/dev/null | sort -n | head -1)}
+      [[ $larg =~ ^[0-9]+$ ]] || larg=80
+      orc=$((larg - 20 - 34 - 12)); ((orc < 12)) && orc=12
+      if command -v python3 >/dev/null; then
+        _tx=$(ORC=$orc python3 -I -c '
+import sys, os, unicodedata
+t = sys.stdin.read().strip(); orc = int(os.environ["ORC"])
+def w(c):
+    if unicodedata.combining(c): return 0
+    return 2 if unicodedata.east_asian_width(c) in "WF" or ord(c) >= 0x1F000 else 1
+tot = 0; corte = len(t)
+for i, c in enumerate(t):
+    tot += w(c)
+    if tot > orc: corte = i; break
+sys.stdout.write(t if corte == len(t) else t[:corte].rstrip() + "…")' <<<"$_tx")
+      else _tx=${_tx:0:orc/2}; fi
+      _tx=${_tx//#/##}
+      printf '  #[fg=#45475a]│#[range=user|transferencias]#[fg=#89b4fa]  %s  #[norange]#[fg=#45475a]│#[default]  ' "$_tx"
       return 0
     fi
     # o letreiro traz as próprias divisórias (vazio = nada; sem moldura órfã no centro)
@@ -5628,6 +5649,31 @@ ticker_passo() { # linha largura deslocamento -> janela
   printf '%s' "${dupla:ini:w}"
 }
 
+# Cliente "de ponte" (alguém de outra máquina olhando por ssh/tmux aninhado): o attach da ponte
+# leva TT_PONTE= no ambiente, e o cliente chega por sshd. Animar a barra para ele é flicker na
+# certa (cada passo viaja a rede e repinta aninhado) — o laço só força redesenho nos locais.
+cliente_de_ponte() { # client_pid
+  local pid=$1 n=0
+  grep -qz '^TT_PONTE=' "/proc/$pid/environ" 2>/dev/null && return 0
+  while [[ -n $pid && $pid != 1 && $n -lt 12 ]]; do
+    [[ $(ps -o comm= -p "$pid" 2>/dev/null) == sshd* ]] && return 0
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' '); n=$((n + 1))
+  done
+  return 1
+}
+
+clientes_locais() {
+  local nome pid
+  while read -r nome pid; do
+    [[ -n $pid ]] && ! cliente_de_ponte "$pid" && printf '%s\n' "$nome"
+  done < <(tmux list-clients -F '#{client_name} #{client_pid}' 2>/dev/null)
+}
+
+refresh_locais() { # redesenha a barra só de quem está aqui
+  local c
+  for c in "${_TT_LOCAIS[@]}"; do tmux refresh-client -S -t "$c" 2>/dev/null; done
+}
+
 ticker_loop() {
   local lock="$DIR_TICKER/.loop" off=0 linha janela w
   # Cada passo REDESENHA a barra, e em certos terminais (Windows Terminal) todo redesenho faz o
@@ -5643,7 +5689,11 @@ ticker_loop() {
   TT_TICKER_PASSO=${TT_TICKER_PASSO:-$_p}; TT_TICKER_MODO=${TT_TICKER_MODO:-$_m}
   mkdir -p "$DIR_TICKER"
   exec 9>"$lock"; flock -n 9 || return 0
+  local -a _TT_LOCAIS=()
+  local _rev=0
   while :; do
+    # recenseia os clientes locais de tempos em tempos (barato; pontes entram e saem)
+    if (( off >= _rev )); then mapfile -t _TT_LOCAIS < <(clientes_locais); _rev=$((off + 40)); fi
     faixa_notif_ativa || break
     [[ -n $(ticker_fontes) ]] || break
     [[ -n ${TT_TICKER_FORCA:-} || -n $(tmux list-clients -F x 2>/dev/null) ]] || break
@@ -5670,7 +5720,7 @@ ticker_loop() {
     janela=$(ticker_passo "$linha" "$w" "$off")
     janela=${janela//#/##}
     tmux set -g @barra_ticker "  #[fg=#45475a]│#[fg=#7f849c]  $janela  #[fg=#45475a]│#[default]  " 2>/dev/null
-    tmux refresh-client -S 2>/dev/null
+    refresh_locais
     if [[ $TT_TICKER_MODO == paginas ]]; then off=$((off + w)); else off=$((off + 1)); fi
     sleep "$TT_TICKER_PASSO" 2>/dev/null || sleep 6
   done
@@ -5740,6 +5790,13 @@ notifs_ui() {
 tarefas_notificar() { # titulo corpo [ação para o clique na faixa]
   local t=$1 c=$2 cl ok=1
   notificar "$t · $c" 600 "${3:-}"
+  # Com a faixa ligada o aviso JÁ aparece nela: o display-message por cima da 1ª linha vira
+  # redundância que cobre a barra — só entra quando a faixa está desligada.
+  if faixa_notif_ativa; then
+    command -v notify-send >/dev/null 2>&1 && notify-send -a tt "$t" "$c" >/dev/null 2>&1
+    command -v termux-notification >/dev/null 2>&1 && termux-notification --title "$t" --content "$c" >/dev/null 2>&1
+    return 0
+  fi
   if command -v notify-send >/dev/null 2>&1; then notify-send -a tt "$t" "$c" >/dev/null 2>&1 && ok=0
   elif command -v termux-notification >/dev/null 2>&1; then termux-notification --title "$t" --content "$c" >/dev/null 2>&1 && ok=0; fi
   # Também na tela de cada terminal aberto (no WSL não há notify-send).
