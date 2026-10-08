@@ -9015,10 +9015,14 @@ email_sync() { # slug [inbox|completo] [vigia]
   if ((st == 0)); then rm -f "${dir:?}/${slug:?}.erro" "${dir:?}/${slug:?}.erro.tmp" "${dir:?}/${slug:?}.espera" "${dir:?}/${slug:?}.falhas"
   else
     { ((st == 124)) && echo "tempo esgotado ($teto s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } >"$dir/$slug.erro"; rm -f "${dir:?}/${slug:?}.erro.tmp"
-    k=$(( $(cat "$dir/$slug.falhas" 2>/dev/null || echo 0) + 1 )); echo "$k" >"$dir/$slug.falhas"
-    base=${TT_EMAIL_SYNC:-120}; ((base > 0)) || base=120
-    esp=$((base << (k < 4 ? k : 4))); ((esp > 900)) && esp=900
-    echo $((fim + esp)) >"$dir/$slug.espera"
+    # Volta completa que só estourou o teto (caixa grande, 1ª vez) não é o Gmail recusando: não
+    # empurra o INBOX para a espera.
+    if [[ $modo != completo || $st != 124 ]]; then
+      k=$(( $(cat "$dir/$slug.falhas" 2>/dev/null || echo 0) + 1 )); echo "$k" >"$dir/$slug.falhas"
+      base=${TT_EMAIL_SYNC:-120}; ((base > 0)) || base=120
+      esp=$((base << (k < 4 ? k : 4))); ((esp > 900)) && esp=900
+      echo $((fim + esp)) >"$dir/$slug.espera"
+    fi
   fi
   rm -f "${dir:?}/${slug:?}.andamento"
   email_novos_avisar "$slug"
@@ -9094,7 +9098,7 @@ email_ultima_completa() {
     E=(); email_ler "$slug" 2>/dev/null || continue
     [[ ${E[sync_local]:-} == 1 ]] || continue
     f=$(awk -F'\t' '$1 == "completo" { f = $3 } END { print f + 0 }' "$ESTADO_DIR/email-sync/$slug" 2>/dev/null); f=${f:-0}
-    [[ -z $m ]] || ((f < m)) && m=$f
+    if [[ -z $m ]] || ((f < m)); then m=$f; fi
   done
   echo "${m:-0}"
 }
@@ -9128,7 +9132,7 @@ email_sync_resumo() { # slug → ok|nunca|atrasado|erro|parado
   agora=$(date +%s)
   read -r ultimo st ok seq vivo < <(awk -F'\t' '
     $1 == "inbox" { ultimo = $3; st = $4; if ($4 == 0) { ok = $3; seq = 0 } else seq++ }
-    $1 == "completo" && $4 == 0 { ok = $3; seq = 0 }
+    $1 == "completo" && $4 == 0 { ok = $3; seq = 0; st = 0 }   # o grupo inclui o INBOX
     $3 > vivo { vivo = $3 }
     END { printf "%d %d %d %d %d\n", ultimo, st, ok, seq, vivo }' "$dir/$slug" 2>/dev/null)
   if [[ -f $dir/$slug.andamento ]]; then

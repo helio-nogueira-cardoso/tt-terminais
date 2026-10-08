@@ -68,6 +68,9 @@ echo 'timeout' >"$E/local.erro"
 zera; linha inbox $((agora - 130)) $((agora - 125)) 0; linha completo $((agora - 60)) $((agora - 50)) 0; linha inbox $((agora - 20)) $((agora - 2)) 1
 echo 'NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)' >"$E/local.erro"
 [[ $(curto) == erro ]] || falhou "senha recusada deveria ser erro já na 1ª: $(curto)"
+zera; linha inbox $((agora - 130)) $((agora - 125)) 0; linha inbox $((agora - 60)) $((agora - 50)) 1; linha completo $((agora - 40)) $((agora - 5)) 0
+echo 'timeout' >"$E/local.erro"
+[[ $(curto) == ok ]] || falhou "volta completa boa depois do INBOX que falhou deveria limpar o atrasado: $(curto)"
 passou 'falha passageira é "atrasado"; 3 seguidas, > 10 min ou senha recusada é "erro"'
 
 # 5) espera depois de erro: o vigia (--vigia) respeita, à mão sincroniza já; sucesso zera
@@ -85,6 +88,9 @@ grep -q 'tenta de novo em' <<<"$("$TT" --email-sync-estado)" || falhou "estado l
 [[ ! -e $E/local.espera && ! -e $E/local.falhas ]] || falhou 'rodada boa deveria zerar a espera'
 "$TT" --email-sync --vigia >/dev/null 2>&1
 [[ $(grep -c . "$T/mbsync.calls") == 7 ]] || falhou "depois do sucesso o vigia volta ao ritmo normal: $(grep -c . "$T/mbsync.calls")"
+zera; MBSYNC_DORME=3 TT_EMAIL_SYNC_TETO=1 "$TT" --email-sync Local --completo >/dev/null 2>&1
+[[ ! -e $E/local.espera ]] || falhou 'volta completa que só estourou o teto não deveria pôr o INBOX em espera'
+grep -q 'tempo esgotado' "$E/local.erro" || falhou "o tempo esgotado da completa deveria ficar registrado: $(cat "$E/local.erro" 2>/dev/null)"
 passou 'depois de erro o vigia espera (2×, 4×… até 15 min); à mão sincroniza já; sucesso zera'
 
 # 6) ligações do vigia: completa ao iniciar só se a última for velha; intervalo ocioso; --vigia
