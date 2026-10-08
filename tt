@@ -4716,7 +4716,8 @@ puxar_contas_ia() {
 aplicar_fixadas() {
   tmux list-sessions >/dev/null 2>&1 || return 0
   # A faixa permanece visível mesmo vazia: o marcador deixa claro onde as fixadas aparecerão.
-  [[ $(tmux show -gv status 2>/dev/null) == 2 ]] || tmux set -g status 2
+  local _lin; _lin=$(barra_status_linhas)
+  [[ $(tmux show -gv status 2>/dev/null) == "$_lin" ]] || tmux set -g status "$_lin"
   # Marca nas sessões daqui (@tt_fixada): o 📌 ao lado do nome, na barra, fica aceso nas fixadas.
   # Só grava o que mudou: todo set-option redesenha a tela inteira de todos os clientes.
   local sess marca fix
@@ -5356,6 +5357,10 @@ tarefas_lembrete_arq() { echo "$ESTADO_DIR/tt-tarefas-avisadas"; }
 # desligada no Termux, onde a tela é baixa). tarefas_notificar espelha aqui, então lembretes de
 # prazo e e-mails novos entram na faixa de graça.
 DIR_NOTIFS=$ESTADO_DIR/notifs
+
+# Quantas linhas a barra tem: 2, ou 4 com a faixa de notificações (régua + faixa). TODO caminho
+# que mexe no número de linhas passa por aqui — dois pontos discordando faziam a faixa piscar.
+barra_status_linhas() { if faixa_notif_ativa; then echo 4; else echo 2; fi; }
 
 faixa_notif_ativa() {
   local v; v=$(conf faixa_notif)
@@ -7344,7 +7349,7 @@ atualizar_barras() {
     [[ $valor == "$(tmux show -gqv "@barra_$nome")" ]] && continue
     tmux set -g "@barra_$nome" "$valor"; mudou=1
   done
-  local st=2; faixa_notif_ativa && st=4 # 2 linhas, ou 4 com a régua + a faixa de notificações
+  local st; st=$(barra_status_linhas)
   [[ $(tmux show -gqv status 2>/dev/null) == "$st" ]] || { tmux set -g status "$st" 2>/dev/null; mudou=1; }
   [[ -n $mudou ]] || return 0
   for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux refresh-client -S -t "$c" 2>/dev/null; done
