@@ -37,9 +37,10 @@ l=$(lista)
 grep -q '▸ ☐ folha simples' <<<"$l" || fail "folha sem ▸ ☐: $l"
 grep -q '▾ ☐ mae' <<<"$l" || fail "mãe com subtarefa recém-criada deveria estar aberta (▾): $l"
 grep -q '^filha\|	      ☐ filha' <<<"$(run --tarefas-lista | sem_cor)" || fail "subtarefa não aparece indentada"
-grep -q '+ adicionar subtarefa' <<<"$l" || fail "tarefa aberta sem a linha clicável '+ adicionar subtarefa'"
-grep -q '⋯ mais ações' <<<"$l" || fail "tarefa aberta sem a linha clicável '⋯ mais ações'"
-echo "ok: ▸/▾ em toda tarefa, ☐ e linhas de ação clicáveis dentro da tarefa aberta"
+grep -q "^menu:$mae	 *⋯ menu$" <<<"$(run --tarefas-lista | sem_cor)" || fail "tarefa aberta sem o '⋯ menu' discreto (uma linha só, à direita)"
+grep -q 'adicionar subtarefa\|mais ações\|escrever uma descrição' <<<"$l" && fail "as linhas de ação sob a tarefa deveriam ter virado só o ⋯ menu: $l"
+[[ $(FZF_COLUMNS=80 run --tarefas-lista | sem_cor | grep "^menu:$mae" | cut -f2 | wc -L) -ge 70 ]] || fail "o ⋯ menu deveria ficar encostado à direita"
+echo "ok: ▸/▾ em toda tarefa, ☐, e só um ⋯ menu discreto à direita dentro da tarefa aberta"
 
 # 2) clique numa tarefa de topo abre/fecha; clique na subtarefa marca
 f=$(id_de "folha simples")

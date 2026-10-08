@@ -5243,8 +5243,9 @@ tarefas_lembrete() {
 #
 # Cada linha da lista é "chave<TAB>desenho". A chave diz o que a linha é:
 #   ID            tarefa ou subtarefa
-#   desc:ID       descrição da tarefa (clique edita)  sub:ID   "+ adicionar subtarefa"
-#   menu:ID       "⋯ mais ações"                      criar    cria a tarefa digitada na busca
+#   menu:ID       o "⋯ menu" discreto sob a tarefa aberta (e as linhas do menu de ações)
+#   desc:ID/sub:ID chaves antigas das linhas de descrição/subtarefa (ainda aceitas pelo despachante)
+#   criar         cria a tarefa digitada na busca
 #   dia:N         título de um dia na agenda (N = dias desde 1970; clique abre o calendário nele)
 #   act:AÇÃO:ID   item do menu de ações               voltar   volta para a lista
 #   (vazia)       linha só informativa
@@ -5629,11 +5630,6 @@ tarefas_lista_fzf() { # [busca]
     }
     function detalhes(i,   id, j, k, v, f, n, a, L, ind, prim) {
       id = TID[i]; ind = "      "
-      if (TDESC[i] != "") {
-        n = split(TDESC[i], a, "\n"); prim = 0
-        for (L = 1; L <= n; L++) if (a[L] !~ /^[ ]*$/) prim++
-        printf "desc:%s\t%s%s≡ descrição%s %s· %d linha%s · clique para ver (^/) · ^e edita%s\n", id, ind, AZUL, Z, DIM, prim, (prim == 1 ? "" : "s"), Z
-      } else printf "desc:%s\t%s%s✎ escrever uma descrição…%s\n", id, ind, DIM, Z
       # subtarefas na ordem manual (ord) e, no empate, de criação
       n = NFI[id] + 0
       for (j = 1; j <= n; j++) S[j] = FI[id, j]
@@ -5652,8 +5648,9 @@ tarefas_lista_fzf() { # [busca]
         f = S[j]
         printf "%s\t%s%s %s\n", FID[f], ind, caixa(FEST[f], 0), (FEST[f] == "feita" ? DIM RISCO FTXT[f] Z : TXT FTXT[f] Z)
       }
-      printf "sub:%s\t%s%s+ adicionar subtarefa%s\n", id, ind, AZUL, Z
-      printf "menu:%s\t%s%s⋯ mais ações%s %s(prazo, prioridade, repetir, mover, apagar)%s\n", id, ind, AZUL, Z, DIM, Z
+      # Um menuzinho só, discreto e encostado à direita (pedido do dono: as linhas de ação sob a
+      # tarefa poluíam): clique abre o menu da tarefa — descrição, subtarefa, prazo, prioridade…
+      printf "menu:%s\t%*s%s⋯ menu%s\n", id, (COLS > 14 ? COLS - 9 : 6), "", DIM, Z
     }
     # Título de um grupo da agenda: "Atrasadas", "Hoje · quinta, 08/10", "Amanhã · …", "Sábado, 10/10".
     function titulo_dia(d,   s, df) {
@@ -5764,7 +5761,7 @@ tarefas_ajuda_linhas() {
   printf '\t   %sex.:%s Reunião com a Ana @sex 14h !alta\n' "$d" "$z"
   printf '\t\n\t %sDESCRIÇÃO%s\n' "$a" "$z"
   printf '\t   Tarefa com descrição mostra %s≡%s no fim da linha. Para ler, abra a\n' "$s" "$z"
-  printf '\t   tarefa (▾) e clique em %s≡ descrição%s, ou tecle %s^/%s: a descrição inteira\n' "$a" "$z" "$y" "$z"
+  printf '\t   tarefa (▾) e tecle %s^/%s (ou %s⋯ menu%s → Ver a descrição): a descrição inteira\n' "$y" "$z" "$a" "$z"
   printf '\t   aparece embaixo, num cartão com prazo e subtarefas (^/ fecha).\n'
   printf '\t   %s^e%s (ou %s✎ Descrição%s) edita no editor do tt (Ctrl+S salva e sai).\n' "$y" "$z" "$y" "$z"
   printf '\t\n\t %sSUBTAREFAS%s\n' "$a" "$z"
@@ -5793,7 +5790,7 @@ tarefas_ajuda_linhas() {
   printf '\t   %sbotão direito%s           menu com todas as ações\n' "$n" "$z"
   printf '\t   clique numa %ssubtarefa%s   marca/desmarca\n' "$n" "$z"
   printf '\t   abas, botões do topo, títulos de dia da Agenda e as linhas de\n'
-  printf '\t   uma tarefa aberta (%s+ adicionar%s, %s≡ descrição%s, %s⋯ mais ações%s) também\n' "$a" "$z" "$a" "$z" "$a" "$z"
+  printf '\t   uma tarefa aberta e o %s⋯ menu%s discreto à direita dela também\n' "$a" "$z"
   printf '\t   são clicáveis\n'
   printf '\t\n\t %sTECLADO%s\n' "$a" "$z"
   printf '\t   %s⏎%s feita/aberta   %s→ ␣%s abre   %s←%s fecha   %sTab%s próxima aba\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
@@ -5841,7 +5838,8 @@ tarefas_menu_linhas() { # id
   elif ((nfalta > 0)); then _op feita "$d☑ Marcar como feita" "falta$( ((nfalta > 1)) && echo m) $nfalta subtarefa$( ((nfalta > 1)) && echo s)"
   else _op feita "$g☑ Marcar como feita" '⏎ ou duplo clique'; fi
   _op renomear "$t✎ Renomear…" F2
-  _op desc "$t✎ Descrição…" '^e'
+  [[ -n $(tarefas_meta_get "$m" desc) ]] && _op ver "$t≡ Ver a descrição (cartão)" '^/'
+  _op desc "$t✎ Descrição…" "$([[ -n $(tarefas_meta_get "$m" desc) ]] && echo 'editar · ^e' || echo 'escrever · ^e')"
   [[ -z $pai ]] && _op sub "$t↳ Adicionar subtarefa…" '^s'
   if [[ -z $pai ]]; then
     pr=$([[ -n $prazo ]] && tarefas_prazo_texto "$prazo" "$(tarefas_meta_get "$m" hora)")
@@ -5943,6 +5941,7 @@ tarefa_acao() { # evento chave
         local op=${chave#act:}; op=${op%%:*}
         tarefas_ui_set modo lista
         case $op in
+          ver) echo "clear-query+$rl+$hd+show-preview"; return ;;
           prio1|prio2) tarefa_set_prio "$id" "${op#prio}" ;;
           prio0) tarefa_set_prio "$id" "" ;;
           rep0) tarefa_set_rep "$id" "" ;;

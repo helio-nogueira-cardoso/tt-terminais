@@ -400,8 +400,8 @@ vale). Concluir uma tarefa que repete avança o
 prazo (mantendo a hora) e ela continua aberta. `@25/12` sem ano é a próxima vez que esse dia chega.
 
 **Descrição.** Para não poluir a lista, a descrição tem visão própria: a tarefa que tem descrição
-mostra só um **≡** no fim da linha. Abra a tarefa (▾) e clique em **≡ descrição** (ou tecle `Ctrl+/`)
-para ver o cartão da tarefa embaixo: título, prazo, prioridade, repetição, etiquetas, a descrição
+mostra só um **≡** no fim da linha. Abra a tarefa (▾) e tecle `Ctrl+/` (ou **⋯ menu** → *Ver a
+descrição*) para ver o cartão da tarefa embaixo: título, prazo, prioridade, repetição, etiquetas, a descrição
 inteira e as subtarefas; `Ctrl+/` fecha. **✎ Descrição** (`Ctrl+E`) edita no editor do tt (o vim com a
 configuração do tt: `Ctrl+S` salva e sai, `:q!` cancela; `VISUAL`/`EDITOR` escolhem outro). Apagar
 todo o texto tira a descrição.
@@ -438,9 +438,9 @@ as tarefas do dia escolhido (um clique marca feita) e **+ Nova tarefa** naquele 
 
 **Mouse** — tudo é clicável:
 
-- **clique** numa tarefa abre/fecha os detalhes (o triângulo vira ▸ fechada / ▾ aberta):
-  **≡ descrição** (abre o cartão), as subtarefas, **+ adicionar subtarefa** e **⋯ mais ações**, todas
-  clicáveis;
+- **clique** numa tarefa abre/fecha os detalhes (o triângulo vira ▸ fechada / ▾ aberta): as
+  subtarefas e, à direita, um **⋯ menu** discreto que abre o menu da tarefa (descrição, subtarefa,
+  prazo, prioridade, repetir, mover, arquivar, apagar);
 - **duplo clique** marca/desmarca como feita (☐ → ☑); numa subtarefa basta um clique;
 - **botão direito** abre o menu da tarefa: feita, renomear, descrição, subtarefa, prazo e horário,
   prioridade (alta/média/sem) e repetição (não/dia/semana/mês) como escolhas, subir/descer e apagar;
