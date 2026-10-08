@@ -250,8 +250,9 @@ Ranges e destino:
 
 Ordem na barra principal: `arquivos` < `email` < relógio `%H:%M` (exigido pelos testes). A 2ª linha
 (`status-format[1]`) tem `@barra_fixadas` à esquerda e `@barra_tarefas` + `@barra_versao` à direita.
-`@barra_fixadas` é uma cadeia `#{?#{e|>=:#{client_width},LIM},#{E:@fxsK},…}`: cada versão (estágio de
-rótulo 28/20/16/12 com ✕, 12/10/8/6 sem ✕, depois `@fxoN` = N itens + `+N ▾`) fica em opções pequenas
+`@barra_fixadas` é uma cadeia `#{?#{e|>=:#{client_width},LIM},#{E:@fxsK},…}`: cada versão (estágios
+confortáveis 28/20/16 com ✕ e 16 sem ✕ — piso de legibilidade 16; depois `@fxoK_N` = N itens no piso +
+`+N ▾`; 12/8/6 só com um item) fica em opções pequenas
 (`@fxK_I` por item) gravadas de uma vez por `source-file` (a faixa inteira estourava o limite de um
 comando tmux), e o tmux escolhe por cliente pela largura — redimensionar redesenha sem processo. No
 estouro, o último lugar é `#{?#{==:#{session_name},…}}`: a sessão em uso de cada cliente. Rótulo:

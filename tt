@@ -6968,10 +6968,13 @@ selo_ansi() { # maquina
 # que cabe em #{client_width}: monitor, notebook e celular veem cada um a sua, e redimensionar
 # redesenha na hora — sem processo nenhum na barra (com #() a cada redesenho o cursor piscava).
 # O destaque da sessão em uso também é condição do tmux (#{session_name}).
-# Estágios, do mais rico ao mais pobre: nome até 28 com ✕ → abreviado 20 → 16 → 12 com ✕ → 12 sem ✕
-# → 10 → 8 → 6; só então os excedentes viram o chip "+N ▾" (popup com todas), e o último lugar visível
-# mostra a sessão em uso DAQUELE cliente se ela estiver entre as escondidas. Nomes abreviados
-# nunca ficam iguais (ganham letras até se distinguirem).
+# Estágios confortáveis, do mais rico ao mais pobre: nome até 28 com ✕ → abreviado 20 com ✕ → 16
+# com ✕ → 16 sem ✕. Esse 16 é o PISO DE LEGIBILIDADE (o dono pediu ≥ 15 colunas de rótulo por
+# item): abaixo dele o texto vira sopa de letras, então os excedentes vão para o chip "+N ▾"
+# (popup com todas) ANTES de comprimir mais, e os visíveis ficam em 16. Só se nem UM item em 16
+# couber ao lado do chip é que o rótulo desce (12 → 8 → 6), com um item só. No estouro, o último
+# lugar visível mostra a sessão em uso DAQUELE cliente se ela estiver entre as escondidas. Nomes
+# abreviados nunca ficam iguais (ganham letras até se distinguirem).
 # Cada item de cada estágio e cada versão vão para opções pequenas do tmux (@fxK_I, @fxsK, @fxoN),
 # gravadas de uma vez por source-file (o servidor lê o arquivo: sem o limite de tamanho de um
 # comando, que a faixa inteira estourava com muitas fixadas); @barra_fixadas só as referencia e
@@ -7043,32 +7046,37 @@ barra_fixadas_fmt() {
   local teto=$total
   [[ ${TT_FIX_VISIVEIS:-} =~ ^[0-9]+$ ]] && ((TT_FIX_VISIVEIS > 0 && TT_FIX_VISIVEIS < total)) && teto=$TT_FIX_VISIVEIS
   local -a REF=() LIM=()        # versões da faixa (referências às opções) e a largura mínima de cada
-  local e cap cx k=0 i w ant="" chave vis oculto slot walt refs; local -a WK=()
-  for e in "28 1" "20 1" "16 1" "12 1" "12 0" "10 0" "8 0" "6 0"; do
+  local e cap cx k=0 i w ant="" chave vis refs; local -A WKI=() KCAP=()   # largura por (estágio, item); estágio por cap sem ✕
+  for e in "28 1" "20 1" "16 1" "16 0" "12 0" "8 0" "6 0"; do
     read -r cap cx <<<"$e"
     _fx_rotulos "$cap"; chave="$cx|${rot[*]}"; w=0
-    for ((i = 1; i <= total; i++)); do _fx_item "$i" "$cx"; _fx_opt "@fx${k}_$i" "$ITEM"; WK[i]=$WI; w=$((w + WI)); done
-    if ((teto == total)) && [[ $chave != "$ant" ]]; then
+    for ((i = 1; i <= total; i++)); do _fx_item "$i" "$cx"; _fx_opt "@fx${k}_$i" "$ITEM"; WKI[$k,$i]=$WI; w=$((w + WI)); done
+    ((cx == 0)) && KCAP[$cap]=$k
+    # Versão com todos os itens só nos estágios confortáveis (cap ≥ 16, o piso).
+    if ((teto == total && cap >= 16)) && [[ $chave != "$ant" ]]; then
       refs=""; for ((i = 1; i <= total; i++)); do refs+="#{E:@fx${k}_$i}"; done
       _fx_opt "@fxs$k" "$refs"; REF+=("#{E:@fxs$k}"); LIM+=($((w + dir)))
     fi
     ant=$chave; k=$((k + 1))
   done
-  k=$((k - 1))   # o último estágio (rótulo 6, sem ✕) serve ao estouro
-  # Estouro: os primeiros VIS itens + "+N ▾"; o último lugar mostra a sessão em uso do cliente, se
-  # ela estiver entre as escondidas (condição em #{session_name}, avaliada por cliente).
-  for ((vis = teto == total ? total - 1 : teto; vis >= 1; vis--)); do
-    oculto=$((total - vis)); w=0; refs=""
-    for ((i = 1; i < vis; i++)); do refs+="#{E:@fx${k}_$i}"; w=$((w + WK[i])); done
-    slot="#{E:@fx${k}_$vis}"; walt=${WK[vis]}
+  # Estouro: os primeiros VIS itens do estágio K + "+N ▾"; o último lugar mostra a sessão em uso do
+  # cliente, se ela estiver entre as escondidas (condição em #{session_name}, avaliada por cliente).
+  _fx_estouro() { # k vis
+    local k=$1 vis=$2 oculto=$((total - $2)) w=0 refs="" slot walt i
+    ((oculto > 0)) || return 0
+    for ((i = 1; i < vis; i++)); do refs+="#{E:@fx${k}_$i}"; w=$((w + WKI[$k,$i])); done
+    slot="#{E:@fx${k}_$vis}"; walt=${WKI[$k,$vis]}
     for ((i = total; i > vis; i--)); do
       ((vivas[i] == 2)) || continue
-      ((WK[i] > walt)) && walt=${WK[i]}
+      ((WKI[$k,$i] > walt)) && walt=${WKI[$k,$i]}
       slot="#{?#{==:#{session_name},${nome[i]}},#{E:@fx${k}_$i},$slot}"
     done
-    _fx_opt "@fxo$vis" "$refs$slot#[range=user|fixmais]#[bg=#44475a]#[fg=#bd93f9]#[bold] +$oculto ▾ #[norange]#[default]"
-    REF+=("#{E:@fxo$vis}"); LIM+=($((w + walt + ${#oculto} + 5 + dir)))
-  done
+    _fx_opt "@fxo${k}_$vis" "$refs$slot#[range=user|fixmais]#[bg=#44475a]#[fg=#bd93f9]#[bold] +$oculto ▾ #[norange]#[default]"
+    REF+=("#{E:@fxo${k}_$vis}"); LIM+=($((w + walt + ${#oculto} + 5 + dir)))
+  }
+  # Primeiro com os visíveis no piso (16); só depois, um item só, cada vez menor.
+  for ((vis = teto == total ? total - 1 : teto; vis >= 1; vis--)); do _fx_estouro "${KCAP[16]}" "$vis"; done
+  for cap in 12 8 6; do _fx_estouro "${KCAP[$cap]}" 1; done
   mkdir -p "$RT"; arq=$(mktemp "$RT/tt-fixadas-fmt.XXXXXX") || return 0
   printf '%s' "$cfg" >"$arq"; tmux source-file "$arq" 2>/dev/null
   local carimbo; carimbo=$(cksum <"$arq" | cut -d' ' -f1); rm -f "$arq"
