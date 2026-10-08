@@ -122,3 +122,27 @@ for i in $(seq 1 40); do [[ -f $T/dest/um.txt && -f $T/dest/dois.txt ]] && break
 sleep 1
 grep -q 'dois.txt' "$T/state/tt/recebidos.tsv" 2>/dev/null || fail 'recebidos.tsv não registrou a chegada'
 echo "ok — stdin, agrupamento por pasta e registro de recebidos"
+
+# 9) cópia retomável de arquivo grande: parte guardada, retoma do byte certo, arquivo final idêntico
+rm -rf "$T/dest" "$T/orig/grande.bin"; mkdir -p "$T/dest"
+head -c 3000000 /dev/urandom >"$T/orig/grande.bin"
+read -r tam mt <<<"$($E bash "$TT" --info-arquivo "$T/orig" grande.bin)"
+[[ $tam == 3000000 && $mt =~ ^[0-9]+$ ]] || fail "info-arquivo: '$tam $mt'"
+[[ -z $($E bash "$TT" --info-arquivo "$T/orig" pasta) ]] || fail 'info-arquivo deveria ignorar pastas'
+# 1ª tentativa: a conexão "cai" depois de 1 MB
+head -c 1000000 "$T/orig/grande.bin" | $E bash "$TT" --receber-parte "$T/dest" k1 grande.bin "$tam" >/dev/null 2>&1 && fail 'parte incompleta deveria falhar'
+[[ $($E bash "$TT" --parte-tamanho "$T/dest" k1) == 1000000 ]] || fail 'a parte deveria ter 1000000 bytes'
+[[ ! -e $T/dest/grande.bin ]] || fail 'não pode aparecer arquivo final com a cópia incompleta'
+# 2ª: retoma do byte 1000000
+$E bash "$TT" --empacotar-de "$T/orig" grande.bin 1000000 | $E bash "$TT" --receber-parte "$T/dest" k1 grande.bin "$tam" >/dev/null || fail 'a retomada deveria concluir'
+cmp -s "$T/orig/grande.bin" "$T/dest/grande.bin" || fail 'arquivo retomado difere do original'
+[[ ! -e $T/dest/.tt-parte.k1 ]] || fail 'a parte deveria sumir ao concluir'
+# conflito vira (2)
+$E bash "$TT" --empacotar-de "$T/orig" grande.bin 0 | $E bash "$TT" --receber-parte "$T/dest" k2 grande.bin "$tam" | grep -Fq 'grande (2).bin' || fail 'conflito deveria virar grande (2).bin'
+# ponta a ponta local com o caminho retomável ligado (limite mínimo 1 byte)
+rm -f "$D"/*; rm -rf "$T/dest"; mkdir -p "$T/dest"
+$E TT_SEM_CONFIRMAR=1 TT_RETOMAR_MIN=1 bash "$TT" --enviar "$T/orig/grande.bin" "A:$T/dest" >/dev/null 2>&1
+espera_fim 'Cópia retomável'
+espera_fim 'Conferido'
+cmp -s "$T/orig/grande.bin" "$T/dest/grande.bin" || fail 'cópia retomável ponta a ponta difere'
+echo "ok — cópia retomável de arquivo grande"
