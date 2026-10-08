@@ -7118,7 +7118,7 @@ versao_barra() { printf '#[fg=#6c7086]v%s ' "$(versao_num)"; }
 atualizar_barras() {
   tmux list-sessions >/dev/null 2>&1 || return 0
   local nome valor mudou="" c
-  for nome in fixadas atalhos transf versao tarefas email; do
+  for nome in fixadas atalhos transf versao tarefas email data; do
     case $nome in
       fixadas) valor=$(barra_fixadas_fmt) ;;
       atalhos) valor=$(atalhos_barra) ;;
@@ -7126,6 +7126,7 @@ atualizar_barras() {
       versao) valor=$(versao_barra) ;;
       tarefas) valor=$(barra_tarefas_fmt) ;;
       email) valor=$(barra_email_fmt) ;;
+      data) valor=$(barra_data) ;;
     esac
     [[ $valor == "$(tmux show -gqv "@barra_$nome")" ]] && continue
     tmux set -g "@barra_$nome" "$valor"; mudou=1
@@ -7133,6 +7134,13 @@ atualizar_barras() {
   [[ -n $mudou ]] || return 0
   for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux refresh-client -S -t "$c" 2>/dev/null; done
   return 0
+}
+
+# Dia de hoje para o relógio da barra ("Qui, 08/10/2026 | "), em português sem depender de
+# locale; recalculado pelo vigia (vira na madrugada na volta seguinte). Em tela < 90 fica só a hora.
+barra_data() {
+  local d=(Dom Seg Ter Qua Qui Sex Sáb)
+  printf '%s, %s | ' "${d[$(date +%w)]}" "$(date +%d/%m/%Y)"
 }
 
 barra_fixadas() {
