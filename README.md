@@ -512,6 +512,16 @@ do tt: a 1ª linha é o título e o resto vira a descrição (colar texto com v�
 vale). Concluir uma tarefa que repete avança o
 prazo (mantendo a hora) e ela continua aberta. `@25/12` sem ano é a próxima vez que esse dia chega.
 
+**Editar.** **✎ Editar** (`F2`, ou ⋯ menu → *✎ Editar…*) reabre o título da tarefa com os marcadores
+que ela tem — `Reunião com a Ana @10/10 14h !alta *semanal #casa` — para mudar o texto e trocar,
+tirar ou acrescentar marcadores; ⏎ grava relendo a frase como na criação. Tirar um marcador tira o
+atributo: sem `@` a tarefa fica sem prazo, sem `!` sem prioridade, sem `*` deixa de repetir, sem `#`
+sem etiquetas (o prazo volta como `@DD/MM`, ou `@DD/MM/AAAA` quando atrasado ou no ano que vem, com
+a hora quando houver). A descrição não é marcador e fica como está; `Ctrl+E` abre o editor com a
+frase em cima e a descrição embaixo, e o que voltar do editor vale — descrição inclusive, apagada se
+você a apagar. Numa subtarefa só o texto muda (como na criação dela). ⏎ vazio, ou a frase igual,
+cancela.
+
 **Descrição.** Para não poluir a lista, a descrição tem visão própria: a tarefa que tem descrição
 mostra só um **≡** no fim da linha. Abra a tarefa (▾) e tecle `Ctrl+/` (ou **⋯ menu** → *Ver a
 descrição*) para ver o cartão da tarefa embaixo: título, prazo, prioridade, repetição, etiquetas, a descrição
@@ -555,10 +565,10 @@ as tarefas do dia escolhido (um clique marca feita) e **+ Nova tarefa** naquele 
   subtarefas e, à direita, um **⋯ menu** discreto que abre o menu da tarefa (descrição, subtarefa,
   prazo, prioridade, repetir, mover, arquivar, apagar);
 - **duplo clique** marca/desmarca como feita (☐ → ☑); numa subtarefa basta um clique;
-- **botão direito** abre o menu da tarefa: feita, renomear, descrição, subtarefa, prazo e horário,
+- **botão direito** abre o menu da tarefa: feita, editar, descrição, subtarefa, prazo e horário,
   prioridade (alta/média/sem) e repetição (não/dia/semana/mês) como escolhas, subir/descer e apagar;
 - no topo, as **abas** (Hoje · Abertas · Feitas · Agenda · Todas · Arquivo, cada uma com o contador),
-  **▦ Calendário** e os **botões** (+ Nova, ✓ Feita, ↳ Subtarefa, ✎ Descrição, ◷ Prazo, ! Prioridade,
+  **▦ Calendário** e os **botões** (+ Nova, ✓ Feita, ✎ Editar, ↳ Subtarefa, ✎ Descrição, ◷ Prazo, ! Prioridade,
   ↻ Repetir, ↑ ↓, ✕ Apagar, ⋯ Mais, ? Ajuda), que agem na tarefa em foco;
 - o calendário é todo clicável: dias, ‹ › (ou a roda do mouse) para o mês, *hoje*, os horários,
   *Definir prazo* / *+ Nova tarefa*, *sem prazo*, *cancelar* e, na agenda, as tarefas do dia.
@@ -566,7 +576,7 @@ as tarefas do dia escolhido (um clique marca feita) e **+ Nova tarefa** naquele 
 **Teclado:** `⏎` feita/aberta · `→`/`espaço` abre · `←` fecha · `Tab` próxima aba · `Ctrl+N` nova ·
 `Ctrl+S` subtarefa · `Ctrl+E` descrição · `Ctrl+D` prazo · `Ctrl+T` calendário · `Ctrl+P`
 prioridade · `Ctrl+R` repetir · `Ctrl+K`/`Ctrl+J` sobe/desce · `Ctrl+X` apaga · `Ctrl+L` arquiva ou
-apaga as feitas · `Ctrl+O` mais ações · `F2` renomeia · `Ctrl+/` descrição (cartão) · `?` ajuda · `esc` volta, limpa a
+apaga as feitas · `Ctrl+O` mais ações · `F2` edita · `Ctrl+/` descrição (cartão) · `?` ajuda · `esc` volta, limpa a
 busca ou fecha. Apagar sempre pede confirmação. No calendário: setas mudam o dia, `<` `>`
 o mês, `t` hoje, dígitos digitam a hora, `d` volta ao dia todo, `x` sem prazo, `esc` sai.
 
@@ -575,7 +585,9 @@ quando houver (vermelho quando venceu) · ↻ repete · ━━━ 1/2 subtarefas
 `#tag` · no calendário, • = dia com tarefas.
 
 **Linha de comando:** `tt --tarefa-add-natural "texto @amanha !alta"`, `tt --tarefa-add "texto"`,
-`tt --tarefa-ok ID`, `tt --tarefa-abrir ID`, `tt --tarefa-rm ID`, `tt --tarefa-renomear ID "texto"`,
+`tt --tarefa-ok ID`, `tt --tarefa-abrir ID`, `tt --tarefa-rm ID`, `tt --tarefa-editar ID "texto @prazo !prio *rep #tag"`
+(relê a frase como na criação; marcador ausente tira o atributo; linhas além da 1ª substituem a
+descrição), `tt --tarefa-frase ID` (a frase atual, pronta para editar), `tt --tarefa-renomear ID "texto"` (só o texto, sem ler marcadores),
 `tt --tarefa-limpar` (apaga as feitas de vez), `tt --tarefas-arquivar-feitas`, `tt --tarefa-arquivar ID`,
 `tt --tarefa-restaurar ID`, `tt --tarefas-arquivadas` (o histórico em texto), `tt --tarefas` (fora do
 tmux, lista em texto).
