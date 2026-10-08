@@ -3233,8 +3233,12 @@ while i + 60 <= len(b):
     i += 60 + tam + (tam % 2)
     if nome.startswith("data.tar"):
         with tarfile.open(fileobj=io.BytesIO(dados)) as t:
-            try: t.extractall(dest, filter="data")
-            except TypeError: t.extractall(dest)
+            # Só o que está em opt/ (o navegador). O resto do .deb (cron, menus, links absolutos como
+            # /etc/cron.daily/google-chrome) é do sistema e o filtro "data" do Python novo o recusa.
+            ms = [m for m in t.getmembers() if m.name.lstrip("./").startswith("opt/")
+                  and not (m.issym() and m.linkname.startswith("/"))]
+            try: t.extractall(dest, members=ms, filter="data")
+            except TypeError: t.extractall(dest, members=ms)
         sys.exit(0)
 sys.exit("sem data.tar no .deb")
 PY
