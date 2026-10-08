@@ -103,13 +103,17 @@ grep -q 'Relatório  ≡$' <<<"$l" || fail "tarefa com descrição deveria mostr
 grep -q 'primeira linha' <<<"$l" && fail "a descrição não pode aparecer na lista"
 acao clique "$r" >/dev/null
 l=$(run --tarefas-lista | sem_cor)
-grep -q "^desc:$r	.*≡ descrição · 2 linhas" <<<"$l" || fail "tarefa aberta sem a linha '≡ descrição · 2 linhas': $l"
-grep -q 'primeira linha' <<<"$l" && fail "nem aberta a descrição entra na lista (vai para a visão própria)"
-[[ $(acao clique "desc:$r") == toggle-preview ]] || fail "clique em ≡ descrição deveria abrir a visão (prévia)"
-grep -q 'execute(.*--tarefa-desc-prompt' <<<"$(acao clique "desc:$m")" || fail "sem descrição, o clique deveria abrir o editor"
+grep -q '≡ descrição\|primeira linha' <<<"$l" && fail "aberta, a descrição não entra na lista (vai para o cartão): $l"
+grep -q "^menu:$r	.*⋯ menu$" <<<"$l" || fail "tarefa aberta sem o ⋯ menu discreto: $l"
+mn=$(printf 'modo=menu:%s\n' "$r" >"$UI"; run --tarefas-lista | sem_cor)
+grep -q "^act:ver:$r	.*≡ Ver a descrição" <<<"$mn" || fail "menu de tarefa com descrição sem 'Ver a descrição': $mn"
+grep -q "^act:desc:$r	.*✎ Descrição.*editar" <<<"$mn" || fail "menu deveria oferecer editar a descrição"
+grep -q 'show-preview' <<<"$(acao clique "act:ver:$r")" || fail "'Ver a descrição' deveria abrir o cartão (show-preview)"
+grep -q "act:ver:$m" <<<"$(printf 'modo=menu:%s\n' "$m" >"$UI"; run --tarefas-lista)" && fail "tarefa sem descrição não deveria oferecer 'Ver a descrição'"
+printf 'filtro=todas\nmodo=lista\n' >"$UI"
 card=$(run --tarefa-preview "desc:$r" | sem_cor)
 [[ $(sed -n 1p <<<"$card") == Relatório ]] || fail "cartão deveria começar pelo título: $card"
 grep -q 'primeira linha' <<<"$card" && grep -q 'segunda linha' <<<"$card" || fail "cartão sem a descrição inteira: $card"
 grep -q 'Subtarefas 2/3' <<<"$(run --tarefa-preview "$m" | sem_cor)" || fail "cartão da mãe deveria resumir as subtarefas"
 grep -q 'Sem descrição' <<<"$(run --tarefa-preview "$m" | sem_cor)" || fail "cartão sem descrição deveria dizer como escrever"
-echo "ok: descrição fora da lista (≡), linha '≡ descrição' abre o cartão com tudo"
+echo "ok: descrição fora da lista (≡); ⋯ menu → Ver a descrição abre o cartão com tudo"
