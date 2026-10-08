@@ -2164,10 +2164,11 @@ UI
   # barato para caixas grandes ou link lento, sem store local nem dependência nova.
   aerc_definir "$conf" ui cache-headers true
   # HTML é o padrão quando o e-mail tem as duas versões (o w3m mostra tabelas, cores e links).
-  # Linha de status curta (a versão longa era cortada em telas comuns); os botões do popup já dizem o resto.
-  aerc_definir "$conf" statusline column-right '{{.TrayInfo}}  ? atalhos · q fecha'
-  grep -q '^column-right={{.TrayInfo}}  ? atalhos · F2 contas.*$' "$conf" &&
-    aerc_definir "$conf" statusline column-right '{{.TrayInfo}}  ? atalhos · q fecha' forcar
+  # Linha de status do aerc só com o estado (conexão, sync): as dicas de teclas saíram — os botões
+  # do popup já dizem tudo, e a faixa cortada em telas comuns só atrapalhava. Migra as dicas que o
+  # próprio tt tinha posto ("? atalhos · F2 contas · …" e "? atalhos · q fecha"); valor do dono fica.
+  aerc_definir "$conf" statusline column-right '{{.TrayInfo}}'
+  grep -q '^column-right={{.TrayInfo}}  ? atalhos' "$conf" && aerc_definir "$conf" statusline column-right '{{.TrayInfo}}' forcar
   aerc_definir "$conf" viewer alternatives text/html,text/plain
   grep -q '^alternatives=text/plain,text/html$' "$conf" && aerc_definir "$conf" viewer alternatives text/html,text/plain forcar
   # HTML: sem o w3m o filtro "html" do aerc falha e o e-mail aparece vazio; troca pelo melhor disponível.
@@ -7481,10 +7482,10 @@ Anexos	E	enviar os anexos para a pasta de recebidos de uma máquina do tt
 Anexos	i	imagens do e-mail (anexadas e da web): lista e abre no visualizador de imagens
 Várias	v  ou  espaço	selecionar / desmarcar (as ações valem para todas as selecionadas)
 Várias	V	selecionar a conversa inteira
-Contas	F2	contas de e-mail: cadastrar, descadastrar, testar
+Contas	F2	contas de e-mail: cadastrar, descadastrar, testar, propagar (q ou Esc volta)
 Contas	Ctrl+n / Ctrl+p	próxima / anterior conta (abas)
 Ajuda	Ctrl+r	redesenhar a tela (se aparecer algo estranho)
-Ajuda	?	esta tela
+Ajuda	?	esta tela (q, Esc ou o botão de novo fecha; os botões do rodapé valem com ela aberta)
 AT
 )
   if [[ ! -t 1 ]] || ! command -v fzf >/dev/null; then column -t -s $'\t' <<<"$lista"; return 0; fi
@@ -8048,7 +8049,7 @@ botao_email() {
   # cliente sai. Mostra no título a tecla de saída do cliente para quem não a conhece.
   prog=${cmd%% *}
   case ${prog##*/} in
-    aerc)        dica="q fecha · ? atalhos · F2 contas" ;;
+    aerc)        dica="q fecha" ;; # o resto está nos botões do rodapé
     mutt|neomutt) dica="q fecha" ;;
     *)           dica="feche o cliente p/ sair" ;;
   esac
@@ -8111,19 +8112,28 @@ email_sessao() {
   if tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
     pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
     if [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo) == "$modo" && $pane_cmd == aerc* &&
+          $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_binds) == "$EMAIL_BINDS_VER" &&
           $(tmux show-environment -t "=$EMAIL_SESSAO" VAXIS_FORCE_UNICODE 2>/dev/null) == VAXIS_FORCE_UNICODE=1 ]]; then email_sessao_botoes; return 0; fi
     tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
   fi
   mkdir -p "$HOME/.cache"
   if [[ -f $b ]]; then
+    # Na sessão oculta: q/Q desanexam; ? e F2 abrem as telas do tt como janelas da sessão (não como
+    # abas do aerc, que deixavam os botões sem alvo); e as teclas de função dos botões (F3–F10).
     sed -e 's/^\([[:space:]]*\)\(q\|Q\)[[:space:]]*=[[:space:]]*:quit<Enter>[[:space:]]*$/\1\2 = :exec tmux detach-client<Enter>/' \
-        -e "s/^<C-q>[[:space:]]*=.*/<C-q> = :quit<Enter>/" "$b" >"$bo"
+        -e "s/^<C-q>[[:space:]]*=.*/<C-q> = :quit<Enter>/" \
+        -e "s|:term $HOME/.local/bin/tt --email-atalhos<Enter>|:exec $HOME/.local/bin/tt --email-tela atalhos<Enter>|" \
+        -e "s|:term $HOME/.local/bin/tt --email-contas-ui<Enter>|:exec $HOME/.local/bin/tt --email-tela contas<Enter>|" "$b" >"$bo"
+    { echo '[messages]'; email_binds_botoes messages; echo '[view]'; email_binds_botoes view; } >>"$bo"
     cmd+=" -B $(printf %q "$bo")"
   fi
   email_sessao_criar "$cmd" "$modo" || return 1
   email_sessao_botoes
   return 0
 }
+# Versão dos binds da sessão oculta: uma sessão criada com binds antigos é recriada (os botões
+# mandam F3–F10, que o aerc de antes não conhecia).
+EMAIL_BINDS_VER=2
 email_sessao_criar() {
   local cmd=$1 modo=$2
   # VAXIS_FORCE_UNICODE: o aerc mede emoji com seletor de variação (🕸️, ⚠️) como 2 colunas, igual ao
@@ -8134,6 +8144,7 @@ email_sessao_criar() {
   tmux set -q -t "=$EMAIL_SESSAO:" @tt_oculta 1
   tmux set -q -t "=$EMAIL_SESSAO:" @nome_auto 0
   tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_modo "$modo"
+  tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_binds "$EMAIL_BINDS_VER"
   return 0
 }
 
@@ -8147,23 +8158,38 @@ email_sessao_botoes() {
   tmux set -q -t "=$EMAIL_SESSAO:" status-style 'bg=#181825,fg=#cdd6f4'
   tmux set -q -t "=$EMAIL_SESSAO:" 'status-format[0]' "$(email_barra_fmt)"
 }
-# Os botões: ação, ícone, rótulo (cor de fundo própria para os destrutivos).
+# Os botões: ação, ícone, rótulo, tecla de função mandada ao aerc (cor de fundo própria para os
+# destrutivos). As ações do aerc vão por F3–F10, não pelas letras: uma letra cairia no que estiver
+# na frente (o editor de uma mensagem, um terminal), enquanto a tecla de função só faz algo nos
+# contextos em que o tt a ligou (lista e leitura; ver email_binds_botoes). Contas e atalhos são
+# telas do tt (email_tela), sem passar pelo aerc.
 EMAIL_BOTOES=(
-  'abrir|📖|Abrir'
-  'nova|+|Nova'
-  'resp|↩|Responder'
-  'todos|↩↩|Todos'
-  'enc|↪|Encaminhar'
-  'arq|▤|Arquivar'
-  'apagar|✕|Apagar'
-  'pasta|📁|Pasta'
-  'contas|👤|Contas'
-  'atalhos|?|Atalhos'
+  'abrir|📖|Abrir|F3'
+  'nova|+|Nova|F4'
+  'resp|↩|Responder|F5'
+  'todos|↩↩|Todos|F6'
+  'enc|↪|Encaminhar|F7'
+  'arq|▤|Arquivar|F8'
+  'apagar|✕|Apagar|F9'
+  'pasta|📁|Pasta|F10'
+  'contas|👤|Contas|'
+  'atalhos|?|Atalhos|'
 )
+# O que cada tecla de função faz no aerc, por contexto (vai para os binds da sessão oculta).
+email_binds_botoes() { # messages|view
+  [[ $1 == messages ]] && echo '<F3> = :view<Enter>'
+  echo '<F4> = :compose<Enter>'
+  echo '<F5> = :reply<Enter>'
+  echo '<F6> = :reply -a<Enter>'
+  echo '<F7> = :forward<Enter>'
+  echo '<F8> = :archive flat<Enter>'
+  echo '<F9> = :choose -o y '"'"'Apagar esta mensagem'"'"' delete-message<Enter>'
+  echo '<F10> = :move<space>'
+}
 email_barra_fmt() {
-  local b acao ic rot est out=""
+  local b acao ic rot tecla est out=""
   for b in "${EMAIL_BOTOES[@]}"; do
-    IFS='|' read -r acao ic rot <<<"$b"
+    IFS='|' read -r acao ic rot tecla <<<"$b"
     case $acao in
       abrir) est='#[fg=#1e1e2e,bg=#89b4fa,bold]' ;;
       apagar) est='#[fg=#1e1e2e,bg=#f38ba8,bold]' ;;
@@ -8173,16 +8199,44 @@ email_barra_fmt() {
   done
   printf '%s' "$out"
 }
-# Clique num botão do popup do e-mail: manda a tecla correspondente ao aerc da sessão oculta.
+# Clique num botão do popup do e-mail. Funciona de qualquer lugar: contas e atalhos abrem/fecham a
+# tela do tt (email_tela); as ações do aerc fecham antes a tela do tt que estiver na frente e só
+# então mandam a tecla de função à janela do aerc.
 email_botao_acao() { # ação
   tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null || return 0
-  local -a k
+  local b acao ic rot tecla=""
+  case $1 in contas | atalhos) email_tela "$1"; return 0 ;; esac
+  for b in "${EMAIL_BOTOES[@]}"; do IFS='|' read -r acao ic rot tecla <<<"$b"; [[ $acao == "$1" ]] && break; tecla=""; done
+  [[ -n $tecla ]] || return 0
+  email_tela_fechar
+  tmux send-keys -t "=$EMAIL_SESSAO:" "$tecla"
+}
+
+# Telas do tt por cima do aerc (⌨ atalhos, 👤 contas — e dentro dela cadastro, edição, propagar):
+# janelas da própria sessão oculta, com a barra de botões visível; a tela fecha com q/Esc, com o
+# mesmo botão de novo, ou quando outro botão age (fecha e age). Abrir uma com outra aberta troca.
+# Vale de qualquer lugar: botão, tecla do aerc (? e F2 na sessão oculta) ou tt --email-tela.
+email_tela() { # atalhos|contas
+  local nome cmd tela id
   case $1 in
-    abrir) k=(Enter) ;; nova) k=(m) ;; resp) k=(R r) ;; todos) k=(r r) ;; enc) k=(f) ;;
-    arq) k=(a) ;; apagar) k=(d) ;; pasta) k=(M) ;; contas) k=(F2) ;; atalhos) k=('?') ;;
+    atalhos) nome='⌨ atalhos'; cmd="$HOME/.local/bin/tt --email-atalhos" ;;
+    contas)  nome='👤 contas';  cmd="cd ${HOME@Q}; $HOME/.local/bin/tt --email-contas-ui" ;;
     *) return 0 ;;
   esac
-  tmux send-keys -t "=$EMAIL_SESSAO:" "${k[@]}"
+  [[ -x $HOME/.local/bin/tt ]] || cmd=${cmd//"$HOME/.local/bin/tt"/"$EU"}
+  tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null || return 0
+  tela=$(tmux show -wqv -t "=$EMAIL_SESSAO:" @tt_email_tela)
+  [[ -n $tela ]] && email_tela_fechar
+  [[ $tela == "$1" ]] && return 0 # o mesmo botão de novo: só fecha
+  id=$(tmux new-window -P -F '#{window_id}' -t "=$EMAIL_SESSAO:" -n "$nome" -c "$HOME" "$cmd") || return 0
+  tmux set -wq -t "$id" @tt_email_tela "$1"
+  tmux set -wq -t "$id" remain-on-exit off
+  return 0
+}
+# Fecha a tela do tt que estiver na frente (a janela corrente da sessão oculta); o aerc nunca.
+email_tela_fechar() {
+  [[ -n $(tmux show -wqv -t "=$EMAIL_SESSAO:" @tt_email_tela 2>/dev/null) ]] && tmux kill-window -t "=$EMAIL_SESSAO:"
+  return 0
 }
 
 # ─── Cadastro e gerência de contas de e-mail (aerc) ────────────────────────────
@@ -10335,6 +10389,7 @@ case "${1:-}" in
   --email-mbsync-migrar) email_mbsyncrc_migrar; exit 0 ;;
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
   --email-conta-nova-ui) email_conta_nova_ui; exit ;;
+  --email-tela) email_tela "${2:-}"; exit 0 ;;
   --email-propagar) shift; email_propagar "$@"; exit ;;
   --email-receber) shift; email_receber "$@"; exit ;;
   --email-propagar-ui) s=$(email_achar "${2:?uso: tt --email-propagar-ui NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_propagar_ui "$s"; exit ;;

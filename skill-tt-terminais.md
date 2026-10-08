@@ -213,9 +213,18 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --email-atalhos` — tela de atalhos do aerc em português.
 - Popup do e-mail: `email_sessao` cria a sessão oculta `_tt-email` e `email_sessao_botoes` liga nela
   uma linha de status própria com a barra de botões (`email_barra_fmt`, ranges `user|em_<ação>`,
-  lista `EMAIL_BOTOES`); o clique chega por `MouseDown1Status → tt --clique` e `em_*)` em `clique()`
-  chama `email_botao_acao`, que manda a tecla ao aerc (`send-keys -t =_tt-email:`). Duplo clique no
-  painel da sessão `_tt-email` = Enter (abre), via `if -F` no `DoubleClick1Pane` do tmux.conf.
+  lista `EMAIL_BOTOES` = ação|ícone|rótulo|tecla); o clique chega por `MouseDown1Status → tt --clique`
+  e `em_*)` em `clique()` chama `email_botao_acao`. Funciona de qualquer lugar: contas e atalhos são
+  **telas do tt** (`email_tela atalhos|contas`, `tt --email-tela`) = janelas da própria sessão oculta
+  com `@tt_email_tela`, barra visível; o mesmo botão de novo (ou q/Esc) fecha, abrir outra troca, e
+  as ações do aerc fecham antes a tela da frente (`email_tela_fechar`) e mandam uma **tecla de
+  função** (F3 abrir … F10 pasta; `send-keys -t =_tt-email:`), nunca letras — os binds da sessão
+  oculta (`~/.cache/tt-aerc-binds-oculto.conf`, gerados em `email_sessao`: `email_binds_botoes` por
+  contexto `[messages]`/`[view]`; `?`/F2 reescritos de `:term` para `:exec tt --email-tela …`) só agem
+  na lista e na leitura, então com compose/terminal na frente nada é digitado. `EMAIL_BINDS_VER`
+  marca a sessão (`@tt_email_binds`); sessão com binds antigos é recriada. A linha de status do
+  aerc fica só com `{{.TrayInfo}}` (dicas antigas do tt migradas). Duplo clique no painel da sessão
+  `_tt-email` = Enter (abre), via `if -F` no `DoubleClick1Pane` do tmux.conf.
   `configurar_aerc` também põe ícones (`icon-*`), `tab-title-account` com não lidas, datas numéricas,
   `message-list-split horizontal 14` + `auto-mark-read-split` (cópias em ~/.cache: tela < 100 sem split e sem sidebar, modo estreito; ≥ 180 `vertical 70`, modo amplo).
 
