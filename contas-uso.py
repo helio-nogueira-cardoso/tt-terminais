@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """Percentual de uso da janela de cada conta de IA (usado pelo claude-conta e pelo claude-rot).
 
-Uso: contas-uso.py [--ttl SEGUNDOS] CONTA=ALVO ...
+Uso: contas-uso.py [--ttl SEGUNDOS] [--modelos] CONTA=ALVO ...
   ALVO é a pasta da credencial do Claude (a principal é ~/.claude), ou "codex" / "kiro".
 
 Uma linha TSV por conta, na ordem pedida:
-  conta  pico  volta  texto  fonte  email  folga
+  conta  pico  volta  texto  fonte  email  folga  [modelos, só com --modelos]
 pico   maior percentual entre as janelas (0–100, inteiro; "-" = desconhecido; todo campo vazio sai "-")
 volta  epoch em que a janela mais cheia reinicia
 texto  resumo para gente: "5h 23% · 7d 65%", "mês 40%"
 fonte  ao-vivo | cache | reiniciou (a janela do cache já virou) | desconhecido
 folga  quanto dá para usar agora, 0–100, olhando todas as janelas e quando cada uma reinicia
        (veja folga(); o ia-rot escolhe por ela)
+modelos cotas semanais próprias de um modelo (o Claude dá ao Fable uma cota à parte), separadas por
+       vírgula: "nome:pico:volta:folga" (ex.: "fable:41:1760180400:55"). Ficam FORA do pico e da folga
+       da conta, que valem para qualquer modelo: o ia-rot só as usa quando o modelo padrão é esse.
+       Conta sem a cota de um modelo que outra conta tem não inclui esse modelo no plano.
 
 Nada de segredo sai daqui: o token só vai no cabeçalho da consulta ao próprio provedor. Token
 vencido não é renovado (a renovação troca o refresh token e derrubaria a sessão aberta da conta):
@@ -67,7 +71,23 @@ def claude(pasta):
         j = d.get(chave) or {}
         if j.get("utilization") is not None:
             janelas.append((rotulo, pct(j["utilization"]), epoch(j.get("resets_at"))))
-    return janelas, ""
+    return janelas, "", modelos_de(d)
+
+
+def modelos_de(d):
+    """Cotas semanais de um modelo só ("limits" do tipo weekly_scoped): [(nome, pico, volta)].
+
+    O nome é a 1ª palavra do nome do modelo, em minúsculas ("Fable" -> "fable"), como no "model" do
+    settings.json do Claude.
+    """
+    modelos = []
+    for lim in d.get("limits") or []:
+        if not isinstance(lim, dict) or lim.get("kind") != "weekly_scoped" or lim.get("percent") is None:
+            continue
+        nome = (((lim.get("scope") or {}).get("model") or {}).get("display_name") or "").strip().lower().split()
+        if nome:
+            modelos.append((nome[0], pct(lim["percent"]), epoch(lim.get("resets_at"))))
+    return modelos
 
 
 def codex(_):
@@ -133,9 +153,9 @@ def hora(t):
     return d.strftime("%H:%M") if t - AGORA < 20 * 3600 else d.strftime("%d/%m")
 
 
-def resumir(janelas):
+def resumir(janelas, modelos=()):
     janelas = [j for j in janelas if j[0] != "limite"] or janelas
-    return " · ".join(f"{r} {p}%" + (f" ({hora(v)})" if p >= 80 and v else "") for r, p, v in janelas)
+    return " · ".join(f"{r} {p}%" + (f" ({hora(v)})" if p >= 80 and v else "") for r, p, v in [*janelas, *modelos])
 
 
 DURACAO = {"5h": 5 * 3600, "7d": 7 * 86400, "7d-opus": 7 * 86400, "mês": 30 * 86400}
@@ -167,17 +187,22 @@ def folga(janelas):
     return round(min(notas)) if notas else None
 
 
-def linha(conta, janelas, fonte, email):
+def linha(conta, janelas, fonte, email, modelos=()):
     if not janelas:
-        return [conta, "", "", "", fonte, email, ""]
+        return [conta, "", "", "", fonte, email, "", ""]
     rotulo, pico, volta = max(janelas, key=lambda j: (j[1], j[2] or 0))
-    return [conta, str(pico), str(int(volta)) if volta else "", resumir(janelas), fonte, email, str(folga(janelas))]
+    cotas = ",".join(f"{n}:{p}:{int(v) if v else ''}:{folga([('7d', p, v)])}" for n, p, v in modelos)
+    return [conta, str(pico), str(int(volta)) if volta else "", resumir(janelas, modelos), fonte, email,
+            str(folga(janelas)), cotas]
 
 
 def main(args):
-    ttl = 0
-    if args[:1] == ["--ttl"]:
-        ttl, args = float(args[1]), args[2:]
+    ttl, com_modelos = 0, False
+    while args[:1] in (["--ttl"], ["--modelos"]):
+        if args[0] == "--ttl":
+            ttl, args = float(args[1]), args[2:]
+        else:
+            com_modelos, args = True, args[1:]
     pedidos = [a.split("=", 1) for a in args if "=" in a]
     try:
         cache = json.loads(CACHE.read_text())
@@ -187,28 +212,31 @@ def main(args):
     def um(par):
         conta, alvo = par
         c = cache.get(conta) or {}
+        # Janela que já virou desde a última consulta recomeça do zero.
+        virou = lambda js: [j if not j[2] or j[2] > AGORA else (j[0], 0, None) for j in js if j[0] != "limite" or j[2] > AGORA]
         if ttl and c.get("alvo") == alvo and AGORA - c.get("quando", 0) < ttl:
-            return conta, alvo, c.get("janelas") or [], "cache", c.get("email", ""), False
+            return conta, alvo, c.get("janelas") or [], "cache", c.get("email", ""), False, virou(c.get("modelos") or [])
         try:
-            janelas, email = consultar(alvo)
-            return conta, alvo, janelas, "ao-vivo", email, True
+            janelas, email, *resto = consultar(alvo)
+            return conta, alvo, janelas, "ao-vivo", email, True, (resto or [[]])[0]
         except Exception:  # sem rede, token vencido, resposta nova: cai para o cache
             if c.get("alvo") != alvo or not c.get("janelas"):
-                return conta, alvo, [], "desconhecido", c.get("email", ""), False
-            # Janela que já virou desde a última consulta recomeça do zero.
-            janelas = [j if not j[2] or j[2] > AGORA else (j[0], 0, None) for j in c["janelas"] if j[0] != "limite" or j[2] > AGORA]
+                return conta, alvo, [], "desconhecido", c.get("email", ""), False, []
+            janelas = virou(c["janelas"])
             fonte = "cache" if any(j[2] for j in janelas) else "reiniciou"
-            return conta, alvo, janelas, fonte, c.get("email", ""), False
+            return conta, alvo, janelas, fonte, c.get("email", ""), False, virou(c.get("modelos") or [])
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         resultados = list(ex.map(um, pedidos))
     mudou = False
-    for conta, alvo, janelas, fonte, email, novo in resultados:
+    for conta, alvo, janelas, fonte, email, novo, modelos in resultados:
         if novo:
-            cache[conta] = {"alvo": alvo, "quando": AGORA, "janelas": janelas, "email": email}
+            cache[conta] = {"alvo": alvo, "quando": AGORA, "janelas": janelas, "email": email, "modelos": modelos}
             mudou = True
         # "-" no lugar de vazio: o read do bash junta tabs seguidos (tab é espaço para o IFS).
-        print("\t".join(x or "-" for x in linha(conta, janelas, fonte, email)))
+        # A coluna modelos só vai a quem pede: um leitor antigo de 7 colunas a juntaria à folga.
+        cols = linha(conta, janelas, fonte, email, modelos)
+        print("\t".join(x or "-" for x in (cols if com_modelos else cols[:7])))
     if mudou:
         try:
             CACHE.parent.mkdir(parents=True, exist_ok=True)

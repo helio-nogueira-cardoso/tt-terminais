@@ -249,6 +249,11 @@ rodar() {
   shift
   # codex/kiro são outros provedores, não perfis do Claude (criar a pasta deixava um perfil vazio).
   case $nome in codex | kiro) die "'$nome' não é conta do Claude; rode $( [[ $nome == kiro ]] && echo kiro-cli || echo codex) direto (ou veja: ia-conta uso $nome)" ;; esac
+  # Sub-agente no modelo do agente que o chama (o padrão, ou o do /model): sem isto o Claude Code deixa o
+  # agente pedir outro modelo e limita o sub-agente de busca (Explore) ao Opus. Variável já definida,
+  # mesmo vazia, fica como está.
+  export CLAUDE_CODE_SUBAGENT_MODEL_FORCE=${CLAUDE_CODE_SUBAGENT_MODEL_FORCE-1}
+  export CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP=${CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP-1}
   if [[ $nome == principal ]]; then
     IA_CONTA=principal exec env -u CLAUDE_CONFIG_DIR "$CLAUDE_BIN" "$@"
   fi

@@ -232,6 +232,17 @@ sobra em relação ao tempo até o reinício (20% livres com 6 dias pela frente 
 3 h do reinício são "use ou perde"). Vale a janela mais apertada; conta com alguma janela a 95% ou
 mais fica de fora.
 
+**Modelo padrão.** Quando o modelo padrão do Claude (o `model` do `~/.claude/settings.json`, ou
+`--model`/`ANTHROPIC_MODEL`) tem cota semanal própria, como o Fable, as contas com essa cota livre vêm
+primeiro, e a cota dele pesa na folga delas. As outras contas do Claude, o Codex e o Kiro ficam para
+depois, na ordem da folga. Assim os atalhos e as passagens abrem o agente no modelo padrão enquanto
+alguma conta ainda o roda; o `ia-conta listar` mostra a cota (`fable 41%`). Na rotação sem tela, a
+conta que responde que o modelo exige créditos de uso passa a vez sem ser bloqueada.
+`CLAUDE_ROT_MODELO` troca o modelo considerado (vazio desliga). O Claude aberto pelo `ia-conta` e pelo
+`ia-rot` também roda os sub-agentes no modelo do agente que os chama
+(`CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` e `CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP=1`; definir uma delas
+antes, mesmo vazia, mantém a sua).
+
     ia-conta abrir                   # a IA com mais folga agora, interativa e sem pedir permissões
     ia-conta abrir --retomar ID      # idem, continuando a conversa ID se a escolhida for do Claude
     ia-rot --melhor                  # só diz qual seria: conta, pico e uso (sai 2 se nenhuma livre)
