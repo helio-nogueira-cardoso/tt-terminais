@@ -87,7 +87,7 @@ echo "ok: espaço/?/esc respeitam a busca"
 acao interrogacao "$f" >/dev/null
 [[ $(sed -n 's/^modo=//p' "$UI" | tail -1) == ajuda ]] || fail "? não abriu a ajuda"
 h=$(lista)
-for k in CRIAR 'NO TÍTULO' DESCRIÇÃO 'PRAZO E HORÁRIO' MOUSE TECLADO '@amanha' '@sex 14h' '!alta' '*semanal' '#casa' '// texto'; do
+for k in CRIAR 'NO TÍTULO' DESCRIÇÃO 'PRAZO E HORÁRIO' MOUSE TECLADO '@amanha' '@sex 14h' '!alta' '*semanal' '#casa' 'Ctrl+E'; do
   grep -qF -- "$k" <<<"$h" || fail "ajuda sem '$k'"
 done
 grep -q 'Como usar' <<<"$(FZF_COLUMNS=70 run --tarefas-cabecalho | sem_cor)" || fail "cabeçalho da ajuda sem título"

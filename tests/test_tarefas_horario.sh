@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prazo com horário (opcional), descrição visível e a agenda: frase natural com hora e "//",
+# Prazo com horário (opcional), descrição visível e a agenda: frase natural com hora e multi-linha,
 # rótulos "◷ amanhã 14:00" e "venceu" pela hora, aba Agenda agrupada por dia, calendário (modo
 # prazo) com hora digitada/dia todo/hora inválida, recorrência que mantém a hora, lembrete na hora
 # e a conta de datas do calendário. Isola HOME/XDG e usa stub de tmux; nada real é tocado.
@@ -25,8 +25,8 @@ prazo_de(){ sed -n 's/.*prazo=\([0-9]*\).*/\1/p' <<<"$(meta "$1")"; }
 fail(){ echo "FALHOU: $1" >&2; exit 1; }
 amanha=$(date -d tomorrow +%Y-%m-%d)
 
-# 1) frase natural: dia + hora (com e sem "às"), só hora, "//" vira descrição (várias linhas)
-run --tarefa-add-natural "Reunião @amanha 14h !alta // levar o relatório // e o crachá"
+# 1) frase natural: dia + hora (com e sem "às"), só hora; linhas além da 1ª viram descrição
+run --tarefa-add-natural "$(printf 'Reunião @amanha 14h !alta\nlevar o relatório\ne o crachá')"
 run --tarefa-add-natural "Dentista @amanha às 9h30"
 run --tarefa-add-natural "Ler https://ex.com/a//b"
 run --tarefa-add-natural "Almoço @25/12"
@@ -40,7 +40,7 @@ grep -q 'levar o relatório' <<<"$d" && grep -q 'e o crachá' <<<"$d" || fail "/
 grep -q 'às 14:00' <<<"$d" || fail "prévia não mostra o horário: $d"
 run --tarefa-add-natural "Ligar @23:59"
 [[ $(prazo_de Ligar) == "$(date -d "$(date +%Y-%m-%d) 23:59" +%s)" ]] || fail "@23:59 deveria ser hoje 23:59"
-echo "ok: @dia + hora, 'às', @hora e '// descrição' na frase; horário é opcional"
+echo "ok: @dia + hora, 'às', @hora; linhas além da 1ª viram descrição; horário é opcional"
 
 # 2) lista: rótulo com a hora, descrição sob a tarefa, "venceu" pela hora no mesmo dia
 printf 'filtro=todas\nmodo=lista\n' >"$UI"

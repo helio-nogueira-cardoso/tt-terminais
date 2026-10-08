@@ -111,9 +111,9 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   (fora dele). Também `Ctrl+B t`.
 - `tt --tarefa-add "texto"` — adiciona; `tt --tarefa-ok ID` conclui; `tt --tarefa-abrir ID` reabre;
   `tt --tarefa-rm ID` remove (lápide); `tt --tarefa-limpar` remove as feitas.
-- `tt --tarefa-add-natural "frase @sex 14h !alta *semanal #tag // descrição"` — cria lendo prazo
+- `tt --tarefa-add-natural "frase @sex 14h !alta *semanal #tag"` (multi-linha: 1ª linha é o título, o resto vira descrição) — cria lendo prazo
   (com horário opcional: `@sex 14h`, `@amanha às 9h30`, `@14:30`), prioridade, repetição, etiqueta e
-  descrição (depois de ` // `); `tt --tarefa-renomear ID "texto"`; `tt --tarefas-ajuda` imprime o
+  `tt --tarefa-renomear ID "texto"`; `tt --tarefas-ajuda` imprime o
   "Como usar" do painel. `tt --calendario [epoch]` é o seletor de prazo (imprime `EPOCH`, `EPOCH 1`
   com horário, `limpar` ou nada); `tt --calendario-agenda [dia]` é a agenda (relógio da barra).
 - Meta `hora=1`: o prazo tem horário (vence quando a hora passa; sem ela vale o dia todo, epoch às
