@@ -339,7 +339,7 @@ lidas**, conversas agrupadas em fios, datas curtas e e-mails em **HTML legíveis
 
 E-mails com versão HTML abrem nela, pelo `w3m` (tabelas, cores, links), na largura da janela. Em tela
 estreita (lado a lado, celular) o 📧 abre o aerc sem a barra de pastas (`J`/`K` trocam de pasta).
-**Botão direito no 📧**: abrir, contas (cadastrar, descadastrar, testar), nova conta e atalhos.
+**Botão direito no 📧**: abrir, contas (cadastrar, descadastrar, testar), nova conta, atalhos e o estado do sync local.
 
 ### Consulta mais rápida
 
@@ -370,6 +370,14 @@ mostra, por conta, a última rodada de cada tipo (há quanto tempo, duração, o
 deu). Contas já cadastradas migram para os canais na próxima atualização, sem baixar nada de novo.
 Sem o `mbsync` instalado o cadastro com `sync_local=1` é recusado, em vez de fingir que ligou. Contas
 sem o flag seguem lendo direto do servidor (IMAP) com o cache de cabeçalhos acima.
+
+**E-mail que chega fica visível.** Nas contas com espelho local, o botão **📧** da barra mostra as
+**não lidas** do INBOX (lidas do próprio espelho, sem processo na barra) e fica **vermelho com ⚠**
+quando o sync de alguma conta falhou ou parou; botão direito no 📧 → *Sync local: estado das
+rodadas* mostra o detalhe. Depois de cada rodada do INBOX, os e-mails que **chegaram** viram um aviso
+na tela dos terminais abertos e na notificação do sistema, com remetente e assunto (até 3; o resto
+"e mais N") — sem repetir, e sem avisar a caixa inteira na primeira rodada. `email_aviso=0` no
+`~/.config/tt/config` desliga o aviso. Contas só IMAP (sem espelho) não entram na contagem nem no aviso.
 
 Gmail com OAuth2 funciona **de fábrica**: sem informar `client_id`, o cadastro usa o app
 "Desktop" do próprio tt no Google (num app instalado o client_secret não é confidencial — o

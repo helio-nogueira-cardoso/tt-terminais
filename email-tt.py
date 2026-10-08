@@ -903,6 +903,15 @@ def main(a):
         return lista_imagens(sys.stdin.buffer.read(), a[1])
     if a[:1] == ["baixar-imagem"] and len(a) == 3:
         return baixar_imagem(a[1], a[2])
+    if a[:1] == ["cabecalho"] and len(a) == 2:
+        # "remetente<TAB>assunto" de um arquivo de maildir, já decodificados (RFC 2047); para o aviso
+        # de e-mail novo. Nunca lê o corpo.
+        import email, email.policy, email.utils
+        with open(a[1], "rb") as f:
+            msg = email.message_from_binary_file(f, policy=email.policy.default)
+        nome, end = email.utils.parseaddr(str(msg.get("From", "")))
+        assunto = " ".join(str(msg.get("Subject", "") or "").split()) or "(sem assunto)"
+        print(f"{nome or end or '?'}\t{assunto}"); return 0
     if len(a) < 2:
         print(__doc__); return 2
     cmd, arg = a[0], a[1]

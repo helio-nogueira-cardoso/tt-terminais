@@ -7118,13 +7118,14 @@ versao_barra() { printf '#[fg=#6c7086]v%s ' "$(versao_num)"; }
 atualizar_barras() {
   tmux list-sessions >/dev/null 2>&1 || return 0
   local nome valor mudou="" c
-  for nome in fixadas atalhos transf versao tarefas; do
+  for nome in fixadas atalhos transf versao tarefas email; do
     case $nome in
       fixadas) valor=$(barra_fixadas_fmt) ;;
       atalhos) valor=$(atalhos_barra) ;;
       transf) valor=$(transferencias_barra) ;;
       versao) valor=$(versao_barra) ;;
       tarefas) valor=$(barra_tarefas_fmt) ;;
+      email) valor=$(barra_email_fmt) ;;
     esac
     [[ $valor == "$(tmux show -gqv "@barra_$nome")" ]] && continue
     tmux set -g "@barra_$nome" "$valor"; mudou=1
@@ -7312,6 +7313,7 @@ e	📧 Abrir o e-mail	$EU --email $(q "$c")
 c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
 n	＋ Cadastrar uma conta…	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
 a	⌨ Atalhos do e-mail	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' ⌨ atalhos do e-mail ' "$EU --email-atalhos"
+s	🔄 Sync local: estado das rodadas	tmux display-popup -c $(q "$c") -E -w 72 -h 20 -b rounded -T ' 🔄 sync local ' "$EU --email-sync-estado; printf '\\n⏎ fecha'; read -r _"
 ITENS
 }
 
@@ -8470,7 +8472,61 @@ email_sync() { # slug [inbox|completo]
   if ((st == 0)); then rm -f "${dir:?}/${slug:?}.erro" "${dir:?}/${slug:?}.erro.tmp"
   else { ((st == 124)) && echo "tempo esgotado ($teto s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } >"$dir/$slug.erro"; rm -f "${dir:?}/${slug:?}.erro.tmp"; fi
   rm -f "${dir:?}/${slug:?}.andamento"
+  email_novos_avisar "$slug"
+  atualizar_barras 2>/dev/null
   return $st
+}
+
+# Depois de uma rodada: avisa dos e-mails que CHEGARAM no INBOX — na tela de cada terminal aberto e
+# na notificação do sistema. "Chegou" = mensagem não lida cujo identificador (a parte do nome do
+# arquivo antes de ":2,") não existia na rodada anterior; o conjunto anterior fica em
+# email-sync/<slug>.vistas. Assim funciona com o aerc aberto (que move new/ → cur/ na hora) ou
+# fechado. Na primeira rodada só memoriza (senão avisaria a caixa inteira). Até 3 remetentes e
+# assuntos; o resto vira "e mais N". email_aviso=0 no ~/.config/tt/config desliga.
+email_novos_avisar() { # slug
+  local slug=${1:?} md dir vistas novas u arq n=0 corpo="" de assunto nome
+  [[ $(conf email_aviso) == 0 ]] && return 0
+  md=$(email_maildir "$slug")/INBOX; dir="$ESTADO_DIR/email-sync"; vistas="$dir/$slug.vistas"
+  [[ -d $md/new || -d $md/cur ]] || return 0
+  mkdir -p "$dir"
+  local todas; todas=$(find "$md/new" "$md/cur" -type f -printf '%f\n' 2>/dev/null | sed 's/:2,.*//' | sort -u)
+  if [[ ! -f $vistas ]]; then printf '%s\n' "$todas" >"$vistas"; return 0; fi
+  # não lidas agora: tudo em new/ e, em cur/, o que não tem a marca S
+  novas=$(comm -13 <(sort -u "$vistas") <(find "$md/new" "$md/cur" -type f \( -path '*/new/*' -o ! -name '*:2,*S*' \) -printf '%f\n' 2>/dev/null | sed 's/:2,.*//' | sort -u))
+  printf '%s\n' "$todas" >"$vistas.tmp" && mv "$vistas.tmp" "$vistas"
+  [[ -n $novas ]] || return 0
+  while IFS= read -r u; do
+    [[ -n $u ]] || continue
+    n=$((n + 1)); ((n <= 3)) || continue
+    arq=$(find "$md/new" "$md/cur" -type f -name "$u*" 2>/dev/null | head -1)
+    IFS=$'\t' read -r de assunto < <(python3 -I "$EMAIL_PY" cabecalho "$arq" 2>/dev/null)
+    corpo+="${corpo:+ · }${de:-?} — ${assunto:-(sem assunto)}"
+  done <<<"$novas"
+  ((n > 3)) && corpo+=" · e mais $((n - 3))"
+  local -A E=(); email_ler "$slug" 2>/dev/null; nome=${E[nome]:-$slug}
+  tarefas_notificar "📧 $nome: $n e-mail$( ((n > 1)) && echo s) novo$( ((n > 1)) && echo s)" "$corpo"
+  return 0
+}
+
+# Botão 📧 da barra (vai para @barra_email; recalculado por atualizar_barras — a barra não roda
+# processo): as não lidas do INBOX das contas com espelho local, lidas do próprio maildir (new/ e,
+# em cur/, sem a marca S), e o estado do sync — vermelho com ⚠ quando alguma conta está com erro
+# ou parada (--email-sync-estado conta o resto). Contas só IMAP não entram na soma (sem abrir o
+# aerc não há como saber). Em tela estreita (< 90) some a palavra "email", como antes.
+barra_email_fmt() {
+  local n=0 alerta="" slug est md; local -A E=()
+  for slug in $(email_slugs 2>/dev/null); do
+    E=(); email_ler "$slug" 2>/dev/null || continue
+    [[ ${E[sync_local]:-} == 1 ]] || continue
+    md=$(email_maildir "$slug")/INBOX
+    [[ -d $md ]] || continue
+    n=$((n + $(find "$md/new" -type f 2>/dev/null | wc -l) + $(find "$md/cur" -type f ! -name '*:2,*S*' 2>/dev/null | wc -l)))
+  done
+  while IFS=$'\t' read -r slug est; do [[ $est == erro || $est == parado ]] && alerta=1; done < <(email_sync_estado curto 2>/dev/null)
+  local rot='#{?#{e|<:#{client_width},90},, email}'
+  if [[ -n $alerta ]]; then printf '#[fg=#1e1e2e,bg=#f38ba8,bold] 📧%s ⚠ ' "$( ((n > 0)) && echo " $n")"
+  elif ((n > 0)); then printf '#[fg=#1e1e2e,bg=#f9e2af,bold] 📧 %s%s ' "$n" "$rot"
+  else printf '#[fg=#cdd6f4,bg=#45475a] 📧%s ' "$rot"; fi
 }
 
 # Sincroniza todas as contas com sync_local=1 (vigia e --email-sync sem NOME), no MODO dado.
@@ -8497,7 +8553,7 @@ email_sync_estado() { # [curto]
       read -r _ _ fim st < <(awk -F'\t' '$1 == "inbox"' "$dir/$slug" 2>/dev/null | tail -1)
       if [[ -z ${fim:-} ]]; then resumo=nunca
       elif ((st != 0)); then resumo=erro
-      elif ((agora - fim > 3 * ${TT_EMAIL_SYNC:-120} + 120)); then resumo=parado
+      elif ((${TT_EMAIL_SYNC:-120} > 0 && agora - fim > 3 * ${TT_EMAIL_SYNC:-120} + 120)); then resumo=parado
       else resumo=ok; fi
       printf '%s\t%s\n' "$slug" "$resumo"; continue
     fi
@@ -9956,6 +10012,7 @@ case "${1:-}" in
     else email_sync_todas "$es_modo"; fi
     exit ;;
   --email-sync-estado) email_sync_estado "${2:-}"; exit 0 ;;
+  --barra-email) barra_email_fmt; exit 0 ;;
   --email-mbsync-migrar) email_mbsyncrc_migrar; exit 0 ;;
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
   --email-conta-nova-ui) email_conta_nova_ui; exit ;;

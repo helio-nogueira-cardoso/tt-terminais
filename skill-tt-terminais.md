@@ -197,7 +197,11 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   chama). Pastas especiais `pasta_importantes`/`pasta_estrela` (marcas `\Important`/`\Flagged`)
   saem do espelho; `pasta_todos` vira o canal de arquivo com `MaxMessages`/`ExpireUnread`. Vigia:
   INBOX a cada `TT_EMAIL_SYNC` (120), completo a cada `TT_EMAIL_SYNC_COMPLETO` (1800), teto
-  `TT_EMAIL_SYNC_TETO` (600).
+  `TT_EMAIL_SYNC_TETO` (600). Depois de cada rodada `email_novos_avisar` (ids novos e não lidos em
+  INBOX/new+cur vs. `email-sync/<slug>.vistas`; `email-tt.py cabecalho ARQ` dá "remetente<TAB>assunto"
+  decodificados; `email_aviso=0` desliga) e `atualizar_barras`; `barra_email_fmt` (`tt --barra-email`)
+  preenche `@barra_email` (não lidas do espelho; ⚠ vermelho se `--email-sync-estado curto` tem
+  erro/parado), referenciada pelo range `email` do tema.
 - `tt --email-atalhos` — tela de atalhos do aerc em português.
 
 ### Nomeador de abas

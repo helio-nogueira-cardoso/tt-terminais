@@ -127,6 +127,8 @@ done
 # verbo de teclado/CLI --email, cliente configurável (default aerc) e aviso quando ausente.
 base=$falhas
 rg -q 'range=user\|email' "$tema" || falha 'e-mail: range ausente no tema'
+rg -q '@barra_email' "$tema" && rg -q '^barra_email_fmt\(\)' "$tt" || falha 'e-mail: botão 📧 deve vir de @barra_email (não lidas e estado do sync, sem processo na barra)'
+rg -q '^email_novos_avisar\(\)' "$tt" || falha 'e-mail: aviso de e-mail novo (email_novos_avisar) ausente'
 rg -Fq 'email) botao_email' "$tt" || falha 'e-mail: case de botão ausente'
 rg -Fq -- '--email)' "$tt" || falha 'e-mail: verbo --email ausente'
 rg -q '^email_comando\(\)' "$tt" && rg -q 'c=\$\{c:-aerc\}' "$tt" || falha 'e-mail: email_comando com default aerc ausente'
