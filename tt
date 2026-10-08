@@ -5683,7 +5683,8 @@ notif_abrir() { # ação cliente
     return 0
   fi
   case $acao in
-    email) botao_email "$c"; (sleep 1; tmux send-keys -t "=$EMAIL_SESSAO:" F11 2>/dev/null) & ;;
+    email:*) email_ir_novo "${acao#email:}" "$c" ;;   # aviso de e-mail novo: vai à conta e à mensagem (:check-mail vai dentro)
+    email) botao_email "$c" ;;
     tarefas) abrir_tarefas "$c" ;;
     calendario) abrir_calendario "$c" ;;
     cmd:*) rodar_fora 0 "${acao#cmd:}" ;;
@@ -9439,7 +9440,8 @@ email_novos_avisar() { # slug
   done <<<"$novas"
   ((n > 3)) && corpo+=" · e mais $((n - 3))"
   local -A E=(); email_ler "$slug" 2>/dev/null; nome=${E[nome]:-$slug}
-  tarefas_notificar "📧 $nome: $n e-mail$( ((n > 1)) && echo s) novo$( ((n > 1)) && echo s)" "$corpo" email
+  # ação email:SLUG: o clique no aviso vai à conta e à mensagem nova (email_ir_novo)
+  tarefas_notificar "📧 $nome: $n e-mail$( ((n > 1)) && echo s) novo$( ((n > 1)) && echo s)" "$corpo" "email:$slug"
   return 0
 }
 
@@ -9492,6 +9494,71 @@ email_aerc_conferir() {
   tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null || return 0
   [[ -z $(tmux show -wqv -t "=$EMAIL_SESSAO:" @tt_email_tela 2>/dev/null) ]] && tmux send-keys -t "=$EMAIL_SESSAO:" F11 2>/dev/null
   return 0
+}
+
+# ─── Abrir pelo aviso: ir à mensagem nova ────────────────────────────────────
+#
+# O clique no aviso "📧 Conta: N e-mails novos" (ação email:SLUG → notif_abrir) e tt --email-ir-novo
+# SLUG [cliente]: em vez de reabrir o popup como ficou (mensagem velha aberta, outra conta), vai à
+# conta do aviso, ao INBOX dela, e foca a não lida mais recente. Tudo por comandos ao aerc pelo
+# IPC (`aerc :comando` fala com a instância da sessão oculta; o socket fica em
+# $XDG_RUNTIME_DIR/aerc.sock) — nunca teclas cegas: :change-tab é global e vale com compose ou
+# terminal na frente (eles ficam na aba deles); :cf e :search só depois dele. Conferido com o aerc
+# 0.21 real: :select 0 + :search -u foca a não lida mais recente, mesmo dentro de uma conversa, e
+# sem não lida fica no topo; :clear logo depois desfaz a seleção (por isso não vem). Na tela
+# estreita (sem prévia) abre a mensagem (:view). No fim, :check-mail. Sem IPC (aerc antigo, -I,
+# socket ausente) abre como sempre. Sessão oculta ainda não existe: abre o popup e salta assim que
+# o aerc subir. Os avisos dessa conta ficam marcados como lidos (<id>.lida na central).
+email_ipc_socket() { printf '%s/aerc.sock' "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; }
+# Um comando ao aerc da sessão oculta. Falha sem instância (socket ou aerc ausentes) ou quando o
+# aerc responde erro ("response: …"). O aerc sem instância abriria a interface aqui: por isso a
+# guarda antes, e o timeout.
+email_ipc() { # :comando [argumentos…]
+  local out
+  [[ -S $(email_ipc_socket) ]] || return 1
+  tmux list-panes -s -t "=$EMAIL_SESSAO" -F '#{pane_current_command}' 2>/dev/null | grep -q '^aerc' || return 1
+  out=$(timeout 5 aerc "$@" 2>/dev/null </dev/null) || return 1
+  ! grep -q '^response:' <<<"$out"
+}
+# Vai à conta (nome no aerc), ao INBOX e à não lida mais recente. ESPERA (s) entre a troca de aba e
+# o resto, para a lista carregar (aerc recém-aberto).
+email_saltar_novo() { # nome-da-conta [espera]
+  local nome=$1 espera=${2:-0.3}
+  email_ipc :change-tab "$nome" || return 1
+  email_ipc :cf INBOX; sleep "$espera"
+  email_ipc :select 0; email_ipc ':search -u'
+  [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo 2>/dev/null) == estreito ]] && email_ipc :view
+  email_ipc :check-mail
+  return 0
+}
+# Marca como lidos os avisos com a ação dada (<id>.lida ao lado do arquivo do aviso): abrir a
+# mensagem por aqui vale como ler o aviso na central.
+email_avisos_lidos() { # ação (email:SLUG)
+  local f exp txt acao n=""
+  for f in $(ls -1 "$DIR_NOTIFS" 2>/dev/null); do
+    [[ $f == *.lida ]] && continue
+    IFS=$'\t' read -r exp txt acao <"$DIR_NOTIFS/$f" || continue
+    [[ $acao == "$1" && ! -f $DIR_NOTIFS/$f.lida ]] && { : >"$DIR_NOTIFS/$f.lida"; n=1; }
+  done
+  [[ -n $n ]] && atualizar_barras >/dev/null 2>&1   # a central deixa de mostrá-los em negrito
+  return 0
+}
+email_ir_novo() { # slug [cliente]
+  local slug=$1 c=${2:-} nome=""; local -A E=()
+  [[ -n $c ]] || c=$(tmux display-message -p '#{client_name}' 2>/dev/null)
+  email_avisos_lidos "email:$slug"
+  email_ler "$slug" 2>/dev/null && nome=${E[nome]:-}
+  if [[ -n $nome ]]; then
+    if tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
+      email_tela_fechar
+      email_saltar_novo "$nome"
+    else
+      # o popup abre a sessão oculta (botao_email); o salto vai assim que o aerc subir o IPC
+      ( for ((i = 0; i < 40; i++)); do sleep 0.5; email_saltar_novo "$nome" 2 && break; done ) >/dev/null 2>&1 </dev/null &
+    fi
+  fi
+  [[ -n ${TT_EMAIL_SEM_POPUP:-} ]] && return 0   # testes: só o salto e a marca
+  botao_email "$c"
 }
 # Uma conta, à mão: se a trava está com outra rodada, espera um pouco; se é a volta completa
 # (minutos) segurando a trava, derruba o mbsync dela — o vigia refaz a completa na próxima vez,
@@ -11282,6 +11349,10 @@ case "${1:-}" in
     exit ;;
   --email-sync-estado) email_sync_estado "${2:-}"; exit 0 ;;
   --email-sync-agora) email_sync_agora "${2:-}"; exit ;;
+  --email-ir-novo) email_ir_novo "${2:?uso: tt --email-ir-novo SLUG [cliente]}" "${3:-}"; exit ;;
+  --email-saltar-novo)   # interno: só o salto no aerc (sem popup), pelo slug
+    declare -A E=(); email_ler "${2:?uso: tt --email-saltar-novo SLUG}" 2>/dev/null || { echo "conta desconhecida: $2"; exit 1; }
+    email_saltar_novo "${E[nome]}"; exit ;;
   --barra-email) barra_email_fmt; exit 0 ;;
   --email-mbsync-migrar) email_mbsyncrc_migrar; exit 0 ;;
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
