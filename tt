@@ -375,6 +375,7 @@ vigiar() {
       ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
       ("$EU" --reconciliar-fixadas >/dev/null 2>&1 &)
       ("$EU" --tarefas-puxar >/dev/null 2>&1 &)
+      ("$EU" --tarefas-lembrete >/dev/null 2>&1 &)
     fi
     # Cadastro das contas de IA: muda pouco e cada mudança já é enviada na hora; isto é só a rede de
     # segurança de quem estava desligada.
@@ -4018,11 +4019,11 @@ tarefas_meta_get() { # meta chave
   local meta=$1 chave=$2 par IFS='|'
   for par in $meta; do [[ $par == "$chave="* ]] && { printf '%s' "${par#*=}"; return 0; }; done
 }
-tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|prio|rep|pai|ord)
+tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|prio|rep|tags|pai|ord)
   local meta=$1 chave=$2 valor=$3 k out="" par; local -A M=(); local IFS='|'
   for par in $meta; do [[ $par == *=* ]] && M[${par%%=*}]=${par#*=}; done
   M[$chave]=$valor
-  for k in desc prazo prio rep pai ord; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
+  for k in desc prazo prio rep tags pai ord; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
   printf '%s' "$out"
 }
 tarefas_b64()   { printf '%s' "$1" | base64 | tr -d '\n'; }
@@ -4134,11 +4135,12 @@ tarefas_token_prazo() { # token-sem-@
 }
 # Cria uma tarefa a partir de uma frase com tokens. Imprime o id criado.
 tarefa_add_natural() {
-  local frase=$1 tok prazo="" prio="" rep="" resto=()
+  local frase=$1 tok prazo="" prio="" rep="" tags="" resto=()
   for tok in $frase; do
     case $tok in
       @?*) local ep; ep=$(tarefas_token_prazo "${tok#@}") && [[ -n $ep ]] && { prazo=$ep; continue; }
            resto+=("$tok") ;;
+      '#'?*) local tg=${tok#\#}; tg=${tg,,}; tags="${tags:+$tags,}$tg" ;;
       '!'alta|'!'1) prio=1 ;;
       '!'media|'!'méd*|'!'med|'!'2) prio=2 ;;
       '!'baixa|'!'3) prio="" ;;
@@ -4154,6 +4156,7 @@ tarefa_add_natural() {
   [[ -n $prazo ]] && meta=$(tarefas_meta_set "$meta" prazo "$prazo")
   [[ -n $prio ]] && meta=$(tarefas_meta_set "$meta" prio "$prio")
   [[ -n $rep ]] && meta=$(tarefas_meta_set "$meta" rep "$rep")
+  [[ -n $tags ]] && meta=$(tarefas_meta_set "$meta" tags "$tags")
   [[ -n $meta ]] && tarefa_set_meta "$id" "$meta"
   printf '%s\n' "$id"
 }
@@ -4433,6 +4436,41 @@ tarefas_puxar_tudo() {
     ambos) puxar_tarefas; puxar_tarefas_git ;;
   esac
   tarefas_compactar
+}
+
+# --- lembrete de prazo (notificação do sistema, disparado pelo vigia) ------
+#
+# Avisa uma vez por dia por tarefa aberta vencida ou de hoje, via notificação nativa da plataforma
+# (notify-send no Linux, termux-notification no Termux). Sem notificador disponível, não faz nada.
+# A deduplicação é por "id|AAAAMMDD" num arquivo de estado, para não repetir no mesmo dia nem a
+# cada ciclo do vigia. TT_TAREFAS_LEMBRETE=0 desliga.
+tarefas_lembrete_arq() { echo "$ESTADO_DIR/tt-tarefas-avisadas"; }
+tarefas_notificar() { # titulo corpo
+  local t=$1 c=$2
+  if command -v notify-send >/dev/null 2>&1; then notify-send -a tt "$t" "$c" >/dev/null 2>&1
+  elif command -v termux-notification >/dev/null 2>&1; then termux-notification --title "$t" --content "$c" >/dev/null 2>&1
+  else return 1; fi
+}
+tarefas_lembrete() {
+  [[ ${TT_TAREFAS_LEMBRETE:-1} == 0 ]] && return 0
+  command -v notify-send >/dev/null 2>&1 || command -v termux-notification >/dev/null 2>&1 || return 0
+  local arq hoje id est m prazo d txt rot chave
+  arq=$(tarefas_lembrete_arq); mkdir -p "$ESTADO_DIR"; touch "$arq"
+  hoje=$(tt_fmt_epoch "$(date +%s)" +%Y%m%d)
+  while IFS=$'\t' read -r id est m txt; do
+    [[ $est == aberta ]] || continue
+    [[ $m == - ]] && m=""
+    [[ -n $(tarefas_meta_get "$m" pai) ]] && continue
+    prazo=$(tarefas_meta_get "$m" prazo); [[ -n $prazo ]] || continue
+    d=$(tarefas_dias_ate "$prazo"); [[ -n $d && $d -le 0 ]] || continue
+    chave="$id|$hoje"
+    grep -qxF "$chave" "$arq" && continue      # já avisado hoje
+    rot=$([[ $d -lt 0 ]] && echo "venceu" || echo "é hoje")
+    tarefas_notificar "📋 Tarefa $rot" "$txt" && printf '%s\n' "$chave" >>"$arq"
+  done < <(tarefas_vivas | awk -F'\t' '{m=($6==""?"-":$6); print $1"\t"$2"\t"m"\t"$5}')
+  # Poda linhas de dias anteriores para o arquivo não crescer sem limite.
+  local tmp; tmp=$(mktemp); grep -F "|$hoje" "$arq" 2>/dev/null >"$tmp"; mv "$tmp" "$arq" 2>/dev/null || rm -f "$tmp"
+  return 0
 }
 
 # --- barra e UI ------------------------------------------------------------
@@ -4723,6 +4761,8 @@ tarefas_lista_fzf() {
     pr=$(tarefas_prazo_rotulo "$prazo"); desc=$([[ -n $(tarefas_meta_get "$m" desc) ]] && echo ' ¶')
     local repi; repi=$(tarefas_rep_icone "$(tarefas_meta_get "$m" rep)")
     desc="$desc$repi"
+    local tgs; tgs=$(tarefas_meta_get "$m" tags)
+    [[ -n $tgs ]] && desc="$desc  #${tgs//,/ #}"
     sub=${FILHAS_EST[$id]:-}
     if [[ -n $sub ]]; then
       exp=$(tarefas_exp_tem "$id" && echo ▾ || echo ▸)
@@ -4741,14 +4781,15 @@ tarefas_lista_fzf() {
       printf '%s\t%s%s   %s %s%s%s\n' "$id" "$urg" "$prioi" "$marca" "$txt" "$desc" "${pr:+  $pr}"
     fi
   done < <(tarefas_topo_ordenadas)
-  # Estado vazio: orienta em vez de deixar a tela em branco (id vazio = linha não acionável).
+  # Estado vazio: orienta em vez de deixar a tela em branco (id vazio = linha não acionável). Sem
+  # ANSI: este fzf não usa --ansi, então código de cor no corpo apareceria cru.
   if ((vistas == 0)); then
     case $filtro in
-      hoje)    printf '\t\033[90m   Nada para hoje. Respira. 🌿\033[0m\n' ;;
-      feitas)  printf '\t\033[90m   Nenhuma tarefa concluída ainda.\033[0m\n' ;;
-      prazo)   printf '\t\033[90m   Nenhuma tarefa com prazo.\033[0m\n' ;;
-      abertas) printf '\t\033[90m   Tudo em dia! ^n cria uma nova.\033[0m\n' ;;
-      *)       printf '\t\033[90m   Sem tarefas. ^n ou digite para criar.\033[0m\n' ;;
+      hoje)    printf '\t   Nada para hoje. Respira. 🌿\n' ;;
+      feitas)  printf '\t   Nenhuma tarefa concluída ainda.\n' ;;
+      prazo)   printf '\t   Nenhuma tarefa com prazo.\n' ;;
+      abertas) printf '\t   Tudo em dia! ^n cria uma nova.\n' ;;
+      *)       printf '\t   Sem tarefas. ^n ou digite para criar.\n' ;;
     esac
   fi
 }
@@ -4767,6 +4808,8 @@ tarefa_preview() { # id
   [[ -n $prazo ]] && printf 'prazo: %s\n' "$(tt_fmt_epoch "$prazo" +'%a, %d/%m/%Y')"
   local rep; rep=$(tarefas_meta_get "$m" rep)
   [[ -n $rep ]] && printf 'repete: %s\n' "$([[ $rep == d ]] && echo diária || { [[ $rep == w ]] && echo semanal || echo mensal; })"
+  local tgs; tgs=$(tarefas_meta_get "$m" tags)
+  [[ -n $tgs ]] && printf 'tags: #%s\n' "${tgs//,/ #}"
   desc=$(tarefa_get_desc "$id")
   [[ -n $desc ]] && { printf '\n%s\n' "$desc"; }
   return 0
@@ -7445,6 +7488,7 @@ case "${1:-}" in
   --receber-tarefas) receber_tarefas; exit ;;
   --tarefas-espelhar) tarefas_espelhar; exit ;;
   --tarefas-puxar) tarefas_puxar_tudo; exit ;;
+  --tarefas-lembrete) tarefas_lembrete; exit ;;
   --tarefas-barra) barra_tarefas_fmt; exit ;;
   --email-pastas) s=$(email_achar "${2:?uso: tt --email-pastas NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_detectar_pastas "$s" && echo "✔ pastas atualizadas"; exit ;;
   --email-remover) s=$(email_achar "${2:?uso: tt --email-remover NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_remover_slug "$s"; exit ;;
