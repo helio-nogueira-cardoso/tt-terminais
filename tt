@@ -1631,7 +1631,7 @@ CONF
     redesenhar_todos
     # O laço do letreiro em execução é da versão antiga: morre aqui e o vigia novo sobe outro
     # (um laço velho preso na trava seguia redesenhando no ritmo antigo — cursor dançando).
-    pkill -f "tt --ticker-loop" 2>/dev/null
+    pkill -f 'tt --ticker-loop$' 2>/dev/null # âncora: só o processo do laço, nunca quem cita o texto
     # O vigia em execução é da versão antiga: troca por um novo.
     # (versões antigas gravavam o pidfile onde o XDG_RUNTIME_DIR do momento apontasse: procura em todos)
     for pidf in "$RT" "${XDG_RUNTIME_DIR:-$RT}" "${TMPDIR:-/tmp}" /tmp; do
