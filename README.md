@@ -430,9 +430,13 @@ repositório git seu). A junção é por tarefa (a alteração mais recente venc
 
 Uma segunda linha na barra com as sessões que você usa sempre (desta ou de outras máquinas): um
 toque vai direto para ela ao pressionar, e o ✕ ao lado desafixa; botão direito num item: ir, desafixar e
-mover (um passo, para o início ou para o fim). Quando há mais fixadas do que cabem, a faixa vira uma
-janela com setas `‹`/`›` que rolam de página em página (a sessão em uso é sempre trazida para a janela
-visível). Para fixar a sessão em uso: o pino ao lado do nome dela na barra (📍 = não fixada, um
+mover (um passo, para o início ou para o fim), e **≡ Todas as fixadas**, que abre o popup com a lista
+completa. Quando a faixa enche, nada rola: os rótulos **encolhem por estágios** até todas caberem na
+largura da tela (primeiro o nome encurta, depois o ✕ sai — desafixe pelo popup ou pelo botão direito);
+só quando nem comprimido cabe é que os excedentes viram um chip **`+N ▾`**, que abre o mesmo popup
+(a sessão em uso nunca some da faixa). No popup: `⏎` vai para a sessão, `^x` desafixa e `^k`/`^j`
+(ou alt-↑/↓) **reordenam ao vivo** — o item acompanha o cursor e, ao fechar, a barra e as outras
+máquinas recebem a ordem nova. Para fixar a sessão em uso: o pino ao lado do nome dela na barra (📍 = não fixada, um
 clique fixa; 📌 = fixada, um clique desafixa). Também: menu da sessão (botão direito em
 "sessão ▾") → "📌 Fixar na barra", `^f` no seletor, ou `tt --fixar [máquina:]sessão`. A lista é a mesma em todas as máquinas (cada mudança é copiada
 para as cadastradas; quem estava desligada puxa a mais nova sozinha ao voltar, em até 5 min), então

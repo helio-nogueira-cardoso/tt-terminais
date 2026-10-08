@@ -6529,56 +6529,83 @@ reconciliar_fixadas() {
 # status-interval curto e comandos #() na barra, cada cliente disparava processos a cada segundo e o
 # cursor piscava indo e voltando da barra. Recalculada só quando algo muda (atualizar_barras).
 barra_fixadas_fmt() {
-  local i=0 r s id rot chave normal='#[bg=#44475a]#[fg=#f8f8f2]#[nobold]' atual='#[bg=#bd93f9]#[fg=#282a36]#[bold]' estilo
+  local normal='#[bg=#44475a]#[fg=#f8f8f2]#[nobold]' atual='#[bg=#bd93f9]#[fg=#282a36]#[bold]' morta='#[bg=#282a36]#[fg=#6272a4]#[nobold]'
   local -A existe
+  local s r id
   while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
   if [[ -z $(fixadas) ]]; then
     printf '#[fg=#6272a4] ▸ 📌'
     return 0
   fi
-  # Overflow: a faixa é uma linha só. Com muitas fixadas o tmux cortaria o fim sem aviso. Em vez
-  # disso mostramos uma JANELA de até TT_FIX_VISIVEIS itens a partir de um deslocamento guardado em
-  # @fix_off, com setas ‹ › clicáveis quando há itens escondidos (fixprev/fixnext movem a janela).
-  # A sessão atual, se fixada, é sempre trazida para dentro da janela, para o destaque não sumir.
-  local total vis off atuali=0
-  total=$(fixadas | wc -l)
-  vis=${TT_FIX_VISIVEIS:-8}; ((vis < 1)) && vis=1
-  off=$(tmux show -gqv @fix_off 2>/dev/null); [[ $off =~ ^[0-9]+$ ]] || off=0
-  if ((total > vis)); then
-    # Só reposiciona a janela pela sessão em uso quando há um cliente anexado de fato: sem cliente,
-    # display-message devolveria uma sessão qualquer do servidor (não a que alguém vê na barra).
-    local cur=""
-    [[ -n $(tmux list-clients -F x 2>/dev/null) ]] && cur=$(tmux display-message -p '#{session_name}' 2>/dev/null)
-    if [[ -n $cur ]]; then
-      atuali=$(fixadas | awk -F'\t' -v m="$MAQUINA" -v c="$cur" '$1 == m && $2 == c { print NR; exit }')
-    fi
-    if ((atuali > 0)); then
-      ((atuali <= off)) && off=$((atuali - 1))
-      ((atuali > off + vis)) && off=$((atuali - vis))
-    fi
-    ((off > total - vis)) && off=$((total - vis))
-    ((off < 0)) && off=0
-  else
-    off=0
-  fi
-  [[ $(tmux show -gqv @fix_off 2>/dev/null) == "$off" ]] || tmux set -g @fix_off "$off" 2>/dev/null
-  printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
-  ((off > 0)) && printf '#[range=user|fixprev]#[fg=#bd93f9,bold] ‹ #[norange]#[default]'
+  # Sem scroll: os rótulos encolhem por estágios até TODOS caberem na largura do menor cliente
+  # (22 → 12 → 8 com ✕; 8 → 5 sem o ✕). Só quando nem assim cabe, os excedentes viram um chip
+  # "+N ▾" que abre o popup com a lista completa (ir, desafixar, reordenar). TT_FIX_LARGURA
+  # força a largura (testes); TT_FIX_VISIVEIS, se definido, é um teto duro de itens na faixa.
+  local -a rots=() chaves=() vivas=()
+  local total=0 larg disp
   while IFS=$'\t' read -r r s id; do
-    i=$((i + 1))
-    ((i <= off)) && continue
-    ((i > off + vis)) && break
-    chave=$(fixada_chave "$r" "$s" "$id")
-    if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
-    rot=${rot:0:22}; rot=${rot//#/##}
-    if [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then estilo='#[bg=#282a36]#[fg=#6272a4]#[nobold]'; rot="✗ $rot"
-    elif [[ $r == "$MAQUINA" && $s != *[,}#]* ]]; then estilo="#{?#{==:#{session_name},$s},$atual,$normal}"
-    else estilo=$normal; fi
-    # O espaço antes do ✕ fica no range dele: o tmux dá a 1ª coluna de um range ao range colado
-    # antes, e um toque bem em cima do ✕ ia para a sessão em vez de desafixar.
-    printf '#[range=user|fx%s]%s %s#[norange]#[range=user|fxx%s]%s ✕ #[norange]#[default] ' "$chave" "$estilo" "$rot" "$chave" "$estilo"
+    total=$((total + 1))
+    chaves[total]=$(fixada_chave "$r" "$s" "$id")
+    if [[ $r == "$MAQUINA" ]]; then rots[total]=$s; else rots[total]="$r:$s"; fi
+    if [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then vivas[total]=0; rots[total]="✗ ${rots[total]}"
+    elif [[ $r == "$MAQUINA" && $s != *[,}#]* ]]; then vivas[total]=2
+    else vivas[total]=1; fi
   done < <(fixadas)
-  ((off + vis < total)) && printf '#[range=user|fixnext]#[fg=#bd93f9,bold] › #[norange]#[default]'
+  larg=${TT_FIX_LARGURA:-$(tmux list-clients -F '#{client_width}' 2>/dev/null | sort -n | head -1)}
+  [[ $larg =~ ^[0-9]+$ ]] || larg=80
+  disp=$((larg - 3 - 16)) # marcador " ▸ " e o canto direito (📋 tarefas + versão)
+  ((disp < 12)) && disp=12
+  local cap="" com_x="" custo i l vis chip oculto
+  for e in "22 1" "12 1" "8 0" "5 0"; do
+    read -r cap com_x <<<"$e"
+    custo=0
+    for ((i = 1; i <= total; i++)); do
+      l=${#rots[i]}; ((l > cap)) && l=$cap
+      custo=$((custo + l + (com_x ? 5 : 3)))
+    done
+    ((custo <= disp)) && break
+    cap=""
+  done
+  if [[ -n $cap ]]; then vis=$total
+  else
+    cap=5; com_x=0; vis=0; custo=0
+    for ((i = 1; i <= total; i++)); do
+      l=${#rots[i]}; ((l > cap)) && l=$cap
+      ((custo + l + 3 <= disp - 7)) || break
+      custo=$((custo + l + 3)); vis=$((vis + 1))
+    done
+    ((vis < 1)) && vis=1
+  fi
+  [[ ${TT_FIX_VISIVEIS:-} =~ ^[0-9]+$ ]] && ((TT_FIX_VISIVEIS > 0 && vis > TT_FIX_VISIVEIS)) && vis=$TT_FIX_VISIVEIS
+  oculto=$((total - vis))
+  # A sessão em uso, se fixada e escondida, toma o último lugar visível (o destaque nunca some).
+  if ((oculto > 0)) && [[ -n $(tmux list-clients -F x 2>/dev/null) ]]; then
+    local cur atuali=0
+    cur=$(tmux display-message -p '#{session_name}' 2>/dev/null)
+    [[ -n $cur ]] && atuali=$(fixadas | awk -F'\t' -v m="$MAQUINA" -v c="$cur" '$1 == m && $2 == c { print NR; exit }')
+    if ((atuali > vis)); then
+      rots[vis]=${rots[atuali]}; chaves[vis]=${chaves[atuali]}; vivas[vis]=${vivas[atuali]}
+    fi
+  fi
+  printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
+  local rot estilo
+  for ((i = 1; i <= vis; i++)); do
+    rot=${rots[i]:0:cap}; rot=${rot//#/##}
+    case ${vivas[i]} in
+      0) estilo=$morta ;;
+      2) estilo="#{?#{==:#{session_name},${rots[i]}},$atual,$normal}" ;;
+      *) estilo=$normal ;;
+    esac
+    if ((com_x)); then
+      # O espaço antes do ✕ fica no range dele: o tmux dá a 1ª coluna de um range ao range colado
+      # antes, e um toque bem em cima do ✕ ia para a sessão em vez de desafixar.
+      printf '#[range=user|fx%s]%s %s#[norange]#[range=user|fxx%s]%s ✕ #[norange]#[default] ' "${chaves[i]}" "$estilo" "$rot" "${chaves[i]}" "$estilo"
+    else
+      printf '#[range=user|fx%s]%s %s #[norange]#[default] ' "${chaves[i]}" "$estilo" "$rot"
+    fi
+  done
+  ((oculto > 0)) && printf '#[range=user|fixmais]#[bg=#44475a]#[fg=#bd93f9,bold] +%d ▾ #[norange]#[default]' "$oculto"
+  return 0
 }
 
 # Indicador discreto no canto direito da faixa de fixadas. É uma opção do tmux, não um #(), para
@@ -6670,6 +6697,8 @@ e	◀ Mover para a esquerda	$( ((i > 1)) && echo "$EU --mover-fixada $i $((i - 1
 r	▶ Mover para a direita	$( ((i < n)) && echo "$EU --mover-fixada $i $((i + 1))")
 a	⏮ Mover para o início	$( ((i > 1)) && echo "$EU --mover-fixada $i 1")
 z	⏭ Mover para o fim	$( ((i < n)) && echo "$EU --mover-fixada $i $n")
+-		
+t	≡ Todas as fixadas (ir · reordenar · desafixar)…	$EU --fixadas-popup $(q "$c")
 ITENS
 }
 
@@ -6697,22 +6726,60 @@ mover_fixada() {
   propagar_fixadas
 }
 
-# Setas ‹ › da faixa: movem a janela visível (deslocamento @fix_off) de uma página de cada vez,
-# saturando nas pontas. Só redesenha a barra; não mexe na lista nem propaga para outras máquinas.
-fixada_scroll() {
-  local dir=$1 total vis off
-  total=$(fixadas | wc -l)
-  vis=${TT_FIX_VISIVEIS:-8}; ((vis < 1)) && vis=1
-  ((total > vis)) || { tmux set -g @fix_off 0 2>/dev/null; atualizar_barras; return 0; }
-  off=$(tmux show -gqv @fix_off 2>/dev/null); [[ $off =~ ^[0-9]+$ ]] || off=0
-  case $dir in
-    prev) off=$((off - vis)) ;;
-    next) off=$((off + vis)) ;;
-  esac
-  ((off > total - vis)) && off=$((total - vis))
-  ((off < 0)) && off=0
-  tmux set -g @fix_off "$off" 2>/dev/null
-  atualizar_barras
+# Popup com TODAS as fixadas (abre pelo chip "+N ▾", pelo menu do botão direito, ou
+# tt --fixadas-popup): ⏎/clique vai para a sessão, ^x desafixa, ^k/^j (ou alt-↑/↓) REORDENA ao
+# vivo — o item acompanha o cursor e a barra e as outras máquinas recebem a ordem nova ao fechar.
+fixadas_popup() {
+  local c=${1:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
+  [[ -n $c ]] || { fixadas_ui ""; return 0; }
+  tmux display-popup -c "$c" -E -w 64 -h 18 -b rounded -S 'fg=#bd93f9' -T ' 📌 sessões fixadas ' "$EU --fixadas-ui $(q "$c")"
+}
+
+fixadas_ui_lista() {
+  local i=0 r s id rot marca
+  local -A existe
+  while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  while IFS=$'\t' read -r r s id; do
+    i=$((i + 1))
+    if [[ $r == "$MAQUINA" ]]; then rot=$s; marca=$([[ -n ${existe[$s]:-} ]] && echo "" || echo " ✗ fechada"); else rot="$r:$s"; marca=" 🖥 $r"; fi
+    printf 'fx%s\t%2d  📌 %s\033[38;2;108;112;134m%s\033[0m\n' "$(fixada_chave "$r" "$s" "$id")" "$i" "$rot" "$marca"
+  done < <(fixadas)
+}
+
+fixadas_ui() {
+  local c=$1 esc
+  while :; do
+    [[ -n $(fixadas) ]] || { echo "Nenhuma sessão fixada."; read -rsn1 -t 2; return 0; }
+    esc=$(fixadas_ui_lista | fzf --ansi --delimiter=$'\t' --with-nth=2 --layout=reverse --no-sort --no-input \
+      --header=$'📌 Fixadas · ⏎ vai · ^k/^j reordena · ^x desafixa · Esc fecha' \
+      --pointer='▶' --bind "ctrl-k:execute-silent($EU --mover-fixada-rel {n} -1)+reload($EU --fixadas-ui-lista)+up" \
+      --bind "alt-up:execute-silent($EU --mover-fixada-rel {n} -1)+reload($EU --fixadas-ui-lista)+up" \
+      --bind "ctrl-j:execute-silent($EU --mover-fixada-rel {n} 1)+reload($EU --fixadas-ui-lista)+down" \
+      --bind "alt-down:execute-silent($EU --mover-fixada-rel {n} 1)+reload($EU --fixadas-ui-lista)+down" \
+      --bind "ctrl-x:execute-silent($EU --desafixar-n {n})+reload($EU --fixadas-ui-lista)" \
+      --bind 'q:abort') || { atualizar_barras; return 0; }
+    [[ -n $esc ]] || continue
+    atualizar_barras
+    [[ -n $c ]] && ir_fixada "$c" "$(cut -f1 <<<"$esc")"
+    return 0
+  done
+}
+
+# Reordena pelo índice 0-based do popup (o {n} do fzf): N vai para N+DELTA.
+mover_fixada_rel() {
+  local n0=$1 delta=$2 i j
+  [[ $n0 =~ ^[0-9]+$ ]] || return 0
+  i=$((n0 + 1)); j=$((i + delta))
+  mover_fixada "$i" "$j"
+}
+
+# Desafixa pelo índice 0-based do popup.
+desafixar_n() {
+  local n0=$1 r s id
+  [[ $n0 =~ ^[0-9]+$ ]] || return 0
+  IFS=$'\t' read -r r s id < <(fixadas | sed -n "$((n0 + 1))p")
+  [[ -n $s ]] && remover_fixada "$r" "$s" "$id"
+  return 0
 }
 
 # Botão direito na barra: em "máquina ▾" a administração, em "sessão ▾" o menu da sessão, no resto
@@ -6722,7 +6789,7 @@ clique_direito() {
   local faixa=${1#user|}
   case $faixa in
     fxx*) desafixar_item "$2" "${faixa#fxx}" ;;
-    fixprev | fixnext) : ;;
+    fixprev | fixnext | fixmais) fixadas_popup "$2" ;;
     fx*) menu_fixada "$2" "$faixa" ;;
     at[0-9]*) atalho_info "$2" "${faixa#at}" ;;
     maquina) menu_admin "$2" "$3" ;;
@@ -6979,8 +7046,7 @@ clique() {
     ajustar) ajustar "$2" ;;
     sessao) seletor_em "$2" "$MAQUINA" "$3" ;;
     fxx*) desafixar_item "$2" "${faixa#fxx}" ;;
-    fixprev) fixada_scroll prev ;;
-    fixnext) fixada_scroll next ;;
+    fixprev | fixnext | fixmais) fixadas_popup "$2" ;;
     fixar) fixar_atual "$2" ;;
     fx*) ir_fixada "$2" "$faixa" ;;
     tarefas) abrir_tarefas "$2" ;;
@@ -8828,7 +8894,7 @@ sair_menu() { limpar_estado; }
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --fixada-scroll | --aplicar-fixadas | --email-sync | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia)
+  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -9046,7 +9112,11 @@ case "${1:-}" in
   --propagar-fixadas) propagar_fixadas; exit ;;
   --ir-fixada) ir_fixada "$2" "$3"; exit ;;
   --mover-fixada) mover_fixada "$2" "$3"; exit ;;
-  --fixada-scroll) fixada_scroll "${2:-next}"; exit ;;
+  --mover-fixada-rel) mover_fixada_rel "$2" "$3"; exit ;;
+  --desafixar-n) desafixar_n "$2"; exit ;;
+  --fixadas-popup) fixadas_popup "${2:-}"; exit ;;
+  --fixadas-ui) fixadas_ui "${2:-}"; exit ;;
+  --fixadas-ui-lista) fixadas_ui_lista; exit ;;
   --alternar-fixada-rotulo) alternar_fixada "$2" "$3"; exit ;;
   --alternar-fixada) # DEST CHAVE (do seletor)
     [[ -n $3 && $3 != '!'* && $3 != '+'* && $3 != '%'* ]] && alternar_fixada "$(rotulo "$2")" "$3" >/dev/null; exit ;;
