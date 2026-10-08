@@ -679,8 +679,13 @@ tratado por ele, que só enxerga aquela linha: prefira o clique simples. Hyperli
 inteiros ao terminal de fora (recurso `hyperlinks` do tmux), então nesses o Ctrl+clique do próprio
 terminal também pega a URL toda, inclusive dentro de popups.
 
-No cadastro de conta com OAuth pelo navegador (Google), o endereço de autorização vem como hyperlink;
-⏎ abre o seletor e `c` ⏎ copia o endereço inteiro — o popup do cadastro não deixa o tmux selecionar.
+No cadastro de conta com OAuth, a espera pela autorização é um menu (↑/↓, roda ou clique escolhem,
+⏎ ou a letra confirma, Esc cancela) que continua esperando o navegador enquanto você usa: pelo
+navegador (Google), 🌐 abrir o endereço de autorização (seletor), 📋 copiar o endereço inteiro e
+📥 colar o endereço de volta quando o navegador está em outro aparelho (ou só colar com Ctrl+Shift+V
+no menu); pelo código no aparelho (Microsoft), abrir o endereço e copiar o código. O endereço também
+vem como hyperlink. As perguntas s/N e o "Enter volta" do cadastro aceitam as setas sem escrever
+`^[[A` na tela.
 
 ## Atualizar
 

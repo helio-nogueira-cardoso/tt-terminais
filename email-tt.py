@@ -232,6 +232,193 @@ def link_pelo_tt(url, acao):
         print("✗ não achei o tt para isso; copie o link acima.")
 
 
+def copiar_texto(texto, rotulo):
+    tt = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tt")
+    try:
+        subprocess.run([tt if os.access(tt, os.X_OK) else "tt", "--copiar"], input=texto, text=True)
+        print(f"✓ {rotulo} copiado.")
+    except OSError:
+        print(f"✗ não achei o tt para copiar; o {rotulo} está acima.")
+
+
+def no_terminal():
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def menu_espera(opcoes, pronto, prazo, colado=None):
+    """Menu enquanto o OAuth espera o navegador: ↑/↓, roda ou clique escolhem, ⏎ (ou a tecla da
+    opção) confirma, Esc/q/Ctrl+C cancela. Antes, a espera era uma leitura de linha: as setas viravam
+    ^[[A na tela. opcoes: [(tecla, rótulo, ação[, usa_terminal])]; a ação devolve None para voltar ao
+    menu ou um valor para sair com ele; só a que usa_terminal (seletor, digitar) devolve o terminal ao
+    modo normal enquanto roda — nas outras, tecla apertada no meio não vira ^[[A. pronto() é olhado a cada meio segundo e sai com o que devolver (não None).
+    Texto colado (ou digitado fora das teclas) vai para colado(texto). Devolve "prazo" no fim do prazo
+    e "cancelado" se o usuário desistir."""
+    import re, select, shutil, termios, tty
+    fd, out = sys.stdin.fileno(), sys.stdout
+    antigo = termios.tcgetattr(fd)
+    n, sel, topo, na_tela = len(opcoes), 0, None, [False]
+    largura = max(20, shutil.get_terminal_size((80, 24)).columns - 4)
+
+    def desenhar(de_novo):
+        na_tela[0] = True
+        if de_novo:
+            out.write(f"\033[{n}A")
+        for i, (tecla, rot, *_) in enumerate(opcoes):
+            rot = rot if len(rot) <= largura - 4 else rot[:largura - 5] + "…"
+            if i == sel:
+                out.write(f"\r\033[K\033[1;36m❯ {rot}\033[0m \033[90m{tecla}\033[0m\n")
+            else:
+                out.write(f"\r\033[K  {rot} \033[90m{tecla}\033[0m\n")
+        out.flush()
+
+    def entrar():
+        tty.setcbreak(fd, termios.TCSANOW)  # o padrão (TCSAFLUSH) jogava fora as teclas já apertadas
+        # sem cursor, com mouse (SGR) e colagem marcada; pergunta onde o cursor ficou (para o clique)
+        out.write("\033[?25l\033[?1000h\033[?1006h\033[?2004h")
+        desenhar(False)
+        out.write("\033[6n")
+        out.flush()
+
+    def sair():
+        out.write("\033[?2004l\033[?1006l\033[?1000l\033[?25h")
+        out.flush()
+        termios.tcsetattr(fd, termios.TCSADRAIN, antigo)
+
+    def ler(espera):
+        if not select.select([fd], [], [], espera)[0]:
+            return ""
+        return os.read(fd, 4096).decode("utf-8", "replace")
+
+    def apagar():  # tira o menu da tela: a saída da ação e o menu de novo ocupam o lugar dele
+        if na_tela[0]:
+            out.write(f"\033[{n}A\r\033[J")
+            na_tela[0] = False
+
+    def agir(i):
+        terminal = len(opcoes[i]) > 3 and opcoes[i][3]
+        apagar()
+        if terminal:
+            sair()
+        else:
+            out.write("\033[?25h")
+            out.flush()
+        r = opcoes[i][2]()
+        if r is None:
+            if terminal:
+                entrar()
+            else:
+                out.write("\033[?25l")
+                desenhar(False)
+                out.write("\033[6n")
+                out.flush()
+        return r
+
+    def colar(texto):
+        apagar()
+        sair()
+        r = colado(texto.strip()) if colado else None
+        if r is None:
+            entrar()
+        return r
+
+    entrar()
+    buf = ""
+    try:
+        while True:
+            r = pronto()
+            if r is not None:
+                return r
+            if time.time() > prazo:
+                return "prazo"
+            buf += ler(0.5)
+            while buf:
+                if buf.startswith("\033[200~"):  # colagem marcada (Ctrl+Shift+V, botão do meio)
+                    fim = buf.find("\033[201~")
+                    if fim < 0:
+                        buf += ler(0.5)
+                        if "\033[201~" not in buf:
+                            break
+                        continue
+                    texto, buf = buf[6:fim], buf[fim + 6:]
+                    r = colar(texto)
+                    if r is not None:
+                        return r
+                    continue
+                m = re.match(r"\033\[<(\d+);(\d+);(\d+)([Mm])", buf)
+                if m:
+                    buf = buf[m.end():]
+                    b, y = int(m.group(1)), int(m.group(3))
+                    if b in (64, 65):
+                        sel = (sel + (1 if b == 65 else -1)) % n
+                        desenhar(True)
+                    elif b == 0 and m.group(4) == "M" and topo is not None and 0 <= y - topo < n:
+                        sel = y - topo
+                        desenhar(True)
+                        r = agir(sel)
+                        if r is not None:
+                            return r
+                    continue
+                m = re.match(r"\033\[(\d+);(\d+)R", buf)
+                if m:  # resposta do \033[6n: o cursor está na linha logo abaixo do menu
+                    buf, topo = buf[m.end():], int(m.group(1)) - n
+                    continue
+                m = re.match(r"\033(?:\[|O)([AB])", buf)
+                if m:
+                    buf = buf[m.end():]
+                    sel = (sel + (1 if m.group(1) == "B" else -1)) % n
+                    desenhar(True)
+                    continue
+                if buf.startswith("\033"):
+                    m = re.match(r"\033\[[0-9;?]*[ -/]*[@-~]", buf)
+                    if m:  # outra tecla especial (Home, F1…): ignora
+                        buf = buf[m.end():]
+                        continue
+                    if len(buf) == 1:
+                        mais = ler(0.05)
+                        if mais:
+                            buf += mais
+                            continue
+                        return "cancelado"  # Esc sozinho
+                    buf = buf[1:]
+                    continue
+                c, buf = buf[0], buf[1:]
+                if c in "\r\n":
+                    r = agir(sel)
+                elif c in "kK":
+                    sel = (sel - 1) % n
+                    desenhar(True)
+                    continue
+                elif c in "jJ":
+                    sel = (sel + 1) % n
+                    desenhar(True)
+                    continue
+                elif c in ("\x03", "\x04"):
+                    return "cancelado"
+                elif any(c == o[0] for o in opcoes):
+                    sel = next(i for i, o in enumerate(opcoes) if c == o[0])
+                    desenhar(True)
+                    r = agir(sel)
+                elif colado and c.isprintable() and not c.isspace():
+                    # endereço colado sem a marcação (ou digitado): junta o resto que chegar
+                    texto = c + buf
+                    buf = ""
+                    while True:
+                        mais = ler(0.3)
+                        if not mais:
+                            break
+                        texto += mais
+                    r = colar(texto.split("\n")[0])
+                else:
+                    continue
+                if r is not None:
+                    return r
+    except KeyboardInterrupt:
+        return "cancelado"
+    finally:
+        apagar()
+        sair()
+
+
 def oauth_autorizar(c):
     if not c.get("oauth_client_id"):
         print("✗ falta oauth_client_id na conta (edite a conta e informe o ID do app OAuth).")
@@ -243,25 +430,53 @@ def oauth_autorizar(c):
         if "device_code" not in r:
             print(f"✗ não consegui iniciar a autorização: {r.get('error_description') or r.get('error')}")
             return 1
-        v = r.get('verification_uri') or r.get('verification_url')
+        v, codigo = r.get('verification_uri') or r.get('verification_url'), r['user_code']
         print(f"\nAbra {link_na_tela(v)} em qualquer aparelho")
-        print(f"e digite o código:  {r['user_code']}\n\nAguardando a sua confirmação…", flush=True)
+        print(f"e digite o código:  {codigo}\n")
         prazo = time.time() + int(r.get("expires_in", 900))
-        intervalo = int(r.get("interval", 5))
-        while time.time() < prazo:
-            time.sleep(intervalo)
+        intervalo, res = [int(r.get("interval", 5))], {}
+
+        def checar():
             t = post(c["oauth_token_endpoint"], {**base_oauth(c), "device_code": r["device_code"],
                      "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
             if "refresh_token" in t:
-                gravar_segredo(arq_segredo(c), t["refresh_token"])
-                print("✓ autorizado; o token de renovação foi guardado em ~/.secrets (600).")
-                return 0
+                res["rt"] = t["refresh_token"]
+                return "ok"
             if t.get("error") == "slow_down":
-                intervalo += 5
+                intervalo[0] += 5
             elif t.get("error") not in ("authorization_pending", None):
-                print(f"✗ {t.get('error_description') or t.get('error')}")
-                return 1
-        print("✗ o prazo para confirmar acabou; tente de novo.")
+                res["erro"] = t.get("error_description") or t.get("error")
+                return "erro"
+            return None
+        if no_terminal():
+            print("Aguardando a sua confirmação… (escolher no menu não interrompe a espera)\n", flush=True)
+            prox = [time.time() + intervalo[0]]
+
+            def pronto():
+                if time.time() < prox[0]:
+                    return None
+                prox[0] = time.time() + intervalo[0]
+                return checar()
+            fim = menu_espera([
+                ("a", f"🌐 Abrir {v} (Chrome interno, Carbonyl ou o do sistema)", lambda: link_pelo_tt(v, "abrir"), True),
+                ("c", f"📋 Copiar o código {codigo}", lambda: copiar_texto(codigo, "código")),
+                ("q", "✕ Cancelar", lambda: "cancelado")], pronto, prazo)
+        else:
+            print("Aguardando a sua confirmação…", flush=True)
+            fim = None
+            while time.time() < prazo and fim is None:
+                time.sleep(intervalo[0])
+                fim = checar()
+        if fim == "ok":
+            gravar_segredo(arq_segredo(c), res["rt"])
+            print("✓ autorizado; o token de renovação foi guardado em ~/.secrets (600).")
+            return 0
+        if fim == "erro":
+            print(f"✗ {res['erro']}")
+        elif fim == "cancelado":
+            print("✗ autorização cancelada.")
+        else:
+            print("✗ o prazo para confirmar acabou; tente de novo.")
         return 1
     # Fluxo com navegador (Google e outros): o navegador volta para http://127.0.0.1:PORTA. Se o
     # navegador estiver em outro aparelho, a página "não abre": copie o endereço dela e cole aqui.
@@ -285,10 +500,41 @@ def oauth_autorizar(c):
     # O endereço passa da largura da tela e quebra em várias linhas: copiar ou clicar pegava um pedaço.
     # Vai como hyperlink OSC 8 (a URL inteira em cada pedaço) e com atalhos que usam a URL inteira.
     print(f"\nAbra no navegador:\n\n{link_na_tela(url)}\n")
-    print("⏎ abre este link (Chrome interno, Carbonyl ou o navegador do sistema) · c ⏎ copia o link inteiro.")
-    print("Depois de autorizar: se o navegador está NESTA máquina, aguarde; se está em outro aparelho,")
-    print("copie o endereço da página que não abriu (começa com http://127.0.0.1) e cole aqui.\n", flush=True)
-    for _ in range(600):
+
+    def colado(texto):
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(texto).query)
+        if "code" in q or "error" in q:
+            recebido.update({k: v[0] for k, v in q.items()})
+            return "colado"
+        print("✗ isso não parece o endereço de volta (ele começa com http://127.0.0.1 e tem code=…).")
+        return None
+
+    def colar_digitando():
+        try:
+            import readline  # noqa: F401 — setas e edição na linha
+        except ImportError:
+            pass
+        try:
+            texto = input("Endereço de volta (⏎ confirma; vazio volta ao menu): ").strip()
+        except EOFError:
+            texto = ""
+        return colado(texto) if texto else None
+    if no_terminal():
+        print("Depois de autorizar, o tt segue sozinho. Com o navegador em outro aparelho a página de volta")
+        print("não abre: copie o endereço dela (começa com http://127.0.0.1) e cole aqui (Ctrl+Shift+V).\n", flush=True)
+        fim = menu_espera([
+            ("a", "🌐 Abrir no navegador (Chrome interno, Carbonyl ou o do sistema)", lambda: link_pelo_tt(url, "abrir"), True),
+            ("c", "📋 Copiar o link inteiro", lambda: link_pelo_tt(url, "copiar")),
+            ("v", "📥 Colar o endereço de volta (navegador em outro aparelho)", colar_digitando, True),
+            ("q", "✕ Cancelar", lambda: "cancelado")], lambda: "ok" if recebido else None, time.time() + 600, colado)
+        if fim == "cancelado":
+            print("✗ autorização cancelada.")
+            return 1
+    else:
+        print("⏎ abre este link (Chrome interno, Carbonyl ou o navegador do sistema) · c ⏎ copia o link inteiro.")
+        print("Depois de autorizar: se o navegador está NESTA máquina, aguarde; se está em outro aparelho,")
+        print("copie o endereço da página que não abriu (começa com http://127.0.0.1) e cole aqui.\n", flush=True)
+    for _ in range(0 if no_terminal() else 600):
         if recebido:
             break
         import select
