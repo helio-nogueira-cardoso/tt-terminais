@@ -5398,9 +5398,25 @@ barra_notifs_fmt() {
     printf '#[range=user|notifs]#[fg=#f9e2af] 🔔 %d #[norange]#[default]' "$n"
     return 0
   fi
-  orcamento=$((larg - 16 - 30 - 6))
+  orcamento=$((larg - 16 - 30 - 8))
   ((orcamento < 12)) && orcamento=12
-  ((${#itens} > orcamento)) && itens="${itens:0:orcamento}…"
+  # Trunca por LARGURA DE TELA (células), não por caracteres: emoji e símbolos ocupam 2 colunas e,
+  # contando caracteres, o texto saía mais largo que o orçamento e atropelava o │ de fechamento.
+  if command -v python3 >/dev/null; then
+    itens=$(ORC=$orcamento python3 -I -c '
+import sys, os, unicodedata
+t = sys.stdin.read().rstrip("\n"); orc = int(os.environ["ORC"])
+def w(c):
+    if unicodedata.combining(c): return 0
+    return 2 if unicodedata.east_asian_width(c) in "WF" or ord(c) >= 0x1F000 else 1
+tot = 0; corte = len(t)
+for i, c in enumerate(t):
+    tot += w(c)
+    if tot > orc: corte = i; break
+sys.stdout.write(t if corte == len(t) else t[:corte].rstrip() + "…")' <<<"$itens")
+  else
+    ((${#itens} * 2 > orcamento)) && itens="${itens:0:orcamento/2}…"
+  fi
   itens=${itens//#/##}
   printf '#[fg=#45475a]│#[range=user|notifs]#[fg=#f9e2af] %s #[norange]#[fg=#45475a]│#[default]' "$itens"
 }
