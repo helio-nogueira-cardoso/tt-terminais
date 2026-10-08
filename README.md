@@ -20,7 +20,7 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
   trecho achado); filtro por máquina; cada painel de cada sessão; janelas vazias agrupadas, com
   "fechar todas".
 - **Barra clicável**: `máquina ▾` (máquinas, versões, cadastro), `sessão ▾` (seletor rápido com
-  rolagem), ☰ central, ┃/━ dividir, ⋯ menu do painel, ⇅ arquivos, 📧 e-mail (abre o cliente de
+  rolagem), ☰ central, ┃/━ dividir, ⋯ menu do painel (enviar/trazer arquivos, acompanhar transferências), 📧 e-mail (abre o cliente de
   terminal numa subjanela, como a central; `aerc` por padrão, configurável), ⤢ caber nesta tela (quando duas
   telas de tamanhos diferentes usam a mesma sessão). Botão direito também abre os menus.
 - **Uma sessão, vários aparelhos**: a janela tem o tamanho do aparelho que você está usando: tecla,
@@ -581,7 +581,7 @@ Sessões abertas em alguma tela, fixadas e pontes nunca são fechadas assim.
     tt --pasta-padrao trabalho:~/docs    define a pasta padrão de outra máquina
 
 Cada máquina tem sua pasta padrão de recebidos: `~/Recebidos`; no WSL, `Downloads\Recebidos` do
-Windows; no Termux, `Download/Recebidos` do Android. Dá para mudar pelo ⇅ ("Mudar a pasta padrão…"),
+Windows; no Termux, `Download/Recebidos` do Android. Dá para mudar por ⋯ painel → ⚙ tmux… → Administrar ("Pasta padrão de recebidos…"),
 pela lista de destinos ao enviar ("⚙ mudar a pasta padrão de …") ou com `tt --pasta-padrao`. Os
 arquivos chegam com a data de chegada, e o destino mostra onde a pasta aparece (Explorer, só no
 WSL, app de arquivos do Android).
