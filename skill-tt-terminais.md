@@ -102,7 +102,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --fixar [maquina:]sessao` — fixa/desafixa a sessão.
 - `tt --fixadas` — lista as fixadas; `tt --barra-fixadas` (interno) formata a faixa.
 - Internos: `--aplicar-fixadas`/`--barras` (liga a 2ª linha), `--ir-fixada`, `--mover-fixada`,
-  `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
+  `--notificar TEXTO [SEGUNDOS]` (aviso na faixa de notificações, 3ª linha; expira sozinho), `--notifs` (histórico), chave `faixa_notif=0|1`. `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
   `--resolver-fixada`. Sync: `--propagar-fixadas`, `--receber-fixadas [V]`, `--puxar-fixadas`,
   `--reconciliar-fixadas`, `--marcar-fixadas`.
 

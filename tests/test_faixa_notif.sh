@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Faixa de notificações (3ª linha, abaixo das fixadas): liga por padrão (status 3) e move 📧/📋/
+# relógio/versão para a linha 2; faixa_notif=0 volta ao layout de 2 linhas; tt --notificar põe o
+# aviso na faixa, expira sozinho e o histórico lista; lembrete de tarefas e e-mail novo espelham.
+source "$(dirname "$0")/lib.sh"; isolar
+tmux -f /dev/null new -d -s s1 'sleep 300'
+tt() { "$TT" "$@"; }
+
+tt --barras >/dev/null 2>&1
+[[ $(tmux show -gqv status) == 4 ]] || falhou "faixa ligada deveria pôr status=4 (régua + faixa) (está $(tmux show -gqv status))"
+f=$(tmux show -gqv @barra_faixa)
+grep -q '@barra_email' <<<"$f" && grep -q '@barra_tarefas' <<<"$f" && grep -q '@barra_notifs' <<<"$f" ||
+  falhou "linha 2 sem os blocos esperados: $f"
+d=$(tmux show -gqv @barra_faixa_dir)
+grep -q '@barra_data' <<<"$d" && grep -q '%H:%M' <<<"$d" && grep -q '@barra_versao' <<<"$d" ||
+  falhou "lado direito da linha 2 sem data/hora/versão: $d"
+[[ -z $(tmux show -gqv @barra_lado1) ]] || falhou 'com a faixa, a linha das fixadas deveria ficar só para elas'
+[[ -z $(tmux show -gqv @barra_fim0) ]] || falhou 'com a faixa, o 📧/relógio deveriam sair da linha 0'
+passou 'faixa ligada: status 3, blocos na linha 2, fixadas 100% livres'
+
+tt --notificar "📧 Ana — Reunião de sexta" 120 >/dev/null 2>&1
+n=$(tmux show -gqv @barra_notifs)
+grep -q 'Ana — Reunião' <<<"$n" || falhou "aviso não entrou na faixa: $n"
+grep -q 'range=user|notifs' <<<"$n" || falhou 'faixa de avisos sem o range clicável'
+tt --notificar "⏳ efêmero" 1 >/dev/null 2>&1; sleep 2; tt --barras >/dev/null 2>&1
+grep -q 'efêmero' <<<"$(tmux show -gqv @barra_notifs)" && falhou 'aviso expirado continuou na faixa'
+grep -q 'Ana — Reunião' <<<"$("$TT" --notifs-ui)" || falhou 'histórico não lista o aviso'
+passou 'notificar: aparece com range, expira sozinho, histórico lista'
+
+# espelho automático: o notificador central alimenta a faixa — ponta a ponta com um lembrete real
+rm -f "$HOME/.local/state/tt/notifs"/*
+tt --tarefa-add-natural "Pagar aluguel @hoje" >/dev/null 2>&1
+tt --tarefas-lembrete >/dev/null 2>&1
+grep -q 'Pagar aluguel' <<<"$(cat "$HOME/.local/state/tt/notifs"/* 2>/dev/null)" || falhou 'lembrete de tarefa não espelhou na faixa'
+rg -q 'notificar "\$t · \$c"' "$TT" || falhou 'tarefas_notificar sem o espelho para a faixa (contrato)'
+passou 'lembretes (tarefas/e-mail) espelham na faixa pelo notificador central'
+
+printf 'faixa_notif=0\n' >>"$XDG_CONFIG_HOME/tt/config"
+tt --barras >/dev/null 2>&1
+[[ $(tmux show -gqv status) == 2 ]] || falhou 'faixa_notif=0 deveria voltar a 2 linhas'
+grep -q '@barra_tarefas' <<<"$(tmux show -gqv @barra_lado1)" || falhou 'desligada, 📋/versão deveriam voltar à linha 1'
+grep -q '@barra_email' <<<"$(tmux show -gqv @barra_fim0)" || falhou 'desligada, 📧/relógio deveriam voltar à linha 0'
+passou 'faixa_notif=0: layout de 2 linhas de volta, sem perder nada'
+
+echo 'ok: faixa de notificações — 3ª linha com 📧/📋/avisos/data/versão, espelho central, desligável'

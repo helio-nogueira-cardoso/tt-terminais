@@ -24,7 +24,7 @@ tocar() { # coluna linha
 esperar() { # condição (comando) segundos
   local i; for ((i = 0; i < $2 * 2; i++)); do eval "$1" && return 0; sleep 0.5; done; return 1
 }
-barra=31 faixa=32
+barra=29 faixa=30 # com a faixa de notificações (status 4), as linhas sobem duas
 fixada() { grep -q $'\tminha\t' "$XDG_CONFIG_HOME/tt/fixadas" 2>/dev/null; }
 na_faixa() { [[ -n $(coluna $faixa 'minha') ]]; }
 

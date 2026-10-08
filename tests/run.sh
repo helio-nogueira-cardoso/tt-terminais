@@ -53,10 +53,10 @@ tem "$tt" 't_atualizacao=\$\{TT_T_ATUALIZACAO:-1800\}' &&
   falha 'vigia não garante atualização publicada'
 
 tem "$tt" '^versao_barra\(\)' &&
-  tem "$tema" '@barra_versao' && ok 'versão exibida na faixa de fixadas' ||
-  falha 'versão não foi ligada à faixa de fixadas'
+  tem "$tt" '@barra_versao' && ok 'versão exibida na barra (faixa ou linha das fixadas)' ||
+  falha 'versão não foi ligada à barra'
 
-tem "$tt" 'tmux set -g status 2' &&
+tem "$tt" 'st=2; faixa_notif_ativa && st=4' &&
   tem "$tt" 'printf.*📌' && ok 'faixa de fixadas permanece visível vazia' ||
   falha 'faixa de fixadas desaparece quando vazia'
 
@@ -118,7 +118,7 @@ grep -qx 'legacy.example  carol  legado' "$caso/config/tt/maquinas" && ok 'CLI: 
 # Cada range desenhado pela barra deve chegar a uma rota explícita em clique(). Isto é o contrato
 # comum para mouse, toque e os ranges que o tmux classifica de forma diferente por terminal.
 base=$falhas
-for rota in maquina sessao fixar ajustar tt painel email transferencias copias 'at[0-9]*' 'fx*' 'fxx*' fixmais tarefas relogio; do
+for rota in maquina sessao fixar ajustar tt painel email transferencias copias 'at[0-9]*' 'fx*' 'fxx*' fixmais tarefas notifs relogio; do
   rg -Fq "$rota)" "$tt" || falha "rota de interação ausente: $rota"
 done
 ((falhas == base)) && ok 'contrato: todos os controles da barra têm rota de ação' || true
@@ -126,8 +126,8 @@ done
 # Botão de e-mail (📧): range no tema entre arquivos e relógio, rota de clique, case de botão,
 # verbo de teclado/CLI --email, cliente configurável (default aerc) e aviso quando ausente.
 base=$falhas
-rg -q 'range=user\|email' "$tema" || falha 'e-mail: range ausente no tema'
-rg -q '@barra_email' "$tema" && rg -q '^barra_email_fmt\(\)' "$tt" || falha 'e-mail: botão 📧 deve vir de @barra_email (não lidas e estado do sync, sem processo na barra)'
+rg -q 'range=user\|email' "$tt" || falha 'e-mail: range do 📧 ausente (tt monta as opções da barra)'
+rg -q '@barra_email' "$tt" && rg -q '^barra_email_fmt\(\)' "$tt" || falha 'e-mail: botão 📧 deve vir de @barra_email (não lidas e estado do sync, sem processo na barra)'
 rg -q '^email_novos_avisar\(\)' "$tt" || falha 'e-mail: aviso de e-mail novo (email_novos_avisar) ausente'
 rg -Fq 'em_*) email_botao_acao' "$tt" && rg -q '^email_barra_fmt\(\)' "$tt" || falha 'e-mail: botões clicáveis do popup (em_*) sem rota'
 # toda ação listada em EMAIL_BOTOES ou manda uma tecla de função ligada em email_binds_botoes, ou é
@@ -215,7 +215,7 @@ grep -Fq -- '--calendario-agenda' <<<"$corpo_cal" || falha 'calendário: relógi
 for v in --calendario-agenda --tarefa-desc-editor --tarefa-renomear-prompt --tarefa-limpar-prompt; do
   rg -Fq -- "$v)" "$tt" || falha "tarefas: verbo $v ausente"
 done
-rg -q 'range=user\|relogio' "$tema" || falha 'tarefas: relógio sem range clicável no tema'
+rg -q 'range=user\|relogio' "$tt" || falha 'tarefas: relógio sem range clicável (nas opções do tt)'
 # painel mais clicável e com abas de filtro: left-click alterna, double-click expande, click-header troca filtro
 corpo_ui=$(sed -n '/^tarefas_ui()/,/^}/p' "$tt")
 # toda tecla, clique e botão passa pelo mesmo despachante (tarefa_acao): mesma ação por qualquer canal
