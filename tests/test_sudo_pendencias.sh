@@ -38,6 +38,17 @@ roda >/dev/null || falhou 'selecionar com um aceite deveria sair com sucesso'
   falhou 'itens não escolhidos não viraram recusa'
 passou 'selecionar: instala só o aceito e grava recusa dos demais'
 
+# 3b) Bibliotecas do Chrome/Carbonyl baixados também são pendência, com tradução por gerenciador.
+rm -f "$HOME/.local/state/tt"/navegadores-sudo-recusado "$HOME/.local/state/tt"/sudo-recusado-*
+printf a >"$T/resposta"; : >"$T/sudo.log"
+PATH="$B:$PATH" TT_TTY="$T/resposta" TT_FINGE_CHROME_LIBS="libnss3 libnspr4" "$TT" --pedir-sudo chrome-libs >/dev/null ||
+  falhou 'aceitar chrome-libs deveria instalar'
+[[ $(cat "$T/sudo.log") == "apt-get install -y libnss3 libnspr4" ]] ||
+  falhou "chrome-libs instalou outra coisa: $(cat "$T/sudo.log")"
+saida=$(PATH="$B:$PATH" TT_TTY="$T/resposta" TT_FINGE_FALTA="$FALTA" TT_FINGE_CHROME_LIBS="libnss3" "$TT" --pedir-sudo 2>&1) || true
+grep -q 'bibliotecas do sistema' <<<"$saida" || falhou "visão geral não listou as bibliotecas do Chrome: $saida"
+passou 'bibliotecas do Chrome/Carbonyl entram no modal, com nomes de pacote do gerenciador'
+
 # 4) Sem conta de e-mail, mbsync/w3m não são oferecidos.
 rm -f "$HOME/.config/tt/email/x.conf" "$HOME/.local/state/tt"/navegadores-sudo-recusado "$HOME/.local/state/tt"/sudo-recusado-*
 printf r >"$T/resposta"

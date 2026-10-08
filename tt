@@ -3282,6 +3282,12 @@ abrir_url() {
   local u=${1:-}
   [[ -n $u ]] || return 0
   if command -v xdg-open >/dev/null; then setsid xdg-open "$u" >/dev/null 2>&1 </dev/null && return 0; fi
+  # WSL sem xdg-open (ou com ele falhando): navegador padrão do Windows. rundll32 abre a URL como
+  # o Explorer, aguenta & e % melhor que cmd /c start, e o interop funciona até dentro do
+  # unshare --net do leitor de e-mail. Antes disto, "sistema" aqui só copiava a URL, mudo.
+  if [[ -x /mnt/c/Windows/System32/rundll32.exe ]]; then
+    (cd /mnt/c && setsid /mnt/c/Windows/System32/rundll32.exe url.dll,FileProtocolHandler "$u" >/dev/null 2>&1 </dev/null) && return 0
+  fi
   if command -v termux-open-url >/dev/null; then termux-open-url "$u" >/dev/null 2>&1 && return 0; fi
   if [[ -n ${BROWSER:-} ]]; then setsid "$BROWSER" "$u" >/dev/null 2>&1 </dev/null && return 0; fi
   local t; t=$(mktemp) && printf '%s' "$u" >"$t" && copiar_local "$t"; rm -f "$t"
@@ -3424,6 +3430,14 @@ pacotes_do_gerenciador() {
     case $c in
       rg) echo ripgrep ;;
       mbsync) echo isync ;;
+      libnspr4) case $g in apt-get) echo libnspr4 ;; *) echo nspr ;; esac ;;
+      libnss3) case $g in apt-get) echo libnss3 ;; *) echo nss ;; esac ;;
+      libasound2) case $g in
+          apt-get) if apt-cache -q=2 show libasound2t64 >/dev/null 2>&1; then echo libasound2t64; else echo libasound2; fi ;;
+          *) echo alsa-lib ;; esac ;;
+      libgbm1) case $g in apt-get) echo libgbm1 ;; dnf) echo mesa-libgbm ;; pacman) echo mesa ;; apk) echo mesa-gbm ;; *) echo mesa ;; esac ;;
+      libxkbcommon0) case $g in apt-get) echo libxkbcommon0 ;; *) echo libxkbcommon ;; esac ;;
+      libgtk-3-0) case $g in apt-get) echo libgtk-3-0 ;; apk) echo "gtk+3.0" ;; *) echo gtk3 ;; esac ;;
       python3) case $g in pacman|brew|pkg) echo python ;; *) echo python3 ;; esac ;;
       tar) case $g in brew) echo gnu-tar ;; *) echo tar ;; esac ;;
       ssh) case $g in apt-get) echo openssh-client ;; dnf) echo openssh-clients ;; *) echo openssh ;; esac ;;
@@ -3455,22 +3469,45 @@ sudo_recusa_arq() {
 
 tem_conta_email() { compgen -G "$EMAIL_DIR/*.conf" >/dev/null 2>&1; }
 
+# Bibliotecas do sistema que faltam ao Chrome/Carbonyl baixados (ldd "not found" → pseudo-pacotes,
+# que pacotes_do_gerenciador traduz por gerenciador). Sem elas os dois morrem calados ao abrir.
+chrome_libs_faltando() {
+  local alvo
+  for alvo in "$(bin_chromium)" "$(bin_carbonyl)"; do [[ -x $alvo ]] && break; alvo=""; done
+  [[ -n $alvo ]] || return 0
+  ldd "$alvo" 2>/dev/null | awk '/not found/ {print $1}' | sed \
+    -e 's/^libnspr4\.so.*/libnspr4/' -e 's/^lib\(nss3\|nssutil3\|smime3\|ssl3\)\.so.*/libnss3/' \
+    -e 's/^libasound\.so.*/libasound2/' -e 's/^libgbm\.so.*/libgbm1/' \
+    -e 's/^libxkbcommon\.so.*/libxkbcommon0/' -e 's/^libgtk-3\.so.*/libgtk-3-0/' |
+    grep -v '\.so' | awk '!v[$0]++' | tr '\n' ' ' | sed 's/ $//'
+}
+
 # Lista as pendências (id<TAB>comandos que faltam<TAB>por quê). Sem argumentos: as desta máquina,
 # fora as recusadas há menos de 7 dias. Com ids: só essas, e SEM olhar a recusa (o usuário acabou
 # de pedir pela interface).
 sudo_pendencias() {
   local -a so=("$@"); local agora; agora=$(date +%s)
+  cabe() { # a pendência $1 entra? (está nos ids pedidos; ou, sem ids, não foi recusada há <7d)
+    local c
+    if ((${#so[@]})); then
+      for c in "${so[@]}"; do [[ $c == "$1" ]] && return 0; done; return 1
+    fi
+    (( agora - $(cat "$(sudo_recusa_arq "$1")" 2>/dev/null || echo 0) >= 604800 ))
+  }
   pend() {
     local id=$1 cmds=$2 motivo=$3 c f=""
-    if ((${#so[@]})); then
-      for c in "${so[@]}"; do [[ $c == "$id" ]] && break; c=""; done
-      [[ -n $c ]] || return 0
-    elif (( agora - $(cat "$(sudo_recusa_arq "$id")" 2>/dev/null || echo 0) < 604800 )); then return 0; fi
+    cabe "$id" || return 0
     for c in $cmds; do falta_cmd "$c" && f+="$c "; done
     [[ -n $f ]] || return 0
     printf '%s\t%s\t%s\n' "$id" "${f% }" "$motivo"
   }
+  pend_pronta() { # como pend, mas a lista do que falta já vem pronta (não são comandos)
+    cabe "$1" || return 0
+    printf '%s\t%s\t%s\n' "$1" "$2" "$3"
+  }
   navegadores_graficos_ok && pend navegadores "curl unzip" "baixar o Google Chrome e o Carbonyl, que abrem os links do e-mail (os navegadores em si ficam na sua pasta, sem sudo)"
+  local libs; libs=${TT_FINGE_CHROME_LIBS:-$(chrome_libs_faltando)}
+  [[ -n $libs ]] && pend_pronta chrome-libs "$libs" "bibliotecas do sistema sem as quais o Chrome e o Carbonyl baixados não abrem"
   if tem_conta_email || ((${#so[@]})); then
     pend email-sync "mbsync" "sync local do e-mail: espelho offline, abre na hora e funciona sem rede"
     pend email-html "w3m" "mostrar e-mails em HTML bem (tabelas, cores, links)"
@@ -3600,16 +3637,30 @@ rodar_fora() {
   fi
 }
 
+# Chrome/Carbonyl sem as bibliotecas do sistema: oferece instalar (modal; num popup do tmux, que
+# roda FORA do unshare --net do leitor — sudo/apt precisam de rede). Devolve 0 se ficou utilizável.
+garantir_chrome_libs() {
+  local c
+  [[ -n $(chrome_libs_faltando) ]] || return 0
+  if [[ -n ${TMUX:-} ]] && c=$(cliente_externo 2>/dev/null) && [[ -n $c ]]; then
+    tmux display-popup -c "$c" -E -w 92 -h 20 -b rounded -S 'fg=#f9e2af' -T ' 🔐 permissão ' "$EU --pedir-sudo chrome-libs"
+  elif [[ -t 0 ]]; then pedir_sudo_pendencias chrome-libs
+  fi
+  [[ -z $(chrome_libs_faltando) ]]
+}
+
 abrir_com() {
   local qual=$1 u=$2 disp=${DISPLAY:-} way=${WAYLAND_DISPLAY:-} xdg=${XDG_RUNTIME_DIR:-}
   case $qual in
     sistema) abrir_url "$u" ;;
     chromium)
       navegador_instalar chromium || return 1
+      garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
       (chrome_atualizar_se_velho >/dev/null 2>&1 &)
       rodar_fora 0 "export DISPLAY=$(q "$disp") WAYLAND_DISPLAY=$(q "$way") XDG_RUNTIME_DIR=$(q "$xdg"); setsid $(q "$(bin_chromium)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-chrome") --no-first-run --no-default-browser-check $(q "$u") >/dev/null 2>&1 </dev/null &" ;;
     carbonyl)
       navegador_instalar carbonyl || return 1
+      garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
       rodar_fora 1 "$(q "$(bin_carbonyl)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-carbonyl") $(q "$u")" ;;
   esac
 }
