@@ -4145,6 +4145,14 @@ menu_painel() {
   pasta=$(tmux display-message -p -t "$p" '#{pane_current_path}')
   env="TT_CLIENTE=$c TT_PANE=$p"
   [[ -n $(tmux show-options -pqv -t "$p" @tt_painel) ]] && troca="$(popup_tt "$c" trocar "$env TT_MODO=aqui $EU")"
+  # Se a última cópia é o caminho de um arquivo/pasta que existe (a partir da pasta do painel), oferece enviar.
+  local copiado="" cam
+  cam=$(tmux show-buffer 2>/dev/null | head -n1 | head -c 400 | sed -e 's/^[[:space:]"'"'"']*//' -e 's/[[:space:]"'"'"']*$//')
+  if [[ -n $cam ]]; then
+    [[ $cam == /* || $cam == '~'* ]] || cam=$pasta/$cam
+    cam=$(expandir "$cam")
+    [[ -e $cam ]] && copiado=$'\n'"i	📤 Enviar “$(basename "$cam")” (caminho copiado)…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar $(q "$cam")")"
+  fi
   menu_popup "$c" "painel $(tmux display-message -p -t "$p" '#{pane_index}')" <<ITENS
 l	Dividir ao lado (terminal novo)	tmux split-window -h -t $p -c $(q "$pasta")
 b	Dividir embaixo (terminal novo)	tmux split-window -v -t $p -c $(q "$pasta")
@@ -4166,7 +4174,8 @@ z	Maximizar / restaurar	tmux resize-pane -Z -t $p
 s	Virar sessão própria	$EU --soltar $p
 -		
 e	📤 Enviar arquivos daqui…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar")
-t	📥 Trazer arquivos para cá…	$(popup_tt "$c" "📥 trazer" "$env $EU --trazer")
+t	📥 Trazer arquivos para cá…	$(popup_tt "$c" "📥 trazer" "$env $EU --trazer")$copiado
+u	📥 Recebidos recentes…	$(popup_tt "$c" "📥 recebidos" "$EU --recebidos")
 f	⇅ Acompanhar as transferências…	$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")
 d	📂 Abrir a pasta de recebidos	$EU --abrir-pasta $(q "$(pasta_recebidos)") $(q "$c")
 m	⚙ tmux…	$EU --menu-tmux $(q "$c") $p
@@ -9265,6 +9274,33 @@ confirmar_transferencia() {
   read -rsn1 k; [[ -z $k ]]
 }
 
+# Registro de quem chegou aqui (para a tela "Recebidos recentes"): epoch, origem, pasta, nome.
+registrar_recebido() {
+  local origem=$1 dir=$2 n arq=$ESTADO_DIR/recebidos.tsv; shift 2
+  mkdir -p "$ESTADO_DIR"
+  for n in "$@"; do printf '%s\t%s\t%s\t%s\n' "$(date +%s)" "$origem" "$dir" "$n"; done >>"$arq"
+  [[ $(wc -l <"$arq") -gt 600 ]] && { tail -n 400 "$arq" >"$arq.tmp" && mv "$arq.tmp" "$arq"; }
+  return 0
+}
+
+# Lista os últimos arquivos recebidos (mais novos primeiro). ⏎ abre a pasta onde chegou; ^o abre o
+# próprio arquivo/pasta (xdg-open/explorer). Esc fecha.
+recebidos() {
+  local arq=$ESTADO_DIR/recebidos.tsv saida tecla linha dir nome
+  [[ -s $arq ]] || { echo "Nada recebido ainda."; read -rsn1 -t 3; return 0; }
+  saida=$(tac "$arq" | awk -F'\t' '{ printf "%s\t%s\t%s\t%s\t%s  \033[1m%s\033[0m  \033[90m← %s  %s\033[0m\n", $1, $2, $3, $4, strftime("%d/%m %H:%M", $1), $4, $2, $3 }' |
+    fzf --ansi --delimiter='\t' --with-nth=5 --layout=reverse --no-sort --height=~18 --border=rounded \
+      --border-label=' 📥 recebidos (⏎ abre a pasta onde chegou · ^o abre o item) ' --prompt='❯ ' --pointer='▶' \
+      --expect=ctrl-o --bind='left-click:accept') || return 0
+  tecla=$(sed -n 1p <<<"$saida"); linha=$(sed -n 2p <<<"$saida")
+  [[ -n $linha ]] || return 0
+  dir=$(cut -f3 <<<"$linha"); nome=$(cut -f4 <<<"$linha")
+  if [[ $tecla == ctrl-o ]]; then
+    dir=$(expandir "$dir")/$nome; [[ -d $dir ]] || dir=$(dirname "$dir")
+    abrir_pasta "$dir" "${TT_CLIENTE:-}"
+  else abrir_pasta "$dir" "${TT_CLIENTE:-}"; fi
+}
+
 transferir_fundo() {
   local id=$1; shift
   printf '%s\n' "$$" >"$(dir_transferencias)/$id.pid"
@@ -9350,12 +9386,13 @@ transferir_bloqueante() {
   elif [[ -n $antes && $antes == "$depois" ]]; then
     echo "✓ Conferido ($([[ -n $h ]] && echo sha256 || echo "contagem e tamanho"))."
   fi
+  rodar "$dst" --registrar-recebido "$(rotulo "$src")" "$ddst" "${nomes_recebidos[@]}" >/dev/null 2>&1
   printf '%s em %ss · %s\n' "$(humano "$bytes")" "$(($(date +%s) - t0))" "$(date +%H:%M)" >"$(dir_transferencias)/$id.resumo"
   printf '\033[32m✓ %d ite%s (%s) em %ss → %s:%s\033[0m\n' "$n" "$([[ $n == 1 ]] && echo m || echo ns)" "$(humano "$bytes")" "$(($(date +%s) - t0))" "$(rotulo "$dst")" "$ddst"
   sed 's/^/   /' <<<"$recebidos" | head -15
   printf '\033[36m📍 em %s: %s\033[0m\n' "$(rotulo "$dst")" "$(rodar "$dst" --caminho-visivel "$ddst")"
   avisar "✓ $n ite$([[ $n == 1 ]] && echo m || echo ns) de $(rotulo "$src") → $(rotulo "$dst"):$ddst"
-  [[ $dst == . ]] || rodar "$dst" --avisar "📥 $n de $(rotulo "$src") → $(rodar "$dst" --caminho-visivel "$ddst" | sed 's/  (.*//'): $(head -3 <<<"$recebidos" | paste -sd, | cut -c1-60)" >/dev/null 2>&1
+  [[ $dst == . ]] || rodar "$dst" --avisar "📥 $n de $(rotulo "$src") → $(rodar "$dst" --caminho-visivel "$ddst" | sed 's/  (.*//'): $(head -3 <<<"$recebidos" | paste -sd, | cut -c1-60) · ⋯ painel → u abre" >/dev/null 2>&1
 }
 
 pasta_aqui() {
@@ -9417,8 +9454,19 @@ trazer_fluxo() {
 # Linha de comando: tt --enviar [arquivos-ou-pastas…] [máquina[:pasta]]  /
 # tt --trazer máquina:caminho… [pasta]. Uma pasta é transferida inteira, recursivamente.
 enviar_cli() {
-  local ultimo dst="" ddst="" maq a dir
-  local -a arqs=("$@")
+  local ultimo dst="" ddst="" maq a dir pasta nome seguro
+  local -a arqs=("$@") ordem=() nomes_grupo
+  local -A grupo=()
+  # tt --enviar --stdin NOME [máquina[:pasta]]: o que vier no stdin vira o arquivo NOME no destino
+  # (ex.: `tar c pasta | tt --enviar --stdin pasta.tar dell`). Fica em ~/.cache/tt-stdin até o dia seguinte.
+  if [[ ${arqs[0]:-} == --stdin ]]; then
+    nome=${arqs[1]:-}; [[ -n $nome ]] || { echo "uso: ... | tt --enviar --stdin NOME [máquina[:pasta]]"; return 1; }
+    [[ -t 0 ]] && { echo "--stdin espera dados pelo pipe (… | tt --enviar --stdin NOME)"; return 1; }
+    seguro=$(basename -- "$nome"); pasta="$HOME/.cache/tt-stdin/$(date +%H%M%S)-$RANDOM"
+    find "$HOME/.cache/tt-stdin" -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} + 2>/dev/null
+    mkdir -p "$pasta" && cat >"$pasta/$seguro" || { echo "não consegui gravar o stdin"; return 1; }
+    arqs=("$pasta/$seguro" "${arqs[@]:2}")
+  fi
   if ((${#arqs[@]})); then
     ultimo=${arqs[-1]}; maq=${ultimo%%:*}
     if [[ -n $(dest_de "$maq") && ! -e $ultimo ]]; then
@@ -9429,10 +9477,16 @@ enviar_cli() {
   if ((${#arqs[@]} == 0)); then enviar_fluxo . "$(encurtar "$PWD")" "$dst" "$ddst"; return; fi
   [[ -n $dst ]] || dst=$(escolher_maquina "📤 enviar para" .) || return 1
   [[ -n $ddst ]] || ddst=$(rodar "$dst" --pasta-recebidos)
+  # Itens da mesma pasta viajam num trabalho só (um pacote, uma linha na tela das transferências).
   for a in "${arqs[@]}"; do
     [[ -e $a ]] || { echo "Não existe: $a"; return 1; }
     dir=$(cd "$(dirname "$a")" && encurtar "$PWD")
-    transferir . "$dir" "$dst" "$ddst" "$(basename "$a")"
+    [[ -n ${grupo[$dir]+x} ]] || ordem+=("$dir")
+    grupo[$dir]+="$(basename "$a")"$'\n'
+  done
+  for dir in "${ordem[@]}"; do
+    mapfile -t nomes_grupo <<<"${grupo[$dir]%$'\n'}"
+    transferir . "$dir" "$dst" "$ddst" "${nomes_grupo[@]}"
   done
 }
 
@@ -9878,6 +9932,8 @@ case "${1:-}" in
   --empacotar) shift; empacotar "$@"; exit ;;
   --tamanho) shift; tamanho "$@"; exit ;;
   --conferir) shift; conferir "$@"; exit ;;
+  --registrar-recebido) shift; registrar_recebido "$@"; exit ;;
+  --recebidos) recebidos; exit ;;
   --confirmar-transferencia) shift; confirmar_transferencia "$@"; exit $? ;;
   --destino-info) shift; destino_info "$@"; exit ;;
   --avisar) avisar "$2"; exit ;;
