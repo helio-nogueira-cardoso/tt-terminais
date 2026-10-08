@@ -9,6 +9,9 @@
   email-tt.py pastas CONF                -> pastas especiais pelo IMAP (SPECIAL-USE: todos, enviados, lixeira…)
   email-tt.py html                       -> filtro do aerc: HTML (stdin) → texto legível, links OSC 8 clicáveis
   email-tt.py linkify                    -> pós-filtro: texto (stdin) com [N]/References → links OSC 8 clicáveis
+  email-tt.py imagens DESTINO            -> e-mail cru (stdin): salva as imagens embutidas/anexas em DESTINO e lista
+                                            (TSV: arq|url, rótulo) também as <img> remotas do HTML; sem baixar nada
+  email-tt.py baixar-imagem URL ARQUIVO  -> baixa uma imagem remota (só http/https, até 20 MB, só image/*)
 
 CONF é o arquivo chave=valor da conta (~/.config/tt/email/<slug>.conf). Segredos ficam em
 ~/.secrets/aerc-<slug>.txt (senha ou refresh token) e ~/.secrets/aerc-<slug>.client_secret; este
@@ -547,12 +550,88 @@ def html_para_texto(html):
     return corpo + "\n"
 
 
+def lista_imagens(bruto, destino):
+    """Imagens de um e-mail cru: partes image/* viram arquivos em DESTINO; <img src=http…> do HTML
+    só são listadas (nada é baixado sem o usuário pedir). Imprime linhas 'arq<TAB>caminho<TAB>rótulo'
+    e 'url<TAB>URL<TAB>rótulo'."""
+    import email, email.policy, html.parser, mimetypes, re
+    msg = email.message_from_bytes(bruto, policy=email.policy.default)
+    os.makedirs(destino, exist_ok=True)
+    saida, vistos, n = [], set(), 0
+    htmls = []
+    for parte in msg.walk():
+        tipo = parte.get_content_type()
+        if tipo == "text/html":
+            try:
+                htmls.append(parte.get_content())
+            except Exception:
+                pass
+        if parte.get_content_maintype() != "image":
+            continue
+        dados = parte.get_payload(decode=True)
+        if not dados:
+            continue
+        n += 1
+        nome = parte.get_filename() or ""
+        nome = re.sub(r"[^\w.\- ]", "_", os.path.basename(nome)).strip() or "imagem"
+        if "." not in nome:
+            nome += mimetypes.guess_extension(tipo) or ".img"
+        caminho = os.path.join(destino, f"{n:02d}-{nome}")
+        with open(caminho, "wb") as f:
+            f.write(dados)
+        saida.append(("arq", caminho, f"{nome} · {len(dados) // 1024 or 1} KB · anexada"))
+
+    class Img(html.parser.HTMLParser):
+        def handle_starttag(self, tag, atributos):
+            if tag != "img":
+                return
+            a = dict(atributos)
+            u = (a.get("src") or "").strip()
+            if not u.lower().startswith(("http://", "https://")) or u in vistos:
+                return
+            vistos.add(u)
+            def lado(k):
+                m = re.match(r"\d+", a.get(k) or "")
+                return int(m.group()) if m else None
+            if (lado("width") or 99) <= 2 or (lado("height") or 99) <= 2:
+                return  # pixel de rastreamento: não vale listar
+            host = urllib.parse.urlparse(u).netloc
+            saida.append(("url", u, f"{(a.get('alt') or '').strip()[:40] or os.path.basename(urllib.parse.urlparse(u).path)[:40] or 'imagem'} · {host} · da web"))
+    for h in htmls:
+        Img().feed(h)
+    for linha in saida:
+        print("\t".join(linha))
+    return 0
+
+
+def baixar_imagem(url, arquivo):
+    if not url.lower().startswith(("http://", "https://")):
+        print("✗ só http/https", file=sys.stderr); return 1
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (tt)"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            if not (r.headers.get_content_type() or "").startswith("image/"):
+                print(f"✗ não é imagem ({r.headers.get_content_type()})", file=sys.stderr); return 1
+            dados = r.read(20 * 1024 * 1024 + 1)
+    except Exception as e:
+        print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
+    if len(dados) > 20 * 1024 * 1024:
+        print("✗ maior que 20 MB", file=sys.stderr); return 1
+    with open(arquivo, "wb") as f:
+        f.write(dados)
+    return 0
+
+
 def main(a):
     if a[:1] == ["html"]:
         dados = sys.stdin.buffer.read()
         sys.stdout.write(html_para_texto(dados.decode("utf-8", "replace"))); return 0
     if a[:1] == ["linkify"]:
         sys.stdout.write(linkify(sys.stdin.buffer.read().decode("utf-8", "replace"))); return 0
+    if a[:1] == ["imagens"] and len(a) == 2:
+        return lista_imagens(sys.stdin.buffer.read(), a[1])
+    if a[:1] == ["baixar-imagem"] and len(a) == 3:
+        return baixar_imagem(a[1], a[2])
     if len(a) < 2:
         print(__doc__); return 2
     cmd, arg = a[0], a[1]
