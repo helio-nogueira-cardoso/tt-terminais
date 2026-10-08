@@ -8310,7 +8310,10 @@ for linha in sys.stdin:
 clique_linha() {
   local dest=$1 chave=$2 g w ini xc yc lista
   [[ $TT_COMX == central ]] && lista="$EU --listar-tudo" || lista="$EU --lista-seletor"
+  # TT_CLIQUE_LOG=arquivo registra cada decisão (diagnóstico de cliques que caem no lugar errado).
+  [[ -n ${TT_CLIQUE_LOG:-} ]] && printf '%s dest=%s chave=%s cols=%s mouse=[%s] confirmar=%s\n' "$(date +%T.%N)" "$dest" "$chave" "${FZF_COLUMNS:-?}" "$(cat "${TT_MOUSE:-/dev/null}" 2>/dev/null)" "$(estado confirmar)" >>"$TT_CLIQUE_LOG"
   if [[ -z $chave || $chave == '!'* || $chave == '+'* ]] || ! g=$(geometria_x) || [[ ! -s ${TT_MOUSE:-} ]]; then
+    [[ -n ${TT_CLIQUE_LOG:-} ]] && echo "  -> accept (chave especial, sem geometria ou sem coordenada do mouse)" >>"$TT_CLIQUE_LOG"
     estado_por confirmar ""; echo accept; return
   fi
   read -r w ini <<<"$g"
@@ -8319,6 +8322,7 @@ clique_linha() {
   [[ $(estado confirmar) == "$dest|$chave" ]] && xl=9
   x_ini=$((ini + w - xl))          # 1ª coluna do ✕ (ou de "fechar? ✕")
   pino_ini=$((x_ini - 4))          # o pino ocupa 2 colunas, seguido de 2 espaços
+  [[ -n ${TT_CLIQUE_LOG:-} ]] && echo "  w=$w ini=$ini xc=$xc x_ini=$x_ini pino_ini=$pino_ini" >>"$TT_CLIQUE_LOG"
   if [[ $chave != %* ]] && ((xc >= pino_ini - 1 && xc <= pino_ini + 2)); then
     estado_por confirmar ""
     "$EU" --alternar-fixada "$dest" "$chave" >/dev/null 2>&1
