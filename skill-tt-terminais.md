@@ -127,6 +127,8 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `--empacotar`, `--tamanho`, `--listar-pasta[-em]`, `--previa-item[-em]`, `--resolver-pasta`,
   `--arq-acao`, `--cabecalho-arquivos`, `--abrir-pasta`, `--caminho-visivel`, `--pasta-recebidos`,
   `--destinos`, `--definir-recebidos`, `--anexos-enviar` (anexos do aerc → recebidos de uma máquina).
+  `--imagens` (tecla `i` do aerc: lista as imagens do e-mail cru em stdin e abre as escolhidas; as da
+  web só são baixadas sob demanda, via `email-tt.py baixar-imagem`) e `--abrir-imagem ARQ` (opener `image/*`).
 
 ### E-mail (aerc)
 - `tt --email [cliente]` — abre o cliente de e-mail (default `aerc`) numa subjanela popup.

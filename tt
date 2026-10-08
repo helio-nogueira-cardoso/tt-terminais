@@ -2107,6 +2107,7 @@ UI
   local f_op=; grep -q '^[[:space:]]*x-scheme-handler/https\?\*.*--abrir-url' "$conf" && f_op=forcar
   aerc_definir "$conf" openers 'x-scheme-handler/http*' "$HOME/.local/bin/tt --abrir-link {}" $f_op
   aerc_definir "$conf" openers 'x-scheme-handler/https*' "$HOME/.local/bin/tt --abrir-link {}" $f_op
+  aerc_definir "$conf" openers 'image/*' "$HOME/.local/bin/tt --abrir-imagem {}" $f_op
 
   # Sem binds.conf (ou sem os atalhos básicos), o arquivo do tt substituiria os padrões do aerc e
   # nem o Enter abriria a mensagem: começa pela cópia do binds.conf que vem com o aerc.
@@ -2139,6 +2140,7 @@ UI
     echo '[view]'
     echo "? = :term $HOME/.local/bin/tt --email-atalhos<Enter>"
     echo "E = :save -a -f -p $HOME/.cache/tt-anexos/atual/<Enter>:term $HOME/.local/bin/tt --anexos-enviar<Enter>"
+    echo "i = :pipe -m $HOME/.local/bin/tt --imagens<Enter>"
     echo 'q = :close<Enter>'
     echo '<C-r> = :redraw<Enter>'
     echo 'u = :read -t<Enter>:close<Enter>'
@@ -5633,6 +5635,49 @@ a	⌨ Atalhos do e-mail	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T 
 ITENS
 }
 
+# Imagens de um e-mail. O HTML do leitor não mostra imagens; a tecla i (na mensagem aberta) manda a
+# mensagem crua para tt --imagens: lista as imagens anexadas/embutidas (cid:) e as da web (<img>) e
+# abre as escolhidas no visualizador do sistema. Imagens da web só são baixadas se escolhidas
+# (nada de pixel de rastreamento ao abrir o e-mail). Tab marca várias.
+abrir_imagem() {
+  local f=${1:-}
+  [[ -f $f ]] || return 1
+  if command -v xdg-open >/dev/null; then setsid xdg-open "$f" >/dev/null 2>&1 </dev/null && return 0; fi
+  if command -v wslpath >/dev/null && [[ -x /mnt/c/Windows/System32/cmd.exe ]]; then
+    (cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c start "" "$(wslpath -w "$f")" >/dev/null 2>&1) && return 0
+  fi
+  if command -v termux-open >/dev/null; then termux-open "$f" >/dev/null 2>&1 && return 0; fi
+  echo "Sem visualizador de imagens; arquivo em $f"; read -rsn1 -t 5
+}
+
+imagens_do_email() {
+  local base="$HOME/.cache/tt-imagens" dir lista esc tipo alvo rot arq n=0 py="$DIR_TT/email-tt.py"
+  mkdir -p "$base"; find "$base" -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} + 2>/dev/null
+  dir=$(mktemp -d "$base/XXXXXX") || return 1
+  lista=$(python3 -I "$py" imagens "$dir") || { echo "Não consegui ler a mensagem."; read -rsn1 -t 3; return 1; }
+  [[ -n $lista ]] || { echo "Esta mensagem não tem imagens."; rm -rf "$dir"; read -rsn1 -t 2; return 0; }
+  if command -v fzf >/dev/null; then
+    esc=$(awk -F'\t' '{ printf "%s\t%s\t%s\n", $1, $2, ($1=="arq" ? "📎 " : "🌐 ") $3 }' <<<"$lista" |
+      fzf --multi --delimiter='\t' --with-nth=3 --layout=reverse --height=~20 --border=rounded \
+        --border-label=' 🖼 imagens do e-mail (Tab marca · ⏎ abre · Esc sai) ' --prompt='❯ ' --pointer='▶' --marker='✔') || { rm -rf "$dir"; return 0; }
+  else esc=$(awk -F'\t' '{print $1 "\t" $2 "\t" $3}' <<<"$lista" | head -1); fi
+  [[ -n $esc ]] || { rm -rf "$dir"; return 0; }
+  while IFS=$'\t' read -r tipo alvo rot; do
+    n=$((n + 1))
+    if [[ $tipo == url ]]; then
+      arq="$dir/web-$n"
+      echo "⬇ baixando ${alvo:0:80}…"
+      python3 -I "$py" baixar-imagem "$alvo" "$arq" || { read -rsn1 -t 4; continue; }
+      case $(file -b --mime-type "$arq") in
+        image/png) mv "$arq" "$arq.png"; arq+=.png ;; image/jpeg) mv "$arq" "$arq.jpg"; arq+=.jpg ;;
+        image/gif) mv "$arq" "$arq.gif"; arq+=.gif ;; image/webp) mv "$arq" "$arq.webp"; arq+=.webp ;;
+        image/svg+xml) mv "$arq" "$arq.svg"; arq+=.svg ;; *) mv "$arq" "$arq.img"; arq+=.img ;;
+      esac
+    else arq=$alvo; fi
+    abrir_imagem "$arq"
+  done <<<"$esc"
+}
+
 # Anexos de um e-mail → pasta de recebidos de uma máquina do tt. A tecla E do aerc salva os anexos
 # da mensagem aberta em ~/.cache/tt-anexos/atual e abre isto: marca quais, escolhe a máquina no
 # mesmo seletor do ⇅ arquivos, e a cópia segue em segundo plano (barra mostra o andamento).
@@ -5683,6 +5728,7 @@ Anexos	Ctrl+j / Ctrl+k	escolher o anexo seguinte / anterior
 Anexos	O	abrir o anexo escolhido
 Anexos	S	salvar o anexo escolhido (Tab completa a pasta)
 Anexos	E	enviar os anexos para a pasta de recebidos de uma máquina do tt
+Anexos	i	imagens do e-mail (anexadas e da web): lista e abre no visualizador de imagens
 Várias	v  ou  espaço	selecionar / desmarcar (as ações valem para todas as selecionadas)
 Várias	V	selecionar a conversa inteira
 Contas	F2	contas de e-mail: cadastrar, descadastrar, testar
@@ -7713,6 +7759,8 @@ case "${1:-}" in
   --garantir-navegadores) garantir_navegadores; exit ;;
   --pedir-sudo) shift; pedir_sudo_pacotes "$@"; exit ;;
   --anexos-enviar) anexos_enviar; exit 0 ;;
+  --imagens) imagens_do_email; exit 0 ;;
+  --abrir-imagem) abrir_imagem "${2:-}"; exit 0 ;;
   --tarefas)
     # Abre o painel de tarefas: slide-over no tmux, ou lista texto fora dele.
     c=${2:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
