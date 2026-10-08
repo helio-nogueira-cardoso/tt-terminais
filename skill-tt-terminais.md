@@ -173,6 +173,9 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - Internos: `--receber`, `--transferir-fundo`, `--transferencias`, `--transferencias-barra`,
   `--empacotar`, `--tamanho`, `--listar-pasta[-em]`, `--previa-item[-em]`, `--resolver-pasta`,
   `--arq-acao`, `--cabecalho-arquivos`, `--abrir-pasta`, `--caminho-visivel`, `--pasta-recebidos`,
+  `--conferir [--hash]`, `--destino-info`, `--confirmar-transferencia`, `--registrar-recebido`, `--recebidos`,
+  `--info-arquivo`, `--parte-tamanho`, `--empacotar-de`, `--receber-parte` (cópia retomável de arquivo único ≥
+  `TT_RETOMAR_MIN`, parte em `.tt-parte.<chave>` no destino), `--enviar --stdin NOME`,
   `--destinos`, `--definir-recebidos`, `--anexos-enviar` (anexos do aerc → recebidos de uma máquina).
   `--imagens` (tecla `i` do aerc: lista as imagens do e-mail cru em stdin e abre as escolhidas; as da
   web só são baixadas sob demanda, via `email-tt.py baixar-imagem`) e `--abrir-imagem ARQ` (opener `image/*`).
