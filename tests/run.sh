@@ -56,6 +56,11 @@ tem "$tt" '^versao_barra\(\)' &&
   tem "$tt" '@barra_versao' && ok 'versão exibida na barra (faixa ou linha das fixadas)' ||
   falha 'versão não foi ligada à barra'
 
+tem "$tt" 'fluxo #\{client_tty\} #\{client_pid\}' && tem "$tt" '\$DIR_TT/letreiro-tt\.py' &&
+  [[ -f $raiz/letreiro-tt.py ]] && ! tem "$tt" 'tmux set -g @barra_ticker' &&
+  ok 'letreiro por #() persistente: a barra rola sem set-option (sem redesenho completo)' ||
+  falha 'letreiro fora do pacote ou ainda gravando @barra_ticker a cada passo'
+
 tem "$tt" '^barra_status_linhas()' &&
   tem "$tt" 'printf.*📌' && ok 'faixa de fixadas permanece visível vazia' ||
   falha 'faixa de fixadas desaparece quando vazia'

@@ -10,7 +10,7 @@ g() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false -C "$1" "${@:
 # e o "commit publicado depois" não existe — o teste passava em falso.
 git init -q --bare publicado.git && git -C publicado.git symbolic-ref HEAD refs/heads/main
 git clone -q publicado.git dev 2>/dev/null
-for f in tt email-tt.py links-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
+for f in tt email-tt.py links-tt.py letreiro-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
          atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py \
          skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md; do
   [[ -e $RAIZ/$f ]] && cp "$RAIZ/$f" dev/

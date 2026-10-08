@@ -20,17 +20,23 @@ grep -q '@barra_data' <<<"$d" && grep -q '%H:%M' <<<"$d" && grep -q '@barra_vers
 [[ -z $(tmux show -gqv @barra_fim0) ]] || falhou 'com a faixa, o 📧/relógio deveriam sair da linha 0'
 passou 'faixa ligada: status 3, blocos na linha 2, fixadas 100% livres'
 
-TT_FAIXA_LARGURA=140 tt --notificar "📧 Ana — Reunião de sexta" 120 >/dev/null 2>&1
-TT_FAIXA_LARGURA=140 tt --barras >/dev/null 2>&1; n=$(tmux show -gqv @barra_notifs)
-grep -q 'Ana — Reunião' <<<"$(tmux show -gqv @barra_aviso)" || falhou "aviso não entrou na faixa (via @barra_aviso): $(tmux show -gqv @barra_aviso)"
+# O miolo da faixa (aviso fresco / transferência / letreiro) é o letreiro-tt.py de cada cliente, ligado
+# como #() em @barra_notifs: quadro N imprime o que ele mostraria num terminal de N colunas.
+quadro() { python3 -I "$TT_DIR/letreiro-tt.py" quadro "$@"; }
+tt --notificar "📧 Ana — Reunião de sexta" 120 >/dev/null 2>&1
+n=$(quadro 140)
+grep -q 'Ana — Reunião' <<<"$n" || falhou "aviso fresco não entrou no slot: $n"
 grep -q 'range=user|notifx' <<<"$n" || falhou "faixa de avisos sem o range clicável (notifx)"
 grep -q '│' <<<"$n" || falhou "slot sem os delimitadores │ │"
-TT_FAIXA_LARGURA=140 tt --notificar "$(printf 'A%.0s' {1..200})" 120 >/dev/null 2>&1
-TT_FAIXA_LARGURA=140 tt --barras >/dev/null 2>&1; n=$(tmux show -gqv @barra_notifs)
-grep -q '…' <<<"$(tmux show -gqv @barra_aviso)" || falhou "aviso comprido não foi truncado pelo orçamento"
-a=$(tmux show -gqv @barra_aviso); [[ ${#a} -lt 300 ]] || falhou "slot estourou o orçamento (len=${#a})"
-TT_FAIXA_LARGURA=70 tt --barras >/dev/null 2>&1; n=$(tmux show -gqv @barra_notifs)
-grep -q "🔔" <<<"$n" && falhou "estreito não deve ter 2º sino no miolo: $n"
+grep -q '#\[bold\]' <<<"$n" || falhou "aviso fresco deveria estar em negrito"
+grep -q 'letreiro-tt.py fluxo' <<<"$(tmux show -gqv @barra_notifs)" || falhou 'o slot deve seguir ligado ao letreiro (quem alterna aviso/letreiro é ele, sem gravar opções)'
+tt --notificar "$(printf 'A%.0s' {1..200})" 120 >/dev/null 2>&1
+n=$(quadro 140)
+grep -q '…' <<<"$n" || falhou "aviso comprido não foi truncado pelo orçamento"
+[[ ${#n} -lt 300 ]] || falhou "slot estourou o orçamento (len=${#n})"
+n=$(quadro 70)
+[[ -z $n ]] || falhou "estreito (< 90) deve deixar o miolo vazio — o sino com o contador conta a história: $n"
+tt --barras >/dev/null 2>&1
 grep -q "notifs_n" <<<"$(tmux show -gqv @barra_faixa)" || falhou "contador do sino ausente do segmento esquerdo"
 
 # clique com destino: aviso guarda a ação; a mais recente com ação ganha o clique; histórico marca ↗
@@ -46,17 +52,19 @@ passou 'clique nas notificações: 📧 abre o e-mail; histórico com ⏎ nos de
 # 🔔 sempre visível (porta do histórico mesmo sem aviso) e ticker: fontes, linha e passo do letreiro
 rm -f "$HOME/.local/state/tt/notifs"/*; tt --barras >/dev/null 2>&1
 grep -q 'range=user|notifs.* 🔔' <<<"$(tmux show -gqv @barra_faixa)" || falhou 'sininho não está ancorado à esquerda (junto aos chips)'
-grep -q '@barra_ticker' <<<"$(tmux show -gqv @barra_notifs)" || falhou 'slot vazio não dá lugar ao ticker'
+grep -q 'letreiro-tt.py fluxo #{client_tty} #{client_pid}' <<<"$(tmux show -gqv @barra_notifs)" || falhou 'slot central não liga o letreiro por #() (letreiro-tt.py fluxo)'
 printf 'indicadores=frases
 ' >>"$XDG_CONFIG_HOME/tt/config"
 "$TT" --ticker-fontes >/dev/null 2>&1
 [[ -s $HOME/.cache/tt-ticker/frases ]] || falhou 'fonte frases não escreveu cache'
+grep -qF "$(cut -c1-12 "$HOME/.cache/tt-ticker/frases")" <<<"$(quadro 140)" || falhou "slot sem aviso não mostra o letreiro (frase da fonte): $(quadro 140)"
+grep -q 'A%' <<<"$(quadro 140)" && falhou 'aviso já expirado/lido não deveria estar no slot'
 rg -q 'noticias\)' "$TT" && rg -q 'dolar\)' "$TT" || falhou 'fontes dolar/noticias ausentes do motor'
 grep -q 'dolar,frases,noticias' "$TT" || falhou 'letreiro não vem ligado de fábrica'
 passou 'sininho permanente e ticker: fontes com cache, dolar/frases/noticias no motor'
 tt --notificar "📧 Ana — Reunião de sexta" 120 email >/dev/null 2>&1  # o histórico abaixo precisa dele
 tt --notificar "⏳ efêmero" 1 >/dev/null 2>&1; sleep 2; tt --barras >/dev/null 2>&1
-grep -q 'efêmero' <<<"$(tmux show -gqv @barra_aviso)" && falhou "aviso expirado continuou na faixa"
+grep -q 'efêmero' <<<"$(quadro 140)" && falhou "aviso expirado continuou no slot"
 grep -q 'Ana — Reunião' <<<"$("$TT" --notifs-ui)" || falhou 'histórico não lista o aviso'
 passou 'notificar: aparece com range, expira sozinho, histórico lista'
 
@@ -76,4 +84,6 @@ grep -q '@barra_email' <<<"$(tmux show -gqv @barra_fim0)" || falhou 'desligada, 
 passou 'faixa_notif=0: layout de 2 linhas de volta, sem perder nada'
 
 rg -qF "pkill -f 'tt --ticker-loop$'" "$TT" || falhou 'instalador não mata o laço antigo do letreiro (ficava rodando com código velho)'
+rg -q -- '--ticker-loop\) exit 0' "$TT" || falhou '--ticker-loop deve ser um no-op de compatibilidade (o vigia antigo ainda o chama durante a troca de versão)'
+grep -qE 'subprocess|os\.system|popen|os\.exec' "$TT_DIR/letreiro-tt.py" && falhou 'letreiro-tt.py não pode lançar processos nem falar com o tmux (cada set-option redesenha tudo)'
 echo 'ok: faixa de notificações — 3ª linha com 📧/📋/avisos/data/versão, espelho central, desligável'
