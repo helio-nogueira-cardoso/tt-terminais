@@ -212,7 +212,12 @@ F4→`dbn`, F5→`tela`, F6→`sair`, F7→`ant`, F8→`zm`, F9→`jn`, F10→`d
 
 ### Área de transferência e contas de IA
 - `tt --copiar`/`--copiar-buffer`/`--copiado` (clipboard Wayland/X/clip.exe + OSC 52);
-  `--propagar-copia`/`--receber-copia`/`--copias` (histórico entre máquinas).
+  `--propagar-copia`/`--receber-copia`/`--copias` (histórico entre máquinas). `tt --copiar --tela
+  LARGURA SX SY EX EY RETANGULO CLIENTE` (copy-pipe do tmux.conf, opção `@tt_copiar`) religa o que a
+  tela partiu na borda (`links-tt.py desquebrar`).
+- Links: `links-tt.py clique|copiar` (chamados pelo tmux.conf no clique/duplo clique; 0 = havia
+  link), `tt --link-abrir ID CLIENTE PAINEL URL`, `tt --link-copiar CLIENTE URL`,
+  `tt --links-tela CLIENTE PAINEL` (Ctrl+B u), `tt --abrir-link URL` (seletor de navegador).
 - `tt --conta-propagar [nome] [alvos...]` / `tt --conta-receber [nome]` — move os arquivos próprios
   da conta Claude de forma transacional. `--receber-contas-ia`/`--propagar-contas-ia`/
   `--puxar-contas-ia` sincronizam o cadastro `contas-ia`. `--registrar`/`--desregistrar`/

@@ -1365,7 +1365,7 @@ ajuda() {
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt email-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
+ARQUIVOS_FONTE=(tt email-tt.py links-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
@@ -3241,6 +3241,7 @@ copiar() {
   t=$(mktemp) || return 0
   cat >"$t"
   [[ -s $t ]] || { rm -f "$t"; return 0; }
+  [[ ${1:-} == --tela ]] && desquebrar_copia "$t" "${@:2}"
   copiar_local "$t"
   # Repetição da última cópia (inclusive o eco de uma cópia recebida que volta por OSC 52 de uma
   # ponte): não entra de novo no histórico nem é reenviada — senão as máquinas ficariam trocando a
@@ -3635,13 +3636,25 @@ cliente_externo() {
     awk 'NR==1{print $2}' <<<"$l"
 }
 
+# Rodando num popup do tmux com terminal: o tmux não abre outro popup por cima (só modifica o atual),
+# então o que precisaria de um popup roda aqui mesmo. Jobs de popup têm TMUX mas não TMUX_PANE.
+em_popup() { [[ -n ${TMUX:-} && -z ${TMUX_PANE:-} && -t 0 && -t 1 ]]; }
+
 # Roda CMD (string de shell) fora do namespace sem rede do w3m/aerc: pelo servidor do tmux.
 # popup=1 abre num popup grande (para o que precisa de terminal); senão em segundo plano.
 rodar_fora() {
   local popup=$1 cmd=$2 c
-  if [[ -n ${TMUX:-} ]] && c=$(cliente_externo) && [[ -n $c ]]; then
-    if [[ $popup == 1 ]]; then tmux display-popup -c "$c" -E -w 100% -h 100% -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q sai ' "$cmd"
-    else tmux run-shell -b "$cmd"; fi
+  # Dentro de um popup grande com terminal (o cadastro de conta: TMUX sem TMUX_PANE), roda ali mesmo.
+  if [[ $popup == 1 ]] && em_popup && [[ -z ${TT_LINK_CLIENTE:-} ]]; then bash -c "$cmd"; return; fi
+  if [[ -n ${TMUX:-} ]] && c=${TT_LINK_CLIENTE:-$(cliente_externo)} && [[ -n $c ]]; then
+    # run-shell lê o comando como formato do tmux: um "#S" ou "#{" dentro da URL virava o nome da
+    # sessão. "##" é o "#" literal. Num popup (o seletor do clique em link), outro popup não abre
+    # (o tmux só modifica o atual): o navegador sobe depois que o seletor fecha.
+    if [[ $popup == 1 && -n ${TT_LINK_CLIENTE:-} ]]; then
+      cmd="sleep 0.3; tmux display-popup -c $(q "$c") -E -w 100% -h 100% -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q sai ' $(q "$cmd")"
+      tmux run-shell -b "${cmd//#/##}"
+    elif [[ $popup == 1 ]]; then tmux display-popup -c "$c" -E -w 100% -h 100% -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q sai ' "$cmd"
+    else tmux run-shell -b "${cmd//#/##}"; fi
   else
     if [[ $popup == 1 ]]; then bash -c "$cmd"; else setsid bash -c "$cmd" >/dev/null 2>&1 </dev/null & fi
   fi
@@ -3652,7 +3665,8 @@ rodar_fora() {
 garantir_chrome_libs() {
   local c
   [[ -n $(chrome_libs_faltando) ]] || return 0
-  if [[ -n ${TMUX:-} ]] && c=$(cliente_externo 2>/dev/null) && [[ -n $c ]]; then
+  if em_popup; then pedir_sudo_pendencias chrome-libs
+  elif [[ -n ${TMUX:-} ]] && c=$(cliente_externo 2>/dev/null) && [[ -n $c ]]; then
     tmux display-popup -c "$c" -E -w 92 -h 20 -b rounded -S 'fg=#f9e2af' -T ' 🔐 permissão ' "$EU --pedir-sudo chrome-libs"
   elif [[ -t 0 ]]; then pedir_sudo_pendencias chrome-libs
   fi
@@ -3663,6 +3677,7 @@ abrir_com() {
   local qual=$1 u=$2 disp=${DISPLAY:-} way=${WAYLAND_DISPLAY:-} xdg=${XDG_RUNTIME_DIR:-}
   case $qual in
     sistema) abrir_url "$u" ;;
+    copiar) link_copiar "${TT_LINK_CLIENTE:-}" "$u" ;;
     chromium)
       navegador_instalar chromium || return 1
       garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
@@ -3688,7 +3703,8 @@ abrir_link() {
       esc=$(printf '%s\t%s\n' \
         chromium "Google Chrome interno (janela gráfica)" \
         carbonyl "Carbonyl embutido (no terminal · Chromium de 2023, sem atualizações)" \
-        sistema "Navegador padrão do sistema" |
+        sistema "Navegador padrão do sistema" \
+        copiar "📋 Só copiar o link (inteiro)" |
         awk -F'\t' -v u="$ultimo" 'BEGIN{OFS="\t"} {print $1, $2 ($1==u ? "  ← último" : "")}' |
         fzf --delimiter='\t' --with-nth=2 --no-sort --layout=reverse --height=~8 --prompt='❯ ' \
             --header="Abrir ${u:0:100}" | cut -f1) || return 0
@@ -3701,6 +3717,86 @@ abrir_link() {
     pref=sistema
   fi
   abrir_com "$pref" "$u"
+}
+
+# --- Links em qualquer painel ----------------------------------------------------
+#
+# Clique (ou Ctrl+clique) num endereço, em qualquer painel, abre a mesma escolha do e-mail (Chrome
+# interno, Carbonyl ou o navegador do sistema) com a URL inteira, mesmo quando a tela a partiu em
+# várias linhas — inclusive com recuo ou borda, como no Claude Code. Quem acha o link é o
+# links-tt.py (chamado pelo tmux.conf no clique); fora de um link, o clique segue para o programa.
+# O duplo clique num link copia o link inteiro; Ctrl+B u (e o menu do painel) lista os links da tela.
+LINKS_PY=$DIR_TT/links-tt.py
+[[ -f $LINKS_PY ]] || LINKS_PY=${EU%/*}/links-tt.py
+
+# tt --link-abrir ID CLIENTE PAINEL URL (do links-tt.py). Com ID, é um clique simples: espera o tempo
+# de um duplo clique e desiste se veio o 2º clique ou um arrasto (o tmux.conf limpa @tt_link_id).
+link_abrir() {
+  local id=$1 c=$2 p=$3 u=$4 pref cw
+  [[ $u == http://* || $u == https://* ]] || return 0
+  if [[ -n $id ]]; then
+    sleep 0.35
+    [[ $(tmux show -gv @tt_link_id 2>/dev/null) == "$id" ]] || return 0
+    tmux set -gu @tt_link_id 2>/dev/null
+    [[ $(tmux display -p -t "$p" '#{pane_in_mode}' 2>/dev/null) == 0 ]] || return 0
+  fi
+  pref=$(conf navegador); pref=${pref:-perguntar}
+  navegadores_graficos_ok || pref=sistema
+  if [[ $pref != perguntar ]]; then TT_LINK_CLIENTE=$c abrir_com "$pref" "$u"; return 0; fi
+  cw=$(do_cliente "$c" '#{client_width}'); cw=${cw:-80}
+  tmux display-popup -c "$c" -E -w "$((cw < 84 ? cw : 84))" -h 12 -b rounded -T ' 🌐 abrir link ' \
+    "TT_LINK_CLIENTE=$(q "$c") $EU --abrir-link $(q "$u")"
+}
+
+# tt --link-copiar CLIENTE URL: o link inteiro vai para o tmux (e o terminal, por OSC 52), para a área
+# de transferência e para o histórico de cópias, com o aviso de sempre.
+link_copiar() {
+  local c=$1 u=$2
+  [[ -n $u ]] || return 0
+  tmux set-buffer -w -- "$u" 2>/dev/null
+  printf '%s' "$u" | copiar
+  if [[ -n $c ]]; then tmux display-message -c "$c" -d 1800 "🔗 link copiado inteiro (${#u} caracteres) — cole com Ctrl+Shift+V, botão do meio ou ⋯"
+  elif [[ -t 1 ]]; then echo "✓ link copiado (${#u} caracteres)."; sleep 0.8
+  fi
+}
+
+# Ctrl+B u / menu do painel: os links da tela e do histórico do painel, do mais recente ao mais
+# antigo. ⏎ abre (escolha do navegador), ^y copia.
+links_tela() {
+  local c=$1 p=$2
+  tmux display-popup -c "$c" -E $(tam_popup "$c") -b rounded -T ' 🔗 links da tela ' "TT_LINK_CLIENTE=$(q "$c") $EU --links-tela-ui $(q "$p")"
+}
+
+links_tela_ui() {
+  local p=$1 lista esc tecla u
+  lista=$(python3 -I "$LINKS_PY" todos "$p" 2>/dev/null)
+  if [[ -z $lista ]]; then echo "Nenhum link (http/https) na tela nem no histórico deste painel."; sleep 1.5; return 0; fi
+  esc=$(fzf --no-sort --layout=reverse --prompt='🔗 ' --expect=ctrl-y --wrap \
+    --header='⏎ abre (escolha o navegador) · ^y copia o link inteiro · esc fecha' <<<"$lista") || return 0
+  tecla=$(sed -n 1p <<<"$esc"); u=$(sed -n 2p <<<"$esc")
+  [[ -n $u ]] || return 0
+  if [[ $tecla == ctrl-y ]]; then link_copiar "${TT_LINK_CLIENTE:-}" "$u"; else abrir_link "$u"; fi
+}
+
+# Cópia por seleção do tmux (arrasto, duplo/triplo clique, teclado): o tmux.conf passa a largura do
+# painel e a seleção (copy-pipe com @tt_copiar). Endereço, caminho ou código que a tela partiu na
+# borda direita volta a ser uma coisa só, sem a quebra e sem o recuo que o programa pôs na linha de
+# baixo (links-tt.py desquebrar); quebras de verdade ficam. O buffer do tmux (colar) e o OSC 52
+# recebem o texto corrigido também. Seleção retangular fica como está.
+desquebrar_copia() {
+  local t=$1 w=${2:-0} sx=${3:-0} sy=${4:-0} ex=${5:-0} ey=${6:-0} ret=${7:-0} c=${8:-} x0 novo b
+  [[ $w =~ ^[0-9]+$ && $sx =~ ^[0-9]+$ && $sy =~ ^[0-9]+$ && $ex =~ ^[0-9]+$ && $ey =~ ^[0-9]+$ ]] || return 0
+  ((w > 0)) && [[ $ret != 1 && -f $LINKS_PY ]] && command -v python3 >/dev/null || return 0
+  if ((sy < ey || (sy == ey && sx <= ex))); then x0=$sx; else x0=$ex; fi
+  novo=$(mktemp) || return 0
+  if python3 -I "$LINKS_PY" desquebrar "$w" "$x0" <"$t" >"$novo" 2>/dev/null && [[ -s $novo ]] && ! cmp -s "$t" "$novo"; then
+    mv "$novo" "$t"
+    b=$(tmux list-buffers -F '#{buffer_name}' 2>/dev/null); b=${b%%$'\n'*}
+    [[ -n $b ]] && tmux load-buffer -w -b "$b" "$t" 2>/dev/null
+    [[ -n $c ]] && tmux display-message -c "$c" -d 1800 "📋 copiado ($(wc -m <"$t") caracteres) — o que a tela tinha partido em linhas voltou a ser uma coisa só"
+  else
+    rm -f "$novo"
+  fi
 }
 
 # --- Histórico de cópias e cópia entre máquinas --------------------------------
@@ -3889,9 +3985,10 @@ copiado() {
 # rola a tela. Vai para o buffer do tmux, para os terminais por OSC 52 (load-buffer -w) e para a
 # área de transferência desta máquina.
 copiar_tela() {
-  local c=$1 p=$2
+  local c=$1 p=$2 w
+  w=$(tmux display -p -t "$p" '#{pane_width}' 2>/dev/null)
   tmux capture-pane -p -J -t "$p" | awk '{ l[NR] = $0 } NF { u = NR } END { for (i = 1; i <= u; i++) print l[i] }' |
-    sed 's/[[:space:]]*$//' | tmux load-buffer -w - || return 0
+    sed 's/[[:space:]]*$//' | { python3 -I "$LINKS_PY" desquebrar "${w:-0}" 0 2>/dev/null || cat; } | tmux load-buffer -w - || return 0
   tmux save-buffer - | copiar
   copiado "$c"
 }
@@ -4054,6 +4151,7 @@ p	Trocar a sessão deste painel…	$troca
 -		
 c	📋 Colar a última cópia	tmux paste-buffer -p -t $p
 y	📋 Copiar o texto da tela	$EU --copiar-tela $(q "$c") $p
+u	🔗 Links da tela (abrir ou copiar)…	$EU --links-tela $(q "$c") $p
 h	📋 Histórico de cópias…	$(popup_tt "$c" "📋 cópias" "$env $EU --copias")
 a	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
 k	⏱ Sessões paradas: $( (($(minutos_paradas))) && echo "fecham após $(minutos_paradas) min" || echo desativado)…	$EU --config-paradas $(q "$c")
@@ -9308,7 +9406,7 @@ sair_menu() { limpar_estado; }
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia)
+  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -9317,7 +9415,7 @@ esac
 case "${1:-}" in
   --listar) listar; exit ;;
   --nome) m=${TT_MACHINE:-$MAQUINA}; echo "${m//_/-}"; exit ;;
-  --copiar) copiar; exit 0 ;;
+  --copiar) shift; copiar "$@"; exit 0 ;;
   --copiar-buffer) tmux save-buffer - 2>/dev/null | copiar; exit 0 ;;
   --copiado) copiado "$2"; exit 0 ;;
   --encerrar-duplicados) encerrar_claude_duplicados; exit 0 ;;
@@ -9384,6 +9482,10 @@ case "${1:-}" in
   --email-atalhos) email_atalhos; exit 0 ;;
   --abrir-url) abrir_url "${2:-}"; exit 0 ;;
   --abrir-link) abrir_link "${2:-}"; exit 0 ;;
+  --link-abrir) link_abrir "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit 0 ;;
+  --link-copiar) link_copiar "${2:-}" "${3:-}"; exit 0 ;;
+  --links-tela) links_tela "${2:?uso: tt --links-tela CLIENTE PAINEL}" "${3:?uso: tt --links-tela CLIENTE PAINEL}"; exit 0 ;;
+  --links-tela-ui) links_tela_ui "${2:?uso: tt --links-tela-ui PAINEL}"; exit 0 ;;
   --garantir-navegadores) garantir_navegadores; exit ;;
   --pedir-sudo) shift; pedir_sudo_pendencias "$@"; exit ;;
   --email-sync-local) email_sync_local_definir "${2:?uso: tt --email-sync-local CONTA 0|1}" "${3:-1}"; exit ;;

@@ -217,6 +217,21 @@ def base_oauth(c):
     return d
 
 
+def link_na_tela(url):
+    return osc8(url, url) if sys.stdout.isatty() else url
+
+
+def link_pelo_tt(url, acao):
+    """Abre (escolha do navegador: tt --abrir-link) ou copia inteiro (tt --link-copiar) um link."""
+    tt = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tt")
+    if not os.access(tt, os.X_OK):
+        tt = "tt"
+    try:
+        subprocess.run([tt, "--abrir-link", url] if acao == "abrir" else [tt, "--link-copiar", "", url])
+    except OSError:
+        print("✗ não achei o tt para isso; copie o link acima.")
+
+
 def oauth_autorizar(c):
     if not c.get("oauth_client_id"):
         print("✗ falta oauth_client_id na conta (edite a conta e informe o ID do app OAuth).")
@@ -228,7 +243,8 @@ def oauth_autorizar(c):
         if "device_code" not in r:
             print(f"✗ não consegui iniciar a autorização: {r.get('error_description') or r.get('error')}")
             return 1
-        print(f"\nAbra {r.get('verification_uri') or r.get('verification_url')} em qualquer aparelho")
+        v = r.get('verification_uri') or r.get('verification_url')
+        print(f"\nAbra {link_na_tela(v)} em qualquer aparelho")
         print(f"e digite o código:  {r['user_code']}\n\nAguardando a sua confirmação…", flush=True)
         prazo = time.time() + int(r.get("expires_in", 900))
         intervalo = int(r.get("interval", 5))
@@ -266,16 +282,22 @@ def oauth_autorizar(c):
     url = c["oauth_auth_endpoint"] + "?" + urllib.parse.urlencode({
         "client_id": c["oauth_client_id"], "response_type": "code", "redirect_uri": redir,
         "scope": escopo, "state": estado, "access_type": "offline", "prompt": "consent"})
-    print(f"\nAbra no navegador:\n\n{url}\n")
+    # O endereço passa da largura da tela e quebra em várias linhas: copiar ou clicar pegava um pedaço.
+    # Vai como hyperlink OSC 8 (a URL inteira em cada pedaço) e com atalhos que usam a URL inteira.
+    print(f"\nAbra no navegador:\n\n{link_na_tela(url)}\n")
+    print("⏎ abre este link (Chrome interno, Carbonyl ou o navegador do sistema) · c ⏎ copia o link inteiro.")
     print("Depois de autorizar: se o navegador está NESTA máquina, aguarde; se está em outro aparelho,")
-    print("copie o endereço da página que não abriu (começa com http://127.0.0.1) e cole aqui.\n")
+    print("copie o endereço da página que não abriu (começa com http://127.0.0.1) e cole aqui.\n", flush=True)
     for _ in range(600):
         if recebido:
             break
         import select
         if select.select([sys.stdin], [], [], 1)[0]:
-            linha = sys.stdin.readline().strip()
-            if linha:
+            bruta = sys.stdin.readline()
+            linha = bruta.strip()
+            if bruta and (not linha or linha.lower() == "c"):
+                link_pelo_tt(url, "copiar" if linha else "abrir")
+            elif linha:
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(linha).query)
                 recebido.update({k: v[0] for k, v in q.items()})
     if recebido.get("state") != estado or "code" not in recebido:
