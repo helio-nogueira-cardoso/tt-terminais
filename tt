@@ -5368,11 +5368,11 @@ faixa_notif_ativa() {
   ! command -v termux-open-url >/dev/null
 }
 
-notificar() { # texto [segundos (padrão 300)]
-  local txt=${1:-} dura=${2:-300}
+notificar() { # texto [segundos (padrão 300)] [ação: email|tarefas|calendario|cmd:...]
+  local txt=${1:-} dura=${2:-300} acao=${3:-}
   [[ -n $txt ]] || return 0
   mkdir -p "$DIR_NOTIFS"
-  printf '%s\t%s\n' "$(( $(date +%s) + dura ))" "${txt//$'\n'/ }" >"$DIR_NOTIFS/$(date +%s%N)"
+  printf '%s\t%s\t%s\n' "$(( $(date +%s) + dura ))" "${txt//$'\n'/ }" "$acao" >"$DIR_NOTIFS/$(date +%s%N)"
   ls -1 "$DIR_NOTIFS" 2>/dev/null | sort | head -n -30 | while read -r f; do rm -f "$DIR_NOTIFS/$f"; done
   atualizar_barras
 }
@@ -5384,11 +5384,12 @@ notificar() { # texto [segundos (padrão 300)]
 barra_notifs_fmt() {
   local agora exp txt itens="" f n=0
   agora=$(date +%s)
+  local _a
   for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | head -6); do
-    IFS=$'\t' read -r exp txt <"$DIR_NOTIFS/$f" || continue
+    IFS=$'\t' read -r exp txt _a <"$DIR_NOTIFS/$f" || continue
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
     n=$((n + 1))
-    itens+="${itens:+ · }${txt}"
+    itens+="${itens:+  ·  }${txt}"
   done
   [[ -n $itens ]] || return 0
   local larg orcamento
@@ -5398,7 +5399,7 @@ barra_notifs_fmt() {
     printf '#[range=user|notifs]#[fg=#f9e2af] 🔔 %d #[norange]#[default]' "$n"
     return 0
   fi
-  orcamento=$((larg - 16 - 30 - 8))
+  orcamento=$((larg - 20 - 34 - 12)) # chips + relógio + delimitadores e MARGENS: nunca grudar
   ((orcamento < 12)) && orcamento=12
   # Trunca por LARGURA DE TELA (células), não por caracteres: emoji e símbolos ocupam 2 colunas e,
   # contando caracteres, o texto saía mais largo que o orçamento e atropelava o │ de fechamento.
@@ -5418,30 +5419,61 @@ sys.stdout.write(t if corte == len(t) else t[:corte].rstrip() + "…")' <<<"$ite
     ((${#itens} * 2 > orcamento)) && itens="${itens:0:orcamento/2}…"
   fi
   itens=${itens//#/##}
-  printf '#[fg=#45475a]│#[range=user|notifs]#[fg=#f9e2af] %s #[norange]#[fg=#45475a]│#[default]' "$itens"
+  printf '  #[fg=#45475a]│#[range=user|notifs]#[fg=#f9e2af]  %s  #[norange]#[fg=#45475a]│#[default]  ' "$itens"
 }
 
-# Histórico num popup (clique na faixa ou tt --notifs): o que já passou, com hora.
+# Clique na faixa: abre o destino do aviso mais recente (📧 → e-mail, 📋 → tarefas); sem ação,
+# o histórico. notif_abrir é o dicionário de destinos — novos indicadores registram os seus aqui.
+notif_abrir() { # ação cliente
+  local acao=$1 c=$2
+  case $acao in
+    email) botao_email "$c" ;;
+    tarefas) abrir_tarefas "$c" ;;
+    calendario) abrir_calendario "$c" ;;
+    cmd:*) rodar_fora 0 "${acao#cmd:}" ;;
+    *) return 1 ;;
+  esac
+}
+
+notifs_clique() { # cliente
+  local c=$1 f exp txt acao agora; agora=$(date +%s)
+  for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | head -6); do
+    IFS=$'\t' read -r exp txt acao <"$DIR_NOTIFS/$f" || continue
+    [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
+    [[ -n $acao ]] && notif_abrir "$acao" "$c" && return 0
+    break
+  done
+  notifs_popup "$c"
+}
+
+# Histórico num popup (clique direito na faixa ou tt --notifs): o que já passou, com hora; ⏎ abre
+# o destino do aviso escolhido.
 notifs_popup() {
   local c=${1:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
   [[ -n $c ]] || return 0
-  tmux display-popup -c "$c" -E -w 86 -h 18 -b rounded -T ' 🔔 notificações ' "$EU --notifs-ui"
+  tmux display-popup -c "$c" -E -w 86 -h 18 -b rounded -T ' 🔔 notificações ' "$EU --notifs-ui $(q "$c")"
 }
 notifs_ui() {
-  local f exp txt
-  { for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null); do
-      IFS=$'\t' read -r exp txt <"$DIR_NOTIFS/$f" || continue
-      printf '%s  %s\n' "$(date -d "@${f:0:10}" +%H:%M 2>/dev/null)" "$txt"
-    done; } | awk 'NF' | {
-    if command -v fzf >/dev/null && [[ -t 1 ]]; then
-      fzf --ansi --layout=reverse --no-sort --no-input --header='🔔 Notificações recentes · Esc fecha' --bind 'q:abort,enter:abort' >/dev/null || true
-    else cat; fi; }
+  local c=${1:-} f exp txt acao esc
+  lista() {
+    for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null); do
+      IFS=$'\t' read -r exp txt acao <"$DIR_NOTIFS/$f" || continue
+      [[ -n $txt ]] || continue
+      printf '%s\t%s  %s%s\n' "${acao:-}" "$(date -d "@${f:0:10}" +%H:%M 2>/dev/null)" "$txt" "${acao:+  ↗}"
+    done
+  }
+  if command -v fzf >/dev/null && [[ -t 1 ]]; then
+    esc=$(lista | fzf --ansi --delimiter=$'\t' --with-nth=2 --layout=reverse --no-sort --no-input \
+      --header='🔔 Notificações · ⏎ abre o destino (↗) · Esc fecha' --bind 'q:abort') || return 0
+    acao=$(cut -f1 <<<"$esc")
+    [[ -n $acao ]] && notif_abrir "$acao" "${c:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}"
+  else lista | cut -f2-; fi
   return 0
 }
 
-tarefas_notificar() { # titulo corpo
+tarefas_notificar() { # titulo corpo [ação para o clique na faixa]
   local t=$1 c=$2 cl ok=1
-  notificar "$t · $c" 600
+  notificar "$t · $c" 600 "${3:-}"
   if command -v notify-send >/dev/null 2>&1; then notify-send -a tt "$t" "$c" >/dev/null 2>&1 && ok=0
   elif command -v termux-notification >/dev/null 2>&1; then termux-notification --title "$t" --content "$c" >/dev/null 2>&1 && ok=0; fi
   # Também na tela de cada terminal aberto (no WSL não há notify-send).
@@ -5460,7 +5492,7 @@ tarefas_lembrete() {
   # Sem horário: uma vez por dia enquanto vence hoje ou está atrasada (id|AAAAMMDD).
   while IFS=$'\t' read -r chave quando txt; do
     grep -qxF "$chave" "$arq" && continue
-    tarefas_notificar "📋 $quando" "$txt" && printf '%s\n' "$chave" >>"$arq"
+    tarefas_notificar "📋 $quando" "$txt" tarefas && printf '%s\n' "$chave" >>"$arq"
   done < <(LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v ANT="$ant" "$TAREFAS_AWK"'
     NF >= 5 && valida($1, $2) && $2 == "aberta" && mv($6, "pai") == "" && !($1 in v) {
       v[$1] = 1; p = mv($6, "prazo"); if (p == "") next
@@ -7826,7 +7858,7 @@ clique() {
     fx*) ir_fixada "$2" "$faixa" ;;
     tarefas) abrir_tarefas "$2" ;;
     em_*) email_botao_acao "${faixa#em_}" ;;
-    notifs) notifs_popup "$2" ;;
+    notifs) notifs_clique "$2" ;;
     relogio) abrir_calendario "$2" ;;
     tt) tmux display-popup -c "$2" -E $(tam_popup "$2") "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
     lado) tmux split-window -h -t "$3" -c "$4" ;;
@@ -9119,7 +9151,7 @@ email_novos_avisar() { # slug
   done <<<"$novas"
   ((n > 3)) && corpo+=" · e mais $((n - 3))"
   local -A E=(); email_ler "$slug" 2>/dev/null; nome=${E[nome]:-$slug}
-  tarefas_notificar "📧 $nome: $n e-mail$( ((n > 1)) && echo s) novo$( ((n > 1)) && echo s)" "$corpo"
+  tarefas_notificar "📧 $nome: $n e-mail$( ((n > 1)) && echo s) novo$( ((n > 1)) && echo s)" "$corpo" email
   return 0
 }
 
@@ -11058,9 +11090,9 @@ case "${1:-}" in
   --marcar-fixadas) marcar_fixadas; exit ;;
   --propagar-fixadas) propagar_fixadas; exit ;;
   --ir-fixada) ir_fixada "$2" "$3"; exit ;;
-  --notificar) notificar "${2:-}" "${3:-300}"; exit ;;
+  --notificar) notificar "${2:-}" "${3:-300}" "${4:-}"; exit ;;
   --notifs) notifs_popup "${2:-}"; exit ;;
-  --notifs-ui) notifs_ui; exit ;;
+  --notifs-ui) notifs_ui "${2:-}"; exit ;;
   --mover-fixada) mover_fixada "$2" "$3"; exit ;;
   --mover-fixada-rel) mover_fixada_rel "$2" "$3"; exit ;;
   --desafixar-n) desafixar_n "$2"; exit ;;
