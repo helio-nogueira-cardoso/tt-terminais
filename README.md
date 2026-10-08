@@ -523,6 +523,21 @@ da conversa, se for o Claude, ou um nome curto que o Haiku tira da tela. O tt ac
 Claude guarda as conversas e qual `claude` usar, inclusive no Termux, com o Claude dentro do Debian
 (`proot-distro`). Um nome que você der à mão (`^r`, Ctrl+B N) nunca é trocado.
 
+## Links de e-mail: escolha do navegador
+
+Enter (ou `ESC M`) num link no leitor de e-mail abre um seletor com três opções:
+
+- **Chromium interno**: Chrome for Testing, janela gráfica (WSLg ou X11);
+- **Carbonyl embutido**: Chromium que desenha no terminal, num popup do tmux (Ctrl+Q sai). É um build
+  de 2023 sem atualizações: use para ler, não para logins sensíveis;
+- **Navegador padrão do sistema**: `xdg-open`, que no WSL abre o do Windows.
+
+Os dois primeiros são baixados sob demanda para `~/.local/share/tt-navegadores`, sem sudo, e só são
+instalados se o sha256 do pacote bater com o fixado no `tt` (só x86_64; no Termux ficam ocultos).
+A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`
+no `~/.config/tt/config` (o padrão é `perguntar`). O navegador sobe pelo servidor do tmux, fora do
+isolamento de rede do leitor de e-mail.
+
 ## Atualizar
 
     tt --atualizar           instala a versão mais nova publicada no GitHub nesta máquina

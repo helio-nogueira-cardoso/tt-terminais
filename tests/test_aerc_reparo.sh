@@ -88,8 +88,11 @@ mk w3m
 printf '[filters]\ntext/html=! html | colorize | python3 /x/email-tt.py linkify\n' > "$conf"; aerc_reparar_se_preciso
 f=$(filtro_atual)
 [[ $f != *'|'* ]] && ok "filtro w3m sem pipe: w3m fica interativo (caixas) em vez de dump" || erro "filtro w3m ainda tem pipe: $f"
-[[ $f == *"extbrowser='"*"--abrir-url %s'"* && $f == *keymap_file=* ]] && ok "filtro w3m antigo migrado p/ abrir link no navegador" || erro "filtro nao migrou: $f"
+[[ $f == *"extbrowser='"*"--abrir-link %s'"* && $f == *keymap_file=* ]] && ok "filtro w3m antigo migrado p/ abrir link no navegador" || erro "filtro nao migrou: $f"
 grep -q 'C-m EXTERN_LINK' "$DIR_TT/w3m-keymap" 2>/dev/null && ok "keymap do w3m: Enter abre o link no navegador" || erro "keymap do w3m ausente"
+# Filtro da versão anterior (extbrowser com --abrir-url, sem seletor de navegador) migra para --abrir-link.
+printf '[filters]\ntext/html=! html -o extbrowser='"'"'/x/tt --abrir-url %%s'"'"' -o keymap_file=/x/w3m-keymap\n' > "$conf"; aerc_reparar_se_preciso
+[[ $(filtro_atual) == *--abrir-link* ]] && ok "filtro com --abrir-url migrado para o seletor de navegador" || erro "nao migrou --abrir-url: $(filtro_atual)"
 before=$(cat "$conf"); aerc_reparar_se_preciso
 [[ $(cat "$conf") == "$before" ]] && ok "filtro w3m novo: idempotente" || erro "reescreveu filtro w3m novo"
 
