@@ -372,9 +372,10 @@ opcionalmente, a descrição. No título dá para dizer, em qualquer ponto (tudo
 | `!…` | prioridade | `!alta` `!media` |
 | `*…` | repetir | `*diaria` `*semanal` `*mensal` (ou `*d` `*w` `*m`) |
 | `#…` | etiqueta | `#casa` (a busca também acha por `#casa`) |
-| `// …` | descrição | o que vem depois de ` // ` (outro ` // ` começa outra linha) |
 
-Ex.: `Reunião com a Ana @sex 14h !alta // levar o relatório`. Concluir uma tarefa que repete avança o
+Ex.: `Reunião com a Ana @sex 14h !alta`. Na criação (**+ Nova**, ^n), **Ctrl+E** abre o editor
+do tt: a 1ª linha é o título e o resto vira a descrição (colar texto com várias linhas também
+vale). Concluir uma tarefa que repete avança o
 prazo (mantendo a hora) e ela continua aberta. `@25/12` sem ano é a próxima vez que esse dia chega.
 
 **Descrição.** A primeira linha aparece logo abaixo da tarefa; com a tarefa aberta (▾) ela aparece
