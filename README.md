@@ -320,8 +320,17 @@ contas do cadastro antigo são importadas sozinhas. Pela linha de comando:
 
 O tt deixa o aerc pronto em toda máquina (só acrescenta o que você não configurou; o que já estiver no
 `aerc.conf` fica): tema **Catppuccin Mocha** igual ao do tt, pastas em árvore com a **contagem de não
-lidas**, conversas agrupadas em fios, datas curtas e e-mails em **HTML legíveis** mesmo sem `w3m`
-(usa `lynx` ou o conversor do próprio tt, com os links numerados no fim). Atalhos, na lista e na leitura:
+lidas** (e as abas das contas também, `Career (3)`), conversas agrupadas em fios, datas curtas e em
+português (`08/10/26`, hoje `15:04`, este ano `02/01`), **ícones de estado** na lista (● nova · ○ não
+lida · 📎 anexo · ★ estrela · ↩ respondida · ↪ encaminhada · ✎ rascunho), **prévia da mensagem**
+selecionada (embaixo da lista, com a largura toda; em tela muito larga, ≥ 180 colunas, ao lado; em tela
+estreita não há prévia; o que fica 3 s na prévia é marcado como lido) e e-mails em **HTML legíveis**
+mesmo sem `w3m` (usa `lynx` ou o conversor do próprio tt, com os links numerados no fim).
+
+**Tudo clicável.** No rodapé do popup há uma **barra de botões**: 📖 Abrir · + Nova · ↩ Responder ·
+↩↩ Todos · ↪ Encaminhar · ▤ Arquivar · ✕ Apagar · 📁 Pasta · 👤 Contas · ? Atalhos (em tela estreita, só
+os ícones); cada botão faz o mesmo que a tecla. **Duplo clique** numa mensagem abre; um clique numa
+**aba** troca de conta, numa **pasta** abre a pasta, e a roda rola. Atalhos, na lista e na leitura:
 
 | Tecla | Ação | Tecla | Ação |
 |---|---|---|---|
