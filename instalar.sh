@@ -6,27 +6,27 @@
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
-declare -A PACOTE_APT=( [w3m]=w3m
+declare -A PACOTE_APT=( [w3m]=w3m [curl]=curl [unzip]=unzip
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python3
   [ssh]=openssh-client [tar]=tar [rg]=ripgrep
 )
-declare -A PACOTE_DNF=( [w3m]=w3m
+declare -A PACOTE_DNF=( [w3m]=w3m [curl]=curl [unzip]=unzip
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python3
   [ssh]=openssh-clients [tar]=tar [rg]=ripgrep
 )
-declare -A PACOTE_PACMAN=( [w3m]=w3m
+declare -A PACOTE_PACMAN=( [w3m]=w3m [curl]=curl [unzip]=unzip
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python
   [ssh]=openssh [tar]=tar [rg]=ripgrep
 )
-declare -A PACOTE_APK=( [w3m]=w3m
+declare -A PACOTE_APK=( [w3m]=w3m [curl]=curl [unzip]=unzip
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python3
   [ssh]=openssh-client [tar]=tar [rg]=ripgrep
 )
-declare -A PACOTE_BREW=( [w3m]=w3m
+declare -A PACOTE_BREW=( [w3m]=w3m [curl]=curl [unzip]=unzip
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python
   [ssh]=openssh [tar]=gnu-tar [rg]=ripgrep
 )
-declare -A PACOTE_PKG=( [w3m]=w3m
+declare -A PACOTE_PKG=( [w3m]=w3m [curl]=curl [unzip]=unzip
   [bash]=bash [git]=git [tmux]=tmux [fzf]=fzf [python3]=python
   [ssh]=openssh [tar]=tar [rg]=ripgrep
 )
@@ -92,6 +92,15 @@ if ((${#faltam[@]})); then instalar_pacotes; fi
 # instalar, segue: o tt usa o lynx ou o conversor próprio.
 if command -v aerc >/dev/null 2>&1 && ! command -v w3m >/dev/null 2>&1; then
   faltam=(w3m); instalar_pacotes >/dev/null 2>&1 || echo "Aviso: não consegui instalar o w3m (opcional); e-mails em HTML usarão outro conversor." >&2
+fi
+
+# Opcional: os navegadores de links do e-mail (Google Chrome e Carbonyl) são baixados sob demanda,
+# sem sudo, e precisam de curl e unzip. Só em Linux x86_64 fora do Termux.
+if [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] && ! command -v termux-open-url >/dev/null 2>&1; then
+  faltam=(); for c in curl unzip; do command -v "$c" >/dev/null 2>&1 || faltam+=("$c"); done
+  if ((${#faltam[@]})); then
+    instalar_pacotes >/dev/null 2>&1 || echo "Aviso: não consegui instalar ${faltam[*]} (opcionais); o seletor de navegador de links só terá o navegador do sistema." >&2
+  fi
 fi
 
 faltam=()

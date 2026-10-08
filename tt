@@ -3216,8 +3216,32 @@ navegadores_graficos_ok() { [[ $(uname -m) == x86_64 && $(uname -s) == Linux ]] 
 bin_chromium() { echo "$DIR_NAVEGADORES/chrome/opt/google/chrome/chrome"; }
 bin_carbonyl() { echo "$DIR_NAVEGADORES/carbonyl/carbonyl-0.0.3/carbonyl"; }
 
+# extrair_deb ARQUIVO.deb DESTINO: extrai o data.tar.* de dentro do .deb (formato ar) com python3.
+extrair_deb() {
+  python3 -I - "$1" "$2" <<'PY'
+import sys, tarfile, io
+deb, dest = sys.argv[1], sys.argv[2]
+b = open(deb, "rb").read()
+if b[:8] != b"!<arch>\n":
+    sys.exit("não é um .deb")
+i = 8
+while i + 60 <= len(b):
+    nome = b[i:i+16].decode().strip().rstrip("/")
+    tam = int(b[i+48:i+58].decode().strip())
+    dados = b[i+60:i+60+tam]
+    i += 60 + tam + (tam % 2)
+    if nome.startswith("data.tar"):
+        with tarfile.open(fileobj=io.BytesIO(dados)) as t:
+            try: t.extractall(dest, filter="data")
+            except TypeError: t.extractall(dest)
+        sys.exit(0)
+sys.exit("sem data.tar no .deb")
+PY
+}
+
 # Google Chrome estável, sem sudo: baixa o .deb do repositório oficial do Google, confere o sha256 com o
-# índice assinado pelo próprio repositório (Packages, por HTTPS) e extrai com dpkg-deb em ~/.local.
+# índice do próprio repositório (Packages, por HTTPS) e extrai em ~/.local com python3 (ar + tar, sem
+# depender de dpkg-deb, então funciona em qualquer distribuição).
 # (O Chrome for Testing avisa que é só para desenvolvimento; o estável não.)
 chrome_instalar() {
   local idx pacote versao arq sha deb dir=$DIR_NAVEGADORES/chrome rc
@@ -3225,7 +3249,6 @@ chrome_instalar() {
   pacote=$(awk -v RS= '/(^|\n)Package: google-chrome-stable(\n|$)/ {print; exit}' <<<"$idx")
   versao=$(sed -n 's/^Version: //p' <<<"$pacote"); arq=$(sed -n 's/^Filename: //p' <<<"$pacote"); sha=$(sed -n 's/^SHA256: //p' <<<"$pacote")
   [[ -n $versao && -n $arq && -n $sha ]] || { echo "✗ índice do Chrome sem o pacote estável." >&2; return 1; }
-  command -v dpkg-deb >/dev/null || { echo "✗ precisa do dpkg-deb para extrair o Chrome." >&2; return 1; }
   mkdir -p "$DIR_NAVEGADORES" || return 1
   deb=$(mktemp "$DIR_NAVEGADORES/dl.XXXXXX") || return 1
   echo "Baixando o Google Chrome $versao (sem sudo, em $dir)…" >&2
@@ -3233,11 +3256,11 @@ chrome_instalar() {
   if [[ $(sha256sum "$deb" | cut -d' ' -f1) != "$sha" ]]; then
     echo "✗ sha256 do Chrome não confere com o índice; nada foi instalado." >&2; rm -f "$deb"; return 1
   fi
-  rm -rf "$dir.novo"; mkdir -p "$dir.novo" && dpkg-deb -x "$deb" "$dir.novo"; rc=$?; rm -f "$deb"
+  rm -rf "$dir.novo"; mkdir -p "$dir.novo" && extrair_deb "$deb" "$dir.novo"; rc=$?; rm -f "$deb"
   [[ $rc == 0 && -x $dir.novo/opt/google/chrome/chrome ]] || { echo "✗ falha ao extrair o Chrome." >&2; rm -rf "$dir.novo"; return 1; }
   rm -rf "$dir" "$DIR_NAVEGADORES/chromium"; mv "$dir.novo" "$dir" && echo "$versao" >"$dir/versao"
   local falta; falta=$(ldd "$(bin_chromium)" 2>/dev/null | awk '/not found/ {printf "%s ", $1}')
-  [[ -z $falta ]] || echo "⚠ faltam bibliotecas do sistema para o Chrome: $falta (instale com apt)." >&2
+  [[ -z $falta ]] || echo "⚠ faltam bibliotecas do sistema para o Chrome: $falta (em Debian/Ubuntu: sudo apt install libnss3 libgbm1 libasound2 libxkbcommon0 libgtk-3-0)." >&2
 }
 
 # navegador_instalar chromium|carbonyl: instala sob demanda. Mensagens no stderr.
