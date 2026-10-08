@@ -1508,7 +1508,7 @@ instalar_aqui() {
     mesmo=1; local f
     for f in "${ARQUIVOS_FONTE[@]}"; do cmp -s "$origem/$f" "$DIR_TT/$f" || { mesmo=""; break; }; done
   fi
-  if [[ -n $mesmo ]]; then echo "$(conf nome): $(versao) (já instalada)"; return 0; fi
+  if [[ -n $mesmo ]]; then garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (já instalada)"; return 0; fi
   if [[ $origem != "$DIR_TT" ]]; then
     completar_pacote "$origem"
     pacote_valido "$origem" || return 1
@@ -1565,6 +1565,7 @@ CONF
     done
     tmux run-shell -b "$HOME/.local/bin/tt --vigia"
   fi
+  garantir_navegadores_em_segundo_plano
   echo "$(conf nome): $(versao)"
 }
 
@@ -3293,6 +3294,51 @@ chrome_atualizar_se_velho() {
   local novo; novo=$(curl -fsS -m 20 "$CHROME_INDICE" 2>/dev/null | awk -v RS= '/(^|\n)Package: google-chrome-stable(\n|$)/ {print; exit}' | sed -n 's/^Version: //p')
   [[ -n $novo && $novo != "$(cat "$DIR_NAVEGADORES/chrome/versao" 2>/dev/null)" ]] || return 0
   chrome_instalar >/dev/null 2>&1
+}
+
+# Instala curl e unzip se faltarem, só quando dá sem perguntar nada (root ou sudo sem senha); senão avisa
+# o comando. Vale para máquina nova (instalar.sh) e para máquina atualizada (instalar_aqui).
+garantir_dependencias_navegador() {
+  local -a falta=() pac=(); local c
+  for c in curl unzip; do command -v "$c" >/dev/null 2>&1 || falta+=("$c"); done
+  ((${#falta[@]})) || return 0
+  local pre=()
+  if ((EUID != 0)); then command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null && pre=(sudo -n) || { echo "navegadores: faltam ${falta[*]}; instale com o gerenciador de pacotes (ex.: sudo apt install ${falta[*]})" >&2; return 1; }; fi
+  if command -v apt-get >/dev/null 2>&1; then "${pre[@]}" apt-get install -y "${falta[@]}" >/dev/null 2>&1
+  elif command -v dnf >/dev/null 2>&1; then "${pre[@]}" dnf install -y "${falta[@]}" >/dev/null 2>&1
+  elif command -v pacman >/dev/null 2>&1; then "${pre[@]}" pacman -S --needed --noconfirm "${falta[@]}" >/dev/null 2>&1
+  elif command -v apk >/dev/null 2>&1; then "${pre[@]}" apk add "${falta[@]}" >/dev/null 2>&1
+  else echo "navegadores: faltam ${falta[*]} e não achei gerenciador de pacotes" >&2; return 1; fi
+  for c in "${falta[@]}"; do command -v "$c" >/dev/null 2>&1 || return 1; done
+}
+
+# Tem ambiente gráfico para o Chrome? (WSLg, X11 ou Wayland). O Carbonyl só precisa de terminal.
+ambiente_grafico() {
+  [[ -n ${TT_FORCAR_GUI:-} || -d /mnt/wslg || -n ${DISPLAY:-} || -n ${WAYLAND_DISPLAY:-} || -d /tmp/.X11-unix ]]
+}
+
+# tt --garantir-navegadores: deixa os navegadores de links prontos nesta máquina (dependências + download),
+# sem esperar o primeiro clique. Idempotente: o que já está instalado é pulado; uma instância por vez.
+garantir_navegadores() {
+  navegadores_graficos_ok || return 0
+  local lock=$DIR_NAVEGADORES.lock
+  mkdir -p "$DIR_NAVEGADORES" 2>/dev/null
+  mkdir "$lock" 2>/dev/null || { [[ -n $(find "$lock" -maxdepth 0 -mmin +60 2>/dev/null) ]] && rm -rf "$lock" && mkdir "$lock" 2>/dev/null; } || return 0
+  if garantir_dependencias_navegador; then
+    navegador_instalar carbonyl || echo "navegadores: Carbonyl não instalado (tenta de novo na próxima atualização)" >&2
+    if ambiente_grafico; then
+      navegador_instalar chromium || echo "navegadores: Chrome não instalado (tenta de novo na próxima atualização)" >&2
+    fi
+  fi
+  rmdir "$lock" 2>/dev/null
+  return 0
+}
+
+# Dispara garantir_navegadores em segundo plano e sem travar a instalação nem a sincronização.
+garantir_navegadores_em_segundo_plano() {
+  navegadores_graficos_ok || return 0
+  mkdir -p "$HOME/.cache/tt"
+  setsid nice -n 10 "$HOME/.local/bin/tt" --garantir-navegadores >>"$HOME/.cache/tt/navegadores.log" 2>&1 </dev/null &
 }
 
 # Cliente tmux onde o popup deve aparecer. O e-mail já é um popup do cliente de fora, e o tmux não abre
@@ -7617,6 +7663,7 @@ case "${1:-}" in
   --email-atalhos) email_atalhos; exit 0 ;;
   --abrir-url) abrir_url "${2:-}"; exit 0 ;;
   --abrir-link) abrir_link "${2:-}"; exit 0 ;;
+  --garantir-navegadores) garantir_navegadores; exit ;;
   --anexos-enviar) anexos_enviar; exit 0 ;;
   --tarefas)
     # Abre o painel de tarefas: slide-over no tmux, ou lista texto fora dele.

@@ -534,7 +534,7 @@ Enter (ou `ESC M`) num link no leitor de e-mail abre um seletor com três opçõ
 
 Os dois primeiros são baixados sob demanda para `~/.local/share/tt-navegadores`, sem sudo, e só são
 instalados se o sha256 do pacote bater (o do Chrome, com o índice do repositório do Google; o do Carbonyl, com o fixado no `tt`). Só x86_64; no Termux ficam ocultos.
-A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`
+Máquina nova (`instalar.sh`) e máquina atualizada (`tt --sincronizar`, `tt --atualizar`) já deixam os dois prontos em segundo plano: instalam `curl`/`unzip` quando dá sem perguntar (root ou sudo sem senha), baixam o Carbonyl e, havendo ambiente gráfico, o Chrome; o que já está instalado é pulado e o log fica em `~/.cache/tt/navegadores.log`. A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`
 no `~/.config/tt/config` (o padrão é `perguntar`). O navegador sobe pelo servidor do tmux, fora do
 isolamento de rede do leitor de e-mail.
 
