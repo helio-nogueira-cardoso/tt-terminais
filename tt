@@ -9064,13 +9064,25 @@ estado_transferencia() {
 }
 
 transferencias_barra() {
-  local d f id n=0
+  local d f id n=0 t f2 tx soma_t=0 soma_f=0 soma_x=0 pct txt
   d=$(dir_transferencias)
   for f in "$d"/*.status; do
     [[ -f $f ]] || continue; id=${f##*/}; id=${id%.status}
-    case $(estado_transferencia "$d" "$id") in 'na fila' | calculando* | transferindo*) n=$((n + 1)) ;; esac
+    case $(estado_transferencia "$d" "$id") in
+      'na fila' | calculando* | transferindo*)
+        n=$((n + 1)); t=0 f2=0 tx=0
+        [[ -r $d/$id.prog ]] && read -r t f2 tx <"$d/$id.prog"
+        soma_t=$((soma_t + ${t:-0})); soma_f=$((soma_f + ${f2:-0})); soma_x=$((soma_x + ${tx:-0})) ;;
+    esac
   done
-  ((n)) && printf '#[range=user|transferencias]#[fg=#a6e3a1,bold] ⇅ %d em andamento #[norange]#[default] ' "$n"
+  ((n)) || return 0
+  # Andamento somado dos trabalhos ativos: "⇅ 62% 14M/s" (um) ou "⇅ 2 · 62% 14M/s" (vários).
+  txt="$n em andamento"
+  if ((soma_t > 0)); then
+    pct=$((soma_f * 100 / soma_t)); ((pct > 99)) && pct=99
+    txt="${pct}% $(humano "$soma_x")/s"; ((n > 1)) && txt="$n · $txt"
+  fi
+  printf '#[range=user|transferencias]#[fg=#a6e3a1,bold] ⇅ %s #[norange]#[default] ' "$txt"
   return 0
 }
 

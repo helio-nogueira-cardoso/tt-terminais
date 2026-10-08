@@ -65,3 +65,13 @@ for i in $(seq 1 40); do [[ -f $T/dest/dado.txt ]] && break; sleep 0.5; done
 [[ -f $T/dest/dado.txt ]] || fail 'r não refez a cópia'
 [[ ! -f $D/400.status ]] || fail 'r deveria apagar o trabalho antigo'
 echo "ok — tela de transferências: causas, rolagem, x, confirmação de cancelar e r"
+
+# 6) barra: andamento somado dos ativos (sem trabalho ativo, nada)
+rm -f "$D"/*
+sleep 600 & pidw=$!
+job 500 'transferindo 1G…' 'a.iso'; printf '%s\n' "$pidw" >"$D/500.pid"; printf '1000 620 2097152\n' >"$D/500.prog"
+b=$($E bash "$TT" --transferencias-barra)
+grep -Fq '62%' <<<"$b" && grep -Fq '2.0M/s' <<<"$b" || { kill $pidw; fail "barra deveria mostrar 62% e 2.0M/s: $b"; }
+kill $pidw 2>/dev/null || true; sleep 0.2
+b=$($E bash "$TT" --transferencias-barra); [[ -z $b ]] || fail "barra sem ativos deveria ficar vazia: $b"
+echo "ok — barra: andamento somado"
