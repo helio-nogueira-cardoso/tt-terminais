@@ -87,13 +87,13 @@ echo "ok: espaço/?/esc respeitam a busca"
 acao interrogacao "$f" >/dev/null
 [[ $(sed -n 's/^modo=//p' "$UI" | tail -1) == ajuda ]] || fail "? não abriu a ajuda"
 h=$(lista)
-for k in CRIAR 'ATALHOS NA FRASE' MOUSE TECLADO '@amanha' '!alta' '*semanal' '#casa'; do
+for k in CRIAR 'NO TÍTULO' DESCRIÇÃO 'PRAZO E HORÁRIO' MOUSE TECLADO '@amanha' '@sex 14h' '!alta' '*semanal' '#casa' '// texto'; do
   grep -qF -- "$k" <<<"$h" || fail "ajuda sem '$k'"
 done
 grep -q 'Como usar' <<<"$(FZF_COLUMNS=70 run --tarefas-cabecalho | sem_cor)" || fail "cabeçalho da ajuda sem título"
 acao esc voltar >/dev/null
 [[ $(sed -n 's/^modo=//p' "$UI" | tail -1) == lista ]] || fail "esc na ajuda não voltou à lista"
-run --tarefas-ajuda | grep -q 'ATALHOS NA FRASE' || fail "tt --tarefas-ajuda não imprime a ajuda"
+run --tarefas-ajuda | grep -q 'PRAZO E HORÁRIO' || fail "tt --tarefas-ajuda não imprime a ajuda"
 acao menu "$f" >/dev/null
 mn=$(run --tarefas-lista)
 grep -q "^act:prio1:$f" <<<"$mn" || fail "menu sem a escolha de prioridade alta"
