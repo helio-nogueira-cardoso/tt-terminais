@@ -33,16 +33,70 @@ for a in abrir nova resp todos enc arq apagar pasta contas atalhos; do grep -q "
 grep -q 'client_width},100},, Abrir' <<<"$fmt" || falhou 'em tela estreita deveriam ficar só os ícones'
 passou 'barra de botões do e-mail: um range por ação, rótulo só em tela larga'
 
-# 2) clique num botão (rota em_*) vira a tecla do aerc
+# 2) clique num botão (rota em_*) vira a tecla de função do aerc (nunca uma letra, que cairia no
+#    que estivesse na frente — editor, terminal)
 : >"$T/aerc.in"; sleep 0.3
 tt --clique em_nova base '' "$HOME" 0; sleep 0.6; tt --clique em_abrir base '' "$HOME" 0; sleep 0.6
-tt --clique em_resp base '' "$HOME" 0; sleep 0.6; tt --clique em_contas base '' "$HOME" 0; sleep 0.8
+tt --clique em_resp base '' "$HOME" 0; sleep 0.6; tt --clique em_apagar base '' "$HOME" 0; sleep 0.8
 rec=$(cat -v "$T/aerc.in")
-grep -q 'm' <<<"$rec" || falhou "+ Nova deveria mandar 'm' ao aerc: $rec"
-grep -q '\^M' <<<"$rec" || falhou "Abrir deveria mandar Enter: $rec"
-grep -q 'Rr' <<<"$rec" || falhou "Responder deveria mandar Rr: $rec"
-grep -q '\^\[OQ\|\^\[\[12~' <<<"$rec" || falhou "Contas deveria mandar F2: $rec"
-passou 'clique nos botões manda a tecla certa ao aerc (m, Enter, Rr, F2)'
+grep -q '\^\[OS\|\^\[\[14~' <<<"$rec" || falhou "+ Nova deveria mandar F4 ao aerc: $rec"
+grep -q '\^\[OR\|\^\[\[13~' <<<"$rec" || falhou "Abrir deveria mandar F3: $rec"
+grep -q '\^\[\[15~' <<<"$rec" || falhou "Responder deveria mandar F5: $rec"
+grep -q '\^\[\[20~' <<<"$rec" || falhou "Apagar deveria mandar F9: $rec"
+grep -q '[[:alpha:]]' <<<"$(sed 's/\^\[O[PQRS]//g; s/\^\[\[[0-9]*~//g' <<<"$rec")" && falhou "nenhuma letra deveria ir ao aerc: $rec"
+passou 'clique nos botões manda a tecla de função certa ao aerc (F3 abrir, F4 nova, F5 responder, F9 apagar), nunca letras'
+
+# 2b) contas e atalhos são telas do tt: janelas da sessão oculta, com a barra; funcionam de qualquer
+#     lugar — abrir uma com a outra aberta troca; o mesmo botão de novo fecha; uma ação do aerc fecha
+#     a tela e age no aerc
+telas() { tmux list-windows -t =_tt-email -F '#{window_active}:#{@tt_email_tela}' | tr '\n' ' '; }
+tt --clique em_atalhos base '' "$HOME" 0; sleep 1
+[[ $(telas) == '0: 1:atalhos ' ]] || falhou "botão atalhos deveria abrir a janela da tela de atalhos: $(telas)"
+tt --clique em_contas base '' "$HOME" 0; sleep 1
+[[ $(telas) == '0: 1:contas ' ]] || falhou "contas com atalhos aberto deveria trocar a tela: $(telas)"
+tt --clique em_contas base '' "$HOME" 0; sleep 1
+[[ $(telas) == '1: ' ]] || falhou "o mesmo botão de novo deveria fechar a tela: $(telas)"
+tt --clique em_contas base '' "$HOME" 0; sleep 1
+[[ $(telas) == '0: 1:contas ' ]] || falhou "contas deveria abrir de novo: $(telas)"
+: >"$T/aerc.in"
+tt --clique em_abrir base '' "$HOME" 0; sleep 1
+[[ $(telas) == '1: ' ]] || falhou "abrir com a tela de contas na frente deveria fechá-la: $(telas)"
+grep -q '\^\[OR\|\^\[\[13~' <<<"$(cat -v "$T/aerc.in")" || falhou "…e mandar F3 ao aerc: $(cat -v "$T/aerc.in")"
+tt --email-tela atalhos; sleep 1; [[ $(telas) == '0: 1:atalhos ' ]] || falhou "tt --email-tela atalhos (a tecla ? do aerc) deveria abrir a tela: $(telas)"
+tt --email-tela atalhos; sleep 1; [[ $(telas) == '1: ' ]] || falhou "tt --email-tela de novo deveria fechar: $(telas)"
+passou 'telas do tt (contas, atalhos) abrem como janelas da sessão oculta; trocam entre si, o mesmo botão fecha, uma ação do aerc fecha e age'
+
+# 2c) binds da sessão oculta: ? e F2 viram telas do tt (não abas do aerc) e F3–F10 têm ação por contexto
+mkdir -p ~/.config/aerc
+printf '[messages]\n<Enter> = :view<Enter>\nq = :quit<Enter>\n? = :term %s/.local/bin/tt --email-atalhos<Enter>\n<F2> = :term %s/.local/bin/tt --email-contas-ui<Enter>\n[view]\n? = :term %s/.local/bin/tt --email-atalhos<Enter>\n' "$HOME" "$HOME" "$HOME" >~/.config/aerc/binds.conf
+tmux kill-session -t =_tt-email
+bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao com binds'
+bo=~/.cache/tt-aerc-binds-oculto.conf
+grep -q "^? = :exec $HOME/.local/bin/tt --email-tela atalhos<Enter>$" "$bo" || falhou "? deveria abrir a tela de atalhos do tt: $(cat "$bo")"
+grep -q "^<F2> = :exec $HOME/.local/bin/tt --email-tela contas<Enter>$" "$bo" || falhou "F2 deveria abrir a tela de contas do tt"
+grep -q ':term' "$bo" && falhou 'ainda há :term nos binds da sessão oculta'
+grep -q '^q = :exec tmux detach-client<Enter>$' "$bo" || falhou 'q deveria desanexar'
+awk '/^\[messages\]/{s="m"} /^\[view\]/{s="v"} /^<F3> = :view<Enter>$/{f[s]++} /^<F9> = :choose -o y .Apagar esta mensagem. delete-message<Enter>$/{d[s]++} END{exit !(f["m"]==1 && !f["v"] && d["m"]==1 && d["v"]==1)}' "$bo" || falhou "F3 só na lista, F9 na lista e na leitura: $(grep -n '^<F\|^\[' "$bo")"
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 2 ]] || falhou 'sessão deveria marcar a versão dos binds'
+passou 'binds da sessão oculta: ? e F2 abrem as telas do tt; F3–F10 ligados por contexto; versão marcada'
+
+# 2d) sessão oculta de antes (sem a versão dos binds) é recriada ao abrir — os botões mandam F3–F10
+tmux set -qu -t =_tt-email: @tt_email_binds
+bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao recriar'
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 2 ]] || falhou 'sessão com binds antigos deveria ser recriada com a versão nova'
+passou 'sessão oculta com binds antigos é recriada'
+
+# 2e) linha de status do aerc fica só com o estado; as dicas antigas do tt são migradas, valor do dono fica
+printf '[statusline]\ncolumn-right={{.TrayInfo}}  ? atalhos · F2 contas · Ctrl+r redesenha · q fecha\n' >~/.config/aerc/aerc.conf
+bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { :; }; aerc_tema_suportado() { return 1; }; configurar_aerc"
+grep -q '^column-right={{.TrayInfo}}$' ~/.config/aerc/aerc.conf || falhou "dica antiga (longa) deveria virar só o estado: $(grep column-right ~/.config/aerc/aerc.conf)"
+printf '[statusline]\ncolumn-right={{.TrayInfo}}  ? atalhos · q fecha\n' >~/.config/aerc/aerc.conf
+bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { :; }; aerc_tema_suportado() { return 1; }; configurar_aerc"
+grep -q '^column-right={{.TrayInfo}}$' ~/.config/aerc/aerc.conf || falhou 'dica antiga (curta) deveria virar só o estado'
+printf '[statusline]\ncolumn-right=%%s meu\n' >~/.config/aerc/aerc.conf
+bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { :; }; aerc_tema_suportado() { return 1; }; configurar_aerc"
+grep -q '^column-right=%s meu$' ~/.config/aerc/aerc.conf || falhou 'valor do dono na linha de status deveria ficar'
+passou 'linha de status do aerc: só o estado (TrayInfo); dicas antigas do tt migradas; valor do dono preservado'
 
 # 3) sessão oculta antiga (sem a barra) ganha a barra quando o popup abre de novo
 tmux set -q -t =_tt-email: status off; tmux set -qu -t =_tt-email: 'status-format[0]'

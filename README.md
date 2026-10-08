@@ -361,8 +361,15 @@ mesmo sem `w3m` (usa `lynx` ou o conversor do próprio tt, com os links numerado
 
 **Tudo clicável.** No rodapé do popup há uma **barra de botões**: 📖 Abrir · + Nova · ↩ Responder ·
 ↩↩ Todos · ↪ Encaminhar · ▤ Arquivar · ✕ Apagar · 📁 Pasta · 👤 Contas · ? Atalhos (em tela estreita, só
-os ícones); cada botão faz o mesmo que a tecla. **Duplo clique** numa mensagem abre; um clique numa
-**aba** troca de conta, numa **pasta** abre a pasta, e a roda rola. Atalhos, na lista e na leitura:
+os ícones); cada botão faz o mesmo que a tecla. **Os botões valem de qualquer lugar**: contas e atalhos
+são telas do tt que abrem por cima do aerc (a barra continua embaixo) e se fecham com `q`, Esc ou o
+mesmo botão de novo; abrir uma com a outra aberta troca; e um botão do aerc (abrir, responder,
+apagar…) com uma tela dessas na frente primeiro a fecha e depois age. Com uma mensagem sendo escrita
+ou um terminal na frente, os botões do aerc não injetam letras no que está sendo digitado (eles vão por
+teclas de função que só agem na lista e na leitura). A linha de status do aerc mostra só o estado
+(conta, conexão, sincronização); as dicas de teclas saíram, porque os botões já dizem tudo.
+**Duplo clique** numa mensagem abre; um clique numa **aba** troca de conta, numa **pasta** abre a
+pasta, e a roda rola. Atalhos, na lista e na leitura:
 
 | Tecla | Ação | Tecla | Ação |
 |---|---|---|---|
