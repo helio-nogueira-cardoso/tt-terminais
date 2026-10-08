@@ -118,7 +118,7 @@ grep -qx 'legacy.example  carol  legado' "$caso/config/tt/maquinas" && ok 'CLI: 
 # Cada range desenhado pela barra deve chegar a uma rota explícita em clique(). Isto é o contrato
 # comum para mouse, toque e os ranges que o tmux classifica de forma diferente por terminal.
 base=$falhas
-for rota in maquina sessao fixar ajustar tt painel email transferencias copias 'at[0-9]*' 'fx*' 'fxx*' fixmais tarefas notifs relogio; do
+for rota in maquina sessao fixar ajustar tt painel email transferencias copias 'at[0-9]*' 'fx*' 'fxx*' fixmais tarefas notifs notifx relogio; do
   rg -Fq "$rota)" "$tt" || falha "rota de interação ausente: $rota"
 done
 ((falhas == base)) && ok 'contrato: todos os controles da barra têm rota de ação' || true

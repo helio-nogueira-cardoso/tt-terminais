@@ -601,7 +601,10 @@ repositório git seu). A junção é por tarefa (a alteração mais recente venc
 
 Uma terceira linha na barra, abaixo das fixadas (separada por uma régua fina, com fundo
 azul-acinzentado suave): `📧 (N) · 📋 N · ‹avisos passando› · Qui, 08/10/2026 | 13:16 · v1.5.223`.
-Os avisos — e-mail que chegou, lembrete de prazo, o que vier por `tt --notificar "texto" [segundos]`
+Os avisos — e-mail que chegou, lembrete de prazo, o que vier por `tt --notificar "texto" [segundos] [destino]`
+— aparecem no slot por ~10 s, **piscando devagar** em negrito, e depois vivem só na central do 🔔
+(negrito até serem abertos; abrir pelo clique/⏎ marca como lido). O conteúdo do slot fica sempre
+entre `│  …  │`, com o mesmo respiro mínimo em qualquer largura
 — passam ali por alguns minutos e expiram sozinhos. O clique abre o DESTINO do aviso mais
 recente (📧 vai para o e-mail, 📋 para as tarefas); botão direito/`tt --notifs` abre o histórico,
 onde ⏎ abre o destino de cada um (↗). `tt --notificar "texto" [segundos] [email|tarefas|calendario|cmd:...]`.
@@ -609,7 +612,14 @@ Com a faixa, a linha das fixadas fica 100% para as fixadas, e o 📧 e o relógi
 Sem aviso novo, o slot mostra o **🔔** (sempre visível; é a porta do histórico) e, se você ativar
 um **letreiro** (ligado de fábrica; `indicadores=` escolhe as fontes e `indicadores=0` desliga) rolando com as infos (dólar via
 AwesomeAPI, frases, e notícias G1 + BBC World por RSS — tudo sem chave, com cache; a rede roda no
-vigia, nunca no letreiro). Com aviso, o letreiro cede a vez. `faixa_notif=0` no `~/.config/tt/config` desliga e devolve o layout de 2 linhas (padrão: ligada;
+vigia, nunca no letreiro). Com aviso OU transferência ativa, o letreiro cede a vez (transferências aparecem aqui — nada
+cobre as linhas de cima). Tudo configurável no `~/.config/tt/config`: `ticker_rolagem=paginas|continua` (padrão `paginas`: troca em blocos a cada
+`ticker_veloc=` s — padrão 6 —, poucos redesenhos e o cursor em paz; `continua` desliza célula a
+célula, passo padrão 0,35 s, ciente de que todo redesenho faz o cursor tremer em terminais como o
+Windows Terminal), `aviso_pisca=1` (alternância lenta do aviso; padrão estático em negrito), `indicadores=` (quais fontes passam; `0` desliga o letreiro, o slot segue
+para avisos/transferências) e endpoints próprios: `indicador_nome=URL ;; rótulo ;; caminho.no.json
+;; ttl ;; Header: @arquivo-em-secrets` (caminho `-` = texto cru; a chave de API pode vir de
+`~/.secrets`, fora do config). `faixa_notif=0` no `~/.config/tt/config` desliga e devolve o layout de 2 linhas (padrão: ligada;
 desligada no Termux, onde a tela é baixa). Indicadores acopláveis (clima, cotações…) virão aqui.
 
 ## Sessões fixadas

@@ -5456,12 +5456,16 @@ notificar() { # texto [segundos (padrão 300)] [ação: email|tarefas|calendario
 # mais estreita (sobra dos vizinhos: ~16 à esquerda, ~30 à direita) e truncado com …; abaixo de
 # 90 colunas vira só o crachá 🔔 N. TT_FAIXA_LARGURA força a largura (testes).
 # Só os avisos vigentes (para o fmt e para o letreiro ceder a vez).
+# No slot, só os avisos FRESCOS (nascidos há < TT_NOTIF_SLOT s; padrão 10): piscam ali e depois
+# vivem só na central (🔔), em negrito até serem abertos (marca <id>.lida).
 barra_notifs_avisos() {
-  local agora exp txt _a f itens="" n=0
+  local agora exp txt _a f itens="" n=0 ns
   agora=$(date +%s)
-  for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | head -6); do
+  for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$' | head -6); do
     IFS=$'\t' read -r exp txt _a <"$DIR_NOTIFS/$f" || continue
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
+    ns=${f:0:10}; [[ $ns =~ ^[0-9]+$ ]] || continue
+    (( agora - ns < ${TT_NOTIF_SLOT:-10} )) || continue
     n=$((n + 1)); itens+="${itens:+  ·  }${txt}"
   done
   printf '%s\t%s' "$n" "$itens"
@@ -5472,15 +5476,21 @@ barra_notifs_fmt() {
   IFS=$'\t' read -r n itens <<<"$(barra_notifs_avisos)"
   # O 🔔 mora no segmento ESQUERDO da faixa (fixo, junto aos chips); aqui é só o conteúdo central.
   if [[ -z $itens ]]; then
-    printf '#{E:@barra_ticker}#[default]'
+    tmux set -gu @barra_aviso 2>/dev/null
+    # transferência ativa tem o slot antes do letreiro (nada cobre as linhas de cima)
+    if [[ -n $(tmux show -gqv @barra_transf 2>/dev/null) ]]; then
+      printf '  #[fg=#45475a]│#[default]  #{E:@barra_transf} #[fg=#45475a]│#[default]  '
+      return 0
+    fi
+    # letreiro também entre divisórias, com o MESMO respiro mínimo dos avisos
+    printf '  #[fg=#45475a]│#[default]#{E:@barra_ticker}#[fg=#45475a]│#[default]  '
     return 0
   fi
   local larg orcamento
   larg=${TT_FAIXA_LARGURA:-$(tmux list-clients -F '#{client_width}' 2>/dev/null | sort -n | head -1)}
   [[ $larg =~ ^[0-9]+$ ]] || larg=80
   if ((larg < 90)); then
-    printf '#[range=user|notifs]#[fg=#f9e2af] 🔔 %d #[norange]#[default]' "$n"
-    return 0
+    return 0 # estreito: o sino com o contador, à esquerda, já conta a história
   fi
   local agora exp txt _a f
   orcamento=$((larg - 20 - 34 - 12)) # chips + relógio + delimitadores e MARGENS: nunca grudar
@@ -5503,7 +5513,9 @@ sys.stdout.write(t if corte == len(t) else t[:corte].rstrip() + "…")' <<<"$ite
     ((${#itens} * 2 > orcamento)) && itens="${itens:0:orcamento/2}…"
   fi
   itens=${itens//#/##}
-  printf '  #[fg=#45475a]│#[range=user|notifs]#[fg=#f9e2af]  %s  #[norange]#[fg=#45475a]│#[default]  ' "$itens"
+  # grava o estático (negrito, já truncado); o laço do letreiro sobrepõe piscando a cada passo
+  tmux set -g @barra_aviso "#[bold]${itens//#/##}#[nobold]" 2>/dev/null
+  printf '  #[fg=#45475a]│#[range=user|notifx]#[fg=#f9e2af]  #{E:@barra_aviso}  #[norange]#[fg=#45475a]│#[default]  ' 
 }
 
 # --- Ticker do slot (sem aviso novo, infos roladas: dólar, frases… indicadores= no config) ----
@@ -5557,7 +5569,35 @@ try:
         print("🌍", t.text.strip()[:90])
 except Exception: pass'; } >"$arq.tmp" 2>/dev/null
       [[ -s $arq.tmp ]] && mv "$arq.tmp" "$arq" || rm -f "$arq.tmp" ;;
-    *) return 0 ;;
+    *)
+      # Fonte do usuário: indicador_<nome>=URL ;; rótulo ;; caminho.no.json ;; ttl ;; header
+      # caminho "-" = texto cru (1ª linha). header opcional (APIs com chave): "Nome: valor", e
+      # "@arquivo" no valor lê ~/.secrets/arquivo (a chave não fica no config). Ex.:
+      #   indicador_btc=https://api.coinbase.com/v2/prices/BTC-USD/spot ;; ₿ ;; data.amount ;; 300
+      local def url rot cam h hdr
+      def=$(conf "indicador_$f"); [[ -n $def ]] || return 0
+      IFS='|' read -r url rot cam ttl hdr < <(sed 's/ *;; */|/g' <<<"$def")
+      [[ $ttl =~ ^[0-9]+$ ]] || ttl=600
+      [[ -f $arq ]] && (( agora - $(stat -c %Y "$arq" 2>/dev/null || echo 0) < ttl )) && return 0
+      [[ $url == https://* ]] || return 0
+      local -a hcurl=()
+      if [[ -n $hdr ]]; then
+        h=${hdr#*: }; [[ $h == @* ]] && h=$(cat "$HOME/.secrets/${h#@}" 2>/dev/null)
+        [[ -n $h ]] && hcurl=(-H "${hdr%%:*}: $h")
+      fi
+      curl -fsS -m 12 "${hcurl[@]}" "$url" 2>/dev/null | CAM="$cam" ROT="$rot" python3 -I -c 'import sys, os, json
+cam = os.environ["CAM"]; rot = os.environ["ROT"]
+t = sys.stdin.read()
+try:
+    if cam == "-": v = t.strip().splitlines()[0][:60]
+    else:
+        d = json.loads(t)
+        for parte in cam.split("."):
+            d = d[int(parte)] if isinstance(d, list) else d[parte]
+        v = str(d)[:60]
+    if v: print((rot + " " + v).strip()[:90])
+except Exception: pass' >"$arq.tmp" 2>/dev/null
+      [[ -s $arq.tmp ]] && mv "$arq.tmp" "$arq" || rm -f "$arq.tmp" ;;
   esac
 }
 
@@ -5582,6 +5622,17 @@ ticker_passo() { # linha largura deslocamento -> janela
 
 ticker_loop() {
   local lock="$DIR_TICKER/.loop" off=0 linha janela w
+  # Cada passo REDESENHA a barra, e em certos terminais (Windows Terminal) todo redesenho faz o
+  # cursor dar uma excursão — rolagem contínua = cursor dançando. Por isso o padrão é por
+  # PÁGINAS (a janela troca de bloco a cada ticker_veloc s; padrão 6): poucas atualizações,
+  # cursor em paz. ticker_rolagem=continua liga o letreiro deslizante (ticker_veloc= vira o
+  # passo, padrão 0,35 s) para quem aceita o efeito.
+  local _m _p; _m=$(conf ticker_rolagem); _p=$(conf ticker_veloc)
+  # O sync (DEC 2026) já vai ligado no tmux.conf, mas o Windows Terminal ainda deixa o cursor
+  # dar excursões em redesenho frequente — então o padrão fica em PÁGINAS mesmo.
+  if [[ $_m == continua ]]; then [[ $_p =~ ^[0-9.]+$ ]] || _p=0.35
+  else _m=paginas; [[ $_p =~ ^[0-9.]+$ ]] || _p=6; fi
+  TT_TICKER_PASSO=${TT_TICKER_PASSO:-$_p}; TT_TICKER_MODO=${TT_TICKER_MODO:-$_m}
   mkdir -p "$DIR_TICKER"
   exec 9>"$lock"; flock -n 9 || return 0
   while :; do
@@ -5590,7 +5641,19 @@ ticker_loop() {
     [[ -n ${TT_TICKER_FORCA:-} || -n $(tmux list-clients -F x 2>/dev/null) ]] || break
     # com aviso ativo na faixa, o letreiro cede a vez (barra_notifs_fmt mostra os avisos)
     local _n _it; IFS=$'\t' read -r _n _it <<<"$(barra_notifs_avisos)"
-    if [[ -n $_it ]]; then tmux set -g @barra_ticker "" 2>/dev/null; sleep 5; continue; fi
+    if [[ -n $_it ]]; then
+      # aviso fresco: negrito estático (o fmt já gravou); alternar custa redesenho por passo e
+      # faz o cursor dançar em certos terminais — aviso_pisca=1 liga para quem quiser
+      if [[ $(conf aviso_pisca) == 1 ]]; then
+        _it=${_it//#/##}
+        if (( off % 2 == 0 )); then tmux set -g @barra_aviso "#[bold]$_it#[nobold]" 2>/dev/null
+        else tmux set -g @barra_aviso "$_it" 2>/dev/null; fi
+        tmux refresh-client -S 2>/dev/null
+      fi
+      tmux set -g @barra_ticker "" 2>/dev/null
+      off=$((off + 1)); sleep 1.5; continue
+    fi
+    if [[ -n $(tmux show -gqv @barra_transf 2>/dev/null) ]]; then tmux set -g @barra_ticker "" 2>/dev/null; sleep 5; continue; fi
     linha=$(ticker_linha_montar)
     [[ -n $linha ]] || break
     w=$(( ${TT_FAIXA_LARGURA:-$(tmux list-clients -F '#{client_width}' 2>/dev/null | sort -n | head -1)} ))
@@ -5598,9 +5661,10 @@ ticker_loop() {
     w=$((w - 20 - 34 - 12)); ((w < 12)) && w=12
     janela=$(ticker_passo "$linha" "$w" "$off")
     janela=${janela//#/##}
-    tmux set -g @barra_ticker "#[fg=#7f849c] $janela #[default]" 2>/dev/null
+    tmux set -g @barra_ticker "#[fg=#7f849c]  $janela  #[default]" 2>/dev/null
     tmux refresh-client -S 2>/dev/null
-    off=$((off + 1)); sleep 1
+    if [[ $TT_TICKER_MODO == paginas ]]; then off=$((off + w)); else off=$((off + 1)); fi
+    sleep "$TT_TICKER_PASSO" 2>/dev/null || sleep 6
   done
   tmux set -g @barra_ticker "" 2>/dev/null
 }
@@ -5609,8 +5673,15 @@ ticker_loop() {
 # o histórico. notif_abrir é o dicionário de destinos — novos indicadores registram os seus aqui.
 notif_abrir() { # ação cliente
   local acao=$1 c=$2
+  # Dentro de um popup o tmux não abre outro por cima: agenda a abertura para logo após fechar
+  # (⏎ no histórico não abria o e-mail por isso).
+  if em_popup; then
+    local cmd="sleep 0.3; $EU --notif-abrir $(q "$acao") $(q "$c")"
+    tmux run-shell -b "${cmd//#/##}" 2>/dev/null
+    return 0
+  fi
   case $acao in
-    email) botao_email "$c" ;;
+    email) botao_email "$c"; (sleep 1; tmux send-keys -t "=$EMAIL_SESSAO:" F11 2>/dev/null) & ;;
     tarefas) abrir_tarefas "$c" ;;
     calendario) abrir_calendario "$c" ;;
     cmd:*) rodar_fora 0 "${acao#cmd:}" ;;
@@ -5620,10 +5691,10 @@ notif_abrir() { # ação cliente
 
 notifs_clique() { # cliente
   local c=$1 f exp txt acao agora; agora=$(date +%s)
-  for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | head -6); do
+  for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$' | head -6); do
     IFS=$'\t' read -r exp txt acao <"$DIR_NOTIFS/$f" || continue
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
-    [[ -n $acao ]] && notif_abrir "$acao" "$c" && return 0
+    [[ -n $acao ]] && notif_abrir "$acao" "$c" && { : >"$DIR_NOTIFS/$f.lida"; atualizar_barras; return 0; }
     break
   done
   notifs_popup "$c"
@@ -5639,18 +5710,21 @@ notifs_popup() {
 notifs_ui() {
   local c=${1:-} f exp txt acao esc
   lista() {
-    for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null); do
+    local neg=$'\033[1m' z=$'\033[0m' m
+    for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$'); do
       IFS=$'\t' read -r exp txt acao <"$DIR_NOTIFS/$f" || continue
       [[ -n $txt ]] || continue
-      printf '%s\t%s  %s%s\n' "${acao:-}" "$(date -d "@${f:0:10}" +%H:%M 2>/dev/null)" "$txt" "${acao:+  ↗}"
+      m=""; [[ -f $DIR_NOTIFS/$f.lida ]] || m=$neg # não lida em negrito
+      printf '%s\t%s\t%s%s  %s%s%s\n' "${acao:-}" "$f" "$m" "$(date -d "@${f:0:10}" +%H:%M 2>/dev/null)" "$txt" "${acao:+  ↗}" "$z"
     done
   }
   if command -v fzf >/dev/null && [[ -t 1 ]]; then
-    esc=$(lista | fzf --ansi --delimiter=$'\t' --with-nth=2 --layout=reverse --no-sort --no-input \
-      --header='🔔 Notificações · ⏎ abre o destino (↗) · Esc fecha' --bind 'q:abort') || return 0
-    acao=$(cut -f1 <<<"$esc")
+    esc=$(lista | fzf --ansi --delimiter=$'\t' --with-nth=3 --layout=reverse --no-sort --no-input \
+      --header='🔔 Notificações · ⏎ abre o destino (↗, e marca como lida) · Esc fecha' --bind 'q:abort') || return 0
+    acao=$(cut -f1 <<<"$esc"); f=$(cut -f2 <<<"$esc")
+    [[ -n $f && -f $DIR_NOTIFS/$f ]] && { : >"$DIR_NOTIFS/$f.lida"; atualizar_barras >/dev/null 2>&1; }
     [[ -n $acao ]] && notif_abrir "$acao" "${c:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}"
-  else lista | cut -f2-; fi
+  else lista | cut -f3-; fi
   return 0
 }
 
@@ -7593,19 +7667,23 @@ versao_barra() { printf '#[fg=#6c7086]%s ' "$(versao_humana)"; }
 atualizar_barras() {
   tmux list-sessions >/dev/null 2>&1 || return 0
   local nome valor mudou="" c
-  for nome in fixadas atalhos transf versao tarefas email data notifs notifs_slot faixa faixa_dir lado1 fim0; do
+  for nome in fixadas atalhos transf versao tarefas email data notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0; do
     case $nome in
       fixadas) valor=$(barra_fixadas_fmt) ;;
       atalhos) valor=$(atalhos_barra) ;;
       transf) valor=$(transferencias_barra) ;;
-      versao) valor=$(versao_barra) ;;
+      versao) valor=$(versao_barra); [[ $(versao_num) == 0 ]] && continue ;; # troca de pasta em curso
       tarefas) valor=$(barra_tarefas_fmt) ;;
       email) valor=$(barra_email_fmt) ;;
       data) valor=$(barra_data) ;;
       notifs) valor=$(barra_notifs_fmt) ;;
+      notifs_n) { IFS=$'\t' read -r _qn _qi <<<"$(barra_notifs_avisos)"; valor=""; [[ -n $_qi ]] && valor="#[fg=#f9e2af,bold]$_qn#[nobold]"; } ;;
       notifs_slot) valor="#{E:@barra_notifs}" ;;
+      transf0)
+        if faixa_notif_ativa; then valor=""
+        else valor="#{E:@barra_transf}"; fi ;;
       faixa)
-        if faixa_notif_ativa; then valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{E:@barra_tarefas}#[range=user|notifs]#[fg=#a6adc8] 🔔 #[norange]#[default]"
+        if faixa_notif_ativa; then valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{E:@barra_tarefas}#[range=user|notifs]#[fg=#a6adc8] 🔔#{E:@barra_notifs_n} #[norange]#[default]"
         else valor=""; fi ;;
       faixa_dir)
         if faixa_notif_ativa; then valor="#[range=user|relogio]#[fg=#a6adc8]#{E:@barra_data}%H:%M #[norange]#[default] #{E:@barra_versao}"
@@ -8065,7 +8143,8 @@ clique() {
     fx*) ir_fixada "$2" "$faixa" ;;
     tarefas) abrir_tarefas "$2" ;;
     em_*) email_botao_acao "${faixa#em_}" ;;
-    notifs) notifs_clique "$2" ;;
+    notifs) notifs_popup "$2" ;;
+    notifx) notifs_clique "$2" ;;
     relogio) abrir_calendario "$2" ;;
     tt) tmux display-popup -c "$2" -E $(tam_popup "$2") "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
     lado) tmux split-window -h -t "$3" -c "$4" ;;
@@ -11302,6 +11381,7 @@ case "${1:-}" in
   --notificar) notificar "${2:-}" "${3:-300}" "${4:-}"; exit ;;
   --notifs) notifs_popup "${2:-}"; exit ;;
   --notifs-ui) notifs_ui "${2:-}"; exit ;;
+  --notif-abrir) notif_abrir "${2:-}" "${3:-}"; exit 0 ;;
   --ticker-loop) ticker_loop; exit 0 ;;
   --ticker-fontes) ticker_atualizar_fontes; ticker_linha_montar; echo; exit 0 ;;
   --mover-fixada) mover_fixada "$2" "$3"; exit ;;
