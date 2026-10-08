@@ -5476,7 +5476,8 @@ barra_notifs_fmt() {
   IFS=$'\t' read -r n itens <<<"$(barra_notifs_avisos)"
   # O 🔔 mora no segmento ESQUERDO da faixa (fixo, junto aos chips); aqui é só o conteúdo central.
   if [[ -z $itens ]]; then
-    tmux set -gu @barra_aviso 2>/dev/null
+    # só limpa se havia algo: gravação sem desvio redesenha a barra à toa (e balança o cursor)
+    [[ -n $(tmux show -gqv @barra_aviso 2>/dev/null) ]] && tmux set -gu @barra_aviso 2>/dev/null
     # transferência ativa tem o slot antes do letreiro (nada cobre as linhas de cima)
     if [[ -n $(tmux show -gqv @barra_transf 2>/dev/null) ]]; then
       printf '  #[fg=#45475a]│#[default]  #{E:@barra_transf} #[fg=#45475a]│#[default]  '
@@ -5513,8 +5514,9 @@ sys.stdout.write(t if corte == len(t) else t[:corte].rstrip() + "…")' <<<"$ite
     ((${#itens} * 2 > orcamento)) && itens="${itens:0:orcamento/2}…"
   fi
   itens=${itens//#/##}
-  # grava o estático (negrito, já truncado); o laço do letreiro sobrepõe piscando a cada passo
-  tmux set -g @barra_aviso "#[bold]${itens//#/##}#[nobold]" 2>/dev/null
+  # grava o estático (negrito, já truncado) SÓ se mudou; o laço do letreiro sobrepõe se pisca
+  local _novo="#[bold]${itens//#/##}#[nobold]"
+  [[ $(tmux show -gqv @barra_aviso 2>/dev/null) == "$_novo" ]] || tmux set -g @barra_aviso "$_novo" 2>/dev/null
   printf '  #[fg=#45475a]│#[range=user|notifx]#[fg=#f9e2af]  #{E:@barra_aviso}  #[norange]#[fg=#45475a]│#[default]  ' 
 }
 
