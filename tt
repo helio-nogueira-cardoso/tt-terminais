@@ -375,7 +375,7 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   faxina_vigia
-  local ultima_puxada=0 ultima_contas=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_puxada=0 ultima_contas=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_email_completo=0 ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
   # cópia em arquivo para sobreviver a reinícios. Não ficam em opções do tmux: qualquer
@@ -423,10 +423,14 @@ vigiar() {
       ultima_contas=$agora
       ("$EU" --puxar-contas-ia >/dev/null 2>&1 &)
     fi
-    # E-mail com sync local (sync_local=1): espelha as contas pelo mbsync. TT_EMAIL_SYNC=0 desliga;
-    # padrão 180 s. Fire-and-forget; cada conta tem trava própria (sem sobreposição).
-    local t_email_sync=${TT_EMAIL_SYNC:-180}
-    if ((t_email_sync > 0 && agora - ultima_email_sync >= t_email_sync)); then
+    # E-mail com sync local (sync_local=1): o INBOX a cada TT_EMAIL_SYNC (120 s; leva segundos) e a
+    # volta completa (todas as pastas) a cada TT_EMAIL_SYNC_COMPLETO (1800 s), a primeira já ao
+    # iniciar. TT_EMAIL_SYNC=0 desliga. Fire-and-forget; cada conta tem trava própria.
+    local t_email_sync=${TT_EMAIL_SYNC:-120} t_email_completo=${TT_EMAIL_SYNC_COMPLETO:-1800}
+    if ((t_email_sync > 0 && agora - ultima_email_completo >= t_email_completo)); then
+      ultima_email_completo=$agora; ultima_email_sync=$agora
+      ("$EU" --email-sync --completo >/dev/null 2>&1 &)
+    elif ((t_email_sync > 0 && agora - ultima_email_sync >= t_email_sync)); then
       ultima_email_sync=$agora
       ("$EU" --email-sync >/dev/null 2>&1 &)
     fi
@@ -2214,6 +2218,8 @@ UI
     echo 'd = :choose -o y '"'"'Apagar esta mensagem'"'"' delete-message<Enter>'
     echo "$AERC_BINDS_FIM"; } > "$tmp"
   cmp -s "$tmp" "$binds" 2>/dev/null || cat "$tmp" > "$binds"; rm -f "$tmp"
+  # .mbsyncrc antigos (canal único) passam ao formato de canais + grupo.
+  email_mbsyncrc_migrar 2>/dev/null || true
 }
 remover_aerc() {
   local binds="$HOME/.config/aerc/binds.conf" tmp
@@ -8052,7 +8058,7 @@ declare -A E=() # conta em edição (as funções declaram a sua cópia local co
 # Chaves de uma conta, na ordem em que são gravadas.
 EMAIL_CHAVES=(nome endereco usuario nome_exibicao provedor auth imap_host imap_porta imap_seg smtp_host smtp_porta smtp_seg
   pasta cred_cmd oauth_client_id oauth_auth_endpoint oauth_token_endpoint oauth_device_endpoint oauth_scope
-  pasta_todos pasta_enviados pasta_lixeira pasta_rascunhos pasta_spam pasta_naoabre sync_local
+  pasta_todos pasta_enviados pasta_lixeira pasta_rascunhos pasta_spam pasta_naoabre pasta_importantes pasta_estrela sync_local
   extra_1 extra_2 extra_3 extra_4 extra_5 extra_6 extra_7 extra_8)
 
 # Nome de conta → slug seguro para nome de arquivo (minúsculas, só [a-z0-9_-]).
@@ -8200,7 +8206,7 @@ email_salvar_validado() { # snapshot autorizar_oauth(0|1)
   rm -rf "$snap"
   tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null || true
   # Primeiro espelho em segundo plano, para o maildir já ter conteúdo quando o aerc abrir.
-  [[ ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-sync "$slug" >/dev/null 2>&1 &)
+  [[ ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-sync "$slug" --completo >/dev/null 2>&1 &)
   return 0
 }
 
@@ -8307,7 +8313,7 @@ email_sync_local_definir() {
   email_gravar && email_regerar "$slug" || return 1
   if [[ $valor == 1 ]]; then
     echo "✓ Sync local ligado em $slug; primeira sincronização em segundo plano."
-    [[ -n ${TT_EMAIL_SEM_REDE:-} ]] || ("$EU" --email-sync "$slug" >/dev/null 2>&1 &)
+    [[ -n ${TT_EMAIL_SEM_REDE:-} ]] || ("$EU" --email-sync "$slug" --completo >/dev/null 2>&1 &)
   else
     echo "✓ Sync local desligado em $slug; o aerc volta a ler direto do servidor."
   fi
@@ -8324,6 +8330,12 @@ EMAIL_MBSYNC_DIR="$CONF_DIR/mbsync"
 email_mbsyncrc() { echo "$EMAIL_MBSYNC_DIR/$1.mbsyncrc"; }
 # O executável do mbsync (TT_MBSYNC troca, para os testes simularem uma máquina sem ele).
 mbsync_bin() { echo "${TT_MBSYNC:-mbsync}"; }
+# A chave do modo TLS no .mbsyncrc: o isync 1.5 renomeou SSLType para TLSType (a antiga ainda vale,
+# com um aviso a cada rodada); versões anteriores só conhecem SSLType.
+mbsync_chave_tls() {
+  local v; v=$("$(mbsync_bin)" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+  [[ -n $v && ${v%%.*} -ge 1 && ${v#*.} -ge 5 ]] && echo TLSType || echo SSLType
+}
 
 # PassCmd do mbsync para a conta em E: senha de app (arquivo em ~/.secrets), comando externo do
 # usuário, ou, no OAuth2, o access token renovado pelo email-tt.py. Nunca grava o segredo no .mbsyncrc.
@@ -8336,16 +8348,32 @@ email_mbsync_passcmd() {
   esac
 }
 
+# Quantas mensagens do "Todos os e-mails" (o arquivo do Gmail) ficam no espelho local.
+EMAIL_ARQUIVO_MAX=${TT_EMAIL_ARQUIVO_MAX:-500}
+
 # Gera (ou remove, com "remover") o ~/.config/tt/mbsync/<slug>.mbsyncrc da conta em E. O arquivo não
-# tem segredo: a senha vem por PassCmd em tempo de execução. Espelha todas as pastas nos dois sentidos.
+# tem segredo: a senha vem por PassCmd em tempo de execução. Três canais e um grupo:
+#   <slug>-inbox    só o INBOX — leva segundos; é o que o vigia roda a cada TT_EMAIL_SYNC;
+#   <slug>-pastas   as outras pastas, SEM as pastas-rótulo do Gmail (Todos os e-mails, Importantes e
+#                   Com estrela são visões do que já está nas demais; baixá-las duplicava tudo, e a
+#                   volta inteira nunca cabia no tempo);
+#   <slug>-arquivo  o "Todos os e-mails" (destino do arquivar), só as últimas EMAIL_ARQUIVO_MAX
+#                   mensagens no espelho (MaxMessages/ExpireUnread só podam o lado local; o servidor
+#                   segue com tudo);
+#   Group <slug>    os três: a volta completa (TT_EMAIL_SYNC_COMPLETO) e `mbsync <slug>`.
+# Os nomes especiais vêm das marcas do servidor (pasta_*), então valem em qualquer idioma; sem elas
+# (conta antiga, ainda sem descobrir), fica só INBOX + pastas.
 email_mbsyncrc_gerar() {
   local slug=${E[_slug]} modo=${1:-} rc; rc=$(email_mbsyncrc "$slug")
-  if [[ $modo == remover || ${E[sync_local]:-} != 1 ]]; then rm -f "$rc"; return 0; fi
+  if [[ $modo == remover || ${E[sync_local]:-} != 1 ]]; then rm -f "${rc:?}"; return 0; fi
   mkdir -p "$EMAIL_MBSYNC_DIR"; chmod 700 "$EMAIL_MBSYNC_DIR" 2>/dev/null
   local host=${E[imap_host]} porta=${E[imap_porta]:-993} seg=${E[imap_seg]:-tls}
   local usuario=${E[usuario]:-${E[endereco]}} maildir; maildir=$(email_maildir "$slug")
   local sslt="IMAPS"; case $seg in starttls) sslt="STARTTLS" ;; nenhuma) sslt="None" ;; esac
   local authmech=""; [[ ${E[auth]} == oauth ]] && authmech=$'AuthMechs XOAUTH2\n'
+  local todos=${E[pasta_todos]:-} fora="" p canais="$slug-inbox $slug-pastas"
+  for p in "$todos" "${E[pasta_importantes]:-}" "${E[pasta_estrela]:-}"; do [[ -n $p && $p != INBOX ]] && fora+=" \"!$p\""; done
+  [[ -n $todos && $todos != INBOX ]] && canais+=" $slug-arquivo"
   mkdir -p "$maildir"
   { printf 'IMAPAccount %s\n' "$slug"
     printf 'Host %s\n' "$host"
@@ -8353,7 +8381,7 @@ email_mbsyncrc_gerar() {
     printf 'User %s\n' "$usuario"
     printf 'PassCmd "%s"\n' "$(email_mbsync_passcmd)"
     printf '%s' "$authmech"
-    case $sslt in None) printf 'SSLType None\n' ;; STARTTLS) printf 'SSLType STARTTLS\n' ;; *) printf 'SSLType IMAPS\n' ;; esac
+    printf '%s %s\n' "$(mbsync_chave_tls)" "$sslt"
     printf '\n'
     printf 'IMAPStore %s-remote\n' "$slug"
     printf 'Account %s\n' "$slug"
@@ -8363,35 +8391,114 @@ email_mbsyncrc_gerar() {
     printf 'Inbox %s/INBOX\n' "$maildir"
     printf 'SubFolders Verbatim\n'
     printf '\n'
-    printf 'Channel %s\n' "$slug"
+    printf '# Só o INBOX: o canal rápido (o vigia roda a cada TT_EMAIL_SYNC segundos)\n'
+    printf 'Channel %s-inbox\n' "$slug"
+    printf 'Far :%s-remote:INBOX\n' "$slug"
+    printf 'Near :%s-local:INBOX\n' "$slug"
+    printf 'Create Both\nExpunge Both\nSyncState *\n\n'
+    printf '# As outras pastas, sem as pastas-rótulo (visões do que já está nas demais)\n'
+    printf 'Channel %s-pastas\n' "$slug"
     printf 'Far :%s-remote:\n' "$slug"
     printf 'Near :%s-local:\n' "$slug"
-    printf 'Patterns *\n'
-    printf 'Create Both\n'
-    printf 'Expunge Both\n'
-    printf 'SyncState *\n'; } >"$rc.tmp" && mv "$rc.tmp" "$rc"
+    printf 'Patterns * !INBOX%s\n' "$fora"
+    printf 'Create Both\nExpunge Both\nSyncState *\n\n'
+    if [[ -n $todos && $todos != INBOX ]]; then
+      printf '# O arquivo (destino do arquivar): só as últimas %s mensagens no espelho; o resto fica no servidor\n' "$EMAIL_ARQUIVO_MAX"
+      printf 'Channel %s-arquivo\n' "$slug"
+      printf 'Far ":%s-remote:%s"\n' "$slug" "$todos"
+      printf 'Near ":%s-local:%s"\n' "$slug" "$todos"
+      printf 'MaxMessages %s\nExpireUnread yes\n' "$EMAIL_ARQUIVO_MAX"
+      printf 'Create Both\nExpunge Both\nSyncState *\n\n'
+    fi
+    printf '# A volta completa: mbsync %s\n' "$slug"
+    printf 'Group %s\n' "$slug"
+    printf 'Channels %s\n' "$canais"; } >"$rc.tmp" && mv "$rc.tmp" "$rc"
   chmod 600 "$rc" 2>/dev/null
 }
 
-# Roda o mbsync de uma conta, com trava por slug (sem duas sincronizações simultâneas da mesma
-# conta). Silencioso; o vigia chama em segundo plano. Sem mbsync instalado ou sem o flag, não faz nada.
-email_sync() {
-  local slug=$1 rc lock; rc=$(email_mbsyncrc "$slug")
+# Migra os .mbsyncrc do formato antigo (um canal só, Patterns *) para o de canais + grupo. A
+# instalação chama; idempotente. Os .mbsyncstate das pastas continuam válidos (mesmos caminhos),
+# então nada é baixado de novo. Conta antiga sem as pastas especiais no .conf: descobre em segundo
+# plano (tt --email-pastas) e regrava.
+email_mbsyncrc_migrar() {
+  local slug rc; local -A E=()
+  for slug in $(email_slugs); do
+    rc=$(email_mbsyncrc "$slug"); [[ -f $rc ]] || continue
+    grep -q "^Group $slug\$" "$rc" && continue
+    E=(); email_ler "$slug" || continue
+    [[ ${E[sync_local]:-} == 1 ]] || continue
+    email_mbsyncrc_gerar
+    [[ -z ${E[pasta_importantes]:-} && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-pastas "$slug" >/dev/null 2>&1 &)
+  done
+  return 0
+}
+
+# Roda o mbsync de uma conta: MODO "inbox" (só o INBOX — segundos; teto 120 s, e a trava impede
+# que a rodada seguinte comece antes de esta acabar) ou "completo" (o grupo inteiro; teto
+# TT_EMAIL_SYNC_TETO=600 s). Trava por conta (nunca duas ao mesmo tempo).
+# Registra cada rodada em $ESTADO_DIR/email-sync/<slug> (modo, início, fim, código; últimas 200) e
+# as últimas linhas de erro em <slug>.erro — é o que --email-sync-estado e a barra leem. Silencioso.
+email_sync() { # slug [inbox|completo]
+  local slug=${1:?} modo=${2:-inbox} rc lock dir alvo teto ini fim st
+  rc=$(email_mbsyncrc "$slug")
   command -v "$(mbsync_bin)" >/dev/null || return 0
   [[ -f $rc ]] || return 0
   lock="$EMAIL_MBSYNC_DIR/$slug.lock"
   exec 9>"$lock" 2>/dev/null || return 0
   flock -n 9 || return 0   # já há um sync desta conta em curso
-  timeout 120 "$(mbsync_bin)" -c "$rc" "$slug" >/dev/null 2>&1
+  dir="${ESTADO_DIR:?}/email-sync"; mkdir -p "$dir"
+  if [[ $modo == completo ]]; then alvo=$slug; teto=${TT_EMAIL_SYNC_TETO:-600}
+  else alvo="$slug-inbox"; teto=120; grep -q "^Channel $slug-inbox\$" "$rc" || alvo=$slug; fi   # rc antigo: canal único
+  ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
+  timeout "$teto" "$(mbsync_bin)" -c "$rc" "$alvo" >/dev/null 2>"$dir/$slug.erro.tmp"; st=$?
+  fim=$(date +%s)
+  printf '%s\t%s\t%s\t%s\n' "$modo" "$ini" "$fim" "$st" >>"$dir/$slug"
+  tail -n 200 "$dir/$slug" >"$dir/$slug.tmp" 2>/dev/null && mv "$dir/$slug.tmp" "$dir/$slug"
+  if ((st == 0)); then rm -f "${dir:?}/${slug:?}.erro" "${dir:?}/${slug:?}.erro.tmp"
+  else { ((st == 124)) && echo "tempo esgotado ($teto s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } >"$dir/$slug.erro"; rm -f "${dir:?}/${slug:?}.erro.tmp"; fi
+  rm -f "${dir:?}/${slug:?}.andamento"
+  return $st
 }
 
-# Sincroniza todas as contas com sync_local=1 (chamado pelo vigia e por --email-sync sem argumento).
-email_sync_todas() {
+# Sincroniza todas as contas com sync_local=1 (vigia e --email-sync sem NOME), no MODO dado.
+email_sync_todas() { # [inbox|completo]
   local slug; local -A E=()
   for slug in $(email_slugs); do
     E=(); email_ler "$slug" || continue
-    [[ ${E[sync_local]:-} == 1 ]] && email_sync "$slug"
+    [[ ${E[sync_local]:-} == 1 ]] && email_sync "$slug" "${1:-inbox}"
   done
+  return 0
+}
+
+# Estado do sync local por conta (tt --email-sync-estado): a última rodada de cada modo, há quanto
+# tempo, duração, se deu certo, e o erro (se houve). Com "curto": uma palavra por conta
+# (ok | erro | nunca | parado), para a barra.
+email_sync_estado() { # [curto]
+  local dir="$ESTADO_DIR/email-sync" slug modo ini fim st agora resumo; agora=$(date +%s); local -A E=()
+  _dur() { local x=$1; if ((x < 60)); then echo "${x}s"; elif ((x < 3600)); then echo "$((x / 60)) min"; else echo "$((x / 3600)) h $(( (x % 3600) / 60 )) min"; fi; }
+  for slug in $(email_slugs); do
+    E=(); email_ler "$slug" || continue
+    [[ ${E[sync_local]:-} == 1 ]] || continue
+    if [[ ${1:-} == curto ]]; then
+      fim=""; st=0
+      read -r _ _ fim st < <(awk -F'\t' '$1 == "inbox"' "$dir/$slug" 2>/dev/null | tail -1)
+      if [[ -z ${fim:-} ]]; then resumo=nunca
+      elif ((st != 0)); then resumo=erro
+      elif ((agora - fim > 3 * ${TT_EMAIL_SYNC:-120} + 120)); then resumo=parado
+      else resumo=ok; fi
+      printf '%s\t%s\n' "$slug" "$resumo"; continue
+    fi
+    printf '%s (%s)\n' "${E[nome]}" "$slug"
+    if [[ -f $dir/$slug.andamento ]]; then read -r modo ini <"$dir/$slug.andamento"; printf '  ⏳ sincronizando agora (%s), há %s\n' "$modo" "$(_dur $((agora - ini)))"; fi
+    for modo in inbox completo; do
+      ini=""; fim=""; st=0
+      read -r _ ini fim st < <(awk -F'\t' -v m="$modo" '$1 == m' "$dir/$slug" 2>/dev/null | tail -1)
+      if [[ -z ${fim:-} ]]; then printf '  %-9s nunca\n' "$modo"; continue; fi
+      printf '  %-9s há %s · levou %s · %s\n' "$modo" "$(_dur $((agora - fim)))" "$(_dur $((fim - ini)))" "$( ((st == 0)) && echo ok || echo "✗ erro $st")"
+    done
+    [[ -s $dir/$slug.erro ]] && sed 's/^/    /' "$dir/$slug.erro"
+  done
+  return 0
 }
 
 # Contas criadas pelo cadastro antigo (Gmail com senha de app, sem marcadores) passam a ser
@@ -8544,7 +8651,7 @@ email_adicionar_cli() {
   fi
   email_gravar; email_regerar "${E[_slug]}"
   [[ -n ${TT_EMAIL_SEM_REDE:-} ]] || email_detectar_pastas "${E[_slug]}" || true
-  [[ ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-sync "${E[_slug]}" >/dev/null 2>&1 &)
+  [[ ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-sync "${E[_slug]}" --completo >/dev/null 2>&1 &)
   echo "✔ conta \"${E[nome]}\" cadastrada (${E[_slug]})"
 }
 
@@ -8580,7 +8687,7 @@ email_detectar_pastas() {
   command -v python3 >/dev/null || return 1
   email_ler "$slug" || return 1
   saida=$(timeout 40 python3 "$EMAIL_PY" pastas "$(email_conf_arq "$slug")" 2>/dev/null) || return 1
-  for k in todos enviados lixeira rascunhos spam naoabre; do E[pasta_$k]=""; done
+  for k in todos enviados lixeira rascunhos spam naoabre importantes estrela; do E[pasta_$k]=""; done
   while IFS='=' read -r k v; do [[ -n $k && -z ${E[pasta_$k]:-} ]] && E[pasta_$k]=$v; done <<<"$saida"
   email_gravar; email_regerar "$slug"
 }
@@ -9567,12 +9674,16 @@ case "${1:-}" in
   --email-pastas) s=$(email_achar "${2:?uso: tt --email-pastas NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_detectar_pastas "$s" && echo "✔ pastas atualizadas"; exit ;;
   --email-remover) s=$(email_achar "${2:?uso: tt --email-remover NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_remover_slug "$s"; exit ;;
   --email-testar) s=$(email_achar "${2:?uso: tt --email-testar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_testar_slug "$s"; exit ;;
-  --email-sync) # sem NOME: todas as contas com sync_local=1; com NOME: só essa
-    if [[ -n ${2:-} ]]; then
-      s=$(email_achar "$2") || { echo "Conta não encontrada: $2"; exit 1; }
-      f_s() { local -A E=(); email_ler "$1" && email_sync "$1"; }; f_s "$s"
-    else email_sync_todas; fi
+  --email-sync) # [NOME] [--completo]: sem NOME, todas as contas com sync_local=1; padrão só o INBOX
+    es_modo=inbox; es_nome=""
+    for a in "${@:2}"; do case $a in --completo) es_modo=completo ;; *) es_nome=$a ;; esac; done
+    if [[ -n $es_nome ]]; then
+      s=$(email_achar "$es_nome") || { echo "Conta não encontrada: $es_nome"; exit 1; }
+      f_s() { local -A E=(); email_ler "$1" && email_sync "$1" "$2"; }; f_s "$s" "$es_modo"
+    else email_sync_todas "$es_modo"; fi
     exit ;;
+  --email-sync-estado) email_sync_estado "${2:-}"; exit 0 ;;
+  --email-mbsync-migrar) email_mbsyncrc_migrar; exit 0 ;;
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
   --email-conta-nova-ui) email_conta_nova_ui; exit ;;
   --configurar-bashrc) configurar_bashrc; exit ;;

@@ -42,11 +42,29 @@ rc=$(RC local)
 grep -q '^Host imap.gmail.com$' "$rc" || falhou '.mbsyncrc sem Host correto'
 grep -q '^User eu@gmail.com$' "$rc" || falhou '.mbsyncrc sem User correto'
 grep -q '^PassCmd "cat .*aerc-local.txt"$' "$rc" || falhou ".mbsyncrc PassCmd não aponta para o arquivo de senha: $(grep PassCmd "$rc")"
-grep -q '^Channel local$' "$rc" || falhou '.mbsyncrc sem Channel'
+grep -q '^Channel local-inbox$' "$rc" || falhou '.mbsyncrc sem o canal do INBOX'
+grep -q '^Channel local-pastas$' "$rc" && grep -q '^Patterns \* !INBOX$' "$rc" || falhou ".mbsyncrc sem o canal das outras pastas (sem rótulos conhecidos ainda): $(grep Patterns "$rc")"
+grep -q '^Group local$' "$rc" && grep -q '^Channels local-inbox local-pastas$' "$rc" || falhou '.mbsyncrc sem o grupo da volta completa'
+grep -q 'Channel local-arquivo' "$rc" && falhou 'sem pasta_todos conhecida não pode haver canal de arquivo'
 grep -q "Path $HOME/.cache/tt/maildir/local/" "$rc" || falhou '.mbsyncrc sem Path do maildir'
 grep -q 'SENHA_SYNC' "$rc" && falhou 'SENHA vazou para o .mbsyncrc'
 [[ $(stat -c %a "$rc") == 600 ]] || falhou ".mbsyncrc deveria ser 600 (é $(stat -c %a "$rc"))"
-passou '.mbsyncrc: Host/User/PassCmd/Channel/Path corretos, sem segredo em claro, 600'
+passou '.mbsyncrc: Host/User/PassCmd/Path corretos, canais INBOX + pastas + grupo, sem segredo em claro, 600'
+
+# Com as pastas especiais do Gmail descobertas: os rótulos saem do canal de pastas e o "Todos os
+# e-mails" vira um canal próprio, limitado (MaxMessages) — é o que fazia a volta nunca terminar.
+printf 'pasta_todos=[Gmail]/Todos os e-mails\npasta_importantes=[Gmail]/Importantes\npasta_estrela=[Gmail]/Com estrela\n' >>"$HOME/.config/tt/email/local.conf"
+"$TT" --email-regerar Local >/dev/null || falhou 'regerar com pastas especiais'
+grep -q '^Patterns \* !INBOX "!\[Gmail\]/Todos os e-mails" "!\[Gmail\]/Importantes" "!\[Gmail\]/Com estrela"$' "$rc" || falhou "pastas-rótulo deveriam sair do canal de pastas: $(grep Patterns "$rc")"
+grep -q '^Channel local-arquivo$' "$rc" && grep -q '^Far ":local-remote:\[Gmail\]/Todos os e-mails"$' "$rc" || falhou 'canal do arquivo (Todos os e-mails) ausente ou sem aspas'
+grep -q '^MaxMessages 500$' "$rc" && grep -q '^ExpireUnread yes$' "$rc" || falhou 'canal do arquivo sem MaxMessages/ExpireUnread'
+grep -q '^Channels local-inbox local-pastas local-arquivo$' "$rc" || falhou 'grupo não inclui o canal do arquivo'
+# o mbsync de verdade aceita a sintaxe (lê o arquivo; falha só na rede, não no parse)
+if [[ -x /usr/bin/mbsync ]]; then
+  saida=$(timeout 10 env HOME="$HOME" /usr/bin/mbsync -c "$rc" -l local 2>&1 || true)
+  grep -qi 'line [0-9]*\|unknown\|syntax\|parse' <<<"$saida" && falhou "mbsync de verdade não aceitou o .mbsyncrc: $saida"
+fi
+passou 'Gmail: rótulos fora do espelho, arquivo limitado a 500 e sintaxe aceita pelo mbsync'
 
 # OAuth2: PassCmd usa o email-tt.py oauth-token (sem gravar token no rc)
 "$TT" --email-adicionar nome=LocalOA endereco=oa@empresa.com provedor=microsoft auth=oauth oauth_client_id=cid sync_local=1 >/dev/null || falhou 'cadastro oauth com sync_local'
@@ -55,13 +73,42 @@ grep -q 'PassCmd "python3 .*email-tt.py oauth-token .*localoa.conf"' "$rcoa" || 
 grep -q '^AuthMechs XOAUTH2$' "$rcoa" || falhou 'oauth: faltou AuthMechs XOAUTH2'
 passou 'OAuth2: PassCmd via email-tt.py oauth-token e AuthMechs XOAUTH2'
 
-# --email-sync roda o mbsync só das contas com flag
+# --email-sync roda o mbsync só das contas com flag: por padrão só o INBOX; --completo, o grupo
 : >"$T/mbsync.calls"
 "$TT" --email-sync >/dev/null 2>&1
 [[ $(grep -c . "$T/mbsync.calls") == 2 ]] || falhou "--email-sync deveria chamar mbsync 2x (contas com flag), chamou $(grep -c . "$T/mbsync.calls")"
-grep -qw local "$T/mbsync.calls" || falhou '--email-sync não sincronizou a conta local'
+grep -q ' local-inbox$' "$T/mbsync.calls" || falhou "--email-sync (padrão) deveria sincronizar só o INBOX: $(cat "$T/mbsync.calls")"
 grep -qw online "$T/mbsync.calls" && falhou '--email-sync sincronizou conta sem flag'
-passou '--email-sync espelha só as contas com sync_local=1'
+: >"$T/mbsync.calls"; "$TT" --email-sync Local --completo >/dev/null 2>&1
+grep -q ' local$' "$T/mbsync.calls" || falhou "--email-sync --completo deveria rodar o grupo: $(cat "$T/mbsync.calls")"
+# registro do estado: última rodada por modo, e --email-sync-estado conta a história
+E=$HOME/.local/state/tt/email-sync
+[[ -f $E/local ]] && grep -q '^inbox	' "$E/local" && grep -q '^completo	' "$E/local" || falhou "estado do sync não registrou as rodadas: $(cat "$E/local" 2>/dev/null)"
+est=$("$TT" --email-sync-estado)
+grep -q 'Local (local)' <<<"$est" && grep -q 'inbox .*ok' <<<"$est" && grep -q 'completo .*ok' <<<"$est" || falhou "--email-sync-estado: $est"
+[[ $("$TT" --email-sync-estado curto | grep '^local	') == $'local\tok' ]] || falhou "estado curto deveria ser ok: $("$TT" --email-sync-estado curto)"
+# erro e tempo esgotado ficam registrados, com o que o mbsync disse
+printf '#!/bin/sh\necho "IMAP error: login failed" >&2\nexit 1\n' >"$T/bin/mbsync"; chmod +x "$T/bin/mbsync"
+"$TT" --email-sync Local >/dev/null 2>&1
+grep -q 'login failed' "$E/local.erro" || falhou 'erro do mbsync não ficou registrado'
+grep -q '✗ erro 1' <<<"$("$TT" --email-sync-estado)" && grep -q 'login failed' <<<"$("$TT" --email-sync-estado)" || falhou 'estado não mostra o erro'
+[[ $("$TT" --email-sync-estado curto | grep '^local	') == $'local\terro' ]] || falhou 'estado curto deveria ser erro'
+printf '#!/bin/sh\necho "$@" >>"%s/mbsync.calls"\nexit 0\n' "$T" >"$T/bin/mbsync"; chmod +x "$T/bin/mbsync"
+"$TT" --email-sync Local >/dev/null 2>&1; [[ -e $E/local.erro ]] && falhou 'rodada boa deveria limpar o erro'
+passou '--email-sync: INBOX por padrão, --completo roda o grupo, estado e erro registrados'
+
+# migração: .mbsyncrc antigo (canal único, Patterns *) vira canais + grupo, sem tocar no maildir
+printf 'IMAPAccount local\nHost imap.gmail.com\nChannel local\nFar :local-remote:\nNear :local-local:\nPatterns *\n' >"$rc"
+mkdir -p "$(MD local)/INBOX/cur"; touch "$(MD local)/INBOX/.mbsyncstate"
+TT_EMAIL_SEM_REDE=1 "$TT" --email-mbsync-migrar >/dev/null || falhou 'migrar'
+grep -q '^Group local$' "$rc" && grep -q '^Channel local-inbox$' "$rc" || falhou 'migração não regravou o .mbsyncrc antigo'
+[[ -f $(MD local)/INBOX/.mbsyncstate ]] || falhou 'migração mexeu no estado do maildir'
+TT_EMAIL_SEM_REDE=1 "$TT" --email-mbsync-migrar >/dev/null; grep -c '^Group local$' "$rc" | grep -qx 1 || falhou 'migração não é idempotente'
+# e o sync com um rc antigo (sem canal -inbox) ainda funciona (roda o canal único)
+printf 'IMAPAccount local\nChannel local\nPatterns *\n' >"$rc"; : >"$T/mbsync.calls"
+"$TT" --email-sync Local >/dev/null 2>&1; grep -q ' local$' "$T/mbsync.calls" || falhou "rc antigo: deveria rodar o canal único: $(cat "$T/mbsync.calls")"
+"$TT" --email-regerar Local >/dev/null
+passou 'migração do .mbsyncrc antigo (idempotente, sem tocar no maildir); rc antigo ainda sincroniza'
 
 # remover apaga .mbsyncrc e maildir
 mkdir -p "$(MD local)/INBOX/cur"
