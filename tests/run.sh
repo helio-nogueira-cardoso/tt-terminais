@@ -165,6 +165,7 @@ rg -q '^tarefas_merge\(\)' "$tt" || falha 'tarefas: tarefas_merge (merge por tar
 rg -q '^tarefas_sync_modo\(\)' "$tt" || falha 'tarefas: modo de sync configurável ausente'
 rg -q 'tarefas_repo' "$tt" || falha 'tarefas: repositório git pessoal (tarefas_repo) ausente'
 rg -Fq -- '--tarefas-puxar' "$tt" || falha 'tarefas: vigia não puxa tarefas (--tarefas-puxar ausente)'
+rg -Fq -- '--tarefas-lembrete' "$tt" || falha 'tarefas: lembrete de prazo (--tarefas-lembrete) ausente'
 # A versão continua no canto direito; o 📋 vem antes dela na 2ª linha.
 pos_tar=$(rg -n '@barra_tarefas' "$tema" | head -1 | cut -d: -f1)
 pos_ver=$(rg -n '@barra_versao' "$tema" | head -1 | cut -d: -f1)
