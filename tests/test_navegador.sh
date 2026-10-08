@@ -48,6 +48,7 @@ bio = io.BytesIO()
 with tarfile.open(fileobj=bio, mode="w:xz") as t:
     d = b"#!/bin/sh\necho chrome\n"; ti = tarfile.TarInfo("./opt/google/chrome/chrome"); ti.size = len(d); ti.mode = 0o755
     t.addfile(ti, io.BytesIO(d))
+    ln = tarfile.TarInfo("./etc/cron.daily/google-chrome"); ln.type = tarfile.SYMTYPE; ln.linkname = "/opt/google/chrome/cron/google-chrome"; t.addfile(ln)
 open(sys.argv[1], "wb").write(b"!<arch>\n" + ar_membro("debian-binary", b"2.0\n") + ar_membro("data.tar.xz", bio.getvalue()))
 PY
 sha=$(sha256sum "$T/repo/pool/chrome.deb" | cut -d' ' -f1)
