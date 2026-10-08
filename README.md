@@ -351,10 +351,18 @@ sem o `mbsync`, o modal de pendências oferece instalá-lo), por `tt --email-syn
     tt --email-adicionar nome=Pessoal endereco=eu@gmail.com provedor=gmail auth=senha sync_local=1 --senha-stdin
 
 O tt gera um `~/.config/tt/mbsync/<conta>.mbsyncrc` sem segredo (a senha vem por `PassCmd`: o arquivo
-de senha, o seu comando externo, ou, no OAuth2, um token renovado na hora). O vigia sincroniza em
-segundo plano a cada `TT_EMAIL_SYNC` segundos (padrão 180; `0` desliga); `tt --email-sync [conta]`
-força agora. Sem o `mbsync` instalado o cadastro com `sync_local=1` é recusado, em vez de fingir que
-ligou. Contas sem o flag seguem lendo direto do servidor (IMAP) com o cache de cabeçalhos acima.
+de senha, o seu comando externo, ou, no OAuth2, um token renovado na hora), em três canais: o
+**INBOX** sozinho (leva segundos), as **outras pastas**, e o **arquivo** do Gmail ("Todos os e-mails",
+destino do arquivar) limitado às últimas 500 mensagens no espelho (`TT_EMAIL_ARQUIVO_MAX`; o servidor
+segue com tudo). As pastas-rótulo do Gmail (*Importantes*, *Com estrela*) ficam fora: são visões do que
+já está nas outras, e baixá-las duplicava o espelho e fazia a volta completa nunca terminar. O vigia
+sincroniza em segundo plano: o INBOX a cada `TT_EMAIL_SYNC` segundos (padrão 120; `0` desliga) e a
+volta completa a cada `TT_EMAIL_SYNC_COMPLETO` (padrão 1800), com teto `TT_EMAIL_SYNC_TETO` (600 s).
+`tt --email-sync [conta]` força o INBOX agora, `--completo` força tudo, e `tt --email-sync-estado`
+mostra, por conta, a última rodada de cada tipo (há quanto tempo, duração, ok ou o erro que o mbsync
+deu). Contas já cadastradas migram para os canais na próxima atualização, sem baixar nada de novo.
+Sem o `mbsync` instalado o cadastro com `sync_local=1` é recusado, em vez de fingir que ligou. Contas
+sem o flag seguem lendo direto do servidor (IMAP) com o cache de cabeçalhos acima.
 
 Gmail com OAuth2 funciona **de fábrica**: sem informar `client_id`, o cadastro usa o app
 "Desktop" do próprio tt no Google (num app instalado o client_secret não é confidencial — o

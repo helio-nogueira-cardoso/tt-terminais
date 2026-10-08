@@ -186,7 +186,15 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   cadastra por CLI; `tt --email-listar`.
 - `tt --email-testar NOME`, `tt --email-autorizar NOME` (OAuth2), `tt --email-pastas NOME`,
   `tt --email-regerar NOME`, `tt --email-assumir NOME`, `tt --email-remover NOME`.
-- `tt --email-sync [NOME]` — espelha por mbsync as contas com `sync_local=1`.
+- `tt --email-sync [NOME] [--completo]` — espelha por mbsync as contas com `sync_local=1` (padrão só
+  o INBOX; `--completo` o grupo inteiro); `tt --email-sync-estado [curto]` — última rodada por conta
+  e modo (estado em `$ESTADO_DIR/email-sync/<slug>`, erro em `<slug>.erro`; `curto` = ok|erro|nunca|
+  parado por conta, para a barra); `tt --email-mbsync-migrar` — regrava .mbsyncrc antigos (canal
+  único) no formato de canais `<slug>-inbox`/`-pastas`/`-arquivo` + `Group <slug>` (a instalação
+  chama). Pastas especiais `pasta_importantes`/`pasta_estrela` (marcas `\Important`/`\Flagged`)
+  saem do espelho; `pasta_todos` vira o canal de arquivo com `MaxMessages`/`ExpireUnread`. Vigia:
+  INBOX a cada `TT_EMAIL_SYNC` (120), completo a cada `TT_EMAIL_SYNC_COMPLETO` (1800), teto
+  `TT_EMAIL_SYNC_TETO` (600).
 - `tt --email-atalhos` — tela de atalhos do aerc em português.
 
 ### Nomeador de abas

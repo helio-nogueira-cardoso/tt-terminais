@@ -667,7 +667,10 @@ def pastas(c):
             m.login(usuario, segredo)
         st, linhas = m.list()
         import re
-        marcas = {"\\All": "todos", "\\Sent": "enviados", "\\Trash": "lixeira", "\\Drafts": "rascunhos", "\\Junk": "spam", "\\Archive": "arquivo"}
+        # \Important e \Flagged são as "pastas-rótulo" do Gmail (Importantes, Com estrela): o sync
+        # local as deixa de fora, porque são visões do que já está nas outras pastas.
+        marcas = {"\\All": "todos", "\\Sent": "enviados", "\\Trash": "lixeira", "\\Drafts": "rascunhos", "\\Junk": "spam", "\\Archive": "arquivo",
+                  "\\Important": "importantes", "\\Flagged": "estrela"}
         for l in linhas or []:
             l = l.decode("utf-8", "replace") if isinstance(l, bytes) else str(l)
             r = re.match(r'\((?P<f>[^)]*)\) (?:"[^"]*"|NIL) (?P<n>.*)$', l)
