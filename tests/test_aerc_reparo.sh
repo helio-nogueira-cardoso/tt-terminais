@@ -87,6 +87,7 @@ eval "$(sed -n '/^aerc_filtro_html() {/,/^}/p;/^aerc_reparar_se_preciso() {/,/^}
 mk w3m
 printf '[filters]\ntext/html=! html | colorize | python3 /x/email-tt.py linkify\n' > "$conf"; aerc_reparar_se_preciso
 f=$(filtro_atual)
+[[ $f != *'|'* ]] && ok "filtro w3m sem pipe: w3m fica interativo (caixas) em vez de dump" || erro "filtro w3m ainda tem pipe: $f"
 [[ $f == *"extbrowser='"*"--abrir-url %s'"* && $f == *keymap_file=* ]] && ok "filtro w3m antigo migrado p/ abrir link no navegador" || erro "filtro nao migrou: $f"
 grep -q 'C-m EXTERN_LINK' "$DIR_TT/w3m-keymap" 2>/dev/null && ok "keymap do w3m: Enter abre o link no navegador" || erro "keymap do w3m ausente"
 before=$(cat "$conf"); aerc_reparar_se_preciso

@@ -1909,7 +1909,9 @@ aerc_filtro_html() {
     # "Can't load <URL cortada na largura da tela>" e a URL colada caía em "wrong link". Aqui Enter
     # (e ESC M) abre o link no navegador via tt --abrir-url, com a URL inteira.
     mkdir -p "$DIR_TT" && printf 'keymap C-m EXTERN_LINK\nkeymap C-j EXTERN_LINK\n' >"$DIR_TT/w3m-keymap"
-    echo "! html -o extbrowser='$HOME/.local/bin/tt --abrir-url %s' -o keymap_file=$DIR_TT/w3m-keymap | colorize | python3 $DIR_TT/email-tt.py linkify"
+    # Sem pipe: com "!" o aerc só dá TTY ao w3m se ele for o processo principal; "html | colorize"
+    # o põe em modo dump (texto cru, sem caixas nem links navegáveis).
+    echo "! html -o extbrowser='$HOME/.local/bin/tt --abrir-url %s' -o keymap_file=$DIR_TT/w3m-keymap"
   elif command -v lynx >/dev/null; then echo "lynx -assume_charset=utf-8 -display_charset=utf-8 -dump -force_html -stdin -width=100 | colorize | python3 $DIR_TT/email-tt.py linkify"
   else echo "python3 $DIR_TT/email-tt.py html | colorize | python3 $DIR_TT/email-tt.py linkify"; fi
 }
@@ -2022,7 +2024,7 @@ aerc_reparar_se_preciso() {
      { [[ $linha_html =~ ^[[:space:]]*text/html[[:space:]]*=[[:space:]]*!*[[:space:]]*html([[:space:]]|$) ]] && ! command -v w3m >/dev/null; } ||
      { [[ $linha_html == *lynx* ]] && ! command -v lynx >/dev/null; } ||
      { [[ $linha_html == *w3m* ]] && ! command -v w3m >/dev/null; } ||
-     { command -v w3m >/dev/null && [[ $linha_html == *'! html'* && ( $linha_html != *linkify* || $linha_html != *extbrowser* ) ]]; } ||
+     { command -v w3m >/dev/null && [[ $linha_html == *'! html'* && ( $linha_html == *linkify* || $linha_html != *extbrowser* ) ]]; } ||
      { command -v lynx >/dev/null && [[ $linha_html == *lynx* && $linha_html != *linkify* ]]; } ||
      { ! command -v w3m >/dev/null && ! command -v lynx >/dev/null && [[ $linha_html == *email-tt.py\ html* && $linha_html != *linkify* ]]; }; then
     aerc_definir "$conf" filters text/html "$(aerc_filtro_html)" forcar
@@ -2086,7 +2088,7 @@ UI
   if ! grep -q '^[[:space:]]*text/html[[:space:]]*=' "$conf" 2>/dev/null ||
      { grep -q '^[[:space:]]*text/html[[:space:]]*=[[:space:]]*!*[[:space:]]*html[[:space:]]*$' "$conf" && ! command -v w3m >/dev/null; } ||
      { grep -q '^[[:space:]]*text/html[[:space:]]*=.*email-tt.py html' "$conf" && ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*linkify' "$conf"; } ||
-     { command -v w3m >/dev/null && grep -qE '^[[:space:]]*text/html[[:space:]]*=.*! *html' "$conf" && ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*extbrowser' "$conf"; } ||
+     { command -v w3m >/dev/null && grep -qE '^[[:space:]]*text/html[[:space:]]*=.*! *html' "$conf" && { ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*extbrowser' "$conf" || grep -q '^[[:space:]]*text/html[[:space:]]*=.*linkify' "$conf"; }; } ||
      { command -v w3m >/dev/null && grep -q '^[[:space:]]*text/html[[:space:]]*=[[:space:]]*lynx -assume_charset=utf-8' "$conf"; } ||
      { command -v lynx >/dev/null && grep -q '^[[:space:]]*text/html[[:space:]]*=.*lynx' "$conf" && ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*linkify' "$conf"; }; then
     aerc_definir "$conf" filters text/html "$f_html" forcar
