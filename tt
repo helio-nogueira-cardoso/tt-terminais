@@ -8382,6 +8382,9 @@ email_mbsyncrc_gerar() {
     printf 'PassCmd "%s"\n' "$(email_mbsync_passcmd)"
     printf '%s' "$authmech"
     printf '%s %s\n' "$(mbsync_chave_tls)" "$sslt"
+    # O Gmail às vezes demora mais que os 20 s padrão para responder (autenticação, pastas grandes);
+    # sem isto a rodada morria em "Socket error: timeout" já perto do fim.
+    printf 'Timeout 60\n'
     printf '\n'
     printf 'IMAPStore %s-remote\n' "$slug"
     printf 'Account %s\n' "$slug"
