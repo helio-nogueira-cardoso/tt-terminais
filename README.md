@@ -46,8 +46,15 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
 - **Arquivos entre máquinas**: navegador de pastas (→ entra, ← sobe, Tab marca, ⏎ confirma), escolha
   da máquina e da pasta (a de cada sessão de lá aparece como opção). Nunca sobrescreve: conflito
   vira `nome (2)`. Quem recebe vê um aviso na tela. Rodam em segundo plano: a barra
-  mostra "⇅ N em andamento" e avisa ao terminar; ⇅ → Acompanhar mostra progresso, velocidade e
-  cancela (cópia cancelada ou interrompida não deixa nada pela metade).
+  mostra o andamento ("⇅ 62% 14M/s") e avisa ao terminar. As entradas ficam no menu do painel (⋯):
+  enviar, trazer, o caminho copiado, recebidos recentes e acompanhar. Antes de começar, um resumo
+  (itens, tamanho, conflitos, espaço livre) pede ⏎; ⏎ também repete a última rota. A tela de
+  acompanhar tem seleção por ↑↓ e rolagem; `c` cancela (pergunta passando de 50 %), `l` mostra o
+  log, `r` tenta de novo, `o` abre o destino, `x` limpa as terminadas. Falhas dizem a causa
+  provável (sem espaço, sem permissão, máquina inalcançável). Ao fim, contagem e tamanho são
+  conferidos nas duas pontas (`TT_CONFERIR=1` confere por sha256). Um arquivo único grande
+  (≥ 100 MB, `TT_RETOMAR_MIN`) é retomável: se a conexão cair, a parte fica no destino e `r`
+  continua dali.
 - **⚙ tmux**: janelas, layouts, digitar em todos os painéis, histórico, mouse, atalhos, editar e
   recarregar a configuração, desanexar telas.
 - **Nomes automáticos**: sessões genéricas ganham nome pelo assunto (título do Claude Code, ou o
@@ -575,6 +582,7 @@ Sessões abertas em alguma tela, fixadas e pontes nunca são fechadas assim.
     tt --enviar                          navega a partir da pasta atual; escolhe máquina e pasta
     tt --enviar a.pdf fotos/ trabalho    envia para a pasta de recebidos de "trabalho"
     tt --enviar a.pdf trabalho:~/docs    envia para essa pasta
+    ... | tt --enviar --stdin NOME [máq]  o que vier no pipe vira o arquivo NOME no destino
     tt --trazer                          escolhe máquina, pasta e arquivos de lá → pasta atual
     tt --trazer trabalho:~/x.log [pasta] traz direto
     tt --pasta-padrao                    escolhe (navegando) onde chegam os arquivos nesta máquina
