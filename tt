@@ -664,11 +664,14 @@ sessao_vazia() {
 
 # Fecha as sessões vazias desta máquina, menos a sessão EXCETO (a que está em uso). Imprime quantas.
 fechar_vazias() {
-  local s ponte n=0
-  while IFS='|' read -r s ponte; do
+  local s ponte anexada n=0
+  while IFS='|' read -r s ponte anexada; do
     [[ -n $ponte || $s == "${1:-}" ]] && continue
+    # Sessão com ALGUÉM olhando nunca é fechada: matar a sessão anexada desanexa o cliente e,
+    # com o tmux vindo de exec no bashrc, a janela do terminal inteira fecha ("o terminal some").
+    (( anexada > 0 )) && continue
     sessao_vazia "$s" && tmux kill-session -t "=$s" && n=$((n + 1))
-  done < <(tmux list-sessions -F '#{session_name}|#{@ponte}' 2>/dev/null)
+  done < <(tmux list-sessions -F '#{session_name}|#{@ponte}|#{session_attached}' 2>/dev/null)
   echo "$n"
 }
 
