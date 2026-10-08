@@ -360,8 +360,14 @@ estreita não há prévia; o que fica 3 s na prévia é marcado como lido) e e-m
 mesmo sem `w3m` (usa `lynx` ou o conversor do próprio tt, com os links numerados no fim).
 
 **Tudo clicável.** No rodapé do popup há uma **barra de botões**: 📖 Abrir · + Nova · ↩ Responder ·
-↩↩ Todos · ↪ Encaminhar · ▤ Arquivar · ✕ Apagar · 📁 Pasta · 👤 Contas · ? Atalhos (em tela estreita, só
-os ícones); cada botão faz o mesmo que a tecla. **Os botões valem de qualquer lugar**: contas e atalhos
+↩↩ Todos · ↪ Encaminhar · ▤ Arquivar · ✕ Apagar · 📁 Pasta · ⟳ Sincronizar · 👤 Contas · ? Atalhos (em
+tela estreita, só os ícones); cada botão faz o mesmo que a tecla. **⟳ Sincronizar** (ou `Ctrl+s`, ou
+botão direito no 📧 → *Sincronizar agora*, ou `tt --email-sync-agora`) consulta a caixa de entrada de
+todas as contas **agora**, sem esperar a vez do vigia nem a pausa que ele faz depois de um erro — para
+quando você está esperando um código com validade. As contas vão em paralelo; se a volta completa
+estiver no meio, ela é interrompida (o vigia a refaz depois) para a caixa de entrada vir já. O botão
+mostra *consultando…* e depois *✓ 2 novos* (ou *nada novo*), a mensagem aparece na tela e, se chegou
+algo, o aviso de e-mail novo diz de quem é. **Os botões valem de qualquer lugar**: contas e atalhos
 são telas do tt que abrem por cima do aerc (a barra continua embaixo) e se fecham com `q`, Esc ou o
 mesmo botão de novo; abrir uma com a outra aberta troca; e um botão do aerc (abrir, responder,
 apagar…) com uma tela dessas na frente primeiro a fecha e depois age. Com uma mensagem sendo escrita
@@ -387,7 +393,7 @@ pasta, e a roda rola. Atalhos, na lista e na leitura:
 
 E-mails com versão HTML abrem nela, pelo `w3m` (tabelas, cores, links), na largura da janela. Em tela
 estreita (lado a lado, celular) o 📧 abre o aerc sem a barra de pastas (`J`/`K` trocam de pasta).
-**Botão direito no 📧**: abrir, contas (cadastrar, descadastrar, testar), nova conta, atalhos e o estado do sync local.
+**Botão direito no 📧**: abrir, sincronizar agora, contas (cadastrar, descadastrar, testar), nova conta, atalhos e o estado do sync local.
 
 **Apagar e arquivar certos no Gmail.** No IMAP do Gmail as pastas são rótulos: tirar uma mensagem
 da Caixa de entrada (o que um "delete" comum faz, direto ou pelo espelho local) só a **arquiva** — ela

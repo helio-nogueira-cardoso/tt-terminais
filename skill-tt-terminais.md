@@ -223,6 +223,12 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   (= `… '<F9>' '' '<F8>'`) faz o mesmo para os botões ✕/▤. `@tt_email_binds` = `EMAIL_BINDS_VER:cksum(binds.conf)`:
   cadastro de conta recria a sessão oculta na próxima abertura. No `:choose` do aerc a resposta é a
   tecla + Enter. `email_remover_slug` apaga o .conf antes de regerar (as seções vêm da lista de .conf).
+- `tt --email-sync-agora [cliente]` — ⟳ Sincronizar agora (botão `sync` de EMAIL_BOTOES com o estado
+  em `@tt_email_sync`; `<C-s>` em [messages]/[view] do bloco do tt; item do menu do 📧): INBOX de
+  todas as contas com espelho em paralelo (`email_sync_manual`: espera a trava até 20 s; se a volta
+  completa a segura, `pkill` do mbsync dela e segue — não respeita a espera do vigia), conta não
+  lidas antes/depois (`email_nao_lidas_inbox`), retorno por display-message no cliente, "✓ N novos"
+  no botão por 6 s, e F11 (`:check-mail`, só com o aerc na frente) para as contas só IMAP.
 - `tt --email-sync [NOME] [--completo]` — espelha por mbsync as contas com `sync_local=1` (padrão só
   o INBOX; `--completo` o grupo inteiro); `tt --email-sync-estado [curto]` — última rodada por conta
   e modo (estado em `$ESTADO_DIR/email-sync/<slug>`, erro em `<slug>.erro`; `curto` = ok|nunca|atrasado|

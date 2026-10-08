@@ -2284,6 +2284,7 @@ aerc_binds_gravar() {
     echo '[messages]'
     echo "? = :term $HOME/.local/bin/tt --email-atalhos<Enter>"
     echo "<F2> = :term $HOME/.local/bin/tt --email-contas-ui<Enter>"
+    echo "<C-s> = :exec $HOME/.local/bin/tt --email-sync-agora<Enter>"
     echo '<C-r> = :redraw<Enter>'
     echo 'q = :quit<Enter>'
     echo 'Q = :quit<Enter>'
@@ -2298,6 +2299,7 @@ aerc_binds_gravar() {
     echo "E = :save -a -f -p $HOME/.cache/tt-anexos/atual/<Enter>:term $HOME/.local/bin/tt --anexos-enviar<Enter>"
     echo "i = :pipe -m $HOME/.local/bin/tt --imagens<Enter>"
     echo 'q = :close<Enter>'
+    echo "<C-s> = :exec $HOME/.local/bin/tt --email-sync-agora<Enter>"
     echo '<C-r> = :redraw<Enter>'
     echo 'u = :read -t<Enter>:close<Enter>'
     echo '* = :flag -t<Enter>'
@@ -7531,6 +7533,7 @@ menu_email() {
   local c=$1
   menu_popup "$c" "📧 e-mail" <<ITENS
 e	📧 Abrir o e-mail	$EU --email $(q "$c")
+r	⟳ Sincronizar agora (consulta as contas; útil esperando um código)	$EU --email-sync-agora $(q "$c")
 c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
 n	＋ Cadastrar uma conta…	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
 a	⌨ Atalhos do e-mail	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' ⌨ atalhos do e-mail ' "$EU --email-atalhos"
@@ -7608,6 +7611,7 @@ email_atalhos() {
 Ler	Enter	abrir a mensagem
 Ler	q	fechar a mensagem (na lista: esconder o e-mail; ele continua conectado)
 Ler	Ctrl+q	encerrar o e-mail de verdade (a próxima abertura reconecta)
+Ler	Ctrl+s  ou  botão ⟳	sincronizar agora: consulta as contas sem esperar o vigia (útil esperando um código)
 Ler	j / k  ou  setas	mensagem seguinte / anterior
 Ler	J / K	pasta seguinte / anterior
 Ler	Tab	recolher / abrir a conversa
@@ -8335,6 +8339,7 @@ EMAIL_BOTOES=(
   'arq|▤|Arquivar|F8'
   'apagar|✕|Apagar|F9'
   'pasta|📁|Pasta|F10'
+  'sync|⟳|Sincronizar|'
   'contas|👤|Contas|'
   'atalhos|?|Atalhos|'
 )
@@ -8399,6 +8404,7 @@ email_binds_botoes() { # messages|view
   echo '<F8> = :archive flat<Enter>'
   echo '<F9> = :choose -o y '"'"'Apagar esta mensagem'"'"' delete-message<Enter>'
   echo '<F10> = :move<space>'
+  echo '<F11> = :check-mail<Enter>' # depois do ⟳: as contas só IMAP conferem também
 }
 email_barra_fmt() {
   local b acao ic rot tecla est out=""
@@ -8409,6 +8415,11 @@ email_barra_fmt() {
       apagar) est='#[fg=#1e1e2e,bg=#f38ba8,bold]' ;;
       *) est='#[fg=#cdd6f4,bg=#45475a]' ;;
     esac
+    if [[ $acao == sync ]]; then
+      # Enquanto consulta (e logo depois), o botão mostra o estado (@tt_email_sync: "consultando…", "✓ 2 novos").
+      out+="#[range=user|em_$acao]$est $ic#{?#{@tt_email_sync}, #{@tt_email_sync},#{?#{e|<:#{client_width},100},, $rot}} #[norange]#[default] "
+      continue
+    fi
     out+="#[range=user|em_$acao]$est $ic#{?#{e|<:#{client_width},100},, $rot} #[norange]#[default] "
   done
   printf '%s' "$out"
@@ -8419,7 +8430,10 @@ email_barra_fmt() {
 email_botao_acao() { # ação
   tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null || return 0
   local b acao ic rot tecla=""
-  case $1 in contas | atalhos) email_tela "$1"; return 0 ;; esac
+  case $1 in
+    contas | atalhos) email_tela "$1"; return 0 ;;
+    sync) (email_sync_agora >/dev/null 2>&1 &); return 0 ;; # consulta as contas agora, sem travar o clique
+  esac
   for b in "${EMAIL_BOTOES[@]}"; do IFS='|' read -r acao ic rot tecla <<<"$b"; [[ $acao == "$1" ]] && break; tecla=""; done
   [[ -n $tecla ]] || return 0
   email_tela_fechar
@@ -9061,6 +9075,79 @@ email_novos_avisar() { # slug
   local -A E=(); email_ler "$slug" 2>/dev/null; nome=${E[nome]:-$slug}
   tarefas_notificar "📧 $nome: $n e-mail$( ((n > 1)) && echo s) novo$( ((n > 1)) && echo s)" "$corpo"
   return 0
+}
+
+# ⟳ Sincronizar agora (botão do popup, Ctrl+s no aerc, item do menu do 📧, tt --email-sync-agora
+# [cliente]): consulta o INBOX de todas as contas com espelho, já — sem esperar a vez do vigia nem
+# a espera que ele faz depois de um erro (quem está esperando um código com validade não pode
+# esperar). As contas vão em paralelo. Retorno: o botão mostra "consultando…" e depois "✓ N
+# novos" por uns segundos (@tt_email_sync na sessão oculta), a mensagem na tela do cliente que pediu
+# e, se chegou algo, o aviso de e-mail novo (email_novos_avisar, dentro de cada rodada). No fim,
+# F11 (:check-mail) ao aerc, para as contas só IMAP conferirem também.
+email_sync_agora() { # [cliente]
+  local c=${1:-} s n0=0 n1=0 novos msg curta falhas="" pid; local -a slugs=() pids=() nomes=(); local -A E=()
+  for s in $(email_slugs 2>/dev/null); do
+    E=(); email_ler "$s" 2>/dev/null || continue
+    [[ ${E[sync_local]:-} == 1 ]] || continue
+    slugs+=("$s"); nomes+=("${E[nome]}")
+  done
+  if ((${#slugs[@]} == 0)); then
+    msg="📧 nenhuma conta com espelho local: o aerc lê direto do servidor (F2 → conta → 🔄 liga o espelho)"
+    email_avisar_cliente "$c" 4000 "$msg"
+    email_aerc_conferir; echo "$msg"; return 0
+  fi
+  tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_sync 'consultando…' 2>/dev/null || true
+  email_avisar_cliente "$c" 1500 '📧 consultando as contas…'
+  command -v "$(mbsync_bin)" >/dev/null || { msg="✗ sem o mbsync (isync) não há como consultar"; tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_sync '' 2>/dev/null; echo "$msg"; return 1; }
+  for s in "${slugs[@]}"; do n0=$((n0 + $(email_nao_lidas_inbox "$s"))); done
+  for s in "${slugs[@]}"; do email_sync_manual "$s" & pids+=($!); done
+  local i=0; for pid in "${pids[@]}"; do wait "$pid" || falhas+="${falhas:+, }${nomes[$i]}"; i=$((i + 1)); done
+  for s in "${slugs[@]}"; do n1=$((n1 + $(email_nao_lidas_inbox "$s"))); done
+  novos=$((n1 - n0)); ((novos < 0)) && novos=0
+  if [[ -n $falhas ]]; then msg="✗ não consegui consultar: $falhas (botão direito no 📧 → Sync local: estado)"; curta="✗ falhou"
+  elif ((novos > 0)); then msg="✓ caixa de entrada atualizada: $novos novo$( ((novos > 1)) && echo s)"; curta="✓ $novos novo$( ((novos > 1)) && echo s)"
+  else msg="✓ caixa de entrada atualizada: nada novo"; curta="✓ nada novo"; fi
+  email_aerc_conferir
+  tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_sync "$curta" 2>/dev/null || true
+  # (só apaga o que ela mesma pôs: uma consulta seguinte pode já ter escrito outro resultado)
+  # (stdio solto: senão quem capturou a saída — $(…), o :exec do aerc — esperaria os 6 s)
+  ( sleep 6; [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_sync 2>/dev/null) == "$curta" ]] && tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_sync '' 2>/dev/null ) >/dev/null 2>&1 </dev/null &
+  email_avisar_cliente "$c" 4000 "📧 $msg"
+  echo "$msg"
+  [[ -z $falhas ]]
+}
+# Mensagem na tela do cliente que pediu (nenhum cliente, ou um que já se foi: nada acontece).
+email_avisar_cliente() { # cliente ms texto
+  [[ -n $1 ]] || return 0
+  tmux display-message -c "$1" -d "$2" "$3" 2>/dev/null || true
+}
+# F11 (:check-mail) ao aerc da sessão oculta — só com o aerc na frente (uma tela do tt aberta não recebe).
+email_aerc_conferir() {
+  tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null || return 0
+  [[ -z $(tmux show -wqv -t "=$EMAIL_SESSAO:" @tt_email_tela 2>/dev/null) ]] && tmux send-keys -t "=$EMAIL_SESSAO:" F11 2>/dev/null
+  return 0
+}
+# Uma conta, à mão: se a trava está com outra rodada, espera um pouco; se é a volta completa
+# (minutos) segurando a trava, derruba o mbsync dela — o vigia refaz a completa na próxima vez,
+# e o INBOX de agora vale mais. Devolve o código da rodada.
+email_sync_manual() { # slug
+  local slug=$1 lock rc m
+  lock="$EMAIL_MBSYNC_DIR/$slug.lock"; rc=$(email_mbsyncrc "$slug")
+  [[ -f $rc ]] || return 0
+  if [[ -e $lock ]] && ! flock -n -w 0 "$lock" true 2>/dev/null; then
+    if ! flock -w 20 "$lock" true 2>/dev/null; then
+      read -r m _ <"$ESTADO_DIR/email-sync/$slug.andamento" 2>/dev/null
+      if [[ ${m:-} == completo ]]; then pkill -f "mbsync -c $rc " 2>/dev/null; flock -w 30 "$lock" true 2>/dev/null || return 1
+      else flock -w 120 "$lock" true 2>/dev/null || return 1; fi
+    fi
+  fi
+  email_sync "$slug" inbox
+}
+# Não lidas do INBOX de uma conta com espelho: new/ e, em cur/, sem a marca S.
+email_nao_lidas_inbox() { # slug
+  local md; md=$(email_maildir "$1")/INBOX
+  [[ -d $md ]] || { echo 0; return 0; }
+  echo $(( $(find "$md/new" -type f 2>/dev/null | wc -l) + $(find "$md/cur" -type f ! -name '*:2,*S*' 2>/dev/null | wc -l) ))
 }
 
 # Botão 📧 da barra (vai para @barra_email; recalculado por atualizar_barras — a barra não roda
@@ -10821,6 +10908,7 @@ case "${1:-}" in
     else email_sync_todas "$es_modo" "$es_quem"; fi
     exit ;;
   --email-sync-estado) email_sync_estado "${2:-}"; exit 0 ;;
+  --email-sync-agora) email_sync_agora "${2:-}"; exit ;;
   --barra-email) barra_email_fmt; exit 0 ;;
   --email-mbsync-migrar) email_mbsyncrc_migrar; exit 0 ;;
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
