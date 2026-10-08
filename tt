@@ -5483,8 +5483,8 @@ barra_notifs_fmt() {
       printf '  #[fg=#45475a]│#[default]  #{E:@barra_transf} #[fg=#45475a]│#[default]  '
       return 0
     fi
-    # letreiro também entre divisórias, com o MESMO respiro mínimo dos avisos
-    printf '  #[fg=#45475a]│#[default]#{E:@barra_ticker}#[fg=#45475a]│#[default]  '
+    # o letreiro traz as próprias divisórias (vazio = nada; sem moldura órfã no centro)
+    printf '#{E:@barra_ticker}'
     return 0
   fi
   local larg orcamento
@@ -5663,7 +5663,7 @@ ticker_loop() {
     w=$((w - 20 - 34 - 12)); ((w < 12)) && w=12
     janela=$(ticker_passo "$linha" "$w" "$off")
     janela=${janela//#/##}
-    tmux set -g @barra_ticker "#[fg=#7f849c]  $janela  #[default]" 2>/dev/null
+    tmux set -g @barra_ticker "  #[fg=#45475a]│#[fg=#7f849c]  $janela  #[fg=#45475a]│#[default]  " 2>/dev/null
     tmux refresh-client -S 2>/dev/null
     if [[ $TT_TICKER_MODO == paginas ]]; then off=$((off + w)); else off=$((off + 1)); fi
     sleep "$TT_TICKER_PASSO" 2>/dev/null || sleep 6
