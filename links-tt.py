@@ -15,6 +15,7 @@ borda direita continua, sem espaço, no começo da linha de baixo.
   links-tt.py url-em LARGURA X Y  (stdin: linhas da tela) a URL nesse ponto (sai 1 se não há)
   links-tt.py listar LARGURA      (stdin: linhas da tela) todas as URLs, na ordem da tela
   links-tt.py desquebrar LARGURA X0  (stdin: texto copiado) o texto sem as quebras feitas pela tela
+  links-tt.py com-ctrl-q CMD [ARG…]  roda CMD num pseudoterminal; Ctrl+Q o encerra (Carbonyl no popup)
 """
 import os
 import re
@@ -253,7 +254,76 @@ def todos(painel):
     return 0
 
 
+def com_ctrl_q(cmd):
+    """Roda CMD num pseudoterminal, repassando tudo, e faz Ctrl+Q encerrá-lo. O Carbonyl só sai com
+    Ctrl+C (que num navegador ninguém adivinha), e o popup do tmux só fecha quando o programa sai:
+    Ctrl+Q vira Ctrl+C para ele e, se ele não sair, TERM e depois KILL."""
+    import pty, select, signal, termios, tty, fcntl
+    pid, fd = pty.fork()
+    if pid == 0:
+        try:
+            os.execvp(cmd[0], cmd)
+        except OSError as e:
+            print(f"✗ {cmd[0]}: {e.strerror}", file=sys.stderr)
+        os._exit(127)
+
+    def tamanho(*_):
+        try:
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, fcntl.ioctl(0, termios.TIOCGWINSZ, b"\0" * 8))
+        except OSError:
+            pass
+
+    def escrever(alvo, dados):
+        while dados:
+            try:
+                dados = dados[os.write(alvo, dados):]
+            except BlockingIOError:
+                select.select([], [alvo], [], 1)
+    tamanho()
+    signal.signal(signal.SIGWINCH, tamanho)
+    antigo = termios.tcgetattr(0) if os.isatty(0) else None
+    if antigo:
+        tty.setraw(0)
+    pedido = None
+    try:
+        while True:
+            r, _, _ = select.select([0, fd], [], [], 0.5)
+            if fd in r:
+                try:
+                    d = os.read(fd, 65536)
+                except OSError:
+                    d = b""
+                if not d:
+                    break
+                escrever(1, d)
+            if 0 in r:
+                d = os.read(0, 4096)
+                if b"\x11" in d or not d:
+                    pedido = pedido or time.time()
+                    d = d.replace(b"\x11", b"\x03")
+                if d:
+                    escrever(fd, d)
+            if pedido:
+                passou = time.time() - pedido
+                for limite, sinal in ((2, signal.SIGTERM), (4, signal.SIGKILL)):
+                    if passou > limite:
+                        try:
+                            os.kill(pid, sinal)
+                        except ProcessLookupError:
+                            pass
+    finally:
+        if antigo:
+            termios.tcsetattr(0, termios.TCSADRAIN, antigo)
+        try:
+            _, st = os.waitpid(pid, 0)
+        except ChildProcessError:
+            st = 0
+    return os.waitstatus_to_exitcode(st) if hasattr(os, "waitstatus_to_exitcode") else 0
+
+
 def main(a):
+    if a[:1] == ["com-ctrl-q"] and len(a) >= 2:
+        return com_ctrl_q(a[1:])
     try:
         if a[:1] == ["clique"] and len(a) in (8, 9):
             return clique(a[1], a[2], int(a[3]), int(a[4]), int(a[5]), int(a[6]), a[7] == "ctrl", "".join(a[8:]))
