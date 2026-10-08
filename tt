@@ -3200,48 +3200,85 @@ abrir_url() {
 # --- Escolha do navegador para links (e-mail) -----------------------------------
 #
 # Enter num link do w3m (e :open-link do aerc) chama tt --abrir-link: o usuário escolhe entre
-#   chromium  Chromium interno (Chrome for Testing, janela gráfica pelo WSLg/X11)
+#   chromium  Google Chrome interno (estável, janela gráfica pelo WSLg/X11)
 #   carbonyl  Carbonyl embutido (Chromium que desenha no terminal, num popup do tmux)
 #   sistema   navegador padrão do sistema (xdg-open → wslview no WSL)
 # Chave navegador=chromium|carbonyl|sistema|perguntar no config (padrão: perguntar). Os dois
 # primeiros são baixados sob demanda para ~/.local/share/tt-navegadores, sem sudo, com sha256
 # fixado; só x86_64 (em outra arquitetura ou no Termux ficam só os do sistema).
 DIR_NAVEGADORES=$HOME/.local/share/tt-navegadores
-CHROMIUM_VERSAO=155.0.8059.39
-CHROMIUM_URL="${TT_CHROMIUM_URL:-https://storage.googleapis.com/chrome-for-testing-public/$CHROMIUM_VERSAO/linux64/chrome-linux64.zip}"
-CHROMIUM_SHA256=55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea
+CHROME_INDICE=${TT_CHROME_INDICE:-https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages}
+CHROME_BASE=${TT_CHROME_BASE:-https://dl.google.com/linux/chrome/deb}
 CARBONYL_URL=${TT_CARBONYL_URL:-https://github.com/fathyb/carbonyl/releases/download/v0.0.3/carbonyl.linux-amd64.zip}
 CARBONYL_SHA256=46a902ea29bb32f773fb4ee341423705b92345a810422b8df93eaea6a1ec7ad2
 
 navegadores_graficos_ok() { [[ $(uname -m) == x86_64 && $(uname -s) == Linux ]] && ! command -v termux-open-url >/dev/null; }
-bin_chromium() { echo "$DIR_NAVEGADORES/chromium/chrome-linux64/chrome"; }
+bin_chromium() { echo "$DIR_NAVEGADORES/chrome/opt/google/chrome/chrome"; }
 bin_carbonyl() { echo "$DIR_NAVEGADORES/carbonyl/carbonyl-0.0.3/carbonyl"; }
 
-# navegador_instalar chromium|carbonyl: baixa, confere o sha256 e extrai. Mensagens no stderr.
-navegador_instalar() {
-  local qual=$1 url sha dir bin zip
-  case $qual in
-    chromium) url=$CHROMIUM_URL; sha=$CHROMIUM_SHA256; bin=$(bin_chromium) ;;
-    carbonyl) url=$CARBONYL_URL; sha=$CARBONYL_SHA256; bin=$(bin_carbonyl) ;;
-    *) return 1 ;;
-  esac
-  [[ -x $bin ]] && return 0
-  command -v curl >/dev/null && command -v unzip >/dev/null || { echo "precisa de curl e unzip" >&2; return 1; }
-  dir=$DIR_NAVEGADORES/$qual; mkdir -p "$DIR_NAVEGADORES" || return 1
-  zip=$(mktemp "$DIR_NAVEGADORES/dl.XXXXXX") || return 1
-  echo "Baixando $qual (sem sudo, em $dir)…" >&2
-  curl -fSL --progress-bar -o "$zip" "$url" || { rm -f "$zip"; return 1; }
-  if [[ $(sha256sum "$zip" | cut -d' ' -f1) != "$sha" ]]; then
-    echo "✗ sha256 do $qual não confere; nada foi instalado." >&2; rm -f "$zip"; return 1
+# Google Chrome estável, sem sudo: baixa o .deb do repositório oficial do Google, confere o sha256 com o
+# índice assinado pelo próprio repositório (Packages, por HTTPS) e extrai com dpkg-deb em ~/.local.
+# (O Chrome for Testing avisa que é só para desenvolvimento; o estável não.)
+chrome_instalar() {
+  local idx pacote versao arq sha deb dir=$DIR_NAVEGADORES/chrome rc
+  idx=$(curl -fsS -m 30 "$CHROME_INDICE") || { echo "✗ não consegui o índice do Chrome." >&2; return 1; }
+  pacote=$(awk -v RS= '/(^|\n)Package: google-chrome-stable(\n|$)/ {print; exit}' <<<"$idx")
+  versao=$(sed -n 's/^Version: //p' <<<"$pacote"); arq=$(sed -n 's/^Filename: //p' <<<"$pacote"); sha=$(sed -n 's/^SHA256: //p' <<<"$pacote")
+  [[ -n $versao && -n $arq && -n $sha ]] || { echo "✗ índice do Chrome sem o pacote estável." >&2; return 1; }
+  command -v dpkg-deb >/dev/null || { echo "✗ precisa do dpkg-deb para extrair o Chrome." >&2; return 1; }
+  mkdir -p "$DIR_NAVEGADORES" || return 1
+  deb=$(mktemp "$DIR_NAVEGADORES/dl.XXXXXX") || return 1
+  echo "Baixando o Google Chrome $versao (sem sudo, em $dir)…" >&2
+  curl -fSL --progress-bar -o "$deb" "$CHROME_BASE/$arq" || { rm -f "$deb"; return 1; }
+  if [[ $(sha256sum "$deb" | cut -d' ' -f1) != "$sha" ]]; then
+    echo "✗ sha256 do Chrome não confere com o índice; nada foi instalado." >&2; rm -f "$deb"; return 1
   fi
-  rm -rf "$dir"; mkdir -p "$dir" && unzip -q -o "$zip" -d "$dir"; local rc=$?; rm -f "$zip"
-  [[ $rc == 0 && -x $bin ]] || { echo "✗ falha ao extrair $qual." >&2; rm -rf "$dir"; return 1; }
+  rm -rf "$dir.novo"; mkdir -p "$dir.novo" && dpkg-deb -x "$deb" "$dir.novo"; rc=$?; rm -f "$deb"
+  [[ $rc == 0 && -x $dir.novo/opt/google/chrome/chrome ]] || { echo "✗ falha ao extrair o Chrome." >&2; rm -rf "$dir.novo"; return 1; }
+  rm -rf "$dir" "$DIR_NAVEGADORES/chromium"; mv "$dir.novo" "$dir" && echo "$versao" >"$dir/versao"
+  local falta; falta=$(ldd "$(bin_chromium)" 2>/dev/null | awk '/not found/ {printf "%s ", $1}')
+  [[ -z $falta ]] || echo "⚠ faltam bibliotecas do sistema para o Chrome: $falta (instale com apt)." >&2
 }
 
-# Cliente tmux "de fora" (o que não está dentro da sessão oculta do e-mail): onde o popup deve aparecer.
+# navegador_instalar chromium|carbonyl: instala sob demanda. Mensagens no stderr.
+navegador_instalar() {
+  local qual=$1 dir zip
+  command -v curl >/dev/null || { echo "precisa do curl" >&2; return 1; }
+  case $qual in
+    chromium) [[ -x $(bin_chromium) ]] && return 0; chrome_instalar; return ;;
+    carbonyl) [[ -x $(bin_carbonyl) ]] && return 0 ;;
+    *) return 1 ;;
+  esac
+  command -v unzip >/dev/null || { echo "precisa do unzip" >&2; return 1; }
+  dir=$DIR_NAVEGADORES/carbonyl; mkdir -p "$DIR_NAVEGADORES" || return 1
+  zip=$(mktemp "$DIR_NAVEGADORES/dl.XXXXXX") || return 1
+  echo "Baixando o Carbonyl (sem sudo, em $dir)…" >&2
+  curl -fSL --progress-bar -o "$zip" "$CARBONYL_URL" || { rm -f "$zip"; return 1; }
+  if [[ $(sha256sum "$zip" | cut -d' ' -f1) != "$CARBONYL_SHA256" ]]; then
+    echo "✗ sha256 do Carbonyl não confere; nada foi instalado." >&2; rm -f "$zip"; return 1
+  fi
+  rm -rf "$dir"; mkdir -p "$dir" && unzip -q -o "$zip" -d "$dir"; local rc=$?; rm -f "$zip"
+  [[ $rc == 0 && -x $(bin_carbonyl) ]] || { echo "✗ falha ao extrair o Carbonyl." >&2; rm -rf "$dir"; return 1; }
+}
+
+# Atualiza o Chrome em segundo plano, no máximo uma vez por dia (o .deb novo só troca se o sha256 bater).
+chrome_atualizar_se_velho() {
+  local marca=$DIR_NAVEGADORES/chrome/ultima-checagem agora; agora=$(date +%s)
+  [[ -x $(bin_chromium) ]] || return 0
+  (( agora - $(cat "$marca" 2>/dev/null || echo 0) > 86400 )) || return 0
+  echo "$agora" >"$marca"
+  local novo; novo=$(curl -fsS -m 20 "$CHROME_INDICE" 2>/dev/null | awk -v RS= '/(^|\n)Package: google-chrome-stable(\n|$)/ {print; exit}' | sed -n 's/^Version: //p')
+  [[ -n $novo && $novo != "$(cat "$DIR_NAVEGADORES/chrome/versao" 2>/dev/null)" ]] || return 0
+  chrome_instalar >/dev/null 2>&1
+}
+
+# Cliente tmux onde o popup deve aparecer. O e-mail já é um popup do cliente de fora, e o tmux não abre
+# popup sobre popup: o certo é o cliente anexado à sessão oculta do e-mail (o de dentro do popup), que
+# tem o tamanho do que o usuário está vendo. Sem ele (aerc chamado fora do tt), o cliente mais recente.
 cliente_externo() {
-  tmux list-clients -F '#{client_activity} #{client_name} #{session_name}' 2>/dev/null |
-    awk -v s="$EMAIL_SESSAO" '$3 != s' | sort -rn | awk 'NR==1{print $2}'
+  local l; l=$(tmux list-clients -F '#{client_activity} #{client_name} #{session_name}' 2>/dev/null | sort -rn)
+  awk -v s="$EMAIL_SESSAO" '$3 == s {print $2; exit}' <<<"$l" | grep . ||
+    awk 'NR==1{print $2}' <<<"$l"
 }
 
 # Roda CMD (string de shell) fora do namespace sem rede do w3m/aerc: pelo servidor do tmux.
@@ -3249,7 +3286,7 @@ cliente_externo() {
 rodar_fora() {
   local popup=$1 cmd=$2 c
   if [[ -n ${TMUX:-} ]] && c=$(cliente_externo) && [[ -n $c ]]; then
-    if [[ $popup == 1 ]]; then tmux display-popup -c "$c" -E -w 96% -h 96% -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q sai ' "$cmd"
+    if [[ $popup == 1 ]]; then tmux display-popup -c "$c" -E -w 100% -h 100% -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q sai ' "$cmd"
     else tmux run-shell -b "$cmd"; fi
   else
     if [[ $popup == 1 ]]; then bash -c "$cmd"; else setsid bash -c "$cmd" >/dev/null 2>&1 </dev/null & fi
@@ -3262,7 +3299,8 @@ abrir_com() {
     sistema) abrir_url "$u" ;;
     chromium)
       navegador_instalar chromium || return 1
-      rodar_fora 0 "export DISPLAY=$(q "$disp") WAYLAND_DISPLAY=$(q "$way") XDG_RUNTIME_DIR=$(q "$xdg"); setsid $(q "$(bin_chromium)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-chromium") --no-first-run --no-default-browser-check $(q "$u") >/dev/null 2>&1 </dev/null &" ;;
+      (chrome_atualizar_se_velho >/dev/null 2>&1 &)
+      rodar_fora 0 "export DISPLAY=$(q "$disp") WAYLAND_DISPLAY=$(q "$way") XDG_RUNTIME_DIR=$(q "$xdg"); setsid $(q "$(bin_chromium)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-chrome") --no-first-run --no-default-browser-check $(q "$u") >/dev/null 2>&1 </dev/null &" ;;
     carbonyl)
       navegador_instalar carbonyl || return 1
       rodar_fora 1 "$(q "$(bin_carbonyl)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-carbonyl") $(q "$u")" ;;
@@ -3280,7 +3318,7 @@ abrir_link() {
     if [[ -t 0 ]]; then
       ultimo=$(cat "$ESTADO_DIR/navegador-ultimo" 2>/dev/null)
       esc=$(printf '%s\t%s\n' \
-        chromium "Chromium interno (janela gráfica)" \
+        chromium "Google Chrome interno (janela gráfica)" \
         carbonyl "Carbonyl embutido (no terminal · Chromium de 2023, sem atualizações)" \
         sistema "Navegador padrão do sistema" |
         awk -F'\t' -v u="$ultimo" 'BEGIN{OFS="\t"} {print $1, $2 ($1==u ? "  ← último" : "")}' |
