@@ -178,10 +178,11 @@ grep -Fq -- '--wrap' <<<"$(sed -n '/^tarefas_ui()/,/^}/p' "$tt")" || falha 'tare
 rg -q '^tarefas_meta_get\(\)' "$tt" || falha 'tarefas: meta (6º campo) ausente'
 rg -q '^tarefa_set_desc\(\)' "$tt" || falha 'tarefas: descrição editável ausente'
 rg -q '^tarefa_add_sub\(\)' "$tt" || falha 'tarefas: subtarefas ausentes'
+rg -q '^tarefa_add_natural\(\)' "$tt" || falha 'tarefas: captura por sintaxe natural ausente'
 rg -q '^tarefa_sub_mover\(\)' "$tt" || falha 'tarefas: reordenação de subtarefa ausente'
 rg -q '^tarefas_filtro_ciclar\(\)' "$tt" || falha 'tarefas: filtro (abertas/feitas/prazo/todas) ausente'
 rg -q '^calendario_tui\(\)' "$tt" || falha 'tarefas: calendário interativo ausente'
-for v in --tarefa-sub-prompt --tarefa-desc-prompt --tarefa-prazo-prompt --tarefa-sub-mover --tarefa-filtro-ciclar --tarefa-expandir --tarefa-preview --calendario --tarefas-cabecalho --tarefa-cabecalho-clique; do
+for v in --tarefa-sub-prompt --tarefa-desc-prompt --tarefa-prazo-prompt --tarefa-sub-mover --tarefa-mover --tarefa-prio-ciclar --tarefa-rep-ciclar --tarefa-filtro-ciclar --tarefa-expandir --tarefa-preview --calendario --tarefas-cabecalho --tarefa-cabecalho-clique; do
   rg -Fq -- "$v)" "$tt" || falha "tarefas: verbo $v ausente"
 done
 # o 6º campo não quebra o merge: ainda chaveado por id, com NF>=5
