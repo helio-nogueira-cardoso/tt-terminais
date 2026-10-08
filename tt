@@ -5377,17 +5377,32 @@ notificar() { # texto [segundos (padrão 300)]
   atualizar_barras
 }
 
+# O slot dos avisos é o segmento CENTRAL da faixa, delimitado por │ │: ancorado no meio, nunca
+# cola nos chips da esquerda nem foge do relógio — e nunca os cobre: o texto é orçado pela janela
+# mais estreita (sobra dos vizinhos: ~16 à esquerda, ~30 à direita) e truncado com …; abaixo de
+# 90 colunas vira só o crachá 🔔 N. TT_FAIXA_LARGURA força a largura (testes).
 barra_notifs_fmt() {
-  local agora exp txt itens="" f
+  local agora exp txt itens="" f n=0
   agora=$(date +%s)
   for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | head -6); do
     IFS=$'\t' read -r exp txt <"$DIR_NOTIFS/$f" || continue
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
-    txt=${txt//#/##}
-    itens+="${itens:+ · }${txt:0:70}"
+    n=$((n + 1))
+    itens+="${itens:+ · }${txt}"
   done
   [[ -n $itens ]] || return 0
-  printf '#[range=user|notifs]#[fg=#f9e2af] %s #[norange]#[default]' "$itens"
+  local larg orcamento
+  larg=${TT_FAIXA_LARGURA:-$(tmux list-clients -F '#{client_width}' 2>/dev/null | sort -n | head -1)}
+  [[ $larg =~ ^[0-9]+$ ]] || larg=80
+  if ((larg < 90)); then
+    printf '#[range=user|notifs]#[fg=#f9e2af] 🔔 %d #[norange]#[default]' "$n"
+    return 0
+  fi
+  orcamento=$((larg - 16 - 30 - 6))
+  ((orcamento < 12)) && orcamento=12
+  ((${#itens} > orcamento)) && itens="${itens:0:orcamento}…"
+  itens=${itens//#/##}
+  printf '#[fg=#45475a]│#[range=user|notifs]#[fg=#f9e2af] %s #[norange]#[fg=#45475a]│#[default]' "$itens"
 }
 
 # Histórico num popup (clique na faixa ou tt --notifs): o que já passou, com hora.
@@ -7323,7 +7338,7 @@ versao_barra() { printf '#[fg=#6c7086]%s ' "$(versao_humana)"; }
 atualizar_barras() {
   tmux list-sessions >/dev/null 2>&1 || return 0
   local nome valor mudou="" c
-  for nome in fixadas atalhos transf versao tarefas email data notifs faixa faixa_dir lado1 fim0; do
+  for nome in fixadas atalhos transf versao tarefas email data notifs notifs_slot faixa faixa_dir lado1 fim0; do
     case $nome in
       fixadas) valor=$(barra_fixadas_fmt) ;;
       atalhos) valor=$(atalhos_barra) ;;
@@ -7333,8 +7348,9 @@ atualizar_barras() {
       email) valor=$(barra_email_fmt) ;;
       data) valor=$(barra_data) ;;
       notifs) valor=$(barra_notifs_fmt) ;;
+      notifs_slot) valor="#{E:@barra_notifs}" ;;
       faixa)
-        if faixa_notif_ativa; then valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{E:@barra_tarefas}#{E:@barra_notifs}"
+        if faixa_notif_ativa; then valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{E:@barra_tarefas}"
         else valor=""; fi ;;
       faixa_dir)
         if faixa_notif_ativa; then valor="#[range=user|relogio]#[fg=#a6adc8]#{E:@barra_data}%H:%M #[norange]#[default] #{E:@barra_versao}"

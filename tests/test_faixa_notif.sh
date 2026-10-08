@@ -9,8 +9,10 @@ tt() { "$TT" "$@"; }
 tt --barras >/dev/null 2>&1
 [[ $(tmux show -gqv status) == 4 ]] || falhou "faixa ligada deveria pôr status=4 (régua + faixa) (está $(tmux show -gqv status))"
 f=$(tmux show -gqv @barra_faixa)
-grep -q '@barra_email' <<<"$f" && grep -q '@barra_tarefas' <<<"$f" && grep -q '@barra_notifs' <<<"$f" ||
-  falhou "linha 2 sem os blocos esperados: $f"
+grep -q '@barra_email' <<<"$f" && grep -q '@barra_tarefas' <<<"$f" ||
+  falhou "linha 2 sem os chips esperados: $f"
+grep -q '@barra_notifs' <<<"$(tmux show -gqv @barra_notifs_slot)" || falhou "slot central dos avisos nao liga @barra_notifs"
+grep -q 'align=centre.*@barra_notifs_slot' "$TT_DIR/tema-tmux.conf" || falhou "tema sem o segmento central do slot"
 d=$(tmux show -gqv @barra_faixa_dir)
 grep -q '@barra_data' <<<"$d" && grep -q '%H:%M' <<<"$d" && grep -q '@barra_versao' <<<"$d" ||
   falhou "lado direito da linha 2 sem data/hora/versão: $d"
@@ -18,10 +20,17 @@ grep -q '@barra_data' <<<"$d" && grep -q '%H:%M' <<<"$d" && grep -q '@barra_vers
 [[ -z $(tmux show -gqv @barra_fim0) ]] || falhou 'com a faixa, o 📧/relógio deveriam sair da linha 0'
 passou 'faixa ligada: status 3, blocos na linha 2, fixadas 100% livres'
 
-tt --notificar "📧 Ana — Reunião de sexta" 120 >/dev/null 2>&1
-n=$(tmux show -gqv @barra_notifs)
+TT_FAIXA_LARGURA=140 tt --notificar "📧 Ana — Reunião de sexta" 120 >/dev/null 2>&1
+TT_FAIXA_LARGURA=140 tt --barras >/dev/null 2>&1; n=$(tmux show -gqv @barra_notifs)
 grep -q 'Ana — Reunião' <<<"$n" || falhou "aviso não entrou na faixa: $n"
-grep -q 'range=user|notifs' <<<"$n" || falhou 'faixa de avisos sem o range clicável'
+grep -q 'range=user|notifs' <<<"$n" || falhou "faixa de avisos sem o range clicável"
+grep -q '│' <<<"$n" || falhou "slot sem os delimitadores │ │"
+TT_FAIXA_LARGURA=140 tt --notificar "$(printf 'A%.0s' {1..200})" 120 >/dev/null 2>&1
+TT_FAIXA_LARGURA=140 tt --barras >/dev/null 2>&1; n=$(tmux show -gqv @barra_notifs)
+grep -q '…' <<<"$n" || falhou "aviso comprido não foi truncado pelo orçamento"
+[[ ${#n} -lt 300 ]] || falhou "slot estourou o orçamento (len=${#n})"
+TT_FAIXA_LARGURA=70 tt --barras >/dev/null 2>&1; n=$(tmux show -gqv @barra_notifs)
+grep -q '🔔 [0-9]' <<<"$n" || falhou "janela estreita deveria virar crachá 🔔 N: $n"
 tt --notificar "⏳ efêmero" 1 >/dev/null 2>&1; sleep 2; tt --barras >/dev/null 2>&1
 grep -q 'efêmero' <<<"$(tmux show -gqv @barra_notifs)" && falhou 'aviso expirado continuou na faixa'
 grep -q 'Ana — Reunião' <<<"$("$TT" --notifs-ui)" || falhou 'histórico não lista o aviso'
