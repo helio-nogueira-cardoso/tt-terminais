@@ -29,12 +29,13 @@ cfg navegador=chromium; : >"$LOG"
 rm -f "$B/termux-open-url"
 passou "Termux: opções gráficas ocultas, usa o sistema"
 
-# 4) Pacote com sha256 errado é recusado e nada é instalado.
-echo falso >"$T/falso.txt"; (cd "$T" && zip -q falso.zip falso.txt)
+# 4) .deb do Chrome com sha256 diferente do índice é recusado e nada é instalado.
+mkdir -p "$T/repo/pool"; echo falso >"$T/repo/pool/chrome.deb"
+printf 'Package: google-chrome-stable\nVersion: 1.0-1\nFilename: pool/chrome.deb\nSHA256: %064d\n' 0 >"$T/repo/Packages"
 cfg navegador=chromium; : >"$LOG"
-saida=$(TT_CHROMIUM_URL="file://$T/falso.zip" "$TT" --abrir-link "$U" </dev/null 2>&1)
+saida=$(TT_CHROME_INDICE="file://$T/repo/Packages" TT_CHROME_BASE="file://$T/repo" "$TT" --abrir-link "$U" </dev/null 2>&1)
 grep -q 'sha256' <<<"$saida" || falhou "não avisou sha256 divergente: $saida"
-[[ ! -e $HOME/.local/share/tt-navegadores/chromium ]] || falhou "instalou pacote com sha256 errado"
-passou "instalação recusa pacote com sha256 divergente"
+[[ ! -e $HOME/.local/share/tt-navegadores/chrome ]] || falhou "instalou pacote com sha256 errado"
+passou "instalação do Chrome recusa .deb com sha256 divergente do índice"
 
 echo "TODOS OS TESTES PASSARAM"
