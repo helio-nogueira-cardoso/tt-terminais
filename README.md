@@ -448,6 +448,13 @@ segue com tudo). As pastas-rótulo do Gmail (*Importantes*, *Com estrela*) ficam
 já está nas outras, e baixá-las duplicava o espelho e fazia a volta completa nunca terminar. O vigia
 sincroniza em segundo plano: o INBOX a cada `TT_EMAIL_SYNC` segundos (padrão 120; `0` desliga) e a
 volta completa a cada `TT_EMAIL_SYNC_COMPLETO` (padrão 1800), com teto `TT_EMAIL_SYNC_TETO` (600 s).
+Como as mesmas contas costumam estar em vários aparelhos, e o Gmail atrasa as respostas de quem o
+procura demais, o vigia pega leve: sem terminal em uso na máquina nos últimos 10 min, o INBOX vai a
+cada `TT_EMAIL_SYNC_OCIOSO` (padrão 300); a volta completa não se repete a cada reinício do vigia
+(só quando a última registrada já passou do prazo); e depois de um erro a conta espera 2×, 4×… o
+intervalo (até 15 min) antes de tentar de novo, voltando ao normal no primeiro sucesso — `tt
+--email-sync` à mão não espera. O `.mbsyncrc` leva `Timeout 60` (no padrão de 20 s o login lento do
+Gmail estourava), inclusive nos gerados antes, na próxima atualização.
 `tt --email-sync [conta]` força o INBOX agora, `--completo` força tudo, e `tt --email-sync-estado`
 mostra, por conta, a última rodada de cada tipo (há quanto tempo, duração, ok ou o erro que o mbsync
 deu). Contas já cadastradas migram para os canais na próxima atualização, sem baixar nada de novo.
@@ -455,8 +462,10 @@ Sem o `mbsync` instalado o cadastro com `sync_local=1` é recusado, em vez de fi
 sem o flag seguem lendo direto do servidor (IMAP) com o cache de cabeçalhos acima.
 
 **E-mail que chega fica visível.** Nas contas com espelho local, o botão **📧** da barra mostra as
-**não lidas** do INBOX (lidas do próprio espelho, sem processo na barra) e fica **vermelho com ⚠**
-quando o sync de alguma conta falhou ou parou; botão direito no 📧 → *Sync local: estado das
+**não lidas** do INBOX (lidas do próprio espelho, sem processo na barra), fica **âmbar com ⏳** quando
+o sync de alguma conta só atrasou (uma ou duas falhas passageiras, como o Gmail lento) e **vermelho
+com ⚠** quando o problema persiste (3 falhas seguidas, mais de 10 min sem o INBOX sincronizar, senha
+recusada — esta já na primeira) ou o sync parou; botão direito no 📧 → *Sync local: estado das
 rodadas* mostra o detalhe. Depois de cada rodada do INBOX, os e-mails que **chegaram** viram um aviso
 na tela dos terminais abertos e na notificação do sistema, com remetente e assunto (até 3; o resto
 "e mais N") — sem repetir, e sem avisar a caixa inteira na primeira rodada. `email_aviso=0` no

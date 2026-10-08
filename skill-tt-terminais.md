@@ -225,17 +225,20 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   tecla + Enter. `email_remover_slug` apaga o .conf antes de regerar (as seções vêm da lista de .conf).
 - `tt --email-sync [NOME] [--completo]` — espelha por mbsync as contas com `sync_local=1` (padrão só
   o INBOX; `--completo` o grupo inteiro); `tt --email-sync-estado [curto]` — última rodada por conta
-  e modo (estado em `$ESTADO_DIR/email-sync/<slug>`, erro em `<slug>.erro`; `curto` = ok|erro|nunca|
-  parado por conta, para a barra); `tt --email-mbsync-migrar` — regrava .mbsyncrc antigos (canal
-  único) no formato de canais `<slug>-inbox`/`-pastas`/`-arquivo` + `Group <slug>` (a instalação
+  e modo (estado em `$ESTADO_DIR/email-sync/<slug>`, erro em `<slug>.erro`; `curto` = ok|nunca|atrasado|
+  erro|parado por conta, para a barra — `email_sync_resumo`); `tt --email-mbsync-migrar` — regrava
+  .mbsyncrc antigos (canal único, ou em canais sem `Timeout 60`) no formato de canais `<slug>-inbox`/`-pastas`/`-arquivo` + `Group <slug>` (a instalação
   chama). Pastas especiais `pasta_importantes`/`pasta_estrela` (marcas `\Important`/`\Flagged`)
   saem do espelho; `pasta_todos` vira o canal de arquivo com `MaxMessages`/`ExpireUnread`. Vigia:
-  INBOX a cada `TT_EMAIL_SYNC` (120), completo a cada `TT_EMAIL_SYNC_COMPLETO` (1800), teto
-  `TT_EMAIL_SYNC_TETO` (600). Depois de cada rodada `email_novos_avisar` (ids novos e não lidos em
+  INBOX a cada `TT_EMAIL_SYNC` (120; `TT_EMAIL_SYNC_OCIOSO`=300 sem cliente tmux ativo há 10 min,
+  gravado em `email-sync/.intervalo`), completo a cada `TT_EMAIL_SYNC_COMPLETO` (1800; ao iniciar só
+  se `email_ultima_completa` já passou do prazo), teto `TT_EMAIL_SYNC_TETO` (600; INBOX 240). O vigia
+  chama com `--vigia`, que respeita `<slug>.espera` (após erro: 2×, 4×… o intervalo, até 900 s;
+  `<slug>.falhas` conta; sucesso zera); trava ocupada registra `pulada`. Depois de cada rodada `email_novos_avisar` (ids novos e não lidos em
   INBOX/new+cur vs. `email-sync/<slug>.vistas`; `email-tt.py cabecalho ARQ` dá "remetente<TAB>assunto"
   decodificados; `email_aviso=0` desliga) e `atualizar_barras`; `barra_email_fmt` (`tt --barra-email`)
   preenche `@barra_email` (não lidas do espelho; ⚠ vermelho se `--email-sync-estado curto` tem
-  erro/parado), referenciada pelo range `email` do tema.
+  erro/parado, ⏳ âmbar se só atrasado), referenciada pelo range `email` do tema.
 - `tt --email-atalhos` — tela de atalhos do aerc em português.
 - Popup do e-mail: `email_sessao` cria a sessão oculta `_tt-email` e `email_sessao_botoes` liga nela
   uma linha de status própria com a barra de botões (`email_barra_fmt`, ranges `user|em_<ação>`,
@@ -388,7 +391,7 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
 - Fixadas/tarefas a cada 300 s: `--puxar-fixadas`, `--reconciliar-fixadas`, `--tarefas-puxar`; na
   mesma volta, a sonda por ssh das pontes órfãs (o fechamento por ociosidade é local e roda sempre).
 - Contas de IA a cada 1800 s: `--puxar-contas-ia`.
-- E-mail (sync local) a cada `TT_EMAIL_SYNC` s (default 180; 0 desliga): `--email-sync`.
+- E-mail (sync local) a cada `TT_EMAIL_SYNC` s (default 120; 300 ocioso; 0 desliga): `--email-sync --vigia`.
 - Padrão visual + memória a cada 300 s: `--reforcar-padrao`, `--memoria-agentes`.
 - Atualização a cada `TT_T_ATUALIZACAO` s: `--garantir-atualizacao`.
 - Toda volta: fecha sessões paradas, pontes ociosas, Claude duplicados, janelas vazias abandonadas.
