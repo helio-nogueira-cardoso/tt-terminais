@@ -1362,10 +1362,16 @@ mostrar_maquina() {
 versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
+# Versão para humanos: v1.MINOR.PATCH, onde PATCH é o contador de sempre (a ordem total que a
+# propagação, o vigia e a recusa de pacote velho comparam continua sendo o número puro do VERSAO —
+# nada disso muda) e MINOR sobe à mão em marcos. Só o rótulo exibido fica no estilo x.y.z.
+VERSAO_MINOR=5
+versao_humana() { printf 'v1.%s.%s' "$VERSAO_MINOR" "$(versao_num)"; }
+
 # tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
 ajuda() {
   sed -n '2,36p' "$EU" | sed 's/^# \{0,1\}//'
-  printf '\nVersão instalada: %s\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao)" "$DIR_TT" "$DIR_TT"
+  printf '\nVersão instalada: %s (%s)\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao_humana)" "$(versao)" "$DIR_TT" "$DIR_TT"
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
@@ -1774,7 +1780,7 @@ atualizar() {
     n=$(buscar_fonte) || { echo "falhou (sem rede ou sem git?)."; return 1; }
     echo "v$n"
     echo "$n $(date +%s)" >"$CACHE_GITHUB"
-    if ((n <= $(versao_num))) && [[ -z $todas ]]; then echo "Já está na mais nova (v$(versao_num))."; return 0; fi
+    if ((n <= $(versao_num))) && [[ -z $todas ]]; then echo "Já está na mais nova ($(versao_humana))."; return 0; fi
     REPO_TT=$DIR_FONTE
   fi
   if [[ -n $todas ]]; then sincronizar
@@ -7172,7 +7178,7 @@ barra_fixadas_fmt() {
 
 # Indicador discreto no canto direito da faixa de fixadas. É uma opção do tmux, não um #(), para
 # não iniciar processo a cada redesenho da barra.
-versao_barra() { printf '#[fg=#6c7086]v%s ' "$(versao_num)"; }
+versao_barra() { printf '#[fg=#6c7086]%s ' "$(versao_humana)"; }
 
 # Recalcula as faixas da barra (fixadas, atalhos, transferências) e as guarda em opções do tmux,
 # que a barra só lê. Redesenha as barras só se algo mudou.
