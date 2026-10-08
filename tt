@@ -1781,12 +1781,18 @@ atualizar() {
 # barra o rebaixamento em cada máquina).
 repo_em_dia() {
   [[ -d $REPO_TT/.git ]] || return 0
-  git -C "$REPO_TT" rev-parse -q --verify '@{u}' >/dev/null 2>&1 || return 0
-  timeout 15 git -C "$REPO_TT" fetch -q 2>/dev/null || return 0
-  local atras
-  atras=$(git -C "$REPO_TT" rev-list --count 'HEAD..@{u}' 2>/dev/null || echo 0)
+  local ref atras
+  # Sem ramo de acompanhamento (@{u}) vale o main publicado do remoto: um clone ou worktree sem
+  # upstream passava direto e, em 08/10, instalou nas 4 máquinas, pela contagem de commits, uma
+  # versão divergente que não continha o main publicado (e desfez o que ele trazia).
+  ref=$(git -C "$REPO_TT" rev-parse -q --verify --symbolic-full-name '@{u}' 2>/dev/null) ||
+    ref=$(git -C "$REPO_TT" for-each-ref --format='%(refname)' 'refs/remotes/*/main' 'refs/remotes/*/HEAD' 2>/dev/null | head -1)
+  [[ -n $ref ]] || return 0
+  timeout 15 git -C "$REPO_TT" fetch -q --all 2>/dev/null ||
+    echo "⚠ não consegui consultar o repositório publicado (sem rede?); conferindo contra a última cópia conhecida."
+  atras=$(git -C "$REPO_TT" rev-list --count "HEAD..$ref" 2>/dev/null || echo 0)
   ((atras == 0)) && return 0
-  echo "✗ $REPO_TT está $atras commit(s) atrás de $(git -C "$REPO_TT" rev-parse --abbrev-ref '@{u}'): git pull --rebase antes de sincronizar."
+  echo "✗ $REPO_TT está $atras commit(s) atrás de ${ref#refs/remotes/}: git pull --rebase antes de sincronizar."
   return 1
 }
 
@@ -3612,6 +3618,9 @@ garantir_navegadores() {
 # Dispara garantir_navegadores em segundo plano e sem travar a instalação nem a sincronização.
 garantir_navegadores_em_segundo_plano() {
   navegadores_graficos_ok || return 0
+  # TT_SEM_NAVEGADORES=1 (testes): cada instalação num HOME temporário disparava o download do
+  # Chrome e do Carbonyl, morto segundos depois com a pasta do teste.
+  [[ -n ${TT_SEM_NAVEGADORES:-} ]] && return 0
   mkdir -p "$HOME/.cache/tt"
   setsid nice -n 10 "$HOME/.local/bin/tt" --garantir-navegadores >>"$HOME/.cache/tt/navegadores.log" 2>&1 </dev/null &
 }
