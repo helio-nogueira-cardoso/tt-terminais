@@ -31,6 +31,15 @@ grep -q '…' <<<"$n" || falhou "aviso comprido não foi truncado pelo orçament
 [[ ${#n} -lt 300 ]] || falhou "slot estourou o orçamento (len=${#n})"
 TT_FAIXA_LARGURA=70 tt --barras >/dev/null 2>&1; n=$(tmux show -gqv @barra_notifs)
 grep -q '🔔 [0-9]' <<<"$n" || falhou "janela estreita deveria virar crachá 🔔 N: $n"
+
+# clique com destino: aviso guarda a ação; a mais recente com ação ganha o clique; histórico marca ↗
+tt --notificar "📧 com destino" 120 email >/dev/null 2>&1
+ult=$(ls -1r "$HOME/.local/state/tt/notifs" | head -1)
+[[ $(cut -f3 "$HOME/.local/state/tt/notifs/$ult") == email ]] || falhou 'ação não gravada no aviso'
+rg -q 'notifs\) notifs_clique' "$TT" || falhou 'clique na faixa não passa pelo notifs_clique'
+rg -q 'email\) botao_email' "$TT" || falhou 'destino email não abre o 📧'
+grep -q '↗' <<<"$("$TT" --notifs-ui 2>/dev/null)" || falhou 'histórico não marca avisos com destino (↗)'
+passou 'clique nas notificações: 📧 abre o e-mail; histórico com ⏎ nos destinos'
 tt --notificar "⏳ efêmero" 1 >/dev/null 2>&1; sleep 2; tt --barras >/dev/null 2>&1
 grep -q 'efêmero' <<<"$(tmux show -gqv @barra_notifs)" && falhou 'aviso expirado continuou na faixa'
 grep -q 'Ana — Reunião' <<<"$("$TT" --notifs-ui)" || falhou 'histórico não lista o aviso'
