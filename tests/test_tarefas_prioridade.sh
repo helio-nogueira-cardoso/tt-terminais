@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prioridade e ordenação manual das tarefas-mãe. Ciclar prioridade (nenhuma -> alta -> média ->
-# nenhuma), ícone 🔴/🟡 no render, ordenação por prioridade (alta primeiro) e movimentação manual
+# nenhuma), marca ● vermelha/amarela no render, ordenação por prioridade (alta primeiro) e movimentação manual
 # de tarefas de topo com ^k/^j (grava ord e reordena). Isola HOME/XDG; nenhum arquivo real tocado.
 set -u
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -9,7 +9,7 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 [[ -x "$TT" ]] || { echo "FALHOU: tt não executável"; exit 1; }
 bash -n "$TT" || { echo "FALHOU: sintaxe"; exit 1; }
 
-for fn in tarefa_get_prio tarefa_set_prio tarefa_prio_ciclar tarefas_prio_icone tarefas_topo_ordenadas tarefa_mover; do
+for fn in tarefa_get_prio tarefa_set_prio tarefa_prio_ciclar tarefas_topo_ordenadas tarefa_mover; do
   grep -q "^$fn()" "$TT" || { echo "FALHOU: função $fn ausente"; exit 1; }
 done
 
@@ -30,6 +30,8 @@ run --tarefa-add "gama" >/dev/null
 ida=$(awk -F'\t' '$5=="alfa"{print $1}' "$C")
 idb=$(awk -F'\t' '$5=="beta"{print $1}' "$C")
 idg=$(awk -F'\t' '$5=="gama"{print $1}' "$C")
+# Criadas no mesmo segundo empatariam: fixa a ordem de criação (alfa < beta < gama).
+awk -F'\t' -v OFS='\t' '$5=="alfa"{$3=100} $5=="beta"{$3=200} $5=="gama"{$3=300} {print}' "$C" >"$C.n" && mv "$C.n" "$C"
 
 # 1) ciclar prioridade: nenhuma -> alta -> média -> nenhuma
 run --tarefa-prio-ciclar "$idb" >/dev/null
@@ -40,17 +42,17 @@ run --tarefa-prio-ciclar "$idb" >/dev/null
 [[ $(meta "$idb") != *prio=* ]] || fail "3º ciclo deveria limpar a prioridade"
 echo "ok: prioridade cicla nenhuma -> alta -> média -> nenhuma"
 
-# 2) ícone 🔴 aparece no render quando prioridade alta
+# 2) marca ● vermelha aparece no render quando prioridade alta
 run --tarefa-prio-ciclar "$idg" >/dev/null   # gama vira alta
-grep -q '🔴' <<<"$(run --tarefas-lista)" || fail "render não mostra 🔴 para prioridade alta"
-echo "ok: render mostra 🔴 na tarefa de prioridade alta"
+grep -q $'\e\[38;2;243;139;168m●.*gama' <<<"$(run --tarefas-lista)" || fail "render não mostra ● vermelho para prioridade alta"
+echo "ok: render mostra ● vermelho na tarefa de prioridade alta"
 
 # 3) ordenação: a de prioridade alta (gama) vem antes das sem prioridade (alfa, beta)
 pa=$(pos alfa); pg=$(pos gama)
 [[ -n $pg && -n $pa && $pg -lt $pa ]] || fail "prioridade alta (gama, linha $pg) deveria vir antes de alfa (linha $pa)"
 echo "ok: tarefa de prioridade alta é listada antes das sem prioridade"
 
-# 4) mover tarefa de topo com ^k/^j (sem prioridade, ordena por recência: gama>beta>alfa).
+# 4) mover tarefa de topo com ^k/^j (sem prioridade, ordena pela criação: gama>beta>alfa).
 run --tarefa-prio-ciclar "$idg" >/dev/null  # alta->média
 run --tarefa-prio-ciclar "$idg" >/dev/null  # média->nenhuma
 primeira=$(run --tarefas-lista | grep -m1 -E 'alfa|beta|gama')

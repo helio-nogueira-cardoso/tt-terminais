@@ -9,7 +9,7 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 [[ -x "$TT" ]]; bash -n "$TT"
 
 for fn in tarefas_meta_get tarefas_meta_set tarefa_set_meta tarefa_set_desc tarefa_add_sub \
-          tarefas_filhas tarefa_sub_mover calendario_tui tarefas_filtro_ciclar tarefas_prazo_rotulo; do
+          tarefas_filhas tarefa_sub_mover calendario_tui tarefas_filtro_ciclar tarefas_prazo_texto; do
   grep -q "^$fn()" "$TT" || { echo "FALHOU: função $fn ausente"; exit 1; }
 done
 grep -q -- '--wrap' "$TT" || { echo "FALHOU: fzf de tarefas sem --wrap (texto não quebra)"; exit 1; }
@@ -40,30 +40,31 @@ run --tarefa-sub-prompt "$id" <<<"sub dois" >/dev/null 2>&1
 [[ $(grep -c "pai=$id" "$C") == 2 ]] || fail "deveriam existir 2 subtarefas com pai=$id"
 echo "ok: subtarefas criadas com pai e ordem"
 
-# render: mãe com texto + ▾ + subs indentadas
-lista=$(run --tarefas-lista)
-grep -q '▾ ▢ mae com texto' <<<"$lista" || fail "mãe não mostra texto nem o marcador ▾ ($lista)"
-[[ $(grep -c '    ▢ sub' <<<"$lista") == 2 ]] || fail "subtarefas não aparecem indentadas sob a mãe"
+# render (sem as cores): mãe com texto + ▾ + subs indentadas
+sem_cor(){ sed 's/\x1b\[[0-9;]*m//g' | cut -f2-; }
+lista=$(run --tarefas-lista | sem_cor)
+grep -q '▾ ☐ mae com texto' <<<"$lista" || fail "mãe não mostra texto nem o marcador ▾ ($lista)"
+[[ $(grep -c '    ☐ sub' <<<"$lista") == 2 ]] || fail "subtarefas não aparecem indentadas sob a mãe"
 echo "ok: render mostra o texto da mãe (não corta) e as subtarefas indentadas"
 
 # reordenar subtarefa
 sub2=$(awk -F'\t' '$5=="sub dois"{print $1}' "$C")
 run --tarefa-sub-mover "$sub2" cima
-lista2=$(run --tarefas-lista)
-primeira_sub=$(grep -m1 '    ▢ sub' <<<"$lista2")
+lista2=$(run --tarefas-lista | sem_cor)
+primeira_sub=$(grep -m1 '    ☐ sub' <<<"$lista2")
 grep -q 'sub dois' <<<"$primeira_sub" || fail "mover sub p/ cima não reordenou (1ª sub: $primeira_sub)"
 echo "ok: subtarefa reordenada (sub dois subiu)"
 
 # clique na mãe expande e recolhe (toggle). Mãe começa expandida (criar sub expande).
 grep -q '▾' <<<"$(run --tarefas-lista)" || fail "mãe deveria iniciar expandida (▾) após criar subtarefas"
 run --tarefa-clique "$id" >/dev/null 2>&1   # 1º clique: recolhe
-lista_rec=$(run --tarefas-lista)
-grep -q '▸' <<<"$lista_rec" || fail "clique na mãe não recolheu (sem ▸)"
-[[ $(grep -c '    ▢ sub' <<<"$lista_rec") == 0 ]] || fail "mãe recolhida ainda mostra subtarefas"
+lista_rec=$(run --tarefas-lista | sem_cor)
+grep -q '▸ ☐ mae com texto' <<<"$lista_rec" || fail "clique na mãe não recolheu (sem ▸)"
+[[ $(grep -c '    ☐ sub' <<<"$lista_rec") == 0 ]] || fail "mãe recolhida ainda mostra subtarefas"
 run --tarefa-clique "$id" >/dev/null 2>&1   # 2º clique: expande de novo (regressão do grep rc=1)
-lista_exp=$(run --tarefas-lista)
-grep -q '▾' <<<"$lista_exp" || fail "clique na mãe não expandiu de volta (bug grep rc=1)"
-[[ $(grep -c '    ▢ sub' <<<"$lista_exp") == 2 ]] || fail "mãe reexpandida não mostra as 2 subtarefas"
+lista_exp=$(run --tarefas-lista | sem_cor)
+grep -q '▾ ☐ mae com texto' <<<"$lista_exp" || fail "clique na mãe não expandiu de volta (bug grep rc=1)"
+[[ $(grep -c '    ☐ sub' <<<"$lista_exp") == 2 ]] || fail "mãe reexpandida não mostra as 2 subtarefas"
 echo "ok: clique na mãe expande e recolhe (toggle estável nos dois sentidos)"
 
 # descrição editável (editor simulado), guardada em base64, restaurada no preview
@@ -104,14 +105,14 @@ echo "ok: filtro cicla todas → hoje → abertas → feitas → com prazo → t
 
 # cabeçalho com abas: as 4 abas aparecem; clicar numa aba troca o filtro ativo
 cab=$(run --tarefas-cabecalho)
-{ grep -q 'abertas' <<<"$cab" && grep -q 'feitas' <<<"$cab" && grep -q 'prazo' <<<"$cab" && grep -q 'todas' <<<"$cab"; } || fail "cabeçalho não mostra as 4 abas de filtro"
+{ grep -qi 'abertas' <<<"$cab" && grep -qi 'feitas' <<<"$cab" && grep -qi 'prazo' <<<"$cab" && grep -qi 'todas' <<<"$cab"; } || fail "cabeçalho não mostra as 4 abas de filtro"
 # simula o clique do fzf na aba "feitas": linha 1, coluna da palavra (env FZF_CLICK_HEADER_*)
 l1=$(run --tarefas-cabecalho | sed -n '1p' | sed 's/\x1b\[[0-9;]*m//g')
-colf=$(awk -v s="$l1" 'BEGIN{print index(s,"feitas")}')
+colf=$(awk -v s="$l1" 'BEGIN{print index(s,"Feitas")}')
 acoes=$(env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/home/.local/state" \
   TT_RT="$T/rt" TT_MACHINE=A PATH="$T/bin:$PATH" FZF_CLICK_HEADER_LINE=1 FZF_CLICK_HEADER_COLUMN="$colf" \
   "$TT" --tarefa-cabecalho-clique)
-grep -q 'reload(' <<<"$acoes" || fail "clique no cabeçalho não devolve ações do fzf (reload)"
+grep -q 'reload' <<<"$acoes" || fail "clique no cabeçalho não devolve ações do fzf (reload)"
 grep -q 'feitas' <<<"$(cat "$T/rt/"tt-tarefas-ui-* 2>/dev/null)" || fail "clique na aba não gravou o filtro feitas"
 run --tarefa-cabecalho-clique >/dev/null 2>&1 || true  # clique fora de aba não quebra
 echo "ok: cabeçalho mostra abas de filtro e o clique troca o filtro ativo"

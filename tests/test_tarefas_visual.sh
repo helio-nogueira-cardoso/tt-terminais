@@ -8,7 +8,7 @@ TT="$ROOT/tt"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 [[ -x "$TT" ]]; bash -n "$TT"
 
-for fn in tt_fmt_epoch tt_epoch_de tarefas_dias_ate tarefas_urgencia_icone tarefas_barra_progresso; do
+for fn in tt_fmt_epoch tt_epoch_de tarefas_dias_ate tarefas_contagens; do
   grep -q "^$fn()" "$TT" || { echo "FALHOU: função $fn ausente"; exit 1; }
 done
 
@@ -42,14 +42,14 @@ idv=$(awk -F'\t' '$5=="pagar conta"{print $1}' "$C")
 awk -F'\t' -v OFS='\t' -v id="$idv" -v meta="prazo=$ontem" 'NF>=5{if($1==id){$6=meta} print}' "$C" >"$C.n" && mv "$C.n" "$C"
 printf 'filtro=hoje\n' >"$T/rt/tt-tarefas-ui-$(id -u)"
 lista=$(run --tarefas-lista)
-grep -q '⚠' <<<"$lista" || fail "tarefa vencida não recebeu ícone ⚠: '$lista'"
+grep -q '◷ venceu ontem' <<<"$lista" || fail "tarefa vencida não mostra '◷ venceu ontem': '$lista'"
 grep -q 'pagar conta' <<<"$lista" || fail "aba 'hoje' não mostrou a tarefa vencida"
-echo "ok: aba hoje filtra vencidas/hoje e a linha ganha ⚠"
+echo "ok: aba hoje filtra vencidas/hoje e a linha mostra que venceu"
 
 # 4) cabeçalho tem as 5 abas com contador (hoje tem 1)
 cab=$(run --tarefas-cabecalho | sed 's/\x1b\[[0-9;]*m//g')
-for a in hoje abertas feitas prazo todas; do grep -q "$a" <<<"$cab" || fail "cabeçalho sem a aba $a"; done
-grep -q 'hoje 1' <<<"$cab" || fail "contador da aba hoje deveria ser 1: $(sed -n 1p <<<"$cab")"
+for a in hoje abertas feitas prazo todas; do grep -qi "$a" <<<"$cab" || fail "cabeçalho sem a aba $a"; done
+grep -qi 'hoje 1' <<<"$cab" || fail "contador da aba hoje deveria ser 1: $(sed -n 1p <<<"$cab")"
 echo "ok: cabeçalho mostra 5 abas com contador (hoje=1)"
 
 # 5) barra de progresso da mãe: 1 de 2 subtarefas feitas
