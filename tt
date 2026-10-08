@@ -1981,6 +1981,35 @@ aerc_definir() { # arquivo seção chave valor [forcar]
 # Em todos os caminhos, os links viram hyperlinks OSC 8 clicáveis (email-tt.py linkify no w3m/lynx;
 # nativo no conversor do tt): o terminal abre a URL inteira num clique, mesmo que ela esteja quebrada
 # em várias linhas na tela. Antes, o clique pegava só o pedaço da linha e caía em "wrong link".
+# O filtro html do aerc chama "unshare --map-root-user --net"; no WSL, logo depois de a máquina
+# acordar, criar user namespace falha transitoriamente ("unshare failed: Invalid argument") e o
+# e-mail aparecia só com esse erro. O html-tt testa o unshare antes: funcionando, usa o filtro
+# normal (w3m sem rede); quebrado, roda o MESMO filtro com um unshare de mentira no PATH (o w3m
+# fica sem o isolamento momentos após o despertar — a navegação continua bloqueada pelo keymap e
+# o w3m não busca nada sozinho).
+aerc_html_tt_garantir() {
+  local alvo=${TT_AERC_FILTRO_HTML:-} f
+  [[ -n $alvo && -x $alvo ]] && { :; } || alvo=""
+  [[ -n $alvo ]] || for f in /usr/libexec/aerc/filters/html /usr/lib/aerc/filters/html /usr/local/libexec/aerc/filters/html; do
+    [[ -x $f ]] && { alvo=$f; break; }
+  done
+  [[ -n $alvo ]] || return 1
+  mkdir -p "$DIR_TT/sem-unshare"
+  cat >"$DIR_TT/sem-unshare/unshare" <<'FIM'
+#!/bin/sh
+# unshare de mentira (só o fallback do html-tt usa): ignora as opções de isolamento e roda o comando.
+while [ $# -gt 0 ]; do case $1 in --) shift; break ;; -*) shift ;; *) break ;; esac; done
+exec "$@"
+FIM
+  cat >"$DIR_TT/html-tt" <<FIM
+#!/bin/sh
+# Filtro HTML do tt: o do aerc, tolerante a unshare quebrado (WSL pós-suspensão). Gerado pelo tt.
+if unshare --map-root-user --net true 2>/dev/null; then exec $alvo "\$@"; fi
+PATH=$DIR_TT/sem-unshare:\$PATH exec $alvo "\$@"
+FIM
+  chmod +x "$DIR_TT/html-tt" "$DIR_TT/sem-unshare/unshare"
+}
+
 aerc_filtro_html() {
   if command -v w3m >/dev/null; then
     # O filtro "html" do aerc roda o w3m interativo SEM rede (unshare --net): Enter num link dava
@@ -1989,7 +2018,9 @@ aerc_filtro_html() {
     mkdir -p "$DIR_TT" && printf 'keymap C-m EXTERN_LINK\nkeymap C-j EXTERN_LINK\n' >"$DIR_TT/w3m-keymap"
     # Sem pipe: com "!" o aerc só dá TTY ao w3m se ele for o processo principal; "html | colorize"
     # o põe em modo dump (texto cru, sem caixas nem links navegáveis).
-    echo "! html -o extbrowser='$HOME/.local/bin/tt --abrir-link %s' -o keymap_file=$DIR_TT/w3m-keymap"
+    local filtro="! html"
+    aerc_html_tt_garantir && filtro="! $DIR_TT/html-tt"
+    echo "$filtro -o extbrowser='$HOME/.local/bin/tt --abrir-link %s' -o keymap_file=$DIR_TT/w3m-keymap"
   elif command -v lynx >/dev/null; then echo "lynx -assume_charset=utf-8 -display_charset=utf-8 -dump -force_html -stdin -width=100 | colorize | python3 $DIR_TT/email-tt.py linkify"
   else echo "python3 $DIR_TT/email-tt.py html | colorize | python3 $DIR_TT/email-tt.py linkify"; fi
 }
@@ -2103,6 +2134,7 @@ aerc_reparar_se_preciso() {
      { [[ $linha_html == *lynx* ]] && ! command -v lynx >/dev/null; } ||
      { [[ $linha_html == *w3m* ]] && ! command -v w3m >/dev/null; } ||
      { command -v w3m >/dev/null && [[ $linha_html == *'! html'* && ( $linha_html == *linkify* || $linha_html != *extbrowser* || $linha_html == *abrir-url* ) ]]; } ||
+     { command -v w3m >/dev/null && [[ $linha_html == *'! html -o'* && $linha_html != *html-tt* ]] && aerc_html_tt_garantir; } ||
      { command -v lynx >/dev/null && [[ $linha_html == *lynx* && $linha_html != *linkify* ]]; } ||
      { ! command -v w3m >/dev/null && ! command -v lynx >/dev/null && [[ $linha_html == *email-tt.py\ html* && $linha_html != *linkify* ]]; }; then
     aerc_definir "$conf" filters text/html "$(aerc_filtro_html)" forcar
@@ -2184,6 +2216,7 @@ UI
      { grep -q '^[[:space:]]*text/html[[:space:]]*=[[:space:]]*!*[[:space:]]*html[[:space:]]*$' "$conf" && ! command -v w3m >/dev/null; } ||
      { grep -q '^[[:space:]]*text/html[[:space:]]*=.*email-tt.py html' "$conf" && ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*linkify' "$conf"; } ||
      { command -v w3m >/dev/null && grep -qE '^[[:space:]]*text/html[[:space:]]*=.*! *html' "$conf" && { ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*extbrowser' "$conf" || grep -q '^[[:space:]]*text/html[[:space:]]*=.*\(linkify\|abrir-url\)' "$conf"; }; } ||
+     { command -v w3m >/dev/null && grep -q '^[[:space:]]*text/html[[:space:]]*=.*! html -o' "$conf" && ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*html-tt' "$conf" && aerc_html_tt_garantir; } ||
      { command -v w3m >/dev/null && grep -q '^[[:space:]]*text/html[[:space:]]*=[[:space:]]*lynx -assume_charset=utf-8' "$conf"; } ||
      { command -v lynx >/dev/null && grep -q '^[[:space:]]*text/html[[:space:]]*=.*lynx' "$conf" && ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*linkify' "$conf"; }; then
     aerc_definir "$conf" filters text/html "$f_html" forcar
