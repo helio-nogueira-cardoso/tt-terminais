@@ -9212,6 +9212,59 @@ transferencias() {
   done
 }
 
+# Conta/soma os arquivos regulares (recursivo) de NOMES dentro de DIR: "N BYTES". Com --hash, um
+# resumo sha256 independente de ordem e de nome (o destino pode renomear para "nome (2)").
+conferir() {
+  local hash=0 dir n; local -a lista=()
+  [[ ${1:-} == --hash ]] && { hash=1; shift; }
+  dir=$(expandir "$1"); shift
+  for n in "$@"; do lista+=("./$n"); done
+  (cd "$dir" 2>/dev/null || exit 1
+   if ((hash)); then
+     find "${lista[@]}" -type f -exec sha256sum {} + 2>/dev/null | cut -d' ' -f1 | sort | sha256sum | cut -d' ' -f1
+   else
+     find "${lista[@]}" -type f -printf '%s\n' 2>/dev/null | awk '{ n++; s += $1 } END { printf "%d %d\n", n, s }'
+   fi)
+}
+
+# "LIVRE_BYTES CONFLITOS": espaço livre onde DIR está (ou estará) e quantos NOMES já existem lá.
+destino_info() {
+  local dir p n c=0 livre; dir=$(expandir "$1"); shift
+  for n in "$@"; do [[ -e $dir/$n ]] && c=$((c + 1)); done
+  p=$dir; while [[ ! -d $p && $p != / ]]; do p=$(dirname "$p"); done
+  livre=$(df -Pk "$p" 2>/dev/null | awk 'NR == 2 { printf "%.0f", $4 * 1024 }')
+  echo "${livre:-0} $c"
+}
+
+# Últimas rotas usadas ("envio" ou "traz"): modo, máquina e pasta. A mais recente fica em cima.
+rota_lembrar() {
+  local arq=$ESTADO_DIR/rotas-recentes
+  mkdir -p "$ESTADO_DIR"
+  { printf '%s\t%s\t%s\n' "$1" "$2" "$3"; grep -v -F -x "$(printf '%s\t%s\t%s' "$1" "$2" "$3")" "$arq" 2>/dev/null; } | head -n 20 >"$arq.tmp" && mv "$arq.tmp" "$arq"
+}
+rota_recente() { awk -F'\t' -v m="$1" '$1 == m { print $2 "\t" $3; exit }' "$ESTADO_DIR/rotas-recentes" 2>/dev/null; }
+
+# Resumo antes de começar: itens, tamanho, conflitos (viram "nome (2)") e espaço no destino.
+# ⏎ confirma; Esc ou q cancela; sem espaço suficiente, recusa. TT_SEM_CONFIRMAR=1 pula (scripts).
+confirmar_transferencia() {
+  local src=$1 dsrc=$2 dst=$3 ddst=$4; shift 4
+  local bytes info livre=0 conf=0 k n=$#
+  [[ ${TT_SEM_CONFIRMAR:-} == 1 || ! -t 0 ]] && return 0
+  printf '\033[90mcalculando tamanho…\033[0m'
+  bytes=$(rodar "$src" --tamanho "$dsrc" "$@" 2>/dev/null); bytes=${bytes//[!0-9]/}
+  info=$(rodar "$dst" --destino-info "$ddst" "$@" 2>/dev/null); read -r livre conf <<<"$info"
+  printf '\r\033[2K\033[1m⇅ Confirmar a transferência\033[0m\n\n  %d ite%s · %s\n  %s:%s → \033[1m%s:%s\033[0m\n' \
+    "$n" "$([[ $n == 1 ]] && echo m || echo ns)" "$(humano "${bytes:-0}")" "$(rotulo "$src")" "$dsrc" "$(rotulo "$dst")" "$ddst"
+  ((${conf:-0} > 0)) && printf '  \033[33m%d já existe%s lá: chega como "nome (2)"; nada é sobrescrito\033[0m\n' "$conf" "$([[ $conf == 1 ]] || echo m)"
+  if [[ ${livre:-0} =~ ^[0-9]+$ ]] && ((livre > 0 && ${bytes:-0} > livre)); then
+    printf '\n  \033[31m✗ não cabe: faltam %s (livre: %s)\033[0m\n\n\033[90m(tecla volta)\033[0m' "$(humano $((bytes - livre)))" "$(humano "$livre")"
+    read -rsn1 k; return 1
+  fi
+  [[ ${livre:-0} =~ ^[0-9]+$ ]] && ((livre > 0)) && printf '  \033[90mlivre no destino: %s\033[0m\n' "$(humano "$livre")"
+  printf '\n\033[90m⏎ envia · Esc cancela\033[0m'
+  read -rsn1 k; [[ -z $k ]]
+}
+
 transferir_fundo() {
   local id=$1; shift
   printf '%s\n' "$$" >"$(dir_transferencias)/$id.pid"
@@ -9280,9 +9333,23 @@ transferir_bloqueante() {
   atualizar_transferencia "$id" "transferindo $(humano "$bytes")…"
   printf '\033[90m%s %s:%s → %s:%s (%s)…\033[0m\n' "$#" "$(rotulo "$src")" "$dsrc" "$(rotulo "$dst")" "$ddst" "$(humano "$bytes")"
   t0=$(date +%s)
+  local h=""; [[ ${TT_CONFERIR:-} == 1 ]] && h=--hash
+  local antes depois; local -a nomes_recebidos
+  antes=$(rodar "$src" --conferir $h "$dsrc" "$@" 2>/dev/null)
   recebidos=$(rodar_io "$src" --empacotar "$dsrc" "$@" | contador "$(dir_transferencias)/$id.prog" "${bytes:-0}" | rodar_io "$dst" --receber "$ddst")
   n=$(grep -c . <<<"$recebidos")
   if ((n == 0)); then echo "✗ Nada chegou."; return 1; fi
+  # Conferência: mesma contagem e bytes (ou o mesmo sha256 com TT_CONFERIR=1). Máquina com tt antigo
+  # não conhece --conferir: então não há o que comparar e a cópia segue como concluída.
+  mapfile -t nomes_recebidos <<<"$recebidos"
+  depois=$(rodar "$dst" --conferir $h "$ddst" "${nomes_recebidos[@]}" 2>/dev/null)
+  if [[ -n $antes && -n $depois && $antes != "$depois" ]]; then
+    echo "⚠ Conferência: origem [$antes] e destino [$depois] diferem (algum arquivo mudou durante a cópia?)."
+    printf '⚠ conferir: origem %s ≠ destino %s\n' "$antes" "$depois" >"$(dir_transferencias)/$id.aviso"
+    avisar "⚠ $(rotulo "$src") → $(rotulo "$dst"): a conferência de tamanho não bateu. Veja ⇅ transferências"
+  elif [[ -n $antes && $antes == "$depois" ]]; then
+    echo "✓ Conferido ($([[ -n $h ]] && echo sha256 || echo "contagem e tamanho"))."
+  fi
   printf '%s em %ss · %s\n' "$(humano "$bytes")" "$(($(date +%s) - t0))" "$(date +%H:%M)" >"$(dir_transferencias)/$id.resumo"
   printf '\033[32m✓ %d ite%s (%s) em %ss → %s:%s\033[0m\n' "$n" "$([[ $n == 1 ]] && echo m || echo ns)" "$(humano "$bytes")" "$(($(date +%s) - t0))" "$(rotulo "$dst")" "$ddst"
   sed 's/^/   /' <<<"$recebidos" | head -15
@@ -9310,22 +9377,40 @@ enviar_fluxo() {
   lista=$(escolher_arquivos "$src" "$dir" "arquivos ou pastas para enviar") || return 0
   pasta=$(head -1 <<<"$lista"); mapfile -t nomes < <(tail -n +2 <<<"$lista")
   ((${#nomes[@]})) || return 0
+  if [[ -z $dst && -z $ddst && -t 0 ]]; then repetir_rota envio dst ddst "📤 enviar para"; fi
   [[ -n $dst ]] || dst=$(escolher_maquina "📤 enviar ${#nomes[@]} ite$([[ ${#nomes[@]} == 1 ]] && echo m || echo ns) para" "$src") || return 0
   [[ -n $dst ]] || return 0
   [[ -n $ddst ]] || ddst=$(escolher_destino "$dst" "" "📤 para qual pasta") || return 0
+  confirmar_transferencia "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}" || return 0
+  rota_lembrar envio "$dst" "$ddst"
   transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}"
+}
+
+# Oferece repetir a última rota do MODO: ⏎ aceita e preenche as duas variáveis (nomes em $2 e $3);
+# outra tecla segue para a escolha normal. Só oferece se a máquina ainda está cadastrada.
+repetir_rota() {
+  local modo=$1 v1=$2 v2=$3 rotulo_txt=$4 r m p k
+  r=$(rota_recente "$modo"); [[ -n $r ]] || return 0
+  m=${r%%$'\t'*}; p=${r#*$'\t'}
+  [[ $m == . || -n $(maquinas | awk -v m="$m" '$1 == m') ]] || return 0
+  printf '\033[2J\033[H\033[1m↻ %s\033[0m  %s:%s\n\n\033[90m⏎ repete · outra tecla escolhe\033[0m' "$rotulo_txt" "$(rotulo "$m")" "$p"
+  read -rsn1 k; [[ -z $k ]] || return 0
+  printf -v "$v1" '%s' "$m"; printf -v "$v2" '%s' "$p"
 }
 
 # Fluxo "trazer": escolhe máquina, pasta de partida e arquivos/pastas de lá → DST:DDST (padrão: aqui).
 trazer_fluxo() {
   local src=${1:-} dir=${2:-} dst=${3:-.} ddst=${4:-$(pasta_aqui)} lista pasta
   local -a nomes
+  if [[ -z $src && -z $dir && -t 0 ]]; then repetir_rota traz src dir "📥 trazer de"; fi
   [[ -n $src ]] || src=$(escolher_maquina "📥 trazer de qual máquina" "$dst") || return 0
   [[ -n $src ]] || return 0
   [[ -n $dir ]] || dir=$(escolher_destino "$src" "" "📥 começar em qual pasta") || return 0
   lista=$(escolher_arquivos "$src" "$dir" "arquivos ou pastas para trazer") || return 0
   pasta=$(head -1 <<<"$lista"); mapfile -t nomes < <(tail -n +2 <<<"$lista")
   ((${#nomes[@]})) || return 0
+  confirmar_transferencia "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}" || return 0
+  rota_lembrar traz "$src" "$dir"
   transferir "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}"
 }
 
@@ -9792,6 +9877,9 @@ case "${1:-}" in
   --transferencias) transferencias; exit ;;
   --empacotar) shift; empacotar "$@"; exit ;;
   --tamanho) shift; tamanho "$@"; exit ;;
+  --conferir) shift; conferir "$@"; exit ;;
+  --confirmar-transferencia) shift; confirmar_transferencia "$@"; exit $? ;;
+  --destino-info) shift; destino_info "$@"; exit ;;
   --avisar) avisar "$2"; exit ;;
   --pasta-recebidos) pasta_recebidos; exit ;;
   --destinos) destinos; exit ;;
