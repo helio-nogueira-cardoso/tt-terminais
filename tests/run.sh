@@ -56,7 +56,7 @@ tem "$tt" '^versao_barra\(\)' &&
   tem "$tt" '@barra_versao' && ok 'versão exibida na barra (faixa ou linha das fixadas)' ||
   falha 'versão não foi ligada à barra'
 
-tem "$tt" 'st=2; faixa_notif_ativa && st=4' &&
+tem "$tt" '^barra_status_linhas()' &&
   tem "$tt" 'printf.*📌' && ok 'faixa de fixadas permanece visível vazia' ||
   falha 'faixa de fixadas desaparece quando vazia'
 
