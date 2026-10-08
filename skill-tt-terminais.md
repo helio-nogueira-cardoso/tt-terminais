@@ -189,6 +189,14 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   cadastra por CLI; `tt --email-listar`.
 - `tt --email-testar NOME`, `tt --email-autorizar NOME` (OAuth2), `tt --email-pastas NOME`,
   `tt --email-regerar NOME`, `tt --email-assumir NOME`, `tt --email-remover NOME`.
+- `tt --email-propagar CONTA [máquina…] [--sobrescrever]` / `tt --email-receber SLUG [--sobrescrever|--sonda]`
+  — leva a conta (`<slug>.conf` + segredos `aerc-<slug>.txt`/`.client_secret` de ~/.secrets) às outras
+  máquinas por ssh direto (tar pelo stdin, sem arquivo intermediário), transacional e NUNCA automático:
+  pergunta no fim do cadastro guiado, item ⇪ na tela da conta (F2 → conta; seletor
+  `--email-propagar-ui CONTA`), ou `--email-adicionar … propagar=1|rótulos` (a chave não fica no .conf).
+  Sonda o tt de lá (`--sonda` → `pronto existe=0|1 mbsync=0|1`) antes de mandar o segredo; tt antigo
+  não recebe nada. Na chegada: só os 3 nomes de membro aceitos, validação, snapshot, segredos 600,
+  `email_regerar`; sync_local=1 sem mbsync chega desligado com aviso; já existente só com --sobrescrever.
 - `tt --email-sync [NOME] [--completo]` — espelha por mbsync as contas com `sync_local=1` (padrão só
   o INBOX; `--completo` o grupo inteiro); `tt --email-sync-estado [curto]` — última rodada por conta
   e modo (estado em `$ESTADO_DIR/email-sync/<slug>`, erro em `<slug>.erro`; `curto` = ok|erro|nunca|
