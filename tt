@@ -3300,19 +3300,62 @@ chrome_atualizar_se_velho() {
   chrome_instalar >/dev/null 2>&1
 }
 
-# Instala curl e unzip se faltarem, só quando dá sem perguntar nada (root ou sudo sem senha); senão avisa
-# o comando. Vale para máquina nova (instalar.sh) e para máquina atualizada (instalar_aqui).
+# Palavras do comando que instala pacotes neste sistema (sem o sudo).
+instalar_pacotes_cmd() {
+  if command -v apt-get >/dev/null 2>&1; then echo "apt-get install -y"
+  elif command -v dnf >/dev/null 2>&1; then echo "dnf install -y"
+  elif command -v pacman >/dev/null 2>&1; then echo "pacman -S --needed --noconfirm"
+  elif command -v apk >/dev/null 2>&1; then echo "apk add"
+  else return 1; fi
+}
+
+# tt --pedir-sudo PACOTE…: o modalzinho. Mostra o resumo (o quê, por quê, o comando exato) e só
+# então roda o sudo NO PRÓPRIO terminal do modal, onde o sudo pede a senha: o tt nunca lê, guarda
+# nem registra a senha. Recusar (ou Esc) grava a recusa e não pergunta de novo por 7 dias.
+# TT_TTY troca o terminal de leitura (testes). Código de saída 0 = instalou.
+pedir_sudo_pacotes() {
+  local -a pacotes=("$@") base; local tty=${TT_TTY:-/dev/tty} r
+  read -ra base <<<"$(instalar_pacotes_cmd)" || { echo "Não achei um gerenciador de pacotes."; return 1; }
+  printf '\n  \033[1;33m🔐 O tt precisa de permissão de administrador\033[0m\n\n'
+  printf '  Instalar: \033[1m%s\033[0m\n' "${pacotes[*]}"
+  printf '  Para quê: baixar o Google Chrome e o Carbonyl, que abrem os links do e-mail\n'
+  printf '            (os navegadores em si ficam na sua pasta, sem sudo).\n'
+  printf '  Comando:  \033[36msudo %s %s\033[0m\n\n' "${base[*]}" "${pacotes[*]}"
+  printf '  A senha é pedida pelo próprio sudo, aqui; o tt não a vê nem a guarda.\n\n'
+  read -r -n1 -p '  Instalar agora? [s/N] ' r <"$tty" || r=n
+  echo
+  if [[ $r != [sSyY] ]]; then
+    mkdir -p "$ESTADO_DIR" && date +%s >"$ESTADO_DIR/navegadores-sudo-recusado"
+    echo "  Ok, não instalei. Eu não pergunto de novo por 7 dias."; sleep 1; return 1
+  fi
+  sudo "${base[@]}" "${pacotes[@]}" <"$tty"; local rc=$?
+  ((rc == 0)) && echo "  ✓ Instalado." || echo "  ✗ Falhou (código $rc)."
+  sleep 1; return $rc
+}
+
+# Instala curl e unzip se faltarem. Root ou sudo sem senha: direto. Senão, pede com o modalzinho
+# (popup do tmux; ou no terminal de quem chamou). Sem nenhum dos dois, só avisa o comando.
 garantir_dependencias_navegador() {
-  local -a falta=() pac=(); local c
+  local -a falta=(); local c base
   for c in curl unzip; do command -v "$c" >/dev/null 2>&1 || falta+=("$c"); done
   ((${#falta[@]})) || return 0
-  local pre=()
-  if ((EUID != 0)); then command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null && pre=(sudo -n) || { echo "navegadores: faltam ${falta[*]}; instale com o gerenciador de pacotes (ex.: sudo apt install ${falta[*]})" >&2; return 1; }; fi
-  if command -v apt-get >/dev/null 2>&1; then "${pre[@]}" apt-get install -y "${falta[@]}" >/dev/null 2>&1
-  elif command -v dnf >/dev/null 2>&1; then "${pre[@]}" dnf install -y "${falta[@]}" >/dev/null 2>&1
-  elif command -v pacman >/dev/null 2>&1; then "${pre[@]}" pacman -S --needed --noconfirm "${falta[@]}" >/dev/null 2>&1
-  elif command -v apk >/dev/null 2>&1; then "${pre[@]}" apk add "${falta[@]}" >/dev/null 2>&1
-  else echo "navegadores: faltam ${falta[*]} e não achei gerenciador de pacotes" >&2; return 1; fi
+  base=$(instalar_pacotes_cmd) || { echo "navegadores: faltam ${falta[*]} e não achei gerenciador de pacotes" >&2; return 1; }
+  if ((EUID == 0)); then $base "${falta[@]}" >/dev/null 2>&1
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then sudo -n $base "${falta[@]}" >/dev/null 2>&1
+  else
+    local rec; rec=$(cat "$ESTADO_DIR/navegadores-sudo-recusado" 2>/dev/null || echo 0)
+    if (( $(date +%s) - rec < 604800 )); then
+      echo "navegadores: faltam ${falta[*]} (você recusou a instalação; sudo $base ${falta[*]})" >&2; return 1
+    fi
+    command -v sudo >/dev/null 2>&1 || { echo "navegadores: faltam ${falta[*]}; instale como administrador: $base ${falta[*]}" >&2; return 1; }
+    local cl
+    if [[ -t 0 ]]; then pedir_sudo_pacotes "${falta[@]}"
+    elif cl=$(cliente_externo 2>/dev/null) && [[ -n $cl ]]; then
+      tmux display-popup -c "$cl" -E -w 84 -h 16 -b rounded -S 'fg=#f9e2af' -T ' 🔐 permissão ' "$EU --pedir-sudo ${falta[*]}"
+    else
+      echo "navegadores: faltam ${falta[*]}; rode: sudo $base ${falta[*]}" >&2; return 1
+    fi
+  fi
   for c in "${falta[@]}"; do command -v "$c" >/dev/null 2>&1 || return 1; done
 }
 
@@ -7668,6 +7711,7 @@ case "${1:-}" in
   --abrir-url) abrir_url "${2:-}"; exit 0 ;;
   --abrir-link) abrir_link "${2:-}"; exit 0 ;;
   --garantir-navegadores) garantir_navegadores; exit ;;
+  --pedir-sudo) shift; pedir_sudo_pacotes "$@"; exit ;;
   --anexos-enviar) anexos_enviar; exit 0 ;;
   --tarefas)
     # Abre o painel de tarefas: slide-over no tmux, ou lista texto fora dele.
