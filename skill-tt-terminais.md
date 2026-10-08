@@ -246,7 +246,6 @@ Ranges e destino:
 | `ajustar` | status-right (⤢, condicional) | `ajustar` | — |
 | `tt` | status-right (☰) | central (`display-popup`) | — |
 | `painel` | status-right (⋯) | `menu_painel` | — |
-| `arquivos` | status-right (⇅) | `menu_arquivos` | — |
 | `email` | status-right (📧) | `botao_email` | `menu_email` |
 | `tarefas` | 2ª linha, à direita (📋 N) | `abrir_tarefas` | `menu_tarefas` |
 | `fx<chave>` | faixa de fixadas | `ir_fixada` | `menu_fixada` |
@@ -256,7 +255,7 @@ Ranges e destino:
 | `transferencias` | status-right (⇅ N) | popup `--transferencias` | — |
 | `copias` | `Ctrl+B y` | popup `--copias` | — |
 
-Ordem na barra principal: `arquivos` < `email` < relógio `%H:%M` (exigido pelos testes). A 2ª linha
+Ordem na barra principal: `email` < relógio `%H:%M` (exigido pelos testes). A 2ª linha
 (`status-format[1]`) tem `@barra_fixadas` à esquerda e `@barra_tarefas` + `@barra_versao` à direita.
 `@barra_fixadas` é uma cadeia `#{?#{e|>=:#{client_width},LIM},#{E:@fxsK},…}`: cada versão (estágios
 confortáveis 28/20/16 com ✕ e 16 sem ✕ — piso de legibilidade 16; depois `@fxoK_N` = N itens no piso +

@@ -3086,7 +3086,6 @@ acoes_seletor() {
   m=$(estado maquina); m=${m:-$MAQUINA}
   [[ $m == todas ]] && nova=. || nova=$(dest_de "$m")
   printf '%s\t!nova\t  \033[32m＋ nova sessão em %s\033[0m\n' "${nova:-.}" "$([[ $m == todas ]] && echo "$MAQUINA" || echo "$m")"
-  printf '.\t!arquivos\t  \033[33m⇅ arquivos\033[0m \033[90m(enviar / trazer entre máquinas)\033[0m\n'
   printf '.\t!tmux\t  \033[35m⚙ tmux\033[0m \033[90m(janelas, painéis, opções)\033[0m\n'
   printf '.\t!central\t  \033[36m☰ central completa\033[0m \033[90m(busca, painéis, prévia)\033[0m\n'
 }
@@ -3194,7 +3193,6 @@ seletor() {
     !vazias) confirmar_vazias "$dest"; return 0 ;;
     !central) tmux run-shell -b "sleep 0.15; $EU --clique tt '${TT_CLIENTE:-}' '${TT_PANE:-}' ''"; return 0 ;;
     !tmux) tmux run-shell -b "sleep 0.15; $EU --menu-tmux '${TT_CLIENTE:-}' '${TT_PANE:-}'"; return 0 ;;
-    !arquivos) tmux run-shell -b "sleep 0.15; $EU --menu-arquivos '${TT_CLIENTE:-}' '${TT_PANE:-}'"; return 0 ;;
     !nova)
       read -rp "Nome da nova sessão em $(rotulo "$dest") [automático]: " nome
       alvo=$(rodar "$dest" --nova "$nome") || return 0 ;;
@@ -4169,6 +4167,8 @@ s	Virar sessão própria	$EU --soltar $p
 -		
 e	📤 Enviar arquivos daqui…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar")
 t	📥 Trazer arquivos para cá…	$(popup_tt "$c" "📥 trazer" "$env $EU --trazer")
+f	⇅ Acompanhar as transferências…	$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")
+d	📂 Abrir a pasta de recebidos	$EU --abrir-pasta $(q "$(pasta_recebidos)") $(q "$c")
 m	⚙ tmux…	$EU --menu-tmux $(q "$c") $p
 -		
 x	Fechar painel	tmux kill-pane -t $p
@@ -4209,7 +4209,6 @@ X	Fechar a sessão…	tmux confirm-before -t $(q "$c") -p $(q "Fechar a sessão 
 -		
 s	☰ Sessões…	$EU --seletor-em $(q "$c") $(q "$MAQUINA") $p
 a	🖥 Máquinas…	$EU --menu-maquinas $(q "$c") $p
-f	⇅ Arquivos…	$EU --menu-arquivos $(q "$c") $p
 ITENS
 }
 
@@ -4371,6 +4370,9 @@ menu_admin() {
   {
     printf 'e\t  📤 Enviar arquivos…\t%s\n' "$(popup_tt "$c" "📤 enviar" "TT_CLIENTE=$c TT_PANE=$p $EU --enviar")"
     printf 'r\t  📥 Trazer arquivos…\t%s\n' "$(popup_tt "$c" "📥 trazer" "TT_CLIENTE=$c TT_PANE=$p $EU --trazer")"
+    printf 'f\t  ⇅ Acompanhar as transferências…\t%s\n' "$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")"
+    printf 'o\t  📂 Abrir a pasta de recebidos\t%s\n' "$EU --abrir-pasta $(q "$(pasta_recebidos)") $(q "$c")"
+    printf 'p\t  ⚙ Pasta padrão de recebidos desta máquina…\t%s\n' "$(popup_tt "$c" "pasta padrão" "TT_CLIENTE=$c TT_PANE=$p $EU --pasta-padrao; read -rsn1 -p '(tecla fecha)'")"
     printf 'm\t  ⚙ tmux…\t%s\n' "$EU --menu-tmux $(q "$c") $p"
     printf -- '-\t\t\n'
     printf 'c\t  📧 Contas de e-mail…\t%s\n' "$EU --email-contas $(q "$c")"

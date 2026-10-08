@@ -118,7 +118,7 @@ grep -qx 'legacy.example  carol  legado' "$caso/config/tt/maquinas" && ok 'CLI: 
 # Cada range desenhado pela barra deve chegar a uma rota explícita em clique(). Isto é o contrato
 # comum para mouse, toque e os ranges que o tmux classifica de forma diferente por terminal.
 base=$falhas
-for rota in maquina sessao fixar ajustar tt painel arquivos email transferencias copias 'at[0-9]*' 'fx*' 'fxx*' fixmais tarefas relogio; do
+for rota in maquina sessao fixar ajustar tt painel email transferencias copias 'at[0-9]*' 'fx*' 'fxx*' fixmais tarefas relogio; do
   rg -Fq "$rota)" "$tt" || falha "rota de interação ausente: $rota"
 done
 ((falhas == base)) && ok 'contrato: todos os controles da barra têm rota de ação' || true
@@ -141,12 +141,12 @@ grep -Fq 'q fecha' <<<"$corpo_email" || falha 'e-mail: dica de saída do aerc (q
 # aerc em tela cheia e sem borda: nada da tela de baixo vaza para o quadro, e não há borda para arrastar.
 grep -Fq -- "-b rounded" <<<"$corpo_email" || falha 'e-mail: subjanela deve ter borda arredondada'
 rg -q '@tt_papel email' "$tt" && falha 'e-mail: não deve mais marcar papel de sessão email — é popup'
-# O 📧 vem depois do ⇅ arquivos e antes do relógio %H:%M (ordem pedida na barra).
-pos_arq=$(rg -n 'range=user\|arquivos' "$tema" | head -1 | cut -d: -f1)
+# O 📧 vem antes do relógio %H:%M. O botão ⇅ arquivos saiu da barra: enviar/trazer ficam no menu do painel.
+rg -q 'range=user\|arquivos' "$tema" && falha 'barra: botão ⇅ arquivos não deve voltar (redundante com o menu do painel)'
 pos_eml=$(rg -n 'range=user\|email' "$tema" | head -1 | cut -d: -f1)
 pos_rel=$(rg -n '%H:%M' "$tema" | head -1 | cut -d: -f1)
-[[ -n $pos_arq && -n $pos_eml && -n $pos_rel && $pos_arq -lt $pos_eml && $pos_eml -lt $pos_rel ]] ||
-  falha 'e-mail: 📧 não está entre arquivos e relógio na barra'
+[[ -n $pos_eml && -n $pos_rel && $pos_eml -lt $pos_rel ]] ||
+  falha 'e-mail: 📧 não está antes do relógio na barra'
 ((falhas == base)) && ok 'botão de e-mail: barra, rota, botão, verbo e posição' || true
 
 # Botão de tarefas (📋): range na 2ª linha da barra (ao lado da versão), rota de clique (esquerdo
