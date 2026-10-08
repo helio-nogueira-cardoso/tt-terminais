@@ -229,6 +229,15 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   (= `… '<F9>' '' '<F8>'`) faz o mesmo para os botões ✕/▤. `@tt_email_binds` = `EMAIL_BINDS_VER:cksum(binds.conf)`:
   cadastro de conta recria a sessão oculta na próxima abertura. No `:choose` do aerc a resposta é a
   tecla + Enter. `email_remover_slug` apaga o .conf antes de regerar (as seções vêm da lista de .conf).
+- `tt --email-ir-novo SLUG [cliente]` — abrir pelo aviso mostra a mensagem nova: o aviso de e-mail
+  novo sai com a ação `email:SLUG` (notif_abrir → `email_ir_novo`): marca os avisos da conta como
+  lidos (`<id>.lida` em $DIR_NOTIFS), fecha a tela do tt na frente e, pelo IPC do aerc (`email_ipc`:
+  `aerc :comando`, socket `$XDG_RUNTIME_DIR/aerc.sock`, só com a sessão oculta rodando aerc; erro =
+  linha `response:`), faz `:change-tab Nome` (global: vale com compose/terminal na frente) → `:cf
+  INBOX` → `:select 0` → `:search -u` (foca a não lida mais recente; `:clear` depois desfaz, não
+  usar) → `:view` só no modo estreito → `:check-mail`; sem sessão oculta, o salto espera o aerc
+  subir em 2º plano e o popup abre como sempre (`botao_email`); `TT_EMAIL_SEM_POPUP=1` só nos
+  testes. `--email-saltar-novo SLUG` é o salto sozinho. Nunca teclas cegas.
 - `tt --email-sync-agora [cliente]` — ⟳ Sincronizar agora (botão `sync` de EMAIL_BOTOES com o estado
   em `@tt_email_sync`; `<C-s>` em [messages]/[view] do bloco do tt; item do menu do 📧): INBOX de
   todas as contas com espelho em paralelo (`email_sync_manual`: espera a trava até 20 s; se a volta

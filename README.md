@@ -476,6 +476,11 @@ rodadas* mostra o detalhe. Depois de cada rodada do INBOX, os e-mails que **cheg
 na tela dos terminais abertos e na notificação do sistema, com remetente e assunto (até 3; o resto
 "e mais N") — sem repetir, e sem avisar a caixa inteira na primeira rodada. `email_aviso=0` no
 `~/.config/tt/config` desliga o aviso. Contas só IMAP (sem espelho) não entram na contagem nem no aviso.
+**Clicar no aviso** (na faixa ou na central de notificações) abre o leitor **na mensagem nova**, não
+como ele ficou: vai à conta do aviso, à caixa de entrada, e foca a não lida mais recente (na tela
+estreita, sem prévia, já a abre) — por comandos ao aerc, sem teclas cegas: uma mensagem sendo escrita
+fica na aba dela. O aviso fica marcado como lido na central. `tt --email-ir-novo CONTA` faz o mesmo
+pela linha de comando.
 
 Gmail com OAuth2 funciona **de fábrica**: sem informar `client_id`, o cadastro usa o app
 "Desktop" do próprio tt no Google (num app instalado o client_secret não é confidencial — o
