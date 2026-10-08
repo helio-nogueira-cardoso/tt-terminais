@@ -805,6 +805,9 @@ pelo toque.
 
 ### Testes e AI-DLC
 
+A versão exibida é `v1.MINOR.PATCH` (o PATCH é o contador interno de publicação, que continua
+sendo o que as máquinas comparam para decidir quem é mais novo; o MINOR sobe à mão em marcos).
+
 Rode `make test` (ou `tests/run.sh`) antes de publicar mudanças. A suíte usa configuração e
 runtime temporários para testar fluxos de CLI sem tocar nas máquinas cadastradas, além de validar
 os bindings do tmux num servidor isolado. Para auditar uma instalação, use
