@@ -43,9 +43,22 @@ grep -q 'E confere-maquinas-futuro' <<<"$L" || falhou "remota deveria aparecer c
 grep -q 'empresa:' <<<"$L$E" && falhou 'o nome da máquina não deveria ocupar a faixa'
 passou 'máquina remota vira selo de uma letra; o espaço fica para o conteúdo'
 
-# 4) abreviados nunca iguais: 2025 e 2026 continuam distinguíveis mesmo apertado
-r25=$(grep -o '[^ ]*2025' <<<"$E" | head -1 || true); r26=$(grep -o '[^ ]*2026' <<<"$E" | head -1 || true)
-[[ -n $r25 && -n $r26 && $r25 != "$r26" ]] || falhou "abreviados de 2025/2026 deveriam diferir e manter o ano: $E"
+# 4) piso de legibilidade: apertado, o chip +N entra ANTES de espremer os nomes — cada rótulo
+#    visível tem ≥ 15 caracteres e o resto vai para o chip (pedido do dono: "+N um pouco mais cedo")
+grep -q '+[0-9]* ▾' <<<"$E" || falhou "a 64 colunas com 4 fixadas o chip +N deveria entrar antes de espremer: $E"
+while read -r rot; do
+  [[ -n $rot ]] || continue
+  ((${#rot} >= 15)) || falhou "rótulo visível '$rot' tem menos de 15 caracteres (piso de legibilidade): $E"
+done < <(sed 's/^ *▸ *//; s/ *+[0-9]* ▾.*$//' <<<"$E" | sed 's/   */\n/g')
+passou 'piso de legibilidade: antes de espremer abaixo de 15, os excedentes vão para o chip'
+
+# 4b) abreviados nunca iguais: onde as duas cabem (110 colunas), 2025 e 2026 continuam distinguíveis
+fora resize-window -t estreito -x 110 -y 8 >/dev/null 2>&1; sleep 1.2
+M=$(faixa estreito)
+r25=$(grep -o '[^ ]*2025' <<<"$M" | head -1 || true); r26=$(grep -o '[^ ]*2026' <<<"$M" | head -1 || true)
+[[ -n $r25 && -n $r26 && $r25 != "$r26" ]] || falhou "abreviados de 2025/2026 deveriam diferir e manter o ano: $M"
+grep -q 'relatorio-financeiro-2025' <<<"$M" && falhou "a 110 colunas os nomes deveriam estar abreviados (16), não inteiros: $M"
+fora resize-window -t estreito -x 64 -y 8 >/dev/null 2>&1; sleep 1
 passou "nomes parecidos continuam distintos quando abreviados ($r25 / $r26)"
 
 # 5) redimensionar o cliente redesenha na hora (sem recalcular nada no tt)

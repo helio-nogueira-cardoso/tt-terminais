@@ -474,11 +474,11 @@ ganha antes um **selo colorido de uma letra** (`E tt-mesh-logincheck`, `D asd`),
 cor no popup e no menu de máquinas — o nome da máquina não ocupa mais a faixa. A faixa acompanha a
 **largura de cada janela**, ao vivo: monitor, notebook e celular veem cada um a sua versão, e
 redimensionar redesenha na hora. Quando falta espaço, nada rola: os rótulos **encolhem por estágios**
-— abreviados **por palavras** (`tt-mesh-logincheck` → `tt-mesh-logi` → `tt-me-log`, sem cortar o fim
-às cegas; se nem assim couber, fica o começo e a última palavra, como `re…2025`), e dois nomes nunca
-ficam iguais —, depois o ✕ sai (desafixe pelo popup ou pelo botão direito); só quando nem comprimido
-cabe é que os excedentes viram um chip **`+N ▾`**, que abre o mesmo popup com os nomes inteiros e a
-máquina por extenso (a sessão em uso de cada janela nunca some da faixa). No popup: `⏎` vai para a sessão, `^x` desafixa e `^k`/`^j`
+— abreviados **por palavras** (`tt-mesh-logincheck` → `tt-mesh-logi`, sem cortar o fim às cegas), e
+dois nomes nunca ficam iguais —, depois o ✕ sai (desafixe pelo popup ou pelo botão direito). Há um
+**piso de legibilidade**: os nomes não encolhem abaixo de 16 colunas; quando nem assim tudo cabe, os
+excedentes viram um chip **`+N ▾`** (que abre o mesmo popup, com os nomes inteiros e a máquina por
+extenso) e os visíveis continuam confortáveis — a sessão em uso de cada janela nunca some da faixa. No popup: `⏎` vai para a sessão, `^x` desafixa e `^k`/`^j`
 (ou alt-↑/↓) **reordenam ao vivo** — o item acompanha o cursor e, ao fechar, a barra e as outras
 máquinas recebem a ordem nova. Para fixar a sessão em uso: o pino ao lado do nome dela na barra (📍 = não fixada, um
 clique fixa; 📌 = fixada, um clique desafixa). Também: menu da sessão (botão direito em
