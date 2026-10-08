@@ -8821,6 +8821,11 @@ email_adicionar_cli() {
   [[ -n ${TT_EMAIL_SEM_REDE:-} ]] || email_detectar_pastas "${E[_slug]}" || true
   [[ ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-sync "${E[_slug]}" --completo >/dev/null 2>&1 &)
   echo "✔ conta \"${E[nome]}\" cadastrada (${E[_slug]})"
+  # propagar=1 manda a conta a todas as máquinas; propagar=dell,s23 só a essas. Não fica no .conf.
+  if [[ -n ${E[propagar]:-} && ${E[propagar]} != 0 ]]; then
+    local -a alvos=(); [[ ${E[propagar]} == 1 ]] || IFS=', ' read -r -a alvos <<<"${E[propagar]}"
+    email_propagar "${E[_slug]}" "${alvos[@]}"
+  fi
 }
 
 email_remover_slug() {
@@ -8830,6 +8835,185 @@ email_remover_slug() {
   rm -f "$(email_conf_arq "$slug")" "$(email_cred_arq "$slug")" "$SECRETS_DIR/aerc-$slug.client_secret"
   rm -rf "$(email_maildir "$slug")" "$EMAIL_MBSYNC_DIR/$slug.lock"
   echo "✔ conta \"${E[nome]}\" removida (bloco do aerc e segredos apagados)"
+}
+
+# ─── Propagar uma conta de e-mail entre as máquinas ───────────────────────────
+#
+# Credencial nunca viaja em sync automático. A propagação é um envio transacional, só por comando
+# ou por pergunta respondida, por ssh direto (SSH_OPC: o canal já confiável entre as máquinas), no
+# modelo do --conta-propagar das contas de IA. O pacote é um tar pelo stdin do ssh, montado direto
+# dos arquivos (sem cópia intermediária, nada em pasta sincronizada): o <slug>.conf e o que existir
+# em ~/.secrets da conta (senha ou token de renovação; client_secret). O mapa de pastas e o
+# .mbsyncrc são regerados na chegada. Antes de mandar o segredo, o tt de lá é sondado
+# (--email-receber SLUG --sonda): um tt antigo não sabe receber e nada é enviado. Na chegada:
+# umask 077, segredos 600, email_regerar; sync_local=1 numa máquina sem mbsync chega desligado,
+# com aviso (nada de fingir). Conta que já existe lá só é substituída com --sobrescrever.
+# Nenhuma função aqui imprime, registra ou passa o segredo em linha de comando.
+
+# Itens da conta que existem aqui: "pasta<TAB>nome" (os únicos nomes aceitos na chegada).
+email_pacote_itens() { # slug
+  local slug=$1 d n
+  while IFS='|' read -r d n; do [[ -s $d/$n && ! -L $d/$n ]] && printf '%s\t%s\n' "$d" "$n"; done <<EOF
+$EMAIL_DIR|$slug.conf
+$SECRETS_DIR|aerc-$slug.txt
+$SECRETS_DIR|aerc-$slug.client_secret
+EOF
+  return 0
+}
+
+# O tar da conta na saída padrão, montado direto dos arquivos (vários -C: nada é copiado antes).
+email_pacote() { # slug
+  local d n; local -a args=()
+  while IFS=$'\t' read -r d n; do args+=(-C "$d" "$n"); done < <(email_pacote_itens "$1")
+  ((${#args[@]})) || return 1
+  tar -cf - "${args[@]}"
+}
+
+# tt --email-propagar CONTA [máquina…] [--sobrescrever]: sem máquinas, todas as cadastradas e
+# acessíveis agora. Uma linha por máquina (✓ instalada · já existe lá · ✗ motivo). No terminal,
+# onde a conta já existia oferece substituir; sem terminal, só com --sobrescrever.
+email_propagar() {
+  local nome="" sobre="" a slug dest rot r rc n=0 falhas=0
+  local -a alvos=() existentes=() vistos=()
+  for a in "$@"; do
+    case $a in --sobrescrever) sobre=1 ;; *) if [[ -z $nome ]]; then nome=$a; else alvos+=("$a"); fi ;; esac
+  done
+  [[ -n $nome ]] || { echo "uso: tt --email-propagar CONTA [máquina…] [--sobrescrever]" >&2; return 1; }
+  slug=$(email_achar "$nome") || { echo "Conta não encontrada: $nome" >&2; return 1; }
+  local -A E=(); email_ler "$slug" || return 1
+  if [[ ${E[auth]} != comando && ! -s $(email_cred_arq "$slug") ]]; then
+    echo "✗ A conta '${E[nome]}' ainda não tem senha/token aqui: autorize (ou cadastre de novo) antes de propagar." >&2
+    return 1
+  fi
+  echo "Propagando a conta '${E[nome]}' (configuração + senha/token, por ssh):"
+  while read -r dest rot; do
+    if ((${#alvos[@]})); then
+      for a in "${alvos[@]}"; do [[ $a == "$rot" ]] && break; a=""; done
+      [[ -n $a ]] || continue
+    fi
+    n=$((n + 1)); vistos+=("$rot")
+    printf '  %-10s ' "$rot"
+    r=$(email_propagar_para "$dest" "$slug" "$sobre"); rc=$?
+    echo "$r"
+    [[ $r == '· já existe'* ]] && existentes+=("$rot")
+    ((rc == 0)) || falhas=$((falhas + 1))
+  done < <(maquinas)
+  for a in "${alvos[@]}"; do
+    for rot in "${vistos[@]}"; do [[ $rot == "$a" ]] && continue 2; done
+    printf '  %-10s ✗ não está cadastrada, ou não está acessível agora\n' "$a"; falhas=$((falhas + 1))
+  done
+  ((n)) || ((${#alvos[@]})) || { echo "  nenhuma máquina cadastrada e acessível agora (tt --cadastrar)"; return 1; }
+  if ((${#existentes[@]})) && [[ -z $sobre && -t 0 ]]; then
+    read -r -e -p "Substituir a conta que já existe em ${existentes[*]}? (s/N) " a || return 1
+    [[ $a == [sSyY]* ]] && { email_propagar "$slug" "${existentes[@]}" --sobrescrever; return; }
+  fi
+  ((falhas == 0))
+}
+
+# Um destino: sonda o tt de lá e só então manda o pacote. Ecoa uma linha (✓ · ✗) e devolve 0 só no sucesso.
+email_propagar_para() { # dest slug sobrescrever
+  local dest=$1 slug=$2 sobre=$3 sonda rc r
+  sonda=$(timeout 15 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --email-receber $(q "$slug") --sonda" </dev/null 2>/dev/null); rc=$?
+  case $rc:$sonda in
+    0:pronto*) ;;
+    255:* | 124:*) echo "✗ sem resposta"; return 1 ;;
+    127:*) echo "✗ o tt não está instalado lá (tt --atualizar instala)"; return 1 ;;
+    *) echo "✗ o tt de lá ainda não sabe receber contas de e-mail: atualize-o (tt --atualizar) e tente de novo"; return 1 ;;
+  esac
+  if [[ $sonda == *" existe=1"* && -z $sobre ]]; then echo "· já existe lá (--sobrescrever substitui)"; return 1; fi
+  r=$(email_pacote "$slug" | timeout 60 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --email-receber $(q "$slug")${sobre:+ --sobrescrever}" 2>&1 | tail -1)
+  [[ -n $r ]] || r="✗ sem resposta"
+  echo "$r"; [[ $r == ✓* ]]
+}
+
+# tt --email-receber SLUG [--sobrescrever] [--sonda]: recebe pelo stdin o tar da conta e a instala
+# aqui, transacional (tudo é conferido antes de tocar em qualquer arquivo; se a gravação falhar, o
+# estado anterior volta pelo snapshot). --sonda só responde "pronto existe=0|1 mbsync=0|1" — é o
+# que o remetente confere antes de mandar o segredo.
+email_receber() {
+  local slug=${1:-} a sobre="" sonda="" existe=0 temm=0
+  for a in "${@:2}"; do case $a in --sobrescrever) sobre=1 ;; --sonda) sonda=1 ;; esac; done
+  if [[ -z $slug || $slug != "$(email_slug "$slug")" ]]; then
+    [[ -n $sonda ]] || cat >/dev/null; echo "✗ identificador de conta inválido"; return 1
+  fi
+  [[ -e $(email_conf_arq "$slug") ]] && existe=1
+  command -v "$(mbsync_bin)" >/dev/null && temm=1
+  if [[ -n $sonda ]]; then echo "pronto existe=$existe mbsync=$temm"; return 0; fi
+  if ((existe)) && [[ -z $sobre ]]; then cat >/dev/null; echo "· já existe aqui (--sobrescrever substitui)"; return 1; fi
+  local tmp lista m conf cred cs k v l erro avisos="" snap
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/tt-email-receber.XXXXXX") || { cat >/dev/null; echo "✗ sem onde gravar"; return 1; }
+  chmod 700 "$tmp"
+  # Guarda o pacote e confere os membros ANTES de extrair: só os nomes esperados, na raiz.
+  if ! ( umask 077; cat >"$tmp/pacote.tar" ) || ! lista=$(tar -tf "$tmp/pacote.tar" 2>/dev/null) || [[ -z $lista ]]; then
+    rm -rf "$tmp"; echo "✗ pacote inválido"; return 1
+  fi
+  while IFS= read -r m; do
+    case $m in "$slug.conf" | "aerc-$slug.txt" | "aerc-$slug.client_secret") ;;
+      *) rm -rf "$tmp"; echo "✗ pacote com conteúdo inesperado ($m)"; return 1 ;; esac
+  done <<<"$lista"
+  ( umask 077; tar -C "$tmp" -xf "$tmp/pacote.tar" ) 2>/dev/null || { rm -rf "$tmp"; echo "✗ pacote inválido"; return 1; }
+  rm -f "$tmp/pacote.tar"
+  conf=$tmp/$slug.conf; cred=$tmp/aerc-$slug.txt; cs=$tmp/aerc-$slug.client_secret
+  [[ -s $conf ]] || { rm -rf "$tmp"; echo "✗ pacote sem a configuração da conta"; return 1; }
+  # A conta recebida é lida como uma conta local (só chaves conhecidas) e validada antes de tudo.
+  local -A E=(); E[_slug]=$slug
+  while IFS= read -r l; do
+    [[ $l == *=* && $l != \#* ]] || continue; k=${l%%=*}; v=${l#*=}
+    [[ " ${EMAIL_CHAVES[*]} " == *" $k "* ]] && E[$k]=$v
+  done <"$conf"
+  E[provedor]=${E[provedor]:-outro}
+  if [[ ${E[auth]:-} != comando && ! -s $cred ]]; then rm -rf "$tmp"; echo "✗ pacote sem a senha/token da conta"; return 1; fi
+  if ! erro=$(email_validar "$( ((existe)) || echo novo)"); then rm -rf "$tmp"; echo "✗ conta recusada: $erro"; return 1; fi
+  if [[ ${E[sync_local]:-} == 1 ]] && ((temm == 0)); then E[sync_local]=""; avisos+=" · sync local desligado: sem mbsync aqui"; fi
+  [[ ${E[auth]} == comando ]] && avisos+=" · autenticação por comando: confira que '${E[cred_cmd]}' funciona aqui"
+  snap=$(email_snapshot_criar "$slug") || { rm -rf "$tmp"; echo "✗ sem onde guardar o estado anterior"; return 1; }
+  mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR" 2>/dev/null
+  if ! { [[ ! -s $cred ]] || email_segredo_instalar "$cred" "$(email_cred_arq "$slug")"; } ||
+     ! { [[ ! -s $cs ]] || email_segredo_instalar "$cs" "$SECRETS_DIR/aerc-$slug.client_secret"; } ||
+     ! email_gravar || ! email_regerar "$slug"; then
+    email_snapshot_restaurar "$snap" "$slug"; rm -rf "$tmp"
+    echo "✗ não consegui gravar a conta; nada foi alterado"; return 1
+  fi
+  rm -rf "$snap" "$tmp"
+  [[ ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-sync "$slug" --completo >/dev/null 2>&1 &)
+  echo "✓ conta '${E[nome]}' $( ((existe)) && echo substituída || echo instalada)$avisos"
+}
+
+# Grava um segredo recebido no lugar definitivo, só para o dono (sem herdar modo de arquivo antigo).
+email_segredo_instalar() { # origem destino
+  rm -f "${2:?}" && ( umask 077; cp "$1" "$2" ) && chmod 600 "$2"
+}
+
+# Ao final do cadastro (conta testada): oferece mandar a conta às máquinas da rede. Só pergunta se
+# há máquinas cadastradas e acessíveis; sem resposta afirmativa, nada sai daqui.
+email_propagar_oferecer() { # slug
+  local slug=$1 lista c
+  lista=$(maquinas | awk '{ printf "%s%s", (NR > 1 ? ", " : ""), $2 }')
+  [[ -n $lista ]] || return 0
+  local pergunta="Propagar esta conta para as máquinas da rede ($lista)? (S/n) "
+  printf '\n'
+  if [[ -t 0 ]]; then read -r -e -p "$pergunta" c || return 0
+  else printf '%s\n' "$pergunta"; IFS= read -r c || return 0; fi # sem terminal, read -p não mostra a pergunta
+  [[ $c == [nN]* ]] && return 0
+  email_propagar "$slug"
+}
+
+# Seletor de máquinas (F2 → conta → ⇪ Propagar…): todas marcadas, Tab desmarca, ⏎ envia. Sem
+# terminal, lê os rótulos (um por linha) da entrada padrão.
+email_propagar_ui() { # slug
+  local slug=$1 linhas esc a; local -a rots=()
+  linhas=$(maquinas | awk '{ printf "%s\t⇪ %-10s \033[90m%s\033[0m\n", $2, $2, $1 }')
+  [[ -n $linhas ]] || { echo "Nenhuma máquina cadastrada e acessível agora (tt --cadastrar)."; email_pausa; return 0; }
+  if [[ -t 0 && -t 1 ]] && command -v fzf >/dev/null; then
+    esc=$(fzf --ansi --multi --bind 'start:select-all' --delimiter=$'\t' --with-nth=2 --no-sort --layout=reverse \
+      --height=~20 --border=rounded --border-label=' ⇪ propagar a conta para… (Tab marca/desmarca · ⏎ envia · Esc sai) ' \
+      --prompt='❯ ' --pointer='▶' --marker='✔' <<<"$linhas" | cut -f1) || return 0
+  else esc=$(cat); fi
+  while IFS= read -r a; do [[ -n $a ]] && rots+=("$a"); done <<<"$esc"
+  ((${#rots[@]})) || return 0
+  clear 2>/dev/null
+  email_propagar "$slug" "${rots[@]}"
+  email_pausa
 }
 
 # Conta pelo nome ou slug → slug.
@@ -9038,6 +9222,7 @@ email_conta_nova_ui() {
   printf '\nValidando IMAP e SMTP antes de salvar…\n'
   if ! email_salvar_validado "$snap" 1; then email_pausa 'Enter volta para corrigir.'; return 0; fi
   printf '\n✔ Conta cadastrada e validada:'; email_resumo
+  email_propagar_oferecer "${E[_slug]}"
   email_pausa 'Enter volta.'
 }
 
@@ -9106,6 +9291,7 @@ email_conta_ui() {
             [[ ${E[auth]} == oauth ]] && printf 'a\t🔑 Autorizar de novo (OAuth2 / SSO)\n'
             if [[ ${E[sync_local]:-} == 1 ]]; then printf 's\t🔄 Sync local: ✓ ligado (espelho offline dos e-mails)\n'
             else printf 's\t🔄 Sync local: desligado (espelho offline: abre na hora e funciona sem rede)\n'; fi
+            printf 'p\t⇪ Propagar para as máquinas da rede… (configuração + senha/token, por ssh)\n'
             printf 'd\t🗑 Descadastrar\n'; printf 'v\t← Voltar\n'; } |
       fzf --ansi --layout=reverse --no-sort --delimiter=$'\t' --with-nth=2 --no-input \
         --header="$(email_resumo | sed '/^$/d')" | cut -f1) || return 0
@@ -9122,6 +9308,7 @@ email_conta_ui() {
            if command -v "$(mbsync_bin)" >/dev/null; then email_sync_local_definir "$slug" 1
            else echo 'Sem o mbsync (isync), o sync local fica desligado.'; fi
          fi; email_pausa ;;
+      p) email_propagar_ui "$slug" ;;
       d) email_descadastrar_ui "$slug" && return 0 ;;
       *) return 0 ;;
     esac
@@ -10115,6 +10302,9 @@ case "${1:-}" in
   --email-mbsync-migrar) email_mbsyncrc_migrar; exit 0 ;;
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
   --email-conta-nova-ui) email_conta_nova_ui; exit ;;
+  --email-propagar) shift; email_propagar "$@"; exit ;;
+  --email-receber) shift; email_receber "$@"; exit ;;
+  --email-propagar-ui) s=$(email_achar "${2:?uso: tt --email-propagar-ui NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_propagar_ui "$s"; exit ;;
   --configurar-bashrc) configurar_bashrc; exit ;;
   --remover-bashrc) remover_bashrc; exit ;;
   --desinstalar-aqui) desinstalar_aqui; exit ;;

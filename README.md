@@ -316,6 +316,27 @@ contas do cadastro antigo são importadas sozinhas. Pela linha de comando:
        smtp_host=mail.x.com smtp_porta=587 smtp_seg=starttls auth=comando 'cred_cmd=pass email/x'
     tt --email-listar | --email-testar NOME | --email-autorizar NOME | --email-remover NOME
 
+**Levar a conta às outras máquinas.** Credencial nunca viaja em sincronização automática: a conta só
+vai quando você manda. Ao fim do cadastro guiado (com a conta já testada) o tt pergunta *Propagar esta
+conta para as máquinas da rede (dell, s23)? (S/n)*; na tela da conta (`F2` → a conta → **⇪ Propagar
+para as máquinas da rede…**) há um seletor de máquinas (todas marcadas, Tab desmarca, ⏎ envia); e pela
+linha de comando:
+
+    tt --email-propagar Pessoal                  # todas as máquinas cadastradas e acessíveis agora
+    tt --email-propagar Pessoal dell s23         # só essas
+    tt --email-propagar Pessoal --sobrescrever   # substitui a conta que já existir lá
+    tt --email-adicionar … propagar=1 --senha-stdin    # (ou propagar=dell,s23) já manda ao cadastrar
+
+Vai por ssh direto (o mesmo canal do tt), pelo stdin, sem arquivo intermediário: a configuração da
+conta e o que houver de segredo dela em `~/.secrets` (senha de app, token de renovação do OAuth2,
+client_secret). Antes de mandar o segredo o tt confere que o tt de lá já sabe receber — um tt antigo
+não recebe nada (a mensagem pede `tt --atualizar`). Na chegada tudo é conferido antes de gravar (pacote
+estranho, conta sem senha ou nome que colide com um bloco escrito à mão: recusado sem resíduo); os
+segredos ficam com permissão 600, o bloco do aerc e o `.mbsyncrc` são regerados lá, e uma conta com
+sync local chega **desligada** numa máquina sem `mbsync` (com aviso, em vez de fingir). Conta que já
+existe lá fica como está, a não ser com `--sobrescrever` (no terminal, o tt pergunta). Conta OAuth2
+ainda não autorizada aqui não é propagada. O aerc aberto na outra máquina vê a conta ao reabrir.
+
 ### O leitor de e-mail (aerc)
 
 O tt deixa o aerc pronto em toda máquina (só acrescenta o que você não configurou; o que já estiver no
