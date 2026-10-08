@@ -414,8 +414,9 @@ vigiar() {
       ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
       ("$EU" --reconciliar-fixadas >/dev/null 2>&1 &)
       ("$EU" --tarefas-puxar >/dev/null 2>&1 &)
-      ("$EU" --tarefas-lembrete >/dev/null 2>&1 &)
     fi
+    # Lembrete das tarefas a cada volta (1 min): prazos com horário avisam na hora certa.
+    ("$EU" --tarefas-lembrete >/dev/null 2>&1 &)
     # Cadastro das contas de IA: muda pouco e cada mudança já é enviada na hora; isto é só a rede de
     # segurança de quem estava desligada.
     if ((agora - ultima_contas >= 1800)); then
@@ -4531,11 +4532,11 @@ tarefas_meta_get() { # meta chave
   local meta=$1 chave=$2 par IFS='|'
   for par in $meta; do [[ $par == "$chave="* ]] && { printf '%s' "${par#*=}"; return 0; }; done
 }
-tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|prio|rep|tags|pai|ord)
+tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|hora|prio|rep|tags|pai|ord)
   local meta=$1 chave=$2 valor=$3 k out="" par; local -A M=(); local IFS='|'
   for par in $meta; do [[ $par == *=* ]] && M[${par%%=*}]=${par#*=}; done
   M[$chave]=$valor
-  for k in desc prazo prio rep tags pai ord; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
+  for k in desc prazo hora prio rep tags pai ord; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
   printf '%s' "$out"
 }
 tarefas_b64()   { printf '%s' "$1" | base64 | tr -d '\n'; }
@@ -4637,8 +4638,13 @@ tarefas_token_prazo() { # token-sem-@
     sab|sabado|sábado) date -d "next saturday" +%s 2>/dev/null ;;
     dom|domingo) date -d "next sunday" +%s 2>/dev/null ;;
     [0-9][0-9]/[0-9][0-9]|[0-9]/[0-9][0-9]|[0-9][0-9]/[0-9]|[0-9]/[0-9])
-      local d=${t%%/*} m=${t##*/} y; y=$(date +%Y)
-      tt_epoch_de "$(printf '%04d-%02d-%02d' "$y" "$m" "$d")" ;;
+      # Sem ano: a próxima vez que esse dia chega (25/12 em janeiro é deste ano; 05/01 em outubro é
+      # do ano que vem).
+      local d=${t%%/*} m=${t##*/} y ep hoje0; y=$(date +%Y)
+      ep=$(tt_epoch_de "$(printf '%04d-%02d-%02d' "$y" "$((10#$m))" "$((10#$d))")") || return 1
+      hoje0=$(tt_epoch_de "$(date +%Y-%m-%d)")
+      ((ep < hoje0)) && ep=$(tt_epoch_de "$(printf '%04d-%02d-%02d' "$((y + 1))" "$((10#$m))" "$((10#$d))")")
+      echo "$ep" ;;
     [0-9][0-9]/[0-9][0-9]/[0-9][0-9][0-9][0-9])
       # Em dois passos: num mesmo `local`, $rest ainda não existe quando m= e y= são expandidos
       # (com set -u o token morria em "rest: unbound variable" e ficava no texto, sem prazo).
@@ -4648,13 +4654,37 @@ tarefas_token_prazo() { # token-sem-@
     *) return 1 ;;
   esac
 }
-# Cria uma tarefa a partir de uma frase com tokens. Imprime o id criado.
+# Horário de um token: "14h", "14h30", "14:30", "9h", "@14h" -> "HH:MM". Falha se não for hora.
+tarefas_token_hora() {
+  local t=${1,,}
+  t=${t#@}
+  [[ $t =~ ^([01]?[0-9]|2[0-3])(h([0-5][0-9])?|:([0-5][0-9])h?)$ ]] || return 1
+  printf '%02d:%02d' "$((10#${BASH_REMATCH[1]}))" "$((10#${BASH_REMATCH[3]:-${BASH_REMATCH[4]:-0}}))"
+}
+
+# Cria uma tarefa a partir de uma frase com tokens. Imprime o id criado. Além dos tokens, o que
+# vem depois de " // " é a descrição (cada " // " seguinte vira uma linha nova).
+#   @sex 14h · @sex às 14:30 · @14h (hoje; amanhã se a hora já passou) -> prazo com horário
 tarefa_add_natural() {
-  local frase=$1 tok prazo="" prio="" rep="" tags="" resto=()
-  for tok in $frase; do
+  local frase=$1 tok prazo="" hora="" prio="" rep="" tags="" desc="" resto=() i j n hh
+  if [[ $frase == *" // "* || $frase == *" //" ]]; then
+    desc=${frase#*" //"}; frase=${frase%%" //"*}
+    desc=$(printf '%s' "$desc" | sed 's| *// *|\n|g' | sed 's/^ *//; s/ *$//' | sed '/^$/d')
+  fi
+  local -a toks; read -ra toks <<<"$frase"
+  n=${#toks[@]}
+  for ((i = 0; i < n; i++)); do
+    tok=${toks[i]}
     case $tok in
-      @?*) local ep; ep=$(tarefas_token_prazo "${tok#@}") && [[ -n $ep ]] && { prazo=$ep; continue; }
-           resto+=("$tok") ;;
+      @?*)
+        if hh=$(tarefas_token_hora "$tok"); then hora=$hh; continue; fi
+        local ep; ep=$(tarefas_token_prazo "${tok#@}") && [[ -n $ep ]] && {
+          prazo=$ep
+          # horário logo depois do dia: "@sex 14h", "@sex às 14h"
+          j=$((i + 1)); [[ ${toks[j]:-} =~ ^(às|as)$ ]] && j=$((j + 1))
+          if hh=$(tarefas_token_hora "${toks[j]:-}"); then hora=$hh; i=$j; fi
+          continue; }
+        resto+=("$tok") ;;
       '#'?*) local tg=${tok#\#}; tg=${tg,,}; tags="${tags:+$tags,}$tg" ;;
       '!'alta|'!'1) prio=1 ;;
       '!'media|'!'méd*|'!'med|'!'2) prio=2 ;;
@@ -4665,10 +4695,22 @@ tarefa_add_natural() {
       *) resto+=("$tok") ;;
     esac
   done
+  # Só a hora: hoje, ou amanhã se essa hora já passou. Dia + hora: junta os dois.
+  if [[ -n $hora ]]; then
+    local dia
+    if [[ -z $prazo ]]; then
+      dia=$(date +%Y-%m-%d); prazo=$(tt_epoch_de "$dia $hora")
+      ((prazo < $(date +%s))) && prazo=$(tt_epoch_de "$(tt_fmt_epoch "$((prazo + 86400))" +%Y-%m-%d) $hora")
+    else
+      prazo=$(tt_epoch_de "$(tt_fmt_epoch "$prazo" +%Y-%m-%d) $hora")
+    fi
+  fi
   local txt="${resto[*]}" id meta=""
   txt=$(tarefas_limpa_texto "$txt"); [[ -n $txt ]] || return 1
   id=$(tarefa_add "$txt") || return 1
+  [[ -n $desc ]] && meta=$(tarefas_meta_set "$meta" desc "$(tarefas_b64 "$desc")")
   [[ -n $prazo ]] && meta=$(tarefas_meta_set "$meta" prazo "$prazo")
+  [[ -n $hora ]] && meta=$(tarefas_meta_set "$meta" hora 1)
   [[ -n $prio ]] && meta=$(tarefas_meta_set "$meta" prio "$prio")
   [[ -n $rep ]] && meta=$(tarefas_meta_set "$meta" rep "$rep")
   [[ -n $tags ]] && meta=$(tarefas_meta_set "$meta" tags "$tags")
@@ -4715,7 +4757,7 @@ tarefa_alternar() {
   fi
 }
 
-# Clique esquerdo numa linha: numa tarefa de topo o clique abre/fecha os detalhes (▸/▾: nota,
+# Clique esquerdo numa linha: numa tarefa de topo o clique abre/fecha os detalhes (▸/▾: descrição,
 # subtarefas e ações) — o mesmo que o clique no painel faz. Numa subtarefa, alterna feita/aberta.
 tarefa_clique() {
   local id=$1
@@ -4738,10 +4780,11 @@ tarefa_set_desc() { # id texto (vazio remove)
 }
 tarefa_get_desc() { tarefas_unb64 "$(tarefas_meta_get "$(tarefas_meta_de "$1")" desc)"; }
 
-tarefa_set_prazo() { # id epoch (vazio remove)
-  local id=$1 ep=$2 meta
+tarefa_set_prazo() { # id epoch [1 = com horário] (epoch vazio remove o prazo)
+  local id=$1 ep=$2 hora=${3:-} meta
   meta=$(tarefas_meta_de "$id")
   meta=$(tarefas_meta_set "$meta" prazo "$ep")
+  meta=$(tarefas_meta_set "$meta" hora "$([[ -n $ep && $hora == 1 ]] && echo 1)")
   tarefa_set_meta "$id" "$meta"
 }
 tarefa_get_prazo() { tarefas_meta_get "$(tarefas_meta_de "$1")" prazo; }
@@ -4786,16 +4829,16 @@ tarefa_rep_ciclar() { # id -> sem -> d -> w -> m -> sem
 }
 # Próximo epoch de um prazo conforme a recorrência (um período à frente). Portável: GNU date -d
 # "data +N" ou BSD date -v. Devolve vazio se não souber calcular.
-tarefas_proximo_prazo() { # epoch rep -> epoch
+tarefas_proximo_prazo() { # epoch rep -> epoch (mantém a hora do dia)
   local ep=$1 rep=$2 base inc_gnu inc_bsd
-  base=$(tt_fmt_epoch "$ep" +%Y-%m-%d) || return 1
+  base=$(tt_fmt_epoch "$ep" '+%Y-%m-%d %H:%M') || return 1
   case $rep in
     d) inc_gnu="+1 day";   inc_bsd="-v+1d" ;;
     w) inc_gnu="+7 day";   inc_bsd="-v+7d" ;;
     m) inc_gnu="+1 month"; inc_bsd="-v+1m" ;;
     *) return 1 ;;
   esac
-  date -d "$base $inc_gnu" +%s 2>/dev/null || date "$inc_bsd" -j -f '%Y-%m-%d' "$base" +%s 2>/dev/null
+  date -d "$base $inc_gnu" +%s 2>/dev/null || date "$inc_bsd" -j -f '%Y-%m-%d %H:%M' "$base" +%s 2>/dev/null
 }
 
 # Subtarefa de PAI: tarefa normal com meta pai=<id> e ord no fim do grupo.
@@ -4961,30 +5004,39 @@ tarefas_puxar_tudo() {
 # cada ciclo do vigia. TT_TAREFAS_LEMBRETE=0 desliga.
 tarefas_lembrete_arq() { echo "$ESTADO_DIR/tt-tarefas-avisadas"; }
 tarefas_notificar() { # titulo corpo
-  local t=$1 c=$2
-  if command -v notify-send >/dev/null 2>&1; then notify-send -a tt "$t" "$c" >/dev/null 2>&1
-  elif command -v termux-notification >/dev/null 2>&1; then termux-notification --title "$t" --content "$c" >/dev/null 2>&1
-  else return 1; fi
+  local t=$1 c=$2 cl ok=1
+  if command -v notify-send >/dev/null 2>&1; then notify-send -a tt "$t" "$c" >/dev/null 2>&1 && ok=0
+  elif command -v termux-notification >/dev/null 2>&1; then termux-notification --title "$t" --content "$c" >/dev/null 2>&1 && ok=0; fi
+  # Também na tela de cada terminal aberto (no WSL não há notify-send).
+  while read -r cl; do
+    [[ -n $cl ]] && tmux display-message -c "$cl" -d 15000 "$t · $c" 2>/dev/null && ok=0
+  done < <(tmux list-clients -F '#{client_name}' 2>/dev/null)
+  return $ok
 }
 tarefas_lembrete() {
   [[ ${TT_TAREFAS_LEMBRETE:-1} == 0 ]] && return 0
-  command -v notify-send >/dev/null 2>&1 || command -v termux-notification >/dev/null 2>&1 || return 0
-  local arq hoje id est m prazo d txt rot chave
+  [[ -s $CONF_TAREFAS ]] || return 0
+  local arq agora tz ant chave quando txt
   arq=$(tarefas_lembrete_arq); mkdir -p "$ESTADO_DIR"; touch "$arq"
-  hoje=$(tt_fmt_epoch "$(date +%s)" +%Y%m%d)
-  while IFS=$'\t' read -r id est m txt; do
-    [[ $est == aberta ]] || continue
-    [[ $m == - ]] && m=""
-    [[ -n $(tarefas_meta_get "$m" pai) ]] && continue
-    prazo=$(tarefas_meta_get "$m" prazo); [[ -n $prazo ]] || continue
-    d=$(tarefas_dias_ate "$prazo"); [[ -n $d && $d -le 0 ]] || continue
-    chave="$id|$hoje"
-    grep -qxF "$chave" "$arq" && continue      # já avisado hoje
-    rot=$([[ $d -lt 0 ]] && echo "venceu" || echo "é hoje")
-    tarefas_notificar "📋 Tarefa $rot" "$txt" && printf '%s\n' "$chave" >>"$arq"
-  done < <(tarefas_vivas | awk -F'\t' '{m=($6==""?"-":$6); print $1"\t"$2"\t"m"\t"$5}')
-  # Poda linhas de dias anteriores para o arquivo não crescer sem limite.
-  local tmp; tmp=$(mktemp); grep -F "|$hoje" "$arq" 2>/dev/null >"$tmp"; mv "$tmp" "$arq" 2>/dev/null || rm -f "$tmp"
+  read -r agora tz < <(tarefas_relogio); ant=$(( ${TT_TAREFAS_ANTECEDENCIA:-10} * 60 ))
+  # Com horário: avisa quando faltam ANT segundos (ou já passou), uma vez por prazo (id|epoch).
+  # Sem horário: uma vez por dia enquanto vence hoje ou está atrasada (id|AAAAMMDD).
+  while IFS=$'\t' read -r chave quando txt; do
+    grep -qxF "$chave" "$arq" && continue
+    tarefas_notificar "📋 $quando" "$txt" && printf '%s\n' "$chave" >>"$arq"
+  done < <(LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v ANT="$ant" "$TAREFAS_AWK"'
+    NF >= 5 && valida($1, $2) && $2 == "aberta" && mv($6, "pai") == "" && !($1 in v) {
+      v[$1] = 1; p = mv($6, "prazo"); if (p == "") next
+      if (mv($6, "hora") == 1) {
+        if (NOW >= p - ANT) print $1 "|" p "\t" (NOW > p + 60 ? "Venceu às " : "Às ") hhmm(p) "\t" $5
+      } else if (dia(p) <= dia(NOW)) {
+        civil(dia(NOW)); print $1 "|" sprintf("%04d%02d%02d", CY, CM, CD) "\t" (dia(p) < dia(NOW) ? "Tarefa atrasada" : "Tarefa de hoje") "\t" $5
+      }
+    }' "$CONF_TAREFAS")
+  # Poda: guarda só as chaves de hoje e as de prazos dos últimos 2 dias.
+  local hoje tmp; hoje=$(date +%Y%m%d); tmp=$(mktemp)
+  awk -F'|' -v h="$hoje" -v lim="$((agora - 172800))" '$2 == h || ($2 ~ /^[0-9]+$/ && length($2) >= 10 && $2 + 0 >= lim)' "$arq" >"$tmp" &&
+    mv "$tmp" "$arq" 2>/dev/null || rm -f "$tmp"
   return 0
 }
 
@@ -5001,8 +5053,9 @@ tarefas_lembrete() {
 #
 # Cada linha da lista é "chave<TAB>desenho". A chave diz o que a linha é:
 #   ID            tarefa ou subtarefa
-#   nota:ID       nota da tarefa (clique edita)       sub:ID   "+ adicionar subtarefa"
+#   desc:ID       descrição da tarefa (clique edita)  sub:ID   "+ adicionar subtarefa"
 #   menu:ID       "⋯ mais ações"                      criar    cria a tarefa digitada na busca
+#   dia:N         título de um dia na agenda (N = dias desde 1970; clique abre o calendário nele)
 #   act:AÇÃO:ID   item do menu de ações               voltar   volta para a lista
 #   (vazia)       linha só informativa
 #
@@ -5042,6 +5095,28 @@ function cores() {
   TEAL = "\033[38;2;148;226;213m"
   split("dom seg ter qua qui sex sáb", DOW, " ")
 }
+function hhmm(ep,   s) { s = (ep + TZOFF) % 86400; return sprintf("%02d:%02d", int(s / 3600), int(s % 3600 / 60)) }
+# Com horário vence quando a hora passa; sem horário, quando o dia passa.
+function vencida(p, hora) { return hora ? NOW > p : dia(p) < dia(NOW) }
+# Corta em N bytes sem partir um caractere UTF-8 (roda em LC_ALL=C).
+function corta(s, n,   c) {
+  if (n < 8) n = 8
+  if (length(s) <= n) return s
+  while (n > 0 && (c = substr(s, n + 1, 1)) >= "\200" && c < "\300") n--
+  return substr(s, 1, n) "…"
+}
+# base64 -> texto (bytes; em LC_ALL=C o %c devolve o byte, então UTF-8 passa intacto).
+function b64d(s,   i, n, c, bits, nb, v, out) {
+  if (!B64OK) { for (i = 0; i < 64; i++) B64[substr("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", i + 1, 1)] = i; B64OK = 1 }
+  out = ""; bits = 0; nb = 0; n = length(s)
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1); if (c == "=") break
+    if (!(c in B64)) continue
+    bits = bits * 64 + B64[c]; nb += 6
+    if (nb >= 8) { nb -= 8; v = int(bits / 2 ^ nb); bits -= v * 2 ^ nb; out = out sprintf("%c", v) }
+  }
+  return out
+}
 # "hoje", "amanhã", "ontem", "sex 10/10" (até 6 dias), "25/12" ou "25/12/27" (outro ano).
 function quando(p,   d, df, s) {
   d = dia(p); df = d - HOJE; civil(d)
@@ -5052,14 +5127,14 @@ function quando(p,   d, df, s) {
   if (df > 1 && df < 7) return DOW[(d + 4) % 7 + 1] " " s
   return s
 }
-function rotulo_prazo(p, est,   df) {
+function rotulo_prazo(p, est, hora,   df, h) {
   if (p == "") return ""
-  df = dia(p) - HOJE
-  if (est == "feita") return DIM "◷ " quando(p) Z
-  if (df < 0) return VERM NEG "◷ venceu " quando(p) Z
-  if (df == 0) return PESS NEG "◷ hoje" Z
-  if (df == 1) return AMAR "◷ amanhã" Z
-  return SUB "◷ " quando(p) Z
+  df = dia(p) - HOJE; h = (hora ? " " hhmm(p) : "")
+  if (est == "feita") return DIM "◷ " quando(p) h Z
+  if (vencida(p, hora)) return VERM NEG "◷ venceu " quando(p) h Z
+  if (df == 0) return PESS NEG "◷ hoje" h Z
+  if (df == 1) return AMAR "◷ amanhã" h Z
+  return SUB "◷ " quando(p) h Z
 }
 '
 
@@ -5079,7 +5154,7 @@ tarefas_contagens() {
       v[$1] = 1; t++
       if ($2 == "aberta") a++; else f++
       p = mv($6, "prazo")
-      if (p != "") { z++; if ($2 == "aberta" && dia(p) <= dia(NOW)) h++ }
+      if (p != "" && $2 == "aberta") { z++; if (dia(p) <= dia(NOW)) h++ }
     }
     END { printf "%d %d %d %d %d\n", h, a, f, z, t }' "$CONF_TAREFAS"
 }
@@ -5164,11 +5239,12 @@ tarefas_dias_ate() { # epoch
 }
 
 # Rótulo do prazo de uma tarefa (o mesmo da lista, sem cores): "hoje", "amanhã", "sex 10/10"...
-tarefas_prazo_texto() { # epoch
+tarefas_prazo_texto() { # epoch [1 = com horário]
   [[ -n $1 ]] || return 0
   local agora tz; read -r agora tz < <(tarefas_relogio)
-  LC_ALL=C awk -v NOW="$agora" -v TZOFF="$tz" -v P="$1" "$TAREFAS_AWK"'
-    BEGIN { HOJE = dia(NOW); civil(HOJE); ANO = CY; split("dom seg ter qua qui sex sáb", DOW, " "); print quando(P) }'
+  LC_ALL=C awk -v NOW="$agora" -v TZOFF="$tz" -v P="$1" -v H="${2:-}" "$TAREFAS_AWK"'
+    BEGIN { HOJE = dia(NOW); civil(HOJE); ANO = CY; split("dom seg ter qua qui sex sáb", DOW, " ")
+            print quando(P) (H == 1 ? " às " hhmm(P) : "") }'
 }
 
 tarefas_ui() {
@@ -5211,7 +5287,7 @@ tarefas_ui() {
     --bind="f2:transform($a renomear {1})" \
     --bind="ctrl-n:transform($a nova {1})" \
     --bind="ctrl-s:transform($a sub {1})" \
-    --bind="ctrl-e:transform($a nota {1})" \
+    --bind="ctrl-e:transform($a desc {1})" \
     --bind="ctrl-d:transform($a prazo {1})" \
     --bind="ctrl-p:transform($a prio {1})" \
     --bind="ctrl-r:transform($a rep {1})" \
@@ -5220,6 +5296,8 @@ tarefas_ui() {
     --bind="ctrl-j:transform($a baixo {1})" \
     --bind="alt-down:transform($a baixo {1})" \
     --bind="ctrl-x:transform($a apagar {1})" \
+    --bind="ctrl-t:transform($a calendario {1})" \
+    --bind="ctrl-o:transform($a mais {1})" \
     --bind="ctrl-l:transform($a limpar {1})" \
     --bind="tab:transform($a filtro-proximo {1})" \
     --bind="ctrl-f:transform($a filtro-proximo {1})" \
@@ -5271,9 +5349,10 @@ tarefas_cabecalho() {
         else _item " $2$n " "$bg$sub $2$amar$n $z" "filtro:$1"; fi
       }
       _aba hoje Hoje "$h"; _aba abertas Abertas "$ab"; _aba feitas Feitas "$fe"
-      _aba prazo 'Com prazo' "$pz"; _aba todas Todas "$to"
+      _aba prazo Agenda "$pz"; _aba todas Todas "$to"
+      _item " ▦ Calendário " "$bg$txt ▦ Calendário $z" calendario
       _quebra
-      _botao '+ Nova' nova; _botao '✓ Feita' feita; _botao '↳ Subtarefa' sub; _botao '✎ Nota' nota
+      _botao '+ Nova' nova; _botao '✓ Feita' feita; _botao '↳ Subtarefa' sub; _botao '✎ Descrição' desc
       _botao '◷ Prazo' prazo; _botao '! Prioridade' prio; _botao '↻ Repetir' rep
       # ↑ e ↓ numa pílula só, cada seta com a sua ação; as duas metades nunca se separam
       ((col > 1 && col + 6 > larg)) && _quebra
@@ -5301,54 +5380,57 @@ tarefas_lista_fzf() { # [busca]
     ajuda) tarefas_ajuda_linhas; return 0 ;;
     menu:*) tarefas_menu_linhas "${modo#menu:}"; return 0 ;;
   esac
-  local filtro exp agora tz notas="" id d arq=$CONF_TAREFAS
+  local filtro exp agora tz arq=$CONF_TAREFAS
   filtro=$(tarefas_filtro); filtro=${filtro:-todas}
   exp=$(sed -n 's/^exp=//p' "$(tarefas_estado_arq)" 2>/dev/null | tr '\n' ',')
   read -r agora tz < <(tarefas_relogio)
-  # Notas só das tarefas abertas na tela: decodificadas aqui (base64) e passadas ao awk.
-  for id in ${exp//,/ }; do
-    d=$(tarefa_get_desc "$id"); [[ -n $d ]] || continue
-    notas+="$id"$'\t'"$(printf '%s\n' "$d" | tr '\t' ' ' | head -n 6 | tr '\n' $'\037')"$'\n'
-  done
   [[ -f $arq ]] || arq=/dev/null
-  TQ=$q TQL=${q,,} TEXP=",$exp" TNOTAS=$notas LC_ALL=C \
-    awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v FILTRO="$filtro" "$TAREFAS_AWK"'
-    function caixa(est, df) {
+  TQ=$q TQL=${q,,} TEXP=",$exp" LC_ALL=C \
+    awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v FILTRO="$filtro" -v COLS="${FZF_COLUMNS:-64}" "$TAREFAS_AWK"'
+    function caixa(est, venc) {
       if (est == "feita") return VERDE "☑" Z
-      return (df != "" && df < 0 ? VERM : TXT) "☐" Z
+      return (venc ? VERM : TXT) "☐" Z
     }
     function progresso(f, t,   c, i, s) {
       c = int(f * 6 / t); s = ""
       for (i = 0; i < 6; i++) s = s (i < c ? TEAL : DIM) "━"
       return s Z " " SUB f "/" t Z
     }
-    function linha_topo(i, aberto, tagtxt,   id, est, meta, prazo, df, nfil, tem, s, ex, p, r) {
-      id = TID[i]; est = TEST[i]; meta = TMETA[i]; prazo = mv(meta, "prazo"); nfil = NFI[id] + 0
-      df = (prazo != "" ? dia(prazo) - HOJE : "")
-      tem = (nfil > 0 || mv(meta, "desc") != "")
-      s = " " (tem ? AZUL NEG : DIM) (aberto ? "▾" : "▸") Z " " caixa(est, df) " "
+    function linha_topo(i, aberto, tagtxt,   id, est, meta, prazo, hora, venc, nfil, tem, s, ex, p, r, n, dl, k) {
+      id = TID[i]; est = TEST[i]; meta = TMETA[i]; prazo = mv(meta, "prazo"); hora = (mv(meta, "hora") == 1)
+      nfil = NFI[id] + 0; venc = (prazo != "" && est == "aberta" && vencida(prazo, hora))
+      tem = (nfil > 0 || TDESC[i] != "")
+      s = " " (tem ? AZUL NEG : DIM) (aberto ? "▾" : "▸") Z " " caixa(est, venc) " "
       p = mv(meta, "prio")
       if (est == "aberta" && p == 1) s = s VERM "●" Z " "
       else if (est == "aberta" && p == 2) s = s AMAR "●" Z " "
+      # Na agenda o dia já está no título do grupo: a hora vem antes do texto. As atrasadas
+      # mantêm o rótulo completo ("venceu ontem 14:00"), que diz desde quando.
+      if (AGENDA && hora && !venc) s = s AZUL NEG hhmm(prazo) Z " "
       s = s (est == "feita" ? DIM RISCO TTXT[i] Z : TXT TTXT[i] Z)
       ex = ""
-      r = rotulo_prazo(prazo, est); if (r != "") ex = ex "  " r
+      if (!AGENDA || venc) { r = rotulo_prazo(prazo, est, hora); if (r != "") ex = ex "  " r }
       r = mv(meta, "rep")
       if (r != "") ex = ex "  " TEAL "↻ " (r == "d" ? "diária" : (r == "w" ? "semanal" : "mensal")) Z
       if (nfil > 0) ex = ex "  " progresso(NFE[id] + 0, nfil)
-      if (mv(meta, "desc") != "") ex = ex "  " SUB "✎" Z
       if (tagtxt != "") ex = ex "  " LILAS tagtxt Z
       printf "%s\t%s%s\n", id, s, ex
+      # Descrição: a 1ª linha logo abaixo (a tarefa fechada); aberta, ela aparece inteira.
+      if (TDESC[i] != "" && !aberto) {
+        n = split(TDESC[i], dl, "\n"); r = ""
+        for (k = 1; k <= n && r == ""; k++) if (dl[k] !~ /^[ ]*$/) r = dl[k]
+        printf "desc:%s\t      %s%s%s%s\n", id, DIM ITAL, corta(r, COLS - 12), (n > 1 ? " …" : ""), Z
+      }
     }
     function detalhes(i,   id, j, k, v, f, n, a, L, ind, prim) {
       id = TID[i]; ind = "      "
-      if (id in NOTA) {
-        n = split(NOTA[id], a, "\037"); prim = 1
+      if (TDESC[i] != "") {
+        n = split(TDESC[i], a, "\n"); prim = 1
         for (L = 1; L <= n; L++) {
           if (a[L] ~ /^[ ]*$/) continue
-          printf "nota:%s\t%s%s%s%s%s\n", id, ind, (prim ? SUB "✎ " : "  "), DIM ITAL, a[L], Z; prim = 0
+          printf "desc:%s\t%s%s%s%s%s\n", id, ind, (prim ? SUB "✎ " : "  "), DIM ITAL, a[L], Z; prim = 0
         }
-      } else printf "nota:%s\t%s%s✎ escrever uma nota…%s\n", id, ind, DIM, Z
+      } else printf "desc:%s\t%s%s✎ escrever uma descrição…%s\n", id, ind, DIM, Z
       # subtarefas na ordem manual (ord) e, no empate, de criação
       n = NFI[id] + 0
       for (j = 1; j <= n; j++) S[j] = FI[id, j]
@@ -5359,16 +5441,25 @@ tarefas_lista_fzf() { # [busca]
       }
       for (j = 1; j <= n; j++) {
         f = S[j]
-        printf "%s\t%s%s %s\n", FID[f], ind, caixa(FEST[f], ""), (FEST[f] == "feita" ? DIM RISCO FTXT[f] Z : TXT FTXT[f] Z)
+        printf "%s\t%s%s %s\n", FID[f], ind, caixa(FEST[f], 0), (FEST[f] == "feita" ? DIM RISCO FTXT[f] Z : TXT FTXT[f] Z)
       }
       printf "sub:%s\t%s%s+ adicionar subtarefa%s\n", id, ind, AZUL, Z
-      printf "menu:%s\t%s%s⋯ mais ações%s %s(prazo, prioridade, repetir, mover, apagar)%s\n", id, ind, AZUL, Z, DIM, Z
+      printf "menu:%s\t%s%s⋯ mais ações%s %s(prazo e horário, prioridade, repetir, mover, apagar)%s\n", id, ind, AZUL, Z, DIM, Z
+    }
+    # Título de um grupo da agenda: "Atrasadas", "Hoje · quinta, 08/10", "Amanhã · …", "Sábado, 10/10".
+    function titulo_dia(d,   s, df) {
+      civil(d); s = DOWL[(d + 4) % 7 + 1] ", " sprintf("%02d/%02d", CD, CM)
+      if (CY != ANO) s = s sprintf("/%02d", CY % 100)
+      df = d - HOJE
+      if (df == 0) return "Hoje · " s
+      if (df == 1) return "Amanhã · " s
+      return toupper(substr(s, 1, 1)) substr(s, 2)
     }
     BEGIN {
       cores(); HOJE = dia(NOW); civil(HOJE); ANO = CY
+      split("domingo segunda terça quarta quinta sexta sábado", DOWL, " ")
+      AGENDA = (FILTRO == "prazo" || FILTRO == "hoje")
       Q = ENVIRON["TQ"]; QL = ENVIRON["TQL"]; EXP = ENVIRON["TEXP"]
-      n = split(ENVIRON["TNOTAS"], nl, "\n")
-      for (i = 1; i <= n; i++) if ((j = index(nl[i], "\t")) > 0) NOTA[substr(nl[i], 1, j - 1)] = substr(nl[i], j + 1)
     }
     NF >= 5 && valida($1, $2) && !($1 in VISTO) {
       VISTO[$1] = 1; meta = (NF >= 6 ? $6 : ""); pai = mv(meta, "pai")
@@ -5378,7 +5469,16 @@ tarefas_lista_fzf() { # [busca]
         next
       }
       nt++; TID[nt] = $1; TEST[nt] = $2; TTXT[nt] = $5; TMETA[nt] = meta
+      d64 = mv(meta, "desc"); TDESC[nt] = (d64 != "" ? b64d(d64) : "")
       TKEY[nt] = chave_ordem($1, $2, $3, meta)
+      # Agenda (abas Hoje e Agenda): atrasadas primeiro, depois por dia; no dia, o "dia todo" antes
+      # e as com horário na ordem da hora.
+      p = mv(meta, "prazo")
+      if (AGENDA && p != "") {
+        h = (mv(meta, "hora") == 1); v = ($2 == "aberta" && vencida(p, h))
+        TGRP[nt] = (v ? "A" : dia(p))
+        TKEY[nt] = sprintf("%d%010d%d%010d", (v ? 0 : 1), (v ? 0 : dia(p)), h, p) TKEY[nt]
+      }
     }
     END {
       for (i = 1; i <= nf; i++) if (FPAI[i] in VISTO) {
@@ -5390,20 +5490,25 @@ tarefas_lista_fzf() { # [busca]
         while (j >= 1 && TKEY[O[j]] > TKEY[v]) { O[j + 1] = O[j]; j-- }
         O[j + 1] = v
       }
-      vistas = 0
+      vistas = 0; grupo = ""
       for (k = 1; k <= nt; k++) {
         i = O[k]; id = TID[i]; est = TEST[i]; prazo = mv(TMETA[i], "prazo")
-        df = (prazo != "" ? dia(prazo) - HOJE : 0)
         if (FILTRO == "abertas" && est != "aberta") continue
         if (FILTRO == "feitas" && est != "feita") continue
-        if (FILTRO == "prazo" && prazo == "") continue
-        if (FILTRO == "hoje" && !(est == "aberta" && prazo != "" && df <= 0)) continue
+        if (FILTRO == "prazo" && !(est == "aberta" && prazo != "")) continue
+        if (FILTRO == "hoje" && !(est == "aberta" && prazo != "" && dia(prazo) <= HOJE)) continue
         tags = mv(TMETA[i], "tags"); tagtxt = ""
         if (tags != "") { tagtxt = "#" tags; gsub(/,/, " #", tagtxt) }
         achou_sub = 0
         if (QL != "") {
           for (j = 1; j <= NFI[id]; j++) if (index(tolower(FTXT[FI[id, j]]), QL)) achou_sub = 1
-          if (!index(tolower(TTXT[i] " " tagtxt), QL) && !achou_sub) continue
+          if (!index(tolower(TTXT[i] " " tagtxt " " TDESC[i]), QL) && !achou_sub) continue
+        }
+        if (AGENDA && TGRP[i] != grupo) {
+          grupo = TGRP[i]
+          if (vistas > 0) printf "\t\n"
+          if (grupo == "A") printf "\t %sAtrasadas%s\n", VERM NEG, Z
+          else printf "dia:%s\t %s%s%s  %s▦%s\n", grupo, SUB NEG, titulo_dia(grupo), Z, DIM, Z
         }
         vistas++
         aberto = (index(EXP, "," id ",") > 0 || achou_sub)
@@ -5416,7 +5521,7 @@ tarefas_lista_fzf() { # [busca]
       } else if (vistas == 0) {
         if (FILTRO == "hoje")         { m1 = "Nada vence hoje."; m2 = "Aproveite. As outras estão na aba Abertas." }
         else if (FILTRO == "feitas")  { m1 = "Nenhuma tarefa concluída ainda."; m2 = "Marque uma com ⏎, duplo clique ou ✓ Feita." }
-        else if (FILTRO == "prazo")   { m1 = "Nenhuma tarefa com prazo."; m2 = "Use ◷ Prazo, ou escreva @amanha ao criar." }
+        else if (FILTRO == "prazo")   { m1 = "Nada agendado."; m2 = "Use ◷ Prazo, ou escreva @sex 14h ao criar. ▦ Calendário mostra o mês." }
         else if (FILTRO == "abertas") { m1 = "Tudo feito por aqui!"; m2 = "Digite no campo acima e tecle ⏎ para criar outra." }
         else                          { m1 = "Nenhuma tarefa ainda."; m2 = "Digite no campo acima e tecle ⏎ para criar a primeira." }
         printf "\t\n\t   %s%s%s\n\t   %s%s%s\n\t\n\t   %s? mostra como usar o painel%s\n", TXT NEG, m1, Z, SUB, m2, Z, DIM, Z
@@ -5433,30 +5538,45 @@ tarefas_ajuda_linhas() {
   printf '\t\n\t %sCRIAR%s\n' "$a" "$z"
   printf '\t   Digite no campo %sbuscar ou criar%s e tecle %s⏎%s. Se nenhuma\n' "$y" "$z" "$y" "$z"
   printf '\t   tarefa tiver esse texto, aparece %s+ criar tarefa%s: ⏎ cria.\n' "$y" "$z"
-  printf '\t   Ou clique em %s+ Nova%s (ou %s^n%s).\n' "$y" "$z" "$y" "$z"
-  printf '\t\n\t %sATALHOS NA FRASE%s %s(opcionais, em qualquer ponto)%s\n' "$a" "$z" "$d" "$z"
-  printf '\t   %s@amanha%s      prazo: @hoje @amanha @seg … @dom @25/12\n' "$y" "$z"
-  printf '\t   %s!alta%s        prioridade: !alta  !media\n' "$y" "$z"
-  printf '\t   %s*semanal%s     repetir: *diaria *semanal *mensal (*d *w *m)\n' "$y" "$z"
-  printf '\t   %s#casa%s        etiqueta (a busca também acha por #casa)\n' "$y" "$z"
-  printf '\t   %sex.:%s Pagar aluguel @05/11 !alta *mensal #casa\n' "$d" "$z"
+  printf '\t   Ou %s+ Nova%s (^n), que pede o título e a descrição.\n' "$y" "$z"
+  printf '\t\n\t %sNO TÍTULO%s %s(tudo opcional, em qualquer ponto)%s\n' "$a" "$z" "$d" "$z"
+  printf '\t   %s@amanha%s       prazo: @hoje @amanha @seg … @dom @25/12\n' "$y" "$z"
+  printf '\t   %s@sex 14h%s      prazo com horário: @14h @sex 9:30 @amanha às 18h\n' "$y" "$z"
+  printf '\t   %s!alta%s         prioridade: !alta  !media\n' "$y" "$z"
+  printf '\t   %s*semanal%s      repetir: *diaria *semanal *mensal (*d *w *m)\n' "$y" "$z"
+  printf '\t   %s#casa%s         etiqueta (a busca também acha por #casa)\n' "$y" "$z"
+  printf '\t   %s// texto%s      descrição (outro // começa outra linha)\n' "$y" "$z"
+  printf '\t   %sex.:%s Reunião com a Ana @sex 14h !alta // levar o relatório\n' "$d" "$z"
+  printf '\t\n\t %sDESCRIÇÃO%s\n' "$a" "$z"
+  printf '\t   A 1ª linha aparece sob a tarefa; aberta (▾), aparece inteira.\n'
+  printf '\t   Clique nela (ou %s✎ Descrição%s, ^e) para editar no editor do tt\n' "$y" "$z"
+  printf '\t   (Ctrl+S salva e sai; :q! cancela).\n'
+  printf '\t\n\t %sPRAZO E HORÁRIO%s\n' "$a" "$z"
+  printf '\t   %s◷ Prazo%s (^d) abre o calendário: clique no dia e, se quiser,\n' "$y" "$z"
+  printf '\t   num horário (ou digite 1430); %s✓ Definir prazo%s grava. Sem\n' "$y" "$z"
+  printf '\t   horário vale o dia todo. Com horário, vence na hora e o tt\n'
+  printf '\t   avisa 10 min antes.\n'
+  printf '\t   A aba %sAgenda%s lista o que tem prazo, dia a dia, pela hora;\n' "$y" "$z"
+  printf '\t   %s▦ Calendário%s (e o relógio da barra) mostra o mês com • nos\n' "$y" "$z"
+  printf '\t   dias com tarefas e cria tarefas no dia e na hora escolhidos.\n'
   printf '\t\n\t %sMOUSE%s\n' "$a" "$z"
   printf '\t   %sclique%s numa tarefa      abre/fecha os detalhes (▸ ▾)\n' "$n" "$z"
   printf '\t   %sduplo clique%s            marca/desmarca como feita\n' "$n" "$z"
   printf '\t   %sbotão direito%s           menu com todas as ações\n' "$n" "$z"
   printf '\t   clique numa %ssubtarefa%s   marca/desmarca\n' "$n" "$z"
-  printf '\t   abas e botões do topo e as linhas %s+ adicionar%s, %s✎ nota%s e\n' "$a" "$z" "$s" "$z"
-  printf '\t   %s⋯ mais ações%s dentro de uma tarefa aberta também são clicáveis\n' "$a" "$z"
+  printf '\t   abas, botões do topo, títulos de dia da Agenda e as linhas de\n'
+  printf '\t   uma tarefa aberta (%s+ adicionar%s, %s✎ descrição%s, %s⋯ mais ações%s) também\n' "$a" "$z" "$s" "$z" "$a" "$z"
   printf '\t\n\t %sTECLADO%s\n' "$a" "$z"
   printf '\t   %s⏎%s feita/aberta   %s→ ␣%s abre   %s←%s fecha   %sTab%s próxima aba\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
-  printf '\t   %s^n%s nova   %s^s%s subtarefa   %s^e%s nota   %s^d%s prazo   %sF2%s renomear\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
+  printf '\t   %s^n%s nova   %s^s%s subtarefa   %s^e%s descrição   %s^d%s prazo   %sF2%s renomear\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^p%s prioridade   %s^r%s repetir   %s^k ^j%s sobe/desce   %s^x%s apaga\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
-  printf '\t   %s^l%s limpa as feitas   %s^/%s prévia   %s?%s ajuda   %sesc%s volta/fecha\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
+  printf '\t   %s^t%s calendário   %s^o%s mais ações   %s^l%s limpa as feitas   %s^/%s prévia\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
+  printf '\t   %s?%s ajuda   %sesc%s volta/fecha\n' "$y" "$z" "$y" "$z"
   printf '\t   %s(^n = Ctrl+N)%s\n' "$d" "$z"
   printf '\t\n\t %sSÍMBOLOS%s\n' "$a" "$z"
   printf '\t   %s☐%s aberta   %s☑%s feita   %s▸%s fechada   %s▾%s aberta (detalhes)\n' "$t" "$z" "$verde" "$z" "$a" "$z" "$a" "$z"
-  printf '\t   %s●%s prioridade alta   %s●%s média   %s◷%s prazo   %s◷ venceu%s atrasada\n' "$verm" "$z" "$y" "$z" "$s" "$z" "$verm" "$z"
-  printf '\t   %s↻%s repete   %s━━━%s%s━━━%s 1/2 subtarefas feitas   %s✎%s tem nota   %s#tag%s\n' "$teal" "$z" "$teal" "$z" "$d" "$z" "$s" "$z" "$lil" "$z"
+  printf '\t   %s●%s prioridade alta   %s●%s média   %s◷ sex 14:00%s prazo   %s◷ venceu%s atrasada\n' "$verm" "$z" "$y" "$z" "$s" "$z" "$verm" "$z"
+  printf '\t   %s↻%s repete   %s━━━%s%s━━━%s 1/2 subtarefas feitas   %s#tag%s\n' "$teal" "$z" "$teal" "$z" "$d" "$z" "$lil" "$z"
   printf '\t\n\t %sSINCRONIA%s\n' "$a" "$z"
   printf '\t   As tarefas vão para as suas outras máquinas sozinhas\n'
   printf '\t   (tarefas_sync em ~/.config/tt/config: p2p, git, ambos ou off).\n'
@@ -5485,11 +5605,11 @@ tarefas_menu_linhas() { # id
   if [[ $est == feita ]]; then _op feita "$t↺ Reabrir (marcar como não feita)" '⏎'
   else _op feita "$g☑ Marcar como feita" '⏎ ou duplo clique'; fi
   _op renomear "$t✎ Renomear…" F2
-  _op nota "$t✎ Nota…" '^e'
+  _op desc "$t✎ Descrição…" '^e'
   [[ -z $pai ]] && _op sub "$t↳ Adicionar subtarefa…" '^s'
   if [[ -z $pai ]]; then
-    pr=$([[ -n $prazo ]] && tarefas_prazo_texto "$prazo")
-    _op prazo "$t◷ Prazo…" "${pr:-sem prazo} · ^d"
+    pr=$([[ -n $prazo ]] && tarefas_prazo_texto "$prazo" "$(tarefas_meta_get "$m" hora)")
+    _op prazo "$t◷ Prazo e horário…" "${pr:-sem prazo} · ^d"
     printf '\t\n\t   %sPrioridade%s %s(^p alterna)%s\n' "$s" "$z" "$d" "$z"
     _escolha prio1 "$([[ $prio == 1 ]] && echo 1)" "${r}●$z$t Alta"
     _escolha prio2 "$([[ $prio == 2 ]] && echo 1)" "${y}●$z$t Média"
@@ -5506,12 +5626,12 @@ tarefas_menu_linhas() { # id
   _op apagar "$r✕ Apagar…" '^x'
 }
 
-# O id da tarefa por trás de uma chave de linha ("nota:ID", "sub:ID", "menu:ID" ou o próprio ID).
+# O id da tarefa por trás de uma chave de linha ("desc:ID", "sub:ID", "menu:ID" ou o próprio ID).
 tarefas_id_da_chave() {
   case $1 in
-    nota:*|sub:*|menu:*) echo "${1#*:}" ;;
+    desc:*|sub:*|menu:*) echo "${1#*:}" ;;
     act:*) echo "${1##*:}" ;;
-    criar|voltar|'') : ;;
+    criar|voltar|dia:*|'') : ;;
     *) echo "$1" ;;
   esac
 }
@@ -5564,12 +5684,17 @@ tarefa_acao() { # evento chave
       tarefas_ui_set modo lista; echo "$rl+$hd+first"; return ;;
     nova)
       tarefas_ui_set modo lista; echo "execute($EU --tarefa-nova-prompt)+clear-query+$rl+$hd"; return ;;
+    calendario)
+      echo "execute(TT_CAL_DENTRO=1 $EU --calendario-agenda)+$rl+$hd"; return ;;
     limpar)
       echo "execute($EU --tarefa-limpar-prompt)+$rl+$hd"; return ;;
   esac
   # Linhas especiais da lista.
   case $chave in
     voltar) [[ $ev == enter || $ev == clique ]] && { _volta; return; } ;;
+    dia:*)
+      # Título de um dia na agenda: abre o calendário nesse dia.
+      [[ $ev == enter || $ev == clique ]] && { echo "execute(TT_CAL_DENTRO=1 $EU --calendario-agenda ${chave#dia:})+$rl+$hd"; return; } ;;
     criar|'')
       if [[ -n $qy && ( $ev == enter || $chave == criar && $ev == clique ) ]]; then
         tarefa_add_natural "$qy" >/dev/null
@@ -5598,7 +5723,7 @@ tarefa_acao() { # evento chave
   case $ev in
     enter|clique)
       case $chave in
-        nota:*) echo "execute($EU --tarefa-desc-prompt $id)+$rl"; return ;;
+        desc:*) echo "execute($EU --tarefa-desc-prompt $id)+$rl"; return ;;
         sub:*) echo "execute($EU --tarefa-sub-prompt $id)+$rl+$hd"; return ;;
         menu:*) tarefas_ui_set modo "menu:$id"; echo "clear-query+$rl+$hd+first"; return ;;
       esac
@@ -5622,7 +5747,7 @@ tarefa_acao() { # evento chave
     sub)
       [[ -n $pai ]] && id=$pai
       echo "execute($EU --tarefa-sub-prompt $id)+$rl+$hd" ;;
-    nota) echo "execute($EU --tarefa-desc-prompt $id)+$rl" ;;
+    desc) echo "execute($EU --tarefa-desc-prompt $id)+$rl" ;;
     prazo) [[ -n $pai ]] && id=$pai; echo "execute($EU --tarefa-prazo-prompt $id)+$rl+$hd" ;;
     renomear) echo "execute($EU --tarefa-renomear-prompt $id)+$rl" ;;
     prio) [[ -n $pai ]] && id=$pai; tarefa_prio_ciclar "$id"; echo "$rl" ;;
@@ -5645,7 +5770,7 @@ tarefa_preview() { # chave
   local prio; prio=$(tarefas_meta_get "$m" prio)
   [[ -n $prio ]] && printf 'prioridade: %s\n' "$([[ $prio == 1 ]] && echo '🔴 alta' || echo '🟡 média')"
   prazo=$(tarefas_meta_get "$m" prazo)
-  [[ -n $prazo ]] && printf 'prazo: %s\n' "$(tt_fmt_epoch "$prazo" +'%a, %d/%m/%Y')"
+  [[ -n $prazo ]] && printf 'prazo: %s\n' "$(tarefas_prazo_texto "$prazo" "$(tarefas_meta_get "$m" hora)")"
   local rep; rep=$(tarefas_meta_get "$m" rep)
   [[ -n $rep ]] && printf 'repete: %s\n' "$([[ $rep == d ]] && echo diária || { [[ $rep == w ]] && echo semanal || echo mensal; })"
   local tgs; tgs=$(tarefas_meta_get "$m" tags)
@@ -5658,32 +5783,40 @@ tarefa_preview() { # chave
 # Cartão de explicação da sintaxe natural, mostrado ao criar uma tarefa.
 tarefas_dica_frase() {
   local z=$'\e[0m' y=$'\e[38;2;249;226;175m' d=$'\e[38;2;108;112;134m'
-  printf '  %sOpcional, em qualquer ponto da frase:%s\n' "$d" "$z"
-  printf '    %s@amanha%s     prazo       %s@hoje @amanha @seg…@dom @25/12%s\n' "$y" "$z" "$d" "$z"
-  printf '    %s!alta%s       prioridade  %s!alta !media%s\n' "$y" "$z" "$d" "$z"
-  printf '    %s*semanal%s    repetir     %s*diaria *semanal *mensal%s\n' "$y" "$z" "$d" "$z"
-  printf '    %s#casa%s       etiqueta\n' "$y" "$z"
-  printf '  %sex.: Pagar aluguel @05/11 !alta *mensal #casa%s\n\n' "$d" "$z"
+  printf '  %sNo título dá para incluir, em qualquer ponto (tudo opcional):%s\n' "$d" "$z"
+  printf '    %s@amanha%s       prazo       %s@hoje @amanha @seg…@dom @25/12%s\n' "$y" "$z" "$d" "$z"
+  printf '    %s@sex 14h%s      com horário %s@14h @sex 9:30 @amanha às 18h%s\n' "$y" "$z" "$d" "$z"
+  printf '    %s!alta%s         prioridade  %s!alta !media%s\n' "$y" "$z" "$d" "$z"
+  printf '    %s*semanal%s      repetir     %s*diaria *semanal *mensal%s\n' "$y" "$z" "$d" "$z"
+  printf '    %s#casa%s         etiqueta\n' "$y" "$z"
+  printf '    %s// texto%s      descrição   %s(o que vem depois de //)%s\n' "$y" "$z" "$d" "$z"
+  printf '  %sex.: Reunião com a Ana @sex 14h !alta // levar o relatório%s\n\n' "$d" "$z"
 }
 
-# Lê uma linha (com edição de linha quando há terminal). TEXTO inicial opcional.
-tarefas_ler_linha() { # variável [texto-inicial]
+# Lê uma linha (com edição de linha quando há terminal). TEXTO inicial e RÓTULO opcionais.
+tarefas_ler_linha() { # variável [texto-inicial] [rótulo]
   local _v
-  if [[ -t 0 ]]; then IFS= read -r -e ${2:+-i "$2"} -p '  ❯ ' _v || return 1
+  if [[ -t 0 ]]; then IFS= read -r -e ${2:+-i "$2"} -p "  ${3:+$3 }❯ " _v || return 1
   else IFS= read -r _v || return 1; fi
   printf -v "$1" '%s' "$_v"
 }
 
-# Prompt de nova tarefa (chamado por execute() do fzf: tem o TTY). Lê uma linha e cria.
+# Prompt de nova tarefa (chamado por execute() do fzf: tem o TTY): título e, opcional, descrição.
 tarefa_nova_prompt() {
-  local t z=$'\e[0m' a=$'\e[38;2;137;180;250m\e[1m' d=$'\e[38;2;108;112;134m'
+  local t ds id z=$'\e[0m' a=$'\e[38;2;137;180;250m\e[1m' d=$'\e[38;2;108;112;134m'
   clear 2>/dev/null
-  printf '\n  %s+ Nova tarefa%s\n  %sEscreva e tecle ⏎ · ⏎ vazio cancela%s\n\n' "$a" "$z" "$d" "$z"
+  printf '\n  %s+ Nova tarefa%s\n  %sEscreva o título e tecle ⏎ · ⏎ vazio cancela%s\n\n' "$a" "$z" "$d" "$z"
   tarefas_dica_frase
-  tarefas_ler_linha t || return 0
-  [[ -n ${t:-} ]] && tarefa_add_natural "$t" >/dev/null
+  tarefas_ler_linha t "" "Título" || return 0
+  [[ -n ${t:-} ]] || return 0
+  tarefas_ler_linha ds "" "Descrição (opcional, ⏎ pula)" || ds=""
+  id=$(tarefa_add_natural "$t") || return 0
+  [[ -n ${ds:-} && -n $id ]] && tarefa_set_desc "$id" "$(tarefas_desc_de_linha "$ds")"
   return 0
 }
+
+# Descrição escrita numa linha só (criação): " // " separa as linhas.
+tarefas_desc_de_linha() { printf '%s' "$1" | sed 's| *// *|\n|g' | sed 's/^ *//; s/ *$//' | sed '/^$/d'; }
 
 # Confirmação com dois botões clicáveis (tela cheia, dentro do popup). "s" ou clique no botão
 # confirma; ⏎, esc, "n" ou clique em Cancelar desistem (o padrão é não fazer nada). Sem
@@ -5830,13 +5963,14 @@ VIMRC
   rm -f "$tmp"
 }
 
-# Edita a descrição longa de ID num editor (editor_tt). Multi-linha.
+# Edita a descrição de ID no editor do tt (editor_tt: o vim com a configuração do tt, a não ser
+# que VISUAL/EDITOR digam outro). Multi-linha.
 tarefa_desc_prompt() {
   local id=$1 tmp
   [[ -n $id ]] || return 0
   local -a ed; read -ra ed <<<"$(editor_tt)"
   [[ ${ed[0]##*/} == nano ]] && ed+=(-t)   # -t: ^X salva e sai, sem perguntar
-  tmp=$(mktemp "${TMPDIR:-/tmp}/tt-nota.XXXXXX") || return 0
+  tmp=$(mktemp "${TMPDIR:-/tmp}/tt-descricao.XXXXXX") || return 0
   tarefa_get_desc "$id" >"$tmp"
   # Só usa /dev/tty se der para abri-lo (num fluxo headless/teste ele pode existir mas não abrir).
   if { : >/dev/tty; } 2>/dev/null; then "${ed[@]}" "$tmp" </dev/tty >/dev/tty 2>&1 || { rm -f "$tmp"; return 0; }
@@ -5846,181 +5980,357 @@ tarefa_desc_prompt() {
   return 0
 }
 
-# Abre o calendário interativo para escolher o prazo de ID. ⏎ (ou clique num dia) grava a data;
-# "x" limpa o prazo; esc cancela.
+# Abre o calendário para escolher o prazo de ID: o dia e, se quiser, o horário (o padrão é o dia
+# todo). "Definir prazo" (ou ⏎, ou duplo clique no dia) grava; "sem prazo" (x) tira; esc cancela.
 tarefa_prazo_prompt() {
-  local id=$1 escolha ini
+  local id=$1 escolha ini hora ep h
   [[ -n $id ]] || return 0
-  ini=$(tarefa_get_prazo "$id")
-  escolha=$(calendario_tui "$ini") || return 0
-  case $escolha in
+  ini=$(tarefa_get_prazo "$id"); hora=$(tarefas_meta_get "$(tarefas_meta_de "$id")" hora)
+  escolha=$(calendario_tui prazo "$ini" "$hora" "$id") || return 0
+  read -r ep h <<<"$escolha"
+  case $ep in
     "") : ;;
     limpar) tarefa_set_prazo "$id" "" ;;
-    *) tarefa_set_prazo "$id" "$escolha" ;;
+    *) tarefa_set_prazo "$id" "$ep" "$h" ;;
   esac
   return 0
 }
 
-# --- calendário interativo -------------------------------------------------
+# --- calendário e agenda ----------------------------------------------------
 #
-# Calendário navegável desenhado no /dev/tty; imprime no stdout o epoch da data escolhida (⏎ ou
-# clique no dia), "limpar" (tecla x ou botão) ou nada (esc). Cabeçalho com o dia por extenso em
-# português; grade do mês com o número ISO da semana na lateral; o dia em foco é destacado e
-# "hoje" fica sublinhado. A linha de botões (‹ mês ›, hoje, sem prazo, cancelar) e a roda do
-# mouse (troca o mês) também funcionam.
+# Um calendário só, em dois modos, desenhado no /dev/tty, com teclado e mouse (SGR 1006):
+#   prazo   escolhe o prazo de uma tarefa: o dia e, opcionalmente, o horário. Mostra o que já está
+#           marcado no dia em foco. Imprime "EPOCH" (dia todo, 12:00), "EPOCH 1" (com horário),
+#           "limpar" (sem prazo) ou nada (cancelou).
+#   agenda  o do relógio da barra e do botão ▦ Calendário do painel: marca (•) os dias com tarefas,
+#           lista as do dia em foco (clique marca feita) e cria tarefas no dia e horário em foco.
+# Em teste, TT_CAL_TECLAS traz as teclas a consumir (uma por caractere; "\n" = ⏎), sem desenhar.
 TT_MESES=(janeiro fevereiro março abril maio junho julho agosto setembro outubro novembro dezembro)
 TT_DIAS_SEMANA=(domingo segunda-feira terça-feira quarta-feira quinta-feira sexta-feira sábado)
 
-calendario_tui() { # [epoch_inicial]
-  local ini=${1:-} hoje_y hoje_m hoje_d
-  local foco_y foco_m foco_d
-  hoje_y=$(date +%Y); hoje_m=$(date +%-m); hoje_d=$(date +%-d)
-  if [[ -n $ini && $ini =~ ^[0-9]+$ ]]; then
-    foco_y=$(date -d "@$ini" +%Y); foco_m=$(date -d "@$ini" +%-m); foco_d=$(date -d "@$ini" +%-d)
-  else
-    foco_y=$hoje_y; foco_m=$hoje_m; foco_d=$hoje_d
+# Dias desde 1970-01-01 <-> data civil, só com aritmética (sem chamar o date para cada célula).
+_cal_dias() { # ano mês dia -> R
+  local y=$1 m=$2 d=$3 era yoe doy
+  ((y -= (m <= 2) ? 1 : 0)); era=$(( (y >= 0 ? y : y - 399) / 400 )); yoe=$((y - era * 400))
+  doy=$(( (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1 ))
+  R=$(( era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468 ))
+}
+_cal_civil() { # dias -> CY CM CD
+  local z=$(( $1 + 719468 )) era doe yoe doy mp
+  era=$(( (z >= 0 ? z : z - 146096) / 146097 )); doe=$((z - era * 146097))
+  yoe=$(( (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365 ))
+  doy=$((doe - (365 * yoe + yoe / 4 - yoe / 100))); mp=$(( (5 * doy + 2) / 153 ))
+  CD=$((doy - (153 * mp + 2) / 5 + 1)); CM=$(( mp < 10 ? mp + 3 : mp - 9 )); CY=$((yoe + era * 400 + (CM <= 2 ? 1 : 0)))
+}
+
+calendario_tui() { # modo [epoch-ou-dia] [1 = com horário] [id da tarefa]
+  local modo=${1:-prazo} ini=${2:-} hora_ini=${3:-} tid=${4:-}
+  [[ $modo == prazo || $modo == agenda ]] || { ini=$modo; modo=prazo; }
+  local agora tz hoje foco hora="" hbuf="" msg="" tecla resto
+  local teste=${TT_CAL_TECLAS:-} ti=0 ult_clique="" ult_t=0
+  read -r agora tz < <(tarefas_relogio); hoje=$(( (agora + tz) / 86400 )); foco=$hoje
+  if [[ $ini =~ ^[0-9]+$ ]]; then
+    if ((ini > 1000000)); then
+      foco=$(( (ini + tz) / 86400 ))
+      if [[ $hora_ini == 1 ]]; then local s=$(( (ini + tz) % 86400 )); printf -v hora '%02d:%02d' $((s / 3600)) $((s % 3600 / 60)); fi
+    else foco=$ini; fi
   fi
-  local roxo=$'\e[38;2;137;180;250m' amar=$'\e[38;2;249;226;175m' cinza=$'\e[38;2;108;112;134m' inv=$'\e[7m' sub=$'\e[4m' z=$'\e[0m' neg=$'\e[1m'
-  local bt=$'\e[48;2;49;50;68m\e[38;2;205;214;244m'
-  # Geometria (1-based) para o mouse: linha dos botões, 1ª linha da grade e colunas dos botões.
-  local y_bot=4 y_grade=7 off=0 nsem=0
-  local -a bx=()   # pares início fim ação
-  _cal_valido() { # ano mes dia -> ajusta dia ao último do mês se estourar
-    local y=$1 m=$2 d=$3 ult
-    ult=$(date -d "$y-$m-01 +1 month -1 day" +%-d 2>/dev/null) || ult=28
-    ((d > ult)) && d=$ult; ((d < 1)) && d=1; echo "$y $m $d"
+  local titulo_t=""
+  [[ -n $tid ]] && titulo_t=$(tarefas_raw | awk -F'\t' -v id="$tid" '$1==id{print $5; exit}')
+  local z=$'\e[0m' neg=$'\e[1m' inv=$'\e[7m' subl=$'\e[4m'
+  local c_txt=$'\e[38;2;205;214;244m' c_sub=$'\e[38;2;166;173;200m' c_dim=$'\e[38;2;108;112;134m'
+  local c_azul=$'\e[38;2;137;180;250m' c_amar=$'\e[38;2;249;226;175m' c_verm=$'\e[38;2;243;139;168m'
+  local c_verde=$'\e[38;2;166;227;161m' c_pess=$'\e[38;2;250;179;135m'
+  local b_cinza=$'\e[48;2;49;50;68m' b_azul=$'\e[48;2;137;180;250m\e[38;2;30;30;46m\e[1m'
+  local -a TELA=() REG=() DIA_L=() CHIPS=(08:00 09:00 12:00 14:00 18:00)
+  local -A MARCA=()
+  local ln="" cx=1 W=72 H=40
+
+  # Montagem da tela: _seg acrescenta um pedaço à linha corrente (e registra a área clicável),
+  # _fim fecha a linha. Só caracteres de largura 1, então a largura é o número de caracteres.
+  _seg() { # visível desenho [ação]
+    [[ -n ${3:-} ]] && REG+=("$(( ${#TELA[@]} + 1 )) $cx $((cx + ${#1} - 1)) $3")
+    ln+=$2; cx=$((cx + ${#1}))
   }
-  _cal_desenha() {
-    local y=$foco_y m=$foco_m d=$foco_d
-    local prim_dow ult dstr
-    prim_dow=$(date -d "$y-$m-01" +%w 2>/dev/null)       # 0=domingo
-    ult=$(date -d "$y-$m-01 +1 month -1 day" +%-d 2>/dev/null)
-    clear >/dev/tty 2>/dev/null
-    local titulo
-    titulo=$(printf '%s, %02d de %s de %s' "${TT_DIAS_SEMANA[$(date -d "$y-$m-$d" +%w)]^}" "$d" "${TT_MESES[$((m-1))]}" "$y")
-    # Botões: "  ‹ mês │ mês › │ hoje │ sem prazo │ cancelar"
-    local -a rot=(' ‹ ' " ${TT_MESES[$((m-1))]} $y " ' › ' ' hoje ' ' sem prazo ' ' cancelar ')
-    local -a aca=(ant '' prox hoje limpar sair)
-    local i x=3 linha_b="  "
-    bx=()
-    for i in "${!rot[@]}"; do
-      if [[ -n ${aca[$i]} ]]; then linha_b+="$bt${rot[$i]}$z"; else linha_b+="$neg${rot[$i]}$z"; fi
-      bx+=("$x" "$((x + ${#rot[$i]} - 1))" "${aca[$i]}")
-      x=$((x + ${#rot[$i]} + 1)); linha_b+=" "
-    done
-    { printf '\n  %s%s%s%s\n\n' "$roxo" "$neg" "$titulo" "$z"
-      printf '%s\n\n' "$linha_b"
-      printf '  %s       seg ter qua qui sex sáb dom%s\n' "$cinza" "$z"
-      # começa na segunda; converte prim_dow (0=dom) para offset com semana ISO (seg=0)
-      off=$(( (prim_dow + 6) % 7 )); nsem=0
-      local diapos=1 semana_num
-      while ((diapos <= ult)); do
-        semana_num=$(date -d "$y-$m-$diapos" +%V 2>/dev/null)
-        printf '  %ssem %2s %s' "$cinza" "$semana_num" "$z"
-        local c
-        for ((c=0;c<7;c++)); do
-          if ((diapos==1 && c<off)); then printf '    '; continue; fi
-          ((diapos>ult)) && { printf '    '; continue; }
-          dstr=$(printf '%3d' "$diapos")
-          if ((diapos==d)); then printf '%s%s%s%s ' "$roxo" "$inv" "$dstr" "$z"
-          elif ((y==hoje_y && m==hoje_m && diapos==hoje_d)); then printf '%s%s%s%s ' "$amar" "$sub" "$dstr" "$z"
-          else printf '%s ' "$dstr"; fi
-          ((diapos++))
-        done
-        printf '\n'; nsem=$((nsem + 1))
-        ((diapos>ult)) && break
+  _fim() { TELA+=("$ln"); ln=""; cx=1; }
+  _botao() { # rótulo ação [estilo]; quebra a linha se não couber
+    local r=" $1 "
+    ((cx > 3 && cx + ${#r} > W)) && { _fim; _seg "  " "  "; }
+    ((cx > 3)) && _seg " " " "
+    _seg "$r" "${3:-$b_cinza$c_txt}$r$z" "$2"
+  }
+  _data_longa() { # dias -> "Quinta-feira, 08 de outubro de 2026"
+    _cal_civil "$1"; local ds=${TT_DIAS_SEMANA[$(( ($1 + 4) % 7 ))]}
+    printf '%s, %02d de %s de %s' "${ds^}" "$CD" "${TT_MESES[$((CM - 1))]}" "$CY"
+  }
+  _data_curta() { # dias -> "sex 10/10"
+    _cal_civil "$1"; local ds=${TT_DIAS_SEMANA[$(( ($1 + 4) % 7 ))]}
+    printf '%s %02d/%02d' "${ds:0:3}" "$CD" "$CM"
+  }
+  # Tarefas: dias do mês com tarefas abertas (MARCA) e as do dia em foco (DIA_L); em hoje, também
+  # as atrasadas. DIA_L: id<TAB>estado<TAB>hora<TAB>atrasada<TAB>texto.
+  _dados() { # dia-inicial dia-final
+    MARCA=(); DIA_L=()
+    [[ -s $CONF_TAREFAS ]] || return 0
+    local l
+    while IFS= read -r l; do
+      case $l in M\ *) MARCA[${l#M }]=1 ;; D\ *) l=${l#D }; DIA_L+=("${l#*$'\t'}") ;; esac
+    done < <(LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v A="$1" -v B="$2" -v F="$foco" -v HJ="$hoje" "$TAREFAS_AWK"'
+      NF >= 5 && valida($1, $2) && !($1 in v) && mv($6, "pai") == "" {
+        v[$1] = 1; p = mv($6, "prazo"); if (p == "") next
+        d = dia(p); h = (mv($6, "hora") == 1)
+        if ($2 == "aberta" && d >= A && d <= B) print "M " d
+        if (d == F || (F == HJ && $2 == "aberta" && d < HJ))
+          printf "D %d%d%010d\t%s\t%s\t%s\t%s\t%s\n", (d < F ? 0 : 1), h, p, $1, $2, (h ? hhmm(p) : "-"), (d < F ? 1 : "-"), $5
+      }' "$CONF_TAREFAS" | LC_ALL=C sort)
+  }
+  _desenha() {
+    W=$(tput cols 2>/dev/null || echo 72); H=$(tput lines 2>/dev/null || echo 40)
+    ((W > 100)) && W=100
+    TELA=(); REG=(); ln=""; cx=1
+    local compacto=$(( H < 32 ? 1 : 0 ))
+    _br() { ((compacto)) || _fim; }     # linha em branco (some em tela baixa)
+    _dicas() { # itens separados por " · ", quebrando só entre itens
+      local it lin="" IFS=$'\x1f'
+      for it in ${1// · /$'\x1f'}; do
+        if [[ -n $lin ]] && ((2 + ${#lin} + 3 + ${#it} > W)); then _seg "  $lin" "  $c_dim$lin$z"; _fim; lin=""; fi
+        lin+="${lin:+ · }$it"
       done
-      printf '\n  %s← → dia · ↑ ↓ semana · < > mês · - + ano%s\n' "$cinza" "$z"
-      printf '  %st hoje · x sem prazo · ⏎ ou clique escolhe · esc sai%s\n' "$cinza" "$z"
-    } >/dev/tty
+      [[ -n $lin ]] && { _seg "  $lin" "  $c_dim$lin$z"; _fim; }
+    }
+    _cal_civil "$foco"; local y=$CY m=$CM
+    local prim ult off; _cal_dias "$y" "$m" 1; prim=$R
+    if ((m == 12)); then _cal_dias $((y + 1)) 1 1; else _cal_dias "$y" $((m + 1)) 1; fi; ult=$((R - 1))
+    off=$(( (prim + 3) % 7 ))     # 0 = segunda
+    _dados "$prim" "$ult"
+    # título e o dia em foco por extenso
+    _br
+    if [[ $modo == prazo ]]; then
+      local tt=$titulo_t; ((${#tt} > W - 20)) && tt="${tt:0:$((W - 21))}…"
+      _seg "  ◷ Prazo" "  $c_azul$neg◷ Prazo$z"; [[ -n $tt ]] && _seg " de: $tt" "$c_sub de: $c_txt$neg$tt$z"
+    else
+      _seg "  ▦ Agenda" "  $c_azul$neg▦ Agenda$z"; _seg "  as tarefas com prazo, dia a dia" "$c_dim  as tarefas com prazo, dia a dia$z"
+    fi
+    _fim
+    local dl; dl=$(_data_longa "$foco")
+    _seg "  $dl" "  $c_txt$neg$dl$z"
+    if [[ -n $hora ]]; then _seg " às $hora" "$c_amar$neg às $hora$z"; else _seg " · dia todo" "$c_dim · dia todo$z"; fi
+    _fim; _br
+    # navegação do mês
+    _seg "  " "  "; _seg " ‹ " "$b_cinza$c_txt ‹ $z" ant
+    local mes=" ${TT_MESES[$((m - 1))]} $y "; _seg "$mes" "$neg$c_txt$mes$z"
+    _seg " › " "$b_cinza$c_txt › $z" prox; _seg "   " "   "; _seg " hoje " "$b_cinza$c_txt hoje $z" hoje
+    _fim; _br
+    _seg "         seg ter qua qui sex sáb dom" "$c_dim         seg ter qua qui sex sáb dom$z"; _fim
+    # grade: "  sem NN " + 7 células de 4 ("%3d" + marca •)
+    local w seg di c qui wk cel
+    for ((w = 0; w < 6; w++)); do
+      seg=$((prim - off + 7 * w)); ((seg > ult)) && break
+      qui=$((seg + 3)); _cal_civil "$qui"; _cal_dias "$CY" 1 1; wk=$(( (qui - R) / 7 + 1 ))
+      printf -v cel '  sem %2d ' "$wk"; _seg "$cel" "$c_dim$cel$z"
+      for ((c = 0; c < 7; c++)); do
+        di=$((seg + c))
+        if ((di < prim || di > ult)); then _seg "    " "    "; continue; fi
+        _cal_civil "$di"; printf -v cel '%3d' "$CD"
+        local est=$c_txt
+        ((di < hoje)) && est=$c_dim
+        ((di == hoje)) && est=$c_amar$subl
+        ((di == foco)) && est=$c_azul$inv$neg
+        _seg "$cel" "$est$cel$z" "dia:$di"
+        if [[ -n ${MARCA[$di]:-} ]]; then _seg "•" "$c_pess$neg•$z" "dia:$di"; else _seg " " " "; fi
+      done
+      _fim
+    done
+    _br
+    # horário (opcional): chips clicáveis ou digitar
+    _seg "  Horário " "  $c_sub${neg}Horário$z "
+    local hc ch
+    _botao "dia todo" "hora:" "$([[ -z $hora ]] && echo "$b_azul")"
+    for ch in "${CHIPS[@]}"; do _botao "$ch" "hora:$ch" "$([[ $hora == "$ch" ]] && echo "$b_azul")"; done
+    hc=0; for ch in "${CHIPS[@]}"; do [[ $hora == "$ch" ]] && hc=1; done
+    [[ -n $hora && $hc == 0 ]] && _botao "$hora" "hora:$hora" "$b_azul"
+    _fim
+    if [[ -n $hbuf ]]; then _seg "  digitando: $hbuf" "  ${c_amar}digitando: $hbuf$z"
+    else _seg "  ou digite a hora: 1430, 9h, 18:15 (opcional)" "  ${c_dim}ou digite a hora: 1430, 9h, 18:15 (opcional)$z"; fi
+    _fim; _br
+    # o que já está marcado no dia em foco
+    local n=${#DIA_L[@]} cab; cab="── $(_data_curta "$foco") · $( ((n == 0)) && echo 'nada marcado' || echo "$n tarefa$( ((n > 1)) && echo s)") ──"
+    _seg "  $cab" "  $c_sub$cab$z"; _fim
+    local rodape=$(( compacto ? 4 : 6 )) cabem i id est hh atr tx caixa rot
+    cabem=$((H - ${#TELA[@]} - rodape)); ((cabem < 1)) && cabem=1
+    for ((i = 0; i < n && i < cabem; i++)); do
+      IFS=$'\t' read -r id est hh atr tx <<<"${DIA_L[i]}"
+      [[ $hh == - ]] && hh=""; [[ $atr == - ]] && atr=""   # "-" = vazio (o read junta TABs seguidos)
+      if [[ $est == feita ]]; then caixa="$c_verde☑$z"; else caixa="$( [[ -n $atr ]] && echo "$c_verm" || echo "$c_txt")☐$z"; fi
+      rot=${hh:-dia todo}; [[ -n $atr ]] && rot="atrasada"
+      printf -v rot '%-8s' "$rot"
+      ((${#tx} > W - 22)) && tx="${tx:0:$((W - 23))}…"
+      _seg "    ☐ $rot  $tx" "    $caixa $( [[ -n $atr ]] && echo "$c_verm" || echo "$c_azul")$rot$z  $( [[ $est == feita ]] && echo "$c_dim" || echo "$c_txt")$tx$z" \
+        "$([[ $modo == agenda ]] && echo "tarefa:$id")"
+      _fim
+    done
+    ((n > cabem)) && { _seg "    … e mais $((n - cabem))" "    $c_dim… e mais $((n - cabem))$z"; _fim; }
+    _br
+    # ações
+    _seg "  " "  "
+    if [[ $modo == prazo ]]; then
+      _botao "✓ Definir prazo: $(_data_curta "$foco")${hora:+ às $hora}" ok "$b_azul"
+      _botao "sem prazo" limpar; _botao "cancelar" sair
+    else
+      _botao "+ Nova tarefa em $(_data_curta "$foco")${hora:+ às $hora}" nova "$b_azul"
+      [[ -n ${TT_CLIENTE:-} && -z ${TT_CAL_DENTRO:-} ]] && _botao "☰ Painel de tarefas" painel
+      _botao "fechar" sair
+    fi
+    _fim
+    if [[ $modo == prazo ]]; then
+      _dicas "← → ↑ ↓ dia · < > mês · t hoje · d dia todo · ⏎ ou duplo clique no dia define · x sem prazo · esc cancela"
+    else
+      _dicas "← → ↑ ↓ dia · < > mês · t hoje · d dia todo · ⏎ ou duplo clique no dia cria · clique na tarefa marca · esc fecha"
+    fi
+    [[ -n $msg ]] && { _seg "  $msg" "  $c_verm$msg$z"; _fim; }
+    # desenha por cima (sem limpar a tela inteira: não pisca)
+    local l
+    { printf '\e[H'; for l in "${TELA[@]}"; do printf '%s\e[K\n' "$l"; done; printf '\e[J'; } >/dev/tty
   }
-  local tecla rest
-  # Em teste, TT_CAL_TECLAS traz as teclas a consumir (uma por caractere; "\n" = Enter), sem tty.
-  local teste_teclas=${TT_CAL_TECLAS:-} teste_i=0
-  _cal_tecla() { # lê uma tecla em "tecla"; retorna 1 no fim
-    if [[ -n $teste_teclas ]]; then
-      ((teste_i < ${#teste_teclas})) || return 1
-      tecla=${teste_teclas:$teste_i:1}; teste_i=$((teste_i+1))
-      [[ $tecla == $'\n' ]] && tecla=""   # Enter
+  _tecla() { # lê uma tecla em "tecla"; 1 no fim do roteiro de teste
+    if [[ -n $teste ]]; then
+      ((ti < ${#teste})) || return 1
+      tecla=${teste:ti:1}; ti=$((ti + 1)); [[ $tecla == $'\n' ]] && tecla=""
       return 0
     fi
     IFS= read -rsn1 tecla </dev/tty
   }
-  _cal_fim() { [[ -n $teste_teclas ]] || printf '\e[?1000l\e[?1006l' >/dev/tty; }
-  # Clique (SGR 1006): botões da linha de cima, dia da grade, roda do mouse troca o mês.
-  _cal_mouse() { # b x y -> ajusta foco_d e define "acao" (ant, prox, hoje, limpar, sair, escolher)
-    local b=$1 x=$2 y=$3 i
-    case $b in 64) acao=ant; return 0 ;; 65) acao=prox; return 0 ;; 0) ;; *) return 0 ;; esac
-    if ((y == y_bot)); then
-      for ((i = 0; i < ${#bx[@]}; i += 3)); do
-        if ((x >= bx[i] && x <= bx[i+1])); then acao=${bx[i+2]}; return 0; fi
-      done
-      return 0
+  # Hora digitada: "14" -> 14:00, "143" -> 14:30, "1430" -> 14:30, "930" -> 09:30, "9h15", "18:5".
+  _hbuf() {
+    local hh mm d
+    if [[ $hbuf == *[:h]* ]]; then hh=${hbuf%%[:h]*}; mm=${hbuf#*[:h]}; [[ ${#mm} == 1 ]] && mm=${mm}0
+    else
+      d=$hbuf
+      case ${#d} in
+        1|2) hh=$d; mm=00 ;;
+        3) if ((10#${d:0:2} <= 23)); then hh=${d:0:2}; mm=${d:2}0; else hh=${d:0:1}; mm=${d:1}; fi ;;
+        *) hh=${d:0:2}; mm=${d:2:2} ;;
+      esac
     fi
-    if ((y >= y_grade && y < y_grade + nsem && x >= 10 && x <= 37)); then
-      local c=$(( (x - 10) / 4 )) w=$((y - y_grade)) dd ult
-      dd=$(( w * 7 + c - off + 1 ))
-      ult=$(date -d "$foco_y-$foco_m-01 +1 month -1 day" +%-d)
-      ((dd >= 1 && dd <= ult)) && { foco_d=$dd; acao=escolher; }
-    fi
-    return 0
+    [[ -z $hh ]] && return
+    if ((10#$hh < 24 && 10#${mm:-0} < 60)); then printf -v hora '%02d:%02d' "$((10#$hh))" "$((10#${mm:-0}))"; msg=""
+    else msg="hora inválida: $hbuf"; fi
   }
-  [[ -n $teste_teclas ]] || printf '\e[?1000h\e[?1006h' >/dev/tty
-  while :; do
-    read -r foco_y foco_m foco_d < <(_cal_valido "$foco_y" "$foco_m" "$foco_d")
-    [[ -n $teste_teclas ]] || _cal_desenha
-    _cal_tecla || { _cal_fim; echo ""; return 0; }
-    local acao=""
-    case $tecla in
-      $'\e')
-        if [[ -n $teste_teclas ]]; then echo ""; return 0; fi
-        IFS= read -rsn1 -t 0.02 rest </dev/tty || rest=""
-        if [[ $rest == '[' ]]; then
-          IFS= read -rsn1 -t 0.02 rest </dev/tty || rest=""
-          case $rest in
-            C) foco_d=$((foco_d+1)) ;;  # →
-            D) foco_d=$((foco_d-1)) ;;  # ←
-            A) foco_d=$((foco_d-7)) ;;  # ↑
-            B) foco_d=$((foco_d+7)) ;;  # ↓
-            '<')
-              local ev="" ch b x y
-              while IFS= read -rsn1 -t 0.05 ch </dev/tty; do ev+=$ch; [[ $ch == [Mm] ]] && break; done
-              if [[ $ev == *M ]]; then
-                IFS=';' read -r b x y <<<"${ev%M}"
-                _cal_mouse "$b" "$x" "$y"
-              fi ;;
-          esac
-        elif [[ -z $rest ]]; then _cal_fim; echo ""; return 0     # esc puro
-        fi ;;
-      h) foco_d=$((foco_d-1)) ;; l) foco_d=$((foco_d+1)) ;;
-      k) foco_d=$((foco_d-7)) ;; j) foco_d=$((foco_d+7)) ;;
-      '<'|',') acao=ant ;;
-      '>'|'.') acao=prox ;;
-      '-') foco_y=$((foco_y-1)) ;; '+'|'=') foco_y=$((foco_y+1)) ;;
-      t|T) acao=hoje ;;
-      x|X) acao=limpar ;;
-      '') acao=escolher ;;  # Enter
-      q) acao=sair ;;
+  _epoch() { # dia em foco (+ hora) -> epoch
+    _cal_civil "$foco"
+    tt_epoch_de "$(printf '%04d-%02d-%02d %s' "$CY" "$CM" "$CD" "${hora:-12:00}")"
+  }
+  _mes() { # ±N meses: mesmo dia no mês de destino (ajustado ao último dia dele)
+    _cal_civil "$foco"; local t=$((CY * 12 + CM - 1 + $1)) d=$CD u y m
+    y=$((t / 12)); m=$((t % 12 + 1))
+    if ((m == 12)); then _cal_dias $((y + 1)) 1 1; else _cal_dias "$y" $((m + 1)) 1; fi; u=$R
+    _cal_dias "$y" "$m" 1; ((d > u - R)) && d=$((u - R))
+    _cal_dias "$y" "$m" "$d"; foco=$R
+  }
+  _nova() { # cria uma tarefa no dia (e hora) em foco
+    local t d id
+    [[ -n $teste ]] || printf '\e[?1000l\e[?1006l\e[?25h\e[H\e[2J' >/dev/tty
+    printf '\n  %s+ Nova tarefa%s em %s%s\n' "$c_azul$neg" "$z" "$(_data_longa "$foco")" "${hora:+ às $hora}" >/dev/tty 2>/dev/null
+    printf '  %sEscreva e tecle ⏎ · ⏎ vazio cancela · !alta #tag *semanal também valem%s\n\n' "$c_dim" "$z" >/dev/tty 2>/dev/null
+    tarefas_ler_linha t "" "Título" </dev/tty >/dev/tty 2>&1 || t=""
+    if [[ -n $t ]]; then
+      tarefas_ler_linha d "" "Descrição (opcional, ⏎ pula)" </dev/tty >/dev/tty 2>&1 || d=""
+      id=$(tarefa_add_natural "$t")
+      if [[ -n $id ]]; then
+        [[ -z $(tarefa_get_prazo "$id") ]] && tarefa_set_prazo "$id" "$(_epoch)" "$([[ -n $hora ]] && echo 1)"
+        [[ -n $d ]] && tarefa_set_desc "$id" "$(printf '%s' "$d" | sed 's| *// *|\n|g')"
+      fi
+    fi
+    hbuf=""
+    [[ -n $teste ]] || printf '\e[?1000h\e[?1006h\e[?25l\e[2J' >/dev/tty
+  }
+  # Executa uma ação; devolve 0 quando o calendário deve sair.
+  _acao() {
+    case $1 in
+      ant) _mes -1 ;; prox) _mes 1 ;; hoje) foco=$hoje ;;
+      hora:*) hora=${1#hora:}; hbuf=""; msg="" ;;
+      ok)
+        [[ -n $msg ]] && return 1
+        [[ $modo == prazo ]] || { _nova; return 1; }
+        if [[ -n $hora ]]; then echo "$(_epoch) 1"; else _epoch; fi
+        return 0 ;;
+      limpar) [[ $modo == prazo ]] && { echo limpar; return 0; } ;;
+      nova) _nova ;;
+      painel) tmux run-shell -b "sleep 0.3; $(q "$EU") --tarefas $(q "$TT_CLIENTE")" 2>/dev/null; return 0 ;;
+      sair) return 0 ;;
+      tarefa:*) tarefa_alternar "${1#tarefa:}" ;;
+      dia:*)
+        local d=${1#dia:} t; t=${EPOCHREALTIME/[.,]/}; t=$((10#${t:0:13}))
+        # 2º clique no mesmo dia em < 400 ms = duplo clique: confirma (ou cria, na agenda)
+        if [[ $ult_clique == "$d" ]] && ((t - ult_t < 400)); then ult_clique=""; foco=$d; _acao ok; return; fi
+        ult_clique=$d; ult_t=$t; foco=$d ;;
     esac
-    case $acao in
-      ant) foco_m=$((foco_m-1)); ((foco_m<1)) && { foco_m=12; foco_y=$((foco_y-1)); } ;;
-      prox) foco_m=$((foco_m+1)); ((foco_m>12)) && { foco_m=1; foco_y=$((foco_y+1)); } ;;
-      hoje) foco_y=$hoje_y; foco_m=$hoje_m; foco_d=$hoje_d ;;
-      limpar) _cal_fim; clear >/dev/tty 2>/dev/null; echo "limpar"; return 0 ;;
-      sair) _cal_fim; echo ""; return 0 ;;
-      escolher) _cal_fim; clear >/dev/tty 2>/dev/null; date -d "$foco_y-$foco_m-$foco_d 12:00" +%s 2>/dev/null; return 0 ;;
-    esac
-    # normaliza transbordo de dia entre meses
-    while ((foco_d < 1)); do
-      foco_m=$((foco_m-1)); ((foco_m<1)) && { foco_m=12; foco_y=$((foco_y-1)); }
-      foco_d=$(( foco_d + $(date -d "$foco_y-$foco_m-01 +1 month -1 day" +%-d) ))
+    return 1
+  }
+  _mouse() { # "b;x;y" de um clique (só o pressionar)
+    local b x y r ry rx1 rx2 ra
+    IFS=';' read -r b x y <<<"$1"
+    case $b in 64) _acao ant; return ;; 65) _acao prox; return ;; 0) ;; *) return 1 ;; esac
+    for r in "${REG[@]}"; do
+      read -r ry rx1 rx2 ra <<<"$r"
+      ((ry == y && x >= rx1 && x <= rx2)) && { _acao "$ra"; return; }
     done
+    return 1
+  }
+  _laco() {
     while :; do
-      local ult; ult=$(date -d "$foco_y-$foco_m-01 +1 month -1 day" +%-d)
-      ((foco_d <= ult)) && break
-      foco_d=$((foco_d-ult)); foco_m=$((foco_m+1)); ((foco_m>12)) && { foco_m=1; foco_y=$((foco_y+1)); }
+      [[ -n $teste ]] || _desenha
+      _tecla || { echo ""; return; }
+      case $tecla in
+        $'\e')
+          [[ -n $teste ]] && return
+          IFS= read -rsn1 -t 0.03 resto </dev/tty || resto=""
+          if [[ $resto == '[' || $resto == O ]]; then
+            IFS= read -rsn1 -t 0.03 resto </dev/tty || resto=""
+            case $resto in
+              C) foco=$((foco + 1)) ;; D) foco=$((foco - 1)) ;;
+              A) foco=$((foco - 7)) ;; B) foco=$((foco + 7)) ;;
+              5) read -rsn1 -t 0.03 resto </dev/tty; _mes -1 ;;   # PgUp
+              6) read -rsn1 -t 0.03 resto </dev/tty; _mes 1 ;;    # PgDn
+              '<')
+                local ev="" ch
+                while IFS= read -rsn1 -t 0.05 ch </dev/tty; do ev+=$ch; [[ $ch == [Mm] ]] && break; done
+                [[ $ev == *M ]] && _mouse "${ev%M}" && return ;;
+            esac
+          elif [[ -z $resto ]]; then return       # esc puro
+          fi ;;
+        [0-9]) ((${#hbuf} >= 5)) && hbuf=""; hbuf+=$tecla; _hbuf ;;
+        :) [[ -n $hbuf ]] && { hbuf+=:; _hbuf; } ;;
+        h)
+          if [[ $hbuf =~ [0-9]$ && $hbuf != *[:h]* ]]; then hbuf+=h; _hbuf
+          else foco=$((foco - 1)); fi ;;
+        $'\x7f'|$'\b') hbuf=${hbuf%?}; if [[ -n $hbuf ]]; then _hbuf; else hora=""; msg=""; fi ;;
+        l) foco=$((foco + 1)) ;; k) foco=$((foco - 7)) ;; j) foco=$((foco + 7)) ;;
+        '<'|',') _mes -1 ;; '>'|'.') _mes 1 ;;
+        '-') _mes -12 ;; '+'|'=') _mes 12 ;;
+        t|T) foco=$hoje ;;
+        d|D) hora=""; hbuf=""; msg="" ;;
+        x|X) _acao limpar && return ;;
+        n|N) [[ $modo == agenda ]] && _nova ;;
+        '') _acao ok && return ;;
+        q) return ;;
+      esac
     done
-  done
+  }
+  if [[ -n $teste ]]; then _laco; return 0; fi
+  printf '\e[?1000h\e[?1006h\e[?25l\e[2J' >/dev/tty
+  _laco
+  printf '\e[?1000l\e[?1006l\e[?25h\e[H\e[2J' >/dev/tty
+  return 0
+}
+
+# Calendário do relógio da barra: a agenda num popup, do tamanho que couber na tela.
+abrir_calendario() {
+  local c=$1 cw ch w h
+  read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
+  w=76; h=36; ((w > ${cw:-80})) && w=${cw:-80}; ((h > ${ch:-24})) && h=${ch:-24}
+  tmux display-popup -c "$c" -w "$w" -h "$h" -b rounded -S 'fg=#89b4fa' -T ' ▦ agenda · esc fecha ' \
+    -E "TT_CLIENTE=$(q "$c") $EU --calendario-agenda"
 }
 
 # Saída texto (CLI pura): usada por `tt --tarefas` fora do tmux e como fallback sem fzf.
@@ -6035,6 +6345,7 @@ menu_tarefas() {
   local c=$1
   menu_popup "$c" "📋 tarefas" <<ITENS
 t	📋 Abrir o painel de tarefas	$EU --tarefas $(q "$c")
+a	▦ Agenda (calendário do mês)	$EU --clique relogio $(q "$c") x "$HOME" 0
 n	+ Nova tarefa…	tmux display-popup -c $(q "$c") -E -w 72 -h 14 -b rounded -T ' + nova tarefa ' $(q "$EU --tarefa-add-ui")
 l	🧹 Limpar as tarefas feitas…	tmux display-popup -c $(q "$c") -E -w 60 -h 10 -b rounded $(q "$EU --tarefa-limpar-prompt")
 ITENS
@@ -6648,7 +6959,7 @@ clique() {
     fixar) fixar_atual "$2" ;;
     fx*) ir_fixada "$2" "$faixa" ;;
     tarefas) abrir_tarefas "$2" ;;
-    relogio) tmux display-popup -c "$2" -w 56 -h 18 -b rounded -T ' 📅 calendário ' -E "$EU --calendario" ;;
+    relogio) abrir_calendario "$2" ;;
     tt) tmux display-popup -c "$2" -E $(tam_popup "$2") "TT_CLIENTE=$(q "$2") TT_PANE=$3 $EU" ;;
     lado) tmux split-window -h -t "$3" -c "$4" ;;
     baixo) tmux split-window -v -t "$3" -c "$4" ;;
@@ -8588,6 +8899,7 @@ case "${1:-}" in
   --tarefa-expandir) [[ -n ${2:-} ]] && tarefas_exp_alternar "$2"; exit ;;
   --tarefa-sub-prompt) tarefa_sub_prompt "${2:-}"; exit ;;
   --tarefa-desc-prompt) tarefa_desc_prompt "${2:-}"; exit ;;
+  --tarefa-desc-editor) tarefa_desc_prompt "${2:-}"; exit ;;   # nome antigo
   --tarefa-prazo-prompt) tarefa_prazo_prompt "${2:-}"; exit ;;
   --tarefa-sub-mover) [[ -n ${2:-} ]] && tarefa_sub_mover "$2" "${3:-cima}"; exit ;;
   --tarefa-mover) [[ -n ${2:-} ]] && tarefa_mover "$2" "${3:-cima}"; exit ;;
@@ -8602,7 +8914,8 @@ case "${1:-}" in
   --tarefa-renomear) [[ -n ${2:-} && -n ${3:-} ]] && tarefa_renomear "$2" "${*:3}" || { echo 'uso: tt --tarefa-renomear ID "texto novo"'; exit 1; }; exit ;;
   --tarefas-ajuda) tarefas_ajuda_linhas | cut -f2- | sed 's/\x1b\[[0-9;]*m//g'; exit ;;
   --tarefa-preview) tarefa_preview "${2:-}"; exit ;;
-  --calendario) calendario_tui "${2:-}"; exit ;;
+  --calendario) calendario_tui prazo "${2:-}"; exit ;;
+  --calendario-agenda) calendario_tui agenda "${2:-}"; exit ;;
   --tarefa-add) shift; [[ -n ${1:-} ]] && tarefa_add "$*" >/dev/null || { echo 'uso: tt --tarefa-add "texto"'; exit 1; }; exit ;;
   --tarefa-add-natural) shift; [[ -n ${1:-} ]] && tarefa_add_natural "$*" >/dev/null || { echo 'uso: tt --tarefa-add-natural "texto @prazo !prio *rep"'; exit 1; }; exit ;;
   --tarefa-add-ui)

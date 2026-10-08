@@ -195,9 +195,14 @@ for v in --tarefa-sub-prompt --tarefa-desc-prompt --tarefa-prazo-prompt --tarefa
 done
 # o 6º campo não quebra o merge: ainda chaveado por id, com NF>=5
 rg -q 'NF >= 5' "$tt" || falha 'tarefas: merge perdeu a tolerância NF>=5 (quebraria linhas com meta)'
-# clique no relógio abre o calendário num popup largo o bastante (dica nao vaza)
-rg -Fq 'relogio) tmux display-popup' "$tt" || falha 'tarefas: clique no relógio não abre o calendário'
-rg -q 'relogio\) tmux display-popup -c "\$2" -w (5[6-9]|[6-9][0-9])' "$tt" || falha 'calendário: popup do relógio estreito demais (<56)'
+# clique no relógio abre a agenda (calendário) num popup largo o bastante (dica não vaza)
+rg -Fq 'relogio) abrir_calendario "$2"' "$tt" || falha 'tarefas: clique no relógio não abre o calendário'
+corpo_cal=$(sed -n '/^abrir_calendario()/,/^}/p' "$tt")
+grep -Eq 'w=(5[6-9]|[6-9][0-9])\b' <<<"$corpo_cal" || falha 'calendário: popup do relógio estreito demais (<56)'
+grep -Fq -- '--calendario-agenda' <<<"$corpo_cal" || falha 'calendário: relógio não abre o modo agenda'
+for v in --calendario-agenda --tarefa-desc-editor --tarefa-renomear-prompt --tarefa-limpar-prompt; do
+  rg -Fq -- "$v)" "$tt" || falha "tarefas: verbo $v ausente"
+done
 rg -q 'range=user\|relogio' "$tema" || falha 'tarefas: relógio sem range clicável no tema'
 # painel mais clicável e com abas de filtro: left-click alterna, double-click expande, click-header troca filtro
 corpo_ui=$(sed -n '/^tarefas_ui()/,/^}/p' "$tt")

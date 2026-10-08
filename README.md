@@ -362,40 +362,59 @@ abertas e fica vermelho (⚠ N) quando alguma vence hoje ou já venceu. Dentro d
 este mesmo "Como usar" (ou `tt --tarefas-ajuda` no terminal).
 
 **Criar.** Digite no campo *buscar ou criar* e tecle ⏎: se nenhuma tarefa tiver esse texto, aparece
-**+ criar tarefa** e o ⏎ cria. Também pelo botão **+ Nova** (ou `Ctrl+N`). Na própria frase dá para
-dizer, em qualquer ponto:
+**+ criar tarefa** e o ⏎ cria. Também pelo botão **+ Nova** (ou `Ctrl+N`), que pede o título e,
+opcionalmente, a descrição. No título dá para dizer, em qualquer ponto (tudo opcional):
 
-| na frase | vira | exemplos |
+| no título | vira | exemplos |
 |---|---|---|
-| `@…` | prazo | `@hoje` `@amanha` `@seg` … `@dom` `@25/12` `@25/12/2027` |
+| `@…` | prazo (o dia todo) | `@hoje` `@amanha` `@seg` … `@dom` `@25/12` `@25/12/2027` |
+| `@… 14h` | prazo com horário | `@sex 14h` `@amanha às 9h30` `@14:30` (só a hora: hoje, ou amanhã se já passou) |
 | `!…` | prioridade | `!alta` `!media` |
 | `*…` | repetir | `*diaria` `*semanal` `*mensal` (ou `*d` `*w` `*m`) |
 | `#…` | etiqueta | `#casa` (a busca também acha por `#casa`) |
+| `// …` | descrição | o que vem depois de ` // ` (outro ` // ` começa outra linha) |
 
-Ex.: `Pagar aluguel @05/11 !alta *mensal #casa`. Concluir uma tarefa que repete avança o prazo e ela
-continua aberta.
+Ex.: `Reunião com a Ana @sex 14h !alta // levar o relatório`. Concluir uma tarefa que repete avança o
+prazo (mantendo a hora) e ela continua aberta. `@25/12` sem ano é a próxima vez que esse dia chega.
+
+**Descrição.** A primeira linha aparece logo abaixo da tarefa; com a tarefa aberta (▾) ela aparece
+inteira. Clique nela (ou **✎ Descrição**, `Ctrl+E`) para editar no editor do tt (o vim com a
+configuração do tt: `Ctrl+S` salva e sai, `:q!` cancela; `VISUAL`/`EDITOR` escolhem outro). Apagar
+todo o texto tira a descrição.
+
+**Prazo, horário e agenda.** O horário é opcional: sem ele o prazo vale o dia todo. **◷ Prazo**
+(`Ctrl+D`) abre o calendário dizendo de qual tarefa é o prazo: clique no dia e, se quiser, num horário
+(ou digite `1430`, `9h`, `18:15`); **✓ Definir prazo** grava (⏎ ou duplo clique no dia também; *sem
+prazo* tira). Embaixo aparece o que já está marcado naquele dia. Com horário, a tarefa vence na hora
+e o tt avisa 10 minutos antes (notificação do sistema e mensagem nos terminais abertos;
+`TT_TAREFAS_ANTECEDENCIA` muda os minutos). A aba **Agenda** lista o que tem prazo, agrupado por dia e
+pela hora (atrasadas no topo); clicar no título de um dia abre o calendário nele. **▦ Calendário**
+(`Ctrl+T`) — e o clique no relógio da barra — abre a agenda do mês: dias com tarefas marcados com •,
+as tarefas do dia escolhido (um clique marca feita) e **+ Nova tarefa** naquele dia e horário.
 
 **Mouse** — tudo é clicável:
 
-- **clique** numa tarefa abre/fecha os detalhes (o triângulo vira ▸ fechada / ▾ aberta): a nota, as
-  subtarefas, **+ adicionar subtarefa** e **⋯ mais ações**, todas clicáveis;
+- **clique** numa tarefa abre/fecha os detalhes (o triângulo vira ▸ fechada / ▾ aberta): a descrição,
+  as subtarefas, **+ adicionar subtarefa** e **⋯ mais ações**, todas clicáveis;
 - **duplo clique** marca/desmarca como feita (☐ → ☑); numa subtarefa basta um clique;
-- **botão direito** abre o menu da tarefa: feita, renomear, nota, subtarefa, prazo, prioridade
-  (alta/média/sem) e repetição (não/dia/semana/mês) como escolhas, subir/descer e apagar;
-- no topo, as **abas** (Hoje · Abertas · Feitas · Com prazo · Todas, cada uma com o contador) e os
-  **botões** (+ Nova, ✓ Feita, ↳ Subtarefa, ✎ Nota, ◷ Prazo, ! Prioridade, ↻ Repetir, ↑ ↓, ✕ Apagar,
-  ⋯ Mais, ? Ajuda) agem na tarefa em foco;
-- o calendário do prazo também é clicável: um dia escolhe, ‹ › trocam o mês (ou a roda do mouse),
-  e há botões *hoje*, *sem prazo* e *cancelar*.
+- **botão direito** abre o menu da tarefa: feita, renomear, descrição, subtarefa, prazo e horário,
+  prioridade (alta/média/sem) e repetição (não/dia/semana/mês) como escolhas, subir/descer e apagar;
+- no topo, as **abas** (Hoje · Abertas · Feitas · Agenda · Todas, cada uma com o contador),
+  **▦ Calendário** e os **botões** (+ Nova, ✓ Feita, ↳ Subtarefa, ✎ Descrição, ◷ Prazo, ! Prioridade,
+  ↻ Repetir, ↑ ↓, ✕ Apagar, ⋯ Mais, ? Ajuda), que agem na tarefa em foco;
+- o calendário é todo clicável: dias, ‹ › (ou a roda do mouse) para o mês, *hoje*, os horários,
+  *Definir prazo* / *+ Nova tarefa*, *sem prazo*, *cancelar* e, na agenda, as tarefas do dia.
 
 **Teclado:** `⏎` feita/aberta · `→`/`espaço` abre · `←` fecha · `Tab` próxima aba · `Ctrl+N` nova ·
-`Ctrl+S` subtarefa · `Ctrl+E` nota · `Ctrl+D` prazo · `Ctrl+P` prioridade · `Ctrl+R` repetir ·
-`Ctrl+K`/`Ctrl+J` sobe/desce · `Ctrl+X` apaga · `Ctrl+L` limpa as feitas · `F2` renomeia ·
-`Ctrl+/` prévia · `?` ajuda · `esc` volta, limpa a busca ou fecha. Apagar e limpar sempre pedem
-confirmação.
+`Ctrl+S` subtarefa · `Ctrl+E` descrição · `Ctrl+D` prazo · `Ctrl+T` calendário · `Ctrl+P`
+prioridade · `Ctrl+R` repetir · `Ctrl+K`/`Ctrl+J` sobe/desce · `Ctrl+X` apaga · `Ctrl+L` limpa as
+feitas · `Ctrl+O` mais ações · `F2` renomeia · `Ctrl+/` prévia · `?` ajuda · `esc` volta, limpa a
+busca ou fecha. Apagar e limpar sempre pedem confirmação. No calendário: setas mudam o dia, `<` `>`
+o mês, `t` hoje, dígitos digitam a hora, `d` volta ao dia todo, `x` sem prazo, `esc` sai.
 
-**Símbolos:** ☐ aberta · ☑ feita · ● vermelho/amarelo prioridade alta/média · ◷ prazo (vermelho
-quando venceu) · ↻ repete · ━━━ 1/2 subtarefas feitas · ✎ tem nota · `#tag`.
+**Símbolos:** ☐ aberta · ☑ feita · ● vermelho/amarelo prioridade alta/média · ◷ prazo, com a hora
+quando houver (vermelho quando venceu) · ↻ repete · ━━━ 1/2 subtarefas feitas · `#tag` · no
+calendário, • = dia com tarefas.
 
 **Linha de comando:** `tt --tarefa-add-natural "texto @amanha !alta"`, `tt --tarefa-add "texto"`,
 `tt --tarefa-ok ID`, `tt --tarefa-abrir ID`, `tt --tarefa-rm ID`, `tt --tarefa-renomear ID "texto"`,

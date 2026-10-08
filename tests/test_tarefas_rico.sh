@@ -71,7 +71,7 @@ echo "ok: clique na mãe expande e recolhe (toggle estável nos dois sentidos)"
 run --tarefa-add "com descricao" >/dev/null
 idd=$(awk -F'\t' '$5=="com descricao"{print $1}' "$C")
 printf '#!/bin/sh\nprintf "linha 1\\nlinha 2 com acento ção\\n" > "$1"\n' >"$T/bin/fakeed"; chmod +x "$T/bin/fakeed"
-EDITOR="$T/bin/fakeed" run --tarefa-desc-prompt "$idd" >/dev/null 2>&1
+EDITOR="$T/bin/fakeed" run --tarefa-desc-editor "$idd" >/dev/null 2>&1
 grep -q 'desc=' "$C" || fail "descrição não gravou a chave desc na meta"
 grep -q 'linha 2 com acento' "$C" && fail "descrição vazou em claro na linha (deveria ser base64)"
 prev=$(run --tarefa-preview "$idd")

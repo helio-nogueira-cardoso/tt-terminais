@@ -111,29 +111,40 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   (fora dele). Também `Ctrl+B t`.
 - `tt --tarefa-add "texto"` — adiciona; `tt --tarefa-ok ID` conclui; `tt --tarefa-abrir ID` reabre;
   `tt --tarefa-rm ID` remove (lápide); `tt --tarefa-limpar` remove as feitas.
-- `tt --tarefa-add-natural "frase @amanha !alta *semanal #tag"` — cria lendo prazo/prioridade/
-  repetição/etiqueta da frase; `tt --tarefa-renomear ID "texto"`; `tt --tarefas-ajuda` imprime o
-  "Como usar" do painel.
+- `tt --tarefa-add-natural "frase @sex 14h !alta *semanal #tag // descrição"` — cria lendo prazo
+  (com horário opcional: `@sex 14h`, `@amanha às 9h30`, `@14:30`), prioridade, repetição, etiqueta e
+  descrição (depois de ` // `); `tt --tarefa-renomear ID "texto"`; `tt --tarefas-ajuda` imprime o
+  "Como usar" do painel. `tt --calendario [epoch]` é o seletor de prazo (imprime `EPOCH`, `EPOCH 1`
+  com horário, `limpar` ou nada); `tt --calendario-agenda [dia]` é a agenda (relógio da barra).
+- Meta `hora=1`: o prazo tem horário (vence quando a hora passa; sem ela vale o dia todo, epoch às
+  12:00). Lembrete (`--tarefas-lembrete`, a cada volta do vigia): com horário avisa
+  `TT_TAREFAS_ANTECEDENCIA` (10) min antes, uma vez por prazo; sem horário, uma vez por dia. Avisa
+  por notify-send/termux-notification e por `display-message` em cada cliente tmux.
 - Internos da UI: `--tarefas-ui`, `--tarefas-lista [busca]`, `--tarefas-cabecalho`,
   `--tarefa-acao EVENTO CHAVE` (despachante único: toda tecla, clique e botão do painel passa por
   ele e devolve as ações do fzf), `--tarefa-nova-prompt`, `--tarefa-sub-prompt`,
-  `--tarefa-desc-prompt`, `--tarefa-prazo-prompt`, `--tarefa-renomear-prompt`,
+  `--tarefa-desc-prompt` (editor_tt; `--tarefa-desc-editor` é o nome antigo), `--tarefa-prazo-prompt`, `--tarefa-renomear-prompt`,
   `--tarefa-remover-prompt`, `--tarefa-limpar-prompt`, `--tarefa-add-ui`, `--tarefas-barra`. Sync:
   `--receber-tarefas`, `--tarefas-espelhar`, `--tarefas-puxar`.
 - Painel: um fzf com três modos (lista, ajuda, menu de ações de uma tarefa) guardados em
   `$RT/tt-tarefas-ui-UID` (`filtro=`, `modo=`, `exp=ID` por tarefa aberta, `clique=` para o duplo
-  clique). Cada linha é `chave<TAB>desenho`: `ID`, `nota:ID`, `sub:ID`, `menu:ID`, `act:AÇÃO:ID`,
-  `criar`, `voltar` ou vazia. A lista é renderizada numa passada de awk (`TAREFAS_AWK`, LC_ALL=C,
-  sem strftime) — centenas de tarefas em ~0,1 s. O cabeçalho grava `$RT/tt-tarefas-mapa-UID`
+  clique). Cada linha é `chave<TAB>desenho`: `ID`, `desc:ID`, `sub:ID`, `menu:ID`, `act:AÇÃO:ID`,
+  `dia:N` (título de dia na Agenda), `criar`, `voltar` ou vazia. A lista é renderizada numa passada
+  de awk (`TAREFAS_AWK`, LC_ALL=C, sem strftime; decodifica a descrição base64 no próprio awk) —
+  centenas de tarefas em ~0,1 s. Abas Hoje e Agenda (filtro `prazo` = abertas com prazo) agrupam por
+  dia e ordenam pela hora.
+- Calendário (`calendario_tui MODO`): datas por aritmética própria (`_cal_dias`/`_cal_civil`, sem
+  `date` por célula), tela montada em linhas com regiões clicáveis registradas, redesenho sem
+  limpar (não pisca), compacto quando a altura é < 32. `TT_CAL_TECLAS` roda sem tela (testes). O cabeçalho grava `$RT/tt-tarefas-mapa-UID`
   (linha, colunas, ação de cada aba/botão) e o clique consulta o mapa (FZF_CLICK_HEADER_*).
 - Mouse no painel: clique numa tarefa abre/fecha (▸/▾); 2º clique na mesma linha em < 400 ms =
   duplo (marca feita) — detectado pelo tt, porque a recarga do 1º clique faz o fzf entregar dois
   cliques simples; botão direito = menu de ações. Não use `--id-nth` (o fzf perde o clique que
   chega durante a recarga) nem ligue `q` (impediria digitar tarefas com q).
 - Teclado no painel: `⏎` alterna feita (ou cria o que foi digitado), `→`/`␣` abre, `←` fecha,
-  `^n` nova, `^s` subtarefa, `^e` nota, `^d` prazo, `^p` prioridade, `^r` repetir, `^k`/`^j` move,
-  `^x` apaga (confirma), `^l` limpa feitas (confirma), `F2` renomeia, `Tab` troca a aba, `?`/`F1`
-  ajuda, `esc` volta/limpa a busca/fecha.
+  `^n` nova, `^s` subtarefa, `^e` descrição, `^d` prazo, `^t` calendário, `^o` mais ações, `^p`
+  prioridade, `^r` repetir, `^k`/`^j` move, `^x` apaga (confirma), `^l` limpa feitas (confirma), `F2`
+  renomeia, `Tab` troca a aba, `?`/`F1` ajuda, `esc` volta/limpa a busca/fecha.
 
 ### Atalhos de barra
 - `tt --editar-atalhos` — edita os atalhos locais. `--atalhos-barra`/`--atalhos-lista` (internos)
