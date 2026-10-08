@@ -92,14 +92,15 @@ env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/home/.lo
 grep -q 'prazo=' "$C" || fail "prazo não foi gravado na tarefa"
 echo "ok: prazo gravado pelo prompt de calendário"
 
-# filtro: default = todas; ciclo todas -> abertas -> feitas -> prazo -> todas
+# filtro: default = todas; ciclo todas -> hoje -> abertas -> feitas -> prazo -> todas
 run --tarefa-ok "$idd" >/dev/null
 grep -q 'com descricao' <<<"$(run --tarefas-lista)" || fail "filtro default (todas) deveria mostrar a tarefa feita"
+run --tarefa-filtro-ciclar; grep -q 'com prazo' <<<"$(run --tarefas-lista)" || fail "filtro hoje deveria mostrar a tarefa com prazo de hoje"
 run --tarefa-filtro-ciclar; grep -q 'com descricao' <<<"$(run --tarefas-lista)" && fail "filtro abertas não deveria mostrar tarefa feita"
 run --tarefa-filtro-ciclar; grep -q 'com descricao' <<<"$(run --tarefas-lista)" || fail "filtro feitas não mostra a feita"
 run --tarefa-filtro-ciclar; grep -q 'com prazo' <<<"$(run --tarefas-lista)" || fail "filtro prazo não mostra tarefa com prazo"
 run --tarefa-filtro-ciclar; grep -q 'mae com texto' <<<"$(run --tarefas-lista)" || fail "filtro todas não mostra tudo"
-echo "ok: filtro cicla todas → abertas → feitas → com prazo → todas (default todas)"
+echo "ok: filtro cicla todas → hoje → abertas → feitas → com prazo → todas (default todas)"
 
 # cabeçalho com abas: as 4 abas aparecem; clicar numa aba troca o filtro ativo
 cab=$(run --tarefas-cabecalho)
