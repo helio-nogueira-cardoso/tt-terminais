@@ -42,11 +42,12 @@ run --tarefa-add-natural "Ligar @23:59"
 [[ $(prazo_de Ligar) == "$(date -d "$(date +%Y-%m-%d) 23:59" +%s)" ]] || fail "@23:59 deveria ser hoje 23:59"
 echo "ok: @dia + hora, 'às', @hora; linhas além da 1ª viram descrição; horário é opcional"
 
-# 2) lista: rótulo com a hora, descrição sob a tarefa, "venceu" pela hora no mesmo dia
+# 2) lista: rótulo com a hora, ≡ de quem tem descrição (sem poluir a lista), "venceu" pela hora
 printf 'filtro=todas\nmodo=lista\n' >"$UI"
 l=$(FZF_COLUMNS=72 run --tarefas-lista | sem_cor)
 grep -q 'Reunião  ◷ amanhã 14:00' <<<"$l" || fail "rótulo sem a hora: $l"
-grep -q '^desc:.*levar o relatório …' <<<"$l" || fail "1ª linha da descrição não aparece sob a tarefa: $l"
+grep -q 'Reunião  ◷ amanhã 14:00.*≡$' <<<"$l" || fail "tarefa com descrição deveria terminar em ≡: $l"
+grep -q 'levar o relatório' <<<"$l" && fail "a descrição não pode aparecer na lista (polui): $l"
 grep -q 'Almoço  ◷ .*25/12$' <<<"$l" || fail "prazo sem hora deveria mostrar só o dia: $(grep Almoço <<<"$l")"
 run --tarefa-add "Passou" >/dev/null
 ip=$(id_de Passou); h0=$(date -d "$(date +%Y-%m-%d) 00:01" +%s)
@@ -120,7 +121,7 @@ printf '#!/bin/sh\nprintf "linha um\\nlinha dois\\n" > "$1"\n' >"$T/bin/ed-escre
 printf '#!/bin/sh\n: > "$1"\n' >"$T/bin/ed-apaga"; chmod +x "$T/bin/ed-escreve" "$T/bin/ed-apaga"
 EDITOR="$T/bin/ed-escreve" run --tarefa-desc-prompt "$idd" >/dev/null 2>&1
 [[ $(run --tarefa-preview "$idd" | tail -2) == $'linha um\nlinha dois' ]] || fail "descrição pelo editor não gravou as duas linhas"
-grep -q '^desc:.*linha um …' <<<"$(printf 'filtro=todas\nmodo=lista\n' >"$UI"; run --tarefas-lista | sem_cor)" || fail "descrição não aparece sob a tarefa"
+grep -q 'Com desc.*≡' <<<"$(printf 'filtro=todas\nmodo=lista\n' >"$UI"; run --tarefas-lista | sem_cor)" || fail "tarefa com descrição sem o ≡"
 EDITOR="$T/bin/ed-apaga" run --tarefa-desc-prompt "$idd" >/dev/null 2>&1
 [[ $(meta "Com desc") != *desc=* ]] || fail "apagar tudo deveria tirar a descrição"
-echo "ok: descrição pelo editor do tt, visível sob a tarefa; vazio remove"
+echo "ok: descrição pelo editor do tt (≡ na lista); vazio remove"

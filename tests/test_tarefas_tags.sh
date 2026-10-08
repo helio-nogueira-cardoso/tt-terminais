@@ -32,7 +32,7 @@ echo "ok: render mostra as tags (#casa #mercado) — fzf filtra por elas ao digi
 
 # 3) preview lista as tags
 id=$(awk -F'\t' '$5=="Comprar leite"{print $1}' "$C")
-grep -q 'tags: #casa #mercado' <<<"$(run --tarefa-preview "$id")" || fail "preview não lista as tags"
+grep -q '#casa #mercado' <<<"$(run --tarefa-preview "$id" | sed 's/\x1b\[[0-9;]*m//g')" || fail "preview não lista as tags"
 echo "ok: preview lista as tags"
 
 # 4) tags convivem com prazo/prioridade/recorrência na mesma frase

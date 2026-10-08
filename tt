@@ -4740,21 +4740,39 @@ tarefa_estado() {
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
 }
 
-# Alterna aberta<->feita. Tarefa recorrente (rep + prazo): concluir não fecha — avança o prazo
-# para o próximo período e a tarefa renasce aberta (um hábito que volta no próximo ciclo).
-tarefa_alternar() {
-  local id=$1 est rep prazo prox
-  est=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $2; exit}')
-  if [[ $est != feita ]]; then
-    rep=$(tarefa_get_rep "$id"); prazo=$(tarefa_get_prazo "$id")
-    if [[ -n $rep && -n $prazo ]]; then
-      prox=$(tarefas_proximo_prazo "$prazo" "$rep")
-      [[ -n $prox ]] && { tarefa_set_prazo "$id" "$prox"; return; }   # renasce com o novo prazo
+tarefas_estado_de() { tarefas_raw | awk -F'\t' -v id="$1" '$1==id{print $2; exit}'; }
+# Textos das subtarefas ainda abertas de uma mãe (uma por linha).
+tarefas_subs_abertas() { tarefas_filhas "$1" | awk -F'\t' '$2=="aberta"{print $3}'; }
+
+# Conclui ID. Uma mãe só conclui com TODAS as subtarefas feitas: senão não muda nada, imprime as
+# que faltam e devolve 2. Concluir a última subtarefa não conclui a mãe (isso fica com você).
+# Recorrente (rep + prazo): em vez de fechar, o prazo avança (mantendo a hora) e as subtarefas
+# reabrem — o checklist volta no próximo ciclo.
+tarefa_concluir() {
+  local id=$1 falta rep prazo prox f
+  falta=$(tarefas_subs_abertas "$id")
+  [[ -n $falta ]] && { printf '%s\n' "$falta"; return 2; }
+  rep=$(tarefa_get_rep "$id"); prazo=$(tarefa_get_prazo "$id")
+  if [[ -n $rep && -n $prazo ]]; then
+    prox=$(tarefas_proximo_prazo "$prazo" "$rep")
+    if [[ -n $prox ]]; then
+      tarefa_set_prazo "$id" "$prox" "$(tarefas_meta_get "$(tarefas_meta_de "$id")" hora)"
+      while IFS=$'\t' read -r f _; do tarefa_estado "$f" aberta; done < <(tarefas_filhas "$id" | awk -F'\t' '$2=="feita"')
+      return 0
     fi
-    tarefa_estado "$id" feita
-  else
-    tarefa_estado "$id" aberta
   fi
+  tarefa_estado "$id" feita
+}
+
+# Alterna aberta<->feita (concluir segue tarefa_concluir; devolve 2 se faltam subtarefas). Reabrir
+# uma subtarefa de mãe já feita reabre a mãe: mãe feita nunca fica com subtarefa aberta.
+tarefa_alternar() {
+  local id=$1 pai
+  if [[ $(tarefas_estado_de "$id") != feita ]]; then tarefa_concluir "$id"; return; fi
+  tarefa_estado "$id" aberta
+  pai=$(tarefas_meta_get "$(tarefas_meta_de "$id")" pai)
+  [[ -n $pai && $(tarefas_estado_de "$pai") == feita ]] && tarefa_estado "$pai" aberta
+  return 0
 }
 
 # Clique esquerdo numa linha: numa tarefa de topo o clique abre/fecha os detalhes (▸/▾: descrição,
@@ -4766,9 +4784,13 @@ tarefa_clique() {
 }
 
 tarefa_remover()  { tarefa_estado "$1" removida; }
+# Remove as tarefas feitas (com as subtarefas delas). Subtarefa feita de mãe ainda aberta fica: é
+# o checklist da mãe.
 tarefa_limpar_feitas() {
   local id
-  while read -r id; do tarefa_estado "$id" removida; done < <(tarefas_raw | awk -F'\t' '$2=="feita"{print $1}')
+  while read -r id; do tarefa_estado "$id" removida; done < <(tarefas_raw | awk -F'\t' '
+    function pai(m,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (a[i] ~ /^pai=/) return substr(a[i], 5); return "" }
+    $2 == "feita" && pai($6) == "" { print $1 }')
 }
 
 # --- descrição, prazo e subtarefas -----------------------------------------
@@ -4849,6 +4871,8 @@ tarefa_add_sub() { # pai texto
   ord=$(tarefas_sub_proxima_ord "$pai")
   meta=$(tarefas_meta_set "" pai "$pai"); meta=$(tarefas_meta_set "$meta" ord "$ord")
   tarefa_set_meta "$id" "$meta"
+  # Subtarefa nova numa mãe já feita: a mãe volta a ficar aberta (ainda há o que fazer).
+  [[ $(tarefas_estado_de "$pai") == feita ]] && tarefa_estado "$pai" aberta
   printf '%s\n' "$id"
 }
 
@@ -5270,7 +5294,8 @@ tarefas_ui() {
     --prompt='  buscar ou criar › ' --pointer='▌' --header-first \
     --header="$(FZF_COLUMNS=$cols tarefas_cabecalho)" \
     --color='bg:#1e1e2e,fg:#cdd6f4,header:#cdd6f4,pointer:#89b4fa,prompt:#6c7086,query:#f9e2af,fg+:#cdd6f4,bg+:#313244,gutter:#1e1e2e,info:#6c7086,border:#45475a' \
-    --preview="$EU --tarefa-preview {1}" --preview-window='down,40%,border-top,wrap,hidden' \
+    --preview="$EU --tarefa-preview {1}" --preview-window='down,50%,border-top,wrap,hidden' \
+    --preview-label=' ≡ descrição · ^/ fecha · ^e edita ' \
     --bind="change:reload($EU --tarefas-lista {q})+first" \
     --bind="resize:transform-header($EU --tarefas-cabecalho)" \
     --bind="enter:transform($a enter {1})" \
@@ -5358,7 +5383,15 @@ tarefas_cabecalho() {
       ((col > 1 && col + 6 > larg)) && _quebra
       _item " ↑" "$bg$txt ↑" cima; _item " ↓ " "$bg$txt ↓ $z" baixo colado
       _botao '✕ Apagar' apagar; _botao '⋯ Mais' mais
-      _botao '? Ajuda' ajuda ;;
+      _botao '? Ajuda' ajuda
+      # Aviso de uma ação recusada (ex.: concluir mãe com subtarefa aberta): aparece uma vez.
+      local av; av=$(tarefas_ui_get aviso)
+      if [[ -n $av ]]; then
+        tarefas_ui_set aviso ""
+        _quebra
+        ((${#av} > larg - 3)) && av="${av:0:$((larg - 4))}…"
+        _item "⚠ $av" "$verm$neg⚠ $av$z" ""
+      fi ;;
   esac
   _quebra
   local regua; printf -v regua '%*s' "$larg" ''; regua=${regua// /─}
@@ -5414,22 +5447,15 @@ tarefas_lista_fzf() { # [busca]
       if (r != "") ex = ex "  " TEAL "↻ " (r == "d" ? "diária" : (r == "w" ? "semanal" : "mensal")) Z
       if (nfil > 0) ex = ex "  " progresso(NFE[id] + 0, nfil)
       if (tagtxt != "") ex = ex "  " LILAS tagtxt Z
+      if (TDESC[i] != "") ex = ex "  " SUB "≡" Z      # tem descrição (a visão própria mostra)
       printf "%s\t%s%s\n", id, s, ex
-      # Descrição: a 1ª linha logo abaixo (a tarefa fechada); aberta, ela aparece inteira.
-      if (TDESC[i] != "" && !aberto) {
-        n = split(TDESC[i], dl, "\n"); r = ""
-        for (k = 1; k <= n && r == ""; k++) if (dl[k] !~ /^[ ]*$/) r = dl[k]
-        printf "desc:%s\t      %s%s%s%s\n", id, DIM ITAL, corta(r, COLS - 12), (n > 1 ? " …" : ""), Z
-      }
     }
     function detalhes(i,   id, j, k, v, f, n, a, L, ind, prim) {
       id = TID[i]; ind = "      "
       if (TDESC[i] != "") {
-        n = split(TDESC[i], a, "\n"); prim = 1
-        for (L = 1; L <= n; L++) {
-          if (a[L] ~ /^[ ]*$/) continue
-          printf "desc:%s\t%s%s%s%s%s\n", id, ind, (prim ? SUB "✎ " : "  "), DIM ITAL, a[L], Z; prim = 0
-        }
+        n = split(TDESC[i], a, "\n"); prim = 0
+        for (L = 1; L <= n; L++) if (a[L] !~ /^[ ]*$/) prim++
+        printf "desc:%s\t%s%s≡ descrição%s %s· %d linha%s · clique para ver (^/) · ^e edita%s\n", id, ind, AZUL, Z, DIM, prim, (prim == 1 ? "" : "s"), Z
       } else printf "desc:%s\t%s%s✎ escrever uma descrição…%s\n", id, ind, DIM, Z
       # subtarefas na ordem manual (ord) e, no empate, de criação
       n = NFI[id] + 0
@@ -5444,7 +5470,7 @@ tarefas_lista_fzf() { # [busca]
         printf "%s\t%s%s %s\n", FID[f], ind, caixa(FEST[f], 0), (FEST[f] == "feita" ? DIM RISCO FTXT[f] Z : TXT FTXT[f] Z)
       }
       printf "sub:%s\t%s%s+ adicionar subtarefa%s\n", id, ind, AZUL, Z
-      printf "menu:%s\t%s%s⋯ mais ações%s %s(prazo e horário, prioridade, repetir, mover, apagar)%s\n", id, ind, AZUL, Z, DIM, Z
+      printf "menu:%s\t%s%s⋯ mais ações%s %s(prazo, prioridade, repetir, mover, apagar)%s\n", id, ind, AZUL, Z, DIM, Z
     }
     # Título de um grupo da agenda: "Atrasadas", "Hoje · quinta, 08/10", "Amanhã · …", "Sábado, 10/10".
     function titulo_dia(d,   s, df) {
@@ -5548,9 +5574,16 @@ tarefas_ajuda_linhas() {
   printf '\t   %s#casa%s         etiqueta (a busca também acha por #casa)\n' "$y" "$z"
   printf '\t   %sex.:%s Reunião com a Ana @sex 14h !alta\n' "$d" "$z"
   printf '\t\n\t %sDESCRIÇÃO%s\n' "$a" "$z"
-  printf '\t   A 1ª linha aparece sob a tarefa; aberta (▾), aparece inteira.\n'
-  printf '\t   Clique nela (ou %s✎ Descrição%s, ^e) para editar no editor do tt\n' "$y" "$z"
-  printf '\t   (Ctrl+S salva e sai; :q! cancela).\n'
+  printf '\t   Tarefa com descrição mostra %s≡%s no fim da linha. Para ler, abra a\n' "$s" "$z"
+  printf '\t   tarefa (▾) e clique em %s≡ descrição%s, ou tecle %s^/%s: a descrição inteira\n' "$a" "$z" "$y" "$z"
+  printf '\t   aparece embaixo, num cartão com prazo e subtarefas (^/ fecha).\n'
+  printf '\t   %s^e%s (ou %s✎ Descrição%s) edita no editor do tt (Ctrl+S salva e sai).\n' "$y" "$z" "$y" "$z"
+  printf '\t\n\t %sSUBTAREFAS%s\n' "$a" "$z"
+  printf '\t   %s↳ Subtarefa%s (^s) cria. A tarefa só é concluída quando todas as\n' "$y" "$z"
+  printf '\t   subtarefas estiverem feitas (antes disso o tt avisa o que falta), e\n'
+  printf '\t   concluir a última não conclui a tarefa: você decide. Reabrir ou criar\n'
+  printf '\t   uma subtarefa reabre a tarefa. Numa tarefa que repete, concluir\n'
+  printf '\t   avança o prazo e reabre as subtarefas (o checklist volta).\n'
   printf '\t\n\t %sPRAZO E HORÁRIO%s\n' "$a" "$z"
   printf '\t   %s◷ Prazo%s (^d) abre o calendário: clique no dia e, se quiser,\n' "$y" "$z"
   printf '\t   num horário (ou digite 1430); %s✓ Definir prazo%s grava. Sem\n' "$y" "$z"
@@ -5565,7 +5598,8 @@ tarefas_ajuda_linhas() {
   printf '\t   %sbotão direito%s           menu com todas as ações\n' "$n" "$z"
   printf '\t   clique numa %ssubtarefa%s   marca/desmarca\n' "$n" "$z"
   printf '\t   abas, botões do topo, títulos de dia da Agenda e as linhas de\n'
-  printf '\t   uma tarefa aberta (%s+ adicionar%s, %s✎ descrição%s, %s⋯ mais ações%s) também\n' "$a" "$z" "$s" "$z" "$a" "$z"
+  printf '\t   uma tarefa aberta (%s+ adicionar%s, %s≡ descrição%s, %s⋯ mais ações%s) também\n' "$a" "$z" "$a" "$z" "$a" "$z"
+  printf '\t   são clicáveis\n'
   printf '\t\n\t %sTECLADO%s\n' "$a" "$z"
   printf '\t   %s⏎%s feita/aberta   %s→ ␣%s abre   %s←%s fecha   %sTab%s próxima aba\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^n%s nova   %s^s%s subtarefa   %s^e%s descrição   %s^d%s prazo   %sF2%s renomear\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
@@ -5576,7 +5610,7 @@ tarefas_ajuda_linhas() {
   printf '\t\n\t %sSÍMBOLOS%s\n' "$a" "$z"
   printf '\t   %s☐%s aberta   %s☑%s feita   %s▸%s fechada   %s▾%s aberta (detalhes)\n' "$t" "$z" "$verde" "$z" "$a" "$z" "$a" "$z"
   printf '\t   %s●%s prioridade alta   %s●%s média   %s◷ sex 14:00%s prazo   %s◷ venceu%s atrasada\n' "$verm" "$z" "$y" "$z" "$s" "$z" "$verm" "$z"
-  printf '\t   %s↻%s repete   %s━━━%s%s━━━%s 1/2 subtarefas feitas   %s#tag%s\n' "$teal" "$z" "$teal" "$z" "$d" "$z" "$lil" "$z"
+  printf '\t   %s↻%s repete   %s━━━%s%s━━━%s 1/2 subtarefas feitas   %s≡%s tem descrição   %s#tag%s\n' "$teal" "$z" "$teal" "$z" "$d" "$z" "$s" "$z" "$lil" "$z"
   printf '\t\n\t %sSINCRONIA%s\n' "$a" "$z"
   printf '\t   As tarefas vão para as suas outras máquinas sozinhas\n'
   printf '\t   (tarefas_sync em ~/.config/tt/config: p2p, git, ambos ou off).\n'
@@ -5602,7 +5636,9 @@ tarefas_menu_linhas() { # id
     else printf 'act:%s:%s\t     %s○ %s%s\n' "$1" "$id" "$d" "$t$3" "$z"; fi
   }
   printf 'voltar\t %s‹ voltar para a lista%s\n\t\n' "$a$n" "$z"
+  local nfalta; nfalta=$(tarefas_subs_abertas "$id" | grep -c . || true)
   if [[ $est == feita ]]; then _op feita "$t↺ Reabrir (marcar como não feita)" '⏎'
+  elif ((nfalta > 0)); then _op feita "$d☑ Marcar como feita" "falta$( ((nfalta > 1)) && echo m) $nfalta subtarefa$( ((nfalta > 1)) && echo s)"
   else _op feita "$g☑ Marcar como feita" '⏎ ou duplo clique'; fi
   _op renomear "$t✎ Renomear…" F2
   _op desc "$t✎ Descrição…" '^e'
@@ -5717,25 +5753,41 @@ tarefa_acao() { # evento chave
   esac
   [[ -n $id ]] || { echo ignore; return; }
   pai=$(tarefas_pai_de "$id")
+  # Marca/desmarca. Mãe com subtarefa aberta não conclui: avisa no cabeçalho e abre a mãe para
+  # mostrar o que falta.
+  _marcar() {
+    local falta n
+    falta=$(tarefa_alternar "$1") && { echo "$rl+$hd"; return; }
+    if [[ -n $falta ]]; then
+      n=$(grep -c . <<<"$falta")
+      tarefas_ui_set aviso "Para concluir, falta$( ((n > 1)) && echo m) $n subtarefa$( ((n > 1)) && echo s): $(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' <<<"$falta")"
+      tarefas_exp_definir "$1" 1
+    fi
+    echo "$rl+$hd"
+  }
   if [[ $ev == duplo ]]; then
     [[ $ultimo == "$chave" ]] || { echo ignore; return; }
   fi
   case $ev in
     enter|clique)
       case $chave in
-        desc:*) echo "execute($EU --tarefa-desc-prompt $id)+$rl"; return ;;
+        desc:*)
+          # Com descrição: abre/fecha a visão da descrição (a janela de prévia). Sem: escreve.
+          if [[ -n $(tarefas_meta_get "$(tarefas_meta_de "$id")" desc) ]]; then echo toggle-preview
+          else echo "execute($EU --tarefa-desc-prompt $id)+$rl"; fi
+          return ;;
         sub:*) echo "execute($EU --tarefa-sub-prompt $id)+$rl+$hd"; return ;;
         menu:*) tarefas_ui_set modo "menu:$id"; echo "clear-query+$rl+$hd+first"; return ;;
       esac
       # Clique numa tarefa de topo abre/fecha os detalhes; ⏎ e clique numa subtarefa marcam.
       if [[ $ev == clique && -z $pai ]]; then tarefas_exp_alternar "$id"; echo "$rl"
-      else tarefa_alternar "$id"; echo "$rl+$hd"; fi ;;
+      else _marcar "$id"; fi ;;
     duplo)
       # O 1º clique do duplo já abriu/fechou a tarefa de topo: desfaz e marca como feita.
       [[ $chave == "$id" ]] || { echo ignore; return; }
-      if [[ -z $pai ]]; then tarefas_exp_alternar "$id"; tarefa_alternar "$id"; echo "$rl+$hd"
+      if [[ -z $pai ]]; then tarefas_exp_alternar "$id"; _marcar "$id"
       else echo ignore; fi ;;
-    feita) tarefa_alternar "$id"; echo "$rl+$hd" ;;
+    feita) _marcar "$id" ;;
     menu|mais)
       [[ $modo == "menu:$id" ]] && { _volta; return; }
       tarefas_ui_set modo "menu:$id"; echo "clear-query+$rl+$hd+first" ;;
@@ -5758,7 +5810,9 @@ tarefa_acao() { # evento chave
   esac
 }
 
-# Prévia de uma tarefa no painel (janela inferior do fzf): texto, prazo e descrição.
+# Visão da descrição (a janela de prévia do painel, ^/ ou a linha "≡ descrição" de uma tarefa
+# aberta): um cartão com o título, prazo/prioridade/repetição/etiquetas, a descrição inteira e as
+# subtarefas.
 tarefa_preview() { # chave
   local id m txt prazo desc
   id=$(tarefas_id_da_chave "${1:-}")
@@ -5766,17 +5820,27 @@ tarefa_preview() { # chave
   txt=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
   [[ -n $txt ]] || return 0
   m=$(tarefas_meta_de "$id")
-  printf '%s\n' "$txt"
-  local prio; prio=$(tarefas_meta_get "$m" prio)
-  [[ -n $prio ]] && printf 'prioridade: %s\n' "$([[ $prio == 1 ]] && echo '🔴 alta' || echo '🟡 média')"
+  local z=$'\e[0m' n=$'\e[1m' t=$'\e[38;2;205;214;244m' s=$'\e[38;2;166;173;200m' d=$'\e[38;2;108;112;134m'
+  local verm=$'\e[38;2;243;139;168m' amar=$'\e[38;2;249;226;175m' teal=$'\e[38;2;148;226;213m' lil=$'\e[38;2;203;166;247m'
+  local verde=$'\e[38;2;166;227;161m'; local -a info=()
+  printf '%s%s%s\n' "$n$t" "$txt" "$z"
   prazo=$(tarefas_meta_get "$m" prazo)
-  [[ -n $prazo ]] && printf 'prazo: %s\n' "$(tarefas_prazo_texto "$prazo" "$(tarefas_meta_get "$m" hora)")"
-  local rep; rep=$(tarefas_meta_get "$m" rep)
-  [[ -n $rep ]] && printf 'repete: %s\n' "$([[ $rep == d ]] && echo diária || { [[ $rep == w ]] && echo semanal || echo mensal; })"
-  local tgs; tgs=$(tarefas_meta_get "$m" tags)
-  [[ -n $tgs ]] && printf 'tags: #%s\n' "${tgs//,/ #}"
+  [[ -n $prazo ]] && info+=("$s◷ $(tarefas_prazo_texto "$prazo" "$(tarefas_meta_get "$m" hora)")$z")
+  case $(tarefas_meta_get "$m" prio) in 1) info+=("$verm● alta$z") ;; 2) info+=("$amar● média$z") ;; esac
+  case $(tarefas_meta_get "$m" rep) in d) info+=("$teal↻ diária$z") ;; w) info+=("$teal↻ semanal$z") ;; m) info+=("$teal↻ mensal$z") ;; esac
+  local tgs; tgs=$(tarefas_meta_get "$m" tags); [[ -n $tgs ]] && info+=("$lil#${tgs//,/ #}$z")
+  ((${#info[@]})) && { local IFS=$'\x1f'; printf '%s\n' "${info[*]}" | sed $'s/\x1f/   /g'; }
+  printf '\n'
   desc=$(tarefa_get_desc "$id")
-  [[ -n $desc ]] && { printf '\n%s\n' "$desc"; }
+  if [[ -n $desc ]]; then printf '%s\n' "$desc"
+  else printf '%sSem descrição. ^e (ou ✎ Descrição) escreve uma.%s\n' "$d" "$z"; fi
+  local sid sest stxt nf=0 nt=0 subs=""
+  while IFS=$'\t' read -r sid sest stxt; do
+    [[ -n $sid ]] || continue
+    nt=$((nt + 1)); [[ $sest == feita ]] && nf=$((nf + 1))
+    subs+="  $([[ $sest == feita ]] && echo "$verde☑$z $d$stxt$z" || echo "$t☐ $stxt$z")"$'\n'
+  done < <(tarefas_filhas "$id")
+  ((nt > 0)) && printf '\n%sSubtarefas %s/%s%s\n%s' "$s" "$nf" "$nt" "$z" "$subs"
   return 0
 }
 
@@ -9047,7 +9111,13 @@ case "${1:-}" in
     tarefas_dica_frase
     tarefas_ler_linha t || exit 0
     [[ -n ${t:-} ]] && tarefa_add_natural "$t" >/dev/null && { printf '  ✓ criada\n'; sleep 0.6; }; exit ;;
-  --tarefa-ok) tarefa_estado "${2:?uso: tt --tarefa-ok ID}" feita; exit ;;
+  --tarefa-ok)
+    # Concluir pela linha de comando segue as mesmas regras (subtarefas, recorrência).
+    [[ -n ${2:-} ]] || { echo 'uso: tt --tarefa-ok ID'; exit 1; }
+    [[ $(tarefas_estado_de "$2") == feita ]] && exit 0
+    if falta=$(tarefa_concluir "$2"); then exit 0; fi
+    [[ -n $falta ]] && { printf 'Não concluída: faltam as subtarefas:\n%s\n' "$(sed 's/^/  ☐ /' <<<"$falta")" >&2; }
+    exit 1 ;;
   --tarefa-abrir) tarefa_estado "${2:?uso: tt --tarefa-abrir ID}" aberta; exit ;;
   --tarefa-rm) tarefa_remover "${2:?uso: tt --tarefa-rm ID}"; exit ;;
   --tarefa-limpar) tarefa_limpar_feitas; exit ;;
