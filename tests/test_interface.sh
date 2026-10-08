@@ -34,7 +34,8 @@ passou "Esc fecha a central em menos de 1 s mesmo com máquina sem resposta"
 tmux run-shell "$TT --clique 'user|fixar' '$c' '' '' 10"; sleep 1
 grep -q $'^teste\tapp\t' "$XDG_CONFIG_HOME/tt/fixadas" || falhou '📍 não fixou a sessão atual'
 [[ $(tmux show -qv -t '=app:' @tt_fixada) == 1 ]] || falhou 'marca @tt_fixada não acesa'
-k=$(tmux show -gqv @barra_fixadas | grep -o 'range=user|fxx[0-9a-f]*' | head -1 | cut -d'|' -f2)
+# A faixa referencia opções por item (@fxK_I); o ✕ está nelas.
+k=$(tmux show -g | grep -o 'range=user|fxx[0-9a-f]*' | head -1 | cut -d'|' -f2)
 [[ -n $k ]] || falhou 'faixa não tem o ✕ da fixada'
 tmux run-shell "$TT --clique 'user|$k' '$c' '' '' 10"; sleep 1
 grep -q $'^teste\tapp' "$XDG_CONFIG_HOME/tt/fixadas" && falhou '✕ não desafixou'

@@ -41,8 +41,12 @@ for n in 1 2 3 4 5 6 7 8 9 10; do tt --fixar "s$n" >/dev/null; done
 passou 'reordenar: passo, início, fim e destino saturado (desloca os demais, lista íntegra)'
 
 # --- Overflow: compressão por estágios e chip +N ------------------------------------------------
-render() { "$TT" --barras >/dev/null 2>&1; tmux show -gqv @barra_fixadas; }
-nitens() { grep -o 'range=user|fx[0-9a-f]' <<<"$1" | wc -l; }
+# A faixa referencia opções (@fx…) e traz condições do tmux: o que conta é o desenho expandido.
+render() { "$TT" --barras >/dev/null 2>&1; tmux display -p -t s1 "$(tmux show -gqv @barra_fixadas)"; }
+# O formato traz condições do tmux (destaque e "sessão em uso" de cada cliente): conta o que o tmux
+# desenha de fato, expandindo o formato no contexto de uma sessão (SESSÃO, padrão s1).
+desenho() { [[ -n ${2:-} ]] && { tmux display -p -t "$2" "$(tmux show -gqv @barra_fixadas)"; return; }; printf '%s' "$1"; }
+nitens() { grep -o 'range=user|fx[0-9a-f]' <<<"$(desenho "$1")" | wc -l; }
 
 # Largura folgada: todos os 10 itens aparecem, com rótulo inteiro e ✕, sem chip.
 faixa=$(TT_FIX_LARGURA=300 render)
@@ -73,7 +77,8 @@ passou 'estouro: chip +N ▾ com a contagem certa; sem setas de scroll'
 anexar cli 120 30 s10
 sleep 0.5
 faixa=$(TT_FIX_LARGURA=50 render)
-grep -q 's10' <<<"$faixa" || falha 'sessão em uso (s10) não ficou visível no estouro'
+grep -q 's10' <<<"$(desenho "$faixa" s10)" || falha 'sessão em uso (s10) não ficou visível no estouro'
+grep -q ' s10 ' <<<"$(desenho "$faixa" s1)" && falha 'para quem está em s1, o s10 escondido não deveria tomar o lugar'
 passou 'estouro: a sessão em uso nunca some da faixa'
 
 # --- Popup: reordenar e desafixar pelo índice ---------------------------------------------------
