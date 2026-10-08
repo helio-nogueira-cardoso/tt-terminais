@@ -79,22 +79,25 @@ grep -q 'garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (j
   falhou "instalar_aqui não dispara a pré-instalação nos dois caminhos"
 passou "instalar_aqui dispara a pré-instalação (já instalada e instalação nova)"
 
-# 9) Modalzinho do sudo: mostra o resumo e o comando; recusar não roda sudo e grava a recusa.
+# 9) Modal do sudo: mostra as pendências e o comando; recusar não roda sudo e grava a recusa.
 printf '#!/bin/sh\n:\n' >"$B/apt-get"; chmod +x "$B/apt-get"
 printf '#!/bin/sh\necho "$@" >> %s/sudo.log\n' "$T" >"$B/sudo"; chmod +x "$B/sudo"
-echo n >"$T/resposta"; : >"$T/sudo.log"
-rc=0; saida=$(PATH="$B:$PATH" TT_TTY="$T/resposta" "$TT" --pedir-sudo curl unzip 2>&1) || rc=$?
+printf r >"$T/resposta"; : >"$T/sudo.log"
+rc=0; saida=$(PATH="$B:$PATH" TT_TTY="$T/resposta" TT_FINGE_FALTA="curl unzip" "$TT" --pedir-sudo 2>&1) || rc=$?
 (( rc != 0 )) || falhou "recusa deveria sair com erro"
 grep -q 'sudo apt-get install -y curl unzip' <<<"$saida" || falhou "resumo sem o comando exato: $saida"
 grep -q 'não a vê' <<<"$saida" || falhou "resumo não explica quem pede a senha: $saida"
 [[ ! -s $T/sudo.log ]] || falhou "rodou sudo apesar da recusa"
 [[ -s $HOME/.local/state/tt/navegadores-sudo-recusado ]] || falhou "recusa não foi gravada"
-passou "modal do sudo: resumo com o comando exato; recusa não roda sudo e é lembrada"
+saida=$(PATH="$B:$PATH" TT_TTY="$T/resposta" TT_FINGE_FALTA="curl unzip" "$TT" --pedir-sudo 2>&1)
+grep -q 'Nada pendente' <<<"$saida" || falhou "recusado há pouco deveria dar 'Nada pendente': $saida"
+passou "modal do sudo: resumo com o comando exato; recusa não roda sudo e é lembrada por 7 dias"
 
-# 10) Aceitar roda exatamente o comando mostrado, com sudo (que pede a senha ele mesmo).
-echo s >"$T/resposta"; : >"$T/sudo.log"
-PATH="$B:$PATH" TT_TTY="$T/resposta" "$TT" --pedir-sudo curl unzip >/dev/null 2>&1 || falhou "aceite deveria sair com sucesso"
+# 10) Aceitar tudo roda exatamente o comando mostrado, com sudo (que pede a senha ele mesmo).
+rm -f "$HOME/.local/state/tt/navegadores-sudo-recusado"
+printf a >"$T/resposta"; : >"$T/sudo.log"
+PATH="$B:$PATH" TT_TTY="$T/resposta" TT_FINGE_FALTA="curl unzip" "$TT" --pedir-sudo >/dev/null 2>&1 || falhou "aceite deveria sair com sucesso"
 [[ $(cat "$T/sudo.log") == "apt-get install -y curl unzip" ]] || falhou "sudo rodou outra coisa: '$(cat "$T/sudo.log")'"
-passou "modal do sudo: aceitar roda sudo apt-get install -y com os pacotes do resumo"
+passou "modal do sudo: aceitar tudo roda sudo apt-get install -y com os pacotes do resumo"
 
 echo "TODOS OS TESTES PASSARAM"

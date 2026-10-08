@@ -336,7 +336,9 @@ Para quem precisa de mais, cada conta pode manter um **espelho local completo** 
 padrão), com o [`mbsync`](https://isync.sourceforge.io/) (pacote `isync`): o aerc passa a ler de um
 `maildir` em `~/.cache/tt/maildir/<conta>` (abertura instantânea, busca local, leitura offline do que
 já baixou), e o envio continua pelo SMTP normal. As marcas (lido, arquivado, apagado) e as mensagens
-novas sobem e descem no próximo sync. Ligue por conta no cadastro:
+novas sobem e descem no próximo sync. Ligue pela interface (`F2` → a conta → **🔄 Sync local**;
+sem o `mbsync`, o modal de pendências oferece instalá-lo), por `tt --email-sync-local CONTA 1`
+(`0` desliga; desligar volta ao IMAP direto sem apagar nada), ou já no cadastro:
 
     tt --email-adicionar nome=Pessoal endereco=eu@gmail.com provedor=gmail auth=senha sync_local=1 --senha-stdin
 
@@ -345,6 +347,11 @@ de senha, o seu comando externo, ou, no OAuth2, um token renovado na hora). O vi
 segundo plano a cada `TT_EMAIL_SYNC` segundos (padrão 180; `0` desliga); `tt --email-sync [conta]`
 força agora. Sem o `mbsync` instalado o cadastro com `sync_local=1` é recusado, em vez de fingir que
 ligou. Contas sem o flag seguem lendo direto do servidor (IMAP) com o cache de cabeçalhos acima.
+
+Tudo o que o tt quer instalar com administrador (curl/unzip dos navegadores de links, `isync` do
+sync local, `w3m` do HTML) se junta num **modal único** (`tt --pedir-sudo`): instalar tudo,
+selecionar o que aceitar, ou recusar (a recusa vale 7 dias, por item). O `instalar.sh` da primeira
+instalação já traz tudo isso de uma vez, em qualquer gerenciador (apt, dnf, pacman, apk, brew, pkg).
 
 ## Tarefas
 
