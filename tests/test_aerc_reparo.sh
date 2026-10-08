@@ -81,6 +81,17 @@ mk w3m
 printf '[filters]\ntext/html=! html\n' > "$conf"; before=$(cat "$conf"); aerc_reparar_se_preciso
 [[ $(cat "$conf") == "$before" ]] && ok "'! html' com w3m: nao mexe" || erro "reescreveu a toa com w3m"
 
+# Funções REAIS do tt (as cópias acima são antigas): filtro w3m sem extbrowser (Enter num link dava
+# "Can't load" com a URL cortada) migra para abrir o link no navegador; idempotente depois.
+eval "$(sed -n '/^aerc_filtro_html() {/,/^}/p;/^aerc_reparar_se_preciso() {/,/^}/p' "$raiz/tt")"
+mk w3m
+printf '[filters]\ntext/html=! html | colorize | python3 /x/email-tt.py linkify\n' > "$conf"; aerc_reparar_se_preciso
+f=$(filtro_atual)
+[[ $f == *"extbrowser='"*"--abrir-url %s'"* && $f == *keymap_file=* ]] && ok "filtro w3m antigo migrado p/ abrir link no navegador" || erro "filtro nao migrou: $f"
+grep -q 'C-m EXTERN_LINK' "$DIR_TT/w3m-keymap" 2>/dev/null && ok "keymap do w3m: Enter abre o link no navegador" || erro "keymap do w3m ausente"
+before=$(cat "$conf"); aerc_reparar_se_preciso
+[[ $(cat "$conf") == "$before" ]] && ok "filtro w3m novo: idempotente" || erro "reescreveu filtro w3m novo"
+
 corpo_botao=$(sed -n '/^botao_email()/,/^}/p' "$raiz/tt")
 grep -q 'aerc_reparar_se_preciso' <<<"$corpo_botao" &&
   grep -q 'kill-session.*EMAIL_SESSAO' <<<"$corpo_botao" &&
