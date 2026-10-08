@@ -389,6 +389,14 @@ E-mails com versão HTML abrem nela, pelo `w3m` (tabelas, cores, links), na larg
 estreita (lado a lado, celular) o 📧 abre o aerc sem a barra de pastas (`J`/`K` trocam de pasta).
 **Botão direito no 📧**: abrir, contas (cadastrar, descadastrar, testar), nova conta, atalhos e o estado do sync local.
 
+**Apagar e arquivar certos no Gmail.** No IMAP do Gmail as pastas são rótulos: tirar uma mensagem
+da Caixa de entrada (o que um "delete" comum faz, direto ou pelo espelho local) só a **arquiva** — ela
+continua em *Todos os e-mails*. Por isso, nas contas Gmail do tt, `d` (e o botão ✕) pergunta e **manda
+para a Lixeira** de verdade (`D` sem perguntar), `a` (e ▤) **arquiva** tirando da Caixa de entrada,
+sem subir cópia nenhuma, e dentro da *Lixeira* e do *Spam* `d`/`D` **apagam de vez**. As outras contas
+seguem com o comportamento de fábrica (lá apagar apaga). Isso vale na lista, na leitura e nos
+botões; o tt escreve essas regras no `binds.conf` por conta (`[messages:account=…]`) a cada cadastro.
+
 ### Escrever e-mails
 
 `m` (ou o botão **+ Nova**), `Rr`/`rr` responder, `f` encaminhar. Os campos (Para, Cc, Assunto) vêm

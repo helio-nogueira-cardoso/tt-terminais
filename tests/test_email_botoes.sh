@@ -77,14 +77,19 @@ grep -q "^<F2> = :exec $HOME/.local/bin/tt --email-tela contas<Enter>$" "$bo" ||
 grep -q ':term' "$bo" && falhou 'ainda há :term nos binds da sessão oculta'
 grep -q '^q = :exec tmux detach-client<Enter>$' "$bo" || falhou 'q deveria desanexar'
 awk '/^\[messages\]/{s="m"} /^\[view\]/{s="v"} /^<F3> = :view<Enter>$/{f[s]++} /^<F9> = :choose -o y .Apagar esta mensagem. delete-message<Enter>$/{d[s]++} END{exit !(f["m"]==1 && !f["v"] && d["m"]==1 && d["v"]==1)}' "$bo" || falhou "F3 só na lista, F9 na lista e na leitura: $(grep -n '^<F\|^\[' "$bo")"
-[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 2 ]] || falhou 'sessão deveria marcar a versão dos binds'
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 3:* ]] || falhou "sessão deveria marcar a versão dos binds (versão:soma do binds.conf): $(tmux show -qv -t =_tt-email: @tt_email_binds)"
 passou 'binds da sessão oculta: ? e F2 abrem as telas do tt; F3–F10 ligados por contexto; versão marcada'
 
 # 2d) sessão oculta de antes (sem a versão dos binds) é recriada ao abrir — os botões mandam F3–F10
 tmux set -qu -t =_tt-email: @tt_email_binds
 bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao recriar'
-[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 2 ]] || falhou 'sessão com binds antigos deveria ser recriada com a versão nova'
-passou 'sessão oculta com binds antigos é recriada'
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 3:* ]] || falhou 'sessão com binds antigos deveria ser recriada com a versão nova'
+# binds.conf mudou (ex.: conta Gmail cadastrada → binds por conta): a sessão também é recriada
+echo '# mudou' >>~/.config/aerc/binds.conf
+antes=$(tmux show -qv -t =_tt-email: @tt_email_binds)
+bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao após mudança'
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) != "$antes" ]] || falhou 'binds.conf mudado deveria recriar a sessão (soma nova)'
+passou 'sessão oculta com binds antigos ou binds.conf mudado é recriada'
 
 # 2e) linha de status do aerc fica só com o estado; as dicas antigas do tt são migradas, valor do dono fica
 printf '[statusline]\ncolumn-right={{.TrayInfo}}  ? atalhos · F2 contas · Ctrl+r redesenha · q fecha\n' >~/.config/aerc/aerc.conf
