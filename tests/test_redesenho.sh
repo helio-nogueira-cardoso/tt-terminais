@@ -29,6 +29,19 @@ tmux set -t =b: status-style bg=red
 [[ $(wc -l <"$T/escritas") == 1 && -z $(tmux show -qv -t =b: status-style) ]] || falhou 'desvio não corrigido numa gravação só'
 passou 'reforçar o padrão é idempotente (0 gravações sem desvio; 1 com desvio)'
 
+# Com sessões fixadas, a faixa grava as opções @fx… por source-file — só quando o conteúdo muda. Antes
+# gravava em TODA chamada de atualizar_barras (vigia por minuto, tarefas recebidas…), e cada
+# source-file redesenhava a tela inteira de todos os clientes mesmo sem nada ter mudado.
+printf 'teste\ta\tuuid-a\nteste\tb\tuuid-b\n' >"$XDG_CONFIG_HOME/tt/fixadas"
+PATH=$T/shim:$PATH "$TT" --barras >/dev/null 2>&1
+grep -q 'fx0_1' <<<"$(tmux show -g 2>/dev/null)" || falhou 'faixa de fixadas não gravou as opções @fx… na 1ª passagem'
+: >"$T/escritas"; PATH=$T/shim:$PATH "$TT" --barras >/dev/null 2>&1
+[[ ! -s $T/escritas ]] || falhou "atualizar_barras sem mudança regravou (redesenho completo à toa): $(head -c 200 "$T/escritas")"
+printf 'teste\ta\tuuid-a\n' >"$XDG_CONFIG_HOME/tt/fixadas"
+: >"$T/escritas"; PATH=$T/shim:$PATH "$TT" --barras >/dev/null 2>&1
+grep -q 'source-file' "$T/escritas" || falhou 'fixada removida deveria regravar as opções da faixa'
+passou 'faixa de fixadas: source-file só quando o conteúdo muda'
+
 tmux new -d -s c 'while :; do echo x; sleep 1; done'
 TT_PAUSA=2 TT_T_PRIMEIRO=999 TT_PONTOS_RENOMEAR=999999 PATH=$T/shim:$PATH "$TT" --vigia >/dev/null 2>&1 &
 sleep 8; : >"$T/escritas"; sleep 12
