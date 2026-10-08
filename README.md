@@ -389,6 +389,33 @@ E-mails com versão HTML abrem nela, pelo `w3m` (tabelas, cores, links), na larg
 estreita (lado a lado, celular) o 📧 abre o aerc sem a barra de pastas (`J`/`K` trocam de pasta).
 **Botão direito no 📧**: abrir, contas (cadastrar, descadastrar, testar), nova conta, atalhos e o estado do sync local.
 
+### Escrever e-mails
+
+`m` (ou o botão **+ Nova**), `Rr`/`rr` responder, `f` encaminhar. Os campos (Para, Cc, Assunto) vêm
+primeiro; Tab, Ctrl+j e Ctrl+k passam de um a outro. No **Para**, ao digitar aparecem os
+**destinatários** com quem você já trocou e-mail (nome ou endereço, sem distinguir maiúsculas): o tt
+indexa remetentes e destinatários de todas as mensagens espelhadas (`~/.cache/tt/email-contatos.tsv`,
+refeito a cada volta completa do sync; os seus próprios endereços e os automáticos, tipo *noreply*,
+ficam de fora) e, antes deles, os contatos que você escrever à mão em `~/.config/tt/email/contatos.tsv`
+(`endereço<TAB>nome`, um por linha).
+
+O corpo abre no **editor padronizado do tt**: o `vim` com a configuração bonita do tt mais o jeito de
+e-mail — quebra em **72 colunas com format=flowed** (o aerc envia `text/plain; format=flowed`, e quem
+lê reflui o texto à largura dele, no celular inclusive), **ortografia em português e inglês** (`z=`
+sugere a correção da palavra; o dicionário de português baixa sozinho uma vez, 2,6 MB), sem números
+de linha, começando a escrever acima da citação. `Ctrl+S` salva e vai para a **revisão**: `y` envia,
+`n` descarta, `p` adia (vira rascunho), `e` volta a editar, `v` mostra como vai ficar, `a` abre o
+**seletor de anexos** (os arquivos da pasta de recebidos e da sua pasta, os mais recentes primeiro;
+Tab marca vários), `A` pede o caminho e `d` tira um anexo. Se `VISUAL`/`EDITOR` estiverem definidos,
+valem eles (o `nano` ganha a largura 72; outros ficam como estão). Antes de enviar, o aerc **avisa**
+se o assunto está vazio ou se o texto fala em anexo (*anexo, anexa, anexei, attach…*) e não há nenhum.
+
+Cada conta pode ter uma **assinatura** (`F2` → a conta → **✎ Assinatura**, que abre o editor; uma
+linha já no cadastro; `tt --email-assinatura CONTA` ou `--email-adicionar … assinatura="…"` pela
+linha de comando); fica em `~/.config/tt/email/<conta>.assinatura`, entra no bloco do aerc como
+`signature-file` (uma `signature-cmd`/`signature-file` sua nas linhas extras tem prioridade) e viaja
+junto na propagação da conta.
+
 ### Consulta mais rápida
 
 Por padrão o aerc guarda os cabeçalhos em disco (`cache-headers`, em `~/.cache/aerc`): abrir uma pasta

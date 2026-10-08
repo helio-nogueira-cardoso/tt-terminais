@@ -128,11 +128,12 @@ passou 'receber: sonda responde existe/mbsync; pacote estranho, sem senha, lixo 
 
 # --- fim do cadastro: a pergunta só aparece com máquinas; "s" propaga, "n" não ------------------
 : >"$ENVIADO"
-printf 'gmail\nnova@gmail.com\nNova\nsenha\nSENHA_N\nSENHA_N\ns\n' | "$TT" --email-conta-nova-ui >"$T/ui.out" 2>&1
+# (a linha vazia antes do "s" é a assinatura, pulada)
+printf 'gmail\nnova@gmail.com\nNova\nsenha\nSENHA_N\nSENHA_N\n\ns\n' | "$TT" --email-conta-nova-ui >"$T/ui.out" 2>&1
 grep -q 'Propagar esta conta para as máquinas da rede (alvo1)? (S/n)' "$T/ui.out" || falhou "pergunta de propagação ausente: $(cat "$T/ui.out")"
 [[ $(cat "$D/.secrets/aerc-nova.txt" 2>/dev/null) == SENHA_N ]] || falhou 'cadastro com "s" não propagou'
 : >"$ENVIADO"
-printf 'gmail\noutra@gmail.com\nOutra\nsenha\nSENHA_O\nSENHA_O\nn\n' | "$TT" --email-conta-nova-ui >"$T/ui.out" 2>&1
+printf 'gmail\noutra@gmail.com\nOutra\nsenha\nSENHA_O\nSENHA_O\n\nn\n' | "$TT" --email-conta-nova-ui >"$T/ui.out" 2>&1
 [[ -e $D/.secrets/aerc-outra.txt ]] && falhou 'cadastro com "n" propagou'
 [[ -s $ENVIADO ]] && falhou 'cadastro com "n" mandou pacote'
 # Sem máquinas cadastradas: nem pergunta.
@@ -160,6 +161,18 @@ grep -q 'já existe lá' <<<"$out" || falhou "seletor da tela da conta não prop
 out=$(printf '\n' | "$TT" --email-propagar-ui Cli 2>&1) || true
 grep -q 'Propagando' <<<"$out" && falhou 'seletor vazio propagou'
 passou 'tela da conta (F2 → conta → ⇪ Propagar…): o seletor de máquinas chama a propagação; vazio não manda'
+
+# --- a assinatura acompanha a conta (e some lá quando some aqui) ---------------------------------
+printf 'Abraços,\nHélio\n' | "$TT" --email-assinatura Cli >/dev/null || falhou 'assinatura'
+out=$("$TT" --email-propagar Cli --sobrescrever 2>&1) || falhou "propagar com assinatura: $out"
+grep -qx 'cli.assinatura' <<<"$(tar -tf "$ENVIADO")" || falhou "pacote deveria levar a assinatura: $(tar -tf "$ENVIADO")"
+[[ $(cat "$D/.config/tt/email/cli.assinatura") == $'Abraços,\nHélio' ]] || falhou 'assinatura não chegou'
+grep -q "^signature-file *= $D/.config/tt/email/cli.assinatura$" "$D/.config/aerc/accounts.conf" || falhou 'bloco de lá sem signature-file'
+printf '' | "$TT" --email-assinatura Cli >/dev/null
+out=$("$TT" --email-propagar Cli --sobrescrever 2>&1) || falhou "propagar sem assinatura: $out"
+[[ -e $D/.config/tt/email/cli.assinatura ]] && falhou 'assinatura tirada aqui deveria sumir lá'
+grep -q 'signature-file' "$D/.config/aerc/accounts.conf" && falhou 'signature-file ficou no bloco de lá'
+passou 'assinatura da conta viaja junto; tirada aqui, some lá na próxima propagação'
 
 # --- origem sem segredo (OAuth ainda não autorizado) não propaga -----------------------------------
 "$TT" --email-adicionar nome=Oauth endereco=o@empresa.com provedor=microsoft auth=oauth oauth_client_id=id-ficticio >/dev/null || falhou 'cadastro oauth'
