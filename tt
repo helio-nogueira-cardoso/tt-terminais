@@ -3321,6 +3321,15 @@ CHROME_BASE=${TT_CHROME_BASE:-https://dl.google.com/linux/chrome/deb}
 CARBONYL_URL=${TT_CARBONYL_URL:-https://github.com/fathyb/carbonyl/releases/download/v0.0.3/carbonyl.linux-amd64.zip}
 CARBONYL_SHA256=46a902ea29bb32f773fb4ee341423705b92345a810422b8df93eaea6a1ec7ad2
 
+# User-agent do Chrome embutido (ou um atual fixo): o Carbonyl é um Chromium de 2023 e vários
+# sites (login do Google à frente) barram navegador antigo só pelo anúncio; apresentar-se como o
+# Chrome ajuda a passar o portão de entrada (o motor continua o que é — sem garantia em sites que
+# inspecionam fundo).
+ua_chrome() {
+  local v; v=$(cut -d- -f1 "$DIR_NAVEGADORES/chrome/versao" 2>/dev/null); v=${v:-155.0.0.0}
+  printf 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36' "$v"
+}
+
 navegadores_graficos_ok() { [[ $(uname -m) == x86_64 && $(uname -s) == Linux ]] && ! command -v termux-open-url >/dev/null; }
 bin_chromium() { echo "$DIR_NAVEGADORES/chrome/opt/google/chrome/chrome"; }
 bin_carbonyl() { echo "$DIR_NAVEGADORES/carbonyl/carbonyl-0.0.3/carbonyl"; }
@@ -3691,7 +3700,7 @@ abrir_com() {
       navegador_instalar carbonyl || return 1
       garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
       # O Carbonyl só sai com Ctrl+C; o links-tt.py com-ctrl-q faz o Ctrl+Q do título do popup valer.
-      local car; car="$(q "$(bin_carbonyl)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-carbonyl") $(q "$u")"
+      local car; car="$(q "$(bin_carbonyl)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-carbonyl") --user-agent=$(q "$(ua_chrome)") $(q "$u")"
       command -v python3 >/dev/null && [[ -f $LINKS_PY ]] && car="python3 -I $(q "$LINKS_PY") com-ctrl-q $car"
       rodar_fora 1 "$car" ;;
   esac
