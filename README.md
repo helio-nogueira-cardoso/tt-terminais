@@ -30,8 +30,16 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
 - **Copiar e colar iguais em todo lugar**: arrastar copia (também sobre o Claude Code, o Codex e
   sessões de outra máquina), duplo clique copia a palavra, triplo a linha, sempre com o aviso
   "📋 copiado (N caracteres)"; a cópia vai para a área de transferência do aparelho em uso (PC,
-  Windows/WSL ou celular via mosh). Colar: Ctrl+Shift+V, botão do meio ou ⋯ → 📋 Colar; no
-  celular, ⋯ → 📋 Copiar o texto da tela. Shift+arrastar continua sendo a seleção do terminal.
+  Windows/WSL ou celular via mosh). O que a tela partiu em linhas — um endereço, caminho ou código
+  longo quebrado na borda, com recuo ou borda na linha de baixo, como no Claude Code — volta a ser
+  uma coisa só na cópia; quebras de verdade ficam. Colar: Ctrl+Shift+V, botão do meio ou
+  ⋯ → 📋 Colar; no celular, ⋯ → 📋 Copiar o texto da tela. Shift+arrastar continua sendo a seleção
+  do terminal (essa não passa pelo tt).
+- **Links clicáveis em qualquer painel**: clique num endereço (http/https) abre a mesma escolha de
+  navegador do e-mail (veja "Links: escolha do navegador"), com a URL inteira mesmo quando ela está
+  quebrada em várias linhas; duplo clique copia o link inteiro; Ctrl+B u (ou ⋯ → 🔗 Links da tela)
+  lista os links do painel e do histórico. Vale também sobre programas que usam o mouse (Claude
+  Code, aerc): fora de um link, o clique continua indo para eles.
 - **Painéis com outras sessões**: `^v` ao lado, `^o` embaixo, `^p` troca — inclusive sessões de
   outra máquina. Uma sessão de outra máquina vista daqui vira uma "ponte"; trocar de sessão pela
   barra de lá troca a sua tela de verdade (sem ponte dentro de ponte).
@@ -644,9 +652,10 @@ da conversa, se for o Claude, ou um nome curto que o Haiku tira da tela. O tt ac
 Claude guarda as conversas e qual `claude` usar, inclusive no Termux, com o Claude dentro do Debian
 (`proot-distro`). Um nome que você der à mão (`^r`, Ctrl+B N) nunca é trocado.
 
-## Links de e-mail: escolha do navegador
+## Links: escolha do navegador
 
-Enter (ou `ESC M`) num link no leitor de e-mail abre um seletor com três opções:
+Clique num link em qualquer painel, Enter (ou `ESC M`) num link no leitor de e-mail, ⏎ no link do
+cadastro de conta OAuth e Ctrl+B u abrem o mesmo seletor com três opções (mais "📋 Só copiar o link"):
 
 - **Google Chrome interno**: o estável, extraído do .deb oficial sem sudo, janela gráfica (WSLg ou X11); atualiza sozinho, no máximo uma vez por dia;
 - **Carbonyl embutido**: Chromium que desenha no terminal, num popup do tmux (Ctrl+Q sai). É um build
@@ -658,6 +667,20 @@ instalados se o sha256 do pacote bater (o do Chrome, com o índice do repositór
 Máquina nova (`instalar.sh`) e máquina atualizada (`tt --sincronizar`, `tt --atualizar`) já deixam os dois prontos em segundo plano: instalam `curl`/`unzip` (direto com root ou sudo sem senha; senão abre um modalzinho com o resumo e o comando exato, e o próprio `sudo` pede a senha ali, sem o tt vê-la; recusar silencia por 7 dias), baixam o Carbonyl e, havendo ambiente gráfico, o Chrome; o que já está instalado é pulado e o log fica em `~/.cache/tt/navegadores.log`. A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`
 no `~/.config/tt/config` (o padrão é `perguntar`). O navegador sobe pelo servidor do tmux, fora do
 isolamento de rede do leitor de e-mail.
+
+Como o link é achado na tela: o tmux entrega ao `links-tt.py` a linha e a coluna do clique (e o
+hyperlink OSC 8 sob o mouse, se o programa mandou um). Ele junta a linha clicada com as vizinhas
+quando o que chega na borda direita continua, sem espaço, no começo da linha de baixo — seja a
+quebra do próprio terminal, seja a de um programa que recua a continuação (Claude Code) ou a desenha
+dentro de uma caixa. Um endereço curto que só termina na borda não gruda no texto da linha de baixo.
+O clique simples espera o tempo de um duplo clique antes de abrir (o duplo clique copia); Ctrl+clique
+abre na hora. No Windows Terminal, o Ctrl+clique numa linha que ele mesmo reconhece como URL é
+tratado por ele, que só enxerga aquela linha: prefira o clique simples. Hyperlinks OSC 8 chegam
+inteiros ao terminal de fora (recurso `hyperlinks` do tmux), então nesses o Ctrl+clique do próprio
+terminal também pega a URL toda, inclusive dentro de popups.
+
+No cadastro de conta com OAuth pelo navegador (Google), o endereço de autorização vem como hyperlink;
+⏎ abre o seletor e `c` ⏎ copia o endereço inteiro — o popup do cadastro não deixa o tmux selecionar.
 
 ## Atualizar
 

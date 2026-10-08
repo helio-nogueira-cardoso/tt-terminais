@@ -371,6 +371,19 @@ for esperado in 'F1 cl' 'F2 clc' 'F3 clr' 'F4 dbn' 'F5 tela' 'F6 sair' 'F7 ant' 
     falha "atalho $tecla não alcança o botão esperado: $botao"
 done
 ((falhas == base)) && ok 'teclas F1–F10 alcançam todos os botões do tt' || true
+# Links em qualquer painel: clique/Ctrl+clique passam pelo links-tt.py (fora de link seguem para o
+# programa), o 2º clique e o arrasto cancelam a abertura, Ctrl+B u lista; toda cópia por seleção
+# passa a largura e a seleção ao tt --copiar --tela (tests/test_links_tela.sh cobre o comportamento).
+base=$falhas
+for evento in MouseDown1Pane C-MouseDown1Pane SecondClick1Pane; do
+  rg -q " $evento " "$tmp/keys" || falha "gesto de link ausente: $evento"
+done
+rg -q 'MouseDown1Pane .*links-tt\.py clique .*send-keys -M' "$tmp/keys" || falha 'clique no painel não passa pelo links-tt.py (ou não devolve o clique ao programa)'
+rg -q 'SecondClick1Pane .*@tt_link_id' "$tmp/keys" && rg -q 'MouseDrag1Pane .*@tt_link_id' "$tmp/keys" || falha 'duplo clique/arrasto não cancelam a abertura do link'
+rg -q -- ' u .*--links-tela' "$tmp/prefix-keys" || falha 'Ctrl+B u não lista os links da tela'
+(( $(rg -c 'copy-pipe-and-cancel "#\{E:@tt_copiar\}"' "$conf") >= 12 )) && rg -q -- '@tt_copiar .*--copiar --tela' "$conf" ||
+  falha 'há cópia por seleção que não passa pelo tt --copiar --tela'
+((falhas == base)) && ok 'links: clique, duplo clique, arrasto e Ctrl+B u ligados; cópias passam pela correção da tela' || true
 rg -q 'MouseUp3Status.*--clique-direito' "$conf" && rg -q 'MouseUp3Pane.*--menu-painel' "$conf" && ok 'botão direito alcança menus de status e painel' ||
   falha 'botão direito não tem rota completa'
 rg -q 'align=right.*@barra_versao' "$tema" && rg -q 'range=user\|fixar' "$tema" && ok 'tema expõe pino e versão nos dois cantos da barra' ||
