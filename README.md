@@ -383,10 +383,19 @@ do tt: a 1ª linha é o título e o resto vira a descrição (colar texto com v�
 vale). Concluir uma tarefa que repete avança o
 prazo (mantendo a hora) e ela continua aberta. `@25/12` sem ano é a próxima vez que esse dia chega.
 
-**Descrição.** A primeira linha aparece logo abaixo da tarefa; com a tarefa aberta (▾) ela aparece
-inteira. Clique nela (ou **✎ Descrição**, `Ctrl+E`) para editar no editor do tt (o vim com a
+**Descrição.** Para não poluir a lista, a descrição tem visão própria: a tarefa que tem descrição
+mostra só um **≡** no fim da linha. Abra a tarefa (▾) e clique em **≡ descrição** (ou tecle `Ctrl+/`)
+para ver o cartão da tarefa embaixo: título, prazo, prioridade, repetição, etiquetas, a descrição
+inteira e as subtarefas; `Ctrl+/` fecha. **✎ Descrição** (`Ctrl+E`) edita no editor do tt (o vim com a
 configuração do tt: `Ctrl+S` salva e sai, `:q!` cancela; `VISUAL`/`EDITOR` escolhem outro). Apagar
 todo o texto tira a descrição.
+
+**Subtarefas.** **↳ Subtarefa** (`Ctrl+S`) cria. A tarefa só é concluída quando **todas** as
+subtarefas estiverem feitas: antes disso, ⏎, duplo clique, ✓ Feita, o menu e `tt --tarefa-ok` não
+concluem — o painel avisa o que falta (linha ⚠ no topo) e abre a tarefa. Concluir a última subtarefa
+**não** conclui a tarefa (você decide quando). Reabrir uma subtarefa, ou criar uma nova, numa tarefa
+já feita reabre a tarefa. Numa tarefa que repete, concluir avança o prazo e **reabre as subtarefas**
+(o checklist volta no próximo ciclo). *Limpar feitas* não apaga subtarefas feitas de tarefa aberta.
 
 **Prazo, horário e agenda.** O horário é opcional: sem ele o prazo vale o dia todo. **◷ Prazo**
 (`Ctrl+D`) abre o calendário dizendo de qual tarefa é o prazo: clique no dia e, se quiser, num horário
@@ -400,8 +409,9 @@ as tarefas do dia escolhido (um clique marca feita) e **+ Nova tarefa** naquele 
 
 **Mouse** — tudo é clicável:
 
-- **clique** numa tarefa abre/fecha os detalhes (o triângulo vira ▸ fechada / ▾ aberta): a descrição,
-  as subtarefas, **+ adicionar subtarefa** e **⋯ mais ações**, todas clicáveis;
+- **clique** numa tarefa abre/fecha os detalhes (o triângulo vira ▸ fechada / ▾ aberta):
+  **≡ descrição** (abre o cartão), as subtarefas, **+ adicionar subtarefa** e **⋯ mais ações**, todas
+  clicáveis;
 - **duplo clique** marca/desmarca como feita (☐ → ☑); numa subtarefa basta um clique;
 - **botão direito** abre o menu da tarefa: feita, renomear, descrição, subtarefa, prazo e horário,
   prioridade (alta/média/sem) e repetição (não/dia/semana/mês) como escolhas, subir/descer e apagar;
@@ -414,13 +424,13 @@ as tarefas do dia escolhido (um clique marca feita) e **+ Nova tarefa** naquele 
 **Teclado:** `⏎` feita/aberta · `→`/`espaço` abre · `←` fecha · `Tab` próxima aba · `Ctrl+N` nova ·
 `Ctrl+S` subtarefa · `Ctrl+E` descrição · `Ctrl+D` prazo · `Ctrl+T` calendário · `Ctrl+P`
 prioridade · `Ctrl+R` repetir · `Ctrl+K`/`Ctrl+J` sobe/desce · `Ctrl+X` apaga · `Ctrl+L` limpa as
-feitas · `Ctrl+O` mais ações · `F2` renomeia · `Ctrl+/` prévia · `?` ajuda · `esc` volta, limpa a
+feitas · `Ctrl+O` mais ações · `F2` renomeia · `Ctrl+/` descrição (cartão) · `?` ajuda · `esc` volta, limpa a
 busca ou fecha. Apagar e limpar sempre pedem confirmação. No calendário: setas mudam o dia, `<` `>`
 o mês, `t` hoje, dígitos digitam a hora, `d` volta ao dia todo, `x` sem prazo, `esc` sai.
 
 **Símbolos:** ☐ aberta · ☑ feita · ● vermelho/amarelo prioridade alta/média · ◷ prazo, com a hora
-quando houver (vermelho quando venceu) · ↻ repete · ━━━ 1/2 subtarefas feitas · `#tag` · no
-calendário, • = dia com tarefas.
+quando houver (vermelho quando venceu) · ↻ repete · ━━━ 1/2 subtarefas feitas · ≡ tem descrição ·
+`#tag` · no calendário, • = dia com tarefas.
 
 **Linha de comando:** `tt --tarefa-add-natural "texto @amanha !alta"`, `tt --tarefa-add "texto"`,
 `tt --tarefa-ok ID`, `tt --tarefa-abrir ID`, `tt --tarefa-rm ID`, `tt --tarefa-renomear ID "texto"`,

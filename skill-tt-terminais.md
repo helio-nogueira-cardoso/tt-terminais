@@ -116,6 +116,11 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `tt --tarefa-renomear ID "texto"`; `tt --tarefas-ajuda` imprime o
   "Como usar" do painel. `tt --calendario [epoch]` é o seletor de prazo (imprime `EPOCH`, `EPOCH 1`
   com horário, `limpar` ou nada); `tt --calendario-agenda [dia]` é a agenda (relógio da barra).
+- Conclusão (`tarefa_concluir`): mãe só conclui com todas as subtarefas feitas (senão imprime as
+  que faltam e devolve 2; no painel vira a linha ⚠ `aviso=` do cabeçalho, mostrada uma vez; o
+  `--tarefa-ok` sai 1 com a lista). A última subtarefa não conclui a mãe. Reabrir/criar subtarefa
+  numa mãe feita reabre a mãe. Recorrente: avança o prazo (com `hora`) e reabre as subtarefas.
+  `tarefa_limpar_feitas` só remove feitas de topo (cascata leva as subtarefas delas).
 - Meta `hora=1`: o prazo tem horário (vence quando a hora passa; sem ela vale o dia todo, epoch às
   12:00). Lembrete (`--tarefas-lembrete`, a cada volta do vigia): com horário avisa
   `TT_TAREFAS_ANTECEDENCIA` (10) min antes, uma vez por prazo; sem horário, uma vez por dia. Avisa
@@ -130,7 +135,9 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `$RT/tt-tarefas-ui-UID` (`filtro=`, `modo=`, `exp=ID` por tarefa aberta, `clique=` para o duplo
   clique). Cada linha é `chave<TAB>desenho`: `ID`, `desc:ID`, `sub:ID`, `menu:ID`, `act:AÇÃO:ID`,
   `dia:N` (título de dia na Agenda), `criar`, `voltar` ou vazia. A lista é renderizada numa passada
-  de awk (`TAREFAS_AWK`, LC_ALL=C, sem strftime; decodifica a descrição base64 no próprio awk) —
+  de awk (`TAREFAS_AWK`, LC_ALL=C, sem strftime; decodifica a descrição base64 no próprio awk; a
+  descrição não entra na lista — só ≡ na linha e, com a tarefa aberta, a linha `desc:ID` que alterna a
+  prévia, que é a visão da descrição: o cartão de `tarefa_preview`) —
   centenas de tarefas em ~0,1 s. Abas Hoje e Agenda (filtro `prazo` = abertas com prazo) agrupam por
   dia e ordenam pela hora.
 - Calendário (`calendario_tui MODO`): datas por aritmética própria (`_cal_dias`/`_cal_civil`, sem
