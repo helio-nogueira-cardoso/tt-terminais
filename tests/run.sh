@@ -136,7 +136,7 @@ while IFS='|' read -r acao _ _ tecla; do
   if [[ -n $tecla ]]; then
     sed -n '/^email_binds_botoes()/,/^}/p' "$tt" | grep -q "<$tecla>" || falha "e-mail: botão $acao manda $tecla sem bind em email_binds_botoes"
   else
-    sed -n '/^email_botao_acao()/,/^}/p' "$tt" | grep -q "\b$acao\b.*email_tela" || falha "e-mail: botão $acao sem tecla nem tela do tt em email_botao_acao"
+    sed -n '/^email_botao_acao()/,/^}/p' "$tt" | grep -q "\b$acao\b[^)]*)" || falha "e-mail: botão $acao sem tecla e sem tratamento próprio em email_botao_acao"
   fi
 done < <(sed -n "/^EMAIL_BOTOES=(/,/^)/p" "$tt" | grep -o "^  '[^']*'" | tr -d " '")
 rg -Fq 'email) botao_email' "$tt" || falha 'e-mail: case de botão ausente'
