@@ -43,13 +43,14 @@ passou 'clique nas notificações: 📧 abre o e-mail; histórico com ⏎ nos de
 
 # 🔔 sempre visível (porta do histórico mesmo sem aviso) e ticker: fontes, linha e passo do letreiro
 rm -f "$HOME/.local/state/tt/notifs"/*; tt --barras >/dev/null 2>&1
-grep -q 'range=user|notifs.* 🔔 ' <<<"$(tmux show -gqv @barra_notifs)" || falhou 'sininho não fica visível sem aviso'
+grep -q 'range=user|notifs.* 🔔 ' <<<"$(tmux show -gqv @barra_faixa)" || falhou 'sininho não está ancorado à esquerda (junto aos chips)'
 grep -q '@barra_ticker' <<<"$(tmux show -gqv @barra_notifs)" || falhou 'slot vazio não dá lugar ao ticker'
 printf 'indicadores=frases
 ' >>"$XDG_CONFIG_HOME/tt/config"
 "$TT" --ticker-fontes >/dev/null 2>&1
 [[ -s $HOME/.cache/tt-ticker/frases ]] || falhou 'fonte frases não escreveu cache'
 rg -q 'noticias\)' "$TT" && rg -q 'dolar\)' "$TT" || falhou 'fontes dolar/noticias ausentes do motor'
+grep -q 'dolar,frases,noticias' "$TT" || falhou 'letreiro não vem ligado de fábrica'
 passou 'sininho permanente e ticker: fontes com cache, dolar/frases/noticias no motor'
 tt --notificar "📧 Ana — Reunião de sexta" 120 email >/dev/null 2>&1  # o histórico abaixo precisa dele
 tt --notificar "⏳ efêmero" 1 >/dev/null 2>&1; sleep 2; tt --barras >/dev/null 2>&1
