@@ -13,7 +13,7 @@ for fn in tarefas_meta_get tarefas_meta_set tarefa_set_meta tarefa_set_desc tare
   grep -q "^$fn()" "$TT" || { echo "FALHOU: função $fn ausente"; exit 1; }
 done
 grep -q -- '--wrap' "$TT" || { echo "FALHOU: fzf de tarefas sem --wrap (texto não quebra)"; exit 1; }
-grep -q 'range=user|relogio' "$ROOT/tema-tmux.conf" || { echo "FALHOU: relógio sem range p/ calendário"; exit 1; }
+grep -q 'range=user|relogio' "$ROOT/tt" || { echo "FALHOU: relógio sem range p/ calendário"; exit 1; }
 
 mkdir -p "$T/home/.config/tt" "$T/bin" "$T/rt"
 printf 'nome=A\n' >"$T/home/.config/tt/config"

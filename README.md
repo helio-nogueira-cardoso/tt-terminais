@@ -562,6 +562,16 @@ As tarefas ficam em `~/.config/tt/tarefas` e vão para as outras máquinas sozin
 repositório git seu). A junção é por tarefa (a alteração mais recente vence; apagar nunca
 "ressuscita").
 
+## Faixa de notificações
+
+Uma terceira linha na barra, abaixo das fixadas (separada por uma régua fina, com fundo
+azul-acinzentado suave): `📧 (N) · 📋 N · ‹avisos passando› · Qui, 08/10/2026 | 13:16 · v1.5.223`.
+Os avisos — e-mail que chegou, lembrete de prazo, o que vier por `tt --notificar "texto" [segundos]`
+— passam ali por alguns minutos e expiram sozinhos; o clique abre o histórico (`tt --notifs`).
+Com a faixa, a linha das fixadas fica 100% para as fixadas, e o 📧 e o relógio saem da 1ª linha.
+`faixa_notif=0` no `~/.config/tt/config` desliga e devolve o layout de 2 linhas (padrão: ligada;
+desligada no Termux, onde a tela é baixa). Indicadores acopláveis (clima, cotações…) virão aqui.
+
 ## Sessões fixadas
 
 Uma segunda linha na barra com as sessões que você usa sempre (desta ou de outras máquinas): um

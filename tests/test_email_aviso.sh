@@ -85,7 +85,7 @@ passou 'sync com erro deixa o 📧 vermelho com ⚠; rodada boa limpa'
 tmux -f /dev/null new -d -s s1 'sleep 60'
 "$TT" --barras >/dev/null 2>&1
 grep -q '📧' <<<"$(tmux show -gqv @barra_email)" || falhou '@barra_email não foi preenchida por --barras'
-grep -q '#{E:@barra_email}' "$RAIZ/tema-tmux.conf" || falhou 'tema não usa @barra_email'
+grep -q '#{E:@barra_email}' "$RAIZ/tt" || falhou 'o tt não liga @barra_email na barra'
 passou '@barra_email recalculada pelas barras e usada pelo tema'
 
 echo 'ok: e-mail que chega fica visível (aviso com remetente/assunto, 📧 com não lidas e ⚠ no erro)'
