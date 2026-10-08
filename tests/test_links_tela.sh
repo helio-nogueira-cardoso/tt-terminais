@@ -178,6 +178,25 @@ esperar '[[ $(tail -1 "$T/carbonyl.log" 2>/dev/null) == "$U" ]]' 8 || falhou "Ca
 passou "Carbonyl abre com a URL inteira (com #), direto ou escolhido no seletor"
 cfg navegador=sistema
 
+# O Carbonyl só sai com Ctrl+C e o popup só fecha quando ele sai: o Ctrl+Q do título tem que fechar.
+# (espera o popup do caso anterior fechar antes de trocar o script: o sh lê o script aos poucos)
+esperar '! fora capture-pane -p -t v | grep -q "navegador ·"' 6 || falhou "popup do caso anterior não fechou"
+cat >"$car" <<FALSO
+#!/usr/bin/env python3
+import os, sys, tty
+open("$T/carbonyl.log", "a").write(sys.argv[-1] + "\n")
+tty.setraw(0)
+while b"\x03" not in os.read(0, 64): pass
+FALSO
+chmod +x "$car"; cfg navegador=carbonyl; : >"$T/carbonyl.log"
+clicar 20 "$yl"
+esperar '[[ $(tail -1 "$T/carbonyl.log" 2>/dev/null) == "$U" ]]' 8 || falhou "Carbonyl (que só sai com Ctrl+C) não abriu"
+esperar 'fora capture-pane -p -t v | grep -q "Ctrl+Q (ou Ctrl+C) fecha"' 5 || falhou "popup do navegador não apareceu: $(fora capture-pane -p -t v)"
+fora send -t v C-q
+esperar '! fora capture-pane -p -t v | grep -q "Ctrl+Q (ou Ctrl+C) fecha"' 6 || falhou "Ctrl+Q não fechou o popup do Carbonyl: $(fora capture-pane -p -t v)"
+passou "Ctrl+Q fecha o popup do Carbonyl (que sozinho só sai com Ctrl+C)"
+cfg navegador=sistema
+
 # --- 3) Cadastro OAuth com navegador: a URL é longa demais para uma linha ------------------------------
 # c ⏎ copia o link inteiro, ⏎ abre pela escolha do navegador, e colar o endereço de volta conclui.
 cat >"$T/token.py" <<'EOF'

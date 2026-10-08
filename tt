@@ -3655,9 +3655,9 @@ rodar_fora() {
     # sessão. "##" é o "#" literal. Num popup (o seletor do clique em link), outro popup não abre
     # (o tmux só modifica o atual): o navegador sobe depois que o seletor fecha.
     if [[ $popup == 1 && -n ${TT_LINK_CLIENTE:-} ]]; then
-      cmd="sleep 0.3; tmux display-popup -c $(q "$c") -E -w 100% -h 100% -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q sai ' $(q "$cmd")"
+      cmd="sleep 0.3; tmux display-popup -c $(q "$c") -E -w 100% -h 100% -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q (ou Ctrl+C) fecha ' $(q "$cmd")"
       tmux run-shell -b "${cmd//#/##}"
-    elif [[ $popup == 1 ]]; then tmux display-popup -c "$c" -E -w 100% -h 100% -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q sai ' "$cmd"
+    elif [[ $popup == 1 ]]; then tmux display-popup -c "$c" -E -w 100% -h 100% -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q (ou Ctrl+C) fecha ' "$cmd"
     else tmux run-shell -b "${cmd//#/##}"; fi
   else
     if [[ $popup == 1 ]]; then bash -c "$cmd"; else setsid bash -c "$cmd" >/dev/null 2>&1 </dev/null & fi
@@ -3690,7 +3690,10 @@ abrir_com() {
     carbonyl)
       navegador_instalar carbonyl || return 1
       garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
-      rodar_fora 1 "$(q "$(bin_carbonyl)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-carbonyl") $(q "$u")" ;;
+      # O Carbonyl só sai com Ctrl+C; o links-tt.py com-ctrl-q faz o Ctrl+Q do título do popup valer.
+      local car; car="$(q "$(bin_carbonyl)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-carbonyl") $(q "$u")"
+      command -v python3 >/dev/null && [[ -f $LINKS_PY ]] && car="python3 -I $(q "$LINKS_PY") com-ctrl-q $car"
+      rodar_fora 1 "$car" ;;
   esac
 }
 
