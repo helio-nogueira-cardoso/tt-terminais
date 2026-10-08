@@ -594,7 +594,10 @@ Os avisos — e-mail que chegou, lembrete de prazo, o que vier por `tt --notific
 recente (📧 vai para o e-mail, 📋 para as tarefas); botão direito/`tt --notifs` abre o histórico,
 onde ⏎ abre o destino de cada um (↗). `tt --notificar "texto" [segundos] [email|tarefas|calendario|cmd:...]`.
 Com a faixa, a linha das fixadas fica 100% para as fixadas, e o 📧 e o relógio saem da 1ª linha.
-`faixa_notif=0` no `~/.config/tt/config` desliga e devolve o layout de 2 linhas (padrão: ligada;
+Sem aviso novo, o slot mostra o **🔔** (sempre visível; é a porta do histórico) e, se você ativar
+`indicadores=dolar,frases,noticias` no config, um **letreiro** rolando com as infos (dólar via
+AwesomeAPI, frases, e notícias G1 + BBC World por RSS — tudo sem chave, com cache; a rede roda no
+vigia, nunca no letreiro). Com aviso, o letreiro cede a vez. `faixa_notif=0` no `~/.config/tt/config` desliga e devolve o layout de 2 linhas (padrão: ligada;
 desligada no Termux, onde a tela é baixa). Indicadores acopláveis (clima, cotações…) virão aqui.
 
 ## Sessões fixadas

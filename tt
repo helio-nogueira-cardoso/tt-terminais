@@ -418,6 +418,10 @@ vigiar() {
     fi
     # Lembrete das tarefas a cada volta (1 min): prazos com horário avisam na hora certa.
     ("$EU" --tarefas-lembrete >/dev/null 2>&1 &)
+    # ticker da faixa: fontes com cache (rede aqui, nunca no letreiro) e o laço de rolagem vivo
+    if faixa_notif_ativa && [[ -n $(ticker_fontes) ]]; then
+      (ticker_atualizar_fontes; "$EU" --ticker-loop >/dev/null 2>&1 &)
+    fi
     # Cadastro das contas de IA: muda pouco e cada mudança já é enviada na hora; isto é só a rede de
     # segurança de quem estava desligada.
     if ((agora - ultima_contas >= 1800)); then
@@ -5381,17 +5385,27 @@ notificar() { # texto [segundos (padrão 300)] [ação: email|tarefas|calendario
 # cola nos chips da esquerda nem foge do relógio — e nunca os cobre: o texto é orçado pela janela
 # mais estreita (sobra dos vizinhos: ~16 à esquerda, ~30 à direita) e truncado com …; abaixo de
 # 90 colunas vira só o crachá 🔔 N. TT_FAIXA_LARGURA força a largura (testes).
-barra_notifs_fmt() {
-  local agora exp txt itens="" f n=0
+# Só os avisos vigentes (para o fmt e para o letreiro ceder a vez).
+barra_notifs_avisos() {
+  local agora exp txt _a f itens="" n=0
   agora=$(date +%s)
-  local _a
   for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | head -6); do
     IFS=$'\t' read -r exp txt _a <"$DIR_NOTIFS/$f" || continue
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
-    n=$((n + 1))
-    itens+="${itens:+  ·  }${txt}"
+    n=$((n + 1)); itens+="${itens:+  ·  }${txt}"
   done
-  [[ -n $itens ]] || return 0
+  printf '%s\t%s' "$n" "$itens"
+}
+
+barra_notifs_fmt() {
+  local itens n sino
+  IFS=$'\t' read -r n itens <<<"$(barra_notifs_avisos)"
+  # O sininho é a porta das notificações e fica SEMPRE visível, alinhado à esquerda do slot.
+  sino='#[range=user|notifs]#[fg=#a6adc8] 🔔 #[norange]'
+  if [[ -z $itens ]]; then
+    printf '%s#{E:@barra_ticker}#[default]' "$sino"
+    return 0
+  fi
   local larg orcamento
   larg=${TT_FAIXA_LARGURA:-$(tmux list-clients -F '#{client_width}' 2>/dev/null | sort -n | head -1)}
   [[ $larg =~ ^[0-9]+$ ]] || larg=80
@@ -5399,6 +5413,7 @@ barra_notifs_fmt() {
     printf '#[range=user|notifs]#[fg=#f9e2af] 🔔 %d #[norange]#[default]' "$n"
     return 0
   fi
+  local agora exp txt _a f
   orcamento=$((larg - 20 - 34 - 12)) # chips + relógio + delimitadores e MARGENS: nunca grudar
   ((orcamento < 12)) && orcamento=12
   # Trunca por LARGURA DE TELA (células), não por caracteres: emoji e símbolos ocupam 2 colunas e,
@@ -5419,7 +5434,101 @@ sys.stdout.write(t if corte == len(t) else t[:corte].rstrip() + "…")' <<<"$ite
     ((${#itens} * 2 > orcamento)) && itens="${itens:0:orcamento/2}…"
   fi
   itens=${itens//#/##}
-  printf '  #[fg=#45475a]│#[range=user|notifs]#[fg=#f9e2af]  %s  #[norange]#[fg=#45475a]│#[default]  ' "$itens"
+  printf '%s #[fg=#45475a]│#[range=user|notifs]#[fg=#f9e2af]  %s  #[norange]#[fg=#45475a]│#[default]  ' "$sino" "$itens"
+}
+
+# --- Ticker do slot (sem aviso novo, infos roladas: dólar, frases… indicadores= no config) ----
+#
+# As FONTES são atualizadas pelo vigia com cache e TTL (rede nunca no laço do letreiro); o
+# LETREIRO é um laço leve (1 passo/s, flock, sai sozinho sem cliente/fontes/faixa) que gira a
+# linha e regrava @barra_ticker — o texto entra por um lado e sai pelo outro, itens separados
+# por " • ". indicadores=dolar,frases no config liga (padrão: desligado). Fonte nova = um case
+# em ticker_fonte_atualizar + uma linha no README.
+DIR_TICKER=$HOME/.cache/tt-ticker
+
+ticker_fontes() { conf indicadores | tr ', ' '\n\n' | awk 'NF'; }
+
+ticker_fonte_atualizar() { # fonte  (escreve $DIR_TICKER/<fonte> se o TTL venceu)
+  local f=$1 arq="$DIR_TICKER/$1" ttl=600 agora; agora=$(date +%s)
+  [[ -f $arq ]] && (( agora - $(stat -c %Y "$arq" 2>/dev/null || echo 0) < ttl )) && return 0
+  mkdir -p "$DIR_TICKER"
+  case $f in
+    dolar)
+      curl -fsS -m 10 'https://economia.awesomeapi.com.br/json/last/USD-BRL' 2>/dev/null |
+        python3 -I -c 'import json,sys
+try:
+    u = json.load(sys.stdin)["USDBRL"]
+    v = u["bid"].replace(".", ",")[:5]; p = float(u["pctChange"])
+    print(f"💵 dólar R$ {v} {chr(9650) if p >= 0 else chr(9660)}{abs(p):.1f}%")
+except Exception: pass' >"$arq.tmp" 2>/dev/null && [[ -s $arq.tmp ]] && mv "$arq.tmp" "$arq" || rm -f "$arq.tmp" ;;
+    frases)
+      printf '%s\n' \
+        '“A simplicidade é o último grau de sofisticação.” — Leonardo da Vinci' \
+        '“Feito é melhor que perfeito.”' \
+        '“O obstáculo é o caminho.” — Marco Aurélio' \
+        '“Quem controla o passado controla o futuro.” — Orwell' \
+        '“Deixe o código melhor do que o encontrou.”' \
+        '“Nada é tão permanente quanto uma solução temporária.”' | shuf -n1 >"$arq" ;;
+    noticias)
+      ttl=900
+      [[ -f $arq ]] && (( agora - $(stat -c %Y "$arq" 2>/dev/null || echo 0) < ttl )) && return 0
+      { curl -fsS -m 12 'https://g1.globo.com/rss/g1/' 2>/dev/null | python3 -I -c 'import sys, xml.etree.ElementTree as ET
+try:
+    for i, t in enumerate(ET.fromstring(sys.stdin.read()).findall(".//item/title")[:2]):
+        print("📰", t.text.strip()[:90])
+except Exception: pass'
+        curl -fsS -m 12 'https://feeds.bbci.co.uk/news/world/rss.xml' 2>/dev/null | python3 -I -c 'import sys, xml.etree.ElementTree as ET
+try:
+    for i, t in enumerate(ET.fromstring(sys.stdin.read()).findall(".//item/title")[:2]):
+        print("🌍", t.text.strip()[:90])
+except Exception: pass'; } >"$arq.tmp" 2>/dev/null
+      [[ -s $arq.tmp ]] && mv "$arq.tmp" "$arq" || rm -f "$arq.tmp" ;;
+    *) return 0 ;;
+  esac
+}
+
+ticker_linha_montar() { # junta as fontes ativas em uma linha " item • item • "
+  local f linha=""
+  for f in $(ticker_fontes); do
+    [[ -s $DIR_TICKER/$f ]] && while IFS= read -r l; do [[ -n $l ]] && linha+="${linha:+ • }$l"; done <"$DIR_TICKER/$f"
+  done
+  printf '%s' "$linha"
+}
+
+ticker_atualizar_fontes() { local f; for f in $(ticker_fontes); do ticker_fonte_atualizar "$f"; done; }
+
+# Um passo do letreiro: gira a linha em 1 caractere e devolve a janela do tamanho pedido.
+ticker_passo() { # linha largura deslocamento -> janela
+  local l="$1 • " n=${#1} w=$2 off=$3 dupla
+  ((n == 0)) && return 0
+  dupla="$l$l"
+  local ini=$((off % (${#l}))) 
+  printf '%s' "${dupla:ini:w}"
+}
+
+ticker_loop() {
+  local lock="$DIR_TICKER/.loop" off=0 linha janela w
+  mkdir -p "$DIR_TICKER"
+  exec 9>"$lock"; flock -n 9 || return 0
+  while :; do
+    faixa_notif_ativa || break
+    [[ -n $(ticker_fontes) ]] || break
+    [[ -n ${TT_TICKER_FORCA:-} || -n $(tmux list-clients -F x 2>/dev/null) ]] || break
+    # com aviso ativo na faixa, o letreiro cede a vez (barra_notifs_fmt mostra os avisos)
+    local _n _it; IFS=$'\t' read -r _n _it <<<"$(barra_notifs_avisos)"
+    if [[ -n $_it ]]; then tmux set -g @barra_ticker "" 2>/dev/null; sleep 5; continue; fi
+    linha=$(ticker_linha_montar)
+    [[ -n $linha ]] || break
+    w=$(( ${TT_FAIXA_LARGURA:-$(tmux list-clients -F '#{client_width}' 2>/dev/null | sort -n | head -1)} ))
+    [[ $w =~ ^[0-9]+$ ]] || w=80
+    w=$((w - 20 - 34 - 12)); ((w < 12)) && w=12
+    janela=$(ticker_passo "$linha" "$w" "$off")
+    janela=${janela//#/##}
+    tmux set -g @barra_ticker "#[fg=#7f849c] $janela #[default]" 2>/dev/null
+    tmux refresh-client -S 2>/dev/null
+    off=$((off + 1)); sleep 1
+  done
+  tmux set -g @barra_ticker "" 2>/dev/null
 }
 
 # Clique na faixa: abre o destino do aviso mais recente (📧 → e-mail, 📋 → tarefas); sem ação,
@@ -11093,6 +11202,8 @@ case "${1:-}" in
   --notificar) notificar "${2:-}" "${3:-300}" "${4:-}"; exit ;;
   --notifs) notifs_popup "${2:-}"; exit ;;
   --notifs-ui) notifs_ui "${2:-}"; exit ;;
+  --ticker-loop) ticker_loop; exit 0 ;;
+  --ticker-fontes) ticker_atualizar_fontes; ticker_linha_montar; echo; exit 0 ;;
   --mover-fixada) mover_fixada "$2" "$3"; exit ;;
   --mover-fixada-rel) mover_fixada_rel "$2" "$3"; exit ;;
   --desafixar-n) desafixar_n "$2"; exit ;;
