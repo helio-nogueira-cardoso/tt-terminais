@@ -57,4 +57,25 @@ PATH="$B:/usr/bin:/bin" TT_CHROME_INDICE="file://$T/repo/Packages" TT_CHROME_BAS
   falhou "não instalou o .deb válido (ou dependeu do dpkg-deb)"
 passou "instalação do Chrome extrai o .deb com python3 e registra a versão"
 
+# 6) tt --garantir-navegadores (usado em máquina nova e em atualização): instala o Chrome sem clique, uma vez.
+rm -rf "$HOME/.local/share/tt-navegadores"
+saida=$(PATH="$B:/usr/bin:/bin" TT_FORCAR_GUI=1 TT_CARBONYL_URL="file://$T/falso.zip" TT_CHROME_INDICE="file://$T/repo/Packages" TT_CHROME_BASE="file://$T/repo" "$TT" --garantir-navegadores 2>&1)
+[[ -x $HOME/.local/share/tt-navegadores/chrome/opt/google/chrome/chrome ]] || falhou "garantir-navegadores não instalou o Chrome: $saida"
+[[ ! -d $HOME/.local/share/tt-navegadores.lock ]] || falhou "travou: lock não liberado"
+passou "garantir-navegadores pré-instala o Chrome e libera o lock"
+
+# 7) Sem ambiente gráfico o Chrome é pulado (servidor sem tela não baixa 150 MB à toa).
+rm -rf "$HOME/.local/share/tt-navegadores"
+if [[ ! -d /mnt/wslg && -z ${DISPLAY:-} && -z ${WAYLAND_DISPLAY:-} && ! -d /tmp/.X11-unix ]]; then
+  PATH="$B:/usr/bin:/bin" TT_CARBONYL_URL="file://$T/falso.zip" TT_CHROME_INDICE="file://$T/repo/Packages" TT_CHROME_BASE="file://$T/repo" "$TT" --garantir-navegadores >/dev/null 2>&1
+  [[ ! -e $HOME/.local/share/tt-navegadores/chrome ]] || falhou "baixou o Chrome sem ambiente gráfico"
+  passou "sem ambiente gráfico: Chrome pulado"
+fi
+
+# 8) A instalação/atualização dispara a pré-instalação (máquina nova e já instalada).
+grep -q 'garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (já instalada)"' "$RAIZ/tt" &&
+  grep -B2 'echo "$(conf nome): $(versao)"$' "$RAIZ/tt" | grep -q garantir_navegadores_em_segundo_plano ||
+  falhou "instalar_aqui não dispara a pré-instalação nos dois caminhos"
+passou "instalar_aqui dispara a pré-instalação (já instalada e instalação nova)"
+
 echo "TODOS OS TESTES PASSARAM"
