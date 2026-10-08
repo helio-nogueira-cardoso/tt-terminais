@@ -106,9 +106,11 @@ echo "ok: filtro cicla todas → hoje → abertas → feitas → com prazo → t
 # cabeçalho com abas: as 4 abas aparecem; clicar numa aba troca o filtro ativo
 cab=$(run --tarefas-cabecalho)
 { grep -qi 'abertas' <<<"$cab" && grep -qi 'feitas' <<<"$cab" && grep -qi 'prazo' <<<"$cab" && grep -qi 'todas' <<<"$cab"; } || fail "cabeçalho não mostra as 4 abas de filtro"
-# simula o clique do fzf na aba "feitas": linha 1, coluna da palavra (env FZF_CLICK_HEADER_*)
+# simula o clique do fzf na aba "Feitas": linha 1, coluna da palavra (env FZF_CLICK_HEADER_*). A coluna
+# é em CÉLULAS de tela, como o fzf informa (wc -L): index() do awk conta bytes no mawk e caracteres no
+# gawk, e um "·" ou emoji antes da palavra já desloca o clique.
 l1=$(run --tarefas-cabecalho | sed -n '1p' | sed 's/\x1b\[[0-9;]*m//g')
-colf=$(awk -v s="$l1" 'BEGIN{print index(s,"Feitas")}')
+colf=$(( $(printf '%s' "${l1%%Feitas*}" | wc -L) + 1 ))
 acoes=$(env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/home/.local/state" \
   TT_RT="$T/rt" TT_MACHINE=A PATH="$T/bin:$PATH" FZF_CLICK_HEADER_LINE=1 FZF_CLICK_HEADER_COLUMN="$colf" \
   "$TT" --tarefa-cabecalho-clique)

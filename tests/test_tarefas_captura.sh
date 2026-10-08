@@ -39,6 +39,15 @@ d=$(date -d "@$ep" +%m/%d 2>/dev/null || date -r "$ep" +%m/%d 2>/dev/null)
 [[ $d == 12/25 ]] || fail "@25/12 resolveu para data errada ($d)"
 echo "ok: @DD/MM resolve o prazo (dia/mês)"
 
+# 2b) data com ano @DD/MM/AAAA (regressão: "rest: unbound variable" deixava o token no texto, sem prazo)
+run --tarefa-add-natural "Renovar passaporte @05/01/2031" >/dev/null
+l=$(linha "Renovar passaporte")
+[[ -n $l ]] || fail "@DD/MM/AAAA ficou no texto (token não consumido): $(cat "$C")"
+ep=$(sed 's/.*prazo=\([0-9]*\).*/\1/' <<<"$l"); [[ -n $ep && $ep != "$l" ]] || fail "@05/01/2031 não virou prazo: $l"
+d=$(date -d "@$ep" +%Y-%m-%d 2>/dev/null || date -r "$ep" +%Y-%m-%d 2>/dev/null)
+[[ $d == 2031-01-05 ]] || fail "@05/01/2031 resolveu para data errada ($d)"
+echo "ok: @DD/MM/AAAA resolve o prazo com o ano"
+
 # 3) !media => prio=2; sem tokens => texto puro, sem meta
 run --tarefa-add-natural "Revisar !media" >/dev/null
 grep -q 'prio=2' <<<"$(linha "Revisar")" || fail "!media não virou prio=2"
