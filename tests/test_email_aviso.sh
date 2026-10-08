@@ -62,14 +62,14 @@ msg 5000.g.host 'x@x.com' 'silencioso'
 sed -i '/^email_aviso=/d' "$XDG_CONFIG_HOME/tt/config"
 passou 'já lida não conta como nova; email_aviso=0 desliga'
 
-# 5) botão 📧 da barra: não lidas do espelho (new/ + cur/ sem S), palavra "email" só em tela larga
+# 5) botão 📧 da barra: não lidas do espelho (new/ + cur/ sem S), contagem limpa entre parênteses
 b=$("$TT" --barra-email)
 nl=$(( $(find "$MD/new" -type f | wc -l) + $(find "$MD/cur" -type f ! -name '*:2,*S*' | wc -l) ))
-grep -q "📧 $nl" <<<"$b" || falhou "barra deveria mostrar $nl não lidas: $b"
+grep -qF "📧 ($nl)" <<<"$b" || falhou "barra deveria mostrar ($nl) não lidas: $b"
 grep -q 'bg=#f9e2af' <<<"$b" || falhou "com não lidas o botão deveria ficar em destaque: $b"
-grep -q 'client_width},90},, email' <<<"$b" || falhou "palavra 'email' deveria depender da largura do cliente: $b"
+grep -q ' email' <<<"$b" && falhou "o botão não leva mais a palavra 'email': $b"
 grep -q '⚠' <<<"$b" && falhou "sem erro de sync não deveria ter ⚠: $b"
-passou "botão 📧 mostra as não lidas ($nl) e esconde a palavra em tela estreita"
+passou "botão 📧 mostra (não lidas) entre parênteses, sem rótulo"
 
 # 6) sync com erro: botão vermelho com ⚠; rodada boa limpa
 MBSYNC_RC=1 "$TT" --email-sync Local >/dev/null 2>&1
