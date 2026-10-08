@@ -213,6 +213,16 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   no assistente, item g na tela da conta; `email_bloco` emite `signature-file` salvo se extra_* já tem
   `signature-`; entra no snapshot, no --email-remover e no pacote da propagação). Pendência de sudo
   `email-editor` (vim).
+- Apagar/arquivar certos no Gmail (R6): `aerc_binds_gravar` (chamada por `configurar_aerc` e por
+  `email_regerar`; copia o binds.conf de fábrica se faltar `<Enter> = :view`) põe no bloco do tt as
+  seções de `email_binds_contas` (= `email_binds_contas_gerar d D a`): para cada conta de
+  `email_contas_gmail` ("nome⇥lixeira⇥spam⇥todos", nomes relativos à pasta-mãe), `[messages|view:account=^Nome$]`
+  d = `:choose … 'move <lixeira>'`, D = `:move <lixeira>`, a = `:delete` (tirar do INBOX = arquivar
+  no Gmail, sem APPEND); `[…:folder=^<lixeira|spam>$]` d/D apagam de vez e `a =` (sem efeito), em
+  `^<todos>$` só `a =`; nomes escapados por `re_escapar`. Na sessão oculta, `email_binds_botoes_contas`
+  (= `… '<F9>' '' '<F8>'`) faz o mesmo para os botões ✕/▤. `@tt_email_binds` = `EMAIL_BINDS_VER:cksum(binds.conf)`:
+  cadastro de conta recria a sessão oculta na próxima abertura. No `:choose` do aerc a resposta é a
+  tecla + Enter. `email_remover_slug` apaga o .conf antes de regerar (as seções vêm da lista de .conf).
 - `tt --email-sync [NOME] [--completo]` — espelha por mbsync as contas com `sync_local=1` (padrão só
   o INBOX; `--completo` o grupo inteiro); `tt --email-sync-estado [curto]` — última rodada por conta
   e modo (estado em `$ESTADO_DIR/email-sync/<slug>`, erro em `<slug>.erro`; `curto` = ok|erro|nunca|
