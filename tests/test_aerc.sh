@@ -21,7 +21,7 @@ grep -q '^dirlist-right={{if .Unread}}' "$C" || falhou 'contagem de não lidas n
 passou 'visual: tema Catppuccin, pastas em árvore com não lidas, fios, cache de cabeçalhos; escolhas do dono preservadas; idempotente'
 
 h=$(v filters text/html)
-if PATH="$T/bin:/usr/bin:/bin" command -v w3m >/dev/null; then [[ $h == '! html'*linkify* ]] || falhou "com w3m deveria ser '! html … linkify' (está: $h)"
+if PATH="$T/bin:/usr/bin:/bin" command -v w3m >/dev/null; then [[ $h == '! html'*extbrowser* && $h != *'|'* ]] || falhou "com w3m deveria ser '! html -o extbrowser…' sem pipe, para o w3m ficar interativo (está: $h)"
 elif PATH="$T/bin:/usr/bin:/bin" command -v lynx >/dev/null; then [[ $h == lynx*linkify* ]] || falhou "sem w3m deveria usar lynx + linkify (está: $h)"
 else [[ $h == *email-tt.py\ html*linkify* ]] || falhou "sem w3m/lynx deveria usar o conversor do tt + linkify (está: $h)"; fi
 r=$(printf '<p>Oi <a href="https://x.y/z">link</a></p>' | python3 "$TT_DIR/email-tt.py" html)
