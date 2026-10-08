@@ -418,9 +418,10 @@ vigiar() {
     fi
     # Lembrete das tarefas a cada volta (1 min): prazos com horário avisam na hora certa.
     ("$EU" --tarefas-lembrete >/dev/null 2>&1 &)
-    # ticker da faixa: fontes com cache (rede aqui, nunca no letreiro) e o laço de rolagem vivo
+    # Letreiro da faixa: as FONTES (rede, cache com TTL) são atualizadas aqui; quem desenha é o
+    # letreiro-tt.py que o tmux mantém por cliente (ver barra_notifs_fmt) — ele só lê os arquivos.
     if faixa_notif_ativa && [[ -n $(ticker_fontes) ]]; then
-      (ticker_atualizar_fontes; "$EU" --ticker-loop >/dev/null 2>&1 &)
+      (ticker_atualizar_fontes >/dev/null 2>&1 &)
     fi
     # Cadastro das contas de IA: muda pouco e cada mudança já é enviada na hora; isto é só a rede de
     # segurança de quem estava desligada.
@@ -1393,7 +1394,7 @@ ajuda() {
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt email-tt.py links-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
+ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
@@ -1555,10 +1556,9 @@ redesenhar_todos() {
   atualizar_barras
   tema_cliente
   local c
-  for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do
-    tmux refresh-client -t "$c" 2>/dev/null
-    tmux refresh-client -S -t "$c" 2>/dev/null
-  done
+  # Um refresh-client (com ou sem -S) já força a barra a reexpandir — e recria os #() dela (o
+  # letreiro de cada cliente): um por cliente, nunca dois.
+  for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux refresh-client -t "$c" 2>/dev/null; done
   return 0
 }
 
@@ -1629,9 +1629,11 @@ CONF
     # source-file atualiza as opções, mas clientes já desenhados nem sempre redesenham a
     # barra imediatamente. Força todas as telas/abas ativas a adotarem o padrão novo.
     redesenhar_todos
-    # O laço do letreiro em execução é da versão antiga: morre aqui e o vigia novo sobe outro
-    # (um laço velho preso na trava seguia redesenhando no ritmo antigo — cursor dançando).
+    # O laço do letreiro de versões antigas (gravava @barra_ticker a cada passo: tela inteira
+    # redesenhada, cursor dançando) morre aqui; o letreiro agora é o #() da barra, recriado pelo
+    # redesenho acima. As opções que o laço gravava saem do servidor.
     pkill -f 'tt --ticker-loop$' 2>/dev/null # âncora: só o processo do laço, nunca quem cita o texto
+    tmux set -gqu @barra_ticker \; set -gqu @barra_aviso 2>/dev/null
     # O vigia em execução é da versão antiga: troca por um novo.
     # (versões antigas gravavam o pidfile onde o XDG_RUNTIME_DIR do momento apontasse: procura em todos)
     for pidf in "$RT" "${XDG_RUNTIME_DIR:-$RT}" "${TMPDIR:-/tmp}" /tmp; do
@@ -5478,82 +5480,27 @@ barra_notifs_avisos() {
 }
 
 barra_notifs_fmt() {
-  local itens n
-  IFS=$'\t' read -r n itens <<<"$(barra_notifs_avisos)"
-  # O 🔔 mora no segmento ESQUERDO da faixa (fixo, junto aos chips); aqui é só o conteúdo central.
-  if [[ -z $itens ]]; then
-    # só limpa se havia algo: gravação sem desvio redesenha a barra à toa (e balança o cursor)
-    [[ -n $(tmux show -gqv @barra_aviso 2>/dev/null) ]] && tmux set -gu @barra_aviso 2>/dev/null
-    # transferência ativa tem o slot antes do letreiro (nada cobre as linhas de cima)
-    local _tx
-    _tx=$(tmux show -gqv @barra_transf 2>/dev/null | sed 's/#\[[^]]*\]//g; s/#{[^}]*}//g')
-    if [[ -n ${_tx// /} ]]; then
-      # transferência CONFINADA ao slot: texto plano, truncado por células como o letreiro
-      local larg orc
-      larg=${TT_FAIXA_LARGURA:-$(tmux list-clients -F '#{client_width}' 2>/dev/null | sort -n | head -1)}
-      [[ $larg =~ ^[0-9]+$ ]] || larg=80
-      orc=$((larg - 20 - 34 - 12)); ((orc < 12)) && orc=12
-      if command -v python3 >/dev/null; then
-        _tx=$(ORC=$orc python3 -I -c '
-import sys, os, unicodedata
-t = sys.stdin.read().strip(); orc = int(os.environ["ORC"])
-def w(c):
-    if unicodedata.combining(c): return 0
-    return 2 if unicodedata.east_asian_width(c) in "WF" or ord(c) >= 0x1F000 else 1
-tot = 0; corte = len(t)
-for i, c in enumerate(t):
-    tot += w(c)
-    if tot > orc: corte = i; break
-sys.stdout.write(t if corte == len(t) else t[:corte].rstrip() + "…")' <<<"$_tx")
-      else _tx=${_tx:0:orc/2}; fi
-      _tx=${_tx//#/##}
-      printf '  #[fg=#45475a]│#[range=user|transferencias]#[fg=#89b4fa]  %s  #[norange]#[fg=#45475a]│#[default]  ' "$_tx"
-      return 0
-    fi
-    # o letreiro traz as próprias divisórias (vazio = nada; sem moldura órfã no centro)
-    printf '#{E:@barra_ticker}'
-    return 0
-  fi
-  local larg orcamento
-  larg=${TT_FAIXA_LARGURA:-$(tmux list-clients -F '#{client_width}' 2>/dev/null | sort -n | head -1)}
-  [[ $larg =~ ^[0-9]+$ ]] || larg=80
-  if ((larg < 90)); then
-    return 0 # estreito: o sino com o contador, à esquerda, já conta a história
-  fi
-  local agora exp txt _a f
-  orcamento=$((larg - 20 - 34 - 12)) # chips + relógio + delimitadores e MARGENS: nunca grudar
-  ((orcamento < 12)) && orcamento=12
-  # Trunca por LARGURA DE TELA (células), não por caracteres: emoji e símbolos ocupam 2 colunas e,
-  # contando caracteres, o texto saía mais largo que o orçamento e atropelava o │ de fechamento.
-  if command -v python3 >/dev/null; then
-    itens=$(ORC=$orcamento python3 -I -c '
-import sys, os, unicodedata
-t = sys.stdin.read().rstrip("\n"); orc = int(os.environ["ORC"])
-def w(c):
-    if unicodedata.combining(c): return 0
-    return 2 if unicodedata.east_asian_width(c) in "WF" or ord(c) >= 0x1F000 else 1
-tot = 0; corte = len(t)
-for i, c in enumerate(t):
-    tot += w(c)
-    if tot > orc: corte = i; break
-sys.stdout.write(t if corte == len(t) else t[:corte].rstrip() + "…")' <<<"$itens")
-  else
-    ((${#itens} * 2 > orcamento)) && itens="${itens:0:orcamento/2}…"
-  fi
-  itens=${itens//#/##}
-  # grava o estático (negrito, já truncado) SÓ se mudou; o laço do letreiro sobrepõe se pisca
-  local _novo="#[bold]${itens//#/##}#[nobold]"
-  [[ $(tmux show -gqv @barra_aviso 2>/dev/null) == "$_novo" ]] || tmux set -g @barra_aviso "$_novo" 2>/dev/null
-  printf '  #[fg=#45475a]│#[range=user|notifx]#[fg=#f9e2af]  #{E:@barra_aviso}  #[norange]#[fg=#45475a]│#[default]  ' 
+  # O miolo da faixa (letreiro, aviso fresco, transferência) é desenhado por UM processo leve por
+  # cliente — letreiro-tt.py fluxo — ligado aqui como #() da status line. É a única via que atualiza
+  # a barra sem redesenhar a tela inteira: o tmux lê cada linha que ele imprime e redesenha só a
+  # status line daquele cliente (no máximo 1 vez/s); já qualquer set-option, até de @opção, redesenha
+  # tudo em todos os clientes (era o flicker do laço antigo, que gravava @barra_ticker a cada passo).
+  # O comando só muda quando a pasta do tt muda; o tmux cria um processo por cliente, passa o terminal
+  # dele (largura por ioctl: redimensionar não reinicia nada) e o encerra quando o cliente sai. Um
+  # refresh-client recria esses processos — por isso ninguém força refresh em regime. Sem python3,
+  # ou com a faixa desligada, o slot fica vazio.
+  faixa_notif_ativa || return 0
+  command -v python3 >/dev/null || return 0
+  printf '#(python3 -I %s fluxo #{client_tty} #{client_pid})' "$DIR_TT/letreiro-tt.py"
 }
 
-# --- Ticker do slot (sem aviso novo, infos roladas: dólar, frases… indicadores= no config) ----
+# --- Letreiro do slot (sem aviso novo, infos roladas: dólar, frases, notícias; indicadores= no config)
 #
-# As FONTES são atualizadas pelo vigia com cache e TTL (rede nunca no laço do letreiro); o
-# LETREIRO é um laço leve (1 passo/s, flock, sai sozinho sem cliente/fontes/faixa) que gira a
-# linha e regrava @barra_ticker — o texto entra por um lado e sai pelo outro, itens separados
-# por " • ". indicadores=dolar,frases no config liga (padrão: desligado). Fonte nova = um case
-# em ticker_fonte_atualizar + uma linha no README.
+# As FONTES são atualizadas pelo vigia com cache e TTL (rede nunca no letreiro) em $DIR_TICKER, uma
+# por arquivo; quem desenha é o letreiro-tt.py de cada cliente (ligado por barra_notifs_fmt), que só
+# lê esses arquivos — itens separados por " • ", numa roda, em páginas ou deslizando (ticker_rolagem,
+# ticker_veloc). indicadores=0 desliga. Fonte nova = um case em ticker_fonte_atualizar + uma linha
+# no README.
 DIR_TICKER=$HOME/.cache/tt-ticker
 
 ticker_fontes() {
@@ -5639,93 +5586,6 @@ ticker_linha_montar() { # junta as fontes ativas em uma linha " item • item �
 }
 
 ticker_atualizar_fontes() { local f; for f in $(ticker_fontes); do ticker_fonte_atualizar "$f"; done; }
-
-# Um passo do letreiro: gira a linha em 1 caractere e devolve a janela do tamanho pedido.
-ticker_passo() { # linha largura deslocamento -> janela
-  local l="$1 • " n=${#1} w=$2 off=$3 dupla
-  ((n == 0)) && return 0
-  dupla="$l$l"
-  local ini=$((off % (${#l}))) 
-  printf '%s' "${dupla:ini:w}"
-}
-
-# Cliente "de ponte" (alguém de outra máquina olhando por ssh/tmux aninhado): o attach da ponte
-# leva TT_PONTE= no ambiente, e o cliente chega por sshd. Animar a barra para ele é flicker na
-# certa (cada passo viaja a rede e repinta aninhado) — o laço só força redesenho nos locais.
-cliente_de_ponte() { # client_pid
-  local pid=$1 n=0
-  grep -qz '^TT_PONTE=' "/proc/$pid/environ" 2>/dev/null && return 0
-  while [[ -n $pid && $pid != 1 && $n -lt 12 ]]; do
-    [[ $(ps -o comm= -p "$pid" 2>/dev/null) == sshd* ]] && return 0
-    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' '); n=$((n + 1))
-  done
-  return 1
-}
-
-clientes_locais() {
-  local nome pid
-  while read -r nome pid; do
-    [[ -n $pid ]] && ! cliente_de_ponte "$pid" && printf '%s\n' "$nome"
-  done < <(tmux list-clients -F '#{client_name} #{client_pid}' 2>/dev/null)
-}
-
-refresh_locais() { # redesenha a barra só de quem está aqui
-  local c
-  for c in "${_TT_LOCAIS[@]}"; do tmux refresh-client -S -t "$c" 2>/dev/null; done
-}
-
-ticker_loop() {
-  local lock="$DIR_TICKER/.loop" off=0 linha janela w
-  # Cada passo REDESENHA a barra, e em certos terminais (Windows Terminal) todo redesenho faz o
-  # cursor dar uma excursão — rolagem contínua = cursor dançando. Por isso o padrão é por
-  # PÁGINAS (a janela troca de bloco a cada ticker_veloc s; padrão 6): poucas atualizações,
-  # cursor em paz. ticker_rolagem=continua liga o letreiro deslizante (ticker_veloc= vira o
-  # passo, padrão 0,35 s) para quem aceita o efeito.
-  local _m _p; _m=$(conf ticker_rolagem); _p=$(conf ticker_veloc)
-  # O sync (DEC 2026) já vai ligado no tmux.conf, mas o Windows Terminal ainda deixa o cursor
-  # dar excursões em redesenho frequente — então o padrão fica em PÁGINAS mesmo.
-  if [[ $_m == continua ]]; then [[ $_p =~ ^[0-9.]+$ ]] || _p=0.35
-  else _m=paginas; [[ $_p =~ ^[0-9.]+$ ]] || _p=6; fi
-  TT_TICKER_PASSO=${TT_TICKER_PASSO:-$_p}; TT_TICKER_MODO=${TT_TICKER_MODO:-$_m}
-  mkdir -p "$DIR_TICKER"
-  exec 9>"$lock"; flock -n 9 || return 0
-  local -a _TT_LOCAIS=()
-  local _rev=0
-  while :; do
-    # recenseia os clientes locais de tempos em tempos (barato; pontes entram e saem)
-    if (( off >= _rev )); then mapfile -t _TT_LOCAIS < <(clientes_locais); _rev=$((off + 40)); fi
-    faixa_notif_ativa || break
-    [[ -n $(ticker_fontes) ]] || break
-    [[ -n ${TT_TICKER_FORCA:-} || -n $(tmux list-clients -F x 2>/dev/null) ]] || break
-    # com aviso ativo na faixa, o letreiro cede a vez (barra_notifs_fmt mostra os avisos)
-    local _n _it; IFS=$'\t' read -r _n _it <<<"$(barra_notifs_avisos)"
-    if [[ -n $_it ]]; then
-      # aviso fresco: negrito estático (o fmt já gravou); alternar custa redesenho por passo e
-      # faz o cursor dançar em certos terminais — aviso_pisca=1 liga para quem quiser
-      if [[ $(conf aviso_pisca) == 1 ]]; then
-        _it=${_it//#/##}
-        if (( off % 2 == 0 )); then tmux set -g @barra_aviso "#[bold]$_it#[nobold]" 2>/dev/null
-        else tmux set -g @barra_aviso "$_it" 2>/dev/null; fi
-        tmux refresh-client -S 2>/dev/null
-      fi
-      tmux set -g @barra_ticker "" 2>/dev/null
-      off=$((off + 1)); sleep 1.5; continue
-    fi
-    if [[ -n $(tmux show -gqv @barra_transf 2>/dev/null) ]]; then tmux set -g @barra_ticker "" 2>/dev/null; sleep 5; continue; fi
-    linha=$(ticker_linha_montar)
-    [[ -n $linha ]] || break
-    w=$(( ${TT_FAIXA_LARGURA:-$(tmux list-clients -F '#{client_width}' 2>/dev/null | sort -n | head -1)} ))
-    [[ $w =~ ^[0-9]+$ ]] || w=80
-    w=$((w - 20 - 34 - 12)); ((w < 12)) && w=12
-    janela=$(ticker_passo "$linha" "$w" "$off")
-    janela=${janela//#/##}
-    tmux set -g @barra_ticker "  #[fg=#45475a]│#[fg=#7f849c]  $janela  #[fg=#45475a]│#[default]  " 2>/dev/null
-    refresh_locais
-    if [[ $TT_TICKER_MODO == paginas ]]; then off=$((off + w)); else off=$((off + 1)); fi
-    sleep "$TT_TICKER_PASSO" 2>/dev/null || sleep 6
-  done
-  tmux set -g @barra_ticker "" 2>/dev/null
-}
 
 # Clique na faixa: abre o destino do aviso mais recente (📧 → e-mail, 📋 → tarefas); sem ação,
 # o histórico. notif_abrir é o dicionário de destinos — novos indicadores registram os seus aqui.
@@ -7729,10 +7589,11 @@ barra_fixadas_fmt() {
 versao_barra() { printf '#[fg=#6c7086]%s ' "$(versao_humana)"; }
 
 # Recalcula as faixas da barra (fixadas, atalhos, transferências) e as guarda em opções do tmux,
-# que a barra só lê. Redesenha as barras só se algo mudou.
+# que a barra só lê. Só grava o que mudou: cada set-option redesenha a tela inteira de todos os
+# clientes (o miolo da faixa nem passa por aqui — é o letreiro-tt.py, ver barra_notifs_fmt).
 atualizar_barras() {
   tmux list-sessions >/dev/null 2>&1 || return 0
-  local nome valor mudou="" c
+  local nome valor
   for nome in fixadas atalhos transf versao tarefas email data notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0; do
     case $nome in
       fixadas) valor=$(barra_fixadas_fmt) ;;
@@ -7762,12 +7623,12 @@ atualizar_barras() {
         else valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{?#{e|<:#{client_width},60},,#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},90},,#{E:@barra_data}}%H:%M #[norange]#[default]}"; fi ;;
     esac
     [[ $valor == "$(tmux show -gqv "@barra_$nome")" ]] && continue
-    tmux set -g "@barra_$nome" "$valor"; mudou=1
+    tmux set -g "@barra_$nome" "$valor"
   done
   local st; st=$(barra_status_linhas)
-  [[ $(tmux show -gqv status 2>/dev/null) == "$st" ]] || { tmux set -g status "$st" 2>/dev/null; mudou=1; }
-  [[ -n $mudou ]] || return 0
-  for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux refresh-client -S -t "$c" 2>/dev/null; done
+  [[ $(tmux show -gqv status 2>/dev/null) == "$st" ]] || tmux set -g status "$st" 2>/dev/null
+  # Cada set-option acima já redesenhou tela e barra de todos os clientes; um refresh-client aqui
+  # seria redundante — e recriaria o letreiro (#()) de cada cliente.
   return 0
 }
 
@@ -8161,8 +8022,7 @@ atalho_aqui() {
   tmux respawn-pane -k -t "$pane" -c "$pasta" "$(script_atalho "$cmd")" || {
     botao_aviso "$cliente" "atalho: não consegui reabrir o painel"; return
   }
-  tmux set-option -w -t "$pane" @tt_atalho "$id" 2>/dev/null || true
-  tmux refresh-client -S -t "$cliente" 2>/dev/null || true
+  tmux set-option -w -t "$pane" @tt_atalho "$id" 2>/dev/null || true # (o set já redesenha o cliente)
 }
 
 atalho_executar() {
@@ -8176,8 +8036,7 @@ atalho_executar() {
   }
   tmux set-option -w -t "=$nome:" @tt_papel atalho
   tmux set-option -w -t "=$nome:" @tt_atalho "$id"
-  tmux switch-client -c "$cliente" -t "=$nome"
-  tmux refresh-client -S -t "$cliente" 2>/dev/null || true
+  tmux switch-client -c "$cliente" -t "=$nome" # (a troca de sessão já redesenha o cliente)
 }
 
 clique() {
@@ -11518,7 +11377,8 @@ case "${1:-}" in
   --notifs) notifs_popup "${2:-}"; exit ;;
   --notifs-ui) notifs_ui "${2:-}"; exit ;;
   --notif-abrir) notif_abrir "${2:-}" "${3:-}"; exit 0 ;;
-  --ticker-loop) ticker_loop; exit 0 ;;
+  --ticker-loop) exit 0 ;; # compatibilidade: o vigia de uma versão antiga ainda chama isto na troca; o letreiro é o #() da barra
+  --ticker-quadro) python3 -I "$DIR_TT/letreiro-tt.py" quadro "${2:-}"; exit ;; # [largura]: um quadro do miolo da faixa (diagnóstico)
   --ticker-fontes) ticker_atualizar_fontes; ticker_linha_montar; echo; exit 0 ;;
   --mover-fixada) mover_fixada "$2" "$3"; exit ;;
   --mover-fixada-rel) mover_fixada_rel "$2" "$3"; exit ;;

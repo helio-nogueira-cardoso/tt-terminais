@@ -617,15 +617,25 @@ Com a faixa, a linha das fixadas fica 100% para as fixadas, e o 📧 e o relógi
 Sem aviso novo, o slot mostra o **🔔** (sempre visível; é a porta do histórico) e, se você ativar
 um **letreiro** (ligado de fábrica; `indicadores=` escolhe as fontes e `indicadores=0` desliga) rolando com as infos (dólar via
 AwesomeAPI, frases, e notícias G1 + BBC World por RSS — tudo sem chave, com cache; a rede roda no
-vigia, nunca no letreiro). Com aviso OU transferência ativa, o letreiro cede a vez (transferências aparecem aqui — nada
-cobre as linhas de cima). Tudo configurável no `~/.config/tt/config`: `ticker_rolagem=paginas|continua` (padrão `paginas`: troca em blocos a cada
-`ticker_veloc=` s — padrão 6 —, poucos redesenhos e o cursor em paz; `continua` desliza célula a
-célula, passo padrão 0,35 s, ciente de que todo redesenho faz o cursor tremer em terminais como o
-Windows Terminal), `aviso_pisca=1` (alternância lenta do aviso; padrão estático em negrito), `indicadores=` (quais fontes passam; `0` desliga o letreiro, o slot segue
+vigia, nunca no letreiro). Com aviso OU transferência ativa, o letreiro cede a vez (transferências aparecem aqui, com o
+andamento ao vivo — nada cobre as linhas de cima).
+
+O miolo da faixa é desenhado por um processo leve por terminal (`letreiro-tt.py`, que o tmux liga à
+barra como `#()` e encerra quando o terminal sai): ele só lê arquivos e imprime uma linha quando o
+conteúdo muda, e o tmux redesenha então **só a barra**, no máximo uma vez por segundo — em vez da
+tela inteira. Foi isso que acabou com o flicker e o cursor dançando: qualquer opção gravada no tmux
+(até uma `@opção`) redesenha a tela inteira de todos os terminais, e o letreiro antigo gravava uma a
+cada passo. Quem olha por uma ponte (outra máquina, por ssh) vê o letreiro parado: animar através
+da rede é redesenho aninhado em outro terminal. Tudo configurável no `~/.config/tt/config`:
+`ticker_rolagem=paginas|continua` (padrão `paginas`: troca em blocos a cada `ticker_veloc=` s — padrão
+6; `continua` desliza `round(1/ticker_veloc)` caracteres por segundo — padrão 0,35 → 3 por segundo;
+`ticker_veloc=1` dá 1 por segundo, o passo mais suave que o tmux redesenha), `aviso_pisca=1`
+(alternância do aviso a cada segundo; padrão estático em negrito), `indicadores=` (quais fontes passam; `0` desliga o letreiro, o slot segue
 para avisos/transferências) e endpoints próprios: `indicador_nome=URL ;; rótulo ;; caminho.no.json
 ;; ttl ;; Header: @arquivo-em-secrets` (caminho `-` = texto cru; a chave de API pode vir de
 `~/.secrets`, fora do config). `faixa_notif=0` no `~/.config/tt/config` desliga e devolve o layout de 2 linhas (padrão: ligada;
-desligada no Termux, onde a tela é baixa). Indicadores acopláveis (clima, cotações…) virão aqui.
+desligada no Termux, onde a tela é baixa). `tt --ticker-quadro [largura]` imprime o que o letreiro
+mostraria agora; `tt --ticker-fontes` atualiza as fontes. Indicadores acopláveis (clima, cotações…) virão aqui.
 
 ## Sessões fixadas
 
