@@ -22,25 +22,18 @@ grep -q 'e|<:#{client_width},120},,#{E:@barra_data}' <<<"$d" && grep -q 'e|<:#{c
 [[ -z $(tmux show -gqv @barra_lado1) ]] || falhou 'com a faixa, a linha das fixadas deveria ficar só para elas'
 [[ -z $(tmux show -gqv @barra_fim0) ]] || falhou 'com a faixa, o 📧/relógio deveriam sair da linha 0'
 passou 'faixa ligada: status 3, blocos na linha 2, fixadas 100% livres'
-# Layout: 3 a 4 linhas coladas, sem espaço vertical: margem, janelas, fixadas e faixa. As réguas são o
-# SUBLINHADO colorido (us=) das três primeiras linhas — uma linha fina rente ao rodapé de cada faixa. O
-# sublinhado só cobre células escritas: o vão leva espaços explícitos (#{R: ,N}, N medido com #{w:}).
+# Layout: 3 a 4 linhas coladas — margem, janelas, fixadas e faixa — SEM réguas: as faixas se distinguem só
+# pelo fundo levemente diferente; cada linha é pintada em toda a largura (fill) e o #[default] volta ao
+# fundo DELA (set-default).
 tema="$TT_DIR/tema-tmux.conf"
 fmt() { grep "^set -g 'status-format\\[$1\\]'" "$tema"; }
 [[ -z $(fmt 4) ]] || falhou 'barra com mais de 4 linhas'
-grep -q 'us=#' <<<"$(grep '^set -g @tema_ul' "$tema")" && grep -q 'underscore' <<<"$(grep '^set -g @tema_ul' "$tema")" &&
-  grep -q 'usstyle' <<<"$(grep '^set -g @tema_ul' "$tema")" || falhou 'régua sem sublinhado colorido condicionado ao usstyle do cliente'
-grep -q 'usstyle' "$TT_DIR/tmux.conf" || falhou 'tmux.conf sem o recurso usstyle (cor de sublinhado)'
-for i in 0 1 2; do
-  l=$(fmt $i)
-  grep -q '@tema_ul' <<<"$l" && grep -q 'set-default' <<<"$l" || falhou "linha $i sem régua (@tema_ul) / set-default: ${l:0:120}"
-done
-grep -q '#{R: ,#{client_width}}' <<<"$(fmt 0)" || falhou 'linha 0 (margem) deveria ser espaços explícitos em toda a largura'
-grep -q 'range=left' <<<"$(fmt 1)" && grep -q '@tema_gap1' <<<"$(fmt 1)" || falhou 'linha 1 não é a das janelas com o vão medido'
-grep -q '@tema_gap2' <<<"$(fmt 2)" || falhou 'linha 2 (fixadas) sem o vão medido'
-l=$(fmt 3); grep -q 'fill=#232838' <<<"$l" && grep -q 'barra_faixa_dir' <<<"$l" && ! grep -q '@tema_ul' <<<"$l" ||
-  falhou "a faixa (linha 3) é a última e não leva régua embaixo: ${l:0:120}"
-passou 'barra: réguas de sublinhado em cima e entre as faixas, linhas coladas, vãos medidos'
+[[ $(fmt 0) == *'fill=#1e1e2e'* && $(fmt 0) != *─* ]] || falhou 'linha 0 deveria ser a margem vazia preenchida'
+grep -q 'range=left' <<<"$(fmt 1)" || falhou 'linha 1 não é a das janelas'
+l=$(fmt 2); grep -q 'fill=#181825' <<<"$l" && grep -q 'set-default' <<<"$l" || falhou "linha 2 (fixadas) sem fill/set-default: ${l:0:120}"
+l=$(fmt 3); grep -q 'fill=#232838' <<<"$l" && grep -q 'set-default' <<<"$l" && grep -q 'barra_faixa_dir' <<<"$l" || falhou "linha 3 (faixa) sem fill/set-default: ${l:0:120}"
+! grep -q '▁▁▁\|▔▔▔\|───\|usstyle\|underscore' "$tema" "$TT_DIR/tmux.conf" || falhou 'a barra não leva réguas nem sublinhado'
+passou 'barra: linhas coladas e preenchidas, sem réguas (só o fundo distingue as faixas)'
 
 
 # O miolo da faixa (aviso fresco / transferência / letreiro) é o letreiro-tt.py de cada cliente, ligado
