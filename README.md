@@ -602,6 +602,19 @@ As tarefas ficam em `~/.config/tt/tarefas` e vão para as outras máquinas sozin
 repositório git seu). A junção é por tarefa (a alteração mais recente vence; apagar nunca
 "ressuscita").
 
+## Perguntas do AI-DLC nas tarefas
+
+O `aidlc-tt` (instalado em `~/.local/bin`) põe as perguntas de um estágio do AI-DLC na descrição de uma
+tarefa: você abre a tarefa, `Ctrl+E`, escreve cada resposta depois do seu `[Answer]:` e salva. Depois o
+agente colhe as respostas para o arquivo de perguntas e segue.
+
+    aidlc-tt publicar requirements-questions.md ID   # ID da tarefa ou subtarefa
+    aidlc-tt estado   requirements-questions.md      # o que falta
+    aidlc-tt colher   requirements-questions.md      # grava no .md; conclui a tarefa quando tudo estiver respondido
+
+A descrição anterior da tarefa fica no topo como anotação. Respostas iguais ou complementares se juntam;
+diferentes entre o tt e o arquivo aparecem como conflito, sem sobrescrever nada.
+
 ## Faixa de notificações
 
 Uma linha a mais na barra, colada abaixo das fixadas e sem réguas — as faixas (janelas, fixadas e esta) se
@@ -614,6 +627,9 @@ entre `│  …  │`, com o mesmo respiro mínimo em qualquer largura
 — passam ali por alguns minutos e expiram sozinhos. O clique abre o DESTINO do aviso mais
 recente (📧 vai para o e-mail, 📋 para as tarefas); botão direito/`tt --notifs` abre o histórico,
 onde ⏎ abre o destino de cada um (↗). `tt --notificar "texto" [segundos] [email|tarefas|calendario|cmd:...]`.
+Agentes de IA (e scripts) num painel do tt avisam com `tt --notificar-daqui "texto" [segundos] [--sempre]`:
+o aviso só sai se você não estiver olhando para a janela de onde ele veio (o tt vê o foco pelo tmux), e o
+clique leva direto àquela sessão e àquele painel.
 Com a faixa, a linha das fixadas fica 100% para as fixadas, e o 📧 e o relógio saem da 1ª linha.
 Sem aviso novo, o slot mostra o **🔔** (sempre visível; é a porta do histórico) e, se você ativar
 um **letreiro** (ligado de fábrica; `indicadores=` escolhe as fontes e `indicadores=0` desliga) rolando com as infos (dólar via
