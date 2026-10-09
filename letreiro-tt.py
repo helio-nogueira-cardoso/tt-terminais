@@ -26,20 +26,57 @@ Regras (as mesmas que a barra em bash seguia):
   - aviso fresco (nascido há < TT_NOTIF_SLOT s, padrão 10; não lido; não expirado) tem a vez, em
     negrito (aviso_pisca=1 alterna a cada segundo); depois a transferência ativa; depois o letreiro;
   - letreiro: fontes em ~/.cache/tt-ticker/<fonte> (o vigia atualiza com TTL; rede nunca aqui), itens
-    separados por " • ", numa roda. O padrão desliza (ticker_rolagem=continua): round(1/ticker_veloc)
-    caracteres por segundo (padrão 0,35 s → 3/s; um quadro por segundo é o teto em que o tmux redesenha
-    a barra de um cliente). ticker_rolagem=paginas troca de bloco a cada ticker_veloc s (padrão 6);
+    separados por " • ", numa roda. O padrão desliza (ticker_rolagem=continua): 1/ticker_veloc colunas
+    por segundo (padrão 0,25 s → 4/s = 1 coluna por quadro a ticker_fps=4 quadros/s). Cada #() só
+    redesenha a barra 1 vez/s, mas o tmux guarda a última linha lida de cada um: o pintor (fluxo)
+    imprime um quadro a cada 1/fps s e fps-1 gatilhos (linhas vazias, 1/s, defasadas) provocam os
+    redesenhos entre os segundos. ticker_rolagem=paginas troca de bloco a cada ticker_veloc s (padrão 6);
   - a posição é função da hora, não de um contador: todos os clientes mostram o mesmo trecho e um
     reinício (o tmux recria os #() da barra num refresh-client) não dá salto;
   - cliente de ponte (outra máquina olhando por ssh): anima como os outros — sem redesenho de tela
     inteira o custo é só a barra (~2 KB/s); ticker_ponte=parado devolve o começo do letreiro, parado;
   - a janela tem largura fixa em células (emoji conta 2): as divisórias │ não balançam.
 """
-import glob
 import os
-import shutil
 import sys
 import time
+
+
+def gatilho(pid, k, fps):
+    """Gatilho k (1..fps-1): uma linha VAZIA por segundo, 30 ms depois do quadro k do pintor, só
+    enquanto ele desliza o letreiro. Uma linha impressa por um #() da barra redesenha a barra (no
+    máximo 1 vez/s por #()): com fps-1 gatilhos defasados de 1/fps s, a barra muda fps vezes por
+    segundo, sem set-option e sem tocar na tela dos painéis. Fica ANTES dos imports pesados e só usa
+    os/time: são fps-1 processos por cliente, cada megabyte conta."""
+    rt = os.environ.get("TT_RT") or "/run/user/%d" % os.getuid()
+    marca = os.path.join(rt if os.path.isdir(rt) else "/tmp", "tt-letreiro-%d.anim" % pid)
+    try:
+        os.write(1, b"\n")  # sem uma 1ª linha o tmux mostra "<'comando' not ready>" no lugar do #()
+    except OSError:
+        return 0
+    while os.path.isdir("/proc/%d" % pid):
+        agora = time.time()
+        alvo = int(agora) + k / fps + 0.03
+        if alvo <= agora:
+            alvo += 1
+        time.sleep(alvo - agora)
+        try:
+            ativo = time.time() - os.stat(marca).st_mtime < 3
+        except OSError:
+            ativo = False
+        if ativo:
+            try:
+                os.write(1, b"\n")
+            except OSError:  # o tmux fechou o cano: o cliente foi embora
+                return 0
+    return 0
+
+
+if __name__ == "__main__" and len(sys.argv) == 5 and sys.argv[1] == "gatilho" and all(a.isdigit() for a in sys.argv[2:]):
+    sys.exit(gatilho(int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])))
+
+import glob
+import shutil
 import unicodedata
 
 HOME = os.path.expanduser("~")
@@ -227,7 +264,15 @@ def transferencias(agora):
     return "⇅ " + txt
 
 
-def deslocamento(cfg, orc, agora, ponte):
+def fps_de(cfg):
+    """Quadros por segundo do letreiro (ticker_fps, 1 a 6, padrão 4)."""
+    try:
+        return min(6, max(1, int(cfg.get("ticker_fps", "") or 4)))
+    except ValueError:
+        return 4
+
+
+def deslocamento(cfg, orc, agora, ponte, fps=1):
     if ponte and cfg.get("ticker_ponte", "") == "parado":
         return 0
     veloc = cfg.get("ticker_veloc", "")
@@ -240,16 +285,26 @@ def deslocamento(cfg, orc, agora, ponte):
             v = 6
         return int(int(agora) // v) * orc
     if v <= 0:
-        v = 0.35
-    return int(agora) * max(1, round(1 / v))
+        v = 0.25  # 4 caracteres por segundo: 1 coluna por quadro a 4 quadros/s
+    por_seg = 1 / v
+    quadro_n = int(agora * fps)
+    if por_seg >= fps:
+        return quadro_n * round(por_seg / fps)  # colunas por quadro
+    return quadro_n // max(1, round(fps / por_seg))  # quadros por coluna (mais lento que 1/quadro)
 
 
-def quadro(cfg, cols, ponte, agora, ocupado=OCUPADO):
+def quadro(cfg, cols, ponte, agora, ocupado=OCUPADO, fps=1):
+    return _quadro(cfg, cols, ponte, agora, ocupado, fps)[0]
+
+
+def _quadro(cfg, cols, ponte, agora, ocupado=OCUPADO, fps=1):
+    """(texto, animado): animado = o letreiro que desliza quadro a quadro (aviso, transferência e
+    páginas só mudam de segundo em segundo)."""
     # ocupado = células que o tmux gasta com as partes esquerda e direita da linha (medidas por ele,
     # #{w:}); o slot ocupa todo o resto, menos as divisórias e o respiro.
     orc = cols - ocupado - ENQUADRA
     if orc < 8:
-        return ""  # não sobra lugar para um letreiro legível: o slot some e as pontas ficam inteiras
+        return "", False  # não sobra lugar para um letreiro legível: o slot some e as pontas ficam inteiras
     orc = min(orc, 400)
     try:
         slot = int(os.environ.get("TT_NOTIF_SLOT") or 10)
@@ -258,23 +313,24 @@ def quadro(cfg, cols, ponte, agora, ocupado=OCUPADO):
     frescos = avisos_frescos(int(agora), slot)
     if frescos:
         if cols < 90:
-            return ""  # estreito: o sino com o contador, à esquerda, já conta a história
+            return "", False  # estreito: o sino com o contador, à esquerda, já conta a história
         txt = esc(cortar("  ·  ".join(frescos), orc))
         if cfg.get("aviso_pisca", "") == "1" and int(agora) % 2:
             miolo = txt
         else:
             miolo = "#[bold]%s#[nobold]" % txt
-        return "  #[fg=%s]│#[range=user|notifx]#[fg=%s]  %s  #[norange]#[fg=%s]│#[default]#[bg=%s]  " % (CINZA, AVISO, miolo, CINZA, FUNDO)
+        return "  #[fg=%s]│#[range=user|notifx]#[fg=%s]  %s  #[norange]#[fg=%s]│#[default]#[bg=%s]  " % (CINZA, AVISO, miolo, CINZA, FUNDO), False
     tx = transferencias(agora)
     if tx:
         return "  #[fg=%s]│#[range=user|transferencias]#[fg=%s]  %s  #[norange]#[fg=%s]│#[default]#[bg=%s]  " % (
-            CINZA, TRANSF, esc(cortar(tx, orc)), CINZA, FUNDO)
+            CINZA, TRANSF, esc(cortar(tx, orc)), CINZA, FUNDO), False
     linha = linha_letreiro(cfg)
     if not linha:
-        return ""
+        return "", False
+    animado = cfg.get("ticker_rolagem", "") != "paginas" and not (ponte and cfg.get("ticker_ponte", "") == "parado")
     # (#[default] volta ao status-style, de fundo escuro: o fundo da faixa é devolvido logo depois)
     return "  #[fg=%s]│#[fg=%s]  %s  #[fg=%s]│#[default]#[bg=%s]  " % (
-        CINZA, TEXTO, esc(janela(linha, orc, deslocamento(cfg, orc, agora, ponte))), CINZA, FUNDO)
+        CINZA, TEXTO, esc(janela(linha, orc, deslocamento(cfg, orc, agora, ponte, fps))), CINZA, FUNDO), animado
 
 
 def e_ponte(pid):
@@ -348,34 +404,68 @@ def substituido(tty, pid):
     return False
 
 
-def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0):
+def marca_anim(pid):
+    """Arquivo-marca do pintor: enquanto o letreiro desliza ele o toca; os gatilhos só disparam com ele."""
+    d = RT if os.path.isdir(RT) else "/tmp"
+    return os.path.join(d, "tt-letreiro-%d.anim" % pid)
+
+
+def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1):
+    """O pintor: imprime o quadro do letreiro. O tmux só redesenha a barra 1 vez por segundo por #(),
+    mas guarda a ÚLTIMA linha lida de cada um na hora: com fps > 1 ele imprime um quadro novo a cada
+    1/fps s e os gatilhos (fps-1 #() quase vazios, ver `gatilho`) provocam os redesenhos entre os
+    segundos — cada um logo depois de um quadro novo, de modo que a barra nunca mostra um quadro velho."""
     ponte = e_ponte(pid)
     fd = None
     try:
         fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
     except OSError:
         pass
-    ultimo, repetir, impresso_em, ciclo = None, False, 0.0, 0
-    while pid_vivo(pid):
-        ciclo += 1
-        if ciclo % 5 == 0 and substituido(tty, pid):
-            return 0
-        cfg = ler_conf()
-        if not faixa_ativa(cfg):
-            return 0
-        agora = time.time()
-        q = quadro(cfg, largura(fd, cols_tmux), ponte, agora, ocupado)
-        # Sem imprimir por 1 h o tmux dá o #() por abandonado e o recria (format_job_tidy): uma
-        # linha igual de tempos em tempos (ponte parada, letreiro desligado) mantém o processo vivo.
-        if q != ultimo or repetir or agora - impresso_em > 1500:
-            # Uma linha que chega no MESMO segundo em que o tmux criou o processo (ou disparou o
-            # redesenho anterior) não dispara outro redesenho; a repetição no segundo seguinte
-            # garante que a última mudança seja pintada.
-            emitir(q)
-            repetir = q != ultimo
-            ultimo, impresso_em = q, agora
-        agora = time.time()
-        time.sleep(max(0.2, 1.05 - agora % 1))  # um tique por segundo, logo após a virada do segundo
+    marca = marca_anim(pid)
+    ultimo, repetir, impresso_em, ciclo, tocado = None, False, 0.0, 0, 0.0
+    try:
+        while pid_vivo(pid):
+            ciclo += 1
+            if ciclo % (5 * max(1, fps)) == 0 and substituido(tty, pid):
+                return 0
+            cfg = ler_conf()
+            if not faixa_ativa(cfg):
+                return 0
+            agora = time.time()
+            q, anim = _quadro(cfg, largura(fd, cols_tmux), ponte, agora, ocupado, fps)
+            # Sem imprimir por 1 h o tmux dá o #() por abandonado e o recria (format_job_tidy): uma
+            # linha igual de tempos em tempos (ponte parada, letreiro desligado) mantém o processo vivo.
+            if q != ultimo or repetir or agora - impresso_em > 1500:
+                # Uma linha que chega no MESMO segundo em que o tmux criou o processo (ou disparou o
+                # redesenho anterior) não dispara outro redesenho; a repetição no segundo seguinte
+                # garante que a última mudança seja pintada.
+                emitir(q)
+                repetir = q != ultimo and not (anim and fps > 1)
+                ultimo, impresso_em = q, agora
+            if anim and fps > 1:
+                if agora - tocado >= 1:
+                    try:
+                        with open(marca, "a"):
+                            os.utime(marca, None)
+                    except OSError:
+                        pass
+                    tocado = agora
+                # próximo quadro: um fio depois da fronteira, para o índice do quadro já ter virado
+                espera = (int(agora * fps) + 1) / fps - time.time() + 0.002
+            else:
+                if tocado:
+                    try:
+                        os.unlink(marca)
+                    except OSError:
+                        pass
+                    tocado = 0.0
+                espera = 1.05 - agora % 1  # um tique por segundo, logo após a virada do segundo
+            time.sleep(max(0.01 if anim and fps > 1 else 0.2, espera))
+    finally:
+        try:
+            os.unlink(marca)
+        except OSError:
+            pass
     return 0
 
 
@@ -383,13 +473,15 @@ def main(argv):
     modo = argv[1] if len(argv) > 1 else ""
     if modo == "fluxo" and len(argv) >= 4 and argv[3].isdigit():
         n = lambda i, d: int(argv[i]) if len(argv) > i and argv[i].isdigit() else d
-        return fluxo(argv[2], int(argv[3]), n(4, OCUPADO), n(5, 0))
+        return fluxo(argv[2], int(argv[3]), n(4, OCUPADO), n(5, 0), n(6, 1))
+    if modo == "gatilho" and len(argv) >= 5 and all(a.isdigit() for a in argv[2:5]):
+        return gatilho(int(argv[2]), int(argv[3]), int(argv[4]))
     if modo == "quadro":
         cfg = ler_conf()
         cols = int(argv[2]) if len(argv) > 2 and argv[2].isdigit() else largura(None)
-        emitir(quadro(cfg, cols, len(argv) > 3 and argv[3] == "ponte", time.time()) if faixa_ativa(cfg) else "")
+        emitir(quadro(cfg, cols, len(argv) > 3 and argv[3] == "ponte", time.time(), fps=fps_de(cfg)) if faixa_ativa(cfg) else "")
         return 0
-    sys.stderr.write("uso: letreiro-tt.py fluxo TTY PID | quadro [LARGURA [ponte]]\n")
+    sys.stderr.write("uso: letreiro-tt.py fluxo TTY PID [OCUPADO [COLUNAS [FPS]]] | gatilho PID K FPS | quadro [LARGURA [ponte]]\n")
     return 2
 
 

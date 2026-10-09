@@ -7,7 +7,7 @@ tmux -f /dev/null new -d -s s1 'sleep 300'
 tt() { "$TT" "$@"; }
 
 tt --barras >/dev/null 2>&1
-[[ $(tmux show -gqv status) == 5 ]] || falhou "faixa ligada deveria pôr status=5 (régua + janelas + fixadas + régua + faixa) (está $(tmux show -gqv status))"
+[[ $(tmux show -gqv status) == 4 ]] || falhou "faixa ligada deveria pôr status=4 (margem + janelas + fixadas + faixa) (está $(tmux show -gqv status))"
 f=$(tmux show -gqv @barra_faixa)
 grep -q '@barra_email' <<<"$f" && grep -q '@barra_tarefas' <<<"$f" ||
   falhou "linha 2 sem os chips esperados: $f"
@@ -22,20 +22,25 @@ grep -q 'e|<:#{client_width},120},,#{E:@barra_data}' <<<"$d" && grep -q 'e|<:#{c
 [[ -z $(tmux show -gqv @barra_lado1) ]] || falhou 'com a faixa, a linha das fixadas deveria ficar só para elas'
 [[ -z $(tmux show -gqv @barra_fim0) ]] || falhou 'com a faixa, o 📧/relógio deveriam sair da linha 0'
 passou 'faixa ligada: status 3, blocos na linha 2, fixadas 100% livres'
-# Layout: até 5 linhas coladas (o máximo do tmux), sem espaço vertical: régua de cima, janelas, fixadas,
-# régua e faixa; cada linha pintada em toda a largura (fill) e com o #[default] voltando ao fundo DELA
-# (set-default).
+# Layout: 3 a 4 linhas coladas, sem espaço vertical: margem, janelas, fixadas e faixa. As réguas são o
+# SUBLINHADO colorido (us=) das três primeiras linhas — uma linha fina rente ao rodapé de cada faixa. O
+# sublinhado só cobre células escritas: o vão leva espaços explícitos (#{R: ,N}, N medido com #{w:}).
 tema="$TT_DIR/tema-tmux.conf"
 fmt() { grep "^set -g 'status-format\\[$1\\]'" "$tema"; }
-[[ -z $(fmt 5) ]] || falhou 'barra com mais de 5 linhas'
-for i in 0 3; do grep -q 'fill=#1e1e2e' <<<"$(fmt $i)" && grep -q '──────' <<<"$(fmt $i)" || falhou "linha $i não é uma régua preenchida"; done
-grep -q 'range=left' <<<"$(fmt 1)" || falhou 'linha 1 não é a das janelas'
-for i in 2 4; do
+[[ -z $(fmt 4) ]] || falhou 'barra com mais de 4 linhas'
+grep -q 'us=#' <<<"$(grep '^set -g @tema_ul' "$tema")" && grep -q 'underscore' <<<"$(grep '^set -g @tema_ul' "$tema")" &&
+  grep -q 'usstyle' <<<"$(grep '^set -g @tema_ul' "$tema")" || falhou 'régua sem sublinhado colorido condicionado ao usstyle do cliente'
+grep -q 'usstyle' "$TT_DIR/tmux.conf" || falhou 'tmux.conf sem o recurso usstyle (cor de sublinhado)'
+for i in 0 1 2; do
   l=$(fmt $i)
-  grep -q 'fill=#' <<<"$l" && grep -q 'set-default' <<<"$l" || falhou "linha $i sem fill/set-default: $l"
+  grep -q '@tema_ul' <<<"$l" && grep -q 'set-default' <<<"$l" || falhou "linha $i sem régua (@tema_ul) / set-default: ${l:0:120}"
 done
-grep -q 'barra_faixa_dir' <<<"$(fmt 4)" || falhou 'a faixa (linha 4) deveria ser a última'
-passou 'barra: réguas em cima e entre fixadas e faixa, linhas coladas e preenchidas em toda a largura'
+grep -q '#{R: ,#{client_width}}' <<<"$(fmt 0)" || falhou 'linha 0 (margem) deveria ser espaços explícitos em toda a largura'
+grep -q 'range=left' <<<"$(fmt 1)" && grep -q '@tema_gap1' <<<"$(fmt 1)" || falhou 'linha 1 não é a das janelas com o vão medido'
+grep -q '@tema_gap2' <<<"$(fmt 2)" || falhou 'linha 2 (fixadas) sem o vão medido'
+l=$(fmt 3); grep -q 'fill=#232838' <<<"$l" && grep -q 'barra_faixa_dir' <<<"$l" && ! grep -q '@tema_ul' <<<"$l" ||
+  falhou "a faixa (linha 3) é a última e não leva régua embaixo: ${l:0:120}"
+passou 'barra: réguas de sublinhado em cima e entre as faixas, linhas coladas, vãos medidos'
 
 
 # O miolo da faixa (aviso fresco / transferência / letreiro) é o letreiro-tt.py de cada cliente, ligado
@@ -84,6 +89,15 @@ tt --notificar "📧 Ana — Reunião de sexta" 120 email >/dev/null 2>&1  # o h
 tt --notificar "⏳ efêmero" 1 >/dev/null 2>&1; sleep 2; tt --barras >/dev/null 2>&1
 grep -q 'efêmero' <<<"$(quadro 140)" && falhou "aviso expirado continuou no slot"
 grep -q 'Ana — Reunião' <<<"$("$TT" --notifs-ui)" || falhou 'histórico não lista o aviso'
+# a central diz o DIA, não só a hora: "Hoje", "Ontem" ou dd/mm (hoje e ontem se distinguem)
+hist=$("$TT" --notifs-ui | sed "s/\x1b\[[0-9;]*m//g")
+grep -qE '^Hoje  [0-9]{2}:[0-9]{2}  .*Ana — Reunião' <<<"$hist" || falhou "aviso novo deveria sair como 'Hoje HH:MM': $hist"
+nd="$HOME/.local/state/tt/notifs"
+printf '%s\t%s\t\n' "$(( $(date +%s) + 600 ))" "aviso de ontem" >"$nd/$(date -d 'yesterday 22:05' +%s)000000000"
+printf '%s\t%s\t\n' "$(( $(date +%s) + 600 ))" "aviso antigo" >"$nd/$(date -d '5 days ago 09:30' +%s)000000000"
+hist=$("$TT" --notifs-ui | sed "s/\x1b\[[0-9;]*m//g")
+grep -qE '^Ontem 22:05  aviso de ontem' <<<"$hist" || falhou "aviso de ontem deveria sair como 'Ontem 22:05': $hist"
+grep -qE '^[0-9]{2}/[0-9]{2} 09:30  aviso antigo' <<<"$hist" || falhou "aviso antigo deveria sair como dd/mm HH:MM: $hist"
 passou 'notificar: aparece com range, expira sozinho, histórico lista'
 
 # espelho automático: o notificador central alimenta a faixa — ponta a ponta com um lembrete real
@@ -96,7 +110,7 @@ passou 'lembretes (tarefas/e-mail) espelham na faixa pelo notificador central'
 
 printf 'faixa_notif=0\n' >>"$XDG_CONFIG_HOME/tt/config"
 tt --barras >/dev/null 2>&1
-[[ $(tmux show -gqv status) == 3 ]] || falhou 'faixa_notif=0 deveria voltar a 3 linhas (régua, janelas, fixadas)'
+[[ $(tmux show -gqv status) == 3 ]] || falhou 'faixa_notif=0 deveria voltar a 3 linhas (margem, janelas, fixadas)'
 grep -q '@barra_tarefas' <<<"$(tmux show -gqv @barra_lado1)" || falhou 'desligada, 📋/versão deveriam voltar à linha 1'
 grep -q '@barra_email' <<<"$(tmux show -gqv @barra_fim0)" || falhou 'desligada, 📧/relógio deveriam voltar à linha 0'
 passou 'faixa_notif=0: layout sem a faixa de volta, sem perder nada'

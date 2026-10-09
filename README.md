@@ -629,9 +629,13 @@ cada passo. O slot ocupa exatamente a largura que sobra entre as pontas da linha
 com `#{w:}` e passa ao processo) e some se não houver lugar. Quem olha por uma ponte (outra máquina,
 por ssh) vê o letreiro rolar como os demais — sem redesenho de tela inteira o custo é só a barra
 (`ticker_ponte=parado` o congela). Tudo configurável no `~/.config/tt/config`:
-`ticker_rolagem=continua|paginas` (padrão `continua`: desliza `round(1/ticker_veloc)` caracteres por
-segundo — padrão 0,35 → 3 por segundo; `ticker_veloc=1` dá 1 por segundo, o passo mais suave que o tmux
-redesenha; `paginas` troca em blocos a cada `ticker_veloc=` s — padrão 6), `aviso_pisca=1`
+`ticker_rolagem=continua|paginas` (padrão `continua`: desliza `1/ticker_veloc` colunas por segundo —
+padrão 0,25 → 4 colunas/s, uma por quadro; `ticker_veloc=0.5` dá 2/s, `1` dá 1/s; `paginas` troca em
+blocos a cada `ticker_veloc=` s — padrão 6), `ticker_fps=1..6` (quadros por segundo, padrão 4: o tmux só
+redesenha a barra 1 vez/s por `#()`, mas guarda a última linha de cada um — o pintor imprime um quadro
+novo a cada 1/fps s e fps−1 gatilhos de linha vazia, defasados, provocam os redesenhos entre os
+segundos; custo ≈ 2 KB por quadro e ~12 MB por processo, 1 pintor + 3 gatilhos por terminal; `1` volta
+ao passo de 1 s), `aviso_pisca=1`
 (alternância do aviso a cada segundo; padrão estático em negrito), `indicadores=` (quais fontes passam; `0` desliga o letreiro, o slot segue
 para avisos/transferências) e endpoints próprios: `indicador_nome=URL ;; rótulo ;; caminho.no.json
 ;; ttl ;; Header: @arquivo-em-secrets` (caminho `-` = texto cru; a chave de API pode vir de
