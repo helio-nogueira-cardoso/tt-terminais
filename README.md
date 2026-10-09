@@ -647,11 +647,11 @@ com `#{w:}` e passa ao processo) e some se não houver lugar. Quem olha por uma 
 por ssh) vê o letreiro rolar como os demais — sem redesenho de tela inteira o custo é só a barra
 (`ticker_ponte=parado` o congela). Tudo configurável no `~/.config/tt/config`:
 `ticker_rolagem=continua|paginas` (padrão `continua`: desliza `1/ticker_veloc` colunas por segundo —
-padrão 0,25 → 4 colunas/s, uma por quadro; `ticker_veloc=0.5` dá 2/s, `1` dá 1/s; `paginas` troca em
-blocos a cada `ticker_veloc=` s — padrão 6), `ticker_fps=1..6` (quadros por segundo, padrão 4: o tmux só
+padrão 1/`ticker_fps` → uma coluna por quadro, 6/s; `ticker_veloc=0.5` dá 2/s, `1` dá 1/s; `paginas` troca em
+blocos a cada `ticker_veloc=` s — padrão 6), `ticker_fps=1..10` (quadros por segundo, padrão 6: o tmux só
 redesenha a barra 1 vez/s por `#()`, mas guarda a última linha de cada um — o pintor imprime um quadro
 novo a cada 1/fps s e fps−1 gatilhos de linha vazia, defasados, provocam os redesenhos entre os
-segundos; custo ≈ 2 KB por quadro e ~12 MB por processo, 1 pintor + 3 gatilhos por terminal; `1` volta
+segundos; custo ≈ 2 KB por quadro e ~12 MB o pintor (python) e ~4 MB cada gatilho (`gatilho-tt.sh`, só builtins do bash): 1 pintor + 5 gatilhos ≈ 32 MB por terminal; `1` volta
 ao passo de 1 s), `aviso_pisca=1`
 (alternância do aviso a cada segundo; padrão estático em negrito), `indicadores=` (quais fontes passam; `0` desliga o letreiro, o slot segue
 para avisos/transferências) e endpoints próprios: `indicador_nome=URL ;; rótulo ;; caminho.no.json
@@ -742,6 +742,22 @@ use `TT_AI_MEMORY_DIR=/caminho/da/memoria`.
 Se uma sessão fixada de outra máquina foi fechada, ou a máquina caiu, o tt avisa e conserva a tela
 atual. Se a conexão cair depois de entrar, a ponte fica aberta mostrando a falha; `Enter` tenta de
 novo e `Ctrl+B d` volta, sem fechar a janela do terminal.
+
+## Fechar telas e popups
+
+Uma regra só, em qualquer máquina:
+
+| Tela | Como fecha |
+|---|---|
+| Listas com fzf (central, fixadas, links, contas, atalhos) | `Esc` (ou `Ctrl+C`); `q` também onde não há busca (central, atalhos) |
+| Painel de tarefas e agenda | `Esc` volta/fecha (`q` digitaria na busca) |
+| Mensagens (sync local, resultado de cadastro, erros do e-mail, "pasta padrão") | **qualquer tecla**, `Esc` inclusive |
+| Perguntas de uma linha (nome, usuário, pasta) | `Enter` confirma; `Ctrl+C` cancela |
+| Navegador interno (Carbonyl) | `Ctrl+Q` ou `Ctrl+C` (a página consome `Esc` e `q`) |
+| E-mail (aerc) | `:quit`, `q` nas telas de contas/atalhos, ou o botão 📧 |
+
+Pedir uma tela do tt (clique na faixa, `tt --notif-abrir`) com o popup do e-mail na frente solta o
+popup do e-mail (a sessão oculta segue viva) e abre a tela pedida em seguida — nada fica preso por baixo.
 
 ## Fechar sessões
 

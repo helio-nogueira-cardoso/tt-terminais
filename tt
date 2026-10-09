@@ -1394,7 +1394,7 @@ ajuda() {
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
+ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md aidlc-tt)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
@@ -5518,13 +5518,13 @@ barra_notifs_fmt() {
   # o slot ocupa exatamente o que sobra. Só muda com o nº de dígitos do 📧 ou do relógio/versão.
   # O 4º é #{client_width}: o tty de um cliente por ssh (Tailscale SSH) é do root e o ioctl falha. Ao
   # redimensionar o tmux cria um processo novo; o antigo percebe que foi substituído e sai.
-  # ticker_fps (1 a 6, padrão 4) = quadros por segundo do letreiro. Cada #() redesenha a barra no
+  # ticker_fps (1 a 10, padrão 6) = quadros por segundo do letreiro. Cada #() redesenha a barra no
   # máximo 1 vez/s, mas o tmux guarda a última linha lida de cada um: o pintor (fluxo) imprime um
   # quadro novo a cada 1/fps s e fps-1 gatilhos (linhas vazias, 1/s, defasadas) provocam os
   # redesenhos entre os segundos, cada um logo depois de um quadro novo.
-  local fps k; fps=$(conf ticker_fps); [[ $fps =~ ^[1-6]$ ]] || fps=4
+  local fps k; fps=$(conf ticker_fps); [[ $fps =~ ^([1-9]|10)$ ]] || fps=6
   printf '#(python3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}} #{client_width} %s)' "$DIR_TT/letreiro-tt.py" "$fps"
-  for ((k = 1; k < fps; k++)); do printf '#(python3 -I %s gatilho #{client_pid} %s %s)' "$DIR_TT/letreiro-tt.py" "$k" "$fps"; done
+  for ((k = 1; k < fps; k++)); do printf '#(bash %s #{client_pid} %s %s)' "$DIR_TT/gatilho-tt.sh" "$k" "$fps"; done
 }
 
 # --- Letreiro do slot (sem aviso novo, infos roladas: dólar, frases, notícias; indicadores= no config)
@@ -5627,6 +5627,10 @@ notif_abrir() { # ação cliente
   # Dentro de um popup o tmux não abre outro por cima: agenda a abertura para logo após fechar
   # (⏎ no histórico não abria o e-mail por isso).
   if em_popup; then
+    # Com o e-mail (aerc) na frente nada fecharia sozinho: solta o popup do e-mail (a sessão oculta
+    # segue viva) para que a tela pedida abra por cima do terminal, não por baixo de um popup preso.
+    [[ $(tmux display -p -t "=$EMAIL_SESSAO:" '#{session_attached}' 2>/dev/null) =~ ^[1-9] ]] &&
+      tmux detach-client -s "=$EMAIL_SESSAO" 2>/dev/null
     local cmd="sleep 0.3; $EU --notif-abrir $(q "$acao") $(q "$c")"
     tmux run-shell -b "${cmd//#/##}" 2>/dev/null
     return 0
@@ -7916,7 +7920,7 @@ r	⟳ Sincronizar agora (consulta as contas; útil esperando um código)	$EU --e
 c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
 n	＋ Cadastrar uma conta…	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
 a	⌨ Atalhos do e-mail	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' ⌨ atalhos do e-mail ' "$EU --email-atalhos"
-s	🔄 Sync local: estado das rodadas	tmux display-popup -c $(q "$c") -E -w 72 -h 20 -b rounded -T ' 🔄 sync local ' "$EU --email-sync-estado; printf '\\n⏎ fecha'; read -r _"
+s	🔄 Sync local: estado das rodadas	tmux display-popup -c $(q "$c") -E -w 72 -h 20 -b rounded -T ' 🔄 sync local ' "$EU --email-sync-estado; printf '\\n(qualquer tecla fecha)'; read -rsn1 _"
 ITENS
 }
 
@@ -8642,7 +8646,7 @@ botao_email() {
     return
   fi
   tmux display-popup -c "$cliente" -E "${geo[@]}" \
-    "cd ${HOME@Q}; VAXIS_FORCE_UNICODE=1 $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Enter fecha.' \"\$?\"; read -r _; }"
+    "cd ${HOME@Q}; VAXIS_FORCE_UNICODE=1 $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Qualquer tecla fecha.' \"\$?\"; read -rsn1 _; }"
 }
 
 # Sessão oculta com o aerc aberto. Marcada como "ponte" do tipo email: fica fora da central, do
@@ -10239,11 +10243,12 @@ email_resumo() {
 }
 
 # read -e (readline): setas e outras teclas especiais não viram ^[[A na tela.
-email_pausa() { [[ -t 0 ]] && { printf '\n'; read -r -e -p "${1:-Enter volta.}" _; }; return 0; }
+# Qualquer tecla fecha (Esc e Enter inclusive); setas e outras teclas especiais não deixam ^[[A na tela.
+email_pausa() { [[ -t 0 ]] && { printf '\n%s' "${1:-Qualquer tecla volta.}"; local k; read -rsn1 k; [[ $k == $'\e' ]] && read -rsn6 -t 0.02 _; printf '\n'; }; return 0; }
 
 # Assistente de cadastro: provedor/endereço → descoberta → autenticação → segredo → teste obrigatório.
 email_conta_nova_ui() {
-  command -v aerc >/dev/null || { printf 'O aerc não está instalado nesta máquina.\nInstale o aerc e rode de novo.'; email_pausa 'Enter fecha.'; return; }
+  command -v aerc >/dev/null || { printf 'O aerc não está instalado nesta máquina.\nInstale o aerc e rode de novo.'; email_pausa 'Qualquer tecla fecha.'; return; }
   local -A E=(); local prov linha dica erro snap
   clear 2>/dev/null
   # (no popup o título ' 📧 nova conta ' já está na borda: repeti-lo no corpo era a duplicação)
@@ -10273,15 +10278,15 @@ email_conta_nova_ui() {
     local aj; read -r -e -p $'\nAjustar servidores, portas ou usuário técnico? (s/N) ' aj || return 0
     if [[ $aj == [sSyY]* ]]; then email_avancado || return 0; fi
   fi
-  if ! erro=$(email_validar novo antes-do-segredo); then printf '\n✗ %s\nNada foi salvo.\n' "$erro"; email_pausa 'Enter volta.'; return 0; fi
+  if ! erro=$(email_validar novo antes-do-segredo); then printf '\n✗ %s\nNada foi salvo.\n' "$erro"; email_pausa 'Qualquer tecla volta.'; return 0; fi
 
   snap=$(email_snapshot_criar "${E[_slug]}") || { echo '✗ Não consegui criar o snapshot de segurança.'; email_pausa; return 0; }
-  if ! email_pedir_segredo; then email_snapshot_restaurar "$snap" "${E[_slug]}"; email_pausa 'Nada foi salvo. Enter volta.'; return 0; fi
+  if ! email_pedir_segredo; then email_snapshot_restaurar "$snap" "${E[_slug]}"; email_pausa 'Nada foi salvo. Qualquer tecla volta.'; return 0; fi
   if ! erro=$(email_validar); then
-    email_snapshot_restaurar "$snap" "${E[_slug]}"; printf '\n✗ %s\nNada foi salvo.\n' "$erro"; email_pausa 'Enter volta.'; return 0
+    email_snapshot_restaurar "$snap" "${E[_slug]}"; printf '\n✗ %s\nNada foi salvo.\n' "$erro"; email_pausa 'Qualquer tecla volta.'; return 0
   fi
   printf '\nValidando IMAP e SMTP antes de salvar…\n'
-  if ! email_salvar_validado "$snap" 1; then email_pausa 'Enter volta para corrigir.'; return 0; fi
+  if ! email_salvar_validado "$snap" 1; then email_pausa 'Qualquer tecla volta para corrigir.'; return 0; fi
   printf '\n✔ Conta cadastrada e validada:'; email_resumo
   # Assinatura (opcional, uma linha aqui; várias depois em F2 → conta → ✎ Assinatura).
   printf '\n'
@@ -10289,7 +10294,7 @@ email_conta_nova_ui() {
     mkdir -p "$EMAIL_DIR"; printf '%s\n' "${E[assinatura]}" >"$(email_assinatura_arq "${E[_slug]}")"; email_regerar "${E[_slug]}"
   fi
   email_propagar_oferecer "${E[_slug]}"
-  email_pausa 'Enter volta.'
+  email_pausa 'Qualquer tecla volta.'
 }
 
 # Edição transacional: permite trocar autenticação; só substitui a conta após validar IMAP e SMTP.
@@ -10309,14 +10314,14 @@ email_editar_ui() {
   else read -r -e -p $'\nTrocar a senha/credencial? (s/N) ' t || return 0; fi
   snap=$(email_snapshot_criar "$slug") || { echo '✗ Não consegui criar o snapshot de segurança.'; email_pausa; return 0; }
   if [[ $t == [sSyY]* ]]; then
-    if ! email_pedir_segredo; then email_snapshot_restaurar "$snap" "$slug"; email_pausa 'Nada foi alterado. Enter volta.'; return 0; fi
+    if ! email_pedir_segredo; then email_snapshot_restaurar "$snap" "$slug"; email_pausa 'Nada foi alterado. Qualquer tecla volta.'; return 0; fi
     [[ ${E[auth]} == oauth ]] && autorizar=1
   fi
   if ! erro=$(email_validar); then
     email_snapshot_restaurar "$snap" "$slug"; printf '\n✗ %s\nA configuração anterior foi restaurada.\n' "$erro"; email_pausa; return 0
   fi
   printf '\nValidando IMAP e SMTP antes de substituir a conta…\n'
-  if ! email_salvar_validado "$snap" "$autorizar"; then email_pausa 'Enter volta para corrigir.'; return 0; fi
+  if ! email_salvar_validado "$snap" "$autorizar"; then email_pausa 'Qualquer tecla volta para corrigir.'; return 0; fi
   printf '\n✔ Conta atualizada e validada.'; email_pausa
 }
 

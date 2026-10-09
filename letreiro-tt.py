@@ -27,7 +27,7 @@ Regras (as mesmas que a barra em bash seguia):
     negrito (aviso_pisca=1 alterna a cada segundo); depois a transferência ativa; depois o letreiro;
   - letreiro: fontes em ~/.cache/tt-ticker/<fonte> (o vigia atualiza com TTL; rede nunca aqui), itens
     separados por " • ", numa roda. O padrão desliza (ticker_rolagem=continua): 1/ticker_veloc colunas
-    por segundo (padrão 0,25 s → 4/s = 1 coluna por quadro a ticker_fps=4 quadros/s). Cada #() só
+    por segundo (padrão 1/ticker_fps s = 1 coluna por quadro, a ticker_fps=6 quadros/s). Cada #() só
     redesenha a barra 1 vez/s, mas o tmux guarda a última linha lida de cada um: o pintor (fluxo)
     imprime um quadro a cada 1/fps s e fps-1 gatilhos (linhas vazias, 1/s, defasadas) provocam os
     redesenhos entre os segundos. ticker_rolagem=paginas troca de bloco a cada ticker_veloc s (padrão 6);
@@ -41,39 +41,6 @@ import os
 import sys
 import time
 
-
-def gatilho(pid, k, fps):
-    """Gatilho k (1..fps-1): uma linha VAZIA por segundo, 30 ms depois do quadro k do pintor, só
-    enquanto ele desliza o letreiro. Uma linha impressa por um #() da barra redesenha a barra (no
-    máximo 1 vez/s por #()): com fps-1 gatilhos defasados de 1/fps s, a barra muda fps vezes por
-    segundo, sem set-option e sem tocar na tela dos painéis. Fica ANTES dos imports pesados e só usa
-    os/time: são fps-1 processos por cliente, cada megabyte conta."""
-    rt = os.environ.get("TT_RT") or "/run/user/%d" % os.getuid()
-    marca = os.path.join(rt if os.path.isdir(rt) else "/tmp", "tt-letreiro-%d.anim" % pid)
-    try:
-        os.write(1, b"\n")  # sem uma 1ª linha o tmux mostra "<'comando' not ready>" no lugar do #()
-    except OSError:
-        return 0
-    while os.path.isdir("/proc/%d" % pid):
-        agora = time.time()
-        alvo = int(agora) + k / fps + 0.03
-        if alvo <= agora:
-            alvo += 1
-        time.sleep(alvo - agora)
-        try:
-            ativo = time.time() - os.stat(marca).st_mtime < 3
-        except OSError:
-            ativo = False
-        if ativo:
-            try:
-                os.write(1, b"\n")
-            except OSError:  # o tmux fechou o cano: o cliente foi embora
-                return 0
-    return 0
-
-
-if __name__ == "__main__" and len(sys.argv) == 5 and sys.argv[1] == "gatilho" and all(a.isdigit() for a in sys.argv[2:]):
-    sys.exit(gatilho(int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])))
 
 import glob
 import shutil
@@ -265,11 +232,11 @@ def transferencias(agora):
 
 
 def fps_de(cfg):
-    """Quadros por segundo do letreiro (ticker_fps, 1 a 6, padrão 4)."""
+    """Quadros por segundo do letreiro (ticker_fps, 1 a 10, padrão 6)."""
     try:
-        return min(6, max(1, int(cfg.get("ticker_fps", "") or 4)))
+        return min(10, max(1, int(cfg.get("ticker_fps", "") or 6)))
     except ValueError:
-        return 4
+        return 6
 
 
 def deslocamento(cfg, orc, agora, ponte, fps=1):
@@ -285,7 +252,7 @@ def deslocamento(cfg, orc, agora, ponte, fps=1):
             v = 6
         return int(int(agora) // v) * orc
     if v <= 0:
-        v = 0.25  # 4 caracteres por segundo: 1 coluna por quadro a 4 quadros/s
+        v = 1 / fps  # 1 coluna por quadro: o passo mínimo de um terminal, o mais suave possível
     por_seg = 1 / v
     quadro_n = int(agora * fps)
     if por_seg >= fps:
@@ -413,7 +380,7 @@ def marca_anim(pid):
 def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1):
     """O pintor: imprime o quadro do letreiro. O tmux só redesenha a barra 1 vez por segundo por #(),
     mas guarda a ÚLTIMA linha lida de cada um na hora: com fps > 1 ele imprime um quadro novo a cada
-    1/fps s e os gatilhos (fps-1 #() quase vazios, ver `gatilho`) provocam os redesenhos entre os
+    1/fps s e os gatilhos (fps-1 #() quase vazios, ver gatilho-tt.sh) provocam os redesenhos entre os
     segundos — cada um logo depois de um quadro novo, de modo que a barra nunca mostra um quadro velho."""
     ponte = e_ponte(pid)
     fd = None
@@ -445,8 +412,8 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1):
             if anim and fps > 1:
                 if agora - tocado >= 1:
                     try:
-                        with open(marca, "a"):
-                            os.utime(marca, None)
+                        with open(marca, "w") as f:  # o gatilho (bash) lê a hora daqui
+                            f.write("%d\n" % agora)
                     except OSError:
                         pass
                     tocado = agora
@@ -474,14 +441,12 @@ def main(argv):
     if modo == "fluxo" and len(argv) >= 4 and argv[3].isdigit():
         n = lambda i, d: int(argv[i]) if len(argv) > i and argv[i].isdigit() else d
         return fluxo(argv[2], int(argv[3]), n(4, OCUPADO), n(5, 0), n(6, 1))
-    if modo == "gatilho" and len(argv) >= 5 and all(a.isdigit() for a in argv[2:5]):
-        return gatilho(int(argv[2]), int(argv[3]), int(argv[4]))
     if modo == "quadro":
         cfg = ler_conf()
         cols = int(argv[2]) if len(argv) > 2 and argv[2].isdigit() else largura(None)
         emitir(quadro(cfg, cols, len(argv) > 3 and argv[3] == "ponte", time.time(), fps=fps_de(cfg)) if faixa_ativa(cfg) else "")
         return 0
-    sys.stderr.write("uso: letreiro-tt.py fluxo TTY PID [OCUPADO [COLUNAS [FPS]]] | gatilho PID K FPS | quadro [LARGURA [ponte]]\n")
+    sys.stderr.write("uso: letreiro-tt.py fluxo TTY PID [OCUPADO [COLUNAS [FPS]]] | quadro [LARGURA [ponte]]\n")
     return 2
 
 

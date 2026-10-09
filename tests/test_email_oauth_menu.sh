@@ -108,7 +108,7 @@ passou "código no aparelho: copiar o código pelo menu; a aprovação chega sem
 corpo=$(sed -n '/^email_pergunta()/,/^botao_email_contas()/p' "$RAIZ/tt")
 sem_e=$(grep -nE 'read -r (-p|_;)' <<<"$corpo" || true)
 [[ -z $sem_e ]] || falhou "pergunta do cadastro sem read -e (setas viram ^[[A): $sem_e"
-grep -q 'read -r -e -p "${1:-Enter volta.}" _' <<<"$corpo" || falhou 'email_pausa sem read -e' 
-passou "perguntas s/N e o Enter volta do cadastro usam read -e"
+grep -q 'read -rsn1 k' <<<"$corpo" || falhou 'email_pausa deveria fechar com qualquer tecla (read -rsn1)'
+passou "perguntas s/N usam read -e; a pausa final fecha com qualquer tecla"
 
 echo "TODOS OS TESTES PASSARAM"
