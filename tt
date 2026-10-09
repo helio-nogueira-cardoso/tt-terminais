@@ -1395,7 +1395,7 @@ ajuda() {
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
-  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md)
+  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md aidlc-tt)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -1678,6 +1678,27 @@ instalar_contas_ia() {
     cmp -s "$DIR_TT/skill-rodizio-de-contas.md" "$skill/SKILL.md" && continue
     mkdir -p "$skill" && cp "$DIR_TT/skill-rodizio-de-contas.md" "$skill/SKILL.md"
   done
+  instalar_ferramentas_agentes "$HOME" "$DIR_TT" "$HOME/.claude" "${CODEX_HOME:-$HOME/.codex}" "${KIRO_HOME:-$HOME/.kiro}"
+  return 0
+}
+
+# Ferramentas e referência para os agentes de IA: o aidlc-tt (perguntas do AI-DLC respondidas na
+# descrição de uma tarefa) em ~/.local/bin e a skill tt-terminais (verbos do tt, como avisar o
+# usuário com tt --notificar-daqui) nos agentes que existirem. Um aidlc-tt que não é link fica.
+instalar_ferramentas_agentes() { # casa pasta-do-pacote-vista-de-lá agente...
+  local casa=$1 fonte=$2 ag alvo=$1/.local/bin/aidlc-tt
+  shift 2
+  if [[ -f $DIR_TT/aidlc-tt ]]; then
+    chmod +x "$casa/.local/share/tt/aidlc-tt" 2>/dev/null
+    mkdir -p "$casa/.local/bin"
+    [[ -e $alvo && ! -L $alvo ]] || ln -sfn "$fonte/aidlc-tt" "$alvo"
+  fi
+  [[ -f $DIR_TT/skill-tt-terminais.md ]] || return 0
+  for ag in "$@"; do
+    [[ -d $ag ]] || continue
+    cmp -s "$DIR_TT/skill-tt-terminais.md" "$ag/skills/tt-terminais/SKILL.md" && continue
+    mkdir -p "$ag/skills/tt-terminais" && cp "$DIR_TT/skill-tt-terminais.md" "$ag/skills/tt-terminais/SKILL.md"
+  done
   return 0
 }
 
@@ -1711,6 +1732,7 @@ instalar_contas_ia_proot() {
       cmp -s "$DIR_TT/skill-rodizio-de-contas.md" "$casa/skills/rodizio-de-contas/SKILL.md" && continue
       mkdir -p "$casa/skills/rodizio-de-contas" && cp "$DIR_TT/skill-rodizio-de-contas.md" "$casa/skills/rodizio-de-contas/SKILL.md"
     done
+    instalar_ferramentas_agentes "$r" /root/.local/share/tt "$r/.claude" "$r/.codex" "$r/.kiro"
     mkdir -p "$r/.config/tt"
     [[ -e $r/.config/tt/contas-ia || -L $r/.config/tt/contas-ia ]] || ln -s "$CONF_CONTAS_IA" "$r/.config/tt/contas-ia"
   done
@@ -5615,8 +5637,49 @@ notif_abrir() { # ação cliente
     tarefas) abrir_tarefas "$c" ;;
     calendario) abrir_calendario "$c" ;;
     cmd:*) rodar_fora 0 "${acao#cmd:}" ;;
+    sessao:*) notif_ir_sessao "${acao#sessao:}" "$c" ;;
     *) return 1 ;;
   esac
+}
+
+# Aviso de um agente (tt --notificar-daqui): o clique leva o cliente à sessão e ao painel de onde
+# o aviso saiu. "sessão|painel"; sem a sessão (fechada depois do aviso), só avisa.
+notif_ir_sessao() { # "sessão|painel" cliente
+  local s=${1%%|*} p=${1#*|} c=$2
+  if ! tmux has-session -t "=$s" 2>/dev/null; then
+    tmux display-message -c "$c" -d 4000 "A sessão $s não existe mais" 2>/dev/null
+    return 0
+  fi
+  [[ -n $p && $p == %* ]] && { tmux select-window -t "$p" && tmux select-pane -t "$p"; } 2>/dev/null
+  TT_CLIENTE=$c ir_para . "$s"
+}
+
+# Alguém está olhando para a janela W da sessão S: um cliente com foco (focus-events) mostrando
+# S com W como janela atual. Vale para vistas aninhadas (painel do tt com outra sessão): o cliente
+# de dentro só tem foco quando o painel de fora tem.
+usuario_olhando() { # sessão window_id
+  tmux list-clients -F '#{client_session}'$'\t''#{client_flags}'$'\t''#{window_id}' 2>/dev/null |
+    awk -F'\t' -v s="$1" -v w="$2" '$1 == s && $3 == w && $2 ~ /(^|,)focused(,|$)/ { achou = 1 } END { exit !achou }'
+}
+
+# Para agentes de IA (e scripts) que rodam num painel do tt: avisa o usuário na faixa/central (e
+# na notificação do sistema, onde houver) com um clique que leva de volta a este painel. Se o
+# usuário já está olhando para esta janela, não avisa (imprime "vendo"); --sempre avisa assim mesmo.
+# Fora do tmux, vira um aviso comum. Imprime "notificado" ou "vendo".
+notificar_daqui() { # texto [segundos] [--sempre]
+  local txt=${1:-} dura=600 sempre=0 a p s w
+  for a in "${@:2}"; do
+    case $a in --sempre) sempre=1 ;; ''|*[!0-9]*) ;; *) dura=$a ;; esac
+  done
+  [[ -n $txt ]] || { echo 'uso: tt --notificar-daqui "texto" [segundos] [--sempre]' >&2; return 1; }
+  p=${TMUX_PANE:-}
+  if [[ -z $p ]] || ! s=$(tmux display-message -p -t "$p" '#{session_name}' 2>/dev/null); then
+    notificar "$txt" "$dura"; echo notificado; return 0
+  fi
+  w=$(tmux display-message -p -t "$p" '#{window_id}' 2>/dev/null)
+  if ((sempre == 0)) && usuario_olhando "$s" "$w"; then echo vendo; return 0; fi
+  tarefas_notificar "🤖 $s" "$txt" "sessao:$s|$p" >/dev/null 2>&1
+  echo notificado
 }
 
 notifs_clique() { # cliente
@@ -11416,6 +11479,7 @@ case "${1:-}" in
   --propagar-fixadas) propagar_fixadas; exit ;;
   --ir-fixada) ir_fixada "$2" "$3"; exit ;;
   --notificar) notificar "${2:-}" "${3:-300}" "${4:-}"; exit ;;
+  --notificar-daqui) shift; notificar_daqui "$@"; exit ;;
   --notifs) notifs_popup "${2:-}"; exit ;;
   --notifs-ui) notifs_ui "${2:-}"; exit ;;
   --notif-abrir) notif_abrir "${2:-}" "${3:-}"; exit 0 ;;

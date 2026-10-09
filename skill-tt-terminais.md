@@ -1,6 +1,6 @@
 ---
 name: tt-terminais
-description: Referência completa do tt-terminais (central de terminais em Bash+tmux) para IAs operarem e evoluírem o projeto. Use ao trabalhar no repositório tt-terminais, ao diagnosticar a central/barra/sessões/fixadas/tarefas/e-mail/sync entre máquinas, ou ao usar os verbos `tt --...` por linha de comando. Cobre todos os verbos CLI, os ranges da barra e o roteamento de clique, os arquivos de perfil/estado/cache/pacote, o vigia e seus temporizadores, a sincronização por ssh e git, identidade de máquina/sessão/fixada, e-mail (aerc), celular/Termux, testes e as convenções de desenvolvimento.
+description: Referência completa do tt-terminais (central de terminais em Bash+tmux) para IAs operarem e evoluírem o projeto. Use ao trabalhar no repositório tt-terminais, ao diagnosticar a central/barra/sessões/fixadas/tarefas/e-mail/sync entre máquinas, ou ao usar os verbos `tt --...` por linha de comando. Cobre todos os verbos CLI, os ranges da barra e o roteamento de clique, os arquivos de perfil/estado/cache/pacote, o vigia e seus temporizadores, a sincronização por ssh e git, identidade de máquina/sessão/fixada, e-mail (aerc), celular/Termux, testes e as convenções de desenvolvimento. Use também quando o agente precisar AVISAR o usuário (pedir algo, dar retorno, avisar que uma rodada importante acabou): `tt --notificar-daqui` só notifica se ele não estiver olhando para a sessão, e o clique leva de volta a ela. E para pôr perguntas do AI-DLC no painel de tarefas, onde o usuário responde (`aidlc-tt`).
 ---
 
 # tt-terminais — central de terminais multi-máquina (Bash + tmux)
@@ -102,7 +102,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --fixar [maquina:]sessao` — fixa/desafixa a sessão.
 - `tt --fixadas` — lista as fixadas; `tt --barra-fixadas` (interno) formata a faixa.
 - Internos: `--aplicar-fixadas`/`--barras` (liga a 2ª linha), `--ir-fixada`, `--mover-fixada`,
-  `--notificar TEXTO [SEGUNDOS]` (aviso na faixa de notificações, 3ª linha; expira sozinho), `--notifs` (histórico), chave `faixa_notif=0|1`. `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
+  `--notificar TEXTO [SEGUNDOS]` (aviso na faixa de notificações, 3ª linha; expira sozinho), `--notificar-daqui TEXTO [SEGUNDOS] [--sempre]` (aviso de agente: só se o usuário não estiver olhando para a janela de onde veio; o clique leva à sessão e ao painel; ver "Agente avisa o usuário"), `--notifs` (histórico), chave `faixa_notif=0|1`. `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
   `--resolver-fixada`. Sync: `--propagar-fixadas`, `--receber-fixadas [V]`, `--puxar-fixadas`,
   `--reconciliar-fixadas`, `--marcar-fixadas`.
 
@@ -498,6 +498,51 @@ e estado online das máquinas), mosh (celular), pv (barra de progresso), claude 
 nomeador), aerc (e-mail), mbsync/isync (sync local), git (sync de tarefas por repo). macOS: bash ≥ 4
 pelo Homebrew; comandos remotos levam o PATH do Homebrew (o instalador acrescenta um bloco ao
 `~/.zshenv`).
+
+## Agente avisa o usuário
+
+Um agente rodando num painel do tt avisa o usuário assim:
+
+```bash
+tt --notificar-daqui "XPerformance: 12/13 respostas colhidas, falta a Q6" # imprime "notificado" ou "vendo"
+tt --notificar-daqui "Preciso da sua aprovação para o push" --sempre      # avisa mesmo se ele estiver olhando
+```
+
+- Quando usar: ao pedir algo que bloqueia o trabalho (aprovação, resposta, login), ao dar um retorno
+  que ele espera, ao terminar uma rodada longa ou importante, ao falhar algo que exige ação dele.
+  Não use para progresso miúdo; um aviso por marco.
+- Foco: o `tt` olha os clientes tmux (`focus-events on`). Se algum cliente com foco mostra a sessão
+  e a janela do agente (`$TMUX_PANE`), o usuário já está vendo: nada é enviado e sai `vendo`. Vale
+  para vistas aninhadas (sessão aberta num painel do tt): o cliente de dentro só tem foco quando o
+  painel de fora tem. Por isso o agente pode chamar sem medo de incomodar; o `tt` decide.
+- Para onde vai: faixa de notificações e central 🔔 (texto `🤖 <sessão> · <texto>`, 10 min), mais a
+  notificação do sistema onde houver (`notify-send`, Termux). O clique (ou ⏎ no histórico) leva o
+  cliente à sessão e ao painel de origem (ação `sessao:<sessão>|<painel>`, `notif_ir_sessao`).
+- Fora do tmux (sem `$TMUX_PANE`) vira um `tt --notificar` comum. Notificação de outra máquina
+  fica na faixa daquela máquina.
+
+## Perguntas do AI-DLC no painel de tarefas (`aidlc-tt`)
+
+Em vez de mandar as perguntas de um estágio do AI-DLC por chat ou e-mail, publique a bateria na
+descrição de uma tarefa (ou subtarefa) do tt; o usuário abre com `Ctrl+E`, responde e salva.
+
+```bash
+aidlc-tt publicar caminho/requirements-questions.md ID   # ID da tarefa/subtarefa (1ª coluna de tt --tarefas-lista)
+aidlc-tt estado   caminho/requirements-questions.md      # o que falta, sem gravar
+aidlc-tt colher   caminho/requirements-questions.md      # grava no .md e conclui a tarefa quando tudo estiver respondido
+```
+
+- Formato do `.md`: `## Question N`, opções `A) ...`, `Por quê: ...` opcional e `[Answer]:`.
+- Na descrição: 1ª linha `aidlc: <caminho absoluto>` (a ligação); anotações livres no topo
+  (a descrição anterior vira anotação, nada se perde); cada pergunta em `== QN · texto` com as
+  opções e sua linha `[Answer]:` (resposta pode continuar nas linhas seguintes até uma em branco).
+- `colher`: resposta só no tt vai ao `.md`; só no `.md` volta ao tt; complemento (um lado começa
+  com o outro) vale o mais completo; diferentes de verdade aparecem como conflito e nada muda.
+  Letra inexistente e `Other` sem texto não são gravados. Sem letra, grava como texto livre e avisa.
+- Grava só pela CLI do tt (`--tarefa-desc-prompt` com um "editor" que copia o texto pronto);
+  `TT=caminho` troca o executável (testes). Teste: `tests/test_aidlc_tt.sh`.
+- Fluxo sugerido: publicar, `tt --notificar-daqui "Perguntas do AI-DLC prontas na tarefa X"`,
+  esperar o usuário dizer que respondeu, `colher`, seguir o estágio.
 
 ## Agente lança agente em outra máquina
 

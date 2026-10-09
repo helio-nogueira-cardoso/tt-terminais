@@ -12,7 +12,7 @@ git init -q --bare publicado.git && git -C publicado.git symbolic-ref HEAD refs/
 git clone -q publicado.git dev 2>/dev/null
 for f in tt email-tt.py links-tt.py letreiro-tt.py tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
          atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py \
-         skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md; do
+         skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md aidlc-tt; do
   [[ -e $RAIZ/$f ]] && cp "$RAIZ/$f" dev/
 done
 g dev checkout -q -B main 2>/dev/null

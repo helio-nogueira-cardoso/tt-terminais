@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""aidlc-tt: responde as perguntas do AI-DLC pela descrição de uma tarefa do tt.
+
+  aidlc-tt publicar ARQUIVO.md ID   põe a bateria de perguntas na descrição da tarefa (ou subtarefa) ID
+  aidlc-tt colher   ARQUIVO.md      grava no .md as respostas escritas no tt
+  aidlc-tt estado   ARQUIVO.md      mostra o que falta, sem gravar nada
+
+ARQUIVO.md segue o formato de perguntas do AI-DLC: seções "## Question N", opções "A) ...", uma
+linha "Por quê: ..." opcional e a linha "[Answer]:". No tt, a descrição da tarefa traz todas as
+perguntas, cada uma com sua linha "[Answer]:"; você abre a descrição (Ctrl+E), escreve as respostas
+(a letra, ou a letra e um texto) e salva. "colher" leva as respostas para o .md, traz de volta ao tt
+as que já estavam no .md e conclui a tarefa quando todas estiverem respondidas. Respostas diferentes
+nos dois lados não são sobrescritas: aparecem como conflito para você decidir.
+
+A ligação fica na primeira linha da descrição: "aidlc: CAMINHO". Grava só pela CLI do tt
+(TT=caminho troca o executável) e lê ~/.config/tt/tarefas para consultar.
+"""
+import base64
+import os
+import re
+import subprocess
+import sys
+import tempfile
+
+TT = os.environ.get("TT", "tt")
+TAREFAS = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "tt", "tarefas")
+RE_QUESTAO_MD = re.compile(r"^## Question (\d+)\s*$")
+RE_QUESTAO_TT = re.compile(r"^== Q(\d+)\b")
+RE_OPCAO = re.compile(r"^([A-Z])\)\s*(.*)$")
+RE_RESPOSTA = re.compile(r"^\[Answer\]:(.*)$")
+FIM_DAS_PERGUNTAS = "== fim das perguntas"
+
+
+# --- arquivo de perguntas ---------------------------------------------------
+
+def ler_perguntas(caminho):
+    with open(caminho, encoding="utf-8") as f:
+        linhas = f.read().split("\n")
+    perguntas, atual = [], None
+    for i, linha in enumerate(linhas):
+        m = RE_QUESTAO_MD.match(linha)
+        if m:
+            atual = {"n": int(m.group(1)), "texto": [], "opcoes": [], "porque": "", "resposta": "", "linha": None}
+            perguntas.append(atual)
+            continue
+        if atual is None:
+            continue
+        if linha.startswith("## ") or linha.strip() == "---":
+            atual = None
+            continue
+        m = RE_RESPOSTA.match(linha)
+        if m:
+            atual["resposta"], atual["linha"] = m.group(1).strip(), i
+        elif RE_OPCAO.match(linha):
+            atual["opcoes"].append(linha.strip())
+        elif linha.startswith("Por quê:"):
+            atual["porque"] = linha.strip()
+        elif linha.strip() and not atual["opcoes"]:
+            atual["texto"].append(linha.strip())
+    for p in perguntas:
+        p["texto"] = " ".join(p["texto"])
+    return perguntas, linhas
+
+
+def gravar_md(caminho, linhas, novas):
+    for idx, valor in novas.items():
+        linhas[idx] = f"[Answer]: {valor}"
+    with open(caminho, "w", encoding="utf-8") as f:
+        f.write("\n".join(linhas))
+
+
+def problema(p, valor):
+    """(bloqueia, mensagem) quando a resposta não fecha com as opções; (False, None) se ok."""
+    letras = {m.group(1): m.group(2) for m in (RE_OPCAO.match(o) for o in p["opcoes"])}
+    m = re.match(r"^([A-Z])(?=[).:,;\s]|$)[).:,;]?\s*(.*)$", valor)
+    if not m:
+        return (False, "resposta sem letra no início (gravada como texto livre)") if letras else (False, None)
+    letra, resto = m.group(1), m.group(2).strip()
+    if letra not in letras:
+        return True, f"letra {letra} não existe (opções: {', '.join(letras)})"
+    if letras[letra].lower().startswith("other") and not resto:
+        return True, f"{letra} é 'Other': escreva a descrição depois da letra"
+    return False, None
+
+
+# --- tt ---------------------------------------------------------------------
+
+def ler_tarefas():
+    tarefas = {}
+    if not os.path.exists(TAREFAS):
+        return tarefas
+    with open(TAREFAS, encoding="utf-8") as f:
+        for linha in f:
+            c = linha.rstrip("\n").split("\t")
+            if len(c) < 5 or not re.match(r"^[0-9a-f]{6,}$", c[0]):
+                continue
+            meta = dict(p.split("=", 1) for p in (c[5] if len(c) > 5 else "").split("|") if "=" in p)
+            desc = base64.b64decode(meta["desc"]).decode("utf-8", "replace") if meta.get("desc") else ""
+            tarefas[c[0]] = {"id": c[0], "estado": c[1], "texto": c[4], "desc": desc}
+    return tarefas
+
+
+def tt(*args, entrada="", env=None):
+    r = subprocess.run([TT, *args], input=entrada, text=True, capture_output=True,
+                       env={**os.environ, **(env or {})})
+    if r.returncode != 0:
+        raise SystemExit(f"aidlc-tt: tt {' '.join(args)} falhou: {r.stderr.strip() or r.stdout.strip()}")
+    return r.stdout
+
+
+def definir_desc(tid, texto):
+    # O tt grava a descrição pelo editor; um "editor" que copia o texto pronto grava sem interação.
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as f:
+        f.write(texto)
+        origem = f.name
+    try:
+        tt("--tarefa-desc-prompt", tid, env={"VISUAL": f"cp {origem}", "EDITOR": f"cp {origem}"})
+    finally:
+        os.unlink(origem)
+
+
+def tarefa_ligada(caminho):
+    marca = f"aidlc: {caminho}"
+    for t in ler_tarefas().values():
+        if t["estado"] in ("aberta", "feita") and t["desc"].split("\n", 1)[0].strip() == marca:
+            return t
+    return None
+
+
+def partes_desc(desc):
+    """Separa a descrição em: anotações livres (antes das perguntas) e respostas por pergunta."""
+    linhas = desc.split("\n")
+    notas, respostas, atual, i = [], {}, None, 1  # linha 0 é a marca
+    while i < len(linhas):
+        linha = linhas[i]
+        m = RE_QUESTAO_TT.match(linha)
+        if m:
+            atual = int(m.group(1))
+        elif linha.strip() == FIM_DAS_PERGUNTAS:
+            atual = None
+        elif atual is None and not linha.startswith(("Responda ", "Depois peça ")):
+            notas.append(linha)
+        elif atual is not None:
+            m = RE_RESPOSTA.match(linha)
+            if m:
+                texto = [m.group(1).strip()]
+                while i + 1 < len(linhas) and linhas[i + 1].strip() and not RE_QUESTAO_TT.match(linhas[i + 1]):
+                    i += 1
+                    texto.append(linhas[i].strip())
+                respostas[atual] = " ".join(x for x in texto if x)
+        i += 1
+    while notas and not notas[0].strip():
+        notas.pop(0)
+    while notas and not notas[-1].strip():
+        notas.pop()
+    return notas, respostas
+
+
+def montar_desc(caminho, perguntas, respostas, notas):
+    out = [f"aidlc: {caminho}", "",
+           "Responda depois de cada [Answer]: (a letra, ou a letra e um texto) e salve.",
+           "Depois peça para colher (ou rode: aidlc-tt colher ARQUIVO). ⭐ = recomendada.", ""]
+    if notas:
+        out += [*notas, ""]
+    for p in perguntas:
+        out += [f"== Q{p['n']} · {p['texto']}", *p["opcoes"]]
+        if p["porque"]:
+            out.append(p["porque"])
+        out += [f"[Answer]: {respostas.get(p['n'], '')}".rstrip(), ""]
+    out.append(FIM_DAS_PERGUNTAS)
+    return "\n".join(out)
+
+
+# --- comandos ---------------------------------------------------------------
+
+def publicar(caminho, tid):
+    perguntas, _ = ler_perguntas(caminho)
+    if not perguntas:
+        raise SystemExit(f"aidlc-tt: nenhuma '## Question N' em {caminho}")
+    t = ler_tarefas().get(tid)
+    if not t or t["estado"] not in ("aberta", "feita"):
+        raise SystemExit(f"aidlc-tt: tarefa {tid} não encontrada no tt")
+    ligada = tarefa_ligada(caminho)
+    if ligada and ligada["id"] != tid:
+        raise SystemExit(f"aidlc-tt: {caminho} já está ligado à tarefa {ligada['id']} ({ligada['texto']})")
+    if t["desc"].startswith(f"aidlc: {caminho}"):
+        notas, respostas = partes_desc(t["desc"])
+    else:  # descrição anterior vira anotação no topo; nada se perde
+        notas, respostas = ([l for l in t["desc"].split("\n")] if t["desc"].strip() else []), {}
+    definir_desc(tid, montar_desc(caminho, perguntas, respostas, notas))
+    print(f"perguntas publicadas na tarefa {tid} ({t['texto']}): {len(perguntas)}")
+    return colher(caminho)
+
+
+def colher(caminho, gravar=True):
+    perguntas, linhas = ler_perguntas(caminho)
+    t = tarefa_ligada(caminho)
+    if not t:
+        raise SystemExit(f"aidlc-tt: nenhuma tarefa do tt ligada a {caminho}; rode publicar antes")
+    notas, no_tt = partes_desc(t["desc"])
+    finais, novas_md, avisos, faltam = {}, {}, [], []
+    for p in perguntas:
+        a, b = no_tt.get(p["n"], ""), p["resposta"]
+        if a and b and a != b and a.startswith(b):  # complemento escrito no tt: vale o tt
+            novas_md[p["linha"]] = a
+            b = a
+        elif a and b and a != b and b.startswith(a):  # complemento escrito no .md: volta ao tt
+            a = b
+        if a and b and a != b:
+            avisos.append(f"Q{p['n']}: conflito, tt diz '{a}' e o .md diz '{b}' (nada alterado)")
+            finais[p["n"]] = a
+            faltam.append(p["n"])
+            continue
+        valor = a or b
+        if not valor:
+            faltam.append(p["n"])
+            continue
+        bloqueia, msg = problema(p, valor)
+        finais[p["n"]] = valor
+        if msg:
+            avisos.append(f"Q{p['n']}: {msg}" + (" (não gravado)" if bloqueia else ""))
+        if bloqueia:
+            faltam.append(p["n"])
+            continue
+        if not b:
+            novas_md[p["linha"]] = valor
+    respondidas = len(perguntas) - len(faltam)
+    if gravar:
+        if novas_md:
+            gravar_md(caminho, linhas, novas_md)
+        nova = montar_desc(caminho, perguntas, finais, notas)
+        if nova != t["desc"]:
+            definir_desc(t["id"], nova)
+        if not faltam and t["estado"] == "aberta":
+            tt("--tarefa-ok", t["id"])
+    print(f"respondidas: {respondidas}/{len(perguntas)}" + (f" · gravadas agora no .md: {len(novas_md)}" if gravar else ""))
+    if faltam:
+        print("faltam: " + ", ".join(f"Q{n}" for n in faltam))
+    for a in avisos:
+        print("⚠ " + a)
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] not in ("publicar", "colher", "estado") or len(argv) < 2 \
+            or (argv[0] == "publicar" and len(argv) < 3):
+        print(__doc__)
+        return 1
+    caminho = os.path.abspath(os.path.expanduser(argv[1]))
+    if not os.path.isfile(caminho):
+        raise SystemExit(f"aidlc-tt: arquivo não encontrado: {caminho}")
+    if argv[0] == "publicar":
+        return publicar(caminho, argv[2])
+    return colher(caminho, gravar=(argv[0] == "colher"))
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
