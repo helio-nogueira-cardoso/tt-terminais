@@ -502,7 +502,7 @@ instala só o compilador e os cabeçalhos do SASL com o gerenciador do sistema (
 brew) e o tt baixa o código (cyrus-sasl-xoauth2, MIT, 4 arquivos C), confere o sha256, compila em ~1 s e
 deixa `libxoauth2.so` em `~/.local/share/tt-sasl2` — sem tocar no sistema. O `mbsync` a enxerga por
 `SASL_PATH`, que o tt define só nas rodadas de sync (a lista padrão do sistema continua na frente).
-O `instalar.sh` da primeira instalação já traz tudo isso de uma vez, em qualquer gerenciador.
+O `instalar.sh` da primeira instalação já traz o resto de uma vez, em qualquer gerenciador; o plugin XOAUTH2 é oferecido pelo modal assim que existe uma conta OAuth com sync local.
 
 ## Tarefas
 
