@@ -5440,9 +5440,10 @@ tarefas_lembrete_arq() { echo "$ESTADO_DIR/tt-tarefas-avisadas"; }
 # prazo e e-mails novos entram na faixa de graça.
 DIR_NOTIFS=$ESTADO_DIR/notifs
 
-# Quantas linhas a barra tem: 3 (margem, janelas, fixadas), ou 4 com a faixa de notificações. TODO caminho
+# Quantas linhas a barra tem: 3 (régua, janelas, fixadas), ou 5 com a régua e a faixa de notificações
+# (o tmux aceita no máximo 5). TODO caminho
 # que mexe no número de linhas passa por aqui — dois pontos discordando faziam a faixa piscar.
-barra_status_linhas() { if faixa_notif_ativa; then echo 4; else echo 3; fi; }
+barra_status_linhas() { if faixa_notif_ativa; then echo 5; else echo 3; fi; }
 
 faixa_notif_ativa() {
   local v; v=$(conf faixa_notif)
@@ -5491,7 +5492,9 @@ barra_notifs_fmt() {
   # ou com a faixa desligada, o slot fica vazio.
   faixa_notif_ativa || return 0
   command -v python3 >/dev/null || return 0
-  printf '#(python3 -I %s fluxo #{client_tty} #{client_pid})' "$DIR_TT/letreiro-tt.py"
+  # O 3º argumento é a largura que o tmux mede (#{w:}) das partes esquerda e direita da mesma linha:
+  # o slot ocupa exatamente o que sobra. Só muda com o nº de dígitos do 📧 ou do relógio/versão.
+  printf '#(python3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}})' "$DIR_TT/letreiro-tt.py"
 }
 
 # --- Letreiro do slot (sem aviso novo, infos roladas: dólar, frases, notícias; indicadores= no config)

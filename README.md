@@ -604,7 +604,7 @@ repositório git seu). A junção é por tarefa (a alteração mais recente venc
 
 ## Faixa de notificações
 
-Uma linha a mais na barra, colada abaixo das fixadas (sem régua nem vão entre as linhas; fundo
+Uma linha a mais na barra, abaixo das fixadas e separada delas por uma régua fina (a barra tem uma régua também em cima, como margem; fundo
 azul-acinzentado suave em toda a largura): `📧 (N) · 📋 N · ‹avisos passando› · Qui, 08/10/2026 | 13:16 · v1.5.223`.
 Os avisos — e-mail que chegou, lembrete de prazo, o que vier por `tt --notificar "texto" [segundos] [destino]`
 — aparecem no slot por ~10 s, **piscando devagar** em negrito, e depois vivem só na central do 🔔
@@ -625,15 +625,17 @@ barra como `#()` e encerra quando o terminal sai): ele só lê arquivos e imprim
 conteúdo muda, e o tmux redesenha então **só a barra**, no máximo uma vez por segundo — em vez da
 tela inteira. Foi isso que acabou com o flicker e o cursor dançando: qualquer opção gravada no tmux
 (até uma `@opção`) redesenha a tela inteira de todos os terminais, e o letreiro antigo gravava uma a
-cada passo. Quem olha por uma ponte (outra máquina, por ssh) vê o letreiro parado: animar através
-da rede é redesenho aninhado em outro terminal. Tudo configurável no `~/.config/tt/config`:
-`ticker_rolagem=paginas|continua` (padrão `paginas`: troca em blocos a cada `ticker_veloc=` s — padrão
-6; `continua` desliza `round(1/ticker_veloc)` caracteres por segundo — padrão 0,35 → 3 por segundo;
-`ticker_veloc=1` dá 1 por segundo, o passo mais suave que o tmux redesenha), `aviso_pisca=1`
+cada passo. O slot ocupa exatamente a largura que sobra entre as pontas da linha (o tmux mede as duas
+com `#{w:}` e passa ao processo) e some se não houver lugar. Quem olha por uma ponte (outra máquina,
+por ssh) vê o letreiro rolar como os demais — sem redesenho de tela inteira o custo é só a barra
+(`ticker_ponte=parado` o congela). Tudo configurável no `~/.config/tt/config`:
+`ticker_rolagem=continua|paginas` (padrão `continua`: desliza `round(1/ticker_veloc)` caracteres por
+segundo — padrão 0,35 → 3 por segundo; `ticker_veloc=1` dá 1 por segundo, o passo mais suave que o tmux
+redesenha; `paginas` troca em blocos a cada `ticker_veloc=` s — padrão 6), `aviso_pisca=1`
 (alternância do aviso a cada segundo; padrão estático em negrito), `indicadores=` (quais fontes passam; `0` desliga o letreiro, o slot segue
 para avisos/transferências) e endpoints próprios: `indicador_nome=URL ;; rótulo ;; caminho.no.json
 ;; ttl ;; Header: @arquivo-em-secrets` (caminho `-` = texto cru; a chave de API pode vir de
-`~/.secrets`, fora do config). `faixa_notif=0` no `~/.config/tt/config` desliga e devolve o layout de 2 linhas (padrão: ligada;
+`~/.secrets`, fora do config). `faixa_notif=0` no `~/.config/tt/config` desliga e devolve o layout de 3 linhas (padrão: ligada;
 desligada no Termux, onde a tela é baixa). `tt --ticker-quadro [largura]` imprime o que o letreiro
 mostraria agora; `tt --ticker-fontes` atualiza as fontes. Indicadores acopláveis (clima, cotações…) virão aqui.
 

@@ -12,23 +12,26 @@ cliente e o encerra quando o cliente sai), que dorme, lê arquivos e imprime uma
 conteúdo muda. Ele nunca chama o tmux nem grava opção alguma.
 
 Modos:
-  fluxo TTY PID     o que o tt liga na barra (@barra_notifs = "#(… fluxo #{client_tty} #{client_pid})").
+  fluxo TTY PID [OCUPADO]
+                    o que o tt liga na barra (@barra_notifs = "#(… fluxo #{client_tty} #{client_pid})").
                     A largura vem do terminal do próprio cliente (ioctl TIOCGWINSZ): redimensionar não
                     reinicia o processo e cada cliente vê o recorte do seu tamanho.
+                    OCUPADO = largura que o tmux mede (#{w:}) das partes esquerda e direita da linha: o
+                    slot usa exatamente o que sobra (sem ele, supõe 54).
   quadro [LARGURA]  imprime um quadro e sai (testes, `tt --ticker-quadro`).
 
 Regras (as mesmas que a barra em bash seguia):
-  - orçamento = largura − 66 (chips, relógio, divisórias e margens), mínimo 12; aviso só com ≥ 90;
+  - orçamento = largura − OCUPADO − 12 (divisórias e respiro); abaixo de 8 células o slot some; aviso só com ≥ 90;
   - aviso fresco (nascido há < TT_NOTIF_SLOT s, padrão 10; não lido; não expirado) tem a vez, em
     negrito (aviso_pisca=1 alterna a cada segundo); depois a transferência ativa; depois o letreiro;
   - letreiro: fontes em ~/.cache/tt-ticker/<fonte> (o vigia atualiza com TTL; rede nunca aqui), itens
-    separados por " • ", numa roda. ticker_rolagem=paginas (padrão) troca de bloco a cada ticker_veloc s
-    (padrão 6); continua desliza round(1/ticker_veloc) caracteres por segundo (padrão 0,35 s → 3/s):
-    um quadro por segundo é o teto em que o tmux redesenha a barra de um cliente;
+    separados por " • ", numa roda. O padrão desliza (ticker_rolagem=continua): round(1/ticker_veloc)
+    caracteres por segundo (padrão 0,35 s → 3/s; um quadro por segundo é o teto em que o tmux redesenha
+    a barra de um cliente). ticker_rolagem=paginas troca de bloco a cada ticker_veloc s (padrão 6);
   - a posição é função da hora, não de um contador: todos os clientes mostram o mesmo trecho e um
     reinício (o tmux recria os #() da barra num refresh-client) não dá salto;
-  - cliente de ponte (outra máquina olhando por ssh: TT_PONTE= no ambiente do cliente ou sshd na
-    linhagem) nunca é animado: vê o começo do letreiro, parado, até o conteúdo mudar;
+  - cliente de ponte (outra máquina olhando por ssh): anima como os outros — sem redesenho de tela
+    inteira o custo é só a barra (~2 KB/s); ticker_ponte=parado devolve o começo do letreiro, parado;
   - a janela tem largura fixa em células (emoji conta 2): as divisórias │ não balançam.
 """
 import glob
@@ -46,7 +49,8 @@ DIR_TICKER = os.path.join(HOME, ".cache", "tt-ticker")
 RT = os.environ.get("TT_RT") or "/run/user/%d" % os.getuid()
 DIR_TRANSF = os.path.join(RT, "tt-transferencias-%d" % os.getuid())
 CINZA, TEXTO, AVISO, TRANSF, FUNDO = "#45475a", "#7f849c", "#f9e2af", "#89b4fa", "#232838"
-MARGEM = 20 + 34 + 12  # chips à esquerda, relógio/versão à direita, divisórias e margens
+OCUPADO = 20 + 34  # sem medida do tmux: chips à esquerda + relógio/versão à direita
+ENQUADRA = 12      # divisórias │ e respiro dos dois lados do texto do slot
 
 
 def ler_conf():
@@ -223,24 +227,29 @@ def transferencias(agora):
 
 
 def deslocamento(cfg, orc, agora, ponte):
-    if ponte:
+    if ponte and cfg.get("ticker_ponte", "") == "parado":
         return 0
     veloc = cfg.get("ticker_veloc", "")
     try:
         v = float(veloc)
     except ValueError:
         v = 0
-    if cfg.get("ticker_rolagem", "") == "continua":
+    if cfg.get("ticker_rolagem", "") == "paginas":
         if v <= 0:
-            v = 0.35
-        return int(agora) * max(1, round(1 / v))
+            v = 6
+        return int(int(agora) // v) * orc
     if v <= 0:
-        v = 6
-    return int(int(agora) // v) * orc
+        v = 0.35
+    return int(agora) * max(1, round(1 / v))
 
 
-def quadro(cfg, cols, ponte, agora):
-    orc = max(12, cols - MARGEM)
+def quadro(cfg, cols, ponte, agora, ocupado=OCUPADO):
+    # ocupado = células que o tmux gasta com as partes esquerda e direita da linha (medidas por ele,
+    # #{w:}); o slot ocupa todo o resto, menos as divisórias e o respiro.
+    orc = cols - ocupado - ENQUADRA
+    if orc < 8:
+        return ""  # não sobra lugar para um letreiro legível: o slot some e as pontas ficam inteiras
+    orc = min(orc, 400)
     try:
         slot = int(os.environ.get("TT_NOTIF_SLOT") or 10)
     except ValueError:
@@ -313,7 +322,7 @@ def emitir(q):
         sys.exit(0)
 
 
-def fluxo(tty, pid):
+def fluxo(tty, pid, ocupado=OCUPADO):
     ponte = e_ponte(pid)
     fd = None
     try:
@@ -326,7 +335,7 @@ def fluxo(tty, pid):
         if not faixa_ativa(cfg):
             return 0
         agora = time.time()
-        q = quadro(cfg, largura(fd), ponte, agora)
+        q = quadro(cfg, largura(fd), ponte, agora, ocupado)
         # Sem imprimir por 1 h o tmux dá o #() por abandonado e o recria (format_job_tidy): uma
         # linha igual de tempos em tempos (ponte parada, letreiro desligado) mantém o processo vivo.
         if q != ultimo or repetir or agora - impresso_em > 1500:
@@ -344,7 +353,7 @@ def fluxo(tty, pid):
 def main(argv):
     modo = argv[1] if len(argv) > 1 else ""
     if modo == "fluxo" and len(argv) >= 4 and argv[3].isdigit():
-        return fluxo(argv[2], int(argv[3]))
+        return fluxo(argv[2], int(argv[3]), int(argv[4]) if len(argv) > 4 and argv[4].isdigit() else OCUPADO)
     if modo == "quadro":
         cfg = ler_conf()
         cols = int(argv[2]) if len(argv) > 2 and argv[2].isdigit() else largura(None)
