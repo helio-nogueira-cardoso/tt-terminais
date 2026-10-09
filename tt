@@ -3794,7 +3794,16 @@ pedir_sudo_pendencias() {
   local tty=${TT_TTY:-/dev/tty} fd r ger cmd pfx lista id cmds motivo
   local -a escolhidos=() recusados=() pacotes=()
   lista=$(sudo_pendencias "$@")
-  [[ -n $lista ]] || { echo "Nada pendente de instalação."; return 0; }
+  if [[ -z $lista ]]; then
+    echo "Nada pendente de instalação."
+    if [[ -t 1 ]]; then   # num popup: segura a mensagem em vez de piscar e fechar
+      local ocultas=0; [[ -z ${TT_PEND_TODAS:-} ]] && ocultas=$(TT_PEND_TODAS=1 sudo_pendencias | wc -l)
+      printf '\n  \033[1;32m✓ Tudo em ordem\033[0m — nenhuma pendência de instalação nesta máquina.\n'
+      ((ocultas)) && printf '  (%s adiada(s) ou recusada(s): menu administrar → 📦 Pendências de instalação as reabre.)\n' "$ocultas"
+      read -rsn1 -p $'\n  (qualquer tecla fecha)' <"${TT_TTY:-/dev/tty}"; echo
+    fi
+    return 0
+  fi
   ger=$(gerenciador_pacotes) || { echo "Não achei um gerenciador de pacotes."; return 1; }
   read -ra cmd <<<"$(cmd_instalar_do_gerenciador "$ger")"
   pfx=$(sudo_do_gerenciador "$ger")
@@ -3882,7 +3891,9 @@ novidades_ver() { # [--todas]
   [[ -n $txt ]] || { echo "Sem novidades registradas."; return 0; }
   mkdir -p "$ESTADO_DIR"; echo "$atual" >"$ESTADO_DIR/novidades-visto"
   if [[ -t 1 ]] && command -v less >/dev/null 2>&1; then
-    printf '%s\n\n(q ou Esc fecha · ↑↓ rolam)\n' "$txt" | sed -e 's/^## \(.*\)$/\x1b[1;33m\1\x1b[0m/' -e 's/^- /  • /' | less -RFX --quit-if-one-screen
+    # Sem -F: com pouco texto o less saía sozinho e o popup piscava e fechava. q ou Esc fecham.
+    printf '%s\n\n(q fecha · ↑↓ rolam)\n' "$txt" | sed -e 's/^## \(.*\)$/\x1b[1;33m\1\x1b[0m/' -e 's/^- /  • /' | less -R -P'novidades · q fecha' 2>/dev/null ||
+      { printf '%s\n' "$txt"; read -rsn1 -p $'\n  (qualquer tecla fecha)' </dev/tty; echo; }
   else printf '%s\n' "$txt"; fi
 }
 
@@ -4764,7 +4775,7 @@ menu_admin() {
     printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'n\t  📰 Novidades do tt…\t%s\n' "$(popup_tt "$c" "📰 novidades do tt" "$EU --novidades")"
-    printf 'i\t  📦 Pendências de instalação… (reavaliar todas)\t%s\n' "$(popup_tt "$c" "📦 pendências de instalação" "TT_PEND_TODAS=1 $EU --pedir-sudo; read -rsn1 -p '(tecla fecha)'")"
+    printf 'i\t  📦 Pendências de instalação… (reavaliar todas)\t%s\n' "$(popup_tt "$c" "📦 pendências de instalação" "TT_PEND_TODAS=1 $EU --pedir-sudo")"
     printf 'h\t  ◌ Ocultar máquina…\t%s\n' "$(popup_tt "$c" "ocultar máquina" "$EU --ocultar-maquina; read -rsn1 -p '(tecla fecha)'")"
     printf 'H\t  ◉ Mostrar máquina oculta…\t%s\n' "$(popup_tt "$c" "mostrar máquina" "$EU --mostrar-maquina; read -rsn1 -p '(tecla fecha)'")"
   } | menu_popup "$c" "administrar · tt v$vl"
@@ -9608,7 +9619,9 @@ email_sync() { # slug [inbox|completo] [vigia]
   if [[ $modo == completo ]]; then alvo=$slug; teto=${TT_EMAIL_SYNC_TETO:-600}
   else alvo="$slug-inbox"; teto=${TT_EMAIL_SYNC_TETO_INBOX:-240}; grep -q "^Channel $slug-inbox\$" "$rc" || alvo=$slug; fi   # rc antigo: canal único
   ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
-  local saslp; saslp=$(xoauth2_ambiente)   # plugin XOAUTH2 compilado pelo tt (vazio se não há)
+  # O plugin XOAUTH2 só entra para contas OAuth: visível a uma conta de senha (app password), o
+  # mbsync o escolhe como "melhor" mecanismo e manda a senha como token — o Gmail recusa.
+  local saslp=""; grep -q '^auth=oauth' "$EMAIL_DIR/$slug.conf" 2>/dev/null && saslp=$(xoauth2_ambiente)
   SASL_PATH=${saslp:-${SASL_PATH:-}} timeout "$teto" "$(mbsync_bin)" -c "$rc" "$alvo" >/dev/null 2>"$dir/$slug.erro.tmp"; st=$?
   fim=$(date +%s)
   # Volta completa derrubada pelo ⟳ sincronizar agora (marca de email_sync_manual, ou morte por
