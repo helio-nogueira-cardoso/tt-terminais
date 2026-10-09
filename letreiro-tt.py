@@ -12,12 +12,13 @@ cliente e o encerra quando o cliente sai), que dorme, lê arquivos e imprime uma
 conteúdo muda. Ele nunca chama o tmux nem grava opção alguma.
 
 Modos:
-  fluxo TTY PID [OCUPADO]
+  fluxo TTY PID [OCUPADO [COLUNAS]]
                     o que o tt liga na barra (@barra_notifs = "#(… fluxo #{client_tty} #{client_pid})").
                     A largura vem do terminal do próprio cliente (ioctl TIOCGWINSZ): redimensionar não
                     reinicia o processo e cada cliente vê o recorte do seu tamanho.
                     OCUPADO = largura que o tmux mede (#{w:}) das partes esquerda e direita da linha: o
                     slot usa exatamente o que sobra (sem ele, supõe 54).
+                    COLUNAS = #{client_width}, usada quando o tty do cliente não abre (ssh).
   quadro [LARGURA]  imprime um quadro e sai (testes, `tt --ticker-quadro`).
 
 Regras (as mesmas que a barra em bash seguia):
@@ -298,7 +299,11 @@ def e_ponte(pid):
     return False
 
 
-def largura(fd):
+def largura(fd, tmux=0):
+    """Colunas do cliente: o ioctl no tty dele é a medida exata e acompanha redimensionamento sem
+    reiniciar nada; mas o tty de um cliente por ssh (Tailscale SSH) pertence ao root e o tmux, que roda
+    como o usuário, não consegue abri-lo — aí vale a largura que o próprio tmux passou na linha de comando
+    (#{client_width}); só sem as duas é que cai nas 80 colunas."""
     v = os.environ.get("TT_FAIXA_LARGURA", "")
     if v.isdigit():
         return int(v)
@@ -312,7 +317,7 @@ def largura(fd):
                 return cols
         except OSError:
             pass
-    return 80
+    return tmux if tmux > 0 else 80
 
 
 def emitir(q):
@@ -322,20 +327,44 @@ def emitir(q):
         sys.exit(0)
 
 
-def fluxo(tty, pid, ocupado=OCUPADO):
+def substituido(tty, pid):
+    """True se existe outro `letreiro-tt.py fluxo` MAIS NOVO para o mesmo cliente. O tmux identifica o
+    #() pela linha de comando inteira: ao redimensionar (a largura vai nela) ele cria um processo novo
+    e só aposenta o antigo depois de 1 h. Quem foi substituído sai, para não acumular."""
+    def inicio(p):
+        with open("/proc/%s/stat" % p) as f:
+            return (int(f.read().rsplit(")", 1)[1].split()[19]), int(p))
+    meu = inicio(os.getpid())
+    for p in os.listdir("/proc"):
+        if not p.isdigit() or int(p) == os.getpid():
+            continue
+        try:
+            with open("/proc/%s/cmdline" % p, "rb") as f:
+                a = f.read().split(b"\0")
+            if len(a) >= 6 and a[2].endswith(b"letreiro-tt.py") and a[3] == b"fluxo" and a[4] == tty.encode() and a[5] == str(pid).encode() and inicio(p) > meu:
+                return True
+        except (OSError, ValueError, IndexError):
+            continue
+    return False
+
+
+def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0):
     ponte = e_ponte(pid)
     fd = None
     try:
         fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
     except OSError:
         pass
-    ultimo, repetir, impresso_em = None, False, 0.0
+    ultimo, repetir, impresso_em, ciclo = None, False, 0.0, 0
     while pid_vivo(pid):
+        ciclo += 1
+        if ciclo % 5 == 0 and substituido(tty, pid):
+            return 0
         cfg = ler_conf()
         if not faixa_ativa(cfg):
             return 0
         agora = time.time()
-        q = quadro(cfg, largura(fd), ponte, agora, ocupado)
+        q = quadro(cfg, largura(fd, cols_tmux), ponte, agora, ocupado)
         # Sem imprimir por 1 h o tmux dá o #() por abandonado e o recria (format_job_tidy): uma
         # linha igual de tempos em tempos (ponte parada, letreiro desligado) mantém o processo vivo.
         if q != ultimo or repetir or agora - impresso_em > 1500:
@@ -353,7 +382,8 @@ def fluxo(tty, pid, ocupado=OCUPADO):
 def main(argv):
     modo = argv[1] if len(argv) > 1 else ""
     if modo == "fluxo" and len(argv) >= 4 and argv[3].isdigit():
-        return fluxo(argv[2], int(argv[3]), int(argv[4]) if len(argv) > 4 and argv[4].isdigit() else OCUPADO)
+        n = lambda i, d: int(argv[i]) if len(argv) > i and argv[i].isdigit() else d
+        return fluxo(argv[2], int(argv[3]), n(4, OCUPADO), n(5, 0))
     if modo == "quadro":
         cfg = ler_conf()
         cols = int(argv[2]) if len(argv) > 2 and argv[2].isdigit() else largura(None)

@@ -5494,7 +5494,9 @@ barra_notifs_fmt() {
   command -v python3 >/dev/null || return 0
   # O 3º argumento é a largura que o tmux mede (#{w:}) das partes esquerda e direita da mesma linha:
   # o slot ocupa exatamente o que sobra. Só muda com o nº de dígitos do 📧 ou do relógio/versão.
-  printf '#(python3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}})' "$DIR_TT/letreiro-tt.py"
+  # O 4º é #{client_width}: o tty de um cliente por ssh (Tailscale SSH) é do root e o ioctl falha. Ao
+  # redimensionar o tmux cria um processo novo; o antigo percebe que foi substituído e sai.
+  printf '#(python3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}} #{client_width})' "$DIR_TT/letreiro-tt.py"
 }
 
 # --- Letreiro do slot (sem aviso novo, infos roladas: dólar, frases, notícias; indicadores= no config)

@@ -30,6 +30,19 @@ for cols, ocupado in ((160, 56), (120, 40), (100, 70), (200, 20)):
     assert livre - 4 <= celulas(q) <= livre - 1, (cols, ocupado, celulas(q), livre)
 assert lt.quadro(cfg, 60, False, time.time(), 56) == "", "sem espaço o slot deveria sumir"
 PY
+# Cliente por ssh (Tailscale SSH): o tty é do root, o ioctl falha — vale o #{client_width} que o tmux
+# passa na linha de comando, em vez de cair nas 80 colunas (que dava um letreiro de 12 caracteres).
+l1=$(timeout 3 python3 -I "$TT_DIR/letreiro-tt.py" fluxo /dev/null $$ 56 144 | head -1)
+n=$(python3 -I -c 'import re,sys; t=re.sub(r"#\[[^\]]*\]","",sys.stdin.read().rstrip("\n")); print(len(t))' <<<"$l1")
+((n >= 144 - 56 - 6 && n <= 144 - 56)) || falhou "tty ilegível: o slot deveria usar o #{client_width} (144), não 80 colunas ($n células): [$l1]"
+# Redimensionar cria um processo novo (a largura vai na linha de comando): o antigo percebe e sai.
+python3 -I "$TT_DIR/letreiro-tt.py" fluxo /dev/null $$ 56 100 >/dev/null & velho=$!
+sleep 1.2; python3 -I "$TT_DIR/letreiro-tt.py" fluxo /dev/null $$ 56 120 >/dev/null & novo=$!
+for _ in $(seq 1 16); do kill -0 "$velho" 2>/dev/null || break; sleep 0.5; done
+kill -0 "$velho" 2>/dev/null && { kill "$velho" "$novo" 2>/dev/null; falhou 'o letreiro substituído (outra largura) não saiu sozinho'; }
+kill -0 "$novo" 2>/dev/null || falhou 'o letreiro novo não deveria sair'
+kill "$novo" 2>/dev/null; wait 2>/dev/null
+passou 'tty ilegível usa a largura do tmux; processo substituído por um redimensionamento sai sozinho'
 palavra='bravo|charlie|delta|echo|foxtrot|golf|hotel|india|juliett|kilo|lima|mike|november'
 faixa() { fora capture-pane -p -t "$1" | tail -1; }  # última linha do cliente de fora = faixa de notificações
 
