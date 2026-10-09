@@ -489,9 +489,20 @@ próprio app continua passando `oauth_client_id=`.
 
 Tudo o que o tt quer instalar com administrador (curl/unzip dos navegadores de links, as
 bibliotecas do sistema que o Chrome/Carbonyl baixados pedem, `isync` do sync local, `w3m` do
-HTML) se junta num **modal único** (`tt --pedir-sudo`): instalar tudo,
-selecionar o que aceitar, ou recusar (a recusa vale 7 dias, por item). O `instalar.sh` da primeira
-instalação já traz tudo isso de uma vez, em qualquer gerenciador (apt, dnf, pacman, apk, brew, pkg).
+HTML, `vim` e o plugin XOAUTH2) se junta num **modal único** (`tt --pedir-sudo`) com quatro
+respostas: **[i] instalar agora**, **[s] selecionar** (decide item a item), **[m] mais tarde** (pergunta de
+novo em 1 dia) e **[n] não instalar** (nunca mais avisa daquilo). O vigia confere as pendências ao
+iniciar e a cada 6 h e põe **um** aviso na faixa (📦 N pendências de instalação…); clicar abre o modal.
+Quem disse "não" não é incomodado de novo, mas pode mudar de ideia: **menu administrar → 📦 Pendências
+de instalação…** reavalia todas, inclusive as recusadas de vez (`TT_PEND_TODAS=1 tt --pedir-sudo`).
+
+**Contas Google com login OAuth** (`auth=oauth`, como uma conta de ex-aluno) só sincronizam com o
+plugin XOAUTH2 do Cyrus SASL, que quase nenhuma distribuição empacota. A pendência `email-xoauth2`
+instala só o compilador e os cabeçalhos do SASL com o gerenciador do sistema (apt, dnf, pacman, apk,
+brew) e o tt baixa o código (cyrus-sasl-xoauth2, MIT, 4 arquivos C), confere o sha256, compila em ~1 s e
+deixa `libxoauth2.so` em `~/.local/share/tt-sasl2` — sem tocar no sistema. O `mbsync` a enxerga por
+`SASL_PATH`, que o tt define só nas rodadas de sync (a lista padrão do sistema continua na frente).
+O `instalar.sh` da primeira instalação já traz tudo isso de uma vez, em qualquer gerenciador.
 
 ## Tarefas
 
@@ -877,7 +888,7 @@ cadastro de conta OAuth e Ctrl+B u abrem o mesmo seletor com três opções (mai
 
 Os dois primeiros são baixados sob demanda para `~/.local/share/tt-navegadores`, sem sudo, e só são
 instalados se o sha256 do pacote bater (o do Chrome, com o índice do repositório do Google; o do Carbonyl, com o fixado no `tt`). Só x86_64; no Termux ficam ocultos.
-Máquina nova (`instalar.sh`) e máquina atualizada (`tt --sincronizar`, `tt --atualizar`) já deixam os dois prontos em segundo plano: instalam `curl`/`unzip` (direto com root ou sudo sem senha; senão abre um modalzinho com o resumo e o comando exato, e o próprio `sudo` pede a senha ali, sem o tt vê-la; recusar silencia por 7 dias), baixam o Carbonyl e, havendo ambiente gráfico, o Chrome; o que já está instalado é pulado e o log fica em `~/.cache/tt/navegadores.log`. A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`
+Máquina nova (`instalar.sh`) e máquina atualizada (`tt --sincronizar`, `tt --atualizar`) já deixam os dois prontos em segundo plano: instalam `curl`/`unzip` (direto com root ou sudo sem senha; senão abre um modalzinho com o resumo e o comando exato, e o próprio `sudo` pede a senha ali, sem o tt vê-la; "não instalar" silencia de vez e "mais tarde" por 1 dia), baixam o Carbonyl e, havendo ambiente gráfico, o Chrome; o que já está instalado é pulado e o log fica em `~/.cache/tt/navegadores.log`. A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`
 no `~/.config/tt/config` (o padrão é `perguntar`). O navegador sobe pelo servidor do tmux, fora do
 isolamento de rede do leitor de e-mail.
 
