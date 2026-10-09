@@ -15,7 +15,7 @@ echo "$*" >>"$TMUX_LOG"
 case "$1" in
   display-message)
     case "$*" in
-      *'#{session_name}'*) echo agente ;;
+      *'#{session_name}'*) [[ "$*" == *' -t %4 '* ]] && exit 1; echo agente ;;  # %4: painel que já não existe
       *'#{window_id}'*) echo @7 ;;
       *'#{client_pid}'*) echo 1 ;;
     esac ;;
