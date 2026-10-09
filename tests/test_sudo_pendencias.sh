@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Modal único de pendências sudo: reúne tudo o que falta (navegadores, sync local, w3m), com
-# aceitar tudo / selecionar / recusar; recusa por item vale 7 dias; id explícito reabre mesmo
+# instalar agora / selecionar / mais tarde / não instalar (nunca mais avisa); id explícito reabre mesmo
 # recusado; nomes de pacote por gerenciador (mbsync → isync).
 source "$(dirname "$0")/lib.sh"; isolar
 B=$T/bin; mkdir -p "$B" "$HOME/.config/tt/email"
@@ -20,7 +20,7 @@ grep -q 'sudo apt-get install -y curl unzip isync w3m' <<<"$saida" || falhou "co
 [[ -s $HOME/.local/state/tt/navegadores-sudo-recusado && -s $HOME/.local/state/tt/sudo-recusado-email-sync \
    && -s $HOME/.local/state/tt/sudo-recusado-email-html ]] || falhou 'recusa não foi gravada por item'
 grep -q 'Nada pendente' <<<"$(roda)" || falhou 'recusado há pouco voltou a ser oferecido'
-passou 'pendências reunidas num comando só (isync pelo mbsync); recusa por item, lembrada'
+passou 'pendências reunidas num comando só (isync pelo mbsync); recusa por item, lembrada (n = nunca mais avisar)'
 
 # 2) Id explícito reabre mesmo recusado (o usuário pediu pela interface) e instala só aquilo.
 printf a >"$T/resposta"; : >"$T/sudo.log"

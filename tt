@@ -450,6 +450,11 @@ vigiar() {
       ultima_email_sync=$agora
       ("$EU" --email-sync --vigia >/dev/null 2>&1 &)
     fi
+    # Pendências de instalação (sudo, plugins): um aviso na faixa, no início e a cada 6 h.
+    if ((agora - ${ultima_pendencias:-0} >= 21600)); then
+      ultima_pendencias=$agora
+      ("$EU" --pendencias-avisar >/dev/null 2>&1 &)
+    fi
     # Reforça o padrão completo e redesenha os clientes em até 5 min, inclusive os aninhados.
     if ((agora - ${ultima_tema:-0} >= 300)); then
       ultima_tema=$agora
@@ -3596,6 +3601,15 @@ pacotes_do_gerenciador() {
       python3) case $g in pacman|brew|pkg) echo python ;; *) echo python3 ;; esac ;;
       tar) case $g in brew) echo gnu-tar ;; *) echo tar ;; esac ;;
       ssh) case $g in apt-get) echo openssh-client ;; dnf) echo openssh-clients ;; *) echo openssh ;; esac ;;
+      plugin-xoauth2) ;; # nada a instalar como administrador: o tt compila o plugin na pasta do usuário
+      xoauth2-build) # compilador e cabeçalhos do Cyrus SASL, para compilar o plugin XOAUTH2
+        case $g in
+          apt-get) echo gcc libc6-dev libsasl2-dev ;;
+          dnf) echo gcc glibc-devel cyrus-sasl-devel ;;
+          pacman) echo gcc cyrus-sasl ;;
+          apk) echo build-base cyrus-sasl-dev ;;
+          brew) echo cyrus-sasl ;;
+        esac ;;
       *) echo "$c" ;;
     esac
   done | awk '!v[$0]++'
@@ -3608,13 +3622,26 @@ instalar_pacotes_cmd() { cmd_instalar_do_gerenciador "$(gerenciador_pacotes)"; }
 #
 # Tudo o que o tt gostaria de instalar com sudo nesta máquina fica registrado aqui e é oferecido
 # num modal ÚNICO (tt --pedir-sudo): o usuário instala tudo, seleciona o que aceitar, ou recusa.
-# Recusa vale por 7 dias, por item. Quem instala o tt do zero (instalar.sh) já leva tudo de uma vez.
+# Cada pendência tem a sua resposta: instalar agora, mais tarde (volta em 1 dia) ou não instalar (nunca
+# mais avisa; só o menu administrar → 📦 Pendências de instalação, que reavalia tudo, a reabre). Quem instala o tt do zero (instalar.sh) já leva tudo de uma vez.
 # TT_FINGE_FALTA lista comandos tratados como ausentes (testes).
 falta_cmd() {
   case " ${TT_FINGE_FALTA:-} " in *" $1 "*) return 0 ;; esac
   ! command -v "$1" >/dev/null 2>&1
 }
 
+# Resposta do usuário por pendência: arquivo com a hora da recusa (vale 7 dias, o comportamento
+# antigo), "nunca" (não instalar e não avisar de novo) ou uma hora no passado que faz o aviso
+# voltar em 1 dia ("mais tarde").
+sudo_recusa_nunca() { [[ $(cat "$(sudo_recusa_arq "$1")" 2>/dev/null) == nunca ]]; }
+sudo_recusa_gravar() { # id nunca|tarde|semana
+  mkdir -p "$ESTADO_DIR"
+  case $2 in
+    nunca) echo nunca ;;
+    tarde) echo $(( $(date +%s) - 604800 + 86400 )) ;;
+    *) date +%s ;;
+  esac >"$(sudo_recusa_arq "$1")"
+}
 sudo_recusa_arq() {
   case $1 in
     navegadores) echo "$ESTADO_DIR/navegadores-sudo-recusado" ;; # nome antigo: recusas já dadas seguem valendo
@@ -3637,9 +3664,88 @@ chrome_libs_faltando() {
     grep -v '\.so' | awk '!v[$0]++' | tr '\n' ' ' | sed 's/ $//'
 }
 
+# --- Plugin XOAUTH2 do Cyrus SASL (contas Google com auth=oauth e sync local) ---------------------
+# O mbsync só entra por OAuth com o plugin XOAUTH2 do SASL, que a maioria das distribuições não
+# empacota. O tt baixa o código (cyrus-sasl-xoauth2, MIT, 4 arquivos C), confere o sha256, compila
+# com cc em ~1 s e deixa a libxoauth2.so em DIR_SASL — sem root. O mbsync a enxerga por SASL_PATH
+# (xoauth2_ambiente). Só o compilador e os cabeçalhos do SASL precisam de administrador.
+DIR_SASL=$HOME/.local/share/tt-sasl2
+XOAUTH2_URL=${TT_XOAUTH2_URL:-https://github.com/moriyoshi/cyrus-sasl-xoauth2/archive/refs/tags/v0.2.tar.gz}
+XOAUTH2_SHA256=${TT_XOAUTH2_SHA256:-a62c26566098100d30aa254e4c1aa4309876b470f139e1019bb9032b6e2ee943}
+
+sasl_dirs_sistema() {
+  local d
+  for d in /usr/lib/*/sasl2 /usr/lib64/sasl2 /usr/lib/sasl2 /usr/local/lib/sasl2 /opt/homebrew/lib/sasl2 /opt/homebrew/opt/cyrus-sasl/lib/sasl2; do
+    [[ -d $d ]] && echo "$d"
+  done | awk '!v[$0]++'
+}
+
+xoauth2_necessario() { # há conta com login OAuth e sync local?
+  local slug; local -A E=()
+  for slug in $(email_slugs 2>/dev/null); do
+    E=(); email_ler "$slug" 2>/dev/null || continue
+    [[ ${E[auth]:-} == oauth && ${E[sync_local]:-} == 1 ]] && return 0
+  done
+  return 1
+}
+
+xoauth2_presente() {
+  case " ${TT_FINGE_FALTA:-} " in *" xoauth2 "*) return 1 ;; esac
+  [[ -e $DIR_SASL/libxoauth2.so ]] && return 0
+  local d
+  while IFS= read -r d; do compgen -G "$d/libxoauth2.*" >/dev/null && return 0; done < <(sasl_dirs_sistema)
+  return 1
+}
+
+sasl_cabecalho_dir() { # onde está sasl/sasl.h
+  local d
+  for d in ${TT_SASL_INCLUDE:-} /usr/include /usr/local/include /opt/homebrew/include /opt/homebrew/opt/cyrus-sasl/include; do
+    [[ -f $d/sasl/sasl.h ]] && { echo "$d"; return 0; }
+  done
+  return 1
+}
+
+xoauth2_deps_faltam() { # falta o compilador ou os cabeçalhos do SASL?
+  falta_cmd cc && falta_cmd gcc && return 0
+  case " ${TT_FINGE_FALTA:-} " in *" xoauth2-build "*) return 0 ;; esac
+  sasl_cabecalho_dir >/dev/null || return 0
+  return 1
+}
+
+# SASL_PATH para o mbsync: a pasta do tt primeiro, depois as do sistema (a variável SUBSTITUI a
+# lista padrão; sem as do sistema o mbsync perderia PLAIN, LOGIN…). Vazio se não há plugin do tt.
+xoauth2_ambiente() {
+  [[ -e $DIR_SASL/libxoauth2.so ]] || return 0
+  local d p=$DIR_SASL
+  while IFS= read -r d; do p+=":$d"; done < <(sasl_dirs_sistema)
+  echo "$p"
+}
+
+xoauth2_construir() {
+  local tmp inc cc rc=0
+  [[ -e $DIR_SASL/libxoauth2.so ]] && return 0
+  cc=$(command -v cc || command -v gcc) || { echo "✗ sem compilador (cc/gcc)." >&2; return 1; }
+  inc=$(sasl_cabecalho_dir) || { echo "✗ sem os cabeçalhos do Cyrus SASL (sasl/sasl.h)." >&2; return 1; }
+  command -v curl >/dev/null 2>&1 || { echo "✗ sem curl." >&2; return 1; }
+  tmp=$(mktemp -d) || return 1
+  echo "  Baixando e compilando o plugin XOAUTH2…"
+  if curl -fsSL -m 60 -o "$tmp/x.tgz" "$XOAUTH2_URL" 2>/dev/null &&
+     [[ $( (sha256sum "$tmp/x.tgz" 2>/dev/null || shasum -a 256 "$tmp/x.tgz") | awk '{print $1}') == "$XOAUTH2_SHA256" ]] &&
+     tar xzf "$tmp/x.tgz" -C "$tmp" --strip-components=1 &&
+     (cd "$tmp" && "$cc" -O2 -fPIC -shared -I"$inc" -o libxoauth2.so xoauth2_str.c xoauth2_init.c xoauth2_server.c xoauth2_client.c 2>"$tmp/erro.txt") &&
+     mkdir -p "$DIR_SASL" && cp "$tmp/libxoauth2.so" "$DIR_SASL/libxoauth2.so.new" && mv -f "$DIR_SASL/libxoauth2.so.new" "$DIR_SASL/libxoauth2.so"; then
+    echo "  ✓ Plugin XOAUTH2 pronto em $DIR_SASL"
+  else
+    rc=1; echo "  ✗ Não consegui montar o plugin XOAUTH2 (rede, sha256 ou compilação)." >&2
+    [[ -s $tmp/erro.txt ]] && head -5 "$tmp/erro.txt" >&2
+  fi
+  rm -rf "$tmp"; return $rc
+}
+
 # Lista as pendências (id<TAB>comandos que faltam<TAB>por quê). Sem argumentos: as desta máquina,
-# fora as recusadas há menos de 7 dias. Com ids: só essas, e SEM olhar a recusa (o usuário acabou
-# de pedir pela interface).
+# fora as recusadas há menos de 7 dias, as adiadas ("mais tarde", 1 dia) e as que ele pediu para
+# nunca mais avisar. Com ids ou TT_PEND_TODAS=1: SEM olhar a recusa (o usuário acabou de pedir pela
+# interface).
 sudo_pendencias() {
   local -a so=("$@"); local agora; agora=$(date +%s)
   cabe() { # a pendência $1 entra? (está nos ids pedidos; ou, sem ids, não foi recusada há <7d)
@@ -3647,6 +3753,8 @@ sudo_pendencias() {
     if ((${#so[@]})); then
       for c in "${so[@]}"; do [[ $c == "$1" ]] && return 0; done; return 1
     fi
+    [[ -n ${TT_PEND_TODAS:-} ]] && return 0   # "reavaliar pendências": ignora toda resposta anterior
+    sudo_recusa_nunca "$1" && return 1
     (( agora - $(cat "$(sudo_recusa_arq "$1")" 2>/dev/null || echo 0) >= 604800 ))
   }
   pend() {
@@ -3663,6 +3771,12 @@ sudo_pendencias() {
   navegadores_graficos_ok && pend navegadores "curl unzip" "baixar o Google Chrome e o Carbonyl, que abrem os links do e-mail (os navegadores em si ficam na sua pasta, sem sudo)"
   local libs; libs=${TT_FINGE_CHROME_LIBS:-$(chrome_libs_faltando)}
   [[ -n $libs ]] && pend_pronta chrome-libs "$libs" "bibliotecas do sistema sem as quais o Chrome e o Carbonyl baixados não abrem"
+  if xoauth2_necessario && ! xoauth2_presente; then
+    local xo=plugin-xoauth2; xoauth2_deps_faltam && xo=xoauth2-build
+    case $(gerenciador_pacotes) in pkg) ;; *)
+      pend_pronta email-xoauth2 "$xo" "contas de e-mail com login OAuth (Google) só sincronizam com o plugin XOAUTH2 do SASL; o tt o compila (4 arquivos C, ~1 s) na sua pasta, sem tocar no sistema" ;;
+    esac
+  fi
   if tem_conta_email || ((${#so[@]})); then
     pend email-sync "mbsync" "sync local do e-mail: espelho offline, abre na hora e funciona sem rede"
     pend email-html "w3m" "mostrar e-mails em HTML bem (tabelas, cores, links)"
@@ -3688,33 +3802,70 @@ pedir_sudo_pendencias() {
   else printf '\n  \033[1;33m📦 O tt quer instalar uns pacotes\033[0m\n\n'; fi
   printf '  Pendências nesta máquina:\n'
   while IFS=$'\t' read -r id cmds motivo; do
-    printf '   • \033[1m%s\033[0m — %s\n' "$cmds" "$motivo"
+    printf '   • \033[1m%s\033[0m — %s\n' "$(pend_rotulo "$cmds")" "$motivo"
   done <<<"$lista"
   mapfile -t pacotes < <(pacotes_do_gerenciador "$ger" $(cut -f2 <<<"$lista"))
   printf '\n  Comando:  \033[36m%s%s %s\033[0m\n\n' "${pfx:+$pfx }" "${cmd[*]}" "${pacotes[*]}"
   [[ -n $pfx ]] && printf '  A senha é pedida pelo próprio sudo, aqui; o tt não a vê nem a guarda.\n\n'
-  read -r -n1 -u "$fd" -p '  [a] Instalar tudo   [s] Selecionar o que instalar   [r] Recusar  ' r || r=r
+  read -r -n1 -u "$fd" -p '  [i] Instalar agora   [s] Selecionar   [m] Mais tarde   [n] Não instalar (e não avisar mais)  ' r || r=m
   echo
+  local -a adiados=() nuncas=()
   case $r in
-    a|A) mapfile -t escolhidos <<<"$lista" ;;
+    i|I|a|A) mapfile -t escolhidos <<<"$lista" ;;
     s|S)
       while IFS=$'\t' read -r id cmds motivo; do
-        read -r -n1 -u "$fd" -p "  Instalar $cmds? [s/N] " r || r=n; echo
-        if [[ $r == [sSyY] ]]; then escolhidos+=("$id"$'\t'"$cmds"$'\t'"$motivo"); else recusados+=("$id"); fi
+        read -r -n1 -u "$fd" -p "  $(pend_rotulo "$cmds") — [i] instalar  [m] mais tarde  [n] não instalar: " r || r=m; echo
+        case $r in
+          i|I|s|S|y|Y) escolhidos+=("$id"$'\t'"$cmds"$'\t'"$motivo") ;;
+          n|N) nuncas+=("$id") ;;
+          *) adiados+=("$id") ;;
+        esac
       done <<<"$lista" ;;
-    *) mapfile -t recusados < <(cut -f1 <<<"$lista") ;;
+    n|N|r|R) mapfile -t nuncas < <(cut -f1 <<<"$lista") ;;
+    *) mapfile -t adiados < <(cut -f1 <<<"$lista") ;;   # Enter, Esc, qualquer outra: mais tarde
   esac
-  if ((${#recusados[@]})); then
-    mkdir -p "$ESTADO_DIR"
-    for id in "${recusados[@]}"; do date +%s >"$(sudo_recusa_arq "$id")"; done
-    echo "  Ok. O que foi recusado eu não pergunto de novo por 7 dias."
-  fi
+  for id in ${adiados[@]+"${adiados[@]}"}; do sudo_recusa_gravar "$id" tarde; done
+  for id in ${nuncas[@]+"${nuncas[@]}"}; do sudo_recusa_gravar "$id" nunca; done
+  for id in $(printf '%s\n' ${escolhidos[@]+"${escolhidos[@]}"} | cut -f1); do rm -f "$(sudo_recusa_arq "$id")"; done
+  ((${#adiados[@]})) && echo "  Ok. Pergunto de novo amanhã."
+  ((${#nuncas[@]})) && echo "  Ok. Não aviso mais. Para voltar atrás: menu administrar → 📦 Pendências de instalação."
   ((${#escolhidos[@]})) || { exec {fd}<&-; sleep 1; return 1; }
+  local rc=0
   mapfile -t pacotes < <(pacotes_do_gerenciador "$ger" $(printf '%s\n' "${escolhidos[@]}" | cut -f2))
-  ${pfx:+sudo} "${cmd[@]}" "${pacotes[@]}" <"$tty"; local rc=$?
+  if ((${#pacotes[@]})); then ${pfx:+sudo} "${cmd[@]}" "${pacotes[@]}" <"$tty"; rc=$?; fi
   exec {fd}<&-
+  if ((rc == 0)); then
+    # Passos sem administrador que dependem do que acabou de ser instalado.
+    for id in $(printf '%s\n' "${escolhidos[@]}" | cut -f1); do
+      case $id in email-xoauth2) xoauth2_construir || rc=1 ;; esac
+    done
+  fi
   ((rc == 0)) && echo "  ✓ Instalado." || echo "  ✗ Falhou (código $rc)."
   sleep 1; return $rc
+}
+
+pend_rotulo() { # o que mostrar no lugar do nome interno da pendência
+  case $1 in
+    xoauth2-build) echo "compilador + cabeçalhos do SASL (para o plugin XOAUTH2)" ;;
+    plugin-xoauth2) echo "plugin XOAUTH2 do SASL" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# Chamado pelo vigia (no início e a cada 6 h): se há pendências ainda não respondidas (ou adiadas e
+# vencidas), põe UM aviso na faixa — clicar abre o modal. Não repete o mesmo conjunto em menos de 24 h
+# e nunca avisa do que o usuário mandou "não instalar" (isso só o menu reabre).
+pendencias_avisar() {
+  gerenciador_pacotes >/dev/null 2>&1 || return 0
+  local lista ids marca=$ESTADO_DIR/pendencias-avisadas n rot
+  lista=$(sudo_pendencias) || return 0
+  if [[ -z $lista ]]; then rm -f "$marca"; return 0; fi
+  ids=$(cut -f1 <<<"$lista" | tr '\n' ' ')
+  if [[ $(cut -f1 "$marca" 2>/dev/null) == "$ids" ]] && (( $(date +%s) - $(cut -f2 "$marca" 2>/dev/null || echo 0) < 86400 )); then return 0; fi
+  mkdir -p "$ESTADO_DIR"; printf '%s\t%s\n' "$ids" "$(date +%s)" >"$marca"
+  n=$(wc -l <<<"$lista")
+  rot=$(cut -f2 <<<"$lista" | while read -r c; do pend_rotulo "$c"; done | paste -sd, - | sed 's/,/, /g')
+  notificar "📦 $n pendência$( ((n > 1)) && echo s) de instalação ($rot) — clique para decidir" 3600 pendencias
 }
 
 # Instala curl e unzip se faltarem. Root ou sudo sem senha: direto. Senão, pede com o modalzinho
@@ -4566,6 +4717,7 @@ menu_admin() {
     (($(versao_github) > vl)) && printf 'g\t  ⟳ Atualizar do GitHub (v%s → v%s)\t%s\n' "$vl" "$(versao_github)" "$(popup_tt "$c" "atualizar do GitHub" "$EU --atualizar --todas; read -rsn1 -p '(tecla fecha)'")"
     printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
+    printf 'i\t  📦 Pendências de instalação… (reavaliar todas)\t%s\n' "$(popup_tt "$c" "📦 pendências de instalação" "TT_PEND_TODAS=1 $EU --pedir-sudo; read -rsn1 -p '(tecla fecha)'")"
     printf 'h\t  ◌ Ocultar máquina…\t%s\n' "$(popup_tt "$c" "ocultar máquina" "$EU --ocultar-maquina; read -rsn1 -p '(tecla fecha)'")"
     printf 'H\t  ◉ Mostrar máquina oculta…\t%s\n' "$(popup_tt "$c" "mostrar máquina" "$EU --mostrar-maquina; read -rsn1 -p '(tecla fecha)'")"
   } | menu_popup "$c" "administrar · tt v$vl"
@@ -5638,6 +5790,7 @@ notif_abrir() { # ação cliente
   case $acao in
     email:*) email_ir_novo "${acao#email:}" "$c" ;;   # aviso de e-mail novo: vai à conta e à mensagem (:check-mail vai dentro)
     email) botao_email "$c" ;;
+    pendencias) tmux display-popup -c "$c" -E -w 92 -h 22 -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo" ;;
     tarefas) abrir_tarefas "$c" ;;
     calendario) abrir_calendario "$c" ;;
     cmd:*) rodar_fora 0 "${acao#cmd:}" ;;
@@ -9404,7 +9557,8 @@ email_sync() { # slug [inbox|completo] [vigia]
   if [[ $modo == completo ]]; then alvo=$slug; teto=${TT_EMAIL_SYNC_TETO:-600}
   else alvo="$slug-inbox"; teto=${TT_EMAIL_SYNC_TETO_INBOX:-240}; grep -q "^Channel $slug-inbox\$" "$rc" || alvo=$slug; fi   # rc antigo: canal único
   ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
-  timeout "$teto" "$(mbsync_bin)" -c "$rc" "$alvo" >/dev/null 2>"$dir/$slug.erro.tmp"; st=$?
+  local saslp; saslp=$(xoauth2_ambiente)   # plugin XOAUTH2 compilado pelo tt (vazio se não há)
+  SASL_PATH=${saslp:-${SASL_PATH:-}} timeout "$teto" "$(mbsync_bin)" -c "$rc" "$alvo" >/dev/null 2>"$dir/$slug.erro.tmp"; st=$?
   fim=$(date +%s)
   # Volta completa derrubada pelo ⟳ sincronizar agora (marca de email_sync_manual, ou morte por
   # SIGTERM): não é erro — fica registrada como "interrompida", sem .erro nem espera; o vigia a
@@ -11294,6 +11448,7 @@ case "${1:-}" in
   --links-tela-ui) links_tela_ui "${2:?uso: tt --links-tela-ui PAINEL}"; exit 0 ;;
   --garantir-navegadores) garantir_navegadores; exit ;;
   --pedir-sudo) shift; pedir_sudo_pendencias "$@"; exit ;;
+  --pendencias-avisar) pendencias_avisar; exit 0 ;;
   --email-sync-local) email_sync_local_definir "${2:?uso: tt --email-sync-local CONTA 0|1}" "${3:-1}"; exit ;;
   --anexos-enviar) anexos_enviar; exit 0 ;;
   --imagens) imagens_do_email; exit 0 ;;
