@@ -24,7 +24,7 @@ tocar() { # coluna linha
 esperar() { # condição (comando) segundos
   local i; for ((i = 0; i < $2 * 2; i++)); do eval "$1" && return 0; sleep 0.5; done; return 1
 }
-barra=29 faixa=30 # status 5: régua, janelas (barra), fixadas (faixa), régua e a faixa de notificações
+barra=30 faixa=31 # status 4: margem, janelas (barra), fixadas (faixa) e a faixa de notificações
 fixada() { grep -q $'\tminha\t' "$XDG_CONFIG_HOME/tt/fixadas" 2>/dev/null; }
 na_faixa() { [[ -n $(coluna $faixa 'minha') ]]; }
 

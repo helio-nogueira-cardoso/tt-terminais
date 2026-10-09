@@ -7,7 +7,7 @@ source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado
 tt() { "$TT" "$@"; }
 frase='Alfa bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november oscar papa'
 mkdir -p "$HOME/.cache/tt-ticker"; printf '%s\n' "$frase" >"$HOME/.cache/tt-ticker/frases"
-printf 'indicadores=frases\nticker_rolagem=continua\nticker_veloc=1\n' >>"$XDG_CONFIG_HOME/tt/config"
+printf 'indicadores=frases\nticker_rolagem=continua\nticker_veloc=0.25\n' >>"$XDG_CONFIG_HOME/tt/config"
 export TT_NOTIF_SLOT=4   # exportado ANTES do servidor: o tmux entrega o ambiente dele aos #() da barra
 tmux -f "$HOME/.tmux.conf" new -d -s s -x 120 -y 30 'sleep 600' 2>/dev/null; sleep 2
 grep -q 'letreiro-tt.py fluxo #{client_tty} #{client_pid}' <<<"$(tmux show -gqv @barra_notifs)" ||
@@ -43,10 +43,13 @@ kill -0 "$velho" 2>/dev/null && { kill "$velho" "$novo" 2>/dev/null; falhou 'o l
 kill -0 "$novo" 2>/dev/null || falhou 'o letreiro novo não deveria sair'
 kill "$novo" 2>/dev/null; wait 2>/dev/null
 passou 'tty ilegível usa a largura do tmux; processo substituído por um redimensionamento sai sozinho'
+# O gatilho imprime uma linha vazia ao nascer: sem ela o tmux mostra "<'comando' not ready>" no slot
+g=$(timeout 2 python3 -I "$TT_DIR/letreiro-tt.py" gatilho $$ 1 4 | head -c 1 | od -An -c | tr -d ' ') || true
+[[ $g == '\n' ]] || falhou "o gatilho deveria imprimir uma linha vazia ao nascer (veio [$g])"
 palavra='bravo|charlie|delta|echo|foxtrot|golf|hotel|india|juliett|kilo|lima|mike|november'
 faixa() { fora capture-pane -p -t "$1" | tail -1; }  # última linha do cliente de fora = faixa de notificações
 
-# 1) cliente local: o letreiro aparece e desliza (continua, 1 caractere/s), com as divisórias │ │
+# 1) cliente local: o letreiro aparece e desliza (continua, 1 coluna por quadro, 4 quadros/s), com as divisórias │ │
 anexar x 120 34 s; sleep 4
 a=$(faixa x); grep -qE "$palavra" <<<"$a" && grep -q '│' <<<"$a" || falhou "letreiro não apareceu na faixa do cliente: [$a]"
 sleep 2.2; b=$(faixa x)
@@ -72,9 +75,15 @@ for d, n in tempos:
     if len(painel) >= 3 or n > 2500: cheios.append((round(t, 1), n, sorted(painel)[:8]))
     if any(l >= 31 for l in linhas): barra += 1; bytes_barra.append(n)
 print(f"blocos: completos={len(cheios)} barra={barra} (média {sum(bytes_barra) // max(1, len(bytes_barra))} B) {cheios[:5]}")
-sys.exit(0 if not cheios and barra >= 2 else 1)
+# 4 quadros/s (ticker_fps padrão): em ~5 s úteis de captura, bem mais redesenhos da barra que o teto de 1/s
+sys.exit(0 if not cheios and barra >= 12 else 1)
 PY
 passou 'em regime, só a barra é redesenhada (zero redesenhos completos com o letreiro rolando)'
+# o pintor (fluxo) + 3 gatilhos por cliente; o gatilho só dispara enquanto o letreiro desliza
+n=$(pgrep -fc 'letreiro-tt.py gatilho')
+((n >= 3)) || falhou "esperava 3 gatilhos para o cliente (ticker_fps=4), vi $n"
+passou 'ticker_fps=4: 1 pintor + 3 gatilhos por cliente, ~4 redesenhos da barra por segundo'
+
 
 # 3) aviso fresco toma a vez no slot (negrito, range notifx) e devolve ao letreiro sozinho, sem o tt
 #    gravar opção alguma por isso (o letreiro-tt.py decide lendo ~/.local/state/tt/notifs)

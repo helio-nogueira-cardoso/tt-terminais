@@ -117,3 +117,14 @@ grep -q 'primeira linha' <<<"$card" && grep -q 'segunda linha' <<<"$card" || fai
 grep -q 'Subtarefas 2/3' <<<"$(run --tarefa-preview "$m" | sem_cor)" || fail "cartão da mãe deveria resumir as subtarefas"
 grep -q 'Sem descrição' <<<"$(run --tarefa-preview "$m" | sem_cor)" || fail "cartão sem descrição deveria dizer como escrever"
 echo "ok: descrição fora da lista (≡); ⋯ menu → Ver a descrição abre o cartão com tudo"
+
+# Verbos de linha de comando para agentes/scripts: subtarefa sob uma mãe e descrição (inclusive pelo stdin)
+run --tarefa-add "Mãe CLI" >/dev/null; mc=$(id_de "Mãe CLI")
+sc=$(run --tarefa-sub-add "$mc" "Filha CLI") || fail "--tarefa-sub-add falhou"
+[[ -n $sc && $(meta "Filha CLI") == *pai=$mc* ]] || fail "subtarefa deveria nascer sob a mãe: [$sc] $(meta 'Filha CLI')"
+run --tarefa-desc "$sc" $'linha um\nlinha dois' || fail "--tarefa-desc falhou"
+grep -q 'linha dois' <<<"$(run --tarefa-preview "desc:$sc" | sem_cor)" || fail "descrição da subtarefa não apareceu no cartão"
+printf 'vinda do stdin' | run --tarefa-desc "$mc" - || fail "--tarefa-desc - falhou"
+grep -q 'vinda do stdin' <<<"$(run --tarefa-preview "desc:$mc" | sem_cor)" || fail "descrição pelo stdin não apareceu"
+run --tarefa-desc "$mc" "" ; grep -q 'vinda do stdin' <<<"$(run --tarefa-preview "desc:$mc" | sem_cor)" && fail "descrição vazia deveria remover"
+echo "ok: tt --tarefa-sub-add e --tarefa-desc (argumento, stdin, vazio remove)"

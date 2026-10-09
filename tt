@@ -5440,10 +5440,10 @@ tarefas_lembrete_arq() { echo "$ESTADO_DIR/tt-tarefas-avisadas"; }
 # prazo e e-mails novos entram na faixa de graça.
 DIR_NOTIFS=$ESTADO_DIR/notifs
 
-# Quantas linhas a barra tem: 3 (régua, janelas, fixadas), ou 5 com a régua e a faixa de notificações
-# (o tmux aceita no máximo 5). TODO caminho
+# Quantas linhas a barra tem: 3 (margem, janelas, fixadas), ou 4 com a faixa de notificações
+# (as réguas são sublinhado colorido das próprias linhas: não gastam linha). TODO caminho
 # que mexe no número de linhas passa por aqui — dois pontos discordando faziam a faixa piscar.
-barra_status_linhas() { if faixa_notif_ativa; then echo 5; else echo 3; fi; }
+barra_status_linhas() { if faixa_notif_ativa; then echo 4; else echo 3; fi; }
 
 faixa_notif_ativa() {
   local v; v=$(conf faixa_notif)
@@ -5496,7 +5496,13 @@ barra_notifs_fmt() {
   # o slot ocupa exatamente o que sobra. Só muda com o nº de dígitos do 📧 ou do relógio/versão.
   # O 4º é #{client_width}: o tty de um cliente por ssh (Tailscale SSH) é do root e o ioctl falha. Ao
   # redimensionar o tmux cria um processo novo; o antigo percebe que foi substituído e sai.
-  printf '#(python3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}} #{client_width})' "$DIR_TT/letreiro-tt.py"
+  # ticker_fps (1 a 6, padrão 4) = quadros por segundo do letreiro. Cada #() redesenha a barra no
+  # máximo 1 vez/s, mas o tmux guarda a última linha lida de cada um: o pintor (fluxo) imprime um
+  # quadro novo a cada 1/fps s e fps-1 gatilhos (linhas vazias, 1/s, defasadas) provocam os
+  # redesenhos entre os segundos, cada um logo depois de um quadro novo.
+  local fps k; fps=$(conf ticker_fps); [[ $fps =~ ^[1-6]$ ]] || fps=4
+  printf '#(python3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}} #{client_width} %s)' "$DIR_TT/letreiro-tt.py" "$fps"
+  for ((k = 1; k < fps; k++)); do printf '#(python3 -I %s gatilho #{client_pid} %s %s)' "$DIR_TT/letreiro-tt.py" "$k" "$fps"; done
 }
 
 # --- Letreiro do slot (sem aviso novo, infos roladas: dólar, frases, notícias; indicadores= no config)
@@ -5631,6 +5637,17 @@ notifs_popup() {
   [[ -n $c ]] || return 0
   tmux display-popup -c "$c" -E -w 86 -h 18 -b rounded -T ' 🔔 notificações ' "$EU --notifs-ui $(q "$c")"
 }
+# Quando um aviso nasceu, para a central: "Hoje 08:12", "Ontem 22:05" ou "08/10 22:05" (o ano só
+# aparece quando não é o corrente) — só a hora não distinguia hoje de ontem.
+notif_quando() { # epoch
+  local ep=$1 dia hoje
+  dia=$(date -d "@$ep" +%F 2>/dev/null) || return 0
+  hoje=$(date +%F)
+  if [[ $dia == "$hoje" ]]; then printf 'Hoje  %s' "$(date -d "@$ep" +%H:%M)"
+  elif [[ $dia == "$(date -d yesterday +%F)" ]]; then printf 'Ontem %s' "$(date -d "@$ep" +%H:%M)"
+  elif [[ ${dia:0:4} == "${hoje:0:4}" ]]; then date -d "@$ep" '+%d/%m %H:%M'
+  else date -d "@$ep" '+%d/%m/%y %H:%M'; fi
+}
 notifs_ui() {
   local c=${1:-} f exp txt acao esc
   lista() {
@@ -5639,12 +5656,12 @@ notifs_ui() {
       IFS=$'\t' read -r exp txt acao <"$DIR_NOTIFS/$f" || continue
       [[ -n $txt ]] || continue
       m=""; [[ -f $DIR_NOTIFS/$f.lida ]] || m=$neg # não lida em negrito
-      printf '%s\t%s\t%s%s  %s%s%s\n' "${acao:-}" "$f" "$m" "$(date -d "@${f:0:10}" +%H:%M 2>/dev/null)" "$txt" "${acao:+  ↗}" "$z"
+      printf '%s\t%s\t%s%s  %s%s%s\n' "${acao:-}" "$f" "$m" "$(notif_quando "${f:0:10}")" "$txt" "${acao:+  ↗}" "$z"
     done
   }
   if command -v fzf >/dev/null && [[ -t 1 ]]; then
     esc=$(lista | fzf --ansi --delimiter=$'\t' --with-nth=3 --layout=reverse --no-sort --no-input \
-      --header='🔔 Notificações · ⏎ abre o destino (↗, e marca como lida) · Esc fecha' --bind 'q:abort') || return 0
+      --header='⏎ abre o destino (↗, e marca como lida) · Esc fecha' --bind 'q:abort') || return 0
     acao=$(cut -f1 <<<"$esc"); f=$(cut -f2 <<<"$esc")
     [[ -n $f && -f $DIR_NOTIFS/$f ]] && { : >"$DIR_NOTIFS/$f.lida"; atualizar_barras >/dev/null 2>&1; }
     [[ -n $acao ]] && notif_abrir "$acao" "${c:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}"
@@ -7778,7 +7795,7 @@ fixadas_ui() {
   while :; do
     [[ -n $(fixadas) ]] || { echo "Nenhuma sessão fixada."; read -rsn1 -t 2; return 0; }
     esc=$(fixadas_ui_lista | fzf --ansi --delimiter=$'\t' --with-nth=2 --layout=reverse --no-sort --no-input \
-      --header=$'📌 Fixadas · ⏎ vai · ^k/^j reordena · ^x desafixa · Esc fecha' \
+      --header=$'⏎ vai · ^k/^j reordena · ^x desafixa · Esc fecha' \
       --pointer='▶' --bind "ctrl-k:execute-silent($EU --mover-fixada-rel {n} -1)+reload($EU --fixadas-ui-lista)+up" \
       --bind "alt-up:execute-silent($EU --mover-fixada-rel {n} -1)+reload($EU --fixadas-ui-lista)+up" \
       --bind "ctrl-j:execute-silent($EU --mover-fixada-rel {n} 1)+reload($EU --fixadas-ui-lista)+down" \
@@ -7952,7 +7969,7 @@ AT
 )
   if [[ ! -t 1 ]] || ! command -v fzf >/dev/null; then column -t -s $'\t' <<<"$lista"; return 0; fi
   awk -F'\t' '{ printf "\033[35m%-10s\033[0m \033[1;36m%-20s\033[0m %s\n", $1, $2, $3 }' <<<"$lista" |
-    fzf --ansi --layout=reverse --no-sort --disabled --prompt='' --header='⌨ Atalhos do e-mail (aerc) · Esc ou q fecha' \
+    fzf --ansi --layout=reverse --no-sort --disabled --prompt='' --header='aerc · Esc ou q fecha' \
       --bind 'q:abort,enter:abort' --info=hidden >/dev/null
   return 0
 }
@@ -10165,7 +10182,9 @@ email_pausa() { [[ -t 0 ]] && { printf '\n'; read -r -e -p "${1:-Enter volta.}" 
 email_conta_nova_ui() {
   command -v aerc >/dev/null || { printf 'O aerc não está instalado nesta máquina.\nInstale o aerc e rode de novo.'; email_pausa 'Enter fecha.'; return; }
   local -A E=(); local prov linha dica erro snap
-  clear 2>/dev/null; printf '📧 Nova conta de e-mail\n\n'
+  clear 2>/dev/null
+  # (no popup o título ' 📧 nova conta ' já está na borda: repeti-lo no corpo era a duplicação)
+  em_popup || printf '📧 Nova conta de e-mail\n\n'
   email_escolher prov 'Qual é o seu e-mail?' gmail "$(cut -d'|' -f1,2 <<<"$EMAIL_PROVEDORES" | tr '|' '\t')" || return 0
   E[provedor]=$prov
   email_pergunta 'E[endereco]' 'Endereço (ex.: voce@exemplo.com)' || return 0
@@ -10247,7 +10266,7 @@ email_contas_ui() {
       { printf "%s\t📧 %-16.16s %-30.30s \033[90m%s · %s · %s\033[0m\n", $1, $2, $3, $4, $5, $6 }')
     escolha=$( { printf '+\t\033[32m＋ Cadastrar conta…\033[0m\n'; [[ -n $linhas ]] && printf '%s\n' "$linhas"; } |
       fzf --ansi --layout=reverse --no-sort --delimiter=$'\t' --with-nth=2 --no-input \
-        --header=$'📧 Contas de e-mail · ⏎ abre · ^n nova · ^t testar · ^d descadastrar · Esc fecha' \
+        --header=$'⏎ abre · ^n nova · ^t testar · ^d descadastrar · Esc fecha' \
         --expect=enter,ctrl-n,ctrl-t,ctrl-d) || return 0
     acao=$(head -1 <<<"$escolha"); slug=$(sed -n 2p <<<"$escolha" | cut -f1)
     [[ $acao == ctrl-n || $slug == + ]] && { email_conta_nova_ui; continue; }
@@ -11245,6 +11264,11 @@ case "${1:-}" in
   --calendario) calendario_tui prazo "${2:-}"; exit ;;
   --calendario-agenda) calendario_tui agenda "${2:-}"; exit ;;
   --tarefa-add) shift; [[ -n ${1:-} ]] && tarefa_add "$*" >/dev/null || { echo 'uso: tt --tarefa-add "texto"'; exit 1; }; exit ;;
+  # Subtarefa e descrição pela linha de comando (agentes e scripts; a UI usa os prompts): a subtarefa
+  # imprime o id; a descrição vem do 3º argumento em diante, ou do stdin com "-"; vazio remove.
+  --tarefa-sub-add) [[ -n ${2:-} && -n ${3:-} ]] && tarefa_add_sub "$2" "${*:3}" || { echo 'uso: tt --tarefa-sub-add ID-DA-MAE "texto da subtarefa"'; exit 1; }; exit ;;
+  --tarefa-desc) [[ -n ${2:-} ]] || { echo 'uso: tt --tarefa-desc ID "descrição" (ou - para ler do stdin; vazio remove)'; exit 1; }
+    if [[ ${3:-} == - ]]; then tarefa_set_desc "$2" "$(cat)"; else tarefa_set_desc "$2" "${*:3}"; fi; exit ;;
   --tarefa-add-natural) shift; [[ -n ${1:-} ]] && tarefa_add_natural "$*" >/dev/null || { echo 'uso: tt --tarefa-add-natural "texto @prazo !prio *rep"'; exit 1; }; exit ;;
   --tarefa-add-ui)
     # UI mínima de uma linha (usada pelo menu do botão direito, num popup pequeno).
