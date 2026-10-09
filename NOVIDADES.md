@@ -3,7 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
-## v1.5.265 · 09/10/2026
+## v1.5.267 · 09/10/2026
+- Corrigido: a tela de novidades (📰) piscava e fechava; agora fica aberta até você apertar `q`.
+- Pendências de instalação: quando está tudo em ordem, a tela diz "✓ Tudo em ordem" e espera uma tecla,
+  em vez de piscar e fechar.
+- Corrigido: depois de instalar o plugin XOAUTH2, o Gmail e o Career (contas com senha de aplicativo)
+  falhavam com "Invalid credentials" — o plugin agora só vale para contas OAuth (a Alumni).
+
+## v1.5.266 · 09/10/2026
 - Novo: esta tela de novidades. O tt avisa na faixa (📰) quando atualiza; o clique abre aqui.
 - O aviso dos agentes ("🤖 sessão · …") agora leva ao painel certo mesmo se a sessão foi renomeada depois.
 

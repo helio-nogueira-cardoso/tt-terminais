@@ -67,4 +67,43 @@ PATH="$B:$PATH" TT_TTY="$T/resposta" TT_FINGE_FALTA="$FAL" TT_SASL_INCLUDE="$T/i
   "$TT" --pedir-sudo email-xoauth2 >/dev/null 2>&1 && falhou 'sha256 errado deveria falhar'
 [[ ! -e $HOME/.local/share/tt-sasl2/libxoauth2.so ]] || falhou 'plugin com sha errado foi instalado'
 passou 'instalar: sudo para o compilador, depois o plugin é compilado na pasta do usuário (sha256 conferido)'
+# 6) SASL_PATH (plugin XOAUTH2 do tt) só vai para conta OAuth: conta de senha não pode vê-lo, senão o
+#    mbsync o escolhe e manda a senha como token (AUTHENTICATIONFAILED no Gmail).
+mkdir -p "$HOME/.local/share/tt-sasl2" "$HOME/.config/tt/mbsync"; : >"$HOME/.local/share/tt-sasl2/libxoauth2.so"
+printf 'nome=O\nendereco=o@y.z\nauth=oauth\nsync_local=1\n' >"$HOME/.config/tt/email/oa.conf"
+printf 'nome=S\nendereco=s@y.z\nauth=comando\nsync_local=1\n' >"$HOME/.config/tt/email/se.conf"
+printf '#!/bin/sh\necho "$SASL_PATH" > "%s/sasl-$3"\n' "$T" >"$B/mbsync"; chmod +x "$B/mbsync"
+for sl in oa se; do : >"$HOME/.config/tt/mbsync/$sl.mbsyncrc"; printf 'Channel %s-inbox\n' "$sl" >"$HOME/.config/tt/mbsync/$sl.mbsyncrc"; done
+for sl in oa se; do PATH="$B:$PATH" "$TT" --email-sync "$sl" >/dev/null 2>&1; done
+grep -q 'tt-sasl2' "$T/sasl-oa-inbox" || falhou "conta OAuth não recebeu o SASL_PATH do tt: $(cat "$T/sasl-oa-inbox" 2>/dev/null)"
+! grep -q 'tt-sasl2' "$T/sasl-se-inbox" || falhou "conta de senha recebeu o plugin XOAUTH2: $(cat "$T/sasl-se-inbox")"
+passou 'SASL_PATH com o plugin do tt só vai para contas OAuth'
+
+# 7) Sem pendências, num terminal: a tela segura a mensagem "tudo em ordem" em vez de piscar e fechar.
+rm -f "$HOME/.config/tt/email"/*.conf "$ES"/sudo-recusado-* "$ES"/navegadores-sudo-recusado
+saida=$(python3 - "$TT" "$T" "$B" <<'PY'
+import os, pty, sys, time, select
+tt, T, B = sys.argv[1:4]
+pid, fd = pty.fork()
+if pid == 0:
+    env = dict(os.environ, PATH=B + ":" + os.environ["PATH"], TT_FINGE_FALTA="", TT_TTY="/dev/tty")
+    os.execvpe(tt, [tt, "--pedir-sudo"], env)
+out = b""; t0 = time.time(); vivo_apos = None
+while time.time() - t0 < 4:
+    r, _, _ = select.select([fd], [], [], 0.3)
+    if r:
+        try: d = os.read(fd, 4096)
+        except OSError: break
+        if not d: break
+        out += d
+    try:
+        done, _ = os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError: done = pid
+    if done: vivo_apos = False; break
+if vivo_apos is None: os.write(fd, b"x"); vivo_apos = True
+print("SEGUROU" if vivo_apos and "Tudo em ordem".encode() in out else "FECHOU/SEM MENSAGEM: %r" % out[-200:])
+PY
+)
+[[ $saida == SEGUROU ]] || falhou "$saida"
+passou 'sem pendências a tela segura "tudo em ordem" até uma tecla'
 echo "TODOS OS TESTES PASSARAM"

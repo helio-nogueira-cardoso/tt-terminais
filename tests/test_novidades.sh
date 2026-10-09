@@ -42,4 +42,28 @@ tmux rename-session -t antigo novo
 TMUX="$(tmux display -p "#{socket_path}"),1,0" "$TT" --notif-abrir "sessao:antigo|$p" "$c"; sleep 0.7
 [[ $(tmux list-clients -F '#{client_session}' | head -1) == novo ]] || falhou "não foi à sessão renomeada: $(tmux list-clients -F '#{client_session}')"
 passou 'o clique do aviso do agente acha a sessão renomeada pelo id do painel'
+# Num terminal a tela SEGURA o texto (antes o less saía sozinho com pouco texto e o popup piscava).
+res=$(python3 - "$TT" <<'PY'
+import os, pty, sys, time, select
+tt = sys.argv[1]
+pid, fd = pty.fork()
+if pid == 0:
+    os.environ["TERM"] = "xterm-256color"; os.environ["LINES"] = "40"; os.environ["COLUMNS"] = "100"
+    os.execvp(tt, [tt, "--novidades", "--todas"])
+out = b""; t0 = time.time()
+while time.time() - t0 < 2.5:
+    r, _, _ = select.select([fd], [], [], 0.2)
+    if r:
+        try: out += os.read(fd, 4096)
+        except OSError: break
+done, _ = os.waitpid(pid, os.WNOHANG)
+vivo = done == 0
+if vivo:
+    os.write(fd, b"q")
+    time.sleep(0.6); done, _ = os.waitpid(pid, os.WNOHANG)
+print("SEGUROU" if vivo and done else "PISCOU" if not vivo else "NAO-FECHOU-NO-Q")
+PY
+)
+[[ $res == SEGUROU ]] || falhou "tela de novidades: $res"
+passou 'a tela de novidades fica aberta até o q (não pisca e fecha)'
 echo "TODOS OS TESTES PASSARAM"
