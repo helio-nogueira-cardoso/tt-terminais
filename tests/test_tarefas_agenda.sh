@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Agenda viva: barra fica vermelha (⚠ N) quando há tarefa aberta ATRASADA (o que vence hoje e ainda não passou é âmbar); recorrência (rep)
+# Agenda viva: barra fica laranja (📋 N, fundo #fab387) quando há tarefa aberta ATRASADA (o que vence hoje e ainda não passou é âmbar); recorrência (rep)
 # faz a tarefa renascer com o próximo prazo ao ser concluída, em vez de fechar. Isola HOME/XDG.
 set -u
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -30,25 +30,25 @@ run --tarefa-add "sem prazo" >/dev/null
 run --tarefas-barra | grep -Fq '📋 1' || fail "barra deveria mostrar 📋 1 sem urgências"
 echo "ok: barra mostra 📋 N quando não há urgência"
 
-# 1b) vence ainda hoje (hora marcada no futuro) NÃO é atraso: a barra segue âmbar (📋), sem ⚠
+# 1b) vence ainda hoje (hora marcada no futuro) NÃO é atraso: a barra segue âmbar (📋), sem o laranja
 run --tarefa-add "ainda hoje" >/dev/null
 idh0=$(awk -F'\t' '$5=="ainda hoje"{print $1}' "$C")
 awk -F'\t' -v OFS='\t' -v id="$idh0" -v m="prazo=$(( $(date +%s) + 7200 ))|hora=1" 'NF>=5{if($1==id){$6=m} print}' "$C" >"$C.n" && mv "$C.n" "$C"
-run --tarefas-barra | grep -Fq '⚠' && fail "tarefa que ainda não venceu não deveria deixar a barra vermelha: $(run --tarefas-barra)"
+run --tarefas-barra | grep -Fq 'fab387' && fail "tarefa que ainda não venceu não deveria deixar a barra laranja: $(run --tarefas-barra)"
 run --tarefas-barra | grep -Fq '📋' || fail "barra deveria seguir âmbar (📋): $(run --tarefas-barra)"
-echo "ok: o que vence hoje mas ainda não passou não deixa a barra vermelha"
+echo "ok: o que vence hoje mas ainda não passou não deixa a barra laranja"
 # hora marcada que já passou É atraso
 awk -F'\t' -v OFS='\t' -v id="$idh0" -v m="prazo=$(( $(date +%s) - 600 ))|hora=1" 'NF>=5{if($1==id){$6=m} print}' "$C" >"$C.n" && mv "$C.n" "$C"
-run --tarefas-barra | grep -Fq '⚠ 1' || fail "hora marcada que passou deveria dar ⚠ 1: $(run --tarefas-barra)"
+run --tarefas-barra | grep -Fq 'fab387,bold] 📋 1' || fail "hora marcada que passou deveria dar 📋 1 laranja: $(run --tarefas-barra)"
 awk -F'\t' -v OFS='\t' -v id="$idh0" 'NF>=5{if($1==id){$6=""} print}' "$C" >"$C.n" && mv "$C.n" "$C"
-echo "ok: hora marcada que já passou deixa a barra vermelha"
+echo "ok: hora marcada que já passou deixa a barra laranja"
 
-# 2) barra vira vermelha (⚠ 1) com uma tarefa vencida
+# 2) barra vira laranja (📋 1) com uma tarefa vencida
 run --tarefa-add "pagar" >/dev/null
 idp=$(awk -F'\t' '$5=="pagar"{print $1}' "$C")
 awk -F'\t' -v OFS='\t' -v id="$idp" -v m="prazo=$ontem" 'NF>=5{if($1==id){$6=m} print}' "$C" >"$C.n" && mv "$C.n" "$C"
-run --tarefas-barra | grep -Fq '⚠ 1' || fail "barra deveria mostrar ⚠ 1 com tarefa vencida: $(run --tarefas-barra)"
-echo "ok: barra fica vermelha com ⚠ N quando há tarefa vencida/hoje"
+run --tarefas-barra | grep -Fq 'fab387,bold] 📋 1' || fail "barra deveria mostrar 📋 1 laranja com tarefa vencida: $(run --tarefas-barra)"
+echo "ok: barra fica laranja (📋 N) quando há tarefa vencida"
 
 # 3) ciclar recorrência: sem -> d -> w -> m -> sem
 run --tarefa-rep-ciclar "$idp" >/dev/null; [[ $(meta "$idp") == *rep=d* ]] || fail "1º ciclo rep deveria ser diária (d)"
