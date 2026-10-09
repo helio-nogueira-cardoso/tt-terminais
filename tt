@@ -7629,7 +7629,9 @@ atualizar_barras() {
         if faixa_notif_ativa; then valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{E:@barra_tarefas}#[range=user|notifs]#[fg=#a6adc8] 🔔#{E:@barra_notifs_n} #[norange]#[default]"
         else valor=""; fi ;;
       faixa_dir)
-        if faixa_notif_ativa; then valor="#[range=user|relogio]#[fg=#a6adc8]#{E:@barra_data}%H:%M #[norange]#[default] #{E:@barra_versao}"
+        # Responsivo por cliente: o letreiro tem prioridade sobre o enfeite. < 120 colunas sai o dia,
+        # < 90 sai também a versão (sobra só a hora) — assim ele ganha ~25 células num terminal estreito.
+        if faixa_notif_ativa; then valor="#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},120},,#{E:@barra_data}}%H:%M #[norange]#[default]#{?#{e|<:#{client_width},90},, #{E:@barra_versao}}"
         else valor=""; fi ;;
       lado1)
         if faixa_notif_ativa; then valor=""

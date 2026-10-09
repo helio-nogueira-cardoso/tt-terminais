@@ -16,6 +16,9 @@ grep -q 'align=centre.*@barra_notifs_slot' "$TT_DIR/tema-tmux.conf" || falhou "t
 d=$(tmux show -gqv @barra_faixa_dir)
 grep -q '@barra_data' <<<"$d" && grep -q '%H:%M' <<<"$d" && grep -q '@barra_versao' <<<"$d" ||
   falhou "lado direito da linha 2 sem data/hora/versão: $d"
+# Estreito: o letreiro tem prioridade — o dia some abaixo de 120 colunas e a versão abaixo de 90.
+grep -q 'e|<:#{client_width},120},,#{E:@barra_data}' <<<"$d" && grep -q 'e|<:#{client_width},90},, #{E:@barra_versao}' <<<"$d" ||
+  falhou "lado direito da faixa não encolhe em terminal estreito: $d"
 [[ -z $(tmux show -gqv @barra_lado1) ]] || falhou 'com a faixa, a linha das fixadas deveria ficar só para elas'
 [[ -z $(tmux show -gqv @barra_fim0) ]] || falhou 'com a faixa, o 📧/relógio deveriam sair da linha 0'
 passou 'faixa ligada: status 3, blocos na linha 2, fixadas 100% livres'
