@@ -1039,7 +1039,7 @@ CONF_ATALHOS=$CONF_DIR/atalhos
 # Repositório de origem (só na máquina onde se desenvolve): TT_REPO, "repo=" no config, ou a pasta
 # deste tt, se ele estiver rodando de dentro de um clone.
 REPO_TT=${TT_REPO:-$(conf repo)}
-[[ -z $REPO_TT && -d ${EU%/*}/.git && -f ${EU%/*}/tmux.conf ]] && REPO_TT=${EU%/*}
+[[ -z $REPO_TT && -e ${EU%/*}/.git && -f ${EU%/*}/tmux.conf ]] && REPO_TT=${EU%/*}
 SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new
   -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%r@%h" -o ControlPersist=12h
   -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
@@ -1402,7 +1402,7 @@ ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 # desenvolvimento; senão, a própria instalação.
 pacote() {
   local tmp n h d
-  if [[ -d $REPO_TT/.git ]]; then
+  if [[ -e $REPO_TT/.git ]]; then
     tmp=$(mktemp -d)
     cp "${ARQUIVOS_FONTE[@]/#/$REPO_TT/}" "$tmp/"
     n=$(git -C "$REPO_TT" rev-list --count HEAD 2>/dev/null || echo 0)
@@ -1769,7 +1769,7 @@ url_fonte() { local u; u=$(conf fonte); echo "${u:-$URL_FONTE_PADRAO}"; }
 # Traz a versão publicada para o clone local. Imprime o número da versão (nº de commits).
 buscar_fonte() {
   command -v git >/dev/null || { echo "precisa do git" >&2; return 1; }
-  if [[ ! -d $DIR_FONTE/.git ]]; then
+  if [[ ! -e $DIR_FONTE/.git ]]; then
     rm -rf "$DIR_FONTE"
     git clone -q "$(url_fonte)" "$DIR_FONTE" 2>/dev/null || return 1
   else
@@ -1814,7 +1814,7 @@ versao_github() { awk '{ print $1 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0; 
 # tt --atualizar [--todas]: instala a versão mais nova do GitHub aqui (e nas cadastradas, com --todas).
 atualizar() {
   local todas=${1:-} n
-  if [[ -d $REPO_TT/.git ]]; then
+  if [[ -e $REPO_TT/.git ]]; then
     echo "Esta máquina é a de desenvolvimento ($REPO_TT): git pull…"
     if [[ -n $(git -C "$REPO_TT" status --porcelain -- "${ARQUIVOS_FONTE[@]}") ]]; then
       echo "Há mudanças não gravadas no repositório; atualize à mão (git stash / commit)."; return 1
@@ -1836,7 +1836,7 @@ atualizar() {
 # de recursos que outras máquinas já têm. Sem rede ou sem upstream, segue (o pode_instalar ainda
 # barra o rebaixamento em cada máquina).
 repo_em_dia() {
-  [[ -d $REPO_TT/.git ]] || return 0
+  [[ -e $REPO_TT/.git ]] || return 0
   local ref atras
   # Sem ramo de acompanhamento (@{u}) vale o main publicado do remoto: um clone ou worktree sem
   # upstream passava direto e, em 08/10, instalou nas 4 máquinas, pela contagem de commits, uma
@@ -1859,7 +1859,7 @@ sincronizar() {
   local -a alvos=("$@")
   repo_em_dia || return 1
   echo "Versão a instalar: $(pacote | tar -xOf - VERSAO)"
-  [[ -d $REPO_TT/.git ]] && { printf '  %-10s ' "$MAQUINA"; instalar_em . | sed 's/^[^:]*: //'; }
+  [[ -e $REPO_TT/.git ]] && { printf '  %-10s ' "$MAQUINA"; instalar_em . | sed 's/^[^:]*: //'; }
   n_local=$(pacote | tar -xOf - VERSAO | awk '{ print $1 + 0 }')
   while read -r dest rot; do
     if ((${#alvos[@]})); then
@@ -11264,7 +11264,7 @@ case "${1:-}" in
   --instalar-aqui) instalar_aqui; exit ;;
   --instalar)
     # Primeira instalação a partir de um clone: grava o repositório como origem e instala aqui.
-    [[ -d $REPO_TT/.git ]] || { echo "Rode de dentro do clone do repositório (./tt --instalar)."; exit 1; }
+    [[ -e $REPO_TT/.git ]] || { echo "Rode de dentro do clone do repositório (./tt --instalar)."; exit 1; }
     mkdir -p "$CONF_DIR"; grep -v '^repo=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "repo=$REPO_TT" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
     instalar_em . "${2:-}" || { echo "A instalação falhou."; exit 1; }
     [[ -n ${TT_SEM_BASHRC:-} ]] || configurar_bashrc
