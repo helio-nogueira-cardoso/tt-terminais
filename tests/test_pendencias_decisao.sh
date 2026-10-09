@@ -4,7 +4,7 @@
 source "$(dirname "$0")/lib.sh"; isolar
 B=$T/bin; mkdir -p "$B" "$HOME/.config/tt/email"
 printf '#!/bin/sh\n:\n' >"$B/apt-get"; chmod +x "$B/apt-get"
-printf '#!/bin/sh\necho "$@" >> %s/sudo.log\n' "$T" >"$B/sudo"; chmod +x "$B/sudo"
+printf '#!/bin/sh\nfor a; do printf "%%s|" "$a"; done >> %s/sudo.log; echo >> %s/sudo.log\n' "$T" "$T" >"$B/sudo"; chmod +x "$B/sudo"
 printf 'nome=X\nendereco=x@y.z\nauth=oauth\nsync_local=1\n' >"$HOME/.config/tt/email/x.conf"
 ES=$HOME/.local/state/tt
 FALTA="curl unzip mbsync w3m vim xoauth2 xoauth2-build cc gcc"
@@ -59,7 +59,7 @@ printf i >"$T/resposta"; : >"$T/sudo.log"
 sha=$(sha256sum "$T/x.tgz" | cut -d' ' -f1)
 PATH="$B:$PATH" TT_TTY="$T/resposta" TT_FINGE_FALTA="$FAL" TT_SASL_INCLUDE="$T/inc" TT_XOAUTH2_URL="file://$T/x.tgz" TT_XOAUTH2_SHA256="$sha" \
   "$TT" --pedir-sudo email-xoauth2 >"$T/saida.txt" 2>&1 || { cat "$T/saida.txt"; falhou 'instalar o xoauth2 deveria sair com sucesso'; }
-grep -q 'gcc libc6-dev libsasl2-dev' "$T/sudo.log" || falhou "sudo não instalou o compilador: $(cat "$T/sudo.log")"
+grep -q 'install|-y|gcc|libc6-dev|libsasl2-dev|' "$T/sudo.log" || falhou "sudo não instalou o compilador: $(cat "$T/sudo.log")"
 [[ -s $HOME/.local/share/tt-sasl2/libxoauth2.so ]] || { cat "$T/saida.txt"; falhou 'plugin não foi construído na pasta do usuário'; }
 # sha errado → recusa e não instala
 rm -rf "$HOME/.local/share/tt-sasl2"
