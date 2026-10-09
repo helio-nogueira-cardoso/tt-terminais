@@ -604,8 +604,8 @@ repositório git seu). A junção é por tarefa (a alteração mais recente venc
 
 ## Faixa de notificações
 
-Uma terceira linha na barra, abaixo das fixadas (separada por uma régua fina, com fundo
-azul-acinzentado suave): `📧 (N) · 📋 N · ‹avisos passando› · Qui, 08/10/2026 | 13:16 · v1.5.223`.
+Uma linha a mais na barra, colada abaixo das fixadas (sem régua nem vão entre as linhas; fundo
+azul-acinzentado suave em toda a largura): `📧 (N) · 📋 N · ‹avisos passando› · Qui, 08/10/2026 | 13:16 · v1.5.223`.
 Os avisos — e-mail que chegou, lembrete de prazo, o que vier por `tt --notificar "texto" [segundos] [destino]`
 — aparecem no slot por ~10 s, **piscando devagar** em negrito, e depois vivem só na central do 🔔
 (negrito até serem abertos; abrir pelo clique/⏎ marca como lido). O conteúdo do slot fica sempre
