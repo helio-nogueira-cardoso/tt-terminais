@@ -770,6 +770,14 @@ Uma regra só, em qualquer máquina:
 Pedir uma tela do tt (clique na faixa, `tt --notif-abrir`) com o popup do e-mail na frente solta o
 popup do e-mail (a sessão oculta segue viva) e abre a tela pedida em seguida — nada fica preso por baixo.
 
+## Novidades do tt
+
+`tt --novidades` (menu administrar → 📰 Novidades do tt) mostra, num popup com rolagem, o que mudou desde a
+última versão que você viu; `--todas` mostra tudo. O texto vem de `NOVIDADES.md` (uma seção por versão,
+escrita para quem usa o tt). Quando o tt atualiza, o vigia põe **um** aviso 📰 na faixa; clicar abre a
+tela. Máquina recém-instalada não recebe o aviso. Quem publica uma versão acrescenta a seção dela em
+`NOVIDADES.md` no mesmo commit.
+
 ## Fechar sessões
 
 Na central e no seletor, cada sessão tem, alinhados à direita, o pino (📍 fixar / 📌 desafixar —

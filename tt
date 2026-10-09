@@ -454,6 +454,7 @@ vigiar() {
     if ((agora - ${ultima_pendencias:-0} >= 21600)); then
       ultima_pendencias=$agora
       ("$EU" --pendencias-avisar >/dev/null 2>&1 &)
+      ("$EU" --novidades-avisar >/dev/null 2>&1 &)
     fi
     # Reforça o padrão completo e redesenha os clientes em até 5 min, inclusive os aninhados.
     if ((agora - ${ultima_tema:-0} >= 300)); then
@@ -1400,7 +1401,7 @@ ajuda() {
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
-  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md aidlc-tt)
+  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md aidlc-tt NOVIDADES.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -3856,6 +3857,47 @@ pend_rotulo() { # o que mostrar no lugar do nome interno da pendência
   esac
 }
 
+# --- Novidades do tt ---------------------------------------------------------------------------
+# NOVIDADES.md (no pacote) tem uma seção "## vN · data" por versão, escrita para quem usa o tt, não
+# para quem programa. `tt --novidades` mostra o que saiu desde a última versão vista (ou --todas);
+# o vigia avisa uma vez por versão nova, e o clique no aviso abre esta tela.
+novidades_visto() { cat "$ESTADO_DIR/novidades-visto" 2>/dev/null || echo 0; }
+
+novidades_texto() { # desde (versão inteira; 0 = tudo) → seções com versão > desde, da mais nova para a mais velha
+  awk -v desde="$1" '
+    /^## v/ { n = $2; sub(/^v/, "", n); split(n, a, "."); v = a[length(a)] + 0; mostra = (v > desde) }
+    /^# / && !/^## / { next }
+    mostra { print }' "${2:-$DIR_TT/NOVIDADES.md}" 2>/dev/null
+}
+
+novidades_ver() { # [--todas]
+  local atual desde txt; atual=$(versao | awk '{ print $1 + 0 }')
+  desde=$(novidades_visto)
+  [[ ${2:-} == --todas ]] && desde=0
+  txt=$(novidades_texto "$desde")
+  if [[ -z $txt ]]; then
+    # Nada novo desde a última vista: mostra as 3 versões mais recentes.
+    txt=$(novidades_texto $((atual - 3)))
+  fi
+  [[ -n $txt ]] || { echo "Sem novidades registradas."; return 0; }
+  mkdir -p "$ESTADO_DIR"; echo "$atual" >"$ESTADO_DIR/novidades-visto"
+  if [[ -t 1 ]] && command -v less >/dev/null 2>&1; then
+    printf '%s\n\n(q ou Esc fecha · ↑↓ rolam)\n' "$txt" | sed -e 's/^## \(.*\)$/\x1b[1;33m\1\x1b[0m/' -e 's/^- /  • /' | less -RFX --quit-if-one-screen
+  else printf '%s\n' "$txt"; fi
+}
+
+# Vigia: uma vez por versão nova com entrada em NOVIDADES.md, um aviso na faixa (clique abre).
+novidades_avisar() {
+  local atual visto marca=$ESTADO_DIR/novidades-avisada; atual=$(versao | awk '{ print $1 + 0 }')
+  [[ $(cat "$marca" 2>/dev/null || echo 0) == "$atual" ]] && return 0
+  mkdir -p "$ESTADO_DIR"; echo "$atual" >"$marca"
+  visto=$(novidades_visto)
+  ((atual > visto)) && [[ -n $(novidades_texto "$visto") ]] || return 0
+  # Máquina que acabou de ser instalada (nada visto): só marca; o aviso é para quem atualizou.
+  [[ -f $ESTADO_DIR/novidades-visto ]] || { echo "$atual" >"$ESTADO_DIR/novidades-visto"; return 0; }
+  notificar "📰 tt atualizado para a v$atual — veja o que há de novo (clique)" 3600 novidades
+}
+
 # Chamado pelo vigia (no início e a cada 6 h): se há pendências ainda não respondidas (ou adiadas e
 # vencidas), põe UM aviso na faixa — clicar abre o modal. Não repete o mesmo conjunto em menos de 24 h
 # e nunca avisa do que o usuário mandou "não instalar" (isso só o menu reabre).
@@ -4721,6 +4763,7 @@ menu_admin() {
     (($(versao_github) > vl)) && printf 'g\t  ⟳ Atualizar do GitHub (v%s → v%s)\t%s\n' "$vl" "$(versao_github)" "$(popup_tt "$c" "atualizar do GitHub" "$EU --atualizar --todas; read -rsn1 -p '(tecla fecha)'")"
     printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
+    printf 'n\t  📰 Novidades do tt…\t%s\n' "$(popup_tt "$c" "📰 novidades do tt" "$EU --novidades")"
     printf 'i\t  📦 Pendências de instalação… (reavaliar todas)\t%s\n' "$(popup_tt "$c" "📦 pendências de instalação" "TT_PEND_TODAS=1 $EU --pedir-sudo; read -rsn1 -p '(tecla fecha)'")"
     printf 'h\t  ◌ Ocultar máquina…\t%s\n' "$(popup_tt "$c" "ocultar máquina" "$EU --ocultar-maquina; read -rsn1 -p '(tecla fecha)'")"
     printf 'H\t  ◉ Mostrar máquina oculta…\t%s\n' "$(popup_tt "$c" "mostrar máquina" "$EU --mostrar-maquina; read -rsn1 -p '(tecla fecha)'")"
@@ -5794,6 +5837,7 @@ notif_abrir() { # ação cliente
   case $acao in
     email:*) email_ir_novo "${acao#email:}" "$c" ;;   # aviso de e-mail novo: vai à conta e à mensagem (:check-mail vai dentro)
     email) botao_email "$c" ;;
+    novidades) tmux display-popup -c "$c" -E $(tam_popup "$c") -T ' 📰 novidades do tt ' "$EU --novidades" ;;
     pendencias) tmux display-popup -c "$c" -E -w 92 -h 22 -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo" ;;
     tarefas) abrir_tarefas "$c" ;;
     calendario) abrir_calendario "$c" ;;
@@ -5806,7 +5850,10 @@ notif_abrir() { # ação cliente
 # Aviso de um agente (tt --notificar-daqui): o clique leva o cliente à sessão e ao painel de onde
 # o aviso saiu. "sessão|painel"; sem a sessão (fechada depois do aviso), só avisa.
 notif_ir_sessao() { # "sessão|painel" cliente
-  local s=${1%%|*} p=${1#*|} c=$2
+  local s=${1%%|*} p=${1#*|} c=$2 atual
+  # O nome da sessão muda (o nomeador renomeia conforme o assunto); o id do painel não. Vale o nome
+  # que o painel tem AGORA; o gravado só serve se o painel já não existe.
+  [[ $p == %* ]] && atual=$(tmux display-message -p -t "$p" '#{session_name}' 2>/dev/null) && [[ -n $atual ]] && s=$atual
   if ! tmux has-session -t "=$s" 2>/dev/null; then
     tmux display-message -c "$c" -d 4000 "A sessão $s não existe mais" 2>/dev/null
     return 0
@@ -11453,6 +11500,8 @@ case "${1:-}" in
   --garantir-navegadores) garantir_navegadores; exit ;;
   --pedir-sudo) shift; pedir_sudo_pendencias "$@"; exit ;;
   --pendencias-avisar) pendencias_avisar; exit 0 ;;
+  --novidades) novidades_ver "$@"; exit 0 ;;
+  --novidades-avisar) novidades_avisar; exit 0 ;;
   --email-sync-local) email_sync_local_definir "${2:?uso: tt --email-sync-local CONTA 0|1}" "${3:-1}"; exit ;;
   --anexos-enviar) anexos_enviar; exit 0 ;;
   --imagens) imagens_do_email; exit 0 ;;
