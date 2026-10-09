@@ -3840,8 +3840,12 @@ pedir_sudo_pendencias() {
       case $id in email-xoauth2) xoauth2_construir || rc=1 ;; esac
     done
   fi
-  ((rc == 0)) && echo "  ✓ Instalado." || echo "  ✗ Falhou (código $rc)."
-  sleep 1; return $rc
+  if ((rc == 0)); then echo "  ✓ Instalado."; sleep 1
+  else   # a mensagem de erro fica na tela até uma tecla (o popup fechava sozinho em 1 s e escondia o motivo)
+    echo "  ✗ Falhou (código $rc). A saída do comando está acima."
+    read -rsn1 -p '  (qualquer tecla fecha)' <"$tty"; echo
+  fi
+  return $rc
 }
 
 pend_rotulo() { # o que mostrar no lugar do nome interno da pendência
