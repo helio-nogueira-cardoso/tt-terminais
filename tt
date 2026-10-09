@@ -5798,25 +5798,28 @@ tarefas_relogio() { # -> "agora deslocamento-do-fuso-em-segundos"
 }
 
 # Contagem das tarefas de topo: "hoje abertas feitas com-prazo todas" (hoje = abertas vencidas ou
-# que vencem hoje). Uma passada só; serve às abas do painel e ao botão da barra.
+# que vencem hoje) e, no 7º campo, as ATRASADAS (já passaram do prazo: dia anterior, ou hora marcada
+# que já foi). Só elas deixam o botão da barra e a aba Hoje vermelhos; o que vence hoje e ainda
+# não passou fica âmbar. Uma passada só; serve às abas do painel e ao botão da barra.
 tarefas_contagens() {
-  [[ -s $CONF_TAREFAS ]] || { echo "0 0 0 0 0 0"; return 0; }
+  [[ -s $CONF_TAREFAS ]] || { echo "0 0 0 0 0 0 0"; return 0; }
   local agora tz; read -r agora tz < <(tarefas_relogio)
   LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" "$TAREFAS_AWK"'
     NF >= 5 && valida($1, $2) && !($1 in v) && mv($6, "pai") == "" {
       v[$1] = 1; t++
       if ($2 == "aberta") a++; else f++
       p = mv($6, "prazo")
-      if (p != "" && $2 == "aberta") { z++; if (dia(p) <= dia(NOW)) h++ }
+      if (p != "" && $2 == "aberta") { z++; if (dia(p) <= dia(NOW)) h++
+        if (mv($6, "hora") == 1 ? p < NOW : dia(p) < dia(NOW)) x++ }
     }
     NF >= 5 && $2 == "arquivada" && !($1 in w) && mv($6, "pai") == "" { w[$1] = 1; q++ }
-    END { printf "%d %d %d %d %d %d\n", h, a, f, z, t, q }' "$CONF_TAREFAS"
+    END { printf "%d %d %d %d %d %d %d\n", h, a, f, z, t, q, x }' "$CONF_TAREFAS"
 }
 tarefas_hoje_n() { local c; read -ra c < <(tarefas_contagens); echo "${c[0]}"; }
 barra_tarefas_fmt() {
-  local h n _; read -r h n _ < <(tarefas_contagens)
-  if ((h > 0)); then
-    printf '#[range=user|tarefas]#[fg=#1e1e2e,bg=#f38ba8,bold] ⚠ %s #[norange]#[default] ' "$h"
+  local h n a x; read -r h n a a a a x < <(tarefas_contagens)
+  if ((x > 0)); then
+    printf '#[range=user|tarefas]#[fg=#1e1e2e,bg=#f38ba8,bold] ⚠ %s #[norange]#[default] ' "$x"
   elif ((n > 0)); then
     printf '#[range=user|tarefas]#[fg=#1e1e2e,bg=#f9e2af,bold] 📋 %s #[norange]#[default] ' "$n"
   else
@@ -5997,11 +6000,11 @@ tarefas_cabecalho() {
       _item " ‹ Voltar " "$ativo ‹ Voltar $z" voltar
       _item "Ações: $t" "${sub}Ações: $neg$txt$t$z" "" ;;
     *)
-      local h ab fe pz to ar; read -r h ab fe pz to ar < <(tarefas_contagens)
+      local h ab fe pz to ar atr; read -r h ab fe pz to ar atr < <(tarefas_contagens)
       _aba() { # chave rótulo contador
         local n=""; (($3 > 0)) && n=" $3"
         if [[ $1 == "$f" ]]; then _item " $2$n " "$ativo $2$n $z" "filtro:$1"
-        elif [[ $1 == hoje && $3 -gt 0 ]]; then _item " $2$n " "$bg$sub $2$neg$verm$n $z" "filtro:$1"
+        elif [[ $1 == hoje && ${atr:-0} -gt 0 ]]; then _item " $2$n " "$bg$sub $2$neg$verm$n $z" "filtro:$1"
         else _item " $2$n " "$bg$sub $2$amar$n $z" "filtro:$1"; fi
       }
       _aba hoje Hoje "$h"; _aba abertas Abertas "$ab"; _aba feitas Feitas "$fe"
