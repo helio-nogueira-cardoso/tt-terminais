@@ -5440,9 +5440,9 @@ tarefas_lembrete_arq() { echo "$ESTADO_DIR/tt-tarefas-avisadas"; }
 # prazo e e-mails novos entram na faixa de graça.
 DIR_NOTIFS=$ESTADO_DIR/notifs
 
-# Quantas linhas a barra tem: 2, ou 4 com a faixa de notificações (régua + faixa). TODO caminho
+# Quantas linhas a barra tem: 3 (margem, janelas, fixadas), ou 4 com a faixa de notificações. TODO caminho
 # que mexe no número de linhas passa por aqui — dois pontos discordando faziam a faixa piscar.
-barra_status_linhas() { if faixa_notif_ativa; then echo 4; else echo 2; fi; }
+barra_status_linhas() { if faixa_notif_ativa; then echo 4; else echo 3; fi; }
 
 faixa_notif_ativa() {
   local v; v=$(conf faixa_notif)

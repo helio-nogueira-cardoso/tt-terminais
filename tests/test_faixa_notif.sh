@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Faixa de notificações (3ª linha, abaixo das fixadas): liga por padrão (status 3) e move 📧/📋/
-# relógio/versão para a linha 2; faixa_notif=0 volta ao layout de 2 linhas; tt --notificar põe o
+# relógio/versão para a linha 2; faixa_notif=0 volta ao layout sem a faixa (3 linhas); tt --notificar põe o
 # aviso na faixa, expira sozinho e o histórico lista; lembrete de tarefas e e-mail novo espelham.
 source "$(dirname "$0")/lib.sh"; isolar
 tmux -f /dev/null new -d -s s1 'sleep 300'
 tt() { "$TT" "$@"; }
 
 tt --barras >/dev/null 2>&1
-[[ $(tmux show -gqv status) == 4 ]] || falhou "faixa ligada deveria pôr status=4 (régua + faixa) (está $(tmux show -gqv status))"
+[[ $(tmux show -gqv status) == 4 ]] || falhou "faixa ligada deveria pôr status=4 (margem + janelas + fixadas + faixa) (está $(tmux show -gqv status))"
 f=$(tmux show -gqv @barra_faixa)
 grep -q '@barra_email' <<<"$f" && grep -q '@barra_tarefas' <<<"$f" ||
   falhou "linha 2 sem os chips esperados: $f"
@@ -19,6 +19,20 @@ grep -q '@barra_data' <<<"$d" && grep -q '%H:%M' <<<"$d" && grep -q '@barra_vers
 [[ -z $(tmux show -gqv @barra_lado1) ]] || falhou 'com a faixa, a linha das fixadas deveria ficar só para elas'
 [[ -z $(tmux show -gqv @barra_fim0) ]] || falhou 'com a faixa, o 📧/relógio deveriam sair da linha 0'
 passou 'faixa ligada: status 3, blocos na linha 2, fixadas 100% livres'
+# Layout sem vãos: 4 linhas coladas (margem só na 1ª), cada linha pintada em toda a largura (fill) e
+# com o #[default] voltando ao fundo DELA (set-default); nenhuma régua entre as linhas.
+tema="$TT_DIR/tema-tmux.conf"
+fmt() { grep "^set -g 'status-format\\[$1\\]'" "$tema"; }
+[[ -z $(fmt 4) ]] || falhou 'barra com mais de 4 linhas'
+grep -q 'fill=#1e1e2e' <<<"$(fmt 0)" || falhou 'linha 0 (margem) sem fill'
+grep -q 'range=left' <<<"$(fmt 1)" || falhou 'linha 1 não é a das janelas'
+for i in 2 3; do
+  l=$(fmt $i)
+  grep -q 'fill=#' <<<"$l" && grep -q 'set-default' <<<"$l" || falhou "linha $i sem fill/set-default: $l"
+done
+! grep -q '─' "$TT_DIR/tema-tmux.conf" || falhou 'régua (vão vertical) voltou ao tema'
+passou 'barra: linhas coladas, preenchidas em toda a largura, margem só no topo'
+
 
 # O miolo da faixa (aviso fresco / transferência / letreiro) é o letreiro-tt.py de cada cliente, ligado
 # como #() em @barra_notifs: quadro N imprime o que ele mostraria num terminal de N colunas.
@@ -78,10 +92,10 @@ passou 'lembretes (tarefas/e-mail) espelham na faixa pelo notificador central'
 
 printf 'faixa_notif=0\n' >>"$XDG_CONFIG_HOME/tt/config"
 tt --barras >/dev/null 2>&1
-[[ $(tmux show -gqv status) == 2 ]] || falhou 'faixa_notif=0 deveria voltar a 2 linhas'
+[[ $(tmux show -gqv status) == 3 ]] || falhou 'faixa_notif=0 deveria voltar a 3 linhas (margem, janelas, fixadas)'
 grep -q '@barra_tarefas' <<<"$(tmux show -gqv @barra_lado1)" || falhou 'desligada, 📋/versão deveriam voltar à linha 1'
 grep -q '@barra_email' <<<"$(tmux show -gqv @barra_fim0)" || falhou 'desligada, 📧/relógio deveriam voltar à linha 0'
-passou 'faixa_notif=0: layout de 2 linhas de volta, sem perder nada'
+passou 'faixa_notif=0: layout sem a faixa de volta, sem perder nada'
 
 rg -qF "pkill -f 'tt --ticker-loop$'" "$TT" || falhou 'instalador não mata o laço antigo do letreiro (ficava rodando com código velho)'
 rg -q -- '--ticker-loop\) exit 0' "$TT" || falhou '--ticker-loop deve ser um no-op de compatibilidade (o vigia antigo ainda o chama durante a troca de versão)'
