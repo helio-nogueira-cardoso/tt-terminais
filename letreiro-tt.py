@@ -45,7 +45,7 @@ DIR_NOTIFS = os.path.join(ESTADO, "notifs")
 DIR_TICKER = os.path.join(HOME, ".cache", "tt-ticker")
 RT = os.environ.get("TT_RT") or "/run/user/%d" % os.getuid()
 DIR_TRANSF = os.path.join(RT, "tt-transferencias-%d" % os.getuid())
-CINZA, TEXTO, AVISO, TRANSF = "#45475a", "#7f849c", "#f9e2af", "#89b4fa"
+CINZA, TEXTO, AVISO, TRANSF, FUNDO = "#45475a", "#7f849c", "#f9e2af", "#89b4fa", "#232838"
 MARGEM = 20 + 34 + 12  # chips à esquerda, relógio/versão à direita, divisórias e margens
 
 
@@ -254,16 +254,17 @@ def quadro(cfg, cols, ponte, agora):
             miolo = txt
         else:
             miolo = "#[bold]%s#[nobold]" % txt
-        return "  #[fg=%s]│#[range=user|notifx]#[fg=%s]  %s  #[norange]#[fg=%s]│#[default]  " % (CINZA, AVISO, miolo, CINZA)
+        return "  #[fg=%s]│#[range=user|notifx]#[fg=%s]  %s  #[norange]#[fg=%s]│#[default]#[bg=%s]  " % (CINZA, AVISO, miolo, CINZA, FUNDO)
     tx = transferencias(agora)
     if tx:
-        return "  #[fg=%s]│#[range=user|transferencias]#[fg=%s]  %s  #[norange]#[fg=%s]│#[default]  " % (
-            CINZA, TRANSF, esc(cortar(tx, orc)), CINZA)
+        return "  #[fg=%s]│#[range=user|transferencias]#[fg=%s]  %s  #[norange]#[fg=%s]│#[default]#[bg=%s]  " % (
+            CINZA, TRANSF, esc(cortar(tx, orc)), CINZA, FUNDO)
     linha = linha_letreiro(cfg)
     if not linha:
         return ""
-    return "  #[fg=%s]│#[fg=%s]  %s  #[fg=%s]│#[default]  " % (
-        CINZA, TEXTO, esc(janela(linha, orc, deslocamento(cfg, orc, agora, ponte))), CINZA)
+    # (#[default] volta ao status-style, de fundo escuro: o fundo da faixa é devolvido logo depois)
+    return "  #[fg=%s]│#[fg=%s]  %s  #[fg=%s]│#[default]#[bg=%s]  " % (
+        CINZA, TEXTO, esc(janela(linha, orc, deslocamento(cfg, orc, agora, ponte))), CINZA, FUNDO)
 
 
 def e_ponte(pid):
