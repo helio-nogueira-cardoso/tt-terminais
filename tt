@@ -3602,12 +3602,12 @@ pacotes_do_gerenciador() {
       tar) case $g in brew) echo gnu-tar ;; *) echo tar ;; esac ;;
       ssh) case $g in apt-get) echo openssh-client ;; dnf) echo openssh-clients ;; *) echo openssh ;; esac ;;
       plugin-xoauth2) ;; # nada a instalar como administrador: o tt compila o plugin na pasta do usuário
-      xoauth2-build) # compilador e cabeçalhos do Cyrus SASL, para compilar o plugin XOAUTH2
+      xoauth2-build) # compilador e cabeçalhos do Cyrus SASL, para compilar o plugin XOAUTH2 (um pacote por linha)
         case $g in
-          apt-get) echo gcc libc6-dev libsasl2-dev ;;
-          dnf) echo gcc glibc-devel cyrus-sasl-devel ;;
-          pacman) echo gcc cyrus-sasl ;;
-          apk) echo build-base cyrus-sasl-dev ;;
+          apt-get) printf '%s\n' gcc libc6-dev libsasl2-dev ;;
+          dnf) printf '%s\n' gcc glibc-devel cyrus-sasl-devel ;;
+          pacman) printf '%s\n' gcc cyrus-sasl ;;
+          apk) printf '%s\n' build-base cyrus-sasl-dev ;;
           brew) echo cyrus-sasl ;;
         esac ;;
       *) echo "$c" ;;
