@@ -44,7 +44,7 @@ kill -0 "$novo" 2>/dev/null || falhou 'o letreiro novo não deveria sair'
 kill "$novo" 2>/dev/null; wait 2>/dev/null
 passou 'tty ilegível usa a largura do tmux; processo substituído por um redimensionamento sai sozinho'
 # O gatilho imprime uma linha vazia ao nascer: sem ela o tmux mostra "<'comando' not ready>" no slot
-g=$(timeout 2 python3 -I "$TT_DIR/letreiro-tt.py" gatilho $$ 1 4 | head -c 1 | od -An -c | tr -d ' ') || true
+g=$(timeout 2 bash "$TT_DIR/gatilho-tt.sh" $$ 1 4 | head -c 1 | od -An -c | tr -d ' ') || true
 [[ $g == '\n' ]] || falhou "o gatilho deveria imprimir uma linha vazia ao nascer (veio [$g])"
 palavra='bravo|charlie|delta|echo|foxtrot|golf|hotel|india|juliett|kilo|lima|mike|november'
 faixa() { fora capture-pane -p -t "$1" | tail -1; }  # última linha do cliente de fora = faixa de notificações
@@ -75,14 +75,14 @@ for d, n in tempos:
     if len(painel) >= 3 or n > 2500: cheios.append((round(t, 1), n, sorted(painel)[:8]))
     if any(l >= 31 for l in linhas): barra += 1; bytes_barra.append(n)
 print(f"blocos: completos={len(cheios)} barra={barra} (média {sum(bytes_barra) // max(1, len(bytes_barra))} B) {cheios[:5]}")
-# 4 quadros/s (ticker_fps padrão): em ~5 s úteis de captura, bem mais redesenhos da barra que o teto de 1/s
+# 6 quadros/s (ticker_fps padrão): em ~5 s úteis de captura, bem mais redesenhos da barra que o teto de 1/s
 sys.exit(0 if not cheios and barra >= 12 else 1)
 PY
 passou 'em regime, só a barra é redesenhada (zero redesenhos completos com o letreiro rolando)'
-# o pintor (fluxo) + 3 gatilhos por cliente; o gatilho só dispara enquanto o letreiro desliza
-n=$(pgrep -fc 'letreiro-tt.py gatilho')
-((n >= 3)) || falhou "esperava 3 gatilhos para o cliente (ticker_fps=4), vi $n"
-passou 'ticker_fps=4: 1 pintor + 3 gatilhos por cliente, ~4 redesenhos da barra por segundo'
+# o pintor (fluxo) + 5 gatilhos por cliente; o gatilho só dispara enquanto o letreiro desliza
+n=$(pgrep -fc 'gatilho-tt.sh')
+((n >= 5)) || falhou "esperava 5 gatilhos para o cliente (ticker_fps=6), vi $n"
+passou 'ticker_fps=6: 1 pintor + 5 gatilhos por cliente, ~6 redesenhos da barra por segundo'
 
 
 # 3) aviso fresco toma a vez no slot (negrito, range notifx) e devolve ao letreiro sozinho, sem o tt
