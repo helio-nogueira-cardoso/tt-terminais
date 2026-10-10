@@ -1,6 +1,6 @@
 ---
 name: celular-android
-description: Como um agente de IA opera um celular Android montado com o tt-terminais, sem root. Cobre as camadas (Android, Termux com tmux/sshd/tt, Debian no proot-distro onde rodam os agentes), como chegar ao aparelho pela rede, onde rodar cada comando, como ganhar o shell do sistema (adb do próprio aparelho em 127.0.0.1, Shizuku/rish), por que o Tasker religa tudo depois do reboot, por que o Wi-Fi só é preciso uma vez por boot, e como operar a tela (screencap, uiautomator, input, am start). Use quando precisar mexer num celular Android de um usuário do tt, rodar algo no Termux ou no Debian dele, usar permissões do sistema, abrir app ou link na frente, recuperar o Shizuku ou entender uma falha do adb/Shizuku/Tasker.
+description: Como um agente de IA opera um celular Android montado com o tt-terminais, sem root. Cobre as camadas (Android, Termux com tmux/sshd/tt, Debian no proot-distro onde rodam os agentes), como chegar ao aparelho pela rede, onde rodar cada comando, como ganhar o shell do sistema (adb do próprio aparelho em 127.0.0.1, Shizuku/rish), por que o Tasker religa tudo depois do reboot, por que o Wi-Fi só é preciso uma vez por boot, como operar a tela (screencap, uiautomator, input, am start) e o modo eficiente do `s23`: servidor de shell/acessibilidade com uid shell no próprio aparelho, tela virtual, ponte e log do Tasker. Use quando precisar mexer num celular Android de um usuário do tt, rodar algo no Termux ou no Debian dele, usar permissões do sistema, abrir app ou link na frente, recuperar o Shizuku ou entender uma falha do adb/Shizuku/Tasker.
 ---
 
 # Celular Android pelo tt-terminais
@@ -129,6 +129,111 @@ Pelo shell do sistema (`tt-rish -c '…'` ou `adb -s 127.0.0.1:5555 shell '…'`
 - Retorno de login (OAuth) para `http://127.0.0.1:PORTA` aberto no navegador do celular chega a um
   processo de outra máquina por túnel reverso: `ssh -N -R 127.0.0.1:P:127.0.0.1:P <dest>`, rodado na
   máquina onde o processo escuta. Navegador de texto (Carbonyl) é recusado no login do Google.
+
+## Controle eficiente: um servidor de shell + tela dentro do aparelho
+
+Chamar `tt-rish -c 'cmd'` ou `adb shell` para cada gesto funciona, mas é lento: cada `rish -c` sobe uma JVM
+(~1 s), o `uiautomator dump` espera a tela ficar ociosa (até 10 s com o Termux animando) e o adb
+precisa de rede ou de pareamento. O padrão rápido, usado no celular de referência (projeto
+`automacoes-android`, ferramenta `s23`), troca isso por **um processo de longa duração com `uid shell`**
+que o agente consulta por uma porta local.
+
+### Como é montado
+
+1. **Shizuku de pé** (seção anterior). O `rish` é só o cliente; o que importa é que o Shizuku já dá
+   `uid shell` a um app (o Termux) sem Wi-Fi e sem adb.
+2. **rish sem o script-invólucro.** No proot, o `rish` de shell falha em `getprop` e suja a saída; chama-se
+   direto o carregador:
+   `RISH_APPLICATION_ID=com.termux app_process -Djava.class.path=$HOME/bin/rish_shizuku.dex /system/bin --nice-name=rish rikka.shizuku.shell.ShizukuShellLoader -c "<cmd>"`
+   (o `.dex` precisa ser só leitura no Android 14+). Funciona também de dentro do Debian/proot, porque o
+   `app_process` é do Android e o proot só o executa.
+3. **Servidor Uid** (`Uid.java`, compilado para `uid.dex`): um `app_process` iniciado **uma vez** por esse
+   `rish` como `uid shell`, escutando em `127.0.0.1:PORTA` (token na linha). Sobe com `setsid` e em segundo
+   plano, porque o `rish -c` só volta quando todos os filhos da sessão saem e matar o `rish` mata a sessão.
+   Ele guarda um `UiAutomation` conectado e atende uma linha por conexão (`TOKEN [in PACOTE] comando`; vários
+   comandos separados por ` ; ` formam um lote que para no primeiro erro).
+4. **Cliente fino** (`s23`, um script Bash do proot): abre a porta, manda a linha, imprime a resposta. Cada
+   chamada custa **~40 ms** (contra ~1 s do `rish -c`), dos quais a maior parte é o `fork` do proot.
+5. **Vigia no cron** (`shizuku-guard`, a cada 2 min): se o Shizuku responde, garante que o Uid e o coletor de
+   log estão vivos (barato: um ping local) e os religa se caíram; se o Shizuku caiu e há Wi-Fi novo, roda o
+   `shizuku-on`. O Termux:Boot sobe o cron depois de um reboot.
+
+### O que o servidor dá ao agente (e por que é rápido)
+
+| Capacidade | Comando `s23` | Por que poupa tempo |
+|---|---|---|
+| shell do sistema | `s23 sh 'cmd'` | sem JVM nova; sai com o código de retorno |
+| ver a tela como texto | `s23 tela` | só os acionáveis do app da frente, numerados, sem barra de status e sem teclado |
+| tocar pelo número | `s23 t N` · `s23 tl N` | sem coordenadas, sem screenshot |
+| lote | `s23 ui 'click A ; wait B ; back'` | uma rodada em vez de três; devolve a tela final |
+| esperar a tela assentar | `wait Q`, `gone Q`, `assenta` | por eventos de acessibilidade (~150 ms sem mudança), nada de `sleep` no chute |
+| lista rolável como dados | `s23 linhas [rolar N]` · `s23 valor ROTULO` | TSV da maior lista da tela; valor ao lado de um rótulo |
+| telas com nome | `s23 onde` · `s23 ir NOME` | mapa em `telas.conf` com a rota; confere cada tela no caminho |
+| screenshot barato | `s23 shot 0.4 --marcas` | JPEG reduzido com os mesmos números do `tela` |
+| tela virtual | `s23 vd on` … `s23 vd off` | `abrir/ir/tela/t/shot` agem numa segunda tela invisível: o usuário continua usando o celular |
+| reserva | `s23 lock` / `unlock` / `quem` | recusa comandos que tocam a tela se outra sessão a reservou |
+
+Busca de elemento: texto, descrição ou id, sem acento e sem caixa; `=Q` exige igualdade; prefixos de papel
+`btn:` `tab:` `menu:` `campo:` `chk:`; prefixo `in PACOTE` exige que aquele app esteja na frente (evita
+tocar no app errado).
+
+### Tasker como ponte e como memória
+
+O Tasker faz o que o shell não pode e deixa rastro legível para o agente:
+
+- **Entrada sem tela.** Perfis de evento recebem intents do Termux: `termux.TASKER_RUN` (roda uma tarefa
+  pelo nome, com `arg1`/`arg2`) e `termux.TASKER_VARS` (escreve as globais pedidas em
+  `/sdcard/Tasker/estado/vars-N.json`). O `s23 run 'Tarefa'` e o `s23 vars A,B` são esses dois broadcasts
+  (`am broadcast -a …`) mais a leitura do arquivo. Extras de intent viram variáveis locais e precisam de
+  **3 ou mais letras** (`id` e `p1` não chegam).
+- **Ajustes protegidos.** O Tasker tem `WRITE_SECURE_SETTINGS` (concedido uma vez pelo shell), então liga/desliga
+  modo dev e depuração sem fio por intent (`MODO_DEV_ON`/`OFF`); é o que o Termux e o próprio shell não conseguem.
+- **Log de eventos.** Cada tarefa grava uma linha JSON (`logj`) em `/sdcard/Tasker/log/eventos.jsonl`, e o Run
+  Log do Tasker vai para `runlog.txt` (rotacionado). Um coletor de `logcat` filtrado (Tasker, Bluetooth,
+  Shizuku, início de atividades) grava em `/sdcard/Download/.s23/log/`. `s23 log [tasker|logcat] --desde HH:MM
+  [filtro]` lê as duas fontes; é assim que se diagnostica "o que aconteceu às 11:40" sem abrir a tela. O
+  logcat do aparelho guarda só alguns minutos: quem precisa de histórico é o coletor.
+- **Reaplicar mudanças.** A fonte de verdade das automações é um gerador (`gen.py` → `.prj.xml`), nunca o XML
+  editado à mão: `python3 gen.py`, `s23 import` (responde aos diálogos de importação), testar com `s23 run` e
+  conferir com `s23 log`.
+- **Estado do Wi-Fi.** Um perfil grava `1 <ms>` / `0 <ms>` em `/sdcard/Tasker/estado/wifi`; é o dado que o
+  vigia usa para tentar religar o Shizuku uma vez por conexão.
+
+### Dispensar o Wi-Fi
+
+O Wi-Fi é necessário **só para o primeiro adb depois de um reboot** (a depuração sem fio só liga com Wi-Fi
+conectado). Com isso, o `shizuku-on` faz, uma vez:
+
+1. pede ao Tasker `MODO_DEV_ON` (depuração sem fio);
+2. acha a porta (muda a cada vez): varre `127.0.0.1:30000-50000` e testa `adb connect` + `get-state`
+   (o Termux já está pareado com o próprio aparelho);
+3. inicia o Shizuku pela lib do app (`adb shell <dir do app>/lib/arm64/libshizuku.so`);
+4. abre `adb tcpip 5555` e conecta em `127.0.0.1:5555`, que **não depende de rede** (o Shizuku pode cair logo
+   depois do `tcpip`; reiniciá-lo pelo 5555).
+
+A partir daí o Shizuku é um processo que já roda e o 5555 é o adbd em loopback: **o Wi-Fi pode cair, o
+celular pode sair do alcance e o Uid, o `s23` e o `rish` continuam funcionando**, até o próximo reboot (ou
+até alguém desligar o modo dev: `shizuku-off` derruba o Shizuku junto). Tudo o que o agente faz com
+`s23 sh`, `s23 ui` e `s23 run` passa por esse caminho local, não pela rede. Se o Uid cair com o Shizuku
+vivo, o cron o religa em até 2 min (ou `s23 restart`).
+
+### Hábitos que mantêm a operação rápida e segura
+
+- Leia antes de tocar: `s23 vars`, `s23 log`, `s23 linhas`, `s23 valor`, `s23 sh 'dumpsys …'` não mexem na
+  tela. Só use a tela quando não houver outro jeito, e de preferência a virtual (`s23 vd on`).
+- Na tela real: `s23 top` antes, prefixo `in PACOTE` nos comandos, e **volte ao Termux ao terminar** ou ao
+  precisar de resposta (a conversa com o agente acontece nele). Nunca mande `back`/teclas com o Termux na
+  frente: vão para a sessão do agente.
+- Prefira lote (`ui 'a ; b ; c'`) e `wait` a `sleep`. Uma chamada por gesto desperdiça ~40 ms cada e perde a
+  janela de espera.
+- Teclas simuladas (`input keyevent`) **não passam** pelo filtro de acessibilidade nem pelo caminho do botão
+  físico: não provam que um botão físico funciona. Diagnostique botões com `getevent -lt` e `logcat | grep
+  interceptKeyTq`.
+- Telas perigosas ficam anotadas no mapa (ex.: tocar na aba VARS já selecionada abre "Limpar tudo", que apaga
+  todas as variáveis globais do Tasker).
+- Evite: `rish -c` por comando, `uiautomator dump`, `adb` quando o Uid está de pé, `<(…)` no proot (sem
+  `/dev/fd`), `pkill -f PADRÃO` cujo padrão aparece no próprio comando. O proot roda em UTC: exporte `TZ`.
+- Mudou o `Uid.java`: recompile o `.dex` e reinicie o servidor (`s23 restart`).
 
 ## Regras
 

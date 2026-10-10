@@ -590,6 +590,8 @@ Os agentes do celular rodam no Debian do proot (glibc); o shell do sistema Andro
 adb do próprio aparelho (`adb-local`, `127.0.0.1:5555`) ou do Shizuku (`tt-rish`), e o Tasker religa a
 depuração sem fio depois do reboot. Tudo isso, com receitas de tela (screencap, uiautomator, input,
 am start), está na skill **`celular-android`**, instalada pelo tt nos agentes (no PC e no proot).
+O modo eficiente de operar o aparelho (servidor `uid shell` local consultado em ~40 ms, tela virtual, lotes, ponte e
+log do Tasker, e como dispensar o Wi-Fi depois do primeiro boot) está na seção "Controle eficiente" da mesma skill.
 
 ## Testes e desenvolvimento
 
