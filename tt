@@ -347,7 +347,7 @@ faxina_vigia() {
   for f in "$RT"/tt-menu.* "$RT"/tt-menu-itens.* "$RT"/tt-atalhos.* "$RT"/tt-tema-*; do
     [[ -f $f ]] && (($(idade_arquivo "$f") > 86400)) && rm -f "$f"
   done
-  for f in "$CONF_DIR"/{fixadas,tarefas,contas-ia,atalhos}.??????; do
+  for f in "$CONF_DIR"/{fixadas,tarefas,contas-ia,atalhos,demandas}.??????; do
     [[ -f $f && $f =~ \.[A-Za-z0-9]{6}$ ]] && (($(idade_arquivo "$f") > 3600)) && rm -f "$f"
   done
   if [[ -f $log ]] && (($(wc -l <"$log") > 3000)); then tail -n 1500 "$log" >"$log.c" && mv -f "$log.c" "$log"; fi
@@ -428,6 +428,7 @@ vigiar() {
     if ((agora - ultima_contas >= 1800)); then
       ultima_contas=$agora
       ("$EU" --puxar-contas-ia >/dev/null 2>&1 &)
+      ("$EU" --puxar-demandas >/dev/null 2>&1 &)
     fi
     # E-mail com sync local (sync_local=1): o INBOX a cada TT_EMAIL_SYNC (120 s; leva segundos) e a
     # volta completa (todas as pastas) a cada TT_EMAIL_SYNC_COMPLETO (1800 s). TT_EMAIL_SYNC=0
@@ -4562,6 +4563,7 @@ a	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-a
 k	⏱ Sessões paradas: $( (($(minutos_paradas))) && echo "fecham após $(minutos_paradas) min" || echo desativado)…	$EU --config-paradas $(q "$c")
 n	🧠 Nomeador de abas: $(modo_nomeador)…	$(popup_tt "$c" "🧠 nomeador de abas" "$EU --nomeador-ui")
 g	🪟 Painel de tarefas flutuante: $(flutuante_rotulo)…	$EU --flutuante alternar $(q "$c")
+w	✉ Demandas por e-mail (remetentes autorizados)…	$(popup_tt "$c" "✉ demandas por e-mail" "$EU --demandas-ui")
 -		
 r	Renomear painel	tmux command-prompt -t $(q "$c") -p 'nome do painel:' "set-option -p -t $p @nome_painel '%%'"
 z	Maximizar / restaurar	tmux resize-pane -Z -t $p
@@ -4966,6 +4968,233 @@ puxar_contas_ia() {
   done < <(maquinas) | receber_contas_ia
 }
 
+# --- Demandas por e-mail ---------------------------------------------------------------------------
+#
+# Remetentes autorizados (cadastro comum, propagado como o das contas de IA): "e-mail<TAB>etiqueta<TAB>modo<TAB>
+# segredo<TAB>hora". A identidade é o e-mail (minúsculo) e a mudança mais nova vence; modo "-" = removido.
+# Modos: auth (padrão — o PROVEDOR que recebeu tem de ter autenticado o remetente: dmarc, ou dkim/spf alinhado),
+# segredo (o assunto leva [tt:SEGREDO]) e aberto (sem checagem: o From é forjável, use só onde isso não importa).
+# Um e-mail de remetente autorizado com assunto "[tt] título @sex 14h !alta *semanal #tag" vira uma tarefa
+# PENDENTE — estado novo no mesmo arquivo das tarefas: sincroniza, não aparece nas listas, só na aba Entrada.
+# Linhas "- texto" do corpo viram subtarefas e o resto, a descrição. Aprovar a torna aberta (com as subtarefas);
+# recusar deixa uma lápide. O id sai do Message-ID e o horário da tarefa é o da mensagem: várias máquinas que
+# sincronizam a mesma caixa criam a MESMA tarefa, e aprovar/recusar (hora de agora) vence uma recriação tardia.
+# O texto do e-mail é dado não confiável: nunca é executado.
+CONF_DEMANDAS=$CONF_DIR/demandas
+demandas_receber() { # stdin: linhas de outra máquina (ou a local); funde por e-mail, a hora mais nova vence
+  local tmp t=$CONF_DEMANDAS.trava i
+  mkdir -p "$CONF_DIR"; touch "$CONF_DEMANDAS"
+  tmp=$(mktemp "$CONF_DEMANDAS.XXXXXX") || return 1
+  cat >"$tmp.in"
+  for ((i = 0; i < 200; i++)); do
+    mkdir "$t" 2>/dev/null && break
+    (($(idade_arquivo "$t") > 20)) && rmdir "$t" 2>/dev/null
+    sleep 0.05
+  done
+  awk -F'\t' -v OFS='\t' '
+    NF >= 5 && $1 ~ /^[^ \t@]+@[^ \t@]+$/ && $3 ~ /^(auth|aberto|segredo|-)$/ && $5 ~ /^[0-9]+$/ {
+      k = tolower($1); l = k OFS $2 OFS $3 OFS $4 OFS $5
+      if (!(k in ts) || $5 + 0 > ts[k] + 0 || ($5 + 0 == ts[k] + 0 && l > linha[k])) { ts[k] = $5; linha[k] = l }
+    }
+    END { for (k in linha) print linha[k] }' "$CONF_DEMANDAS" "$tmp.in" 2>/dev/null | sort >"$tmp"
+  chmod 600 "$tmp"
+  if cmp -s "$tmp" "$CONF_DEMANDAS"; then rm -f "$tmp"; else mv "$tmp" "$CONF_DEMANDAS"; fi
+  rm -f "$tmp.in"; rmdir "$t" 2>/dev/null
+  return 0
+}
+demandas_gravar() { # e-mail etiqueta modo segredo — grava aqui com a hora de agora e propaga
+  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$(hora_agora)" | demandas_receber
+  (demandas_propagar >/dev/null 2>&1 &)
+}
+demandas_autorizar() { # e-mail [etiqueta] [auth|segredo|aberto] [segredo]
+  local e=${1:-} tag=${2:-} modo=${3:-auth} seg=${4:-}
+  e=${e,,}; tag=${tag,,}; tag=${tag#\#}
+  [[ $e =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || { echo "e-mail inválido: ${1:-}" >&2; return 2; }
+  [[ -z $tag || $tag =~ ^[a-z0-9_-]+$ ]] || { echo "etiqueta inválida (letras, números, - e _): $2" >&2; return 2; }
+  case $modo in
+    auth|aberto) seg=- ;;
+    segredo) [[ $seg =~ ^[A-Za-z0-9._-]{4,}$ ]] || { echo "o modo segredo precisa de uma palavra de 4+ caracteres (letras, números, . _ -)" >&2; return 2; } ;;
+    *) echo "modo inválido: $modo (auth, segredo ou aberto)" >&2; return 2 ;;
+  esac
+  demandas_gravar "$e" "${tag:--}" "$modo" "${seg:--}"
+  echo "autorizado: $e (etiqueta ${tag:+#$tag}${tag:-nenhuma}, modo $modo)"
+}
+demandas_remover() { # e-mail
+  local e=${1:-}; e=${e,,}
+  [[ $e == *@* ]] || { echo 'uso: tt --demanda-remover EMAIL' >&2; return 2; }
+  demandas_gravar "$e" - - -
+  echo "removido: $e"
+}
+demandas_ativas() { awk -F'\t' '$3 != "-" { n++ } END { exit !n }' "$CONF_DEMANDAS" 2>/dev/null; }
+demandas_remetente() { # e-mail -> "etiqueta<TAB>modo<TAB>segredo" (vazio se não autorizado)
+  awk -F'\t' -v e="${1,,}" '$1 == e && $3 != "-" { print $2 "\t" $3 "\t" $4 }' "$CONF_DEMANDAS" 2>/dev/null
+}
+demandas_listar() {
+  demandas_ativas || { echo "nenhum remetente autorizado — tt --demanda-autorizar EMAIL [etiqueta] [auth|segredo|aberto] [segredo]"; return 0; }
+  awk -F'\t' '$3 != "-" { printf "%-36s etiqueta %-14s modo %s\n", $1, ($2 == "-" ? "(nenhuma)" : "#" $2), $3 }' "$CONF_DEMANDAS"
+}
+demandas_propagar() {
+  local dest rot
+  [[ -s $CONF_DEMANDAS ]] || return 0
+  while read -r dest rot; do
+    (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-demandas" <"$CONF_DEMANDAS" >/dev/null 2>&1 &)
+  done < <(maquinas)
+}
+demandas_puxar() { # junta os cadastros das outras máquinas (o vigia chama com o das contas de IA)
+  local dest rot
+  while read -r dest rot; do
+    timeout 6 ssh "${SSH_OPC[@]}" "$dest" 'cat ~/.config/tt/demandas 2>/dev/null' </dev/null 2>/dev/null
+  done < <(maquinas) | demandas_receber
+}
+
+# Cria a tarefa PENDENTE de uma mensagem. Imprime o id; sai 1 sem criar se ela já existe (em qualquer
+# estado — aprovada, recusada ou ainda pendente) ou se a frase não tem título.
+demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas
+  local de=$1 msgid=$2 epoch=$3 tag=$4 frase=$5 desc=$6 subs=$7 id now t meta tags i=0 sub sid sm
+  id=$(printf 'demanda\0%s' "$msgid" | sha256sum | cut -c1-12)
+  [[ -z $(tarefas_raw | awk -F'\t' -v id="$id" '$1 == id { print 1; exit }') ]] || return 1
+  tarefas_frase_ler "$frase" || return 1
+  now=$(hora_agora); t=$epoch
+  [[ $t =~ ^[0-9]+$ ]] && ((t > 0 && t <= now)) || t=$now
+  [[ $tag == - ]] && tag=""
+  tags=$(printf '%s\n' "$tag" "${TT_F_TAGS//,/$'\n'}" | awk 'NF && !v[$0]++' | paste -sd, -)
+  meta=""
+  [[ -n $desc ]] && meta=$(tarefas_meta_set "$meta" desc "$(tarefas_b64 "$desc")")
+  [[ -n $TT_F_PRAZO ]] && meta=$(tarefas_meta_set "$meta" prazo "$TT_F_PRAZO")
+  [[ -n $TT_F_HORA ]] && meta=$(tarefas_meta_set "$meta" hora 1)
+  [[ -n $TT_F_PRIO ]] && meta=$(tarefas_meta_set "$meta" prio "$TT_F_PRIO")
+  [[ -n $TT_F_REP ]] && meta=$(tarefas_meta_set "$meta" rep "$TT_F_REP")
+  [[ -n $tags ]] && meta=$(tarefas_meta_set "$meta" tags "$tags")
+  meta=$(tarefas_meta_set "$meta" de "${de//[^A-Za-z0-9._%+@-]/}")
+  tarefas_travar || return 1
+  mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
+  {
+    cat "$CONF_TAREFAS"
+    printf '%s\tpendente\t%s\t%s\t%s\t%s\n' "$id" "$t" "$t" "$TT_F_TXT" "$meta"
+    while IFS= read -r sub; do
+      sub=$(tarefas_limpa_texto "$sub"); [[ -n $sub ]] || continue
+      i=$((i + 1)); sid=$(printf 'demanda\0%s\0sub\0%s' "$msgid" "$i" | sha256sum | cut -c1-12)
+      sm=$(tarefas_meta_set "" pai "$id"); sm=$(tarefas_meta_set "$sm" ord "$i")
+      printf '%s\tpendente\t%s\t%s\t%s\t%s\n' "$sid" "$t" "$t" "$sub" "$sm"
+    done <<<"$subs"
+  } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
+  mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tarefas_destravar
+  atualizar_barras 2>/dev/null
+  ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
+  printf '%s\n' "$id"
+}
+
+# Olha as mensagens ainda não vistas de uma caixa com espelho local e cria as demandas. Sem remetente
+# cadastrado não faz nada (custo zero). Na 1ª vez numa caixa, o que chegou há mais de 1 dia já passou.
+demandas_processar_conta() { # slug
+  local slug=${1:?} md dir proc log u arq de msgid epoch auth asb dsb ssb assunto frase desc subs info tag modo seg segmsg
+  local n=0 criadas=0 ignoradas=0 id nome="" ultimo=""
+  demandas_ativas || return 0
+  md=$(email_maildir "$slug")/INBOX; dir="$ESTADO_DIR/email-sync"; proc="$dir/$slug.demandas"; log="$dir/$slug.demandas.log"
+  [[ -d $md/new || -d $md/cur ]] || return 0
+  mkdir -p "$dir"
+  [[ -f $proc ]] || find "$md/new" "$md/cur" -type f -mmin +1440 -printf '%f\n' 2>/dev/null | sed 's/:2,.*//' | sort -u >"$proc"
+  while IFS=$'\t' read -r u arq; do
+    [[ -n $u ]] || continue
+    n=$((n + 1)); ((n <= 25)) || break
+    printf '%s\n' "$u" >>"$proc"
+    IFS=$'\t' read -r de msgid epoch auth asb dsb ssb < <(python3 -I "$EMAIL_PY" demanda "$arq" 2>/dev/null) || continue
+    info=$(demandas_remetente "$de"); [[ -n $info ]] || continue
+    IFS=$'\t' read -r tag modo seg <<<"$info"
+    assunto=$(printf '%s' "$asb" | base64 -d 2>/dev/null)
+    [[ $assunto =~ ^\[[Tt][Tt](:([^]]*))?\][[:space:]]*(.*)$ ]] || continue
+    segmsg=${BASH_REMATCH[2]}; frase=${BASH_REMATCH[3]}
+    case $modo in
+      auth) [[ $auth == pass ]] || { ignoradas=$((ignoradas + 1)); printf '%s ignorada de=%s motivo=autenticacao(%s)\n' "$(date '+%F %T')" "$de" "$auth" >>"$log"; continue; } ;;
+      segredo) [[ $seg != - && $segmsg == "$seg" ]] || { ignoradas=$((ignoradas + 1)); printf '%s ignorada de=%s motivo=segredo\n' "$(date '+%F %T')" "$de" >>"$log"; continue; } ;;
+      aberto) ;;
+      *) continue ;;
+    esac
+    [[ $dsb == - ]] && dsb=""; [[ $ssb == - ]] && ssb=""
+    desc=$(printf '%s' "$dsb" | base64 -d 2>/dev/null); subs=$(printf '%s' "$ssb" | base64 -d 2>/dev/null)
+    id=$(demanda_criar "$de" "$msgid" "$epoch" "$tag" "$frase" "$desc" "$subs") || continue
+    criadas=$((criadas + 1)); ultimo="$de — $frase"
+    printf '%s criada id=%s de=%s\n' "$(date '+%F %T')" "$id" "$de" >>"$log"
+  done < <(find "$md/new" "$md/cur" -type f -printf '%f\t%p\n' 2>/dev/null |
+           awk -F'\t' 'NR == FNR { v[$1] = 1; next } { u = $1; sub(/:2,.*/, "", u); if (!(u in v)) print u "\t" $2 }' "$proc" -)
+  [[ -f $log ]] && (($(wc -l <"$log") > 300)) && { tail -n 150 "$log" >"$log.c" && mv -f "$log.c" "$log"; }
+  if ((criadas > 0)); then
+    tarefas_notificar "📥 $criadas nova$( ((criadas > 1)) && echo s) demanda$( ((criadas > 1)) && echo s)" "$ultimo — aprove na aba Entrada" "demandas"
+  fi
+  if ((ignoradas > 0)); then
+    tarefas_notificar "⚠ $ignoradas e-mail$( ((ignoradas > 1)) && echo s) de remetente autorizado ignorado$( ((ignoradas > 1)) && echo s)" "sem a autenticação exigida (veja tt --demandas)" ""
+  fi
+  return 0
+}
+# Todas as caixas com espelho local (o --email-sync chama a de cada conta; isto é para uso manual/testes).
+demandas_processar() { # [slug]
+  local s
+  if [[ -n ${1:-} ]]; then demandas_processar_conta "$1"; return; fi
+  for s in "$CONF_DIR"/email/*.conf; do [[ -f $s ]] && demandas_processar_conta "$(basename "$s" .conf)"; done
+  return 0
+}
+
+# Aprova (vira aberta, com as subtarefas) ou recusa (lápide) demandas pendentes. Imprime quantas mudaram.
+tarefas_demanda_mudar() { # aprovar|recusar ID...
+  local op=$1; shift
+  [[ -f $CONF_TAREFAS ]] || { echo 0; return 1; }
+  local now ids=" $* " n tmp
+  now=$(hora_agora)
+  tarefas_travar || return 1
+  tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
+  awk -F'\t' -v OFS='\t' -v op="$op" -v now="$now" -v ids="$ids" '
+    function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
+    NR == FNR { if (NF >= 5 && $2 == "pendente" && mv($6, "pai") == "" && index(ids, " " $1 " ")) alvo[$1] = 1; next }
+    NF >= 5 {
+      if ($2 == "pendente" && (($1 in alvo) || (mv($6, "pai") in alvo))) {
+        $2 = (op == "aprovar" ? "aberta" : "removida"); $4 = now; if ($1 in alvo) n++
+      }
+      print
+    }
+    END { print n + 0 > "/dev/stderr" }' "$CONF_TAREFAS" "$CONF_TAREFAS" >"$tmp" 2>"$tmp.n"
+  n=$(cat "$tmp.n" 2>/dev/null); rm -f "$tmp.n"
+  mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tarefas_destravar
+  atualizar_barras 2>/dev/null
+  ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
+  echo "${n:-0}"
+}
+# Texto: demandas pendentes (id, remetente, título).
+demandas_pendentes() {
+  [[ -f $CONF_TAREFAS ]] || { echo "nenhuma demanda pendente"; return 0; }
+  awk -F'\t' '
+    function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
+    NF >= 5 && $2 == "pendente" && mv($6, "pai") == "" { print $1 "\t" (mv($6, "de") == "" ? "?" : mv($6, "de")) "\t" $5; n++ }
+    END { if (!n) print "nenhuma demanda pendente" }' "$CONF_TAREFAS"
+}
+# Tela simples (prompts) para cadastrar/remover remetentes — menu ⋯ do painel → ✉ Demandas por e-mail.
+demandas_ui() {
+  local r e tag modo seg
+  while :; do
+    clear
+    printf '\033[1m✉ Demandas por e-mail\033[0m\n\n'
+    printf 'Um e-mail de remetente autorizado com assunto \033[33m[tt] título @sex 14h !alta #tag\033[0m vira uma tarefa\n'
+    printf 'pendente (linhas "- texto" do corpo = subtarefas) na aba Entrada do painel de tarefas.\n\n'
+    demandas_listar; printf '\n'
+    printf '  \033[1ma\033[0m autorizar um remetente    \033[1mr\033[0m remover    \033[1mq\033[0m sair\n> '
+    read -rsn1 r || return 0
+    printf '\n'
+    case $r in
+      a) read -rp 'e-mail do remetente: ' e || return 0
+         read -rp 'etiqueta (opcional, sem #): ' tag || return 0
+         read -rp 'modo [auth = o provedor autenticou | segredo | aberto] (⏎ = auth): ' modo || return 0
+         seg=""; [[ ${modo:-auth} == segredo ]] && { read -rp 'segredo (vai no assunto como [tt:SEGREDO]): ' seg || return 0; }
+         demandas_autorizar "$e" "$tag" "${modo:-auth}" "$seg" || true
+         read -rsn1 -p '(tecla continua)' _ ;;
+      r) read -rp 'e-mail a remover: ' e || return 0
+         demandas_remover "$e" || true
+         read -rsn1 -p '(tecla continua)' _ ;;
+      q|$'\e') return 0 ;;
+    esac
+  done
+}
+
 # Liga/desliga a 2ª linha e força a barra a se redesenhar já (o #() da barra muda de comando).
 aplicar_fixadas() {
   tmux list-sessions >/dev/null 2>&1 || return 0
@@ -5141,7 +5370,7 @@ tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|
   local meta=$1 chave=$2 valor=$3 k out="" par; local -A M=(); local IFS='|'
   for par in $meta; do [[ $par == *=* ]] && M[${par%%=*}]=${par#*=}; done
   M[$chave]=$valor
-  for k in desc prazo hora prio rep tags pai ord arq; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
+  for k in desc prazo hora prio rep tags pai ord arq de; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
   printf '%s' "$out"
 }
 tarefas_b64()   { printf '%s' "$1" | base64 | tr -d '\n'; }
@@ -5170,7 +5399,7 @@ marcar_tarefas()   { date +%s%N >"$CONF_TAREFAS.v"; }
 # conjunto unido no formato canônico, ordenado.
 tarefas_merge() {
   awk -F'\t' -v OFS='\t' '
-    function rank(e){ return e=="removida"?4:(e=="arquivada"?3:(e=="feita"?2:1)) }
+    function rank(e){ return e=="removida"?4:(e=="arquivada"?3:(e=="feita"?2:(e=="aberta"?1:0))) }
     NF >= 5 && $1 ~ /^[0-9a-f]{6,}$/ {
       id=$1
       if (!(id in m) || $4+0 > md[id]+0 || ($4+0==md[id]+0 && rank($2) > rank(st[id]))) {
@@ -5955,6 +6184,7 @@ notif_abrir() { # ação cliente
     novidades) tmux display-popup -c "$c" -E $(tam_popup "$c") -T ' 📰 novidades do tt ' "$EU --novidades" ;;
     pendencias) tmux display-popup -c "$c" -E -w 92 -h 22 -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo" ;;
     tarefas) abrir_tarefas "$c" ;;
+    demandas) tarefas_filtro_set entrada; abrir_tarefas "$c" ;;
     calendario) abrir_calendario "$c" ;;
     cmd:*) rodar_fora 0 "${acao#cmd:}" ;;
     sessao:*) notif_ir_sessao "${acao#sessao:}" "$c" ;;
@@ -6210,7 +6440,7 @@ tarefas_relogio() { # -> "agora deslocamento-do-fuso-em-segundos"
 # que já foi). Só elas deixam o botão da barra e a aba Hoje laranja (#fab387, sem trocar o 📋); o que vence hoje e ainda
 # não passou fica âmbar. Uma passada só; serve às abas do painel e ao botão da barra.
 tarefas_contagens() {
-  [[ -s $CONF_TAREFAS ]] || { echo "0 0 0 0 0 0 0"; return 0; }
+  [[ -s $CONF_TAREFAS ]] || { echo "0 0 0 0 0 0 0 0"; return 0; }
   local agora tz; read -r agora tz < <(tarefas_relogio)
   LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" "$TAREFAS_AWK"'
     NF >= 5 && valida($1, $2) && !($1 in v) && mv($6, "pai") == "" {
@@ -6221,11 +6451,13 @@ tarefas_contagens() {
         if (mv($6, "hora") == 1 ? p < NOW : dia(p) < dia(NOW)) x++ }
     }
     NF >= 5 && $2 == "arquivada" && !($1 in w) && mv($6, "pai") == "" { w[$1] = 1; q++ }
-    END { printf "%d %d %d %d %d %d %d\n", h, a, f, z, t, q, x }' "$CONF_TAREFAS"
+    NF >= 5 && $2 == "pendente" && !($1 in ee) && mv($6, "pai") == "" { ee[$1] = 1; en++ }
+    END { printf "%d %d %d %d %d %d %d %d\n", h, a, f, z, t, q, x, en }' "$CONF_TAREFAS"
 }
 tarefas_hoje_n() { local c; read -ra c < <(tarefas_contagens); echo "${c[0]}"; }
+tarefas_demandas_n() { local c; read -ra c < <(tarefas_contagens); echo "${c[7]:-0}"; }
 barra_tarefas_fmt() {
-  local h n a x; read -r h n a a a a x < <(tarefas_contagens)
+  local h n a x en; read -r h n a a a a x en < <(tarefas_contagens)
   if ((x > 0)); then
     printf '#[range=user|tarefas]#[fg=#1e1e2e,bg=#fab387,bold] 📋 %s #[norange]#[default] ' "$x"
   elif ((n > 0)); then
@@ -6233,6 +6465,9 @@ barra_tarefas_fmt() {
   else
     printf '#[range=user|tarefas]#[fg=#a6adc8] 📋 #[norange]#[default] '
   fi
+  # Demandas por e-mail esperando aprovação: um chip lilás ao lado (o clique abre o mesmo painel).
+  ((${en:-0} > 0)) && printf '#[range=user|tarefas]#[fg=#1e1e2e,bg=#cba6f7,bold] 📥 %s #[norange]#[default] ' "$en"
+  return 0
 }
 
 # --- painel flutuante (clicar fora fecha) ---------------------------------------------------------
@@ -6323,6 +6558,7 @@ tarefas_filtro_ciclar() {
     feitas) tarefas_filtro_set prazo ;;
     prazo) tarefas_filtro_set todas ;;
     todas) tarefas_filtro_set arquivo ;;
+    arquivo) (( $(tarefas_demandas_n) > 0 )) && tarefas_filtro_set entrada || tarefas_filtro_set hoje ;;
     *) tarefas_filtro_set hoje ;;
   esac
 }
@@ -6473,7 +6709,7 @@ tarefas_cabecalho() {
       _item " ‹ Voltar " "$ativo ‹ Voltar $z" voltar
       _item "Ações: $t" "${sub}Ações: $neg$txt$t$z" "" ;;
     *)
-      local h ab fe pz to ar atr; read -r h ab fe pz to ar atr < <(tarefas_contagens)
+      local h ab fe pz to ar atr en; read -r h ab fe pz to ar atr en < <(tarefas_contagens)
       _aba() { # chave rótulo contador
         local n=""; (($3 > 0)) && n=" $3"
         if [[ $1 == "$f" ]]; then _item " $2$n " "$ativo $2$n $z" "filtro:$1"
@@ -6482,6 +6718,8 @@ tarefas_cabecalho() {
       }
       _aba hoje Hoje "$h"; _aba abertas Abertas "$ab"; _aba feitas Feitas "$fe"
       _aba prazo Agenda "$pz"; _aba todas Todas "$to"; _aba arquivo Arquivo "$ar"
+      # Entrada (demandas por e-mail): só aparece enquanto há pendentes (ou se você está nela).
+      if ((${en:-0} > 0)) || [[ $f == entrada ]]; then _aba entrada Entrada "${en:-0}"; fi
       _item " ▦ Calendário " "$bg$txt ▦ Calendário $z" calendario
       _quebra
       _botao '+ Nova' nova; _botao '✓ Feita' feita; _botao '✎ Editar' editar; _botao '↳ Subtarefa' sub; _botao '✎ Descrição' desc
@@ -6547,6 +6785,15 @@ tarefas_lista_fzf() { # [busca]
         printf "%s\t%s%s\n", id, s, ex
         return
       }
+      if (est == "pendente") {
+        s = " " AMAR NEG "▾" Z " " AMAR "📥" Z " " TXT NEG TTXT[i] Z
+        ex = ""; r = rotulo_prazo(prazo, "aberta", hora); if (r != "") ex = ex "  " r
+        r = mv(meta, "de"); if (r != "") ex = ex "  " DIM "de " r Z
+        if (tagtxt != "") ex = ex "  " LILAS tagtxt Z
+        if (TDESC[i] != "") ex = ex "  " SUB "≡" Z
+        printf "%s\t%s%s\n", id, s, ex
+        return
+      }
       nfil = NFI[id] + 0; venc = (prazo != "" && est == "aberta" && vencida(prazo, hora))
       # Só quem tem subtarefa abre (▸/▾); sem elas o lugar do glifo fica em branco, alinhado.
       s = " " (nfil > 0 ? AZUL NEG (aberto ? "▾" : "▸") Z : " ") " " caixa(est, venc) " "
@@ -6576,6 +6823,12 @@ tarefas_lista_fzf() { # [busca]
         while (k >= 1 && (FORD[S[k]] > FORD[v] || (FORD[S[k]] == FORD[v] && FCRI[S[k]] > FCRI[v]))) { S[k + 1] = S[k]; k-- }
         S[k + 1] = v
       }
+      if (TEST[i] == "pendente") {
+        for (j = 1; j <= n; j++) { f = S[j]; printf "\t%s%s☐%s %s%s\n", ind, DIM, Z, FTXT[f], Z }
+        printf "apv:%s\t%s%s✓ aprovar%s %s(vira tarefa aberta%s)%s\n", id, ind, VERDE, Z, DIM, (n > 0 ? ", com as " n " subtarefas" : ""), Z
+        printf "rec:%s\t%s%s✕ recusar%s %s(descarta a demanda)%s\n", id, ind, VERM, Z, DIM, Z
+        return
+      }
       if (TEST[i] == "arquivada") {
         for (j = 1; j <= n; j++) { f = S[j]; printf "\t%s%s%s %s%s\n", ind, DIM, (FARQ[f] ~ /:a$/ ? "☐" : "☑"), FTXT[f], Z }
         printf "rest:%s\t%s%s↩ restaurar para a lista%s %s(volta com as subtarefas, como estava)%s\n", id, ind, AZUL, Z, DIM, Z
@@ -6602,10 +6855,10 @@ tarefas_lista_fzf() { # [busca]
     BEGIN {
       cores(); HOJE = dia(NOW); civil(HOJE); ANO = CY
       split("domingo segunda terça quarta quinta sexta sábado", DOWL, " ")
-      AGENDA = (FILTRO == "prazo" || FILTRO == "hoje"); ARQ = (FILTRO == "arquivo")
+      AGENDA = (FILTRO == "prazo" || FILTRO == "hoje"); ARQ = (FILTRO == "arquivo"); ENT = (FILTRO == "entrada")
       Q = ENVIRON["TQ"]; QL = ENVIRON["TQL"]; EXP = ENVIRON["TEXP"]
     }
-    NF >= 5 && (valida($1, $2) || (ARQ && $2 == "arquivada" && valida($1, "feita"))) && !($1 in VISTO) {
+    NF >= 5 && (valida($1, $2) || (ARQ && $2 == "arquivada" && valida($1, "feita")) || (ENT && $2 == "pendente" && valida($1, "aberta"))) && !($1 in VISTO) {
       VISTO[$1] = 1; meta = (NF >= 6 ? $6 : ""); pai = mv(meta, "pai")
       if (pai != "") {
         nf++; FID[nf] = $1; FEST[nf] = $2; FTXT[nf] = $5; FPAI[nf] = pai; FARQ[nf] = mv(meta, "arq")
@@ -6640,6 +6893,7 @@ tarefas_lista_fzf() { # [busca]
       for (k = 1; k <= nt; k++) {
         i = O[k]; id = TID[i]; est = TEST[i]; prazo = mv(TMETA[i], "prazo")
         if (ARQ != (est == "arquivada")) continue
+        if (ENT != (est == "pendente")) continue
         if (FILTRO == "abertas" && est != "aberta") continue
         if (FILTRO == "feitas" && est != "feita") continue
         if (FILTRO == "prazo" && !(est == "aberta" && prazo != "")) continue
@@ -6660,6 +6914,7 @@ tarefas_lista_fzf() { # [busca]
         vistas++
         aberto = (index(EXP, "," id ",") > 0 || achou_sub)
         if (est != "arquivada" && NFI[id] + 0 == 0) aberto = 0
+        if (est == "pendente") aberto = 1      # a Entrada mostra tudo aberto: subtarefas e ✓ aprovar / ✕ recusar
         linha_topo(i, aberto, tagtxt)
         if (aberto) detalhes(i)
       }
@@ -6672,6 +6927,7 @@ tarefas_lista_fzf() { # [busca]
         if (FILTRO == "hoje")         { m1 = "Nada vence hoje."; m2 = "Aproveite. As outras estão na aba Abertas." }
         else if (FILTRO == "feitas")  { m1 = "Nenhuma tarefa concluída ainda."; m2 = "Marque uma com ⏎, duplo clique ou ✓ Feita." }
         else if (FILTRO == "prazo")   { m1 = "Nada agendado."; m2 = "Use ◷ Prazo, ou escreva @sex 14h ao criar. ▦ Calendário mostra o mês." }
+        else if (FILTRO == "entrada") { m1 = "Nenhuma demanda pendente."; m2 = "E-mails de remetentes autorizados com [tt] no assunto chegam aqui. Cadastre: menu ⋯ → ✉ Demandas por e-mail." }
         else if (FILTRO == "arquivo") { m1 = "O arquivo está vazio."; m2 = "^l (ou ▤ Arquivar no menu ⋯) guarda as feitas aqui, sem perder o histórico." }
         else if (FILTRO == "abertas") { m1 = "Tudo feito por aqui!"; m2 = "Digite no campo acima e tecle ⏎ para criar outra." }
         else                          { m1 = "Nenhuma tarefa ainda."; m2 = "Digite no campo acima e tecle ⏎ para criar a primeira." }
@@ -6718,6 +6974,12 @@ tarefas_ajuda_linhas() {
   printf '\t   menu ⋯ → ▤ Arquivar (leva as subtarefas; subtarefa não vai sozinha).\n'
   printf '\t   A aba %sArquivo%s mostra o histórico (a busca vale lá dentro); abra uma\n' "$y" "$z"
   printf '\t   tarefa e clique em %s↩ restaurar%s para ela voltar como estava.\n' "$a" "$z"
+  printf '\t\n\t %sENTRADA (DEMANDAS POR E-MAIL)%s\n' "$a" "$z"
+  printf '\t   E-mail de um remetente autorizado com %s[tt] título @sex 14h !alta #tag%s no\n' "$y" "$z"
+  printf '\t   assunto chega como demanda pendente (linhas "- texto" = subtarefas).\n'
+  printf '\t   A aba %sEntrada%s só aparece enquanto há pendentes: %s✓ aprovar%s (⏎) vira\n' "$y" "$z" "$y" "$z"
+  printf '\t   tarefa aberta; %s✕ recusar%s (ou ✕ Apagar) descarta. Remetentes: menu ⋯ da\n' "$y" "$z"
+  printf '\t   barra → ✉ Demandas por e-mail.\n'
   printf '\t\n\t %sPRAZO E HORÁRIO%s\n' "$a" "$z"
   printf '\t   %s◷ Prazo%s (^d) abre o calendário: clique no dia e, se quiser,\n' "$y" "$z"
   printf '\t   num horário (ou digite 1430); %s✓ Definir prazo%s grava. Sem\n' "$y" "$z"
@@ -6807,7 +7069,7 @@ tarefas_menu_linhas() { # id
 # O id da tarefa por trás de uma chave de linha ("desc:ID", "sub:ID", "menu:ID" ou o próprio ID).
 tarefas_id_da_chave() {
   case $1 in
-    desc:*|sub:*|menu:*|rest:*|apag:*) echo "${1#*:}" ;;
+    desc:*|sub:*|menu:*|rest:*|apag:*|apv:*|rec:*) echo "${1#*:}" ;;
     act:*) echo "${1##*:}" ;;
     criar|voltar|dia:*|'') : ;;
     *) echo "$1" ;;
@@ -6918,7 +7180,20 @@ tarefa_acao() { # evento chave
             tarefa_restaurar "$id"; tarefas_ui_set aviso "↩ Restaurada para a lista: $txt_t"; echo "$rl+$hd"; return ;;
     apag:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
             echo "execute($EU --tarefa-remover-prompt $id)+$rl+$hd"; return ;;
+    apv:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
+           tarefas_demanda_mudar aprovar "$id" >/dev/null; tarefas_ui_set aviso "✓ Demanda aprovada: $txt_t · está na lista de tarefas"; echo "$rl+$hd"; return ;;
+    rec:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
+           tarefas_demanda_mudar recusar "$id" >/dev/null; tarefas_ui_set aviso "✕ Demanda recusada: $txt_t"; echo "$rl+$hd"; return ;;
   esac
+  # Demanda pendente: só se aprova (⏎, ✓ Feita ou a linha ✓) ou recusa (✕ Apagar ou a linha ✕); o resto espera a aprovação.
+  if [[ $(tarefas_estado_de "${pai:-$id}") == pendente ]]; then
+    case $ev in
+      enter|feita) tarefas_demanda_mudar aprovar "${pai:-$id}" >/dev/null; tarefas_ui_set aviso "✓ Demanda aprovada: $txt_t · está na lista de tarefas"; echo "$rl+$hd"; return ;;
+      apagar) tarefas_demanda_mudar recusar "${pai:-$id}" >/dev/null; tarefas_ui_set aviso "✕ Demanda recusada: $txt_t"; echo "$rl+$hd"; return ;;
+      clique|duplo|espaco|direita|esquerda|cima|baixo) echo ignore; return ;;
+      *) tarefas_ui_set aviso "⚠ Demanda pendente: aprove (✓) ou recuse (✕) antes de mexer nela"; echo "$rl+$hd"; return ;;
+    esac
+  fi
   case $ev in
     arquivar)
       if [[ -n $pai ]]; then tarefas_ui_set aviso "⚠ Subtarefa não se arquiva sozinha: arquive a tarefa (leva as subtarefas)"
@@ -9832,6 +10107,7 @@ email_sync() { # slug [inbox|completo] [vigia]
   fi
   rm -f "${dir:?}/${slug:?}.andamento"
   email_novos_avisar "$slug"
+  demandas_processar_conta "$slug"
   atualizar_barras 2>/dev/null
   # Volta completa boa: refaz o índice de destinatários (quem já escreveu / para quem já se escreveu).
   [[ $modo == completo && $st == 0 ]] && email_contatos_indexar
@@ -11711,6 +11987,19 @@ case "${1:-}" in
   --tarefas-lista) tarefas_lista_fzf "${2:-}"; exit ;;
   --tarefa-toggle) [[ -n ${2:-} ]] && tarefa_alternar "$2"; exit ;;
   --hora) hora_cmd "${2:-}"; exit ;;
+  --demandas) demandas_listar; demandas_pendentes; exit 0 ;;
+  --demanda-autorizar) demandas_autorizar "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit $? ;;
+  --demanda-remover) demandas_remover "${2:-}"; exit $? ;;
+  --demandas-ui) demandas_ui; exit 0 ;;
+  --demandas-pendentes) demandas_pendentes; exit 0 ;;
+  --demandas-processar) demandas_processar "${2:-}"; exit 0 ;;
+  --demanda-aprovar|--demanda-recusar)
+    [[ -n ${2:-} ]] || { echo "uso: tt $1 ID [ID...]"; exit 2; }
+    n=$(tarefas_demanda_mudar "${1#--demanda-}" "${@:2}"); [[ $1 == --demanda-aprovar ]] && n="$n aprovada(s)" || n="$n recusada(s)"
+    echo "$n"; exit 0 ;;
+  --receber-demandas) demandas_receber; exit 0 ;;
+  --propagar-demandas) demandas_propagar; exit 0 ;;
+  --puxar-demandas) demandas_puxar; exit 0 ;;
   --flutuante) flutuante_cmd "${2:-status}" "${3:-}"; exit $? ;;
   --tarefa-clique) [[ -n ${2:-} ]] && tarefa_clique "$2"; exit ;;
   --tarefa-nova-prompt) tarefa_nova_prompt; exit ;;

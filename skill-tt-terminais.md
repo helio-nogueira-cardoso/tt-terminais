@@ -61,6 +61,12 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --atualizar [--todas]` — instala a versão publicada mais nova nesta máquina (e nas cadastradas).
 - `tt --verificar-atualizacao` / `tt --garantir-atualizacao` — checa / força estar na última.
 - `tt --versao` — versão instalada ("N hash data").
+- `tt --demanda-autorizar EMAIL [etiqueta] [auth|segredo|aberto] [segredo]` / `--demanda-remover EMAIL` /
+  `--demandas` / `--demandas-pendentes` / `--demandas-processar [conta]` / `--demanda-aprovar ID` /
+  `--demanda-recusar ID` / `--demandas-ui` — demandas por e-mail: e-mail de remetente autorizado (cadastro
+  `~/.config/tt/demandas`, propagado por `--receber/--propagar/--puxar-demandas`) com `[tt] título @prazo !prio
+  #tag` no assunto vira tarefa PENDENTE (estado novo no arquivo de tarefas) após o sync da conta; só vale com
+  autenticação do provedor (padrão), segredo ou modo aberto; aba Entrada do painel aprova/recusa.
 - `tt --flutuante [status|on|off|alternar]` — painel de tarefas flutuante: com `painel_flutuante=1` e tmux
   3.8+ (detecta `new-pane -O -C -K`), `--tarefas`/📋 abrem um painel modal da janela que fecha ao clicar
   fora; desligado (padrão) ou sem suporte, é o popup de sempre. Item 🪟 no menu ⋯ do painel.
