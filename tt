@@ -7596,6 +7596,13 @@ function valida(id, est) {
   return id ~ /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/ && (est == "aberta" || est == "feita")
 }
 function dia(ep) { return int((ep + TZOFF) / 86400) }
+# Apelido (mesma conta do tarefa_slug do bash): 8 primeiros hex do código -> CVCV + 2 dígitos.
+function slug(id,   h, i, n, d) {
+  h = substr(id "00000000", 1, 8); n = 0
+  for (i = 1; i <= 8; i++) { d = index("0123456789abcdef", substr(h, i, 1)) - 1; n = n * 16 + (d < 0 ? 0 : d) }
+  return substr("bdfgjklmnprstvz", n % 15 + 1, 1) substr("aeiou", int(n / 15) % 5 + 1, 1) \
+         substr("bdfgjklmnprstvz", int(n / 75) % 15 + 1, 1) substr("aeiou", int(n / 1125) % 5 + 1, 1) sprintf("%02d", int(n / 5625) % 100)
+}
 function civil(z,   era, doe, yoe, doy, mp) {
   z += 719468; era = int(z / 146097); doe = z - era * 146097
   yoe = int((doe - int(doe / 1460) + int(doe / 36524) - int(doe / 146096)) / 365)
@@ -8056,7 +8063,7 @@ tarefas_lista_fzf() { # [busca]
       id = TID[i]; est = TEST[i]; meta = TMETA[i]; prazo = mv(meta, "prazo"); hora = (mv(meta, "hora") == 1)
       if (est == "arquivada") {
         r = mv(meta, "arq")
-        s = " " AZUL (aberto ? "▾" : "▸") Z " " DIM (r ~ /:a$/ ? "☐" : "☑") " " TTXT[i] Z
+        s = " " AZUL (aberto ? "▾" : "▸") Z " " DIM (r ~ /:a$/ ? "☐" : "☑") " " DIM slug(id) " " TTXT[i] Z
         ex = "  " DIM "▤ arquivada " quando(TARQ[i]) Z
         if (tagtxt != "") ex = ex "  " DIM tagtxt Z
         if (TDESC[i] != "") ex = ex "  " DIM "≡" Z
@@ -8065,7 +8072,7 @@ tarefas_lista_fzf() { # [busca]
       }
       if (est == "pendente") {
         eup = (mv(meta, "upd") != "")
-        s = " " AMAR NEG "▾" Z " " AMAR (eup ? "↻" : "📥") Z " " TXT NEG TTXT[i] Z
+        s = " " AMAR NEG "▾" Z " " AMAR (eup ? "↻" : "📥") Z " " AMAR slug(id) Z " " TXT NEG TTXT[i] Z
         ex = ""; r = rotulo_prazo(prazo, "aberta", hora); if (r != "") ex = ex "  " r
         r = mv(meta, "de"); if (r != "") ex = ex "  " DIM (eup ? "atualização · " : "") "de " r Z
         if (tagtxt != "") ex = ex "  " LILAS tagtxt Z
@@ -8083,8 +8090,9 @@ tarefas_lista_fzf() { # [busca]
       # Na agenda o dia já está no título do grupo: a hora vem antes do texto. As atrasadas
       # mantêm o rótulo completo ("venceu ontem 14:00"), que diz desde quando.
       if (AGENDA && hora && !venc) s = s AZUL NEG hhmm(prazo) Z " "
-      s = s (est == "feita" ? DIM RISCO TTXT[i] Z : TXT TTXT[i] Z)
+      s = s AZUL slug(id) Z " " (est == "feita" ? DIM RISCO TTXT[i] Z : TXT TTXT[i] Z)
       ex = ""
+      if (COLS >= 80) ex = ex "  " DIM id Z
       if (!AGENDA || venc) { r = rotulo_prazo(prazo, est, hora); if (r != "") ex = ex "  " r }
       r = mv(meta, "rep")
       if (r != "") ex = ex "  " TEAL "↻ " (r == "d" ? "diária" : (r == "w" ? "semanal" : "mensal")) Z
@@ -8117,7 +8125,7 @@ tarefas_lista_fzf() { # [busca]
       }
       for (j = 1; j <= n; j++) {
         f = S[j]
-        printf "%s\t%s%s %s\n", FID[f], ind, caixa(FEST[f], 0), (FEST[f] == "feita" ? DIM RISCO FTXT[f] Z : TXT FTXT[f] Z)
+        printf "%s\t%s%s %s%s %s\n", FID[f], ind, caixa(FEST[f], 0), AZUL, "." j Z, (FEST[f] == "feita" ? DIM RISCO FTXT[f] Z : TXT FTXT[f] Z)
       }
       # Um menuzinho só, discreto e encostado à direita (pedido do dono: as linhas de ação sob a
       # tarefa poluíam): clique abre o menu da tarefa — descrição, subtarefa, prazo, prioridade…
@@ -8183,7 +8191,7 @@ tarefas_lista_fzf() { # [busca]
         achou_sub = 0
         if (QL != "") {
           for (j = 1; j <= NFI[id]; j++) if (index(tolower(FTXT[FI[id, j]]), QL)) achou_sub = 1
-          if (!index(tolower(TTXT[i] " " tagtxt " " TDESC[i]), QL) && !achou_sub) continue
+          if (!index(tolower(slug(TID[i]) " " TID[i] " " TTXT[i] " " tagtxt " " TDESC[i]), QL) && !achou_sub) continue
         }
         if (AGENDA && TGRP[i] != grupo) {
           grupo = TGRP[i]

@@ -62,7 +62,7 @@ ag=$(run --tarefas-lista | sem_cor)
 grep -q '^dia:[0-9]*	 Amanhã · ' <<<"$ag" || fail "agenda sem o título do dia de amanhã: $ag"
 pd=$(grep -n 'Dentista' <<<"$ag" | cut -d: -f1); pr=$(grep -n 'Reunião' <<<"$ag" | head -1 | cut -d: -f1)
 ((pd < pr)) || fail "agenda deveria ordenar pela hora (09:30 antes de 14:00)"
-grep -q '09:30 Dentista' <<<"$ag" || fail "na agenda a hora vem antes do texto: $ag"
+grep -qE '09:30 [a-z]{4}[0-9]{2} Dentista' <<<"$ag" || fail "na agenda a hora vem antes do texto: $ag"
 grep -q 'Atrasadas' <<<"$ag" || fail "agenda sem o grupo de atrasadas"
 grep -q 'Ler https' <<<"$ag" && fail "tarefa sem prazo não entra na agenda"
 cab=$(FZF_COLUMNS=72 run --tarefas-cabecalho | sem_cor)

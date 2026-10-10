@@ -52,7 +52,7 @@ grep -q 'Arquivo 2' <<<"$c" || fail "aba Arquivo deveria contar 2: $c"
 grep -q 'Agenda' <<<"$c" && grep -q 'Agenda [0-9]' <<<"$c" && fail "tarefa arquivada não pode contar na Agenda: $c"
 filtro arquivo
 l=$(run --tarefas-lista | sem_cor)
-grep -q '☑ Projeto  ▤ arquivada hoje' <<<"$l" || fail "aba Arquivo sem a tarefa arquivada (com a data): $l"
+grep -qE '☑ [a-z]{4}[0-9]{2} Projeto  ▤ arquivada hoje' <<<"$l" || fail "aba Arquivo sem a tarefa arquivada (com a data): $l"
 grep -q 'Ideia\|Aberta' <<<"$l" && fail "aba Arquivo só mostra arquivadas: $l"
 grep -q 'Comprar pão' <<<"$(run --tarefas-lista pão | sem_cor)" || fail "busca no Arquivo não achou"
 grep -q 'criar tarefa' <<<"$(run --tarefas-lista xyz | sem_cor)" && fail "no Arquivo a busca não oferece criar tarefa"

@@ -44,15 +44,15 @@ echo "ok: subtarefas criadas com pai e ordem"
 # render (sem as cores): mãe com texto + ▾ + subs indentadas
 sem_cor(){ sed 's/\x1b\[[0-9;]*m//g' | cut -f2-; }
 lista=$(run --tarefas-lista | sem_cor)
-grep -q '▾ ☐ mae com texto' <<<"$lista" || fail "mãe não mostra texto nem o marcador ▾ ($lista)"
-[[ $(grep -c '    ☐ sub' <<<"$lista") == 2 ]] || fail "subtarefas não aparecem indentadas sob a mãe"
+grep -qE '▾ ☐ [a-z]{4}[0-9]{2} mae com texto' <<<"$lista" || fail "mãe não mostra texto nem o marcador ▾ ($lista)"
+[[ $(grep -cE '    ☐ \.[0-9]+ sub' <<<"$lista") == 2 ]] || fail "subtarefas não aparecem indentadas sob a mãe"
 echo "ok: render mostra o texto da mãe (não corta) e as subtarefas indentadas"
 
 # reordenar subtarefa
 sub2=$(awk -F'\t' '$5=="sub dois"{print $1}' "$C")
 run --tarefa-sub-mover "$sub2" cima
 lista2=$(run --tarefas-lista | sem_cor)
-primeira_sub=$(grep -m1 '    ☐ sub' <<<"$lista2")
+primeira_sub=$(grep -m1 -E '    ☐ \.[0-9]+ sub' <<<"$lista2")
 grep -q 'sub dois' <<<"$primeira_sub" || fail "mover sub p/ cima não reordenou (1ª sub: $primeira_sub)"
 echo "ok: subtarefa reordenada (sub dois subiu)"
 
@@ -60,12 +60,12 @@ echo "ok: subtarefa reordenada (sub dois subiu)"
 grep -q '▾' <<<"$(run --tarefas-lista)" || fail "mãe deveria iniciar expandida (▾) após criar subtarefas"
 run --tarefa-clique "$id" >/dev/null 2>&1   # 1º clique: recolhe
 lista_rec=$(run --tarefas-lista | sem_cor)
-grep -q '▸ ☐ mae com texto' <<<"$lista_rec" || fail "clique na mãe não recolheu (sem ▸)"
-[[ $(grep -c '    ☐ sub' <<<"$lista_rec") == 0 ]] || fail "mãe recolhida ainda mostra subtarefas"
+grep -qE '▸ ☐ [a-z]{4}[0-9]{2} mae com texto' <<<"$lista_rec" || fail "clique na mãe não recolheu (sem ▸)"
+[[ $(grep -cE '    ☐ \.[0-9]+ sub' <<<"$lista_rec") == 0 ]] || fail "mãe recolhida ainda mostra subtarefas"
 run --tarefa-clique "$id" >/dev/null 2>&1   # 2º clique: expande de novo (regressão do grep rc=1)
 lista_exp=$(run --tarefas-lista | sem_cor)
-grep -q '▾ ☐ mae com texto' <<<"$lista_exp" || fail "clique na mãe não expandiu de volta (bug grep rc=1)"
-[[ $(grep -c '    ☐ sub' <<<"$lista_exp") == 2 ]] || fail "mãe reexpandida não mostra as 2 subtarefas"
+grep -qE '▾ ☐ [a-z]{4}[0-9]{2} mae com texto' <<<"$lista_exp" || fail "clique na mãe não expandiu de volta (bug grep rc=1)"
+[[ $(grep -cE '    ☐ \.[0-9]+ sub' <<<"$lista_exp") == 2 ]] || fail "mãe reexpandida não mostra as 2 subtarefas"
 echo "ok: clique na mãe expande e recolhe (toggle estável nos dois sentidos)"
 
 # descrição editável (editor simulado), guardada em base64, restaurada no preview

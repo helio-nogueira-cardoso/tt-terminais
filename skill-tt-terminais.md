@@ -633,7 +633,8 @@ reinjeta esta skill e as regras curtas (`agentes-regras-tt.md`) em todas as IAs 
   e nos e-mails; é ele que decide se "é a mesma tarefa". **Apelido** = forma curta e falável derivada do código
   (`kito47`; 562 500 combinações; o mesmo em toda máquina; se dois colidirem, o verbo lista as candidatas e pede o código).
 - Subtarefa também tem código e apelido; `MÃE.N` (ex.: `kito47.2`) é a N-ésima subtarefa daquela mãe.
-- Onde aparecem (discretos, sem poluir a lista): cartão da tarefa (`^/`), topo do menu ⋯ da tarefa, `tt --tarefas` (texto),
+- Onde aparecem: na lista do painel (apelido antes do título; `.N` nas subtarefas; código inteiro no fim da linha em painel largo,
+  80+ colunas; a busca acha por eles), no cartão da tarefa (`^/`), topo do menu ⋯ da tarefa, `tt --tarefas` (texto),
   `tt --tarefa-codigo`. O usuário pode dizer só "a kito47"; resolva com `tt --tarefa-codigo kito47`.
 - Ao falar com o usuário, cite sempre o apelido (e o título); em scripts e e-mails use o código inteiro.
 

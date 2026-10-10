@@ -36,11 +36,11 @@ filha=$(id_de filha)
 # 1) toda tarefa de topo tem o triângulo, pela uniformidade: azul (▸ fechada, ▾ aberta) quando tem
 #    subtarefa, ▸ apagado quando não tem o que abrir; toda tarefa tem a caixinha ☐; subtarefa indentada
 l=$(lista)
-grep -qE $'\t ▸ ☐ folha simples' <<<"$l" || fail "folha deveria ter o ▸ (apagado) no lugar, alinhado: $l"
+grep -qE $'\t ▸ ☐ [a-z]{4}[0-9]{2} folha simples' <<<"$l" || fail "folha deveria ter o ▸ (apagado) no lugar, alinhado: $l"
 grep 'folha simples' <<<"$(run --tarefas-lista)" | grep -qF $'\e[38;2;69;71;90m▸' || fail "o ▸ da folha deveria ser apagado (#45475a)"
-grep -q '▾ ☐ folha simples' <<<"$l" && fail "folha (sem subtarefa) não pode aparecer aberta (▾): $l"
-grep -q '▾ ☐ mae' <<<"$l" || fail "mãe com subtarefa recém-criada deveria estar aberta (▾): $l"
-grep -q '^filha\|	      ☐ filha' <<<"$(run --tarefas-lista | sem_cor)" || fail "subtarefa não aparece indentada"
+grep -qE '▾ ☐ [a-z]{4}[0-9]{2} folha simples' <<<"$l" && fail "folha (sem subtarefa) não pode aparecer aberta (▾): $l"
+grep -qE '▾ ☐ [a-z]{4}[0-9]{2} mae' <<<"$l" || fail "mãe com subtarefa recém-criada deveria estar aberta (▾): $l"
+grep -q '^filha\|	      ☐ \.[0-9]* filha' <<<"$(run --tarefas-lista | sem_cor)" || fail "subtarefa não aparece indentada"
 grep -q "^menu:$mae	 *⋯ menu$" <<<"$(run --tarefas-lista | sem_cor)" || fail "tarefa aberta sem o '⋯ menu' discreto (uma linha só, à direita)"
 grep -q 'adicionar subtarefa\|mais ações\|escrever uma descrição' <<<"$l" && fail "as linhas de ação sob a tarefa deveriam ter virado só o ⋯ menu: $l"
 [[ $(FZF_COLUMNS=80 run --tarefas-lista | sem_cor | grep "^menu:$mae" | cut -f2 | wc -L) -ge 70 ]] || fail "o ⋯ menu deveria ficar encostado à direita"
@@ -52,14 +52,14 @@ f=$(id_de "folha simples")
 r=$(acao clique "$f"); [[ $r == ignore ]] || fail "clique em tarefa sem subtarefa deveria ser ignorado: $r"
 [[ $(acao espaco "$f") == ignore ]] || fail "espaço em tarefa sem subtarefa deveria ser ignorado"
 acao direita "$f" >/dev/null
-grep -q '▾ ☐ folha simples' <<<"$(lista)" && fail "tarefa sem subtarefa não pode abrir (clique/espaço/seta)"
+grep -qE '▾ ☐ [a-z]{4}[0-9]{2} folha simples' <<<"$(lista)" && fail "tarefa sem subtarefa não pode abrir (clique/espaço/seta)"
 [[ $(est_de "folha simples") == aberta ]] || fail "clique simples não pode marcar a tarefa de topo"
 sleep 0.5
 r=$(acao clique "$mae"); grep -q 'reload' <<<"$r" || fail "clique na mãe não recarrega: $r"
-grep -q '▸ ☐ mae' <<<"$(lista)" || fail "clique não fechou a mãe (estava aberta)"
+grep -qE '▸ ☐ [a-z]{4}[0-9]{2} mae' <<<"$(lista)" || fail "clique não fechou a mãe (estava aberta)"
 sleep 0.5
 acao clique "$mae" >/dev/null
-grep -q '▾ ☐ mae' <<<"$(lista)" || fail "2º clique (devagar) não reabriu a mãe"
+grep -qE '▾ ☐ [a-z]{4}[0-9]{2} mae' <<<"$(lista)" || fail "2º clique (devagar) não reabriu a mãe"
 acao clique "$filha" >/dev/null
 [[ $(est_de filha) == feita ]] || fail "clique na subtarefa não a marcou"
 acao clique "$filha" >/dev/null
@@ -70,8 +70,8 @@ run --tarefa-add "so nota" >/dev/null; n=$(id_de "so nota")
 printf 'uma nota longa\n' | run --tarefa-desc "$n" - >/dev/null
 printf 'exp=%s\n' "$n" >>"$UI"
 l=$(lista)
-grep -qE $'\t ▸ ☐ so nota' <<<"$l" && ! grep -q '▾ ☐ so nota' <<<"$l" || fail "tarefa só com descrição deveria ficar com o ▸ apagado, sem abrir: $l"
-grep -qE '▾ ☐ so nota|^menu:'"$n" <<<"$l" && fail "exp= antigo de tarefa sem subtarefa não pode abrir os detalhes: $l"
+grep -qE $'\t ▸ ☐ [a-z]{4}[0-9]{2} so nota' <<<"$l" && ! grep -qE '▾ ☐ [a-z]{4}[0-9]{2} so nota' <<<"$l" || fail "tarefa só com descrição deveria ficar com o ▸ apagado, sem abrir: $l"
+grep -qE '▾ ☐ [a-z]{4}[0-9]{2} so nota|^menu:'"$n" <<<"$l" && fail "exp= antigo de tarefa sem subtarefa não pode abrir os detalhes: $l"
 grep -q 'so nota.*≡' <<<"$l" || fail "a descrição deveria seguir marcada com ≡"
 sed -i "/^exp=$n\$/d" "$UI"
 echo "ok: só descrição não abre nada (▸ apagado) e exp= sobrando é ignorado"
@@ -80,7 +80,7 @@ echo "ok: só descrição não abre nada (▸ apagado) e exp= sobrando é ignora
 #    nativo que chega depois é ignorado (não desmarca)
 acao clique "$f" >/dev/null; acao clique "$f" >/dev/null
 [[ $(est_de "folha simples") == feita ]] || fail "duplo clique não marcou a tarefa"
-grep -qE $'\t ▸ ☑ folha simples' <<<"$(lista)" || fail "duplo clique deveria deixar a tarefa ☑ (▸ apagado, sem abrir)"
+grep -qE $'\t ▸ ☑ [a-z]{4}[0-9]{2} folha simples' <<<"$(lista)" || fail "duplo clique deveria deixar a tarefa ☑ (▸ apagado, sem abrir)"
 r=$(acao duplo "$f"); [[ $r == ignore ]] || fail "double-click nativo depois do duplo deveria ser ignorado: $r"
 [[ $(est_de "folha simples") == feita ]] || fail "double-click nativo desmarcou a tarefa"
 acao enter "$f" >/dev/null

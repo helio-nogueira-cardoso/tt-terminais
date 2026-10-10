@@ -917,8 +917,10 @@ tarefa quando você aprova.
 Toda tarefa e subtarefa tem um **código** único (o id: 12 hex, igual em todas as máquinas) e um **apelido** curto e falável
 derivado dele (ex.: `kito47`). Assim você, a IA e outra pessoa falam da mesma tarefa sem ambiguidade.
 
-- **Onde aparece:** discretamente — no cartão da tarefa (`^/`), no topo do menu ⋯ da tarefa e em `tt --tarefas`; a lista do painel
-  não ganha nada a mais. `tt --tarefa-codigo [ID]` mostra apelido, código e texto.
+- **Onde aparece:** na própria lista do painel — o **apelido** vem antes do título de toda tarefa (`▸ ☐ kito47 Preparar apresentação`)
+  e as subtarefas mostram o número (`☐ .2 slide dois` = `kito47.2`); em painel largo (80+ colunas) o **código** completo fecha a
+  linha. Também no cartão da tarefa (`^/`), no topo do menu ⋯ e em `tt --tarefas`. A busca do painel acha pelo apelido ou pelo código.
+  `tt --tarefa-codigo [ID]` mostra apelido, código e texto.
 - **Como usar:** todo verbo que recebe um ID (`--tarefa-ok`, `--tarefa-editar`, `--tarefa-sub-add`, `--tarefa-rm`, `--demanda-aprovar`…)
   aceita o apelido, o código, um prefixo do código (4+ caracteres) e `MÃE.N` (`kito47.2` = 2ª subtarefa). Ambíguo: lista as candidatas.
 - **Registro de trabalho:** `tt --tarefa-log ID "o que fez" --como "…" --modelo M --esforco E --tokens-ent N --tokens-sai N` acrescenta

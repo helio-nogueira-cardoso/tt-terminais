@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.0 · 10/10/2026
+- **Apelido e código das tarefas agora aparecem na lista do painel**, para você se referir a elas sem abrir nada: o apelido
+  (`kito47`) vem antes do título de toda tarefa, as subtarefas mostram o número (`.2` = `kito47.2`) e, em painel largo (80+ colunas),
+  o código completo fecha a linha. A busca do painel também acha pelo apelido ou pelo código. Os comandos seguem aceitando os dois.
+
 ## v1.7.9 · 10/10/2026
 - Pendências 📦: quando a compilação do tmux 3.8 falha, a tela e o `pendencias.log` dizem em que etapa (download,
   configure ou make) e por quê; antes o log dizia só "rc=1" e o motivo sumia com o modal. E "ainda faltam
