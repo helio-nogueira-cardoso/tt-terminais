@@ -481,10 +481,11 @@ de tarefas; só cache) e `tarefas-git.ok` (epoch da última troca boa), `tarefas
 ControlPath do ssh, transferências em andamento.
 
 ### Pacote `~/.local/share/tt/`
-`ARQUIVOS_FONTE` (lista no `tt`): `tt email-tt.py tmux.conf tema-tmux.conf tema-terminal.sh
-tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
-ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
-skill-tt-terminais.md pacotes-tt.sh`. `ARQUIVOS_PACOTE` = `ARQUIVOS_FONTE` + `VERSAO`. Mudança que acrescenta um
+`ARQUIVOS_FONTE` (lista no `tt`): `tt email-tt.py links-tt.py letreiro-tt.py gatilho-tt.sh tmux.conf
+tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile
+README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
+skill-tt-terminais.md skill-celular-android.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py` (a
+lista dos testes, em `tests/lib.sh` e `tests/test_repo_em_dia.sh`, acompanha). `ARQUIVOS_PACOTE` = `ARQUIVOS_FONTE` + `VERSAO`. Mudança que acrescenta um
 arquivo ao pacote PRECISA entrar em `ARQUIVOS_FONTE`, senão a autoatualização instala um pacote
 incompleto.
 
@@ -567,6 +568,11 @@ boot automático, Debian via proot-distro com o Claude, e o tt. Subcomandos: `ve
 `conectar eu@pc`, `android`, opções `--nome`, `--chaves-github`, `--sem-claude`. É idempotente
 (`*.antes-celular` como backup). O proot do Android não tem `/dev/fd` (evite `<(...)`) nem `iconv`
 (por isso a remoção de acentos é feita em Python). Perfil de atalhos: `atalhos-padrao-mobile`.
+
+Os agentes do celular rodam no Debian do proot (glibc); o shell do sistema Android (`uid shell`) vem do
+adb do próprio aparelho (`adb-local`, `127.0.0.1:5555`) ou do Shizuku (`tt-rish`), e o Tasker religa a
+depuração sem fio depois do reboot. Tudo isso, com receitas de tela (screencap, uiautomator, input,
+am start), está na skill **`celular-android`**, instalada pelo tt nos agentes (no PC e no proot).
 
 ## Testes e desenvolvimento
 
@@ -658,11 +664,11 @@ suportado é: **ssh + `tmux new-session` com o agente como comando** (o mesmo pa
 
 ### Passo a passo
 
-1. **Descobrir a máquina alvo**: `tt --maquinas` (rótulo → `usuario@host`). Ex.: `helio@s23-...  s23`.
+1. **Descobrir a máquina alvo**: `tt --maquinas` (rótulo → `usuario@host`). Ex.: `usuario@celular-xyz  celular`.
 2. **Lançar o agente lá, numa sessão tmux nomeada** (headless, destacada):
    ```bash
-   # a partir de qualquer máquina do mesh, para o rótulo "s23":
-   dest=$(tt --maquinas | awk '$2=="s23"{print $1}')
+   # a partir de qualquer máquina do mesh, para o rótulo "celular":
+   dest=$(tt --maquinas | awk '$2=="celular"{print $1}')
    ssh "$dest" 'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH";
      tmux new-session -d -s ajuda-adb -c ~ \
        "ia-conta abrir -p \"<prompt da tarefa, com contexto e onde gravar o resultado>\"; exec bash"'
@@ -682,7 +688,7 @@ suportado é: **ssh + `tmux new-session` com o agente como comando** (o mesmo pa
 5. **Receber o resultado de volta**, opções reais:
    - **Arquivo** (melhor para resultado estruturado/grande): o agente remoto grava um arquivo e
      manda com `tt --enviar resultado.md <rótulo-de-origem>`, ou o chamador puxa com
-     `tt --trazer s23:~/resultado.md .` (tar+ssh, chega na pasta de recebidos; nunca sobrescreve).
+     `tt --trazer celular:~/resultado.md .` (tar+ssh, chega na pasta de recebidos; nunca sobrescreve).
    - **Clipboard broadcast** (texto curto, ≤ 2 MB, best-effort): o agente remoto copia o texto e ele
      aparece no histórico de cópias de todas as máquinas (`tt --copias`). É broadcast, não endereçado.
    - **tt-mesh** (canal git append-only entre as sessões-chefe): só se as máquinas participam do
@@ -700,17 +706,17 @@ suportado é: **ssh + `tmux new-session` com o agente como comando** (o mesmo pa
 
 ### Exemplo prático (celular: Shizuku + adb no Debian proot, fora do Wi-Fi)
 
-Situação real: uma sessão Kiro CLI numa máquina precisava entender como o celular (`s23`) usa o
+Situação real: uma sessão Kiro CLI numa máquina precisava entender como o celular (rótulo `celular`) usa o
 **Shizuku** para coordenar o **adb** numa depuração **sem Wi-Fi** (adb por USB/par local), e isso só
 podia ser investigado de dentro do próprio aparelho — ainda por cima com o agente rodando dentro do
 **Debian via proot**, que não enxerga o adb do Android diretamente. Em vez de tentar operar o celular
-por ponte de tela, a sessão lançou um agente no `s23` para investigar localmente e relatar:
+por ponte de tela, a sessão lançou um agente no celular para investigar localmente e relatar:
 
 ```bash
 # 1) achar o celular no mesh
-dest=$(tt --maquinas | awk '$2=="s23"{print $1}')
+dest=$(tt --maquinas | awk '$2=="celular"{print $1}')
 
-# 2) lançar um agente no s23, numa sessão nomeada, com o prompt da investigação.
+# 2) lançar um agente no celular, numa sessão nomeada, com o prompt da investigação.
 #    No Termux o agente roda no Debian (proot); o prompt orienta a usar o Shizuku como
 #    ponte de privilegio para o adb do Android, ja que o proot nao acessa o adb direto.
 ssh "$dest" 'PATH="$HOME/.local/bin:$PATH";
@@ -726,13 +732,14 @@ ssh "$dest" 'PATH="$HOME/.local/bin:$PATH";
 ssh "$dest" 'tt --listar-tudo --para-ia' | grep -i ajuda-adb
 
 # 4) o resultado chega pela pasta de recebidos quando o agente remoto roda o tt --enviar do prompt;
-#    ou puxe voce mesmo:  tt --trazer s23:~/resultado-adb.md .
+#    ou puxe voce mesmo:  tt --trazer celular:~/resultado-adb.md .
 ```
 
-Por que isto é melhor do que operar o celular remotamente: o agente no `s23` executa `rish`/
+Por que isto é melhor do que operar o celular remotamente: o agente no celular executa `rish`/
 `shizuku`, `pm`, `adb` e inspeciona o lado Android **de dentro do aparelho**, com os privilegios que
 o Shizuku concede, sem depender de o adb estar exposto na rede; e devolve so a conclusao (um arquivo)
-pela conexao do mesh. O agente de origem continua livre para outra frente enquanto isso.
+pela conexao do mesh. O agente de origem continua livre para outra frente enquanto isso. O mapa
+completo do aparelho (camadas, shell do sistema, Tasker, Wi-Fi, tela) está na skill `celular-android`.
 
 ## Fluxos comuns (receitas)
 

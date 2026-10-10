@@ -330,9 +330,9 @@ nome dela; no Kiro, `~/.kiro/sessions/cli`. No celular, o Claude e o Codex de de
 e configurações não vão.
 
 **A home é traduzida.** A pasta do projeto do Claude e o `cwd` das conversas dizem onde ela foi aberta;
-o tt troca a home de uma máquina pela da outra (`/home/heliocardoso` ↔ `/home/helio` ↔ `/root` do
-proot), e a ida e a volta dão os mesmos bytes. O resto do caminho é igual: `~/Gitlab/x` aqui aparece
-em `~/Gitlab/x` lá.
+o tt troca a home de uma máquina pela da outra (`/home/ana` ↔ `/home/asilva` ↔ `/root` do
+proot), e a ida e a volta dão os mesmos bytes. O resto do caminho é igual: `~/projetos/x` aqui aparece
+em `~/projetos/x` lá.
 
 **Quem recebe decide**, conversa por conversa: falta → grava; transcrição que só cresceu do outro lado →
 fica a mais longa; continuada nas duas máquinas → fica a mais nova e a outra vai para
@@ -372,14 +372,14 @@ contas do cadastro antigo são importadas sozinhas. Pela linha de comando:
 
 **Levar a conta às outras máquinas.** Credencial nunca viaja em sincronização automática: a conta só
 vai quando você manda. Ao fim do cadastro guiado (com a conta já testada) o tt pergunta *Propagar esta
-conta para as máquinas da rede (dell, s23)? (S/n)*; na tela da conta (`F2` → a conta → **⇪ Propagar
+conta para as máquinas da rede (notebook, celular)? (S/n)*; na tela da conta (`F2` → a conta → **⇪ Propagar
 para as máquinas da rede…**) há um seletor de máquinas (todas marcadas, Tab desmarca, ⏎ envia); e pela
 linha de comando:
 
     tt --email-propagar Pessoal                  # todas as máquinas cadastradas e acessíveis agora
-    tt --email-propagar Pessoal dell s23         # só essas
+    tt --email-propagar Pessoal notebook celular # só essas
     tt --email-propagar Pessoal --sobrescrever   # substitui a conta que já existir lá
-    tt --email-adicionar … propagar=1 --senha-stdin    # (ou propagar=dell,s23) já manda ao cadastrar
+    tt --email-adicionar … propagar=1 --senha-stdin    # (ou propagar=notebook,celular) já manda ao cadastrar
 
 Vai por ssh direto (o mesmo canal do tt), pelo stdin, sem arquivo intermediário: a configuração da
 conta e o que houver de segredo dela em `~/.secrets` (senha de app, token de renovação do OAuth2,
@@ -395,7 +395,7 @@ ainda não autorizada aqui não é propagada. O aerc aberto na outra máquina v�
 
 O tt deixa o aerc pronto em toda máquina (só acrescenta o que você não configurou; o que já estiver no
 `aerc.conf` fica): tema **Catppuccin Mocha** igual ao do tt, pastas em árvore com a **contagem de não
-lidas** (e as abas das contas também, `Career (3)`), conversas agrupadas em fios, datas curtas e em
+lidas** (e as abas das contas também, `Trabalho (3)`), conversas agrupadas em fios, datas curtas e em
 português (`08/10/26`, hoje `15:04`, este ano `02/01`), **ícones de estado** na lista (● nova · ○ não
 lida · 📎 anexo · ★ estrela · ↩ respondida · ↪ encaminhada · ✎ rascunho), **prévia da mensagem**
 selecionada (embaixo da lista, com a largura toda; em tela muito larga, ≥ 180 colunas, ao lado; em tela
@@ -1117,6 +1117,7 @@ Ele clona o repositório em `~/tt-terminais` e roda `termux/celular.sh` de lá. 
     termux/celular.sh verificar           o que está pronto e o que falta (não muda nada)
     termux/celular.sh conectar eu@meu-pc  chaves dos dois lados, porta 8022 no ~/.ssh/config do PC e cadastro no tt
     termux/celular.sh android             ajustes do Android (processos fantasmas, bateria) via adb ou Shizuku
+    termux/celular.sh adb                 adb do próprio aparelho, Shizuku e Tasker (voltam sozinhos depois do reboot)
     termux/celular.sh --nome cel --chaves-github USUARIO --sem-claude   opções da instalação
 
 Tudo é idempotente: depois de um `git pull`, rodar de novo aplica só o que mudou (a versão do perfil
@@ -1125,6 +1126,13 @@ fica em `~/.local/state/tt/celular`). Arquivos que seriam trocados ganham cópia
 (com botões pessoais, por exemplo) vai em `~/.config/tt/termux.properties` e tem prioridade sobre a
 geral. `CELULAR_SIMULAR=1` mostra
 os comandos sem executar.
+
+**Agentes de IA no celular.** O tt instala nos agentes (no PC e no Debian do celular) a skill
+`celular-android`: as camadas (Android, Termux, Debian no proot), como chegar ao aparelho, onde rodar
+cada comando, o shell do sistema sem root (adb do próprio aparelho em `127.0.0.1` e Shizuku), por que o
+Tasker religa a depuração sem fio depois do reboot, por que o Wi-Fi só é preciso uma vez por boot e
+como operar a tela (screencap, uiautomator, input, am start). O passo a passo para gente está em
+`termux/ANDROID-ADB.md`.
 
 ## Celular / tela pequena
 

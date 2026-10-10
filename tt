@@ -1431,7 +1431,7 @@ ajuda() {
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
-  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py)
+  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -1719,21 +1719,24 @@ instalar_contas_ia() {
 }
 
 # Ferramentas e referência para os agentes de IA: o aidlc-tt (perguntas do AI-DLC respondidas na
-# descrição de uma tarefa) em ~/.local/bin e a skill tt-terminais (verbos do tt, como avisar o
-# usuário com tt --notificar-daqui) nos agentes que existirem. Um aidlc-tt que não é link fica.
+# descrição de uma tarefa) em ~/.local/bin e as skills tt-terminais (verbos do tt, como avisar o
+# usuário com tt --notificar-daqui) e celular-android (operar um Android do tt: Termux, proot, adb
+# local, Shizuku, Tasker, tela) nos agentes que existirem. Um aidlc-tt que não é link fica.
 instalar_ferramentas_agentes() { # casa pasta-do-pacote-vista-de-lá agente...
-  local casa=$1 fonte=$2 ag alvo=$1/.local/bin/aidlc-tt
+  local casa=$1 fonte=$2 ag sk alvo=$1/.local/bin/aidlc-tt
   shift 2
   if [[ -f $DIR_TT/aidlc-tt ]]; then
     chmod +x "$casa/.local/share/tt/aidlc-tt" 2>/dev/null
     mkdir -p "$casa/.local/bin"
     [[ -e $alvo && ! -L $alvo ]] || ln -sfn "$fonte/aidlc-tt" "$alvo"
   fi
-  [[ -f $DIR_TT/skill-tt-terminais.md ]] || return 0
-  for ag in "$@"; do
-    [[ -d $ag ]] || continue
-    cmp -s "$DIR_TT/skill-tt-terminais.md" "$ag/skills/tt-terminais/SKILL.md" && continue
-    mkdir -p "$ag/skills/tt-terminais" && cp "$DIR_TT/skill-tt-terminais.md" "$ag/skills/tt-terminais/SKILL.md"
+  for sk in tt-terminais celular-android; do
+    [[ -f $DIR_TT/skill-$sk.md ]] || continue
+    for ag in "$@"; do
+      [[ -d $ag ]] || continue
+      cmp -s "$DIR_TT/skill-$sk.md" "$ag/skills/$sk/SKILL.md" && continue
+      mkdir -p "$ag/skills/$sk" && cp "$DIR_TT/skill-$sk.md" "$ag/skills/$sk/SKILL.md"
+    done
   done
   return 0
 }

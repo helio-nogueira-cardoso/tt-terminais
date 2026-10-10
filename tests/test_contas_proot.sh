@@ -21,6 +21,9 @@ done
 grep -q 'meu script' "$RF/root/.local/bin/claude-conta" || falhou 'script alheio no proot foi trocado'
 grep -q 'antigo' "$RF/root/.local/bin/claude-rot.antes-tt" || falhou 'claude-rot antigo do proot não foi guardado'
 grep -q '^name: rodizio-de-contas' "$RF/root/.claude/skills/rodizio-de-contas/SKILL.md" || falhou 'skill no proot'
+for sk in tt-terminais celular-android; do   # os agentes do celular rodam no proot: as skills vão para lá
+  cmp -s "$T/pkg/skill-$sk.md" "$RF/root/.claude/skills/$sk/SKILL.md" || falhou "skill $sk ausente no proot"
+done
 [[ $(readlink "$RF/root/.config/tt/contas-ia") == "$XDG_CONFIG_HOME/tt/contas-ia" ]] || falhou 'cadastro do proot não aponta para o do Termux'
 [[ -e $OUTRO/root/.local || -e $OUTRO/root/.claude/skills ]] && falhou 'mexeu num proot sem tt'
 [[ -L $HOME/.local/bin/ia-login ]] || falhou 'Termux sem ia-login'

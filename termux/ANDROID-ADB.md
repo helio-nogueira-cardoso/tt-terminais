@@ -2,7 +2,7 @@
 
 Guia e handoff (para gente e para agentes de IA) do arranjo que dá ao Termux o shell do sistema
 (`uid shell`, o mesmo do `adb shell`) sem PC, sem root e, depois do primeiro Wi-Fi, sem Wi-Fi —
-inclusive depois de um reboot. Foi descoberto e testado num Galaxy S23 Ultra com Android 16, à base de
+inclusive depois de um reboot. Foi descoberto e testado num Samsung Galaxy com Android 16, à base de
 experimentos com agentes de IA; vale para Android 11+.
 
 Comando único, passo a passo e idempotente (pode rodar de novo a qualquer momento):
@@ -71,6 +71,9 @@ depuração sem fio).
   depois de um reboot a depuração sem fio precisa ser ligada à mão.
 
 ## Para agentes de IA
+
+O tt instala nos agentes (no PC e no Debian do celular) a skill `celular-android`, que resume este
+guia e acrescenta as camadas (Termux, proot, Android), a chegada pela rede e as receitas de tela.
 
 - Teste antes de agir: `tt-rish --ok` (Shizuku), `adb-local status` (adb). Prefira `tt-rish -c '…'`:
   não depende de Wi-Fi.

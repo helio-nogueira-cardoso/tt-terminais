@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.6.279 · 10/10/2026
+- Nova skill para os agentes de IA, `celular-android`: como operar um celular Android montado com o tt
+  (Termux, Debian no proot, shell do sistema sem root pelo adb do próprio aparelho ou pelo Shizuku, o
+  Tasker religando tudo depois do reboot, o Wi-Fi que só é preciso uma vez por boot e as receitas de
+  tela). O tt a instala sozinho nos agentes do PC e do Debian do celular.
+- As skills e os guias ficaram genéricos: exemplos com nomes neutros no lugar de máquinas, contas e
+  pastas de uma pessoa, para qualquer um reaproveitar.
+
 ## v1.6.278 · 10/10/2026
 - Sincronização das tarefas com menu: ⋯ da barra → 🔄 (ou botão direito no 📋 → 🔄, ou
   `tt --tarefas-sync`). Escolha P2P (padrão), **Ambos** (P2P e um repositório git seu, com o histórico
@@ -20,7 +28,7 @@ vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu admin
 - Novo: as conversas do Claude Code, do Codex e do Kiro CLI ficam iguais em todas as suas máquinas. O
   `/resume` do Claude (e o `codex resume`, e o `kiro-cli chat --resume`) de qualquer máquina, em qualquer
   conta, acha a conversa que começou em outra, na pasta equivalente: a home é traduzida
-  (`/home/heliocardoso` ↔ `/home/helio` ↔ o `/root` do Debian do celular). Vem ligado; o vigia troca as
+  (por exemplo `/home/ana` ↔ `/home/asilva` ↔ o `/root` do Debian do celular). Vem ligado; o vigia troca as
   conversas a cada 30 min. `tt --sessoes-ia` mostra o estado, `tt --sessoes-ia agora` troca na hora e
   `tt --sessoes-ia off` desliga nesta máquina. Também no menu administrar → 🧠.
 - Nada se perde: conversa continuada em duas máquinas fica com a versão mais nova nas duas, e a outra é
@@ -111,15 +119,15 @@ vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu admin
 - Corrigido: a tela de novidades (📰) piscava e fechava; agora fica aberta até você apertar `q`.
 - Pendências de instalação: quando está tudo em ordem, a tela diz "✓ Tudo em ordem" e espera uma tecla,
   em vez de piscar e fechar.
-- Corrigido: depois de instalar o plugin XOAUTH2, o Gmail e o Career (contas com senha de aplicativo)
-  falhavam com "Invalid credentials" — o plugin agora só vale para contas OAuth (a Alumni).
+- Corrigido: depois de instalar o plugin XOAUTH2, contas Gmail com senha de aplicativo falhavam com
+  "Invalid credentials": o plugin agora só vale para as contas OAuth.
 
 ## v1.5.266 · 09/10/2026
 - Novo: esta tela de novidades. O tt avisa na faixa (📰) quando atualiza; o clique abre aqui.
 - O aviso dos agentes ("🤖 sessão · …") agora leva ao painel certo mesmo se a sessão foi renomeada depois.
 
 ## v1.5.264 · 09/10/2026
-- Pendências de instalação: o plugin XOAUTH2 (contas Google com OAuth, como a Alumni) agora instala de
+- Pendências de instalação: o plugin XOAUTH2 (contas Google com OAuth) agora instala de
   verdade — o apt recebia os pacotes como um nome só.
 - Se a instalação falhar, o modal espera uma tecla e deixa o erro na tela.
 
