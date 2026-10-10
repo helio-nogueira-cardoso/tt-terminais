@@ -66,7 +66,7 @@ grep -q 'Atrasadas' <<<"$ag" || fail "agenda sem o grupo de atrasadas"
 grep -q 'Ler https' <<<"$ag" && fail "tarefa sem prazo não entra na agenda"
 cab=$(FZF_COLUMNS=72 run --tarefas-cabecalho | sem_cor)
 grep -q 'Agenda 5' <<<"$cab" || fail "aba Agenda deveria contar 5 (abertas com prazo): $(sed -n 1p <<<"$cab")"
-grep -q '▦ Calendário' <<<"$cab" || fail "cabeçalho sem o botão ▦ Calendário"
+grep -q '▦' <<<"$cab" || fail "cabeçalho sem o botão ▦ (calendário)"
 r=$(FZF_QUERY= run --tarefa-acao clique "$(grep -m1 -o '^dia:[0-9]*' <<<"$ag")")
 grep -q 'calendario-agenda' <<<"$r" || fail "clique no título do dia não abre a agenda: $r"
 echo "ok: aba Agenda agrupa por dia, ordena pela hora e o título do dia abre o calendário"

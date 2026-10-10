@@ -6776,7 +6776,7 @@ function cores() {
   TXT = "\033[38;2;205;214;244m"; SUB = "\033[38;2;166;173;200m"; DIM = "\033[38;2;108;112;134m"
   AZUL = "\033[38;2;137;180;250m"; VERDE = "\033[38;2;166;227;161m"; AMAR = "\033[38;2;249;226;175m"
   VERM = "\033[38;2;243;139;168m"; PESS = "\033[38;2;250;179;135m"; LILAS = "\033[38;2;203;166;247m"
-  TEAL = "\033[38;2;148;226;213m"
+  TEAL = "\033[38;2;148;226;213m"; APAG = "\033[38;2;69;71;90m"
   split("dom seg ter qua qui sex sáb", DOW, " ")
 }
 function hhmm(ep,   s) { s = (ep + TZOFF) % 86400; return sprintf("%02d:%02d", int(s / 3600), int(s % 3600 / 60)) }
@@ -7103,27 +7103,70 @@ tarefas_cabecalho() {
       _item " ‹ Voltar " "$ativo ‹ Voltar $z" voltar
       _item "Ações: $t" "${sub}Ações: $neg$txt$t$z" "" ;;
     *)
+      # Duas linhas fixas. 1ª: as abas numa faixa só (a ativa em destaque). 2ª: as ações mais usadas à
+      # esquerda e, alinhados à direita, calendário, ajuda e ⋯ Mais (que tem todas as ações da tarefa:
+      # feita, descrição, prioridade, repetir, mover, apagar). Os atalhos de teclado não mudam. Sem
+      # espaço, o desenho encolhe em degraus (sem separador, rótulo curto, só ícones) antes de quebrar.
       local h ab fe pz to ar atr en; read -r h ab fe pz to ar atr en < <(tarefas_contagens)
-      _aba() { # chave rótulo contador
-        local n=""; (($3 > 0)) && n=" $3"
-        if [[ $1 == "$f" ]]; then _item " $2$n " "$ativo $2$n $z" "filtro:$1"
-        elif [[ $1 == hoje && ${atr:-0} -gt 0 ]]; then _item " $2$n " "$bg$sub $2$neg$lar$n $z" "filtro:$1"
-        else _item " $2$n " "$bg$sub $2$amar$n $z" "filtro:$1"; fi
-      }
-      _aba hoje Hoje "$h"; _aba abertas Abertas "$ab"; _aba feitas Feitas "$fe"
-      _aba prazo Agenda "$pz"; _aba todas Todas "$to"; _aba arquivo Arquivo "$ar"
+      local verde=$'\e[48;2;166;227;161m\e[38;2;30;30;46m\e[1m' sep=$'\e[38;2;69;71;90m'
+      local -a abas=(hoje abertas feitas prazo todas arquivo) lg=(Hoje Abertas Feitas Agenda Todas Arquivo)
+      local -a curto=(Hoje Abert. Feitas Agenda Todas Arq.) nums=("$h" "$ab" "$fe" "$pz" "$to" "$ar")
       # Entrada (demandas por e-mail): só aparece enquanto há pendentes (ou se você está nela).
-      if ((${en:-0} > 0)) || [[ $f == entrada ]]; then _aba entrada Entrada "${en:-0}"; fi
-      _item " ▦ Calendário " "$bg$txt ▦ Calendário $z" calendario
+      if ((${en:-0} > 0)) || [[ $f == entrada ]]; then abas+=(entrada); lg+=(Entrada); curto+=(Entr.); nums+=("${en:-0}"); fi
+      _ir() { local alvo=$1; ((alvo > col)) || return 0; printf -v _esp '%*s' "$((alvo - col))" ''; buf+=$_esp; col=$alvo; }
+      _abas() { # nível: 1 com separador · 2 sem · 3 rótulo curto; "medir" só devolve a largura
+        local nivel=$1 medir=${2:-} k w=0 r n x
+        if ((nivel == 3)); then local -n rot=curto; else local -n rot=lg; fi
+        for k in "${!abas[@]}"; do
+          n=""; ((${nums[k]:-0} > 0)) && n=" ${nums[k]}"
+          x=" ${rot[k]}$n "
+          if [[ -n $medir ]]; then w=$((w + ${#x})); ((k > 0 && nivel == 1)) && w=$((w + 1)); continue; fi
+          ((k > 0 && nivel == 1)) && { buf+="$sep·$z"; col=$((col + 1)); }
+          if [[ ${abas[k]} == "$f" ]]; then r="$ativo$x$z"
+          elif [[ ${abas[k]} == hoje && ${atr:-0} -gt 0 ]]; then r="$sub ${rot[k]}$neg$lar$n $z"
+          else r="$sub ${rot[k]}$amar$n $z"; fi
+          _item "$x" "$r" "filtro:${abas[k]}" colado
+        done
+        [[ -n $medir ]] && echo "$w"
+      }
+      local nv
+      for nv in 1 2 3; do (($(_abas "$nv" medir) <= larg)) && break; done
+      if (($(_abas "$nv" medir) <= larg)); then _abas "$nv"
+      else # nem com rótulo curto: quebra entre abas
+        local k n; for k in "${!abas[@]}"; do n=""; ((${nums[k]:-0} > 0)) && n=" ${nums[k]}"
+          if [[ ${abas[k]} == "$f" ]]; then _item " ${curto[k]}$n " "$ativo ${curto[k]}$n $z" "filtro:${abas[k]}"
+          else _item " ${curto[k]}$n " "$sub ${curto[k]}$amar$n $z" "filtro:${abas[k]}"; fi; done
+      fi
       _quebra
-      _botao '+ Nova' nova; _botao '✓ Feita' feita; _botao '✎ Editar' editar; _botao '↳ Subtarefa' sub; _botao '✎ Descrição' desc
-      _botao '◷ Prazo' prazo; _botao '! Prioridade' prio; _botao '↻ Repetir' rep
-      # ↑ e ↓ numa pílula só, cada seta com a sua ação; as duas metades nunca se separam
-      ((col > 1 && col + 6 > larg)) && _quebra
-      _item " ↑" "$bg$txt ↑" cima; _item " ↓ " "$bg$txt ↓ $z" baixo colado
-      _botao '✦ IA' ia
-      _botao '✕ Apagar' apagar; _botao '⋯ Mais' mais
-      _botao '? Ajuda' ajuda
+      local -a acoes=(nova sub editar prazo ia) rotulos=('+ Nova' '↳ Sub' '✎ Editar' '◷ Prazo' '✦ IA') icones=('+' '↳' '✎' '◷' '✦')
+      _acoes() { # 1 com rótulo · 2 só ícone; "medir" só devolve a largura
+        local nivel=$1 medir=${2:-} k w=0 x
+        if ((nivel == 2)); then local -n rot=icones; else local -n rot=rotulos; fi
+        for k in "${!acoes[@]}"; do
+          x=" ${rot[k]} "
+          if [[ -n $medir ]]; then w=$((w + ${#x})); ((k > 0)) && w=$((w + 1)); continue; fi
+          if ((k == 0)); then _item "$x" "$verde$x$z" "${acoes[k]}"; else _item "$x" "$bg$txt$x$z" "${acoes[k]}"; fi
+        done
+        [[ -n $medir ]] && echo "$w"
+      }
+      local mais=' ⋯ Mais ' dir esq
+      dir=$(( 3 + 1 + 3 + 1 + ${#mais} ))      # " ▦ " " ? " " ⋯ Mais "
+      esq=$(_acoes 1 medir)
+      # Degraus: rótulos + "⋯ Mais", rótulos + "⋯", só ícones + "⋯ Mais", só ícones + "⋯".
+      local nivel_ac=1
+      if ((esq + 2 + dir > larg)); then
+        mais=' ⋯ '; dir=$(( 3 + 1 + 3 + 1 + 3 ))
+        if ((esq + 2 + dir > larg)); then
+          nivel_ac=2; esq=$(_acoes 2 medir); mais=' ⋯ Mais '; dir=$(( 3 + 1 + 3 + 1 + ${#mais} ))
+          ((esq + 2 + dir <= larg)) || { mais=' ⋯ '; dir=$(( 3 + 1 + 3 + 1 + 3 )); }
+        fi
+      fi
+      _acoes "$nivel_ac"
+      ((col + 2 + dir - 1 <= larg)) || _quebra
+      _ir "$((larg - dir + 1))"
+      _item " ▦ " "$bg$sub ▦ $z" calendario colado
+      _item " ? " "$bg$sub ? $z" ajuda
+      _item "$mais" "$bg$txt$mais$z" mais
       # Aviso de uma ação recusada (ex.: concluir mãe com subtarefa aberta): aparece uma vez.
       local av; av=$(tarefas_ui_get aviso)
       if [[ -n $av ]]; then
@@ -7190,8 +7233,9 @@ tarefas_lista_fzf() { # [busca]
         return
       }
       nfil = NFI[id] + 0; venc = (prazo != "" && est == "aberta" && vencida(prazo, hora))
-      # Só quem tem subtarefa abre (▸/▾); sem elas o lugar do glifo fica em branco, alinhado.
-      s = " " (nfil > 0 ? AZUL NEG (aberto ? "▾" : "▸") Z : " ") " " caixa(est, venc) " "
+      # Todas mostram o triângulo, pela uniformidade; só quem tem subtarefa abre (▸/▾ em azul). Sem
+      # elas o ▸ fica apagado e clique, espaço e seta não abrem nada.
+      s = " " (nfil > 0 ? AZUL NEG (aberto ? "▾" : "▸") Z : APAG "▸" Z) " " caixa(est, venc) " "
       p = mv(meta, "prio")
       if (est == "aberta" && p == 1) s = s VERM "●" Z " "
       else if (est == "aberta" && p == 2) s = s AMAR "●" Z " "
@@ -7388,7 +7432,9 @@ tarefas_ajuda_linhas() {
   printf '\t   %sduplo clique%s            marca/desmarca como feita\n' "$n" "$z"
   printf '\t   %sbotão direito%s           menu com todas as ações\n' "$n" "$z"
   printf '\t   clique numa %ssubtarefa%s   marca/desmarca\n' "$n" "$z"
-  printf '\t   abas, botões do topo, títulos de dia da Agenda e as linhas de\n'
+  printf '\t   abas, botões do topo (+ Nova, ↳ Sub, ✎ Editar, ◷ Prazo, ✦ IA;\n'
+  printf '\t   à direita ▦ calendário, ? ajuda e ⋯ Mais, com as demais ações),\n'
+  printf '\t   títulos de dia da Agenda e as linhas de\n'
   printf '\t   uma tarefa aberta e o %s⋯ menu%s discreto à direita dela também\n' "$a" "$z"
   printf '\t   são clicáveis\n'
   printf '\t\n\t %sTECLADO%s\n' "$a" "$z"
@@ -7400,7 +7446,7 @@ tarefas_ajuda_linhas() {
   printf '\t   %s?%s ajuda   %sesc%s volta/fecha\n' "$y" "$z" "$y" "$z"
   printf '\t   %s(^n = Ctrl+N)%s\n' "$d" "$z"
   printf '\t\n\t %sSÍMBOLOS%s\n' "$a" "$z"
-  printf '\t   %s☐%s aberta   %s☑%s feita   %s▸%s fechada   %s▾%s aberta (só quem tem subtarefas)\n' "$t" "$z" "$verde" "$z" "$a" "$z" "$a" "$z"
+  printf '\t   %s☐%s aberta   %s☑%s feita   %s▸%s fechada   %s▾%s aberta (▸ apagado: sem subtarefas)\n' "$t" "$z" "$verde" "$z" "$a" "$z" "$a" "$z"
   printf '\t   %s●%s prioridade alta   %s●%s média   %s◷ sex 14:00%s prazo   %s◷ venceu%s atrasada\n' "$verm" "$z" "$y" "$z" "$s" "$z" "$verm" "$z"
   printf '\t   %s↻%s repete   %s━━━%s%s━━━%s 1/2 subtarefas feitas   %s≡%s tem descrição   %s#tag%s\n' "$teal" "$z" "$teal" "$z" "$d" "$z" "$s" "$z" "$lil" "$z"
   printf '\t\n\t %sSINCRONIA%s\n' "$a" "$z"

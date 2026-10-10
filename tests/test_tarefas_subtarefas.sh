@@ -117,7 +117,7 @@ grep -q 'Relatório  ≡$' <<<"$l" || fail "tarefa com descrição deveria mostr
 grep -q 'primeira linha' <<<"$l" && fail "a descrição não pode aparecer na lista"
 [[ $(acao clique "$r") == ignore ]] || fail "tarefa só com descrição (sem subtarefas) não tem o que abrir: clique deveria ser ignorado"
 l=$(run --tarefas-lista | sem_cor)
-grep -qE '[▸▾] ☐ Relatório' <<<"$l" && fail "tarefa só com descrição não pode ter ▸/▾: $l"
+grep -q '▾ ☐ Relatório' <<<"$l" && fail "tarefa só com descrição não pode abrir (▾): $l"
 grep -q '≡ descrição\|primeira linha' <<<"$l" && fail "a descrição não entra na lista (vai para o cartão): $l"
 acao direita "$m" >/dev/null
 l=$(run --tarefas-lista | sem_cor)

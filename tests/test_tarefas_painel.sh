@@ -32,17 +32,18 @@ mae=$(id_de mae)
 run --tarefa-sub-prompt "$mae" <<<"filha" >/dev/null 2>&1
 filha=$(id_de filha)
 
-# 1) só tarefa COM subtarefa tem o triângulo (▸ fechada, ▾ aberta); toda tarefa tem a caixinha ☐ e o
-#    lugar do triângulo fica em branco, alinhado, quando não há o que abrir; subtarefa indentada
+# 1) toda tarefa de topo tem o triângulo, pela uniformidade: azul (▸ fechada, ▾ aberta) quando tem
+#    subtarefa, ▸ apagado quando não tem o que abrir; toda tarefa tem a caixinha ☐; subtarefa indentada
 l=$(lista)
-grep -qE $'\t   ☐ folha simples' <<<"$l" || fail "folha deveria ter o lugar do ▸ em branco, alinhado: $l"
-grep -qE '[▸▾] ☐ folha simples' <<<"$l" && fail "folha (sem subtarefa) não pode mostrar ▸/▾: $l"
+grep -qE $'\t ▸ ☐ folha simples' <<<"$l" || fail "folha deveria ter o ▸ (apagado) no lugar, alinhado: $l"
+grep 'folha simples' <<<"$(run --tarefas-lista)" | grep -qF $'\e[38;2;69;71;90m▸' || fail "o ▸ da folha deveria ser apagado (#45475a)"
+grep -q '▾ ☐ folha simples' <<<"$l" && fail "folha (sem subtarefa) não pode aparecer aberta (▾): $l"
 grep -q '▾ ☐ mae' <<<"$l" || fail "mãe com subtarefa recém-criada deveria estar aberta (▾): $l"
 grep -q '^filha\|	      ☐ filha' <<<"$(run --tarefas-lista | sem_cor)" || fail "subtarefa não aparece indentada"
 grep -q "^menu:$mae	 *⋯ menu$" <<<"$(run --tarefas-lista | sem_cor)" || fail "tarefa aberta sem o '⋯ menu' discreto (uma linha só, à direita)"
 grep -q 'adicionar subtarefa\|mais ações\|escrever uma descrição' <<<"$l" && fail "as linhas de ação sob a tarefa deveriam ter virado só o ⋯ menu: $l"
 [[ $(FZF_COLUMNS=80 run --tarefas-lista | sem_cor | grep "^menu:$mae" | cut -f2 | wc -L) -ge 70 ]] || fail "o ⋯ menu deveria ficar encostado à direita"
-echo "ok: ▸/▾ só em quem tem subtarefa, ☐ em todas, e só um ⋯ menu discreto à direita dentro da tarefa aberta"
+echo "ok: ▸ em todas (apagado sem subtarefa), ▾ só em quem abre, ☐ em todas, e só um ⋯ menu discreto à direita dentro da tarefa aberta"
 
 # 2) clique numa tarefa COM subtarefa abre/fecha; sem subtarefa não há o que abrir (ignorado, nem o
 #    espaço nem a seta abrem); clique na subtarefa marca
@@ -50,7 +51,7 @@ f=$(id_de "folha simples")
 r=$(acao clique "$f"); [[ $r == ignore ]] || fail "clique em tarefa sem subtarefa deveria ser ignorado: $r"
 [[ $(acao espaco "$f") == ignore ]] || fail "espaço em tarefa sem subtarefa deveria ser ignorado"
 acao direita "$f" >/dev/null
-grep -qE '[▸▾] ☐ folha simples' <<<"$(lista)" && fail "tarefa sem subtarefa não pode abrir (clique/espaço/seta)"
+grep -q '▾ ☐ folha simples' <<<"$(lista)" && fail "tarefa sem subtarefa não pode abrir (clique/espaço/seta)"
 [[ $(est_de "folha simples") == aberta ]] || fail "clique simples não pode marcar a tarefa de topo"
 sleep 0.5
 r=$(acao clique "$mae"); grep -q 'reload' <<<"$r" || fail "clique na mãe não recarrega: $r"
@@ -68,17 +69,17 @@ run --tarefa-add "so nota" >/dev/null; n=$(id_de "so nota")
 printf 'uma nota longa\n' | run --tarefa-desc "$n" - >/dev/null
 printf 'exp=%s\n' "$n" >>"$UI"
 l=$(lista)
-grep -qE $'\t   ☐ so nota' <<<"$l" || fail "tarefa só com descrição deveria ficar sem ▸: $l"
+grep -qE $'\t ▸ ☐ so nota' <<<"$l" && ! grep -q '▾ ☐ so nota' <<<"$l" || fail "tarefa só com descrição deveria ficar com o ▸ apagado, sem abrir: $l"
 grep -qE '▾ ☐ so nota|^menu:'"$n" <<<"$l" && fail "exp= antigo de tarefa sem subtarefa não pode abrir os detalhes: $l"
 grep -q 'so nota.*≡' <<<"$l" || fail "a descrição deveria seguir marcada com ≡"
 sed -i "/^exp=$n\$/d" "$UI"
-echo "ok: só descrição não abre nada (sem ▸) e exp= sobrando é ignorado"
+echo "ok: só descrição não abre nada (▸ apagado) e exp= sobrando é ignorado"
 
 # 3) 2º clique rápido na mesma linha = duplo: marca feita (e, se a abriu, desfaz); o double-click
 #    nativo que chega depois é ignorado (não desmarca)
 acao clique "$f" >/dev/null; acao clique "$f" >/dev/null
 [[ $(est_de "folha simples") == feita ]] || fail "duplo clique não marcou a tarefa"
-grep -qE $'\t   ☑ folha simples' <<<"$(lista)" || fail "duplo clique deveria deixar a tarefa ☑ (sem ▸/▾)"
+grep -qE $'\t ▸ ☑ folha simples' <<<"$(lista)" || fail "duplo clique deveria deixar a tarefa ☑ (▸ apagado, sem abrir)"
 r=$(acao duplo "$f"); [[ $r == ignore ]] || fail "double-click nativo depois do duplo deveria ser ignorado: $r"
 [[ $(est_de "folha simples") == feita ]] || fail "double-click nativo desmarcou a tarefa"
 acao enter "$f" >/dev/null
@@ -135,14 +136,24 @@ for larg in 40 64 72 120; do
     txt=$(sed -n "${ln}p" <<<"$cab"); pedaco=${txt:$((c1 - 1)):$((c2 - c1 + 1))}
     [[ -n ${pedaco// /} ]] || fail "mapa aponta para vazio ($ac em $larg)"
     case $ac in
-      filtro:hoje) [[ $pedaco == *Hoje* ]] ;; nova) [[ $pedaco == *Nova* ]] ;; feita) [[ $pedaco == *Feita* ]] ;;
-      ajuda) [[ $pedaco == *Ajuda* ]] ;; apagar) [[ $pedaco == *Apagar* ]] ;; cima) [[ $pedaco == *↑* ]] ;;
-      baixo) [[ $pedaco == *↓* ]] ;; *) true ;;
+      filtro:hoje) [[ $pedaco == *Hoje* ]] ;; nova) [[ $pedaco == *+* ]] ;; feita) [[ $pedaco == *Feita* ]] ;;
+      ajuda) [[ $pedaco == *\?* ]] ;; calendario) [[ $pedaco == *▦* ]] ;; mais) [[ $pedaco == *⋯* ]] ;;
+      sub) [[ $pedaco == *↳* ]] ;; editar) [[ $pedaco == *✎* ]] ;; prazo) [[ $pedaco == *◷* ]] ;; ia) [[ $pedaco == *✦* ]] ;;
+      filtro:*) [[ -n ${pedaco// /} ]] ;; *) true ;;
     esac || fail "mapa do cabeçalho desalinhado em $larg colunas: $ac -> '$pedaco'"
     ((c2 <= larg - 3)) || fail "botão $ac passa da largura ($c2 > $((larg - 3)))"
   done <"$T/rt/tt-tarefas-mapa-$(id -u)"
   grep -qE '(·|•)\s*$' <<<"$cab" && fail "linha do cabeçalho termina com separador solto ($larg colunas)"
 done
+# Duas linhas fixas no painel (72 colunas): abas numa linha, ações na outra com ▦ ? ⋯ Mais encostados à
+# direita; o que saiu do topo (feita, descrição, prioridade, repetir, mover, apagar) segue no ⋯ Mais.
+cab=$(FZF_COLUMNS=72 run --tarefas-cabecalho | sem_cor)
+[[ $(wc -l <<<"$cab") == 3 ]] || fail "cabeçalho a 72 colunas deveria ter 2 linhas + régua: $cab"
+mp="$T/rt/tt-tarefas-mapa-$(id -u)"
+[[ $(awk '$4 ~ /^filtro:/ {print $1}' "$mp" | sort -u) == 1 ]] || fail "as abas deveriam caber na 1ª linha"
+[[ $(awk '$4=="mais"{print $1, $3}' "$mp") == "2 69" ]] || fail "⋯ Mais deveria fechar a 2ª linha, encostado à direita: $(awk '$4=="mais"' "$mp")"
+for ac in nova sub editar prazo ia calendario ajuda; do awk -v a=$ac '$4==a{f=1} END{exit !f}' "$mp" || fail "cabeçalho sem o botão $ac"; done
+for ac in feita prio rep apagar cima baixo desc; do awk -v a=$ac '$4==a{f=1} END{exit f}' "$mp" || fail "botão $ac deveria ter ido para o ⋯ Mais"; done
 FZF_COLUMNS=72 run --tarefas-cabecalho >/dev/null
 colf=$(awk '$4=="filtro:feitas"{print $2 + 1}' "$T/rt/tt-tarefas-mapa-$(id -u)")
 r=$(FZF_CLICK_HEADER_LINE=1 FZF_CLICK_HEADER_COLUMN=$colf acao cabecalho "$f")
