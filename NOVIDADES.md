@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.7.8 · 10/10/2026
+- Corrigido: a pendência 📦 **tmux 3.8** não compilava em nenhuma máquina. O código do tmux 3.8 precisa do `bison`
+  (yacc) para compilar, e o tt não o pedia: o `configure` parava em "yacc not found". Agora o bison entra junto com
+  as outras ferramentas de compilação (no Termux também, sem administrador). Testado com o tmux 3.8 de verdade: o
+  executável novo conversa com o servidor tmux que já está aberto, então nada muda nas sessões até você reabrir.
+
 ## v1.7.4 · 10/10/2026
 - Pendências de instalação 📦: se a janela do modal fechar no meio da instalação, o `apt` termina o que começou em vez
   de morrer pela metade (o que podia deixar o dpkg travado), e o motivo do fechamento fica em

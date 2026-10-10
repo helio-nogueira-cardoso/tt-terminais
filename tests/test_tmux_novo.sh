@@ -12,9 +12,10 @@ exit 0
 X
 printf '#!/bin/sh\nexec "$@"\n' >"$B/sudo"
 printf '#!/bin/sh\necho "tmux 3.6"\n' >"$B/tmux"
-for c in cc pkg-config; do printf '#!/bin/sh\n:\n' >"$B/$c"; done
+for c in cc pkg-config bison; do printf '#!/bin/sh\n:\n' >"$B/$c"; done
 # make de mentira: só o "install" faz algo (roda o instalar.sh que o configure de mentira deixou)
 printf '#!/bin/sh\ncase "$*" in *install*) sh ./instalar.sh ;; esac\nexit 0\n' >"$B/make"
+cp "$B/make" "$B/gmake"   # o tt prefere o gmake: um gmake de verdade no PATH pularia o make de mentira
 chmod +x "$B"/*
 export SUDOLOG=$T/sudo.log FALTAS=$T/faltas TT_GERENCIADOR=apt-get TT_PRIV=sudo TT_SO=linux TT_ARCH=x86_64 TT_LIBC=glibc TT_AMBIENTE=nativo
 : >"$FALTAS"; : >"$SUDOLOG"
@@ -41,6 +42,7 @@ lista=$(tt_em -- --pendencias); grep -q 'tmux 3.8' <<<"$lista" || falhou "a list
 # 2) instalar: o gerenciador traz o que falta para compilar e o tt compila na pasta do usuário
 out=$(tt_em TT_TMUX_URL="file://$T/tmux.tgz" TT_TMUX_SHA256="$sha" -- --pedir-sudo --sim tmux-novo </dev/null) || falhou "instalar o tmux 3.8: $out"
 grep -q 'libevent-dev' "$SUDOLOG" && grep -q 'libncurses-dev' "$SUDOLOG" || falhou "o apt deveria receber libevent-dev e libncurses-dev: $(cat "$SUDOLOG")"
+grep -qw 'bison' "$SUDOLOG" || falhou "o apt deveria receber o bison (o configure do tmux 3.8 para sem yacc): $(cat "$SUDOLOG")"
 [[ $("$HOME/.local/share/tt-tmux/bin/tmux" -V) == "tmux 3.8" ]] || falhou "o tmux compilado não ficou em tt-tmux: $out"
 [[ -L $HOME/.local/share/tt-bin/tmux && -L $HOME/.local/bin/tmux ]] || falhou "o executável deveria ser ligado em tt-bin e ~/.local/bin"
 grep -q 'servidor tmux' <<<"$out" || falhou "a saída deveria avisar que o servidor atual não foi tocado: $out"

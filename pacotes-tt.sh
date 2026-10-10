@@ -201,6 +201,7 @@ pkg-config|pkg-config|pkgconf-pkg-config|pkg-config|pkgconf|pkgconf|pkgconf|pkgc
 sasl-dev|libsasl2-dev|cyrus-sasl-devel|cyrus-sasl-devel|libsasl|cyrus-sasl-dev|libsasl-devel|cyrus-sasl|libsasl|cyrus-sasl|cyrus-sasl|cyrus-sasl
 ssl-dev|libssl-dev|openssl-devel|libopenssl-devel|openssl|openssl-dev|openssl-devel|openssl@3|openssl|~|~|openssl
 zlib-dev|zlib1g-dev|zlib-devel|zlib-devel|zlib|zlib-dev|zlib-devel|~|zlib|~|~|zlib
+yacc|bison|bison|bison|bison|bison|bison|~|bison|~|~|~
 libevent-dev|libevent-dev|libevent-devel|libevent-devel|libevent|libevent-dev|libevent-devel|libevent|libevent|libevent|libevent|libevent
 ncurses-dev|libncurses-dev|ncurses-devel|ncurses-devel|ncurses|ncurses-dev|ncurses-devel|ncurses|ncurses|~|~|~
 fonts-liberation|fonts-liberation|liberation-fonts|liberation-fonts|ttf-liberation|-|liberation-fonts-ttf|-|-|-|-|-

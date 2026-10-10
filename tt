@@ -3700,7 +3700,7 @@ instalar_pacotes_cmd() { cmd_instalar_do_gerenciador "$(gerenciador_pacotes)"; }
 # pend_resolver GER item… — preenche PK_PACOTES (nomes finais de pacote) e PK_SEM_PACOTE (itens sem
 # pacote neste gerenciador). Item = nome lógico (tmux, mbsync…), arquivo de biblioteca (libnss3.so) ou
 # um destes grupos: xoauth2-build (compilador + cabeçalhos do SASL), isync-build (para compilar o isync),
-# tmux-build (para compilar o tmux: compilador, make, pkg-config, libevent e ncurses).
+# tmux-build (para compilar o tmux: compilador, make, pkg-config, yacc, libevent e ncurses).
 pend_resolver() {
   pacotes_lib || return 1
   local ger=$1 t n; shift
@@ -3709,7 +3709,7 @@ pend_resolver() {
     case $t in
       xoauth2-build) logicos+=(cc libc-dev sasl-dev ssl-dev) ;;
       isync-build) logicos+=(cc libc-dev make perl sasl-dev ssl-dev zlib-dev pkg-config) ;;
-      tmux-build) logicos+=(cc libc-dev make pkg-config libevent-dev ncurses-dev) ;;
+      tmux-build) logicos+=(cc libc-dev make pkg-config yacc libevent-dev ncurses-dev) ;;
       -|plugin-xoauth2|'') ;;
       *.so|*.so.*) if n=$(pk_pacote_lib "$ger" "$t"); then libs+=("$n"); else sem+=("$t"); fi ;;
       *) logicos+=("$t") ;;
@@ -3985,10 +3985,12 @@ tmux_compilavel() { # há como compilar aqui (Linux/macOS/Termux)? Em outras pla
   case $(pk_so 2>/dev/null) in linux | macos) return 0 ;; esac
   [[ $(pk_ambiente 2>/dev/null) == termux ]]
 }
-tmux_deps_faltam() { # faltam compilador, make, pkg-config, tar, curl ou cabeçalhos (libevent, ncurses)?
+tmux_deps_faltam() { # faltam compilador, make, pkg-config, yacc, tar, curl ou cabeçalhos (libevent, ncurses)?
   finge_falta tmux-build && return 0
   falta_cmd cc && falta_cmd gcc && falta_cmd clang && return 0
   falta_cmd make && falta_cmd gmake && return 0
+  # o configure do tmux 3.8 para em "yacc not found" (o código da gramática não vem pronto no pacote)
+  falta_cmd yacc && falta_cmd bison && falta_cmd byacc && return 0
   falta_cmd pkg-config && falta_cmd pkgconf && return 0
   falta_cmd curl && return 0
   falta_cmd tar && return 0
