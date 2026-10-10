@@ -61,6 +61,13 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --atualizar [--todas]` — instala a versão publicada mais nova nesta máquina (e nas cadastradas).
 - `tt --verificar-atualizacao` / `tt --garantir-atualizacao` — checa / força estar na última.
 - `tt --versao` — versão instalada ("N hash data").
+- `tt --flutuante [status|on|off|alternar]` — painel de tarefas flutuante: com `painel_flutuante=1` e tmux
+  3.8+ (detecta `new-pane -O -C -K`), `--tarefas`/📋 abrem um painel modal da janela que fecha ao clicar
+  fora; desligado (padrão) ou sem suporte, é o popup de sempre. Item 🪟 no menu ⋯ do painel.
+- `tt --hora [--sincronizar|agora]` — hora confiável: mostra o relógio da máquina, o desvio medido contra
+  a internet (Cloudflare/Google/Apple, mediana; cache em `$RT/tt-hora`, válido por 12 h) e a hora que o tt
+  usa nas tarefas e na barra; `--sincronizar` mede agora; `agora` imprime o epoch confiável. Config
+  `hora_sync=0` desliga, `hora_urls=` troca os endpoints. Desvio ≥ 60 s: `@barra_hora` mostra a hora corrigida.
 - `tt --help` (`-h`, `ajuda`) — os verbos do dia a dia, a versão e onde está o resto. Uma opção
   desconhecida (`tt --xyz`) sai com código 2 e aponta para a ajuda (não abre a central).
 - `tt --pacote` (interno) — emite o tar do pacote no stdout.
@@ -416,6 +423,7 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
 - E-mail (sync local) a cada `TT_EMAIL_SYNC` s (default 120; 300 ocioso; 0 desliga): `--email-sync --vigia`.
 - Padrão visual + memória a cada 300 s: `--reforcar-padrao`, `--memoria-agentes`.
 - Atualização a cada `TT_T_ATUALIZACAO` s: `--garantir-atualizacao`.
+- Hora confiável a cada `TT_T_HORA` s (21600; 15 min enquanto não houver medida): `--hora --sincronizar`.
 - Toda volta: fecha sessões paradas, pontes ociosas, Claude duplicados, janelas vazias abandonadas.
 - Nomeação automática por sessão (título do Claude; primeiro nome; revisão por pontos).
 

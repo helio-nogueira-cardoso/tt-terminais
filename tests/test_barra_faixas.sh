@@ -44,6 +44,8 @@ for m in tok.finditer(raw):
         if f == 'm': sgr(p)
         elif f in 'Hf':
             q = (p or '1;1').split(';'); r = int(q[0] or 1) - 1; c = int((q + ['1'])[1] or 1) - 1
+        elif f == 'd': r = max(0, int(p or 1) - 1)   # VPA: o tmux 3.5a posiciona o aviso assim (o 3.6 usa CUP)
+        elif f == 'G': c = max(0, int(p or 1) - 1)   # CHA
         elif f == 'K':
             for x in range(c, W): bg[r][x] = cur; ch[r][x] = ' '
         elif f == 'J' and p in ('2', '3'):

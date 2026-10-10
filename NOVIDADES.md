@@ -3,6 +3,22 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.5.268 · 10/10/2026
+- Tarefas: só quem tem subtarefas mostra o triângulo (▸/▾) e abre ao clicar. Sem subtarefas não há o que
+  abrir: o clique só seleciona, e o menu da tarefa segue no botão direito, em ⋯ Mais ou em `Ctrl+O`.
+- Novo (opcional, vem desligado): painel de tarefas flutuante que fecha ao clicar fora. Precisa de tmux 3.8
+  ou mais novo; liga em menu ⋯ do painel → 🪟 (ou `tt --flutuante on`). Ligado, o painel é da janela: todo
+  aparelho que olha a janela o vê (o popup de hoje só aparece onde você clicou). Aberto, a barra de status
+  fica inerte (o tmux bloqueia): feche clicando fora, com Esc ou com `tt --tarefas` de novo. Com tmux
+  mais velho o toggle avisa e o painel segue como popup.
+- Novo: hora confiável. O tt mede o desvio do relógio da máquina contra a internet (Cloudflare, Google e
+  Apple; a cada 6 h, só o vigia) e usa relógio + desvio nas tarefas (prazo, "hoje", lembretes, ordem das
+  edições) e na data/hora da barra. Sem rede ou sem medida, vale o relógio da máquina. `tt --hora` mostra
+  o desvio; `tt --hora --sincronizar` mede agora; `hora_sync=0` no config desliga.
+- Corrigido: tarefa que se repete (diária, semanal, mensal) avançava o prazo errado ao ser concluída — a
+  semanal andava 14 horas em vez de 7 dias e a diária mudava a hora. Agora avança o período inteiro e
+  mantém a hora.
+
 ## v1.5.267 · 09/10/2026
 - Corrigido: a tela de novidades (📰) piscava e fechava; agora fica aberta até você apertar `q`.
 - Pendências de instalação: quando está tudo em ordem, a tela diz "✓ Tudo em ordem" e espera uma tecla,

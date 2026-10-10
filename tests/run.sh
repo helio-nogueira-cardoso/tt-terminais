@@ -160,9 +160,9 @@ grep -Fq -- "-b rounded" <<<"$corpo_email" || falha 'e-mail: subjanela deve ter 
 rg -q '@tt_papel email' "$tt" && falha 'e-mail: não deve mais marcar papel de sessão email — é popup'
 # O 📧 vem antes do relógio %H:%M. O botão ⇅ arquivos saiu da barra: enviar/trazer ficam no menu do painel.
 rg -q 'range=user\|arquivos' "$tema" && falha 'barra: botão ⇅ arquivos não deve voltar (redundante com o menu do painel)'
-pos_eml=$(rg -n 'range=user\|email' "$tema" | head -1 | cut -d: -f1)
-pos_rel=$(rg -n '%H:%M' "$tema" | head -1 | cut -d: -f1)
-[[ -n $pos_eml && -n $pos_rel && $pos_eml -lt $pos_rel ]] ||
+# (Quem monta o 📧 e o relógio é o tt, em atualizar_barras — não o tema: numa mesma linha de valor o 📧
+# vem primeiro. O `rg` no tema falhava dentro de $(…) e o set -e encerrava o run.sh em silêncio aqui.)
+awk '/range=user\|email/ && /range=user\|relogio/ { if (index($0, "range=user|email") < index($0, "range=user|relogio")) ok = 1 } END { exit !ok }' "$tt" ||
   falha 'e-mail: 📧 não está antes do relógio na barra'
 ((falhas == base)) && ok 'botão de e-mail: barra, rota, botão, verbo e posição' || true
 
@@ -170,7 +170,9 @@ pos_rel=$(rg -n '%H:%M' "$tema" | head -1 | cut -d: -f1)
 # abre o slide-over, direito abre o menu), verbos de CLI, atalho de teclado e sincronização.
 base=$falhas
 rg -q 'range=user\|tarefas' "$tt" || falha 'tarefas: range do botão ausente (barra_tarefas_fmt no tt)'
-rg -q '@barra_tarefas' "$tema" || falha 'tarefas: @barra_tarefas ausente no status-format[1]'
+# (o 📋 e a versão são montados pelo tt em atualizar_barras e entram no tema pelos encaixes @barra_lado1/@barra_faixa)
+rg -q '@barra_tarefas' "$tt" && rg -q '@barra_lado1' "$tema" && rg -q '@barra_faixa' "$tema" ||
+  falha 'tarefas: @barra_tarefas ausente nas opções da barra (tt) ou encaixes @barra_lado1/@barra_faixa ausentes no tema'
 rg -Fq 'tarefas) abrir_tarefas' "$tt" || falha 'tarefas: clique esquerdo não abre o painel'
 rg -Fq 'tarefas) menu_tarefas' "$tt" || falha 'tarefas: clique direito não abre o menu'
 rg -Fq -- '--tarefas)' "$tt" || falha 'tarefas: verbo --tarefas ausente'
@@ -191,9 +193,7 @@ rg -q 'tarefas_repo' "$tt" || falha 'tarefas: repositório git pessoal (tarefas_
 rg -Fq -- '--tarefas-puxar' "$tt" || falha 'tarefas: vigia não puxa tarefas (--tarefas-puxar ausente)'
 rg -Fq -- '--tarefas-lembrete' "$tt" || falha 'tarefas: lembrete de prazo (--tarefas-lembrete) ausente'
 # A versão continua no canto direito; o 📋 vem antes dela na 2ª linha.
-pos_tar=$(rg -n '@barra_tarefas' "$tema" | head -1 | cut -d: -f1)
-pos_ver=$(rg -n '@barra_versao' "$tema" | head -1 | cut -d: -f1)
-[[ -n $pos_tar && -n $pos_ver && $pos_tar -le $pos_ver ]] || falha 'tarefas: 📋 deveria vir antes da versão na 2ª linha'
+rg -Fq '#{E:@barra_tarefas}#{E:@barra_versao}' "$tt" || falha 'tarefas: 📋 deveria vir antes da versão na linha das fixadas (@barra_lado1)'
 ((falhas == base)) && ok 'botão de tarefas: barra, rotas, verbos, atalho, slide-over e sync' || true
 
 # Tarefas ricas: wrap do texto no painel, descrição/prazo/subtarefas e o calendário no relógio.
@@ -403,7 +403,9 @@ rg -q -- ' u .*--links-tela' "$tmp/prefix-keys" || falha 'Ctrl+B u não lista os
 ((falhas == base)) && ok 'links: clique, duplo clique, arrasto e Ctrl+B u ligados; cópias passam pela correção da tela' || true
 rg -q 'MouseUp3Status.*--clique-direito' "$conf" && rg -q 'MouseUp3Pane.*--menu-painel' "$conf" && ok 'botão direito alcança menus de status e painel' ||
   falha 'botão direito não tem rota completa'
-rg -q 'align=right.*@barra_versao' "$tema" && rg -q 'range=user\|fixar' "$tema" && ok 'tema expõe pino e versão nos dois cantos da barra' ||
+# (a versão é montada pelo tt — @barra_versao — e entra à direita pelos encaixes @barra_lado1 e @barra_faixa_dir)
+rg -q 'align=right.*@barra_lado1' "$tema" && rg -q '@barra_faixa_dir' "$tema" && rg -q '@barra_versao' "$tt" && rg -q 'range=user\|fixar' "$tema" &&
+  ok 'tema expõe pino e versão nos dois cantos da barra' ||
   falha 'tema não expõe controles esperados da barra'
 ((falhas == 0)) && ok 'configuração tmux isolada' || true
 

@@ -577,9 +577,11 @@ as tarefas do dia escolhido (um clique marca feita) e **+ Nova tarefa** naquele 
 
 **Mouse** — tudo é clicável:
 
-- **clique** numa tarefa abre/fecha os detalhes (o triângulo vira ▸ fechada / ▾ aberta): as
-  subtarefas e, à direita, um **⋯ menu** discreto que abre o menu da tarefa (descrição, subtarefa,
-  prazo, prioridade, repetir, mover, arquivar, apagar);
+- **clique** numa tarefa **com subtarefas** abre/fecha os detalhes (o triângulo vira ▸ fechada / ▾
+  aberta): as subtarefas e, à direita, um **⋯ menu** discreto que abre o menu da tarefa. Tarefa
+  sem subtarefas não tem triângulo nem o que abrir (o clique só a seleciona); o menu dela fica no
+  botão direito, em **⋯ Mais** ou em `Ctrl+O` (descrição, subtarefa, prazo, prioridade, repetir,
+  mover, arquivar, apagar);
 - **duplo clique** marca/desmarca como feita (☐ → ☑); numa subtarefa basta um clique;
 - **botão direito** abre o menu da tarefa: feita, editar, descrição, subtarefa, prazo e horário,
   prioridade (alta/média/sem) e repetição (não/dia/semana/mês) como escolhas, subir/descer e apagar;
@@ -777,6 +779,45 @@ popup do e-mail (a sessão oculta segue viva) e abre a tela pedida em seguida �
 escrita para quem usa o tt). Quando o tt atualiza, o vigia põe **um** aviso 📰 na faixa; clicar abre a
 tela. Máquina recém-instalada não recebe o aviso. Quem publica uma versão acrescenta a seção dela em
 `NOVIDADES.md` no mesmo commit.
+
+## Painel de tarefas flutuante (clicar fora fecha)
+
+O painel de tarefas abre num `display-popup`, que é modal e **engole o clique fora dele** (medido no tmux
+3.5a: nem dispara bind de mouse nem fecha). O tmux 3.8 trouxe o painel modal (`new-pane -O -C`): um
+floating pane que fecha ao clicar fora. O tt usa esse painel quando você liga, e só onde o tmux sabe
+(detecção pela capacidade do `new-pane`, não pelo número da versão).
+
+- **Liga/desliga:** menu **⋯ do painel → 🪟 Painel de tarefas flutuante** (alterna e diz o estado), ou
+  `tt --flutuante [status|on|off|alternar]`. Vem **desligado**: o painel segue como popup, só na tela que
+  clicou. Valor em `painel_flutuante=1` no `~/.config/tt/config` (por máquina, porque depende do tmux dela).
+- **Diferença:** o painel flutuante é da **janela**, não do cliente — todo aparelho que olha a janela (o PC e o
+  celular pela mesma sessão, por exemplo) o vê abrir e fechar. Por isso o padrão é desligado.
+- **Fechar:** clique na janela fora do painel, `Esc` na lista (o `Esc` da ajuda/menu só volta), ou
+  `tt --tarefas` de novo. **Aberto, a barra de status fica inerte** (o tmux bloqueia o clique nela), então o
+  📋 não fecha o painel.
+- Sem tmux 3.8 (hoje a maioria das distribuições traz 3.5/3.6), ligar não quebra nada: o rótulo avisa
+  "precisa ser 3.8+" e o painel abre como popup.
+- Testes: `tests/test_flutuante.sh` (a parte com o painel real exige um tmux 3.8; aponte `TT_TMUX_38` para o
+  binário se o do sistema for mais velho).
+
+## Hora confiável
+
+O relógio de uma máquina deriva (WSL depois de hibernar, celular sem bateria) e o tt decide coisas com
+ele: prazo vencido, "hoje", lembretes, a ordem das edições no merge das tarefas e a data/hora da
+barra. Por isso o vigia mede, a cada 6 h (`TT_T_HORA`; de 15 em 15 min enquanto não houver medida), o
+desvio do relógio contra a internet — cabeçalho `Date` de Cloudflare, Google e Apple, pela mediana, e
+só vale se duas fontes concordarem (uma fonte sozinha vale até 1 dia de desvio) — e usa
+**relógio da máquina + desvio**. Sem rede, sem endpoint, sem Python ou com medida de mais de 12 h, vale o
+relógio da máquina: ele é só a reserva.
+
+- `tt --hora` mostra o relógio, o desvio e a hora que o tt está usando; `tt --hora --sincronizar` mede
+  agora; `tt --hora agora` imprime o epoch confiável (para scripts).
+- Com desvio de 60 s ou mais, a hora da barra deixa de ser o `%H:%M` do tmux (relógio da máquina) e passa a
+  ser a corrigida (`@barra_hora`, renovada pelo vigia a cada volta); com desvio menor nada muda.
+- `hora_sync=0` no `~/.config/tt/config` desliga a medição; `hora_urls=` troca a lista (separada por
+  espaços). A medição usa HTTPS: com o relógio da máquina errado por semanas o certificado falha e fica o
+  relógio dela (de propósito: um HTTP forjável não deve mexer nos seus prazos).
+- Testes: `tests/test_hora.sh` (servidores falsos com o relógio adiantado).
 
 ## Fechar sessões
 

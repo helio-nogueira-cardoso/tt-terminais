@@ -89,11 +89,25 @@ p0=$(sed -n 's/.*prazo=\([0-9]*\).*/\1/p' <<<"$(meta Faxina)")
 acao feita "$f" >/dev/null
 p1=$(sed -n 's/.*prazo=\([0-9]*\).*/\1/p' <<<"$(meta Faxina)")
 ((p1 - p0 >= 6 * 86400)) || fail "recorrente semanal deveria avançar ~7 dias ($p0 -> $p1)"
+[[ $(date -d "@$p1" +%H:%M) == "$(date -d "@$p0" +%H:%M)" ]] || fail "semanal mudou a hora do prazo ($p0 -> $p1)"
 [[ $(meta Faxina) == *hora=1* ]] || fail "recorrente perdeu o horário ao avançar: $(meta Faxina)"
 [[ $(est Faxina) == aberta && $(est cozinha) == aberta ]] || fail "recorrente deveria seguir aberta e reabrir as subtarefas"
 echo "ok: mãe recorrente avança o prazo com a hora e reabre o checklist"
 
-# 8) descrição em visão própria: fora da lista (≡), aberta mostra uma linha que abre o cartão
+# 7b) diária e mensal também mantêm a hora e andam exatamente um período (regressão: no coreutils 9.x
+#     "2026-10-11 09:00 +1 day" lia o "+1" como FUSO, e a diária virava 05:00 do dia seguinte)
+for rep in diaria mensal; do
+  run --tarefa-add-natural "Ciclo $rep @amanha 9h *$rep" >/dev/null; c=$(id_de "Ciclo $rep")
+  q0=$(sed -n 's/.*prazo=\([0-9]*\).*/\1/p' <<<"$(meta "Ciclo $rep")")
+  acao feita "$c" >/dev/null
+  q1=$(sed -n 's/.*prazo=\([0-9]*\).*/\1/p' <<<"$(meta "Ciclo $rep")")
+  [[ $(date -d "@$q1" '+%H:%M') == "$(date -d "@$q0" '+%H:%M')" ]] || fail "$rep mudou a hora do prazo: $(date -d "@$q0" '+%F %H:%M') -> $(date -d "@$q1" '+%F %H:%M')"
+  esperado=$(date -d "$([[ $rep == diaria ]] && echo '1 day' || echo '1 month') $(date -d "@$q0" '+%F %H:%M')" +%s)
+  [[ $q1 == "$esperado" ]] || fail "$rep deveria avançar exatamente um período: $(date -d "@$q0" '+%F %H:%M') -> $(date -d "@$q1" '+%F %H:%M')"
+done
+echo "ok: diária e mensal avançam um período inteiro e mantêm a hora"
+
+# 8) descrição em visão própria: fora da lista (≡), sem abrir nada; o cartão vem do menu ou de ^/
 run --tarefa-add "Relatório" >/dev/null; r=$(id_de Relatório)
 printf '#!/bin/sh\nprintf "primeira linha\\\\nsegunda linha\\\\n" > "$1"\n' >"$T/bin/ed"; chmod +x "$T/bin/ed"
 EDITOR="$T/bin/ed" run --tarefa-desc-prompt "$r" >/dev/null 2>&1
@@ -101,10 +115,13 @@ printf 'filtro=todas\nmodo=lista\n' >"$UI"
 l=$(run --tarefas-lista | sem_cor)
 grep -q 'Relatório  ≡$' <<<"$l" || fail "tarefa com descrição deveria mostrar só ≡ na linha: $(grep Relatório <<<"$l")"
 grep -q 'primeira linha' <<<"$l" && fail "a descrição não pode aparecer na lista"
-acao clique "$r" >/dev/null
+[[ $(acao clique "$r") == ignore ]] || fail "tarefa só com descrição (sem subtarefas) não tem o que abrir: clique deveria ser ignorado"
 l=$(run --tarefas-lista | sem_cor)
-grep -q '≡ descrição\|primeira linha' <<<"$l" && fail "aberta, a descrição não entra na lista (vai para o cartão): $l"
-grep -q "^menu:$r	.*⋯ menu$" <<<"$l" || fail "tarefa aberta sem o ⋯ menu discreto: $l"
+grep -qE '[▸▾] ☐ Relatório' <<<"$l" && fail "tarefa só com descrição não pode ter ▸/▾: $l"
+grep -q '≡ descrição\|primeira linha' <<<"$l" && fail "a descrição não entra na lista (vai para o cartão): $l"
+acao direita "$m" >/dev/null
+l=$(run --tarefas-lista | sem_cor)
+grep -q "^menu:$m	.*⋯ menu$" <<<"$l" || fail "mãe aberta sem o ⋯ menu discreto: $l"
 mn=$(printf 'modo=menu:%s\n' "$r" >"$UI"; run --tarefas-lista | sem_cor)
 grep -q "^act:ver:$r	.*≡ Ver a descrição" <<<"$mn" || fail "menu de tarefa com descrição sem 'Ver a descrição': $mn"
 grep -q "^act:desc:$r	.*✎ Descrição.*editar" <<<"$mn" || fail "menu deveria oferecer editar a descrição"

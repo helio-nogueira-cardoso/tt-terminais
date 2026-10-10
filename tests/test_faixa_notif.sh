@@ -14,8 +14,9 @@ grep -q '@barra_email' <<<"$f" && grep -q '@barra_tarefas' <<<"$f" ||
 grep -q '@barra_notifs' <<<"$(tmux show -gqv @barra_notifs_slot)" || falhou "slot central dos avisos nao liga @barra_notifs"
 grep -q 'align=centre.*@barra_notifs_slot' "$TT_DIR/tema-tmux.conf" || falhou "tema sem o segmento central do slot"
 d=$(tmux show -gqv @barra_faixa_dir)
-grep -q '@barra_data' <<<"$d" && grep -q '%H:%M' <<<"$d" && grep -q '@barra_versao' <<<"$d" ||
+grep -q '@barra_data' <<<"$d" && grep -q '@barra_hora' <<<"$d" && grep -q '@barra_versao' <<<"$d" ||
   falhou "lado direito da linha 2 sem data/hora/versão: $d"
+[[ $(tmux show -gqv @barra_hora) == '%H:%M' ]] || falhou "sem desvio medido, @barra_hora deveria ser o %H:%M do tmux (veio '$(tmux show -gqv @barra_hora)')"
 # Estreito: o letreiro tem prioridade — o dia some abaixo de 120 colunas e a versão abaixo de 90.
 grep -q 'e|<:#{client_width},120},,#{E:@barra_data}' <<<"$d" && grep -q 'e|<:#{client_width},90},, #{E:@barra_versao}' <<<"$d" ||
   falhou "lado direito da faixa não encolhe em terminal estreito: $d"

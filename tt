@@ -450,6 +450,15 @@ vigiar() {
       ultima_email_sync=$agora
       ("$EU" --email-sync --vigia >/dev/null 2>&1 &)
     fi
+    # Hora confiável: mede o desvio do relógio da máquina contra um endpoint (TT_T_HORA, 6 h; tenta de
+    # novo a cada 15 min enquanto não houver medida). Tarefas e barra só leem o resultado.
+    if ((agora - ${ultima_hora:-0} >= 900)); then
+      hora__ler
+      if ((HORA_T == 0 || agora - HORA_T >= ${TT_T_HORA:-21600})); then
+        ultima_hora=$agora
+        ("$EU" --hora --sincronizar >/dev/null 2>&1 &)
+      fi
+    fi
     # Pendências de instalação (sudo, plugins): um aviso na faixa, no início e a cada 6 h.
     if ((agora - ${ultima_pendencias:-0} >= 21600)); then
       ultima_pendencias=$agora
@@ -4552,6 +4561,7 @@ h	📋 Histórico de cópias…	$(popup_tt "$c" "📋 cópias" "$env $EU --copia
 a	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
 k	⏱ Sessões paradas: $( (($(minutos_paradas))) && echo "fecham após $(minutos_paradas) min" || echo desativado)…	$EU --config-paradas $(q "$c")
 n	🧠 Nomeador de abas: $(modo_nomeador)…	$(popup_tt "$c" "🧠 nomeador de abas" "$EU --nomeador-ui")
+g	🪟 Painel de tarefas flutuante: $(flutuante_rotulo)…	$EU --flutuante alternar $(q "$c")
 -		
 r	Renomear painel	tmux command-prompt -t $(q "$c") -p 'nome do painel:' "set-option -p -t $p @nome_painel '%%'"
 z	Maximizar / restaurar	tmux resize-pane -Z -t $p
@@ -5000,6 +5010,98 @@ CONF_TAREFAS=$CONF_DIR/tarefas
 # remoção às outras máquinas; depois somem (poda em tarefas_compactar).
 TAREFAS_LAPIDE_DIAS=${TT_TAREFAS_LAPIDE_DIAS:-30}
 
+# --- hora confiável -----------------------------------------------------------------------------
+#
+# O relógio da máquina deriva (WSL depois de hibernar, celular sem bateria) e o tt decide coisas com
+# ele: prazo vencido, "hoje", lembrete, ordem das edições no merge das tarefas, a data e a hora da
+# barra. Então o tt mede o desvio contra endpoints HTTPS e usa agora = relógio da máquina + desvio.
+# Sem rede, sem endpoint ou sem medida recente, vale o relógio da máquina (é só a reserva).
+# Só o vigia mede (TT_T_HORA, 6 h; a cada 15 min enquanto não houver medida); quem usa apenas lê
+# $RT/tt-hora ("desvio medido_em fontes"), sem rede. Config: hora_sync=0 desliga; hora_urls= troca a
+# lista (TT_HORA_URLS nos testes). TLS usa o relógio local: se a máquina estiver MUITO errada
+# (semanas), o certificado falha e fica o relógio dela — melhor que confiar num HTTP forjável.
+HORA_URLS_PADRAO="https://www.cloudflare.com/cdn-cgi/trace https://www.google.com/generate_204 https://www.apple.com/library/test/success.html"
+HORA_D=0 HORA_T=0 HORA_FONTE=""
+hora__ler() { # define HORA_D (desvio em vigor, 0 sem medida válida), HORA_T (quando mediu) e HORA_FONTE
+  HORA_D=0 HORA_T=0 HORA_FONTE=""
+  local d t f agora
+  [[ -r $RT/tt-hora ]] || return 0
+  read -r d t f <"$RT/tt-hora" || true
+  [[ ${d:-} =~ ^-?[0-9]+$ && ${t:-} =~ ^[0-9]+$ ]] || return 0
+  printf -v agora '%(%s)T' -1
+  HORA_T=$t HORA_FONTE=${f:-}
+  ((agora - t <= ${TT_HORA_VALE:-43200})) && HORA_D=$d
+  return 0
+}
+hora_agora() { # epoch confiável (relógio da máquina + desvio medido)
+  hora__ler
+  local agora; printf -v agora '%(%s)T' -1
+  echo $((agora + HORA_D))
+}
+# Mede o desvio e grava. Sai 1 sem nada gravado se desligada, sem python3 ou sem endpoint que concorde.
+hora_medir() {
+  [[ $(conf hora_sync) == 0 ]] && return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+  local urls=${TT_HORA_URLS:-$(conf hora_urls)} r
+  urls=${urls:-$HORA_URLS_PADRAO}
+  # shellcheck disable=SC2086
+  r=$(python3 -I - $urls <<'PY'
+import sys, time, statistics, urllib.request, email.utils
+medidas = []
+for url in sys.argv[1:]:
+    try:
+        t0 = time.time()
+        rq = urllib.request.Request(url, headers={"User-Agent": "tt-terminais"})
+        with urllib.request.urlopen(rq, timeout=4) as r:
+            corpo = r.read(4096).decode("latin-1", "replace")
+            data = r.headers.get("Date")
+        t1 = time.time()
+        srv = None
+        for ln in corpo.splitlines():                  # cloudflare/cdn-cgi/trace: ts=1791600000.123
+            if ln.startswith("ts="):
+                srv = float(ln[3:]); break
+        if srv is None and data:                       # cabeçalho Date: segundos inteiros, +0,5 s de média
+            srv = email.utils.parsedate_to_datetime(data).timestamp() + 0.5
+        if srv is None:
+            continue
+        host = url.split("/")[2]
+        medidas.append((srv - (t0 + t1) / 2, host))
+    except Exception:
+        continue
+if not medidas:
+    sys.exit(1)
+desvios = sorted(d for d, _ in medidas)
+med = statistics.median(desvios)
+bons = [h for d, h in medidas if abs(d - med) <= 5]
+# Uma fonte só vale quando o desvio é plausível (até 1 dia); acima disso, só se duas concordarem.
+if len(bons) < 2 and (len(medidas) > 1 or abs(med) > 86400):
+    sys.exit(1)
+print(round(med), ",".join(bons))
+PY
+  ) || return 1
+  [[ $r =~ ^-?[0-9]+\ [^[:space:]]+$ ]] || return 1
+  mkdir -p "$RT"
+  printf '%s %(%s)T %s\n' "${r%% *}" -1 "${r#* }" >"$RT/tt-hora.tmp.$$" && mv "$RT/tt-hora.tmp.$$" "$RT/tt-hora"
+  return 0
+}
+# tt --hora [--sincronizar|agora]: mostra (ou mede de novo) o desvio entre o relógio da máquina e o endpoint.
+hora_cmd() {
+  case ${1:-} in
+    agora) hora_agora; return 0 ;;
+    --sincronizar|--medir) hora_medir || { echo "sem medida: nenhum endpoint respondeu (ou hora_sync=0); vale o relógio da máquina" >&2; return 1; } ;;
+  esac
+  hora__ler
+  local agora; printf -v agora '%(%s)T' -1
+  printf 'relógio da máquina : %s\n' "$(tt_fmt_epoch "$agora" '+%F %T %z')"
+  if ((HORA_T > 0)); then
+    printf 'desvio             : %+d s (medido há %d min em %s%s)\n' "$HORA_D" $(((agora - HORA_T) / 60)) "${HORA_FONTE:-?}" \
+      "$( ((agora - HORA_T > ${TT_HORA_VALE:-43200})) && echo '; velho demais, vale o relógio da máquina' )"
+  else
+    echo 'desvio             : sem medida (vale o relógio da máquina)'
+  fi
+  printf 'hora do tt         : %s\n' "$(tt_fmt_epoch "$((agora + HORA_D))" '+%F %T %z')"
+}
+
 tarefas_sync_modo() { local m; m=$(conf tarefas_sync); echo "${m:-p2p}"; }
 tarefas_repo_url()  { conf tarefas_repo; }
 
@@ -5046,7 +5148,7 @@ tarefas_b64()   { printf '%s' "$1" | base64 | tr -d '\n'; }
 tarefas_unb64() { printf '%s' "$1" | base64 -d 2>/dev/null; }
 tarefas_meta_de() { tarefas_raw | awk -F'\t' -v id="$1" '$1==id{print $6; exit}'; }
 tarefa_set_meta() { # id meta
-  local id=$1 meta=$2 now; now=$(date +%s)
+  local id=$1 meta=$2 now; now=$(hora_agora)
   [[ -f $CONF_TAREFAS ]] || return 1
   tarefas_travar || return 1
   local tmp; tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
@@ -5096,7 +5198,7 @@ receber_tarefas() {
 # Poda lápides velhas (removidas há mais de TAREFAS_LAPIDE_DIAS). Mantém o resto.
 tarefas_compactar() {
   [[ -f $CONF_TAREFAS ]] || return 0
-  local corte; corte=$(( $(date +%s) - TAREFAS_LAPIDE_DIAS * 86400 ))
+  local corte; corte=$(( $(hora_agora) - TAREFAS_LAPIDE_DIAS * 86400 ))
   tarefas_travar || return 1
   local tmp; tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
   awk -F'\t' -v c="$corte" 'NF>=5 && !($2=="removida" && $4+0 < c)' "$CONF_TAREFAS" >"$tmp"
@@ -5109,7 +5211,7 @@ tarefas_compactar() {
 tarefa_add() {
   local txt id now
   txt=$(tarefas_limpa_texto "$1"); [[ -n $txt ]] || return 1
-  id=$(tarefas_novo_id "$txt"); now=$(date +%s)
+  id=$(tarefas_novo_id "$txt"); now=$(hora_agora)
   tarefas_travar || return 1
   mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
   { cat "$CONF_TAREFAS"; printf '%s\t%s\t%s\t%s\t%s\n' "$id" aberta "$now" "$now" "$txt"; } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
@@ -5131,7 +5233,7 @@ tarefas_token_prazo() { # token-sem-@
   local t=$1
   t=${t,,}
   case $t in
-    hoje)   tt_epoch_de "$(tt_fmt_epoch "$(date +%s)" +%Y-%m-%d)" ;;
+    hoje)   tt_epoch_de "$(tt_fmt_epoch "$(hora_agora)" +%Y-%m-%d)" ;;
     amanha|amanhã) date -d "tomorrow 00:00" +%s 2>/dev/null || date -v+1d +%s 2>/dev/null ;;
     seg|segunda) date -d "next monday" +%s 2>/dev/null ;;
     ter|terca|terça) date -d "next tuesday" +%s 2>/dev/null ;;
@@ -5207,7 +5309,7 @@ tarefas_frase_ler() { # frase
     local dia
     if [[ -z $prazo ]]; then
       dia=$(date +%Y-%m-%d); prazo=$(tt_epoch_de "$dia $hora")
-      ((prazo < $(date +%s))) && prazo=$(tt_epoch_de "$(tt_fmt_epoch "$((prazo + 86400))" +%Y-%m-%d) $hora")
+      ((prazo < $(hora_agora))) && prazo=$(tt_epoch_de "$(tt_fmt_epoch "$((prazo + 86400))" +%Y-%m-%d) $hora")
     else
       prazo=$(tt_epoch_de "$(tt_fmt_epoch "$prazo" +%Y-%m-%d) $hora")
     fi
@@ -5280,7 +5382,7 @@ tarefa_editar() { # id frase [--desc]
   if [[ -n $TT_F_DESC || $forca_desc == --desc ]]; then
     meta=$(tarefas_meta_set "$meta" desc "$([[ -n $TT_F_DESC ]] && tarefas_b64 "$TT_F_DESC")")
   fi
-  now=$(date +%s)
+  now=$(hora_agora)
   tarefas_travar || return 1
   tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
   TT_TXT=$TT_F_TXT awk -F'\t' -v OFS='\t' -v id="$id" -v now="$now" -v meta="$meta" '
@@ -5293,7 +5395,7 @@ tarefa_editar() { # id frase [--desc]
 
 # Muda o estado de uma tarefa (feita/aberta/removida), atualizando "mudada".
 tarefa_estado() {
-  local id=$1 novo=$2 now; now=$(date +%s)
+  local id=$1 novo=$2 now; now=$(hora_agora)
   [[ -f $CONF_TAREFAS ]] || return 1
   tarefas_travar || return 1
   local tmp; tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
@@ -5348,12 +5450,13 @@ tarefa_alternar() {
   return 0
 }
 
-# Clique esquerdo numa linha: numa tarefa de topo o clique abre/fecha os detalhes (▸/▾: descrição,
-# subtarefas e ações) — o mesmo que o clique no painel faz. Numa subtarefa, alterna feita/aberta.
+# Clique esquerdo numa linha: numa tarefa de topo COM subtarefas o clique abre/fecha os detalhes
+# (▸/▾) — o mesmo que o clique no painel faz; sem subtarefas não há o que abrir. Numa subtarefa, alterna feita/aberta.
 tarefa_clique() {
   local id=$1
   [[ -n $id ]] || return 0
-  if [[ -z $(tarefas_meta_get "$(tarefas_meta_de "$id")" pai) ]]; then tarefas_exp_alternar "$id"; else tarefa_alternar "$id"; fi
+  if [[ -z $(tarefas_meta_get "$(tarefas_meta_de "$id")" pai) ]]; then tarefa_expandivel "$id" && tarefas_exp_alternar "$id"; else tarefa_alternar "$id"; fi
+  return 0
 }
 
 tarefa_remover()  { tarefa_estado "$1" removida; }
@@ -5369,7 +5472,7 @@ tarefas_arquivo_mudar() { # arquivar|restaurar --feitas|ID...
   local op=$1; shift
   [[ -f $CONF_TAREFAS ]] || return 1
   local now ids="" feitas="" n
-  now=$(date +%s)
+  now=$(hora_agora)
   if [[ ${1:-} == --feitas ]]; then feitas=1; else ids=" $* "; fi
   tarefas_travar || return 1
   local tmp; tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
@@ -5489,9 +5592,10 @@ tarefas_proximo_prazo() { # epoch rep -> epoch (mantém a hora do dia)
   local ep=$1 rep=$2 base inc_gnu inc_bsd
   base=$(tt_fmt_epoch "$ep" '+%Y-%m-%d %H:%M') || return 1
   case $rep in
-    d) inc_gnu="+1 day";   inc_bsd="-v+1d" ;;
-    w) inc_gnu="+7 day";   inc_bsd="-v+7d" ;;
-    m) inc_gnu="+1 month"; inc_bsd="-v+1m" ;;
+    # Sem sinal: no coreutils 9.x "09:00 +7 day" lê "+7" como FUSO (UTC+7) e a semanal andava 14 h.
+    d) inc_gnu="1 day";   inc_bsd="-v+1d" ;;
+    w) inc_gnu="7 days";  inc_bsd="-v+7d" ;;
+    m) inc_gnu="1 month"; inc_bsd="-v+1m" ;;
     *) return 1 ;;
   esac
   date -d "$base $inc_gnu" +%s 2>/dev/null || date "$inc_bsd" -j -f '%Y-%m-%d %H:%M' "$base" +%s 2>/dev/null
@@ -6098,7 +6202,7 @@ function rotulo_prazo(p, est, hora,   df, h) {
 tarefas_relogio() { # -> "agora deslocamento-do-fuso-em-segundos"
   local z s off; z=$(date +%z); s=${z:0:1}
   off=$(( 10#${z:1:2} * 3600 + 10#${z:3:2} * 60 )); [[ $s == - ]] && off=$((-off))
-  echo "$(date +%s) $off"
+  echo "$(hora_agora) $off"
 }
 
 # Contagem das tarefas de topo: "hoje abertas feitas com-prazo todas" (hoje = abertas vencidas ou
@@ -6131,10 +6235,66 @@ barra_tarefas_fmt() {
   fi
 }
 
+# --- painel flutuante (clicar fora fecha) ---------------------------------------------------------
+#
+# O display-popup é modal e engole o clique fora dele (medido no tmux 3.5a: nem bind de mouse nem
+# fechamento), então "clicar fora fecha o painel" não existe nele. O tmux 3.8 trouxe o painel MODAL:
+# new-pane -O é um floating pane que impede o resto enquanto está aberto e, com -C, fecha ao clicar
+# fora. Ligado em painel_flutuante=1 no config (menu ⋯ do painel → 🪟), e só onde o tmux sabe: a
+# detecção é pela capacidade (o new-pane aceita -O -C -K), não pelo número da versão.
+# Diferença para o popup: o painel é da JANELA, não do cliente — todo aparelho que olha a janela vê o
+# painel (o popup aparece só na tela que clicou). Desligado (padrão) tudo segue como era.
+# O -D (Esc/Ctrl+C fecham) fica de fora de propósito: o Esc é do fzf (volta do menu/ajuda).
+# Enquanto o painel está aberto o tmux bloqueia a barra de status (clicar nela nem fecha nem chega aos
+# binds): fecha-se por clique na janela fora do painel, por Esc, ou chamando de novo `tt --tarefas`.
+flutuante_suportado() {
+  local uso
+  uso=$(tmux list-commands new-pane 2>/dev/null) || return 1
+  [[ $uso =~ \[-([A-Za-z]+)\] ]] || return 1
+  [[ ${BASH_REMATCH[1]} == *O* && ${BASH_REMATCH[1]} == *C* && ${BASH_REMATCH[1]} == *K* ]]
+}
+flutuante_ativo() { [[ $(conf painel_flutuante) == 1 ]] && flutuante_suportado; }
+flutuante_rotulo() {
+  if [[ $(conf painel_flutuante) != 1 ]]; then echo "desligado"
+  elif flutuante_suportado; then echo "ligado (fecha ao clicar fora)"
+  else echo "ligado, mas este tmux ($(tmux -V 2>/dev/null | cut -d' ' -f2)) precisa ser 3.8+"; fi
+}
+flutuante_cmd() { # [status|on|off|alternar] [cliente]
+  local acao=${1:-status} c=${2:-} novo="" msg
+  case $acao in
+    on|ligar)      novo=1 ;;
+    off|desligar)  novo=0 ;;
+    alternar)      [[ $(conf painel_flutuante) == 1 ]] && novo=0 || novo=1 ;;
+    status) ;;
+    *) echo "uso: tt --flutuante [status|on|off|alternar]"; return 2 ;;
+  esac
+  if [[ -n $novo ]]; then
+    mkdir -p "$CONF_DIR"
+    grep -v '^painel_flutuante=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "painel_flutuante=$novo" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
+  fi
+  msg="🪟 painel flutuante: $(flutuante_rotulo)"
+  if [[ -n $c ]]; then tmux display-message -c "$c" "$msg"; else echo "$msg"; fi
+}
+# Abre (ou, se já está aberto, fecha) o painel de tarefas como painel modal à direita, altura toda.
+abrir_tarefas_flutuante() { # cliente
+  local c=$1 win p ww w x ja
+  read -r win p ww < <(do_cliente "$c" '#{window_id} #{pane_id} #{window_width}')
+  [[ -n ${win:-} && -n ${p:-} ]] || return 1
+  ja=$(tmux list-panes -t "$win" -F '#{pane_id} #{pane_floating_flag} #{pane_start_command}' 2>/dev/null |
+    awk '$2 == 1 && /--tarefas-ui/ { print $1; exit }')
+  if [[ -n $ja ]]; then tmux kill-pane -t "$ja"; return 0; fi
+  if ((${ww:-80} < 80)); then w=$ww; x=0
+  else w=$(( ww >= 120 ? 72 : 64 )); ((w > ww)) && w=$ww; x=$((ww - w)); fi
+  tmux new-pane -d -t "$p" -O -C -K -B single -S 'fg=#89b4fa' -T ' 📋 tarefas · ? ajuda · esc ou clique fora fecha ' \
+    -X "$x" -Y 0 -x "$w" -y 100% "TT_CLIENTE=$(q "$c") $EU --tarefas-ui"
+}
+
 # Abre o painel de tarefas como um slide-over ANCORADO À DIREITA (display-popup -x), altura toda.
 # Recolher = sair da UI interna (esc/q), que fecha o popup. Em tela estreita (celular) ocupa tudo.
+# Com painel_flutuante=1 e tmux 3.8+, abre como painel modal que também fecha ao clicar fora.
 abrir_tarefas() {
   local c=$1 cw ch w x
+  flutuante_ativo && abrir_tarefas_flutuante "$c" && return 0
   read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
   if ((${cw:-80} < 80)); then
     w=$cw; x=0
@@ -6177,6 +6337,15 @@ tarefas_exp_definir() { # id 1|0
   tarefas_exp_tem "$1" && [[ $2 == 1 ]] && return 0
   tarefas_exp_tem "$1" || [[ $2 == 1 ]] || return 0
   tarefas_exp_alternar "$1"
+}
+# Há o que abrir (▸)? Tarefa de topo só abre com subtarefa viva (aberta/feita): sem elas os detalhes
+# seriam só a linha "⋯ menu", que já tem botão direito, ^o e "⋯ Mais". Arquivada sempre abre: as
+# linhas restaurar/apagar moram lá. O desenho da lista (linha_topo/aberto) segue a mesma regra.
+tarefa_expandivel() { # id
+  [[ $(tarefas_estado_de "$1") == arquivada ]] && return 0
+  tarefas_raw | awk -F'\t' -v id="$1" 'BEGIN { r = 1 }
+    ($2 == "aberta" || $2 == "feita") && $6 ~ ("(^|[|])pai=" id "([|]|$)") { r = 0; exit }
+    END { exit r }'
 }
 
 # --- data portável (GNU date -d; BSD/macOS date -r) ------------------------
@@ -6371,7 +6540,7 @@ tarefas_lista_fzf() { # [busca]
       id = TID[i]; est = TEST[i]; meta = TMETA[i]; prazo = mv(meta, "prazo"); hora = (mv(meta, "hora") == 1)
       if (est == "arquivada") {
         r = mv(meta, "arq")
-        s = " " (NFI[id] + 0 > 0 || TDESC[i] != "" ? AZUL : DIM) (aberto ? "▾" : "▸") Z " " DIM (r ~ /:a$/ ? "☐" : "☑") " " TTXT[i] Z
+        s = " " AZUL (aberto ? "▾" : "▸") Z " " DIM (r ~ /:a$/ ? "☐" : "☑") " " TTXT[i] Z
         ex = "  " DIM "▤ arquivada " quando(TARQ[i]) Z
         if (tagtxt != "") ex = ex "  " DIM tagtxt Z
         if (TDESC[i] != "") ex = ex "  " DIM "≡" Z
@@ -6379,8 +6548,8 @@ tarefas_lista_fzf() { # [busca]
         return
       }
       nfil = NFI[id] + 0; venc = (prazo != "" && est == "aberta" && vencida(prazo, hora))
-      tem = (nfil > 0 || TDESC[i] != "")
-      s = " " (tem ? AZUL NEG : DIM) (aberto ? "▾" : "▸") Z " " caixa(est, venc) " "
+      # Só quem tem subtarefa abre (▸/▾); sem elas o lugar do glifo fica em branco, alinhado.
+      s = " " (nfil > 0 ? AZUL NEG (aberto ? "▾" : "▸") Z : " ") " " caixa(est, venc) " "
       p = mv(meta, "prio")
       if (est == "aberta" && p == 1) s = s VERM "●" Z " "
       else if (est == "aberta" && p == 2) s = s AMAR "●" Z " "
@@ -6490,6 +6659,7 @@ tarefas_lista_fzf() { # [busca]
         }
         vistas++
         aberto = (index(EXP, "," id ",") > 0 || achou_sub)
+        if (est != "arquivada" && NFI[id] + 0 == 0) aberto = 0
         linha_topo(i, aberto, tagtxt)
         if (aberto) detalhes(i)
       }
@@ -6532,8 +6702,8 @@ tarefas_ajuda_linhas() {
   printf '\t   acrescente um e a tarefa muda junto (sem @ fica sem prazo, sem !\n'
   printf '\t   sem prioridade, sem * não repete, sem # sem etiqueta).\n'
   printf '\t\n\t %sDESCRIÇÃO%s\n' "$a" "$z"
-  printf '\t   Tarefa com descrição mostra %s≡%s no fim da linha. Para ler, abra a\n' "$s" "$z"
-  printf '\t   tarefa (▾) e tecle %s^/%s (ou %s⋯ menu%s → Ver a descrição): a descrição inteira\n' "$y" "$z" "$a" "$z"
+  printf '\t   Tarefa com descrição mostra %s≡%s no fim da linha. Para ler, escolha a\n' "$s" "$z"
+  printf '\t   tarefa e tecle %s^/%s (ou %s⋯ menu%s → Ver a descrição): a descrição inteira\n' "$y" "$z" "$a" "$z"
   printf '\t   aparece embaixo, num cartão com prazo e subtarefas (^/ fecha).\n'
   printf '\t   %s^e%s (ou %s✎ Descrição%s) edita no editor do tt (Ctrl+S salva e sai).\n' "$y" "$z" "$y" "$z"
   printf '\t\n\t %sSUBTAREFAS%s\n' "$a" "$z"
@@ -6557,7 +6727,7 @@ tarefas_ajuda_linhas() {
   printf '\t   %s▦ Calendário%s (e o relógio da barra) mostra o mês com • nos\n' "$y" "$z"
   printf '\t   dias com tarefas e cria tarefas no dia e na hora escolhidos.\n'
   printf '\t\n\t %sMOUSE%s\n' "$a" "$z"
-  printf '\t   %sclique%s numa tarefa      abre/fecha os detalhes (▸ ▾)\n' "$n" "$z"
+  printf '\t   %sclique%s numa tarefa      com subtarefas, abre/fecha (▸ ▾); sem, só seleciona\n' "$n" "$z"
   printf '\t   %sduplo clique%s            marca/desmarca como feita\n' "$n" "$z"
   printf '\t   %sbotão direito%s           menu com todas as ações\n' "$n" "$z"
   printf '\t   clique numa %ssubtarefa%s   marca/desmarca\n' "$n" "$z"
@@ -6572,7 +6742,7 @@ tarefas_ajuda_linhas() {
   printf '\t   %s?%s ajuda   %sesc%s volta/fecha\n' "$y" "$z" "$y" "$z"
   printf '\t   %s(^n = Ctrl+N)%s\n' "$d" "$z"
   printf '\t\n\t %sSÍMBOLOS%s\n' "$a" "$z"
-  printf '\t   %s☐%s aberta   %s☑%s feita   %s▸%s fechada   %s▾%s aberta (detalhes)\n' "$t" "$z" "$verde" "$z" "$a" "$z" "$a" "$z"
+  printf '\t   %s☐%s aberta   %s☑%s feita   %s▸%s fechada   %s▾%s aberta (só quem tem subtarefas)\n' "$t" "$z" "$verde" "$z" "$a" "$z" "$a" "$z"
   printf '\t   %s●%s prioridade alta   %s●%s média   %s◷ sex 14:00%s prazo   %s◷ venceu%s atrasada\n' "$verm" "$z" "$y" "$z" "$s" "$z" "$verm" "$z"
   printf '\t   %s↻%s repete   %s━━━%s%s━━━%s 1/2 subtarefas feitas   %s≡%s tem descrição   %s#tag%s\n' "$teal" "$z" "$teal" "$z" "$d" "$z" "$s" "$z" "$lil" "$z"
   printf '\t\n\t %sSINCRONIA%s\n' "$a" "$z"
@@ -6777,12 +6947,13 @@ tarefa_acao() { # evento chave
         menu:*) tarefas_ui_set modo "menu:$id"; echo "clear-query+$rl+$hd+first"; return ;;
       esac
       # Clique numa tarefa de topo abre/fecha os detalhes; ⏎ e clique numa subtarefa marcam.
-      if [[ $ev == clique && -z $pai ]]; then tarefas_exp_alternar "$id"; echo "$rl"
+      if [[ $ev == clique && -z $pai ]]; then
+        if tarefa_expandivel "$id"; then tarefas_exp_alternar "$id"; echo "$rl"; else echo ignore; fi
       else _marcar "$id"; fi ;;
     duplo)
       # O 1º clique do duplo já abriu/fechou a tarefa de topo: desfaz e marca como feita.
       [[ $chave == "$id" ]] || { echo ignore; return; }
-      if [[ -z $pai ]]; then tarefas_exp_alternar "$id"; _marcar "$id"
+      if [[ -z $pai ]]; then tarefa_expandivel "$id" && tarefas_exp_alternar "$id"; _marcar "$id"
       else echo ignore; fi ;;
     feita) _marcar "$id" ;;
     menu|mais)
@@ -6790,8 +6961,8 @@ tarefa_acao() { # evento chave
       tarefas_ui_set modo "menu:$id"; echo "clear-query+$rl+$hd+first" ;;
     espaco)
       [[ -n $pai ]] && id=$pai
-      tarefas_exp_alternar "$id"; echo "$rl" ;;
-    direita) [[ -z $pai ]] && tarefas_exp_definir "$id" 1; echo "$rl" ;;
+      if tarefa_expandivel "$id"; then tarefas_exp_alternar "$id"; echo "$rl"; else echo ignore; fi ;;
+    direita) [[ -z $pai ]] && tarefa_expandivel "$id" && tarefas_exp_definir "$id" 1; echo "$rl" ;;
     esquerda) [[ -n $pai ]] && id=$pai; tarefas_exp_definir "$id" 0; echo "$rl" ;;
     sub)
       [[ -n $pai ]] && id=$pai
@@ -7909,7 +8080,7 @@ versao_barra() { printf '#[fg=#6c7086]%s ' "$(versao_humana)"; }
 atualizar_barras() {
   tmux list-sessions >/dev/null 2>&1 || return 0
   local nome valor
-  for nome in fixadas atalhos transf versao tarefas email data notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0; do
+  for nome in fixadas atalhos transf versao tarefas email data hora notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0; do
     case $nome in
       fixadas) valor=$(barra_fixadas_fmt) ;;
       atalhos) valor=$(atalhos_barra) ;;
@@ -7918,6 +8089,7 @@ atualizar_barras() {
       tarefas) valor=$(barra_tarefas_fmt) ;;
       email) valor=$(barra_email_fmt) ;;
       data) valor=$(barra_data) ;;
+      hora) valor=$(barra_hora) ;;
       notifs) valor=$(barra_notifs_fmt) ;;
       notifs_n) { IFS=$'\t' read -r _qn _qi <<<"$(barra_notifs_avisos)"; valor=""; [[ -n $_qi ]] && valor="#[fg=#f9e2af,bold]$_qn#[nobold]"; } ;;
       notifs_slot) valor="#{E:@barra_notifs}" ;;
@@ -7930,14 +8102,14 @@ atualizar_barras() {
       faixa_dir)
         # Responsivo por cliente: o letreiro tem prioridade sobre o enfeite. < 120 colunas sai o dia,
         # < 90 sai também a versão (sobra só a hora) — assim ele ganha ~25 células num terminal estreito.
-        if faixa_notif_ativa; then valor="#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},120},,#{E:@barra_data}}%H:%M #[norange]#[default]#{?#{e|<:#{client_width},90},, #{E:@barra_versao}}"
+        if faixa_notif_ativa; then valor="#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},120},,#{E:@barra_data}}#{E:@barra_hora} #[norange]#[default]#{?#{e|<:#{client_width},90},, #{E:@barra_versao}}"
         else valor=""; fi ;;
       lado1)
         if faixa_notif_ativa; then valor=""
         else valor="#{E:@barra_tarefas}#{E:@barra_versao}"; fi ;;
       fim0)
         if faixa_notif_ativa; then valor=""
-        else valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{?#{e|<:#{client_width},60},,#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},90},,#{E:@barra_data}}%H:%M #[norange]#[default]}"; fi ;;
+        else valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{?#{e|<:#{client_width},60},,#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},90},,#{E:@barra_data}}#{E:@barra_hora} #[norange]#[default]}"; fi ;;
     esac
     [[ $valor == "$(tmux show -gqv "@barra_$nome")" ]] && continue
     tmux set -g "@barra_$nome" "$valor"
@@ -7952,8 +8124,19 @@ atualizar_barras() {
 # Dia de hoje para o relógio da barra ("Qui, 08/10/2026 | "), em português sem depender de
 # locale; recalculado pelo vigia (vira na madrugada na volta seguinte). Em tela < 90 fica só a hora.
 barra_data() {
-  local d=(Dom Seg Ter Qua Qui Sex Sáb)
-  printf '%s, %s | ' "${d[$(date +%w)]}" "$(date +%d/%m/%Y)"
+  local d=(Dom Seg Ter Qua Qui Sex Sáb) ep; ep=$(hora_agora)
+  printf '%s, %s | ' "${d[$(tt_fmt_epoch "$ep" +%w)]}" "$(tt_fmt_epoch "$ep" +%d/%m/%Y)"
+}
+# Hora da barra: o strftime do tmux (%H:%M, relógio da máquina) enquanto o desvio medido é pequeno; com
+# 60 s ou mais de desvio, a hora já corrigida (o vigia a renova a cada volta).
+barra_hora() {
+  hora__ler
+  if ((HORA_D >= 60 || HORA_D <= -60)); then
+    local agora; printf -v agora '%(%s)T' -1
+    tt_fmt_epoch "$((agora + HORA_D))" +%H:%M
+  else
+    printf '%s' '%H:%M'
+  fi
 }
 
 barra_fixadas() {
@@ -11527,6 +11710,8 @@ case "${1:-}" in
   --tarefas-ui) tarefas_ui; exit ;;
   --tarefas-lista) tarefas_lista_fzf "${2:-}"; exit ;;
   --tarefa-toggle) [[ -n ${2:-} ]] && tarefa_alternar "$2"; exit ;;
+  --hora) hora_cmd "${2:-}"; exit ;;
+  --flutuante) flutuante_cmd "${2:-status}" "${3:-}"; exit $? ;;
   --tarefa-clique) [[ -n ${2:-} ]] && tarefa_clique "$2"; exit ;;
   --tarefa-nova-prompt) tarefa_nova_prompt; exit ;;
   --tarefa-remover-prompt) tarefa_remover_prompt "${2:-}"; exit ;;
