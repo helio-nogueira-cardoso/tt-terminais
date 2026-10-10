@@ -133,8 +133,8 @@ echo "ok: slide-over ancorado a direita (e largura total no celular)"
 # --- sincronizacao configuravel --------------------------------------------
 grep -q '^tarefas_sync_modo()' "$TT"
 grep -q '^propagar_tarefas()' "$TT"
-grep -q '^empurrar_tarefas_git()' "$TT"
-grep -q '^puxar_tarefas_git()' "$TT"
+grep -q '^tarefas_git_sincronizar()' "$TT"   # o comportamento do git está em tests/test_tarefas_git.sh
+grep -q '^tarefas_git_volta()' "$TT"
 grep -q 'tarefas_repo' "$TT"
 # modo off nao propaga (sem efeito externo quando desligado)
 printf 'nome=A\ntarefas_sync=off\n' >"$C/config"

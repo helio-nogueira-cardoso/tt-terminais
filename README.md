@@ -685,10 +685,34 @@ descrição), `tt --tarefa-frase ID` (a frase atual, pronta para editar), `tt --
 `tt --tarefa-restaurar ID`, `tt --tarefas-arquivadas` (o histórico em texto), `tt --tarefas` (fora do
 tmux, lista em texto).
 
-As tarefas ficam em `~/.config/tt/tarefas` e vão para as outras máquinas sozinhas:
-`tarefas_sync=p2p|git|ambos|off` no `~/.config/tt/config` (com `tarefas_repo=<url>` para usar um
-repositório git seu). A junção é por tarefa (a alteração mais recente vence; apagar nunca
-"ressuscita").
+As tarefas ficam em `~/.config/tt/tarefas` e vão para as outras máquinas sozinhas. A junção é por
+tarefa (a alteração mais recente vence; apagar nunca "ressuscita").
+
+### Sincronização das tarefas (P2P, repositório git, os dois)
+
+Menu ⋯ da barra → **🔄 Sincronização das tarefas** (ou botão direito no 📋 → 🔄, ou
+`tt --tarefas-sync`). Vale para esta máquina; cada uma escolhe o seu modo:
+
+| Modo | O que faz |
+|---|---|
+| **P2P** (padrão) | direto entre as máquinas cadastradas, por ssh, como as fixadas |
+| **Ambos** | P2P e um repositório git seu, que guarda o histórico de todas as mudanças |
+| **Git** | só pelo repositório |
+| **Desligada** | esta máquina não envia nem busca |
+
+O endereço do repositório (de preferência privado) é conferido antes de gravar; a credencial fica no
+git e no ssh da máquina. A tela mostra a última troca com o repositório ou o motivo da falha, e uma
+falha que dure mais de 1 h vira um aviso na faixa (uma vez, até voltar a funcionar). Basta uma máquina
+com o repositório: no modo **Ambos** ela leva ao repositório também o que chegou das outras por P2P.
+
+    tt --tarefas-sync                      # estado: modo, repositório, última troca
+    tt --tarefas-sync ambos git@github.com:voce/tt-tarefas.git
+    tt --tarefas-sync agora                # sincroniza já
+    tt --tarefas-sync p2p                  # volta ao padrão (o endereço fica guardado)
+
+O clone fica em `~/.local/state/tt/tarefas-git` e é só cache: a cada volta ele é realinhado ao
+repositório, o que chegou entra na lista local, a lista vai para o repositório e, se outra máquina
+enviou no meio, a volta se refaz. Uma máquina que ficou sem rede retoma sozinha, sem perder nada.
 
 ## Perguntas do AI-DLC nas tarefas
 
@@ -1108,6 +1132,10 @@ Em telas com menos de 80 colunas ou 30 linhas (celular), a central abre em tela 
 cabeçalho compacto (toque em "?" para todos os atalhos) e prévia escondida (toque em "prévia" ou
 ^/). O seletor rápido (toque no nome da sessão na barra) é o jeito mais prático de trocar de sessão
 pelo toque.
+
+Os popups de tamanho fixo (fixadas `+N ▾`, 🔔 notificações, renomear, nova tarefa, abrir link,
+pendências) encolhem até caber na tela: o tmux recusa popup maior que a tela, e num celular com 63
+colunas o toque não fazia nada.
 
 ## Desenvolvimento
 

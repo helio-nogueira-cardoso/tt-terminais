@@ -3,6 +3,19 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.6.278 · 10/10/2026
+- Sincronização das tarefas com menu: ⋯ da barra → 🔄 (ou botão direito no 📋 → 🔄, ou
+  `tt --tarefas-sync`). Escolha P2P (padrão), **Ambos** (P2P e um repositório git seu, com o histórico
+  de todas as mudanças), só git ou desligada; o endereço é conferido antes de gravar, e a tela mostra a
+  última troca ou o motivo da falha. Uma falha que dure mais de 1 h avisa na faixa.
+- O modo git das tarefas funciona de verdade: o primeiro envio a um repositório vazio levava um arquivo
+  vazio; uma máquina que ficava sem rede enquanto outra enviava parava de trocar para sempre, sem
+  avisar; e tarefa vinda por P2P só chegava ao repositório depois de uma mudança local. Agora a volta se
+  refaz sozinha, sem perder nada.
+- No celular, tocar no `+N ▾` das fixadas, no 🔔 e em itens como renomear e nova tarefa não fazia nada:
+  esses popups tinham largura fixa maior que a tela (63 colunas) e o tmux recusava. Agora encolhem até
+  caber.
+
 ## v1.6.277 · 10/10/2026
 - Novo: as conversas do Claude Code, do Codex e do Kiro CLI ficam iguais em todas as suas máquinas. O
   `/resume` do Claude (e o `codex resume`, e o `kiro-cli chat --resume`) de qualquer máquina, em qualquer

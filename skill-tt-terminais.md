@@ -163,6 +163,10 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   descrição que voltou valer, mesmo vazia; `--tarefa-renomear-prompt` é o nome antigo),
   `--tarefa-remover-prompt`, `--tarefa-limpar-prompt`, `--tarefa-add-ui`, `--tarefas-barra`. Sync:
   `--receber-tarefas`, `--tarefas-espelhar`, `--tarefas-puxar`.
+- `tt --tarefas-sync [status|agora|p2p|git|ambos|off] [url]`: sincronização desta máquina. Sem
+  argumento mostra modo, repositório e a última troca (ou o motivo da falha); `agora` sincroniza já;
+  `git`/`ambos URL` confere o acesso (`git ls-remote`) antes de gravar `tarefas_repo` e sincroniza.
+  `--tarefas-sync-ui` é a tela do menu ⋯ do painel → 🔄 (também no botão direito do 📋).
 - Painel: um fzf com três modos (lista, ajuda, menu de ações de uma tarefa) guardados em
   `$RT/tt-tarefas-ui-UID` (`filtro=`, `modo=`, `exp=ID` por tarefa aberta, `clique=` para o duplo
   clique). Cada linha é `chave<TAB>desenho`: `ID`, `desc:ID`, `sub:ID`, `menu:ID`, `act:AÇÃO:ID`,
@@ -432,6 +436,11 @@ renomear sessão, `F1..F10` botões. Mouse: arrastar/duplo/triplo clique copiam;
 `MouseDown/Up1Status*` → `--clique`; `MouseUp3Status*` → `--clique-direito`;
 `MouseUp3Pane`/`MouseDown3Border` → `--menu-painel`.
 
+Popup de tamanho fixo passa por `dim_popup CLIENTE L A` (encolhe até a tela do cliente: o tmux
+recusa popup maior que a tela e o clique morria em silêncio no celular de 63 colunas); popup grande
+usa `tam_popup`. Nenhum `display-popup` com `-w N`/`-h N` literal (tests/test_popups_tela.sh). Chamado
+de fora (CLI), o `display-popup` só volta quando o popup fecha: nos testes, rode em segundo plano.
+
 Contrato de toque: fixadas e o ✕ agem no **MouseDown** (a barra pode redesenhar entre pressionar e
 soltar); menus agem no **MouseUp**. Um atalho de teclado deve ter a mesma ação observável do botão.
 
@@ -445,8 +454,8 @@ soltar); menus agem no **MouseUp**. Um atalho de teclado deve ter a mesma ação
   - `recebidos` — pasta onde chegam arquivos (default `~/Recebidos`; no WSL, `Downloads\Recebidos`).
   - `email` — binário do cliente de e-mail (default `aerc`).
   - `tela_destino`, `tela_porta`, `tela_url` — túnel do botão `tela` (F5).
-  - `tarefas_sync` — `p2p` (default) | `git` | `ambos` | `off`.
-  - `tarefas_repo` — URL de um repositório git pessoal para sincronizar tarefas.
+  - `tarefas_sync` — `p2p` (default) | `git` | `ambos` | `off` (menu ⋯ → 🔄 ou `--tarefas-sync`).
+  - `tarefas_repo` — URL de um repositório git pessoal para sincronizar tarefas (conferido antes de gravar).
 - `maquinas` — `host  usuario  rotulo [oculta]` por linha (`host -` = formato antigo sem usuário).
 - `atalhos` — atalhos locais da barra (override de `atalhos-padrao` por ID; emoji `-` desativa).
 - `fixadas` (+ `.v` versão em ns, `.trava` lock) — `maquina\tsessao\tchave`.
@@ -463,7 +472,8 @@ impressos, copiados entre máquinas, nem vão para o `accounts.conf`.
 
 ### Estado `~/.local/state/tt/`
 Memória de agentes (`ai-memory`), estado do celular, avisos, `tarefas-git/` (clone do repo pessoal
-de tarefas).
+de tarefas; só cache) e `tarefas-git.ok` (epoch da última troca boa), `tarefas-git.erro` (desde,
+última, motivo), `tarefas-git.trava`/`.pendente` (uma volta por vez) e `.avisado`.
 
 ### Cache e runtime
 `~/.cache/tt-vigia.log`, `tt-github-versao`, `tt-anexos/`, `tt/maildir/<slug>` (sync local);
@@ -516,8 +526,15 @@ chama `~/.local/bin/tt`. `dest_de ROTULO` resolve `.` (local) ou `usuario@host`.
 - **Tarefas**: modos `p2p` (ssh como fixadas), `git` (repo pessoal `tarefas_repo`), `ambos`, `off`.
   O merge é **por tarefa**: por `id`, vence o maior `mudada`; empate favorece `removida` > `feita`
   > `aberta` (remoção vira lápide e nunca ressuscita). P2P e git interoperam sem perder tarefa.
-  Modo git: clone depth 1 em `$ESTADO_DIR/tarefas-git`, pull `--ff-only`, merge por tarefa no
-  arquivo do repo, commit (`TT_GIT_NAME/EMAIL`), push. Credencial fica no git/ssh do usuário.
+  Modo git (`tarefas_git_sincronizar` → `tarefas_git_volta`): o clone depth 1 em
+  `$ESTADO_DIR/tarefas-git` é cache. Cada volta busca com refspec explícito (o clone de repo vazio
+  nasce sem nenhum), realinha (`checkout -f -B` no remoto; repo vazio recomeça o ramo), junta na lista
+  local o arquivo do repo e o que o clone tinha sem enviar, grava a junção (sem lápide velha) e envia;
+  push recusado refaz a volta (até 3). Trava `mkdir` + marca `.pendente`: quem chega com uma volta em
+  andamento só marca e ela repete. O vigia também envia (P2P recebido vai ao repo). Git sem hooks/
+  assinatura do usuário, `GIT_TERMINAL_PROMPT=0`, ssh `BatchMode`; commit `TT_GIT_NAME/EMAIL`.
+  Falha > `TT_TAREFAS_GIT_AVISO` s (3600) avisa na faixa uma vez (ação `tarefas-sync`). Gancho de
+  teste `TT_TESTE_ANTES_DO_PUSH` (eval antes do push).
 - **Contas de IA**: cadastro `contas-ia` sincroniza por par (provedor,email), mudança mais nova
   vence. As credenciais NÃO são copiadas (cada máquina faz o próprio login; copiar derrubaria a
   outra na renovação do token).

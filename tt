@@ -20,6 +20,7 @@
 #   tt --pendencias o que o tt pode precisar instalar nesta máquina, e o que já está pronto
 #   tt --pedir-sudo instala o que falta (pergunta antes; --sim aceita tudo; ids escolhem)
 #   tt --sessoes-ia conversas do Claude/Codex/Kiro iguais em todas as máquinas (status|on|off|agora)
+#   tt --tarefas-sync [modo] [url]  como as tarefas vão às outras máquinas (p2p, git, ambos, off)
 #
 # Menu: Enter entra; ^n nova; ^r renomeia; ^x fecha; ^a dá nome às genéricas. As palavras do
 # cabeçalho são clicáveis. ^f (ou clique) filtra por máquina; a busca procura em nome, máquina,
@@ -57,6 +58,11 @@ conf() {
   while IFS= read -r l || [[ -n $l ]]; do [[ $l == "$1="* ]] && v=${l#*=}; done <"$CONF"
   [[ -n $v ]] && printf '%s\n' "$v"
   return 0
+}
+# Grava chave=valor no config desta máquina (troca a linha da chave; as outras ficam como estão).
+conf_gravar() { # chave valor
+  mkdir -p "$(dirname "$CONF")"
+  { grep -v "^$1=" "$CONF" 2>/dev/null; printf '%s=%s\n' "$1" "$2"; } >"$CONF.novo" && mv "$CONF.novo" "$CONF"
 }
 # Nome desta máquina no menu: ~/.config/tt/config (nome=…); sem ele, o hostname.
 MAQUINA=$(conf nome)
@@ -1419,7 +1425,7 @@ versao_humana() { printf 'v1.%s.%s' "$VERSAO_MINOR" "$(versao_num)"; }
 
 # tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
 ajuda() {
-  sed -n '2,38p' "$EU" | sed 's/^# \{0,1\}//'
+  sed -n '2,40p' "$EU" | sed 's/^# \{0,1\}//'
   printf '\nVersão instalada: %s (%s)\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao_humana)" "$(versao)" "$DIR_TT" "$DIR_TT"
 }
 
@@ -4491,7 +4497,7 @@ pedir_pendencia_aqui() {
   local c
   if em_popup; then pedir_sudo_pendencias "$@"
   elif [[ -n ${TMUX:-} ]] && c=$(cliente_externo 2>/dev/null) && [[ -n $c ]]; then
-    tmux display-popup -c "$c" -E -w 92 -h 22 -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo $*"
+    tmux display-popup -c "$c" -E $(dim_popup "$c" 92 22) -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo $*"
   elif [[ -t 0 ]]; then pedir_sudo_pendencias "$@"
   else return 1; fi
 }
@@ -4583,7 +4589,7 @@ abrir_link() {
       mkdir -p "$ESTADO_DIR" && echo "$esc" >"$ESTADO_DIR/navegador-ultimo"
       abrir_com "$esc" "$u"; return
     elif [[ -n ${TMUX:-} ]] && c=$(cliente_externo) && [[ -n $c ]]; then
-      tmux display-popup -c "$c" -E -w 80 -h 12 -b rounded -T ' 🌐 abrir link ' "$EU --abrir-link $(q "$u")"; return
+      tmux display-popup -c "$c" -E $(dim_popup "$c" 80 12) -b rounded -T ' 🌐 abrir link ' "$EU --abrir-link $(q "$u")"; return
     fi
     pref=sistema
   fi
@@ -4603,7 +4609,7 @@ LINKS_PY=$DIR_TT/links-tt.py
 # tt --link-abrir ID CLIENTE PAINEL URL (do links-tt.py). Com ID, é um clique simples: espera o tempo
 # de um duplo clique e desiste se veio o 2º clique ou um arrasto (o tmux.conf limpa @tt_link_id).
 link_abrir() {
-  local id=$1 c=$2 p=$3 u=$4 pref cw
+  local id=$1 c=$2 p=$3 u=$4 pref
   [[ $u == http://* || $u == https://* ]] || return 0
   if [[ -n $id ]]; then
     sleep 0.35
@@ -4614,8 +4620,7 @@ link_abrir() {
   pref=$(conf navegador); pref=${pref:-perguntar}
   navegadores_graficos_ok || pref=sistema
   if [[ $pref != perguntar ]]; then TT_LINK_CLIENTE=$c abrir_com "$pref" "$u"; return 0; fi
-  cw=$(do_cliente "$c" '#{client_width}'); cw=${cw:-80}
-  tmux display-popup -c "$c" -E -w "$((cw < 84 ? cw : 84))" -h 12 -b rounded -T ' 🌐 abrir link ' \
+  tmux display-popup -c "$c" -E $(dim_popup "$c" 84 12) -b rounded -T ' 🌐 abrir link ' \
     "TT_LINK_CLIENTE=$(q "$c") $EU --abrir-link $(q "$u")"
 }
 
@@ -4998,6 +5003,16 @@ tam_popup() {
   if ((${cw:-80} < 80 || ${ch:-30} < 30)); then echo "-w 100% -h 100%"; else echo "-w 90% -h 85%"; fi
 }
 
+# Popup de tamanho fixo que cabe na tela: o tmux recusa popup maior que a tela do cliente ("width
+# too large") e o clique não fazia nada no celular (63 colunas: +N das fixadas, 🔔, renomear…).
+dim_popup() { # cliente largura altura → "-w L -h A", sem passar do tamanho do cliente
+  local w=$2 h=$3 cw ch
+  read -r cw ch < <(do_cliente "$1" '#{client_width} #{client_height}')
+  [[ $cw =~ ^[0-9]+$ ]] && ((cw < w)) && w=$cw
+  [[ $ch =~ ^[0-9]+$ ]] && ((ch < h)) && h=$ch
+  echo "-w $w -h $h"
+}
+
 popup_tt() { # cliente título args… → comando que abre o tt num popup grande
   local c=$1 t=$2; shift 2
   echo "tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T $(q " $t ") $(q "$*")"
@@ -5036,6 +5051,7 @@ a	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-a
 k	⏱ Sessões paradas: $( (($(minutos_paradas))) && echo "fecham após $(minutos_paradas) min" || echo desativado)…	$EU --config-paradas $(q "$c")
 n	🧠 Nomeador de abas: $(modo_nomeador)…	$(popup_tt "$c" "🧠 nomeador de abas" "$EU --nomeador-ui")
 g	🪟 Painel de tarefas flutuante: $(flutuante_rotulo)…	$EU --flutuante alternar $(q "$c")
+S	🔄 Sincronização das tarefas: $(tarefas_sync_rotulo)…	$(popup_tt "$c" "🔄 sincronização das tarefas" "$EU --tarefas-sync-ui")
 w	✉ Demandas por e-mail (remetentes autorizados)…	$(popup_tt "$c" "✉ demandas por e-mail" "$EU --demandas-ui")
 -		
 r	Renomear painel	tmux command-prompt -t $(q "$c") -p 'nome do painel:' "set-option -p -t $p @nome_painel '%%'"
@@ -5080,7 +5096,7 @@ e	Editar a configuração desta máquina	$(popup_tt "$c" "~/.tmux.conf" "$ed ~/.
 t	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
 l	Recarregar a configuração	tmux source-file ~/.tmux.conf \; display-message -c $(q "$c") 'configuração recarregada'
 -		
-r	Renomear a sessão…	tmux display-popup -c $(q "$c") -E -w 70 -h 7 -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
+r	Renomear a sessão…	tmux display-popup -c $(q "$c") -E $(dim_popup "$c" 70 7) -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
 d	Desanexar esta tela	tmux detach-client -t $(q "$c")
 D	Desanexar as outras telas	tmux detach-client -a -t $(q "$c")
 X	Fechar a sessão…	tmux confirm-before -t $(q "$c") -p $(q "Fechar a sessão $sess? (y/n)") $(q "kill-session -t =$sess")
@@ -5282,7 +5298,7 @@ menu_sessao() {
   menu_popup "$c" "sessão · $sess" <<ITENS
 s	☰ Trocar de sessão…	$EU --seletor-em $(q "$c") $(q "$MAQUINA") $p
 n	＋ Nova sessão	$EU --nova-e-ir $(q "$c")
-r	✎ Renomear esta sessão…	tmux display-popup -c $(q "$c") -E -w 70 -h 7 -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
+r	✎ Renomear esta sessão…	tmux display-popup -c $(q "$c") -E $(dim_popup "$c" 70 7) -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
 f	$(fixadas | grep -qxF "$MAQUINA"$'\t'"$sess" && echo "📌 Desafixar da barra" || echo "📌 Fixar na barra")	$EU --alternar-fixada-rotulo $(q "$MAQUINA") $(q "$sess")
 -		
 l	Dividir ao lado (terminal novo)	tmux split-window -h -t $p -c $(q "$pasta")
@@ -5987,13 +6003,17 @@ receber_tarefas() {
   return 0
 }
 
+# Filtro: tira as lápides (removida) mudadas antes do corte (epoch). Sem ele, o arquivo do repositório
+# git devolvia a cada volta as lápides que a compactação acabou de podar.
+tarefas_sem_lapide_velha() { awk -F'\t' -v c="$1" 'NF>=5 && !($2=="removida" && $4+0 < c)'; }
+
 # Poda lápides velhas (removidas há mais de TAREFAS_LAPIDE_DIAS). Mantém o resto.
 tarefas_compactar() {
   [[ -f $CONF_TAREFAS ]] || return 0
   local corte; corte=$(( $(hora_agora) - TAREFAS_LAPIDE_DIAS * 86400 ))
   tarefas_travar || return 1
   local tmp; tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
-  awk -F'\t' -v c="$corte" 'NF>=5 && !($2=="removida" && $4+0 < c)' "$CONF_TAREFAS" >"$tmp"
+  tarefas_sem_lapide_velha "$corte" <"$CONF_TAREFAS" >"$tmp"
   cmp -s "$tmp" "$CONF_TAREFAS" && rm -f "$tmp" || mv "$tmp" "$CONF_TAREFAS"
   tarefas_destravar
 }
@@ -6491,42 +6511,152 @@ puxar_tarefas() {
   done < <(maquinas) | receber_tarefas
 }
 
-# Diretório do clone git do repositório pessoal de tarefas (quando configurado).
+# --- repositório git pessoal (tarefas_sync=git|ambos) ----------------------
+#
+# O clone em $ESTADO_DIR/tarefas-git é só cache. A lista local (~/.config/tt/tarefas) manda e a
+# junção é por tarefa (tarefas_merge), então o clone é realinhado ao remoto a cada volta sem perder
+# nada: busca, junta na lista local o que veio (e o que o clone tinha e não chegou a enviar), grava a
+# lista no arquivo do repo e envia. Envio recusado (outra máquina enviou no meio) refaz a volta. Antes
+# o clone divergia depois de um envio sem rede, o "pull --ff-only" falhava para sempre e a máquina
+# parava de trocar pelo repo sem avisar; e a 1ª volta num repo vazio gravava um arquivo vazio.
+# Uma volta por vez (trava); quem chega com uma em andamento só marca, e ela repete no fim.
+# Resultado em tarefas-git.ok (epoch) e tarefas-git.erro (desde, última, motivo): menu ⋯ → 🔄 e
+# tt --tarefas-sync; falhando há mais de 1 h, um aviso na faixa (uma vez, até voltar a funcionar).
+
 tarefas_git_dir() { echo "$ESTADO_DIR/tarefas-git"; }
 
-# Garante o clone local do repositório pessoal; ecoa o diretório pronto, ou nada em caso de falha.
-tarefas_git_prep() {
-  local url dir; url=$(tarefas_repo_url); [[ -n $url ]] || return 1
-  command -v git >/dev/null || return 1
-  dir=$(tarefas_git_dir)
+# git sem hooks nem assinatura do usuário e sem nunca parar esperando senha (roda em 2º plano).
+tarefas_git() { # segundos args-do-git…
+  local seg=$1; shift
+  local -a amb=(GIT_TERMINAL_PROMPT=0)
+  [[ -z ${GIT_SSH_COMMAND:-} && -z ${GIT_SSH:-} && -z $(git config --get core.sshCommand 2>/dev/null) ]] &&
+    amb+=("GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=15")
+  timeout "$seg" env "${amb[@]}" git -c core.hooksPath=/dev/null -c commit.gpgsign=false "$@"
+}
+
+# Motivo legível de uma falha do git: a 1ª linha fatal/error, sem credencial embutida no endereço.
+tarefas_git_motivo() { # arquivo-com-o-stderr
+  local m
+  m=$(grep -m1 -E '^(fatal|error|ERROR|remote: error):' "$1" 2>/dev/null)
+  [[ -n $m ]] || m=$(grep -v '^[[:space:]]*$' "$1" 2>/dev/null | tail -1)
+  [[ -n $m ]] || m="sem resposta (tempo esgotado)"
+  m=${m#remote: error: }; m=${m#fatal: }; m=${m#error: }; m=${m#ERROR: }
+  sed -E 's#(://)[^/@[:space:]]+@#\1***@#g' <<<"${m:0:160}"
+}
+
+# Endereço para mostrar: sem usuário/senha/token embutidos.
+tarefas_repo_mostrar() { sed -E 's#(://)[^/@[:space:]]+@#\1***@#' <<<"$1"; }
+
+tarefas_git_ok() {
+  mkdir -p "$ESTADO_DIR"
+  date +%s >"$ESTADO_DIR/tarefas-git.ok"
+  rm -f "$ESTADO_DIR/tarefas-git.erro" "$ESTADO_DIR/tarefas-git.avisado"
+}
+
+tarefas_git_falhou() { # motivo
+  local agora desde="" _u _m
+  agora=$(date +%s); mkdir -p "$ESTADO_DIR"
+  [[ -f $ESTADO_DIR/tarefas-git.erro ]] && IFS=$'\t' read -r desde _u _m <"$ESTADO_DIR/tarefas-git.erro"
+  [[ $desde =~ ^[0-9]+$ ]] || desde=$agora
+  printf '%s\t%s\t%s\n' "$desde" "$agora" "$1" >"$ESTADO_DIR/tarefas-git.erro"
+  # Falhando há mais de TT_TAREFAS_GIT_AVISO s (1 h): avisa uma vez na faixa, até voltar a funcionar.
+  if ((agora - desde >= ${TT_TAREFAS_GIT_AVISO:-3600})) && [[ ! -e $ESTADO_DIR/tarefas-git.avisado ]]; then
+    : >"$ESTADO_DIR/tarefas-git.avisado"
+    notificar "⚠ Tarefas: o repositório git não sincroniza desde $(notif_quando "$desde" | tr -s ' ') (toque para ver)" 3600 tarefas-sync
+  fi
+  return 0
+}
+
+# Ramo do remoto: o HEAD dele; sem HEAD (repo vazio, ou clone de quando estava vazio), main, ou
+# master se só ele existir.
+tarefas_git_ramo() { # clone
+  local r
+  r=$(git -C "$1" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null); r=${r#origin/}
+  if [[ -z $r ]]; then
+    r=main
+    git -C "$1" rev-parse -q --verify refs/remotes/origin/main >/dev/null ||
+      { git -C "$1" rev-parse -q --verify refs/remotes/origin/master >/dev/null && r=master; }
+  fi
+  echo "$r"
+}
+
+# Uma volta completa (buscar, juntar, gravar, enviar), com até 3 tentativas se o envio for recusado.
+tarefas_git_volta() {
+  local url dir err ramo tent antes junto corte remoto
+  url=$(tarefas_repo_url)
+  [[ -n $url ]] || { tarefas_git_falhou "falta o endereço do repositório (tarefas_repo)"; return 1; }
+  command -v git >/dev/null || { tarefas_git_falhou "o git não está instalado nesta máquina"; return 1; }
+  dir=$(tarefas_git_dir); err=$(mktemp)
+  # Clone de outro endereço (o repositório mudou): refaz, é só cache.
+  [[ -d $dir/.git && $(git -C "$dir" config --get remote.origin.url 2>/dev/null) != "$url" ]] && rm -rf "$dir"
   if [[ ! -d $dir/.git ]]; then
-    mkdir -p "$ESTADO_DIR"
-    timeout 30 git clone --depth 1 "$url" "$dir" >/dev/null 2>&1 || return 1
+    rm -rf "$dir"; mkdir -p "$ESTADO_DIR"
+    tarefas_git 60 clone -q --depth 1 "$url" "$dir" 2>"$err" ||
+      { tarefas_git_falhou "não consegui clonar: $(tarefas_git_motivo "$err")"; rm -rf "$err" "$dir"; return 1; }
   fi
-  printf '%s\n' "$dir"
+  corte=$(( $(hora_agora) - TAREFAS_LAPIDE_DIAS * 86400 ))
+  for tent in 1 2 3; do
+    touch "$ESTADO_DIR/tarefas-git.trava" 2>/dev/null
+    antes=$(mktemp)
+    [[ -f $dir/tarefas ]] && cp "$dir/tarefas" "$antes"
+    # Origem explícita: o clone de um repo vazio nasce sem nenhuma (e nunca buscaria nada).
+    if ! tarefas_git 30 -C "$dir" fetch -q origin '+refs/heads/*:refs/remotes/origin/*' 2>"$err"; then
+      tarefas_git_falhou "sem acesso ao repositório: $(tarefas_git_motivo "$err")"; rm -f "$err" "$antes"; return 1
+    fi
+    ramo=$(tarefas_git_ramo "$dir")
+    if git -C "$dir" rev-parse -q --verify "refs/remotes/origin/$ramo" >/dev/null; then
+      remoto=1
+      tarefas_git 15 -C "$dir" checkout -q -f -B "$ramo" "refs/remotes/origin/$ramo" 2>"$err" ||
+        { tarefas_git_falhou "não consegui alinhar o clone: $(tarefas_git_motivo "$err")"; rm -f "$err" "$antes"; return 1; }
+    else
+      # Repo vazio: o ramo recomeça do zero aqui (um 1º envio que não chegou é refeito) e nasce no envio.
+      remoto=0
+      git -C "$dir" update-ref -d "refs/heads/$ramo" 2>/dev/null
+      git -C "$dir" symbolic-ref HEAD "refs/heads/$ramo"
+      git -C "$dir" read-tree --empty 2>/dev/null
+    fi
+    # Na lista local: o que veio do remoto e o que o clone tinha e não chegou a enviar.
+    cat "$dir/tarefas" "$antes" 2>/dev/null | tarefas_sem_lapide_velha "$corte" | receber_tarefas
+    rm -f "$antes"
+    # No repo: a junção das duas (se a lista local estiver atrás, nada some do repo).
+    junto=$(mktemp)
+    cat "$CONF_TAREFAS" "$dir/tarefas" 2>/dev/null | tarefas_merge /dev/stdin | tarefas_sem_lapide_velha "$corte" >"$junto"
+    if ((remoto)) && [[ -f $dir/tarefas ]]; then
+      cmp -s "$junto" "$dir/tarefas" && { rm -f "$junto" "$err"; tarefas_git_ok; return 0; }
+    elif [[ ! -s $junto ]]; then
+      rm -f "$junto" "$err"; tarefas_git_ok; return 0   # nem o repo nem esta máquina têm tarefas ainda
+    fi
+    mv "$junto" "$dir/tarefas"
+    { tarefas_git 15 -C "$dir" add tarefas &&
+      tarefas_git 15 -C "$dir" -c user.name="${TT_GIT_NAME:-tt}" -c user.email="${TT_GIT_EMAIL:-tt@localhost}" \
+        commit -q -m "tarefas: sync de $MAQUINA"; } 2>"$err" ||
+      { tarefas_git_falhou "não consegui gravar no clone: $(tarefas_git_motivo "$err")"; rm -f "$err"; return 1; }
+    [[ -n ${TT_TESTE_ANTES_DO_PUSH:-} ]] && eval "$TT_TESTE_ANTES_DO_PUSH"   # testes: outra máquina envia no meio
+    if tarefas_git 30 -C "$dir" push -q origin "HEAD:refs/heads/$ramo" 2>"$err"; then
+      rm -f "$err"; tarefas_git_ok; return 0
+    fi
+  done
+  tarefas_git_falhou "o repositório recusou o envio: $(tarefas_git_motivo "$err")"; rm -f "$err"
+  return 1
 }
 
-# Git: puxa o arquivo do repositório pessoal e funde na lista local.
-puxar_tarefas_git() {
-  local dir; dir=$(tarefas_git_prep) || return 1
-  ( cd "$dir" && timeout 30 git pull --ff-only >/dev/null 2>&1 )
-  [[ -f $dir/tarefas ]] && receber_tarefas <"$dir/tarefas"
-}
-
-# Git: funde a lista local no arquivo do repo pessoal e empurra (merge por tarefa, nunca perde).
-empurrar_tarefas_git() {
-  local dir; dir=$(tarefas_git_prep) || return 1
-  [[ -f $CONF_TAREFAS ]] || return 0
-  ( cd "$dir" && timeout 30 git pull --ff-only >/dev/null 2>&1 )
-  local merged; merged=$(mktemp)
-  tarefas_merge "$dir/tarefas" "$CONF_TAREFAS" 2>/dev/null >"$merged"
-  if ! cmp -s "$merged" "$dir/tarefas" 2>/dev/null; then
-    cp "$merged" "$dir/tarefas"
-    ( cd "$dir" && git add tarefas &&
-      git -c user.name="${TT_GIT_NAME:-tt}" -c user.email="${TT_GIT_EMAIL:-tt@localhost}" commit -q -m "tarefas: sync de $MAQUINA" >/dev/null 2>&1 &&
-      timeout 30 git push >/dev/null 2>&1 )
+# Sincroniza com o repositório pessoal. Uma por vez: com outra em andamento, só marca, e ela refaz a
+# volta no fim (assim a mudança feita durante a volta não espera o vigia). Trava de processo morto
+# (sem sinal de vida há 5 min) é retomada.
+tarefas_git_sincronizar() {
+  local trava=$ESTADO_DIR/tarefas-git.trava pend=$ESTADO_DIR/tarefas-git.pendente rc=0 i
+  mkdir -p "$ESTADO_DIR"
+  if ! mkdir "$trava" 2>/dev/null; then
+    (($(idade_arquivo "$trava") > 300)) || { : >"$pend"; return 0; }
+    rmdir "$trava" 2>/dev/null; mkdir "$trava" 2>/dev/null || { : >"$pend"; return 0; }
   fi
-  rm -f "$merged"
+  for i in 1 2 3 4 5; do
+    rm -f "$pend"
+    tarefas_git_volta || { rc=1; break; }
+    [[ -e $pend ]] || break
+  done
+  rmdir "$trava" 2>/dev/null
+  return $rc
 }
 
 # Espelha a lista local conforme o modo configurado (chamado em segundo plano após cada mudança).
@@ -6534,20 +6664,157 @@ tarefas_espelhar() {
   case $(tarefas_sync_modo) in
     off) : ;;
     p2p) propagar_tarefas ;;
-    git) empurrar_tarefas_git ;;
-    ambos) propagar_tarefas; empurrar_tarefas_git ;;
+    git) tarefas_git_sincronizar ;;
+    ambos) propagar_tarefas; tarefas_git_sincronizar ;;
   esac
 }
 
-# Puxa de todas as fontes conforme o modo (chamado pelo vigia).
+# Puxa de todas as fontes conforme o modo (chamado pelo vigia). No git a volta também envia: tarefa
+# que chegou por P2P vai para o repositório sem esperar uma mudança feita nesta máquina.
 tarefas_puxar_tudo() {
   case $(tarefas_sync_modo) in
     off) : ;;
     p2p) puxar_tarefas ;;
-    git) puxar_tarefas_git ;;
-    ambos) puxar_tarefas; puxar_tarefas_git ;;
+    git) tarefas_git_sincronizar ;;
+    ambos) puxar_tarefas; tarefas_git_sincronizar ;;
   esac
   tarefas_compactar
+}
+
+# --- configuração da sincronia: tt --tarefas-sync e menu ⋯ do painel → 🔄 ----
+
+tarefas_sync_rotulo() { # [modo] → rótulo curto (menu ⋯), com ⚠ se o repositório está falhando
+  local m=${1:-$(tarefas_sync_modo)} r
+  case $m in p2p) r="P2P" ;; git) r="git" ;; ambos) r="P2P + git" ;; off) r="desligada" ;; *) r=$m ;; esac
+  [[ $m == @(git|ambos) && -f $ESTADO_DIR/tarefas-git.erro ]] && r+=" ⚠"
+  echo "$r"
+}
+
+tarefas_sync_descricao() { # modo → uma linha que explica o modo
+  case $1 in
+    p2p) echo "P2P: direto entre as máquinas cadastradas (padrão)" ;;
+    ambos) echo "Ambos: P2P e um repositório git, com histórico" ;;
+    git) echo "Git: só pelo repositório" ;;
+    off) echo "Desligada: esta máquina não envia nem busca" ;;
+  esac
+}
+
+# Estado em linhas curtas (cabe no celular): modo, repositório e a última troca com ele.
+tarefas_sync_estado() {
+  local modo url ok="" desde="" ult="" mot=""
+  modo=$(tarefas_sync_modo); url=$(tarefas_repo_url)
+  echo "modo: $(tarefas_sync_descricao "$modo")"
+  if [[ -n $url ]]; then echo "repositório: $(tarefas_repo_mostrar "$url")"; else echo "repositório: nenhum"; fi
+  [[ $modo == @(git|ambos) ]] || return 0
+  [[ -f $ESTADO_DIR/tarefas-git.ok ]] && ok=$(<"$ESTADO_DIR/tarefas-git.ok")
+  [[ -f $ESTADO_DIR/tarefas-git.erro ]] && IFS=$'\t' read -r desde ult mot <"$ESTADO_DIR/tarefas-git.erro"
+  if [[ -n $ult ]]; then
+    echo "⚠ falhou $(notif_quando "$ult" | tr -s ' '): $mot"
+    [[ $desde != "$ult" ]] && echo "  falhando desde $(notif_quando "$desde" | tr -s ' ')"
+    [[ -n $ok ]] && echo "  última troca que deu certo: $(notif_quando "$ok" | tr -s ' ')"
+  elif [[ -n $ok ]]; then
+    echo "última troca: $(notif_quando "$ok" | tr -s ' ') ✓"
+  else
+    echo "última troca: ainda nenhuma"
+  fi
+}
+
+tarefas_sync_definir() { # modo
+  [[ $1 == @(p2p|git|ambos|off) ]] || return 2
+  conf_gravar tarefas_sync "$1"
+}
+
+# Grava o endereço depois de conferir o acesso (git ls-remote). Sem acesso, nada muda.
+tarefas_repo_definir() { # url
+  local url=$1 err
+  command -v git >/dev/null || { echo "o git não está instalado nesta máquina"; return 1; }
+  err=$(mktemp)
+  if ! tarefas_git 30 ls-remote -q "$url" >/dev/null 2>"$err"; then
+    echo "✗ não consegui acessar $(tarefas_repo_mostrar "$url")"
+    echo "  $(tarefas_git_motivo "$err")"
+    echo "  Nada mudou. Confira o endereço e se esta máquina tem a chave"
+    echo "  ou a credencial desse repositório."
+    rm -f "$err"; return 1
+  fi
+  rm -f "$err" "$ESTADO_DIR/tarefas-git.erro" "$ESTADO_DIR/tarefas-git.ok" "$ESTADO_DIR/tarefas-git.avisado"
+  conf_gravar tarefas_repo "$url"
+  echo "repositório: $(tarefas_repo_mostrar "$url")"
+  echo "✓ acesso conferido"
+}
+
+# Sincroniza agora, pelo modo configurado (P2P busca e envia; git faz uma volta).
+tarefas_sync_agora() {
+  case $(tarefas_sync_modo) in
+    off) echo "a sincronização desta máquina está desligada"; return 0 ;;
+    p2p) puxar_tarefas; propagar_tarefas ;;
+    git) tarefas_git_sincronizar ;;
+    ambos) puxar_tarefas; tarefas_git_sincronizar; propagar_tarefas ;;
+  esac
+  tarefas_compactar
+  return 0
+}
+
+tarefas_sync_cmd() { # [status|agora|p2p|git|ambos|off] [url]
+  local acao=${1:-status} url=${2:-}
+  case $acao in
+    status) tarefas_sync_estado ;;
+    agora) tarefas_sync_agora; tarefas_sync_estado ;;
+    p2p | off) tarefas_sync_definir "$acao"; tarefas_sync_estado ;;
+    git | ambos)
+      [[ -n $url ]] || url=$(tarefas_repo_url)
+      [[ -n $url ]] || { echo "falta o endereço do repositório: tt --tarefas-sync $acao URL"; return 2; }
+      if [[ $url != "$(tarefas_repo_url)" ]]; then tarefas_repo_definir "$url" || return 1; fi
+      tarefas_sync_definir "$acao"
+      tarefas_sync_agora
+      tarefas_sync_estado ;;
+    *) echo "uso: tt --tarefas-sync [status|agora|p2p|git|ambos|off] [url]"; return 2 ;;
+  esac
+}
+
+# Pergunta o endereço do repositório (vem preenchido com o atual). Resposta em RESP_URL; vazio cancela.
+tarefas_sync_ler_url() {
+  clear
+  printf '%s\n' 'Repositório git das tarefas (de preferência privado).' \
+    'Ex.: git@github.com:voce/tt-tarefas.git' \
+    '     https://github.com/voce/tt-tarefas.git' \
+    'A credencial fica no git e no ssh desta máquina. Vazio cancela.' ''
+  RESP_URL=""
+  read -r -e -i "$(tarefas_repo_url)" -p 'Endereço: ' RESP_URL || return 1
+  [[ -n $RESP_URL ]]
+}
+
+# Tela do menu ⋯ do painel → 🔄: escolhe o modo, o endereço e sincroniza na hora.
+tarefas_sync_ui() {
+  local modo op m
+  while :; do
+    modo=$(tarefas_sync_modo)
+    op=$( {
+      for m in p2p ambos git off; do
+        printf '%s\t%s %s\n' "$m" "$([[ $m == "$modo" ]] && echo ✓ || echo ' ')" "$(tarefas_sync_descricao "$m")"
+      done
+      printf -- '-\t\n'
+      printf 'e\t  ✎ Endereço do repositório…\n'
+      printf 's\t  ⟳ Sincronizar agora\n'
+      printf 'v\t  ← Fechar\n'; } |
+      fzf --ansi --layout=reverse --no-sort --delimiter=$'\t' --with-nth=2 --no-input \
+        --header="$(printf '🔄 Sincronização das tarefas desta máquina\n%s' "$(tarefas_sync_estado)")" | cut -f1) || return 0
+    case $op in
+      p2p | off) tarefas_sync_definir "$op" ;;
+      git | ambos)
+        if [[ -z $(tarefas_repo_url) ]]; then tarefas_sync_ler_url || continue; else RESP_URL=$(tarefas_repo_url); fi
+        clear; echo "sincronizando…"; tarefas_sync_cmd "$op" "$RESP_URL"; email_pausa ;;
+      e)
+        tarefas_sync_ler_url || continue
+        clear
+        if tarefas_repo_definir "$RESP_URL" && [[ $(tarefas_sync_modo) == @(git|ambos) ]]; then
+          echo "sincronizando…"; tarefas_sync_agora; tarefas_sync_estado
+        fi
+        email_pausa ;;
+      s) clear; echo "sincronizando…"; tarefas_sync_agora; tarefas_sync_estado; email_pausa ;;
+      -) : ;;
+      *) return 0 ;;
+    esac
+  done
 }
 
 # --- lembrete de prazo (notificação do sistema, disparado pelo vigia) ------
@@ -6745,10 +7012,11 @@ notif_abrir() { # ação cliente
     email:*) email_ir_novo "${acao#email:}" "$c" ;;   # aviso de e-mail novo: vai à conta e à mensagem (:check-mail vai dentro)
     email) botao_email "$c" ;;
     novidades) tmux display-popup -c "$c" -E $(tam_popup "$c") -T ' 📰 novidades do tt ' "$EU --novidades" ;;
-    pendencias) tmux display-popup -c "$c" -E -w 92 -h 22 -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo" ;;
+    pendencias) tmux display-popup -c "$c" -E $(dim_popup "$c" 92 22) -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo" ;;
     tarefas) abrir_tarefas "$c" ;;
     demandas) tarefas_filtro_set entrada; abrir_tarefas "$c" ;;
     calendario) abrir_calendario "$c" ;;
+    tarefas-sync) eval "$(popup_tt "$c" "🔄 sincronização das tarefas" "$EU --tarefas-sync-ui")" ;;
     cmd:*) rodar_fora 0 "${acao#cmd:}" ;;
     sessao:*) notif_ir_sessao "${acao#sessao:}" "$c" ;;
     *) return 1 ;;
@@ -6814,7 +7082,7 @@ notifs_clique() { # cliente
 notifs_popup() {
   local c=${1:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
   [[ -n $c ]] || return 0
-  tmux display-popup -c "$c" -E -w 86 -h 18 -b rounded -T ' 🔔 notificações ' "$EU --notifs-ui $(q "$c")"
+  tmux display-popup -c "$c" -E $(dim_popup "$c" 86 18) -b rounded -T ' 🔔 notificações ' "$EU --notifs-ui $(q "$c")"
 }
 # Quando um aviso nasceu, para a central: "Hoje 08:12", "Ontem 22:05" ou "08/10 22:05" (o ano só
 # aparece quando não é o corrente) — só a hora não distinguia hoje de ontem.
@@ -7622,8 +7890,9 @@ tarefas_ajuda_linhas() {
   printf '\t   %s●%s prioridade alta   %s●%s média   %s◷ sex 14:00%s prazo   %s◷ venceu%s atrasada\n' "$verm" "$z" "$y" "$z" "$s" "$z" "$verm" "$z"
   printf '\t   %s↻%s repete   %s━━━%s%s━━━%s 1/2 subtarefas feitas   %s≡%s tem descrição   %s#tag%s\n' "$teal" "$z" "$teal" "$z" "$d" "$z" "$s" "$z" "$lil" "$z"
   printf '\t\n\t %sSINCRONIA%s\n' "$a" "$z"
-  printf '\t   As tarefas vão para as suas outras máquinas sozinhas\n'
-  printf '\t   (tarefas_sync em ~/.config/tt/config: p2p, git, ambos ou off).\n'
+  printf '\t   As tarefas vão para as suas outras máquinas sozinhas: P2P,\n'
+  printf '\t   um repositório git seu (com histórico), os dois ou desligado.\n'
+  printf '\t   Configure no menu ⋯ da barra → 🔄, ou tt --tarefas-sync.\n'
   printf '\t   O botão 📋 da barra fica vermelho (⚠ N) quando algo vence hoje.\n'
 }
 
@@ -8645,8 +8914,9 @@ menu_tarefas() {
   menu_popup "$c" "📋 tarefas" <<ITENS
 t	📋 Abrir o painel de tarefas	$EU --tarefas $(q "$c")
 a	▦ Agenda (calendário do mês)	$EU --clique relogio $(q "$c") x "$HOME" 0
-n	+ Nova tarefa…	tmux display-popup -c $(q "$c") -E -w 72 -h 14 -b rounded -T ' + nova tarefa ' $(q "$EU --tarefa-add-ui")
-l	▤ Arquivar ou apagar as tarefas feitas…	tmux display-popup -c $(q "$c") -E -w 72 -h 13 -b rounded $(q "$EU --tarefa-limpar-prompt")
+n	+ Nova tarefa…	tmux display-popup -c $(q "$c") -E $(dim_popup "$c" 72 14) -b rounded -T ' + nova tarefa ' $(q "$EU --tarefa-add-ui")
+s	🔄 Sincronização: $(tarefas_sync_rotulo)…	$(popup_tt "$c" "🔄 sincronização das tarefas" "$EU --tarefas-sync-ui")
+l	▤ Arquivar ou apagar as tarefas feitas…	tmux display-popup -c $(q "$c") -E $(dim_popup "$c" 72 13) -b rounded $(q "$EU --tarefa-limpar-prompt")
 ITENS
 }
 
@@ -9190,7 +9460,7 @@ mover_fixada() {
 fixadas_popup() {
   local c=${1:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
   [[ -n $c ]] || { fixadas_ui ""; return 0; }
-  tmux display-popup -c "$c" -E -w 64 -h 18 -b rounded -S 'fg=#bd93f9' -T ' 📌 sessões fixadas ' "$EU --fixadas-ui $(q "$c")"
+  tmux display-popup -c "$c" -E $(dim_popup "$c" 64 18) -b rounded -S 'fg=#bd93f9' -T ' 📌 sessões fixadas ' "$EU --fixadas-ui $(q "$c")"
 }
 
 fixadas_ui_lista() {
@@ -9274,7 +9544,7 @@ r	⟳ Sincronizar agora (consulta as contas; útil esperando um código)	$EU --e
 c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
 n	＋ Cadastrar uma conta…	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
 a	⌨ Atalhos do e-mail	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' ⌨ atalhos do e-mail ' "$EU --email-atalhos"
-s	🔄 Sync local: estado das rodadas	tmux display-popup -c $(q "$c") -E -w 72 -h 20 -b rounded -T ' 🔄 sync local ' "$EU --email-sync-estado; printf '\\n(qualquer tecla fecha)'; read -rsn1 _"
+s	🔄 Sync local: estado das rodadas	tmux display-popup -c $(q "$c") -E $(dim_popup "$c" 72 20) -b rounded -T ' 🔄 sync local ' "$EU --email-sync-estado; printf '\\n(qualquer tecla fecha)'; read -rsn1 _"
 ITENS
 )
   [[ -n $linha ]] && itens+=$'\n'$linha
@@ -9946,7 +10216,7 @@ botao_email() {
   cmd=$(email_comando) || {
     local cli; cli=$(conf email); cli=${cli%% *}
     if [[ -z $cli || ${cli##*/} == aerc ]]; then   # sem o aerc: oferece instalar (modal das pendências) em vez de só avisar
-      tmux display-popup -c "$cliente" -E -w 92 -h 22 -b rounded -S 'fg=#f9e2af' -T ' 📦 aerc ' "$EU --pedir-sudo email-aerc"
+      tmux display-popup -c "$cliente" -E $(dim_popup "$cliente" 92 22) -b rounded -S 'fg=#f9e2af' -T ' 📦 aerc ' "$EU --pedir-sudo email-aerc"
       cmd=$(email_comando) || return
     else
       botao_aviso "$cliente" "e-mail: instale o aerc (ou defina email=<cliente> em ~/.config/tt/config)"; return
@@ -12768,6 +13038,8 @@ case "${1:-}" in
   --receber-tarefas) receber_tarefas; exit ;;
   --tarefas-espelhar) tarefas_espelhar; exit ;;
   --tarefas-puxar) tarefas_puxar_tudo; exit ;;
+  --tarefas-sync) tarefas_sync_cmd "${2:-status}" "${3:-}"; exit $? ;;
+  --tarefas-sync-ui) tarefas_sync_ui; exit 0 ;;
   --tarefas-lembrete) tarefas_lembrete; exit ;;
   --tarefas-barra) barra_tarefas_fmt; exit ;;
   --email-pastas) s=$(email_achar "${2:?uso: tt --email-pastas NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_detectar_pastas "$s" && echo "✔ pastas atualizadas"; exit ;;

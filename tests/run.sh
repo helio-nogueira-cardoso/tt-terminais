@@ -217,6 +217,10 @@ grep -Fq 'new-session' <<<"$corpo_abrir" && falha 'tarefas: abrir_tarefas não d
 rg -q '^tarefas_merge\(\)' "$tt" || falha 'tarefas: tarefas_merge (merge por tarefa) ausente'
 rg -q '^tarefas_sync_modo\(\)' "$tt" || falha 'tarefas: modo de sync configurável ausente'
 rg -q 'tarefas_repo' "$tt" || falha 'tarefas: repositório git pessoal (tarefas_repo) ausente'
+rg -q '^tarefas_git_sincronizar\(\)' "$tt" || falha 'tarefas: sincronia git (realinha o clone, refaz envio recusado) ausente'
+rg -Fq -- '--tarefas-sync) tarefas_sync_cmd' "$tt" && rg -Fq -- '--tarefas-sync-ui) tarefas_sync_ui' "$tt" ||
+  falha 'tarefas: verbos --tarefas-sync/--tarefas-sync-ui ausentes'
+rg -Fq 'Sincronização das tarefas: $(tarefas_sync_rotulo)' "$tt" || falha 'tarefas: menu ⋯ do painel sem o item 🔄 da sincronia'
 rg -Fq -- '--tarefas-puxar' "$tt" || falha 'tarefas: vigia não puxa tarefas (--tarefas-puxar ausente)'
 rg -Fq -- '--tarefas-lembrete' "$tt" || falha 'tarefas: lembrete de prazo (--tarefas-lembrete) ausente'
 # A versão continua no canto direito; o 📋 vem antes dela na 2ª linha.
