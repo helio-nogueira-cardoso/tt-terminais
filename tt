@@ -13209,6 +13209,21 @@ escolher() {
 limpar_estado() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO".lista "$TT_ESTADO".pos "$TT_ESTADO".fresca "$TT_ESTADO".mouse; }
 sair_menu() { limpar_estado; }
 
+# Diagnóstico de lentidão ao trocar de sessão: com o arquivo ~/.config/tt/trace presente, os
+# comandos de clique e troca gravam cada linha executada, com hora, em ~/.cache/tt-trace.log
+# (zera acima de 5 MB). Para ligar: touch ~/.config/tt/trace; para desligar: rm.
+if [[ -e $CONF_DIR/trace ]]; then
+  case "${1:-}" in
+    --clique | --ir-fixada | --ir-ponte | --seletor | --seletor-em | --lista-seletor)
+      TT_TRACE_LOG=$HOME/.cache/tt-trace.log
+      [[ $(stat -c %s "$TT_TRACE_LOG" 2>/dev/null || echo 0) -gt 5000000 ]] && : >"$TT_TRACE_LOG"
+      printf '\n=== %(%F %T)T pid=%s %s\n' -1 "$$" "$*" >>"$TT_TRACE_LOG"
+      exec {BASH_XTRACEFD}>>"$TT_TRACE_LOG"
+      PS4='+ ${EPOCHREALTIME} ${FUNCNAME[0]:-main}:${LINENO}: '
+      set -x ;;
+  esac
+fi
+
 # Chamados por cliques, menus e ganchos do tmux (run-shell): calados e sempre com sucesso — se
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").

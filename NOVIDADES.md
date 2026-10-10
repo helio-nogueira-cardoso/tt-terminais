@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.7.1 · 10/10/2026
+- Novo diagnóstico de lentidão ao trocar de sessão: crie o arquivo `~/.config/tt/trace` (`touch`) e os cliques
+  e trocas passam a gravar cada linha executada, com a hora, em `~/.cache/tt-trace.log` (zera acima de 5 MB).
+  Apague o arquivo para desligar. Vem desligado.
+
 ## v1.7.0 · 10/10/2026
 - A numeração das versões agora é hierárquica: `MAIOR.MENOR.PATCH`, e quando um número da esquerda sobe os da direita voltam a zero
   (esta é a 1.7.0, depois da 1.6.277). Antes o último número só crescia (era a contagem de commits). O que decide qual versão é
