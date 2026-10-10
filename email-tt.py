@@ -958,6 +958,90 @@ def contatos_indexar(args):
     return 0
 
 
+# --- Demandas por e-mail: uma mensagem vira (talvez) uma tarefa pendente -----------------------
+def _dominio(end):
+    return end.rsplit("@", 1)[-1].strip().lower().strip(">")
+
+
+def _alinhado(a, b):
+    """Domínios alinhados (relaxado): iguais, ou um é subdomínio do outro."""
+    a, b = (a or "").lower().strip("."), (b or "").lower().strip(".")
+    return bool(a) and bool(b) and (a == b or a.endswith("." + b) or b.endswith("." + a))
+
+
+def autenticacao(msg, de):
+    """'pass' | 'fail' | 'none': o veredito do PROVEDOR que recebeu (cabeçalho Authentication-Results
+    MAIS NOVO, o do topo, que o servidor final põe por cima do que o remetente tenha forjado) para o
+    domínio do From. pass = dmarc=pass, ou dkim=pass / spf=pass com domínio alinhado ao do From."""
+    import re
+    ars = msg.get_all("Authentication-Results") or []
+    if not ars:
+        return "none"
+    ar = " ".join(str(ars[0]).split()).lower()
+    dom = _dominio(de)
+    if re.search(r"\bdmarc=pass\b", ar):
+        return "pass"
+    for m in re.finditer(r"\bdkim=pass\b([^;]*)", ar):
+        d = re.search(r"header\.(?:d|i)=@?([^\s;]+)", m.group(1))
+        if d and _alinhado(d.group(1).split("@")[-1], dom):
+            return "pass"
+    for m in re.finditer(r"\bspf=pass\b([^;]*)", ar):
+        d = re.search(r"smtp\.(?:mailfrom|helo)=([^\s;]+)", m.group(1))
+        if d and _alinhado(d.group(1).split("@")[-1], dom):
+            return "pass"
+    return "fail"
+
+
+def demanda(caminho):
+    """Uma linha TSV: de, message-id, epoch, auth, assunto, descrição, subtarefas — os três últimos em
+    base64 (podem ter TAB e quebras de linha). Nada do conteúdo é executado; subtarefa = linha '- texto'."""
+    import base64, email, email.policy, email.utils, hashlib, re, time
+    with open(caminho, "rb") as f:
+        bruto = f.read(2_000_000)
+    msg = email.message_from_bytes(bruto, policy=email.policy.default)
+    _, de = email.utils.parseaddr(str(msg.get("From", "")))
+    de = de.strip().lower()
+    mid = str(msg.get("Message-ID", "") or "").strip().strip("<>")
+    if not mid:
+        mid = "sem-id-" + hashlib.sha256(bruto).hexdigest()[:24]
+    agora = int(time.time())
+    try:
+        epoch = int(email.utils.parsedate_to_datetime(str(msg.get("Date"))).timestamp())
+    except Exception:
+        try:
+            epoch = int(os.path.getmtime(caminho))
+        except Exception:
+            epoch = agora
+    epoch = max(1, min(epoch, agora))
+    assunto = " ".join(str(msg.get("Subject", "") or "").split())
+    corpo = ""
+    try:
+        parte = msg.get_body(preferencelist=("plain",))
+        if parte is None:
+            parte = msg.get_body(preferencelist=("html",))
+            corpo = html_para_texto(parte.get_content()) if parte is not None else ""
+        else:
+            corpo = parte.get_content()
+    except Exception:
+        corpo = ""
+    subs, desc = [], []
+    for ln in corpo.replace("\r", "").split("\n")[:400]:
+        if ln.rstrip() == "--":                      # assinatura ("-- " com espaço também)
+            break
+        if ln.startswith(">"):                       # citação de resposta
+            continue
+        m = re.match(r"^\s*[-*•]\s+(\S.*)$", ln)
+        if m and len(subs) < 30:
+            subs.append(" ".join(m.group(1).split())[:200])
+        else:
+            desc.append(ln.rstrip())
+    descricao = "\n".join(desc).strip()[:8000]
+    # "-" no lugar de vazio: o read do Bash com IFS=TAB juntaria os campos vazios vizinhos.
+    b = lambda t: base64.b64encode(t.encode("utf-8")).decode("ascii") or "-"
+    print("\t".join([de or "-", mid, str(epoch), autenticacao(msg, de), b(assunto), b(descricao), b("\n".join(subs))]))
+    return 0
+
+
 def main(a):
     if a[:1] == ["contatos-indexar"] and len(a) >= 2:
         return contatos_indexar(a[1:])
@@ -970,6 +1054,8 @@ def main(a):
         return lista_imagens(sys.stdin.buffer.read(), a[1])
     if a[:1] == ["baixar-imagem"] and len(a) == 3:
         return baixar_imagem(a[1], a[2])
+    if a[:1] == ["demanda"] and len(a) == 2:
+        return demanda(a[1])
     if a[:1] == ["cabecalho"] and len(a) == 2:
         # "remetente<TAB>assunto" de um arquivo de maildir, já decodificados (RFC 2047); para o aviso
         # de e-mail novo. Nunca lê o corpo.

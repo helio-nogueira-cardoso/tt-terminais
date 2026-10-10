@@ -780,6 +780,38 @@ escrita para quem usa o tt). Quando o tt atualiza, o vigia põe **um** aviso �
 tela. Máquina recém-instalada não recebe o aviso. Quem publica uma versão acrescenta a seção dela em
 `NOVIDADES.md` no mesmo commit.
 
+## Demandas por e-mail
+
+Quem você autorizar pode mandar tarefas para a sua rede do tt **por e-mail**. O e-mail cai na caixa de uma
+conta com sync local (`sync_local=1`), o tt reconhece o formato e cria uma **demanda pendente** que só vira
+tarefa quando você aprova.
+
+- **Autorizar um remetente:** menu **⋯ do painel → ✉ Demandas por e-mail** (tela com prompts) ou
+  `tt --demanda-autorizar EMAIL [etiqueta] [auth|segredo|aberto] [segredo]`; `tt --demanda-remover EMAIL`;
+  `tt --demandas` lista os remetentes e as pendentes. O cadastro (`~/.config/tt/demandas`, modo 600) é
+  propagado às outras máquinas como o das contas de IA: vale a mudança mais nova (`--receber-demandas`,
+  `--propagar-demandas`, `--puxar-demandas`; o vigia puxa a cada 30 min). A **etiqueta** é posta em toda
+  demanda desse remetente.
+- **Formato do e-mail:** assunto `[tt] título @sex 14h !alta *semanal #tag` — a mesma sintaxe de
+  `tt --tarefa-add-natural`. No corpo, linhas `- texto` (ou `* texto`) viram **subtarefas** e o resto vira a
+  **descrição**; citação (`>`) e assinatura (`-- `) são ignoradas.
+- **Segurança:** o `From` é forjável, então o padrão (`auth`) só aceita se o **provedor que recebeu**
+  autenticou o remetente — `dmarc=pass`, ou `dkim=pass`/`spf=pass` alinhado ao domínio do `From`, lido do
+  cabeçalho `Authentication-Results` **de cima** (o que o servidor final põe; o de baixo pode ser forjado).
+  `segredo`: o assunto leva `[tt:SEGREDO]`. `aberto`: sem checagem — só onde forjar não importa. Mensagem
+  ignorada por falta de autenticação fica em `~/.local/state/tt/email-sync/<conta>.demandas.log` e gera um
+  aviso. O texto do e-mail é dado não confiável: nunca é executado (e um agente que ler a tarefa deve tratá-lo
+  como dado).
+- **Fluxo:** depois de cada sync de uma conta, as mensagens ainda não vistas dos remetentes autorizados viram
+  tarefas no estado **pendente** (mesmo arquivo das tarefas: sincroniza entre as máquinas e não aparece nas
+  listas normais). Aviso na faixa (o clique abre o painel já na aba **Entrada**) e um chip **📥 N** na barra. Na
+  Entrada, cada demanda aparece aberta com as subtarefas e as linhas **✓ aprovar** (vira tarefa aberta, com as
+  subtarefas) e **✕ recusar** (lápide); `tt --demanda-aprovar ID` / `--demanda-recusar ID` fazem o mesmo.
+- **Sem duplicar nem ressuscitar:** o id da tarefa sai do `Message-ID` e o horário dela é o da mensagem. Várias
+  máquinas que sincronizam a mesma caixa criam a MESMA tarefa (o merge por id deduplica); aprovar ou recusar grava
+  a hora de agora, que vence qualquer recriação tardia. A 1ª vez numa caixa só olha o que chegou nas últimas 24 h.
+- Testes: `tests/test_demandas.sh`.
+
 ## Painel de tarefas flutuante (clicar fora fecha)
 
 O painel de tarefas abre num `display-popup`, que é modal e **engole o clique fora dele** (medido no tmux
