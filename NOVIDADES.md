@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.6.280 · 10/10/2026
+- **Copiar com o mouse agora exige segurar Alt**, em qualquer painel: Alt+arrastar copia, Alt+duplo clique copia
+  a palavra (ou o link inteiro), Alt+triplo clique copia a linha. Sem Alt, arrastar e clicar vão ao programa
+  (ou ao modo cópia) e nada é copiado, para não gerar cópias por acidente. Shift+arrastar continua sendo a
+  seleção do próprio terminal. Ctrl+clique num link segue abrindo o link.
+
 ## v1.6.279 · 10/10/2026
 - Nova skill para os agentes de IA, `celular-android`: como operar um celular Android montado com o tt
   (Termux, Debian no proot, shell do sistema sem root pelo adb do próprio aparelho ou pelo Shizuku, o

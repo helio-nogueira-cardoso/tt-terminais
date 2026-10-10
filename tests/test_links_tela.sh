@@ -96,9 +96,9 @@ passou "clique na última linha e na quebra do próprio terminal também abrem a
 [[ ! -s $LOG ]] || falhou "clique fora de link abriu algo: $(cat "$LOG")"
 passou "clique fora de link não abre nada"
 
-# Duplo clique: copia o link inteiro e não abre.
+# Alt+duplo clique: copia o link inteiro e não abre.
 : >"$LOG"; : >"$CLIP"
-clicar 30 "$y2"; sleep 0.08; clicar 30 "$y2"
+clicar 30 "$y2" 8; sleep 0.08; clicar 30 "$y2" 8
 esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "duplo clique não copiou o link inteiro: '$(cat "$CLIP")'"
 [[ $(tmux show-buffer) == "$U" ]] || falhou "buffer do tmux sem o link inteiro: '$(tmux show-buffer)'"
 sleep 0.6; [[ ! -s $LOG ]] || falhou "duplo clique também abriu o link: $(cat "$LOG")"
@@ -107,11 +107,11 @@ passou "duplo clique num link copia o link inteiro (tmux e área de transferênc
 # Arrastar do começo do link até o fim da 3ª linha: a cópia vem sem a quebra e sem o recuo.
 : >"$CLIP"; : >"$LOG"
 x0=$(( $(fora capture-pane -p -t v | sed -n "${y1}p" | python3 -c 'import sys; print(sys.stdin.read().index("https"))') + 1 ))
-apertar "$x0" "$y1"; sleep 0.1
-fora send -t v -l $'\e[<32;'"$((x0 + 5));$y1"$'M'; sleep 0.1
-fora send -t v -l $'\e[<32;30;'"$y2"$'M'; sleep 0.1
-fora send -t v -l $'\e[<32;'"$((3 + ${#U} - 187));$y3"$'M'; sleep 0.1
-soltar "$((3 + ${#U} - 187))" "$y3"
+apertar "$x0" "$y1" 8; sleep 0.1
+fora send -t v -l $'\e[<40;'"$((x0 + 5));$y1"$'M'; sleep 0.1
+fora send -t v -l $'\e[<40;30;'"$y2"$'M'; sleep 0.1
+fora send -t v -l $'\e[<40;'"$((3 + ${#U} - 187));$y3"$'M'; sleep 0.1
+soltar "$((3 + ${#U} - 187))" "$y3" 8
 esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "arrasto não religou o link: '$(cat "$CLIP" | cat -A | head -5)'"
 [[ $(tmux show-buffer) == "$U" ]] || falhou "buffer do tmux ficou com a cópia partida: '$(tmux show-buffer | cat -A | head -3)'"
 sleep 0.6; [[ ! -s $LOG ]] || falhou "arrastar a partir de um link abriu o link: $(cat "$LOG")"

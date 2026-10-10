@@ -407,7 +407,7 @@ tmux -S "$sock" list-keys -T prefix >"$tmp/prefix-keys"
 for evento in MouseDown1Status MouseDown1StatusLeft MouseDown1StatusRight MouseUp1Status MouseUp1StatusLeft MouseUp1StatusRight; do
   rg -q " $evento " "$tmp/keys" || falha "binding tmux ausente: $evento"
 done
-for evento in MouseDrag1Pane DoubleClick1Pane TripleClick1Pane MouseDown2Pane MouseUp2Pane MouseUp3Pane MouseDown3Pane MouseUp3Status MouseDown3Status MouseDown3Border; do
+for evento in MouseDrag1Pane M-MouseDrag1Pane DoubleClick1Pane M-DoubleClick1Pane TripleClick1Pane M-TripleClick1Pane MouseDown2Pane MouseUp2Pane MouseUp3Pane MouseDown3Pane MouseUp3Status MouseDown3Status MouseDown3Border; do
   rg -q " $evento " "$tmp/keys" || falha "gesto de painel/status ausente: $evento"
 done
 for tecla in F1 F2 F3 F4 F5 F6 F7 F8 F9 F10; do

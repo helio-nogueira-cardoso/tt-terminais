@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Interface real (tmux.conf instalado, cliente anexado): copiar sobre app que captura o mouse,
+# Interface real (tmux.conf instalado, cliente anexado): Alt+arrastar copia sobre app que captura o mouse,
 # central que fecha rápido no Esc mesmo com máquina lenta, pino 📍/📌 e ✕ das fixadas.
 source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado
 echo copia_entre_maquinas=0 >>"$XDG_CONFIG_HOME/tt/config"
@@ -9,10 +9,10 @@ APP
 tmux -f "$HOME/.tmux.conf" new -d -s app -x 100 -y 20 "bash $T/app.sh" 2>/dev/null
 anexar v 100 22 app; sleep 2
 [[ $(tmux display -p -t '=app:' '#{mouse_any_flag}') == 1 ]] || falhou 'app de teste não capturou o mouse'
-fora send -t v -l $'\e[<0;1;2M\e[<32;8;2M\e[<32;20;2M\e[<0;20;2m'; sleep 1.5
-[[ $(tmux show-buffer 2>/dev/null) == "copiar isto"* ]] || falhou "arrastar sobre app com mouse não copiou: '$(tmux show-buffer 2>/dev/null)'"
+fora send -t v -l $'\e[<8;1;2M\e[<40;8;2M\e[<40;20;2M\e[<8;20;2m'; sleep 1.5
+[[ $(tmux save-buffer - 2>/dev/null) == "copiar isto"* ]] || falhou "Alt+arrastar sobre app com mouse não copiou: '$(tmux save-buffer - 2>/dev/null)'"
 [[ -n $(ls "$HOME/.cache/tt-copias" 2>/dev/null) ]] || falhou 'cópia não entrou no histórico'
-passou 'arrastar copia mesmo sobre app que captura o mouse, e entra no histórico'
+passou 'Alt+arrastar copia mesmo sobre app que captura o mouse, e entra no histórico'
 
 # Central com uma máquina que não responde: o Esc fecha o quadro na hora.
 printf '192.0.2.1 ninguem lenta\n' >"$XDG_CONFIG_HOME/tt/maquinas"
