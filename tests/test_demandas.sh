@@ -133,4 +133,33 @@ tt --demanda-remover chefe@empresa.com.br >/dev/null; tt --demanda-remover seg@e
 eml novo chefe@empresa.com.br pass '[tt] Depois de remover' '' 'novo-id'
 antes=$(md5sum <"$C"); tt --demandas-processar conta; [[ $(md5sum <"$C") == "$antes" ]] || fail "remetente removido não pode criar demanda"
 echo "ok: remetente removido deixa de valer"
+
+# 9) conta nova, de pouco volume: sem e-mail com mais de 1 dia o arquivo de "já vistos" nasce VAZIO; o processamento
+#    não pode ficar mudo por causa disso (o awk NR == FNR tratava a lista de mensagens como se fosse o arquivo vazio)
+tt --demanda-autorizar chefe@empresa.com.br juridico >/dev/null || fail "autorizar de novo falhou"
+INBOX="$HOME/.cache/tt/maildir/vazia/INBOX"; mkdir -p "$INBOX/new" "$INBOX/cur"
+eml vz chefe@empresa.com.br pass '[tt] Conta nova sem histórico' '' 'vz-id'
+mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/tt/email-sync"; : >"${XDG_STATE_HOME:-$HOME/.local/state}/tt/email-sync/vazia.demandas"
+tt --demandas-processar vazia >/dev/null
+grep -q $'\tpendente\t.*Conta nova sem histórico' "$C" || fail "caixa com arquivo de vistos vazio deveria criar a demanda: $(cut -f2,5 "$C")"
+echo "ok: conta nova (arquivo de vistos vazio) também processa as demandas"
+
+clicar() { rm -f "$TT_RT/tt-clique-$(id -u)"; tt --clique "$@" >/dev/null 2>&1; }   # (clique repetido em < 0,5 s é descartado de propósito)
+
+# 10) chip 📥: range próprio, rota no clique e no clique direito, e o clique abre o painel direto na Entrada
+grep -q 'range=user|entrada]' "$TT" || fail "o chip 📥 deveria ter o range próprio entrada"
+grep -q '📥 3' <<<"$(tt --tarefas-barra)" && fail "só há 1 pendente agora"
+grep -q 'range=user|entrada' <<<"$(tt --tarefas-barra)" || fail "a barra deveria desenhar o chip 📥 com o range entrada: $(tt --tarefas-barra)"
+printf 'filtro=hoje\nmodo=lista\n' >"$UI"; clicar entrada cli '%0' ''
+[[ $(sed -n 's/^filtro=//p' "$UI" | tail -1) == entrada ]] || fail "o clique no chip 📥 deveria abrir na aba Entrada"
+printf 'filtro=hoje\nmodo=lista\n' >"$UI"; clicar tarefas cli '%0' ''
+[[ $(sed -n 's/^filtro=//p' "$UI" | tail -1) == hoje ]] || fail "o 📋 não deve forçar a Entrada"
+echo "ok: o chip 📥 abre direto na Entrada; o 📋 continua abrindo no filtro de sempre"
+
+# 11) parado na Entrada sem nada pendente: abrir o painel volta para Hoje (não mostra aba vazia)
+tt --demanda-aprovar $(tt --demandas-pendentes | awk 'NF{print $1; exit}') >/dev/null 2>&1
+for i in $(awk -F'\t' '$2=="pendente" && $6 !~ /pai=/{print $1}' "$C"); do tt --demanda-recusar "$i" >/dev/null 2>&1; done
+printf 'filtro=entrada\nmodo=lista\n' >"$UI"; clicar tarefas cli '%0' ''
+[[ $(sed -n 's/^filtro=//p' "$UI" | tail -1) == hoje ]] || fail "sem pendentes, abrir o painel na Entrada deveria voltar para Hoje"
+echo "ok: sem pendentes o painel não abre numa Entrada vazia"
 echo "TODOS OS TESTES PASSARAM"

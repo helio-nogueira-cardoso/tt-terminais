@@ -3,6 +3,18 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.5.275 · 10/10/2026
+- O chip 📥 da barra (demandas por e-mail esperando aprovação) agora abre o painel de tarefas direto na aba
+  **Entrada**, onde você aprova ou recusa. Antes ele abria o painel no filtro de sempre e a Entrada ficava
+  escondida em outra aba. Se você aprovar ou recusar tudo, o painel não abre mais numa Entrada vazia.
+- Corrigido: em contas de e-mail novas, ou de pouco volume, as demandas por e-mail nunca eram processadas
+  (o arquivo de mensagens já vistas nascia vazio e o filtro não deixava passar nada).
+- Nova pendência de instalação 📦 **tmux 3.8**: o painel de tarefas flutuante (clicar fora fecha) e outros
+  recursos pedem o tmux 3.8, e os pacotes do Debian/Ubuntu ficam no 3.5/3.6. O tt baixa o código oficial
+  (confere o sha256), compila na sua pasta e liga o executável — sem tocar no sistema, só com o administrador
+  para as ferramentas de compilação. As sessões abertas não são tocadas: o 3.8 vale no próximo servidor tmux
+  (depois de fechar todas as sessões ou reiniciar). O vigia avisa enquanto o tmux estiver abaixo do 3.8.
+
 ## v1.5.274 · 10/10/2026
 - Painel de tarefas mais limpo: o topo agora tem duas linhas fixas. Na 1ª, as abas numa faixa só; na 2ª,
   as ações mais usadas (+ Nova, ↳ Sub, ✎ Editar, ◷ Prazo, ✦ IA) e, alinhados à direita, ▦ calendário,
@@ -14,7 +26,6 @@ vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu admin
 ## v1.5.273 · 10/10/2026
 - O Carbonyl (navegador no terminal) volta a abrir numa subjanela, com 90% x 85% da tela, como os outros
   popups grandes. Desde 07/10 ele tomava a tela inteira. Em tela pequena (celular) continua em tela cheia.
-
 ## v1.5.271 · 10/10/2026
 - Corrigido: no Debian do proot do Termux (o Linux de dentro do celular), a detecção da plataforma e a
   instalação de pacotes falhavam — o proot se anuncia como "PRoot-Distro" e não tem `/dev/fd`. Testado de

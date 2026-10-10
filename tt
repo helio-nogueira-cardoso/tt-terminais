@@ -3600,7 +3600,8 @@ instalar_pacotes_cmd() { cmd_instalar_do_gerenciador "$(gerenciador_pacotes)"; }
 
 # pend_resolver GER item… — preenche PK_PACOTES (nomes finais de pacote) e PK_SEM_PACOTE (itens sem
 # pacote neste gerenciador). Item = nome lógico (tmux, mbsync…), arquivo de biblioteca (libnss3.so) ou
-# um destes grupos: xoauth2-build (compilador + cabeçalhos do SASL), isync-build (para compilar o isync).
+# um destes grupos: xoauth2-build (compilador + cabeçalhos do SASL), isync-build (para compilar o isync),
+# tmux-build (para compilar o tmux: compilador, make, pkg-config, libevent e ncurses).
 pend_resolver() {
   pacotes_lib || return 1
   local ger=$1 t n; shift
@@ -3609,6 +3610,7 @@ pend_resolver() {
     case $t in
       xoauth2-build) logicos+=(cc libc-dev sasl-dev ssl-dev) ;;
       isync-build) logicos+=(cc libc-dev make perl sasl-dev ssl-dev zlib-dev pkg-config) ;;
+      tmux-build) logicos+=(cc libc-dev make pkg-config libevent-dev ncurses-dev) ;;
       -|plugin-xoauth2|'') ;;
       *.so|*.so.*) if n=$(pk_pacote_lib "$ger" "$t"); then libs+=("$n"); else sem+=("$t"); fi ;;
       *) logicos+=("$t") ;;
@@ -3870,6 +3872,67 @@ isync_sasl_construir() {
   rm -rf "$tmp"; return $rc
 }
 
+# --- tmux 3.8, sem administrador -----------------------------------------------------------------
+# Debian/Ubuntu estáveis trazem o tmux 3.5/3.6; o painel flutuante do tt pede o 3.8. O tt baixa o código
+# oficial (confere o sha256), compila em DIR_TMUX e põe o executável na frente do PATH do tt (DIR_BIN_TT) e,
+# se não houver outro, em ~/.local/bin. O servidor tmux que já está rodando NÃO é tocado: o novo vale a
+# partir do próximo servidor (depois de fechar as sessões ou reiniciar a máquina).
+TMUX_ALVO=3.8
+DIR_TMUX=$HOME/.local/share/tt-tmux
+TMUX_URL=${TT_TMUX_URL:-https://github.com/tmux/tmux/releases/download/$TMUX_ALVO/tmux-$TMUX_ALVO.tar.gz}
+TMUX_SHA256=${TT_TMUX_SHA256:-e79c699c7e949dccd0a4a125e17b8d1261e311b16979dbc8eb34542f3966d82e}
+
+tmux_compilavel() { # há como compilar aqui (Linux/macOS/Termux)? Em outras plataformas fica só o manual do tmux-antigo
+  case $(pk_so 2>/dev/null) in linux | macos) return 0 ;; esac
+  [[ $(pk_ambiente 2>/dev/null) == termux ]]
+}
+tmux_deps_faltam() { # faltam compilador, make, pkg-config, tar, curl ou cabeçalhos (libevent, ncurses)?
+  finge_falta tmux-build && return 0
+  falta_cmd cc && falta_cmd gcc && falta_cmd clang && return 0
+  falta_cmd make && falta_cmd gmake && return 0
+  falta_cmd pkg-config && falta_cmd pkgconf && return 0
+  falta_cmd curl && return 0
+  falta_cmd tar && return 0
+  cabecalho_dir event2/event.h >/dev/null || return 0
+  cabecalho_dir ncurses.h >/dev/null || cabecalho_dir curses.h >/dev/null || return 0
+  return 1
+}
+tmux_construir() {
+  local tmp mk jobs inc_e inc_n extra="" ldf="" b rc=0
+  [[ -x $DIR_TMUX/bin/tmux ]] && ! versao_menor "$(versao_de "$DIR_TMUX/bin/tmux" -V)" "$TMUX_ALVO" && { tmux_ativar; return 0; }
+  pacotes_lib || return 1
+  mk=$(command -v gmake || command -v make) || { echo "✗ sem make." >&2; return 1; }
+  inc_e=$(cabecalho_dir event2/event.h) || { echo "✗ sem os cabeçalhos do libevent." >&2; return 1; }
+  inc_n=$(cabecalho_dir ncurses.h || cabecalho_dir curses.h) || { echo "✗ sem os cabeçalhos do ncurses." >&2; return 1; }
+  tmp=$(mktemp -d) || return 1
+  jobs=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+  echo "  Baixando e compilando o tmux $TMUX_ALVO (alguns minutos)…"
+  for b in "$inc_e" "$inc_n"; do
+    case $b in /usr/include | /usr/local/include) ;; *) extra+=" -I$b"; [[ -d ${b%/include}/lib ]] && ldf+=" -L${b%/include}/lib" ;; esac
+  done
+  if pk_baixar "$TMUX_URL" "$tmp/t.tgz" "$TMUX_SHA256" 20 &&
+     tar xzf "$tmp/t.tgz" -C "$tmp" --strip-components=1 &&
+     (cd "$tmp" && CPPFLAGS="${CPPFLAGS:-}$extra" LDFLAGS="${LDFLAGS:-}$ldf" ./configure --prefix="$DIR_TMUX" >"$tmp/configure.log" 2>&1 &&
+        "$mk" -j"$jobs" >"$tmp/make.log" 2>&1 && "$mk" install >>"$tmp/make.log" 2>&1) &&
+     [[ -x $DIR_TMUX/bin/tmux ]] && "$DIR_TMUX/bin/tmux" -V >/dev/null 2>&1; then
+    tmux_ativar
+    echo "  ✓ tmux $(versao_de "$DIR_TMUX/bin/tmux" -V) pronto em $DIR_TMUX"
+    echo "    As sessões abertas não foram tocadas: o novo vale no próximo servidor tmux (feche todas as sessões ou reinicie)."
+  else
+    rc=1; echo "  ✗ Não consegui compilar o tmux $TMUX_ALVO." >&2
+    [[ -s $tmp/configure.log ]] && ! [[ -x $DIR_TMUX/bin/tmux ]] && tail -3 "$tmp/configure.log" >&2
+    [[ -s $tmp/make.log ]] && grep -E 'error|Error' "$tmp/make.log" | head -5 >&2
+    rm -rf "$DIR_TMUX"
+  fi
+  rm -rf "$tmp"; return $rc
+}
+tmux_ativar() { # liga o tmux compilado: na frente do PATH do tt e (sem sobrescrever outro) em ~/.local/bin
+  mkdir -p "$DIR_BIN_TT" "$HOME/.local/bin"
+  ln -sfn "$DIR_TMUX/bin/tmux" "$DIR_BIN_TT/tmux"
+  [[ -e $HOME/.local/bin/tmux && ! -L $HOME/.local/bin/tmux ]] || ln -sfn "$DIR_TMUX/bin/tmux" "$HOME/.local/bin/tmux"
+  case ":$PATH:" in *":$DIR_BIN_TT:"*) ;; *) PATH=$DIR_BIN_TT:$PATH ;; esac
+}
+
 # --- fzf atual, sem administrador -----------------------------------------------------------------
 # A central pede o fzf 0.60 ou mais novo; Ubuntu LTS e Debian estável trazem versões bem mais velhas. O
 # binário oficial (um arquivo só, em Go) vai para DIR_BIN_TT, que o tt põe na frente do PATH.
@@ -3914,7 +3977,7 @@ fzf_instalar() {
 # aqui, (2) o que falta do gerenciador de pacotes (administrador), (3) se há passo que só baixa/compila na
 # pasta do usuário e (4) quão importante é: essencial (o tt degrada sem), recurso (de uma função em uso)
 # ou opcional (conforto). O vigia só avisa de essencial e recurso; o menu administrar → 📦 mostra tudo.
-PEND_IDS=(nucleo fzf-novo tmux-antigo email-aerc email-sync isync-sasl email-xoauth2 email-html email-editor email-spell
+PEND_IDS=(nucleo fzf-novo tmux-antigo tmux-novo email-aerc email-sync isync-sasl email-xoauth2 email-html email-editor email-spell
           chrome carbonyl chrome-libs clipboard notificacoes xdg-utils termux-api pv mosh nomeador-local)
 
 CHROME_TAM="~120 MB"; CARBONYL_TAM="~60 MB"
@@ -3923,7 +3986,7 @@ CHROME_TAM="~120 MB"; CARBONYL_TAM="~60 MB"
 # gerenciador que faltam), P_USR (1 = há passo sem administrador a fazer), P_MANUAL (texto: o tt não
 # resolve sozinho), P_ROTULO, P_MOTIVO e P_TAM.
 declare -A PEND_ROTULOS=(
-  [nucleo]="ferramentas básicas" [fzf-novo]="fzf atual" [tmux-antigo]="tmux atual" [email-aerc]="aerc (cliente de e-mail)"
+  [nucleo]="ferramentas básicas" [fzf-novo]="fzf atual" [tmux-antigo]="tmux atual" [tmux-novo]="tmux 3.8 (painel flutuante)" [email-aerc]="aerc (cliente de e-mail)"
   [email-sync]="mbsync (isync)" [isync-sasl]="isync com SASL" [email-xoauth2]="plugin XOAUTH2 do SASL" [email-html]="w3m"
   [email-editor]="vim" [email-spell]="dicionário de português do vim" [chrome]="Google Chrome interno"
   [carbonyl]="Carbonyl (navegador no terminal)" [chrome-libs]="bibliotecas do Chrome e do Carbonyl"
@@ -3950,6 +4013,14 @@ pend_avaliar() {
       if falta_cmd tmux || ! versao_menor "$v" 3.4; then P_APLICA=0; return 0; fi
       P_MOTIVO="o tmux daqui é o $v; popups, barra e mouse do tt pedem o 3.4 ou mais novo"
       P_MANUAL="atualize o tmux pelo gerenciador de pacotes ou compile a versão 3.4+ (Debian/Ubuntu antigos: backports ou PPA)" ;;
+    tmux-novo)
+      # O painel de tarefas flutuante (clica fora e fecha) e outros recursos pedem o tmux 3.8. Os pacotes das
+      # distribuições ficam no 3.5/3.6, então o tt compila o 3.8 na pasta do usuário (sem tocar no sistema).
+      P_NIVEL=recurso; P_ROTULO="tmux $TMUX_ALVO"; P_TAM="~1 MB"
+      v=${TT_FINGE_TMUX_VERSAO:-$(versao_de tmux -V)}
+      if falta_cmd tmux || versao_menor "$v" 3.4 || ! versao_menor "$v" "$TMUX_ALVO" || ! tmux_compilavel; then P_APLICA=0; return 0; fi
+      P_MOTIVO="o tmux daqui é o $v; o $TMUX_ALVO traz o painel flutuante do tt (e correções). O tt o compila na sua pasta; as sessões abertas não são tocadas, vale no próximo servidor tmux"
+      P_USR=1; tmux_deps_faltam && P_SYS=tmux-build ;;
     email-aerc)
       cli=$(conf email); cli=${cli%% *}
       [[ -z $cli || ${cli##*/} == aerc ]] || { P_APLICA=0; return 0; }
@@ -4086,6 +4157,7 @@ pend_usuario_instalar() {
     isync-sasl) isync_sasl_construir ;;
     email-spell) email_vim_spell_garantir ;;
     fzf-novo) fzf_instalar ;;
+    tmux-novo) tmux_construir ;;
     nomeador-local) python3 -I "$DIR_TT/nomeador-local.py" instalar auto ;;
     *) return 0 ;;
   esac
@@ -5510,7 +5582,7 @@ demandas_processar_conta() { # slug
     criadas=$((criadas + 1)); ultimo="$de — $frase"
     printf '%s criada id=%s de=%s\n' "$(date '+%F %T')" "$id" "$de" >>"$log"
   done < <(find "$md/new" "$md/cur" -type f -printf '%f\t%p\n' 2>/dev/null |
-           awk -F'\t' 'NR == FNR { v[$1] = 1; next } { u = $1; sub(/:2,.*/, "", u); if (!(u in v)) print u "\t" $2 }' "$proc" -)
+           awk -F'\t' -v p="$proc" 'FILENAME == p { v[$1] = 1; next } { u = $1; sub(/:2,.*/, "", u); if (!(u in v)) print u "\t" $2 }' "$proc" -)
   [[ -f $log ]] && (($(wc -l <"$log") > 300)) && { tail -n 150 "$log" >"$log.c" && mv -f "$log.c" "$log"; }
   if ((criadas > 0)); then
     tarefas_notificar "📥 $criadas nova$( ((criadas > 1)) && echo s) demanda$( ((criadas > 1)) && echo s)" "$ultimo — aprove na aba Entrada" "demandas"
@@ -6858,8 +6930,8 @@ barra_tarefas_fmt() {
   else
     printf '#[range=user|tarefas]#[fg=#a6adc8] 📋 #[norange]#[default] '
   fi
-  # Demandas por e-mail esperando aprovação: um chip lilás ao lado (o clique abre o mesmo painel).
-  ((${en:-0} > 0)) && printf '#[range=user|tarefas]#[fg=#1e1e2e,bg=#cba6f7,bold] 📥 %s #[norange]#[default] ' "$en"
+  # Demandas por e-mail esperando aprovação: um chip lilás ao lado (o clique abre o painel já na aba Entrada).
+  ((${en:-0} > 0)) && printf '#[range=user|entrada]#[fg=#1e1e2e,bg=#cba6f7,bold] 📥 %s #[norange]#[default] ' "$en"
   return 0
 }
 
@@ -6922,6 +6994,8 @@ abrir_tarefas_flutuante() { # cliente
 # Com painel_flutuante=1 e tmux 3.8+, abre como painel modal que também fecha ao clicar fora.
 abrir_tarefas() {
   local c=$1 cw ch w x
+  # Parado na Entrada sem nada pendente (já aprovou/recusou tudo): volta para Hoje em vez de mostrar uma aba vazia.
+  [[ $(tarefas_filtro) == entrada ]] && (($(tarefas_demandas_n) == 0)) && tarefas_filtro_set hoje
   flutuante_ativo && abrir_tarefas_flutuante "$c" && return 0
   read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
   if ((${cw:-80} < 80)); then
@@ -9085,6 +9159,7 @@ clique_direito() {
     sessao) menu_sessao "$2" "$3" ;;
     email) menu_email "$2" ;;
     tarefas) menu_tarefas "$2" ;;
+    entrada) menu_tarefas "$2" ;;
     *) menu_maquinas "$2" "$3" ;;
   esac
 }
@@ -9353,6 +9428,7 @@ clique() {
     fixar) fixar_atual "$2" ;;
     fx*) ir_fixada "$2" "$faixa" ;;
     tarefas) abrir_tarefas "$2" ;;
+    entrada) tarefas_filtro_set entrada; abrir_tarefas "$2" ;;   # chip 📥: direto na Entrada
     em_*) email_botao_acao "${faixa#em_}" ;;
     notifs) notifs_popup "$2" ;;
     notifx) notifs_clique "$2" ;;

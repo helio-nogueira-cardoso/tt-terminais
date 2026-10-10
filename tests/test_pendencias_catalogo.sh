@@ -34,7 +34,7 @@ limpar() { rm -f "$ES"/sudo-recusado-* "$ES"/navegadores-sudo-recusado "$ES"/pen
 
 # 1) Todos os itens do catálogo respondem, com nome próprio (não o id) e estado válido.
 tsv=$(tt --pendencias --tsv)
-ids=(nucleo fzf-novo tmux-antigo email-aerc email-sync isync-sasl email-xoauth2 email-html email-editor email-spell chrome carbonyl chrome-libs clipboard notificacoes xdg-utils termux-api pv mosh nomeador-local)
+ids=(nucleo fzf-novo tmux-antigo tmux-novo email-aerc email-sync isync-sasl email-xoauth2 email-html email-editor email-spell chrome carbonyl chrome-libs clipboard notificacoes xdg-utils termux-api pv mosh nomeador-local)
 for i in "${ids[@]}"; do
   l=$(awk -F'\t' -v i="$i" '$1 == i' <<<"$tsv"); [[ -n $l ]] || falhou "item $i ausente do catálogo"
   [[ $(cut -f2 <<<"$l") =~ ^(na|ok|falta|manual)$ ]] || falhou "estado inválido de $i: $l"
