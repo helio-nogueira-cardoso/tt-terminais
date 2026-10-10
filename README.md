@@ -892,8 +892,8 @@ tarefa quando você aprova.
   propagado às outras máquinas como o das contas de IA: vale a mudança mais nova (`--receber-demandas`,
   `--propagar-demandas`, `--puxar-demandas`; o vigia puxa a cada 30 min). A **etiqueta** é posta em toda
   demanda desse remetente.
-- **Formato do e-mail:** assunto `[tt] título @sex 14h !alta *semanal #tag` — a mesma sintaxe de
-  `tt --tarefa-add-natural`. No corpo, linhas `- texto` (ou `* texto`) viram **subtarefas** e o resto vira a
+- **Formato do e-mail:** assunto `[tt] título @sex 14h !alta *semanal #tag [~CÓDIGO]` — a mesma sintaxe de
+  `tt --tarefa-add-natural`; com `~CÓDIGO` o e-mail cria/atualiza **aquela** tarefa (ver a seção de códigos acima). No corpo, linhas `- texto` (ou `* texto`) viram **subtarefas** e o resto vira a
   **descrição**; citação (`>`) e assinatura (`-- `) são ignoradas.
 - **Segurança:** o `From` é forjável, então o padrão (`auth`) só aceita se o **provedor que recebeu**
   autenticou o remetente — `dmarc=pass`, ou `dkim=pass`/`spf=pass` alinhado ao domínio do `From`, lido do
@@ -911,6 +911,29 @@ tarefa quando você aprova.
   máquinas que sincronizam a mesma caixa criam a MESMA tarefa (o merge por id deduplica); aprovar ou recusar grava
   a hora de agora, que vence qualquer recriação tardia. A 1ª vez numa caixa só olha o que chegou nas últimas 24 h.
 - Testes: `tests/test_demandas.sh`.
+
+## Código e apelido das tarefas, registro de trabalho e compartilhamento
+
+Toda tarefa e subtarefa tem um **código** único (o id: 12 hex, igual em todas as máquinas) e um **apelido** curto e falável
+derivado dele (ex.: `kito47`). Assim você, a IA e outra pessoa falam da mesma tarefa sem ambiguidade.
+
+- **Onde aparece:** discretamente — no cartão da tarefa (`^/`), no topo do menu ⋯ da tarefa e em `tt --tarefas`; a lista do painel
+  não ganha nada a mais. `tt --tarefa-codigo [ID]` mostra apelido, código e texto.
+- **Como usar:** todo verbo que recebe um ID (`--tarefa-ok`, `--tarefa-editar`, `--tarefa-sub-add`, `--tarefa-rm`, `--demanda-aprovar`…)
+  aceita o apelido, o código, um prefixo do código (4+ caracteres) e `MÃE.N` (`kito47.2` = 2ª subtarefa). Ambíguo: lista as candidatas.
+- **Registro de trabalho:** `tt --tarefa-log ID "o que fez" --como "…" --modelo M --esforco E --tokens-ent N --tokens-sai N` acrescenta
+  à descrição um bloco (quando, o que fez, como, agente, modelo, esforço, sessão, máquina, conta e e-mail, tokens e estimativa em R$).
+  O que dá para descobrir é descoberto sozinho; modelo, esforço e tokens vêm do agente. O custo vem de `--brl` ou da tabela
+  `~/.config/tt/precos` (`modelo<TAB>USD/Mtok entrada<TAB>USD/Mtok saída`) × `cotacao_brl` (padrão 5,50); sem preço, não escreve valor.
+  `tt --tarefa-historico ID` lista os registros da tarefa e das subtarefas com o total. Os blocos aparecem em cinza no cartão.
+- **Compartilhar por e-mail (upsert):** `tt --tarefa-email ID [destinatário]` gera o e-mail (assunto com `~CÓDIGO`, subtarefas
+  `- [CÓDIGO] texto`) e um link `mailto:`. Quem recebe (remetente autorizado, ver Demandas por e-mail): código desconhecido → nasce pendente
+  **com o mesmo código**; código que já existe → **proposta de atualização** (↻) na aba Entrada, que só altera a tarefa quando você aprova
+  (subtarefas casadas por código; `[x]` conclui); tarefa removida nunca ressuscita.
+- **Reforço nas IAs:** o vigia (a cada ~5 min) e cada instalação/atualização gravam a skill `tt-terminais` e as regras acima
+  (`agentes-regras-tt.md`, bloco gerenciado) no Claude (todas as contas), Codex e Kiro de cada máquina, inclusive nos proots do celular.
+  `tt --reforcar-agentes` faz na hora. O que está fora do bloco nunca é tocado.
+- Testes: `tests/test_tarefas_codigo.sh`.
 
 ## Painel de tarefas flutuante (clicar fora fecha)
 
@@ -1162,8 +1185,11 @@ O projeto segue a política [`AI-DLC.md`](AI-DLC.md); o protocolo de trabalho pa
 [`AGENTS.md`](AGENTS.md), e a cobertura esperada de mouse, toque, teclado, menus e CLI está na
 [`tests/INTERACTIONS.md`](tests/INTERACTIONS.md).
 
-O clone é a origem: edite, faça commit e rode `tt --sincronizar`. A versão é o número de commits
-(`+dev` quando há mudanças não gravadas); máquinas com versão mais velha aparecem com ⚠ no menu
+O clone é a origem: edite, faça commit e rode `tt --sincronizar`. A versão tem dois números: a **ordem** de atualização
+é o número de commits (`+dev` quando há mudanças não gravadas) e o **rótulo** é hierárquico `MAIOR.MENOR.PATCH` (ex.: `v1.7.3`). O
+arquivo `MARCO` na raiz (`1.7`) diz a série e o PATCH conta os commits desde que ele mudou; ao subir um número da esquerda os da
+direita **zeram** (1.6.12 → 1.7.0). Funcionalidade nova: edite o `MARCO` no commit que a entrega; correção: só soma PATCH.
+Testes: `tests/test_versao.sh`. Máquinas com versão mais velha aparecem com ⚠ no menu de máquinas, que oferece atualizar; máquinas com versão mais velha aparecem com ⚠ no menu
 de máquinas, que oferece atualizar.
 
 A instalação se protege de versões erradas, venha de `--sincronizar`, `--atualizar` ou `--cadastrar`:

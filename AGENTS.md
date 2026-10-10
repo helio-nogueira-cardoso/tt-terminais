@@ -16,6 +16,13 @@ resultado funciona pelos canais que o elemento expõe: CLI, teclado, mouse/toque
 5. Para mudança em interface, atualize a matriz de `tests/INTERACTIONS.md` e acrescente ao menos
    uma verificação executável que cubra a rota modificada.
 
+## Versão
+
+O rótulo é `MAIOR.MENOR.PATCH` e **zera à direita quando sobe à esquerda**. O arquivo `MARCO` (ex.: `1.7`) é a série; o PATCH
+são os commits depois do que o mudou. Entregou funcionalidade nova? Edite o `MARCO` (MENOR; quebra de compatibilidade: MAIOR) no
+mesmo commit e dê ao título do `NOVIDADES.md` o rótulo novo (`## v1.8.0`). Correção ou ajuste: não mexa no `MARCO`. A ordem de
+atualização entre máquinas continua sendo o nº de commits; não a troque. Teste: `tests/test_versao.sh`.
+
 ## Contratos de interação
 
 - Cada `#[range=user|…]` desenhado na barra precisa de uma rota correspondente em `clique()` ou

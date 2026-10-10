@@ -1,6 +1,6 @@
 ---
 name: tt-terminais
-description: Referência completa do tt-terminais (central de terminais em Bash+tmux) para IAs operarem e evoluírem o projeto. Use ao trabalhar no repositório tt-terminais, ao diagnosticar a central/barra/sessões/fixadas/tarefas/e-mail/sync entre máquinas, ou ao usar os verbos `tt --...` por linha de comando. Cobre todos os verbos CLI, os ranges da barra e o roteamento de clique, os arquivos de perfil/estado/cache/pacote, o vigia e seus temporizadores, a sincronização por ssh e git, identidade de máquina/sessão/fixada, e-mail (aerc), celular/Termux, testes e as convenções de desenvolvimento. Use também quando o agente precisar AVISAR o usuário (pedir algo, dar retorno, avisar que uma rodada importante acabou): `tt --notificar-daqui` só notifica se ele não estiver olhando para a sessão, e o clique leva de volta a ela. E para pôr perguntas do AI-DLC no painel de tarefas, onde o usuário responde (`aidlc-tt`).
+description: Referência completa do tt-terminais (central de terminais em Bash+tmux) para IAs operarem e evoluírem o projeto. Use ao trabalhar no repositório tt-terminais, ao diagnosticar a central/barra/sessões/fixadas/tarefas/e-mail/sync entre máquinas, ao TRABALHAR COM AS TAREFAS DO USUÁRIO (códigos e apelidos, registrar o que fez na descrição com `tt --tarefa-log`, atualizar, concluir, compartilhar por e-mail), ou ao usar os verbos `tt --...` por linha de comando. Cobre todos os verbos CLI, os ranges da barra e o roteamento de clique, os arquivos de perfil/estado/cache/pacote, o vigia e seus temporizadores, a sincronização por ssh e git, identidade de máquina/sessão/fixada, e-mail (aerc), celular/Termux, testes e as convenções de desenvolvimento. Use também quando o agente precisar AVISAR o usuário (pedir algo, dar retorno, avisar que uma rodada importante acabou): `tt --notificar-daqui` só notifica se ele não estiver olhando para a sessão, e o clique leva de volta a ela. E para pôr perguntas do AI-DLC no painel de tarefas, onde o usuário responde (`aidlc-tt`).
 ---
 
 # tt-terminais — central de terminais multi-máquina (Bash + tmux)
@@ -8,8 +8,12 @@ description: Referência completa do tt-terminais (central de terminais em Bash+
 O `tt` é um único script Bash (`set -u`, arrays associativos) que oferece um menu único para todas
 as sessões tmux de todas as máquinas do usuário (ligadas por ssh/Tailscale), com central, barra
 clicável, fixadas, tarefas, transferência de arquivos, e-mail, nomeação automática de sessões e
-sincronização de estado entre máquinas. A versão é o número de commits da `main`
-(`git rev-list --count HEAD`, com `+dev` quando há mudança não gravada).
+sincronização de estado entre máquinas. A **ordem** das versões (o que a propagação e o vigia comparam)
+é o número de commits da `main` (`git rev-list --count HEAD`, `+dev` com mudança não gravada), o 1º campo do `VERSAO`. O
+**rótulo para humanos** é hierárquico `MAIOR.MENOR.PATCH` (4º campo do `VERSAO`, mostrado como `v1.7.3`): o arquivo `MARCO`
+(`1.7`) diz a série e o PATCH conta os commits depois do que mudou o `MARCO`; **quando um número da esquerda sobe, os da
+direita zeram** (1.6.12 → 1.7.0). Funcionalidade nova abre série nova: edite o `MARCO` no commit que a entrega (MENOR; quebra de
+compatibilidade = MAIOR, ex. `2.0`); correção e ajuste só somam PATCH. Os títulos do `NOVIDADES.md` usam o rótulo (`## v1.7.0`).
 
 Esta skill descreve o comportamento REAL extraído do código. Trate tudo como mapa de navegação:
 confirme no código antes de alterar contrato.
@@ -134,6 +138,17 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `tarefas_frase_ler`), `tt --tarefa-renomear ID "texto"` (só o texto); `tt --tarefas-ajuda` imprime o
   "Como usar" do painel. `tt --calendario [epoch]` é o seletor de prazo (imprime `EPOCH`, `EPOCH 1`
   com horário, `limpar` ou nada); `tt --calendario-agenda [dia]` é a agenda (relógio da barra).
+- Código e apelido (cada tarefa/subtarefa): `tt --tarefa-codigo [ID]` imprime `apelido<TAB>código<TAB>texto` (sem
+  argumento, de todas as vivas). O **código** é o próprio id (12 hex; igual em toda máquina e em e-mails) e o
+  **apelido** (`kito47`: CVCV + 2 dígitos) sai dele (`tarefa_slug`; não é guardado). Todo verbo `--tarefa-*` que recebe
+  ID (`ok abrir rm arquivar restaurar editar frase renomear sub-add desc implementar ia-prompt email codigo log
+  historico`) e `--demanda-aprovar/recusar` aceita apelido, código, prefixo do código (4+ hex) e `MÃE.N`
+  (`kito47.2`); ambíguo lista as candidatas e sai 1; apelido/`MÃE.N` que não existe sai 1 (`tarefas_resolver`).
+- Registro de trabalho: `tt --tarefa-log ID "o que fez" [--como T] [--agente A] [--modelo M] [--esforco E]
+  [--tokens-ent N --tokens-sai N | --tokens N] [--brl V] [--conta C] [--email E] [--sessao S] [--maquina M]` acrescenta
+  um bloco `⟡ AAAA-MM-DD HH:MM · apelido` (fez/como/por/conta/uso) ao FIM da descrição; `tt --tarefa-historico ID` mostra os
+  blocos da tarefa e das subtarefas e o total de tokens e R$. Ver a seção "Tarefas: código, apelido, registro e e-mail".
+- E-mail de compartilhamento: `tt --tarefa-email ID [destinatário]` imprime Para/Assunto/corpo e um link `mailto:`.
 - Conclusão (`tarefa_concluir`): mãe só conclui com todas as subtarefas feitas (senão imprime as
   que faltam e devolve 2; no painel vira a linha ⚠ `aviso=` do cabeçalho, mostrada uma vez; o
   `--tarefa-ok` sai 1 com a lista). A última subtarefa não conclui a mãe. Reabrir/criar subtarefa
@@ -459,7 +474,8 @@ soltar); menus agem no **MouseUp**. Um atalho de teclado deve ter a mesma ação
 - `maquinas` — `host  usuario  rotulo [oculta]` por linha (`host -` = formato antigo sem usuário).
 - `atalhos` — atalhos locais da barra (override de `atalhos-padrao` por ID; emoji `-` desativa).
 - `fixadas` (+ `.v` versão em ns, `.trava` lock) — `maquina\tsessao\tchave`.
-- `tarefas` (+ `.v`, `.trava`) — `id\testado\tcriada\tmudada\ttexto`, estado = `aberta|feita|removida`.
+- `tarefas` (+ `.v`, `.trava`) — `id\testado\tcriada\tmudada\ttexto[\tmeta]`, estado = `aberta|feita|removida` (+ `arquivada`, `pendente`); meta: desc prazo hora prio rep tags pai ord arq de upd scod sest.
+- `precos` — `modelo\tUSD/Mtok entrada\tUSD/Mtok saída` (custo estimado do `--tarefa-log`); `cotacao_brl=` no `config` (padrão 5.50).
 - `contas-ia` — `provedor\temail\tapelido\thora` (cadastro comum das contas de IA).
 - `tmux.conf` — ajustes de tmux só desta máquina (carregado depois do pacote).
 - `termux.properties` — barra de teclas própria do Termux.
@@ -484,7 +500,7 @@ ControlPath do ssh, transferências em andamento.
 `ARQUIVOS_FONTE` (lista no `tt`): `tt email-tt.py links-tt.py letreiro-tt.py gatilho-tt.sh tmux.conf
 tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile
 README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
-skill-tt-terminais.md skill-celular-android.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py` (a
+skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py` (a
 lista dos testes, em `tests/lib.sh` e `tests/test_repo_em_dia.sh`, acompanha). `ARQUIVOS_PACOTE` = `ARQUIVOS_FONTE` + `VERSAO`. Mudança que acrescenta um
 arquivo ao pacote PRECISA entrar em `ARQUIVOS_FONTE`, senão a autoatualização instala um pacote
 incompleto.
@@ -503,6 +519,7 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
 - Padrão visual + memória a cada 300 s: `--reforcar-padrao`, `--memoria-agentes`.
 - Atualização a cada `TT_T_ATUALIZACAO` s: `--garantir-atualizacao`.
 - Hora confiável a cada `TT_T_HORA` s (21600; 15 min enquanto não houver medida): `--hora --sincronizar`.
+- A cada 300 s (junto de `--reforcar-padrao`): `reforcar_agentes` — skill `tt-terminais`, regras `agentes-regras-tt.md` e `aidlc-tt` em todas as IAs (também na instalação).
 - Toda volta: fecha sessões paradas, pontes ociosas, Claude duplicados, janelas vazias abandonadas.
 - Nomeação automática por sessão (título do Claude; primeiro nome; revisão por pontos).
 
@@ -602,6 +619,78 @@ e estado online das máquinas), mosh (celular), pv (barra de progresso), claude 
 nomeador), aerc (e-mail), mbsync/isync (sync local), git (sync de tarefas por repo). macOS: bash ≥ 4
 pelo Homebrew; comandos remotos levam o PATH do Homebrew (o instalador acrescenta um bloco ao
 `~/.zshenv`).
+
+## Tarefas: código, apelido, registro e e-mail
+
+Como uma IA (ou pessoa) trabalha com as tarefas do tt. Vale para Claude, Codex e Kiro, em qualquer máquina: o vigia
+reinjeta esta skill e as regras curtas (`agentes-regras-tt.md`) em todas as IAs (ver "Reforço pelo vigia").
+
+### 1. Falar de uma tarefa: código e apelido
+- **Código** = id da tarefa (12 hex). Único por construção (hash de máquina, hora em ns e pid), igual em todas as máquinas
+  e nos e-mails; é ele que decide se "é a mesma tarefa". **Apelido** = forma curta e falável derivada do código
+  (`kito47`; 562 500 combinações; o mesmo em toda máquina; se dois colidirem, o verbo lista as candidatas e pede o código).
+- Subtarefa também tem código e apelido; `MÃE.N` (ex.: `kito47.2`) é a N-ésima subtarefa daquela mãe.
+- Onde aparecem (discretos, sem poluir a lista): cartão da tarefa (`^/`), topo do menu ⋯ da tarefa, `tt --tarefas` (texto),
+  `tt --tarefa-codigo`. O usuário pode dizer só "a kito47"; resolva com `tt --tarefa-codigo kito47`.
+- Ao falar com o usuário, cite sempre o apelido (e o título); em scripts e e-mails use o código inteiro.
+
+### 2. Trabalhar numa tarefa (fluxo)
+1. Localize: `tt --tarefas` (lista com apelidos) ou `tt --tarefa-codigo APELIDO`.
+2. Leia o pedido: `tt --tarefa-ia-prompt ID` (título, prazo, descrição, subtarefas com ids).
+3. Faça o trabalho; a cada marco, **registre** (seção 3); conclua cada subtarefa com `tt --tarefa-ok ID` e, por fim, a mãe
+   (ela só conclui com todas as subtarefas feitas; a última subtarefa não conclui a mãe sozinha).
+4. Precisa de algo do usuário: `tt --notificar-daqui "…" [--sempre]`. Perguntas do AI-DLC: `aidlc-tt publicar` na descrição.
+5. Atualizar sem estragar: `tt --tarefa-editar ID "frase"` relê a frase como na criação (marcador ausente tira o atributo!);
+   só o texto: `tt --tarefa-renomear`; prazo/prioridade/repetição pelos botões/verbos próprios; **nunca** sobrescreva a descrição
+   com `tt --tarefa-desc` sem antes ler e preservar o que havia (use `--tarefa-log` para acrescentar).
+6. Não publique, faça push nem instale em outras máquinas sem o dono pedir.
+
+### 3. Registrar o que foi feito (`tt --tarefa-log`)
+Cada registro vira um bloco no fim da descrição da tarefa/subtarefa, em cinza discreto no cartão:
+```
+⟡ 2026-10-10 15:52 · kito47
+  fez: Implementei o login
+  como: editei tt, rodei os testes no Termux
+  por: claude · claude-sonnet-5-5 · esforço high · sessão impl-3 · máquina notebook
+  conta: trabalho <voce@exemplo.com>
+  uso: 12300 tokens (10000 ent · 2300 sai) · ≈ R$ 0,45
+```
+- **Sai sozinho:** quando, apelido, máquina (`nome=` do tt), sessão tmux (`$TMUX_PANE`), agente (`CLAUDECODE`, `CODEX_*`, `KIRO_*`),
+  conta (`IA_CONTA` ou o perfil de `CLAUDE_CONFIG_DIR`) e e-mail (cadastro `contas-ia`). Modelo, esforço e tokens só o agente
+  sabe: **informe** (`--modelo`, `--esforco`, `--tokens-ent/--tokens-sai`). `TT_LOG_MODELO`/`TT_LOG_ESFORCO` são padrões.
+- **Custo em reais** (estimativa): `--brl V` explícito; ou tokens ent/sai × `~/.config/tt/precos` (uma linha por modelo:
+  `modelo<TAB>USD por Mtok entrada<TAB>USD por Mtok saída`) × `cotacao_brl=` do `~/.config/tt/config` (padrão 5.50). Sem preço do
+  modelo e sem `--brl`, não escreve valor (nada inventado). A tabela de preços é do usuário: mantenha-a atualizada.
+- **Quando registrar:** um registro por marco (subtarefa concluída, decisão, bloqueio), não por comando. Texto curto e objetivo no
+  "fez"; o "como" diz o método/arquivos/testes. Não ponha segredos nem tokens de acesso.
+- **Ler:** `tt --tarefa-historico ID` (tarefa + subtarefas, com total de tokens e R$).
+- O log só acrescenta (preserva `aidlc:` e as notas do dono). Testes: `tests/test_tarefas_codigo.sh`.
+
+### 4. Compartilhar por e-mail = upsert pelo código
+- **Enviar:** `tt --tarefa-email ID [destinatário]` gera `Assunto: [tt] título @prazo !prio #tag ~CÓDIGO` e o corpo (descrição +
+  `- [CÓDIGO] [x] texto` por subtarefa) e um `mailto:`. Só tarefa de topo (subtarefa: a mãe).
+- **Receber** (remetente autorizado, ver verbos de demandas; mesmo fluxo e mesmas regras de segurança):
+  - `~CÓDIGO` ausente → demanda nova como sempre (id do Message-ID).
+  - código que **não existe** aqui (ou ainda é pendente) → nasce PENDENTE **com o mesmo código** (e subtarefas com os códigos do
+    remetente); aprovada, as próximas mensagens com esse código a atualizam. Um e-mail mais novo sobre a mesma pendente a substitui.
+  - código que **existe** (aberta, feita, arquivada) → vira uma **proposta de atualização** na aba Entrada (ícone ↻, "atualização · de x"):
+    **aprovar** aplica na tarefa existente (texto, prazo, prioridade, repetição, etiquetas; descrição só se veio; subtarefas por código —
+    atualiza a que já é filha, cria a que falta, `[x]` conclui; sem código, acrescenta se não houver uma de mesmo texto; mãe feita com
+    subtarefa aberta reabre); **recusar** não toca nela. Nada muda sem aprovação.
+  - código de tarefa **removida** → ignorado (remoção nunca ressuscita). Mesma mensagem processada de novo: sem efeito.
+- Conflito de código é minimizado por construção (48 bits com máquina+hora+pid) e, mesmo se ocorresse, a atualização é só uma
+  proposta que o dono aprova ao ver.
+- `tt --demandas-pendentes` mostra `[atualiza CÓDIGO]` nas propostas.
+
+### 5. Reforço pelo vigia (como estas regras chegam às IAs)
+- `instalar_regras_agentes` grava `agentes-regras-tt.md` entre marcadores `<!-- tt-managed:regras-tt BEGIN … END -->` em
+  `CLAUDE.md` (de `~/.claude` e de cada perfil `~/.local/share/claude-contas/*`), `AGENTS.md` do Codex e
+  `steering/tt-terminais.md` do Kiro (`inclusion: always`); só em IA que já existe; só regrava se o bloco mudou; o que está fora do
+  bloco nunca é tocado. `instalar_ferramentas_agentes` também copia esta skill para `skills/tt-terminais/SKILL.md` e liga o `aidlc-tt`.
+- Quando roda: em **toda instalação/atualização** (`instalar_aqui`, que cada máquina faz sozinha ao ver versão nova) e **a cada ~5 min
+  pelo vigia** (`reforcar_padrao` → `reforcar_agentes`), inclusive dentro dos proots do celular. `tt --reforcar-agentes` roda na hora.
+- Para mudar uma regra: edite `agentes-regras-tt.md` (ou esta skill) no repositório, rode `make test` e publique; o vigia de cada
+  máquina espalha a nova versão sozinho.
 
 ## Agente avisa o usuário
 

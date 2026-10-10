@@ -3,6 +3,20 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.7.0 · 10/10/2026
+- A numeração das versões agora é hierárquica: `MAIOR.MENOR.PATCH`, e quando um número da esquerda sobe os da direita voltam a zero
+  (esta é a 1.7.0, depois da 1.6.277). Antes o último número só crescia (era a contagem de commits). O que decide qual versão é
+  mais nova entre as máquinas não mudou.
+- Toda tarefa e subtarefa ganhou um **código** único (igual em todas as máquinas) e um **apelido** curto, como `kito47`, para
+  você e a IA falarem da mesma tarefa. Aparecem só no cartão da tarefa, no menu ⋯ e em `tt --tarefas`, sem encher a lista.
+  Os comandos aceitam apelido, código ou `kito47.2` (a 2ª subtarefa).
+- Compartilhar tarefa por e-mail agora atualiza em vez de duplicar: `tt --tarefa-email ID` gera o e-mail com o código; quem
+  recebe cria a tarefa com o mesmo código, ou, se já a tem, vê uma proposta de atualização (↻) na aba Entrada e aprova ou recusa.
+- Novo registro de trabalho: `tt --tarefa-log` anota na descrição o que a sessão fez, quando, como, qual agente/modelo/esforço,
+  máquina, conta, tokens e custo estimado em reais; `tt --tarefa-historico` mostra tudo com o total.
+- O vigia (e cada atualização) reforça a skill `tt-terminais` e as regras de tarefas em todas as IAs de todas as máquinas
+  (Claude, Codex e Kiro, inclusive no celular).
+
 ## v1.6.280 · 10/10/2026
 - **Copiar com o mouse agora exige segurar Alt**, em qualquer painel: Alt+arrastar copia, Alt+duplo clique copia
   a palavra (ou o link inteiro), Alt+triplo clique copia a linha. Sem Alt, arrastar e clicar vão ao programa

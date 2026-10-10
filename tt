@@ -1113,7 +1113,7 @@ atualizar_info() {
   while read -r dest rot; do
     f=$(info_maquina "$rot")
     {
-      r=$(timeout 3 ssh "${SSH_OPC[@]}" "$dest" "echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null) || r="? ?"
+      r=$(timeout 3 ssh "${SSH_OPC[@]}" "$dest" "echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0, \$4}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null) || r="? ?"
       echo "$r" >"$f.$$" && mv "$f.$$" "$f"
     } &
   done < <(maquinas)
@@ -1417,11 +1417,33 @@ mostrar_maquina() {
 versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 versao_num() { versao | awk '{ print $1 + 0 }'; }
 
-# Versão para humanos: v1.MINOR.PATCH, onde PATCH é o contador de sempre (a ordem total que a
-# propagação, o vigia e a recusa de pacote velho comparam continua sendo o número puro do VERSAO —
-# nada disso muda) e MINOR sobe à mão em marcos. Só o rótulo exibido fica no estilo x.y.z.
-VERSAO_MINOR=6
-versao_humana() { printf 'v1.%s.%s' "$VERSAO_MINOR" "$(versao_num)"; }
+# Versão para humanos: MAIOR.MENOR.PATCH, hierárquica — quando um número da esquerda sobe, os da direita
+# zeram (1.6.12 -> 1.7.0). O arquivo MARCO do repositório diz a série ("1.7"); o PATCH é quantos commits
+# vieram DEPOIS do commit que mudou o MARCO pela última vez. Subir a série = editar o MARCO no commit que a
+# abre (funcionalidade nova: MENOR; quebra de compatibilidade: MAIOR, ex. "2.0"). A ORDEM TOTAL que a
+# propagação, o vigia e a recusa de pacote velho comparam continua sendo o nº de commits (1º campo do
+# VERSAO) — o rótulo é só para humanos e vai no 4º campo do VERSAO, calculado ao montar o pacote.
+VERSAO_MINOR=6   # só para um VERSAO antigo, sem o 4º campo: rótulo 1.$VERSAO_MINOR.N
+versao_marco_git() { # repositório [ref] -> MAIOR.MENOR.PATCH
+  local r=$1 ref=${2:-HEAD} m base p
+  m=$(git -C "$r" show "$ref:MARCO" 2>/dev/null | tr -d '[:space:]')
+  [[ $ref == HEAD && -f $r/MARCO ]] && m=$(tr -d '[:space:]' <"$r/MARCO")
+  [[ $m =~ ^[0-9]+\.[0-9]+$ ]] || m=1.$VERSAO_MINOR
+  base=$(git -C "$r" log -1 --format=%H "$ref" -- MARCO 2>/dev/null)
+  if [[ $ref == HEAD && -n $(git -C "$r" status --porcelain -- MARCO 2>/dev/null) ]]; then p=0
+  elif [[ -n $base ]]; then p=$(git -C "$r" rev-list --count "$base..$ref" 2>/dev/null || echo 0)
+  else p=$(git -C "$r" rev-list --count "$ref" 2>/dev/null || echo 0); fi
+  printf '%s.%s' "$m" "$p"
+}
+versao_disp() { # rótulo MAIOR.MENOR.PATCH da instalação
+  local d; d=$(awk '{ print $4 }' "$DIR_TT/VERSAO" 2>/dev/null)
+  if [[ $d =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then printf '%s' "$d"; else printf '1.%s.%s' "$VERSAO_MINOR" "$(versao_num)"; fi
+}
+versao_humana() { printf 'v%s' "$(versao_disp)"; }
+# Número comparável de um rótulo. Estado gravado antes da mudança era só o nº de commits: vira 1.6.N.
+versao_chave() { awk -v v="${1:-0}" 'BEGIN { if (v + 0 == 0 && v !~ /\./) { print 0; exit } n = split(v, a, "."); if (n == 1) { a[3] = a[1]; a[1] = 1; a[2] = 6 } printf "%.0f", a[1] * 1e10 + a[2] * 1e6 + a[3] }'; }
+# "v1.7.0" quando se sabe o rótulo; senão "vN" (cache antigo do GitHub).
+versao_rotulo() { if [[ ${2:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then printf 'v%s' "$2"; else printf 'v%s' "$1"; fi }
 
 # tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
 ajuda() {
@@ -1431,7 +1453,7 @@ ajuda() {
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
-  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py)
+  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -1445,7 +1467,7 @@ pacote() {
     h=$(git -C "$REPO_TT" rev-parse --short HEAD 2>/dev/null || echo ?)
     d=$(git -C "$REPO_TT" log -1 --format=%cs 2>/dev/null || date +%F)
     [[ -n $(git -C "$REPO_TT" status --porcelain -- "${ARQUIVOS_FONTE[@]}" 2>/dev/null) ]] && h+="+dev"
-    echo "$n $h $d" >"$tmp/VERSAO"
+    echo "$n $h $d $(versao_marco_git "$REPO_TT")" >"$tmp/VERSAO"
     tar -C "$tmp" -cf - "${ARQUIVOS_PACOTE[@]}"
     rm -rf "$tmp"
   else
@@ -1577,6 +1599,7 @@ pode_instalar() {
 # inteira de todos os clientes toda vez — o cursor piscava em todos os aparelhos a cada 5 min.
 reforcar_padrao() {
   "$DIR_TT/tema-agentes.sh" --aplicar >/dev/null 2>&1
+  reforcar_agentes
   reforcar_visual
   atualizar_barras
   if ((VISUAL_MUDOU)); then
@@ -1738,6 +1761,61 @@ instalar_ferramentas_agentes() { # casa pasta-do-pacote-vista-de-lá agente...
       mkdir -p "$ag/skills/$sk" && cp "$DIR_TT/skill-$sk.md" "$ag/skills/$sk/SKILL.md"
     done
   done
+  instalar_regras_agentes "$casa" "$@"
+  return 0
+}
+
+# Regras do tt (agentes-regras-tt.md) nas instruções GLOBAIS de cada IA, num bloco gerenciado entre
+# marcadores — o que está fora do bloco nunca é tocado, o bloco só é regravado se mudou. Claude:
+# CLAUDE.md da pasta do agente (~/.claude e cada perfil de ia-conta, que não compartilham o CLAUDE.md);
+# Codex: AGENTS.md; Kiro: steering/tt-terminais.md (arquivo todo do tt). Só entra em agente que já existe.
+# Chamado pela instalação (toda atualização) e pelo vigia (a cada volta de reforço): ver reforcar_agentes.
+instalar_regras_agentes() { # casa agente...
+  local casa=$1 ag fonte=$DIR_TT/agentes-regras-tt.md alvo
+  shift
+  [[ -f $fonte ]] || return 0
+  for ag in "$@"; do
+    [[ -d $ag ]] || continue
+    case $ag in
+      */.kiro) mkdir -p "$ag/steering"; regras_bloco_gravar "$ag/steering/tt-terminais.md" "$fonte" $'---\ninclusion: always\n---\n' ;;
+      */.codex) regras_bloco_gravar "$ag/AGENTS.md" "$fonte" ;;
+      *) regras_bloco_gravar "$ag/CLAUDE.md" "$fonte" ;;
+    esac
+  done
+  for alvo in "$casa/.local/share/claude-contas"/*/; do
+    [[ -d $alvo ]] && regras_bloco_gravar "${alvo%/}/CLAUDE.md" "$fonte"
+  done
+  return 0
+}
+regras_bloco_gravar() { # arquivo fonte [prefixo-se-criar]
+  local dest=$1 fonte=$2 pref=${3:-} ini='<!-- tt-managed:regras-tt BEGIN (o tt reescreve este bloco; edite fora dele) -->' fim='<!-- tt-managed:regras-tt END -->' tmp
+  tmp=$(mktemp "${dest}.XXXXXX" 2>/dev/null) || return 0
+  if [[ -s $dest ]] && grep -qF '<!-- tt-managed:regras-tt BEGIN' "$dest"; then
+    awk -v ini="$ini" -v fim="$fim" -v fonte="$fonte" '
+      /<!-- tt-managed:regras-tt BEGIN/ { if (!feito) { print ini; while ((getline l < fonte) > 0) print l; print fim; feito = 1 } pula = 1; next }
+      pula && /<!-- tt-managed:regras-tt END -->/ { pula = 0; next }
+      !pula { print }' "$dest" >"$tmp"
+  else
+    { [[ -s $dest ]] && { cat "$dest"; printf '\n'; } || printf '%s' "$pref"
+      printf '%s\n' "$ini"; cat "$fonte"; printf '%s\n' "$fim"; } >"$tmp"
+  fi
+  if cmp -s "$tmp" "$dest" 2>/dev/null; then rm -f "$tmp"; else chmod --reference="$dest" "$tmp" 2>/dev/null || chmod 644 "$tmp"; mv -f "$tmp" "$dest"; fi
+  return 0
+}
+
+# Reforço do vigia (a cada ~5 min, junto de --reforcar-padrao) e da instalação: skill tt-terminais, regras
+# globais e aidlc-tt em TODAS as IAs desta máquina, inclusive as de dentro dos proots do celular. Barato
+# (compara antes de gravar); uma IA nova que aparecer é coberta na volta seguinte.
+reforcar_agentes() {
+  local base=${PREFIX:-/nonexistent}/var/lib/proot-distro raiz r
+  [[ -f $DIR_TT/skill-tt-terminais.md ]] || return 0
+  instalar_ferramentas_agentes "$HOME" "$DIR_TT" "$HOME/.claude" "${CODEX_HOME:-$HOME/.codex}" "${KIRO_HOME:-$HOME/.kiro}"
+  for raiz in "$base"/containers/*/rootfs "$base"/installed-rootfs/*; do
+    r=$raiz/root
+    [[ -d $r/.local/share/tt ]] || continue
+    for f in skill-tt-terminais.md agentes-regras-tt.md aidlc-tt; do [[ -f $DIR_TT/$f ]] && cp -f "$DIR_TT/$f" "$r/.local/share/tt/$f" 2>/dev/null; done
+    instalar_ferramentas_agentes "$r" /root/.local/share/tt "$r/.claude" "$r/.codex" "$r/.kiro"
+  done
   return 0
 }
 
@@ -1818,16 +1896,18 @@ buscar_fonte() {
   fi
   git -C "$DIR_FONTE" rev-list --count HEAD
 }
+# Rótulo MAIOR.MENOR.PATCH do que está publicado (no clone da fonte, já atualizado por buscar_fonte).
+rotulo_fonte() { versao_marco_git "$DIR_FONTE" 2>/dev/null; }
 
 # Consulta (sem instalar) e guarda "N data" em cache; o vigia chama isto a cada 12 h.
 verificar_atualizacao() {
   local n
   n=$(buscar_fonte) || return 1
   mkdir -p "$(dirname "$CACHE_GITHUB")"
-  echo "$n $(date +%s)" >"$CACHE_GITHUB"
+  echo "$n $(date +%s) $(rotulo_fonte)" >"$CACHE_GITHUB"
   # Qual versão já foi avisada é estado, não escolha do usuário: fica em $ESTADO_DIR/avisado.
   if ((n > $(versao_num))) && [[ $(cat "$ESTADO_DIR/avisado" 2>/dev/null) != "$n" ]]; then
-    avisar "⟳ tt: versão $n disponível no GitHub (esta é a $(versao_num)) — menu de máquinas → Atualizar"
+    avisar "⟳ tt: versão $(versao_rotulo "$n" "$(rotulo_fonte)") disponível no GitHub (esta é a $(versao_humana)) — menu de máquinas → Atualizar"
     mkdir -p "$ESTADO_DIR" && echo "$n" >"$ESTADO_DIR/avisado"
   fi
 }
@@ -1839,16 +1919,17 @@ garantir_atualizacao() {
   local n atual repo_anterior
   n=$(buscar_fonte) || return 1
   mkdir -p "$(dirname "$CACHE_GITHUB")"
-  echo "$n $(date +%s)" >"$CACHE_GITHUB"
+  echo "$n $(date +%s) $(rotulo_fonte)" >"$CACHE_GITHUB"
   atual=$(versao_num)
   ((n > atual)) || return 0
   repo_anterior=$REPO_TT
   REPO_TT=$DIR_FONTE
   instalar_em . || { REPO_TT=$repo_anterior; return 1; }
   REPO_TT=$repo_anterior
-  echo "$(date '+%F %T') vigia: tt atualizado de v$atual para v$n"
+  echo "$(date '+%F %T') vigia: tt atualizado de $(versao_humana) (build $atual) para $(versao_rotulo "$n" "$(rotulo_fonte)") (build $n)"
 }
 versao_github() { awk '{ print $1 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0; }
+versao_github_rotulo() { versao_rotulo "$(versao_github)" "$(awk '{ print $3 }' "$CACHE_GITHUB" 2>/dev/null)"; }
 
 # tt --atualizar [--todas]: instala a versão mais nova do GitHub aqui (e nas cadastradas, com --todas).
 atualizar() {
@@ -1862,8 +1943,8 @@ atualizar() {
   else
     printf 'Buscando a versão publicada (%s)… ' "$(url_fonte)"
     n=$(buscar_fonte) || { echo "falhou (sem rede ou sem git?)."; return 1; }
-    echo "v$n"
-    echo "$n $(date +%s)" >"$CACHE_GITHUB"
+    echo "$(versao_rotulo "$n" "$(rotulo_fonte)")"
+    echo "$n $(date +%s) $(rotulo_fonte)" >"$CACHE_GITHUB"
     if ((n <= $(versao_num))) && [[ -z $todas ]]; then echo "Já está na mais nova ($(versao_humana))."; return 0; fi
     REPO_TT=$DIR_FONTE
   fi
@@ -4371,21 +4452,23 @@ pendencias_status() {
 # o vigia avisa uma vez por versão nova, e o clique no aviso abre esta tela.
 novidades_visto() { cat "$ESTADO_DIR/novidades-visto" 2>/dev/null || echo 0; }
 
-novidades_texto() { # desde (versão inteira; 0 = tudo) → seções com versão > desde, da mais nova para a mais velha
-  awk -v desde="$1" '
-    /^## v/ { n = $2; sub(/^v/, "", n); split(n, a, "."); v = a[length(a)] + 0; mostra = (v > desde) }
+# Seções do NOVIDADES.md com versão MAIOR da que foi vista (a chave de versao_chave), da mais nova para a
+# mais velha. Título "## v1.7.0": a ordem vem dos três números, não do nº de commits.
+novidades_texto() { # desde (rótulo ou nº antigo; 0 = tudo) -> seções
+  awk -v desde="$(versao_chave "$1")" '
+    /^## v/ { n = $2; sub(/^v/, "", n); m = split(n, a, "."); v = (m == 3) ? a[1] * 1e10 + a[2] * 1e6 + a[3] : 0; mostra = (v > desde + 0) }
     /^# / && !/^## / { next }
     mostra { print }' "${2:-$DIR_TT/NOVIDADES.md}" 2>/dev/null
 }
 
 novidades_ver() { # [--todas]
-  local atual desde txt; atual=$(versao | awk '{ print $1 + 0 }')
+  local atual desde txt; atual=$(versao_disp)
   desde=$(novidades_visto)
   [[ ${2:-} == --todas ]] && desde=0
   txt=$(novidades_texto "$desde")
   if [[ -z $txt ]]; then
     # Nada novo desde a última vista: mostra as 3 versões mais recentes.
-    txt=$(novidades_texto $((atual - 3)))
+    txt=$(awk '/^## v/ { c++ } /^# / && !/^## / { next } c >= 1 && c <= 3 { print }' "$DIR_TT/NOVIDADES.md" 2>/dev/null)
   fi
   [[ -n $txt ]] || { echo "Sem novidades registradas."; return 0; }
   mkdir -p "$ESTADO_DIR"; echo "$atual" >"$ESTADO_DIR/novidades-visto"
@@ -4398,11 +4481,11 @@ novidades_ver() { # [--todas]
 
 # Vigia: uma vez por versão nova com entrada em NOVIDADES.md, um aviso na faixa (clique abre).
 novidades_avisar() {
-  local atual visto marca=$ESTADO_DIR/novidades-avisada; atual=$(versao | awk '{ print $1 + 0 }')
+  local atual visto marca=$ESTADO_DIR/novidades-avisada; atual=$(versao_disp)
   [[ $(cat "$marca" 2>/dev/null || echo 0) == "$atual" ]] && return 0
   mkdir -p "$ESTADO_DIR"; echo "$atual" >"$marca"
   visto=$(novidades_visto)
-  ((atual > visto)) && [[ -n $(novidades_texto "$visto") ]] || return 0
+  (( $(versao_chave "$atual") > $(versao_chave "$visto") )) && [[ -n $(novidades_texto "$visto") ]] || return 0
   # Máquina que acabou de ser instalada (nada visto): só marca; o aviso é para quem atualizou.
   [[ -f $ESTADO_DIR/novidades-visto ]] || { echo "$atual" >"$ESTADO_DIR/novidades-visto"; return 0; }
   notificar "📰 tt atualizado para a v$atual — veja o que há de novo (clique)" 3600 novidades
@@ -5238,11 +5321,11 @@ menu_maquinas() {
     while read -r dest rot; do
       i=$((i + 1))
       f=$(info_maquina "$rot")
-      if [[ -s $f ]]; then read -r n v <"$f"; else n="…"; v=$vl; fi
+      if [[ -s $f ]]; then read -r n v vr <"$f"; else n="…"; v=$vl; vr=""; fi
       case $n in
         '?') info="sem resposta" ;;
         '…') info="consultando…" ;;
-        *) info="$n sessões"; ((${v:-0} < vl)) && info+="  ⚠ v$v" ;;
+        *) info="$n sessões"; ((${v:-0} < vl)) && info+="  ⚠ $(versao_rotulo "$v" "${vr:-}")" ;;
       esac
       printf '%s\t%s %-10s %s\t%s\n' "$i" "$( [[ -n ${SELO[$rot]:-} ]] && printf '%*s%s' $((2 - ${#SELO[$rot]})) '' "$(selo_ansi "$rot")" || echo '  ')" "$rot" "$info" "TT_X=0 $EU --seletor-em $(q "$c") $(q "$rot") $p"
     done < <(maquinas)
@@ -5250,7 +5333,7 @@ menu_maquinas() {
     printf 'c\t  ☰ Central completa…\t%s\n' "$EU --clique tt $(q "$c") $p ''"
     printf -- '-\t\t\n'
     printf 'g\t  ⚙ Administrar (arquivos, tmux, cadastro)…\t%s\n' "$EU --menu-admin $(q "$c") $p"
-  } | menu_popup "$c" "máquinas · tt v$vl"
+  } | menu_popup "$c" "máquinas · tt $(versao_humana)"
 }
 
 # Administração das máquinas: arquivos, tmux, atualização e cadastro (botão direito em "máquina ▾",
@@ -5275,8 +5358,8 @@ menu_admin() {
     printf 'c\t  📧 Contas de e-mail…\t%s\n' "$EU --email-contas $(q "$c")"
     printf 's\t  🧠 Conversas das IAs: sincronizar agora…\t%s\n' "$(popup_tt "$c" "🧠 conversas das IAs" "$EU --sessoes-ia agora; echo; $EU --sessoes-ia; read -rsn1 -p '(tecla fecha)'")"
     printf -- '-\t\t\n'
-    ((atras)) && printf 'u\t  ⟳ Atualizar as desatualizadas (v%s)\t%s\n' "$vl" "$(popup_tt "$c" sincronizar "$EU --sincronizar; read -rsn1 -p '(tecla fecha)'")"
-    (($(versao_github) > vl)) && printf 'g\t  ⟳ Atualizar do GitHub (v%s → v%s)\t%s\n' "$vl" "$(versao_github)" "$(popup_tt "$c" "atualizar do GitHub" "$EU --atualizar --todas; read -rsn1 -p '(tecla fecha)'")"
+    ((atras)) && printf 'u\t  ⟳ Atualizar as desatualizadas (%s)\t%s\n' "$(versao_humana)" "$(popup_tt "$c" sincronizar "$EU --sincronizar; read -rsn1 -p '(tecla fecha)'")"
+    (($(versao_github) > vl)) && printf 'g\t  ⟳ Atualizar do GitHub (%s → %s)\t%s\n' "$(versao_humana)" "$(versao_github_rotulo)" "$(popup_tt "$c" "atualizar do GitHub" "$EU --atualizar --todas; read -rsn1 -p '(tecla fecha)'")"
     printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'n\t  📰 Novidades do tt…\t%s\n' "$(popup_tt "$c" "📰 novidades do tt" "$EU --novidades")"
@@ -5284,7 +5367,7 @@ menu_admin() {
     printf 'I\t  📋 Estado de tudo que o tt usa (instalado ou não)\t%s\n' "$(popup_tt "$c" "📋 o que o tt usa" "$EU --pendencias; read -rsn1 -p '  (qualquer tecla fecha)'")"
     printf 'h\t  ◌ Ocultar máquina…\t%s\n' "$(popup_tt "$c" "ocultar máquina" "$EU --ocultar-maquina; read -rsn1 -p '(tecla fecha)'")"
     printf 'H\t  ◉ Mostrar máquina oculta…\t%s\n' "$(popup_tt "$c" "mostrar máquina" "$EU --mostrar-maquina; read -rsn1 -p '(tecla fecha)'")"
-  } | menu_popup "$c" "administrar · tt v$vl"
+  } | menu_popup "$c" "administrar · tt $(versao_humana)"
 }
 
 # Cria uma sessão nova e leva este terminal para ela.
@@ -5631,11 +5714,30 @@ demandas_puxar() { # junta os cadastros das outras máquinas (o vigia chama com 
 
 # Cria a tarefa PENDENTE de uma mensagem. Imprime o id; sai 1 sem criar se ela já existe (em qualquer
 # estado — aprovada, recusada ou ainda pendente) ou se a frase não tem título.
+# Com "~CÓDIGO" na frase o e-mail fala de uma tarefa específica (o código é o id, igual em toda máquina):
+#  - não existe aqui (ou ainda é pendente): vira a tarefa PENDENTE com esse mesmo código (um e-mail mais
+#    novo sobre a mesma pendente a substitui); aprovada, mantém o código e as próximas mensagens a atualizam;
+#  - existe (aberta, feita, arquivada): vira uma PROPOSTA DE ATUALIZAÇÃO (pendente, meta upd=CÓDIGO) na
+#    aba Entrada; aprovar aplica sobre a tarefa (texto, prazo, prioridade, repetição, etiquetas, descrição
+#    e subtarefas por código), recusar não toca nela;
+#  - foi removida aqui: ignorada (remoção nunca ressuscita).
+# Subtarefas chegam como linhas "cod<TAB>estado<TAB>texto" (cod/estado "-" quando faltam).
 demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas
-  local de=$1 msgid=$2 epoch=$3 tag=$4 frase=$5 desc=$6 subs=$7 id now t meta tags i=0 sub sid sm
+  local de=$1 msgid=$2 epoch=$3 tag=$4 frase=$5 desc=$6 subs=$7 id now t meta tags i=0 scod sest sub sid sm cod est upd=""
   id=$(printf 'demanda\0%s' "$msgid" | sha256sum | cut -c1-12)
-  [[ -z $(tarefas_raw | awk -F'\t' -v id="$id" '$1 == id { print 1; exit }') ]] || return 1
   tarefas_frase_ler "$frase" || return 1
+  cod=$TT_F_COD
+  if [[ -n $cod ]]; then
+    est=$(tarefas_estado_de "$cod")
+    case $est in
+      removida) return 1 ;;
+      ""|pendente) id=$cod ;;
+      *) upd=$cod ;;
+    esac
+  fi
+  if [[ -z $cod || -n $upd ]]; then
+    [[ -z $(tarefas_raw | awk -F'\t' -v id="$id" '$1 == id { print 1; exit }') ]] || return 1
+  fi
   now=$(hora_agora); t=$epoch
   [[ $t =~ ^[0-9]+$ ]] && ((t > 0 && t <= now)) || t=$now
   [[ $tag == - ]] && tag=""
@@ -5648,15 +5750,21 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas
   [[ -n $TT_F_REP ]] && meta=$(tarefas_meta_set "$meta" rep "$TT_F_REP")
   [[ -n $tags ]] && meta=$(tarefas_meta_set "$meta" tags "$tags")
   meta=$(tarefas_meta_set "$meta" de "${de//[^A-Za-z0-9._%+@-]/}")
+  [[ -n $upd ]] && meta=$(tarefas_meta_set "$meta" upd "$upd")
   tarefas_travar || return 1
   mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
   {
     cat "$CONF_TAREFAS"
     printf '%s\tpendente\t%s\t%s\t%s\t%s\n' "$id" "$t" "$t" "$TT_F_TXT" "$meta"
-    while IFS= read -r sub; do
+    while IFS=$'\t' read -r scod sest sub; do
       sub=$(tarefas_limpa_texto "$sub"); [[ -n $sub ]] || continue
       i=$((i + 1)); sid=$(printf 'demanda\0%s\0sub\0%s' "$msgid" "$i" | sha256sum | cut -c1-12)
       sm=$(tarefas_meta_set "" pai "$id"); sm=$(tarefas_meta_set "$sm" ord "$i")
+      if [[ $scod =~ ^[0-9a-f]{6,16}$ ]]; then
+        if [[ -n $upd ]]; then sm=$(tarefas_meta_set "$sm" scod "$scod")
+        else sid=$scod; fi
+      fi
+      [[ -n $upd && $sest == f ]] && sm=$(tarefas_meta_set "$sm" sest f)
       printf '%s\tpendente\t%s\t%s\t%s\t%s\n' "$sid" "$t" "$t" "$sub" "$sm"
     done <<<"$subs"
   } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
@@ -5665,6 +5773,66 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas
   atualizar_barras 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
   printf '%s\n' "$id"
+}
+
+# Texto de e-mail para compartilhar uma tarefa: o assunto leva a frase e o "~código" (quem recebe, com
+# o tt e você como remetente autorizado, ATUALIZA a mesma tarefa em vez de criar outra) e o corpo, a
+# descrição e as subtarefas "- [código] [x] texto". Imprime Para/Assunto/corpo e, por último, um link
+# mailto: que qualquer cliente abre. Subtarefa: compartilhe a tarefa mãe.
+tarefa_email() { # id [destinatário]
+  local id=$1 dest=${2:-} frase desc corpo si sest stxt
+  [[ -n $(tarefas_pai_de "$id") ]] && { echo "é subtarefa: compartilhe a tarefa mãe ($(tarefa_slug "$(tarefas_pai_de "$id")"))" >&2; return 1; }
+  frase=$(tarefas_frase_de "$id") || { echo "tarefa $id não existe" >&2; return 1; }
+  desc=$(tarefa_get_desc "$id" | sed -E 's/^([[:space:]]*)[-*•][[:space:]]/\1– /')
+  corpo=${desc:+$desc$'\n\n'}
+  while IFS=$'\t' read -r si sest stxt; do
+    [[ -n $si ]] || continue
+    corpo+="- [$si]$([[ $sest == feita ]] && echo ' [x]') $stxt"$'\n'
+  done < <(tarefas_filhas "$id")
+  frase="[tt] $frase ~$id"
+  printf 'Para: %s\nAssunto: %s\n\n%s\n' "$dest" "$frase" "$corpo"
+  python3 -I -c 'import sys,urllib.parse as u; print("mailto:"+u.quote(sys.argv[1])+"?subject="+u.quote(sys.argv[2])+"&body="+u.quote(sys.argv[3]))' "$dest" "$frase" "$corpo"
+}
+
+# Aplica uma proposta de atualização (linha pendente com upd=CÓDIGO) na tarefa alvo; não mexe na
+# proposta (quem chama a descarta). Campos do e-mail valem inteiros: marcador ausente tira o atributo
+# (como ✎ Editar); a descrição só muda se o e-mail trouxe uma. Subtarefas: com código, atualiza a que já
+# é filha desta tarefa ou cria com esse código (removida não ressuscita); sem código, acrescenta se não
+# houver uma de mesmo texto. Alvo que sumiu/removido: não cria nada.
+tarefa_aplicar_proposta() { # id-da-proposta
+  local pid=$1 txt m alvo ealvo tm k scod sest si sm se sub sord sd
+  IFS=$'\t' read -r txt m < <(tarefas_raw | awk -F'\t' -v id="$pid" '$1==id{print $5"\t"($6==""?"-":$6); exit}')
+  [[ -n $txt ]] || return 1
+  [[ $m == - ]] && m=""
+  alvo=$(tarefas_meta_get "$m" upd); [[ -n $alvo ]] || return 1
+  ealvo=$(tarefas_estado_de "$alvo")
+  [[ -n $ealvo && $ealvo != removida && $ealvo != pendente ]] || return 1
+  tm=$(tarefas_meta_de "$alvo")
+  for k in prazo hora prio rep tags; do tm=$(tarefas_meta_set "$tm" "$k" "$(tarefas_meta_get "$m" "$k")"); done
+  sd=$(tarefas_meta_get "$m" desc); [[ -n $sd ]] && tm=$(tarefas_meta_set "$tm" desc "$sd")
+  tarefas_gravar_linha "$alvo" "$ealvo" "$txt" "$tm" || return 1
+  while IFS=$'\t' read -r si sord sub scod sest; do
+    [[ -n $si ]] || continue
+    if [[ -n $scod ]]; then
+      se=$(tarefas_estado_de "$scod")
+      if [[ -z $se ]]; then
+        sm=$(tarefas_meta_set "" pai "$alvo"); sm=$(tarefas_meta_set "$sm" ord "$(tarefas_sub_proxima_ord "$alvo")")
+        tarefas_gravar_linha "$scod" "$([[ $sest == f ]] && echo feita || echo aberta)" "$sub" "$sm"
+      elif [[ $se != removida && $(tarefas_pai_de "$scod") == "$alvo" ]]; then
+        sm=$(tarefas_meta_de "$scod")
+        tarefas_gravar_linha "$scod" "$([[ $sest == f ]] && echo feita || echo "$se")" "$sub" "$sm"
+      fi
+    else
+      tarefas_filhas "$alvo" | awk -F'\t' -v t="${sub,,}" 'tolower($3) == t { f = 1 } END { exit !f }' ||
+        { tarefa_add_sub "$alvo" "$sub" >/dev/null   ; }
+    fi
+  done < <(tarefas_raw | awk -F'\t' -v p="$pid" '
+    function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
+    mv($6, "pai") == p && $2 == "pendente" { printf "%s\t%d\t%s\t%s\t%s\n", $1, mv($6, "ord") + 0, $5, mv($6, "scod"), mv($6, "sest") }' | sort -t$'\t' -k2,2n |
+    awk -F'\t' -v OFS='\t' '{ print $1, $2, $3, $4, $5 }')
+  # Mãe feita com subtarefa aberta (nova ou reaberta): volta a ficar aberta.
+  if [[ $(tarefas_estado_de "$alvo") == feita ]] && [[ -n $(tarefas_subs_abertas "$alvo") ]]; then tarefa_estado "$alvo" aberta; fi
+  return 0
 }
 
 # Olha as mensagens ainda não vistas de uma caixa com espelho local e cria as demandas. Sem remetente
@@ -5718,7 +5886,7 @@ demandas_processar() { # [slug]
 }
 
 # Aprova (vira aberta, com as subtarefas) ou recusa (lápide) demandas pendentes. Imprime quantas mudaram.
-tarefas_demanda_mudar() { # aprovar|recusar ID...
+tarefas_demanda_mudar_linhas() { # aprovar|recusar ID...
   local op=$1; shift
   [[ -f $CONF_TAREFAS ]] || { echo 0; return 1; }
   local now ids=" $* " n tmp
@@ -5742,12 +5910,27 @@ tarefas_demanda_mudar() { # aprovar|recusar ID...
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
   echo "${n:-0}"
 }
+# Aprovar uma proposta de atualização aplica-a na tarefa alvo e descarta a proposta; o resto segue o
+# caminho normal (pendente -> aberta). Imprime quantas mudaram.
+tarefas_demanda_mudar() { # aprovar|recusar ID...
+  local op=$1 id n=0 k; shift
+  local -a props=() outros=()
+  for id in "$@"; do
+    if [[ -n $(tarefas_meta_get "$(tarefas_meta_de "$id")" upd) && $(tarefas_estado_de "$id") == pendente ]]; then props+=("$id"); else outros+=("$id"); fi
+  done
+  if ((${#props[@]})); then
+    if [[ $op == aprovar ]]; then for id in "${props[@]}"; do tarefa_aplicar_proposta "$id" || true; done; fi
+    n=$(tarefas_demanda_mudar_linhas recusar "${props[@]}")
+  fi
+  if ((${#outros[@]})); then k=$(tarefas_demanda_mudar_linhas "$op" "${outros[@]}"); n=$((n + k)); fi
+  echo "$n"
+}
 # Texto: demandas pendentes (id, remetente, título).
 demandas_pendentes() {
   [[ -f $CONF_TAREFAS ]] || { echo "nenhuma demanda pendente"; return 0; }
   awk -F'\t' '
     function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
-    NF >= 5 && $2 == "pendente" && mv($6, "pai") == "" { print $1 "\t" (mv($6, "de") == "" ? "?" : mv($6, "de")) "\t" $5; n++ }
+    NF >= 5 && $2 == "pendente" && mv($6, "pai") == "" { print $1 "\t" (mv($6, "de") == "" ? "?" : mv($6, "de")) "\t" (mv($6, "upd") == "" ? "" : "[atualiza " mv($6, "upd") "] ") $5; n++ }
     END { if (!n) print "nenhuma demanda pendente" }' "$CONF_TAREFAS"
 }
 # Tela simples (prompts) para cadastrar/remover remetentes — menu ⋯ do painel → ✉ Demandas por e-mail.
@@ -5937,6 +6120,45 @@ tarefas_novo_id() {
   printf '%s\0%s\0%s\0%s' "$MAQUINA" "$(date +%s%N)" "$$" "${1:-}" | sha256sum | cut -c1-12
 }
 
+# Código e apelido. O CÓDIGO é o próprio id (12 hex; hora de criação + máquina + pid, então a chance de
+# dois iguais é desprezível) e é ele que identifica a tarefa entre máquinas e em e-mails. O APELIDO
+# é uma forma curta de falar dela (ex.: kito47): sai dos 8 primeiros hex do código (CVCV + 2 dígitos,
+# 562 500 combinações), logo é o mesmo em toda máquina e não precisa ser guardado.
+tarefa_slug() { # id -> apelido
+  local h=${1:0:8} n c=bdfgjklmnprstvz v=aeiou
+  h=${h}00000000; n=$((16#${h:0:8}))
+  printf '%s%s%s%s%02d' "${c:n%15:1}" "${v:(n/15)%5:1}" "${c:(n/75)%15:1}" "${v:(n/1125)%5:1}" $(((n/5625)%100))
+}
+# O que o usuário (ou a IA) digitou -> id. Aceita código inteiro, apelido (kito47), prefixo do código
+# (4+ hex) e MÃE.N (a N-ésima subtarefa: kito47.2). Imprime o id; 1 = não achou, 2 = ambíguo (lista no stderr).
+tarefas_resolver() {
+  local t=${1,,} i pai n
+  t=${t//[[:space:]]/}; t=${t#\~}
+  [[ -n $t ]] || return 1
+  local -a vivos=() ap=() pre=()
+  mapfile -t vivos < <(tarefas_raw | awk -F'\t' '$2 != "removida" { print $1 }')
+  for i in "${vivos[@]}"; do [[ $i == "$t" ]] && { printf '%s\n' "$i"; return 0; }; done
+  if [[ $t =~ ^([a-z0-9]+)\.([0-9]+)$ ]]; then
+    pai=$(tarefas_resolver "${BASH_REMATCH[1]}") || return $?
+    i=$(tarefas_filhas "$pai" | sed -n "${BASH_REMATCH[2]}p" | cut -f1)
+    [[ -n $i ]] && { printf '%s\n' "$i"; return 0; }
+    return 1
+  fi
+  for i in "${vivos[@]}"; do [[ $(tarefa_slug "$i") == "$t" ]] && ap+=("$i"); done
+  if ((${#ap[@]} == 0)) && [[ $t =~ ^[0-9a-f]{4,}$ ]]; then
+    for i in "${vivos[@]}"; do [[ $i == "$t"* ]] && ap+=("$i"); done
+  fi
+  case ${#ap[@]} in
+    0) return 1 ;;
+    1) printf '%s\n' "${ap[0]}" ;;
+    *) { echo "ambíguo: '$1' serve para mais de uma tarefa — use o código inteiro:"
+         for i in "${ap[@]}"; do echo "  $i  $(tarefa_slug "$i")  $(tarefas_raw | awk -F'\t' -v i="$i" '$1==i{print $5; exit}')"; done; } >&2
+       return 2 ;;
+  esac
+}
+# Mesmo, para os verbos de CLI: se não achar, devolve o que veio (o verbo dá o seu próprio erro).
+tarefas_id_arg() { local r; if r=$(tarefas_resolver "$1" 2>/dev/null); then printf '%s' "$r"; else printf '%s' "$1"; fi; }
+
 # Texto numa linha só: TAB e quebras viram espaço (o formato é TAB-separado).
 tarefas_limpa_texto() { printf '%s' "$1" | tr '\t\n\r' '   ' | sed 's/  */ /g; s/^ //; s/ $//'; }
 
@@ -5948,11 +6170,11 @@ tarefas_meta_get() { # meta chave
   local meta=$1 chave=$2 par IFS='|'
   for par in $meta; do [[ $par == "$chave="* ]] && { printf '%s' "${par#*=}"; return 0; }; done
 }
-tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|hora|prio|rep|tags|pai|ord)
+tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|hora|prio|rep|tags|pai|ord|arq|de|upd|scod|sest)
   local meta=$1 chave=$2 valor=$3 k out="" par; local -A M=(); local IFS='|'
   for par in $meta; do [[ $par == *=* ]] && M[${par%%=*}]=${par#*=}; done
   M[$chave]=$valor
-  for k in desc prazo hora prio rep tags pai ord arq de; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
+  for k in desc prazo hora prio rep tags pai ord arq de upd scod sest; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
   printf '%s' "$out"
 }
 tarefas_b64()   { printf '%s' "$1" | base64 | tr -d '\n'; }
@@ -6023,6 +6245,24 @@ tarefas_compactar() {
 
 # --- operações de alto nível (usadas pela UI e pela CLI) ---
 
+# Grava (cria ou substitui) uma tarefa com id/estado/texto/meta dados, sem mexer em mais nada. A hora
+# de mudança nunca recua (no mínimo 1 s depois da anterior), senão o merge preferiria a linha velha.
+tarefas_gravar_linha() { # id estado texto meta
+  local id=$1 est=$2 txt=$3 meta=$4 now old c m4
+  txt=$(tarefas_limpa_texto "$txt"); [[ -n $txt ]] || return 1
+  now=$(hora_agora)
+  tarefas_travar || return 1
+  mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
+  old=$(awk -F'\t' -v id="$id" '$1==id{print $3 "\t" $4; exit}' "$CONF_TAREFAS")
+  if [[ -n $old ]]; then c=${old%%$'\t'*}; m4=${old##*$'\t'}; else c=$now; m4=0; fi
+  ((now <= m4)) && now=$((m4 + 1))
+  { cat "$CONF_TAREFAS"; printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$est" "$c" "$now" "$txt" "$meta"; } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
+  mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tarefas_destravar
+  atualizar_barras 2>/dev/null
+  ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
+}
+
 tarefa_add() {
   local txt id now
   txt=$(tarefas_limpa_texto "$1"); [[ -n $txt ]] || return 1
@@ -6090,7 +6330,7 @@ tarefas_token_hora() {
 #   @sex 14h · @sex às 14:30 · @14h (hoje; amanhã se a hora já passou) -> prazo com horário
 # Falha (1) quando não sobra texto.
 tarefas_frase_ler() { # frase
-  local frase=$1 tok prazo="" hora="" prio="" rep="" tags="" desc="" resto=() i j n hh
+  local frase=$1 tok prazo="" hora="" prio="" rep="" tags="" desc="" cod="" resto=() i j n hh
   if [[ $frase == *$'\n'* ]]; then
     desc=$(printf '%s\n' "${frase#*$'\n'}" | sed 's/[[:space:]]*$//' | sed '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
     frase=${frase%%$'\n'*}
@@ -6116,6 +6356,8 @@ tarefas_frase_ler() { # frase
       '*'d|'*'diaria|'*'diária) rep=d ;;
       '*'w|'*'semanal) rep=w ;;
       '*'m|'*'mensal) rep=m ;;
+      # ~CÓDIGO: a tarefa a que a frase se refere (e-mails de compartilhamento); só vale com 6–16 hex.
+      '~'?*) if [[ ${tok#\~} =~ ^[0-9a-f]{6,16}$ ]]; then cod=${tok#\~}; else resto+=("$tok"); fi ;;
       *) resto+=("$tok") ;;
     esac
   done
@@ -6130,7 +6372,7 @@ tarefas_frase_ler() { # frase
     fi
   fi
   TT_F_TXT=$(tarefas_limpa_texto "${resto[*]}")
-  TT_F_DESC=$desc TT_F_PRAZO=$prazo TT_F_HORA=${hora:+1} TT_F_PRIO=$prio TT_F_REP=$rep TT_F_TAGS=$tags
+  TT_F_COD=$cod TT_F_DESC=$desc TT_F_PRAZO=$prazo TT_F_HORA=${hora:+1} TT_F_PRIO=$prio TT_F_REP=$rep TT_F_TAGS=$tags
   [[ -n $TT_F_TXT ]]
 }
 
@@ -6353,6 +6595,101 @@ tarefa_set_desc() { # id texto (vazio remove)
   tarefa_set_meta "$id" "$meta"
 }
 tarefa_get_desc() { tarefas_unb64 "$(tarefas_meta_get "$(tarefas_meta_de "$1")" desc)"; }
+
+# --- registro de trabalho (log padronizado na descrição) -------------------------------------------
+# Uma sessão (de IA ou de gente) registra na descrição da tarefa/subtarefa o que fez, no formato:
+#   ⟡ 2026-10-10 15:52 · pinu29
+#     fez: …            como: …
+#     por: claude · claude-sonnet-5-5 · esforço high · sessão impl-3 · máquina s23
+#     conta: ncardo <helioncardo@gmail.com>
+#     uso: 12300 tokens (10000 ent · 2300 sai) · ≈ R$ 0,45
+# Cada registro é um bloco que termina em linha em branco, sempre ACRESCENTADO ao fim da descrição (o que
+# já estava lá, inclusive o "aidlc:", fica). Tudo que dá para descobrir sozinho é descoberto (quando,
+# máquina, sessão tmux, agente, conta/e-mail); modelo, esforço e tokens só o próprio agente sabe: passe-os.
+# Custo: --brl V explícito, ou tokens ent/sai × ~/.config/tt/precos (modelo<TAB>USD/Mtok ent<TAB>USD/Mtok
+# sai) × cotacao_brl do config (padrão 5.50). Sem preço do modelo e sem --brl, não escreve valor.
+tarefa_brl_fmt() { local v=${1/./,}; printf 'R$ %s' "$v"; }
+tarefa_log() { # id "o que fez" [--como T] [--agente A] [--modelo M] [--esforco E] [--tokens N | --tokens-ent N --tokens-sai N] [--brl V] [--conta C] [--email E] [--sessao S] [--maquina M]
+  local id=$1; shift
+  [[ -n $(tarefas_estado_de "$id") ]] || { echo "tarefa $id não existe" >&2; return 1; }
+  local fez="" como="" agente="" modelo="" esforco="" tent="" tsai="" tok="" brl="" conta="" email="" sess="" maq="" a
+  while (($#)); do
+    case $1 in
+      --como|--agente|--modelo|--esforco|--tokens|--tokens-ent|--tokens-sai|--brl|--conta|--email|--sessao|--maquina)
+        (($# >= 2)) || { echo "faltou o valor de $1" >&2; return 2; }
+        a=$2
+        case $1 in
+          --como) como=$a ;; --agente) agente=$a ;; --modelo) modelo=$a ;; --esforco) esforco=$a ;;
+          --tokens) tok=$a ;; --tokens-ent) tent=$a ;; --tokens-sai) tsai=$a ;; --brl) brl=$a ;;
+          --conta) conta=$a ;; --email) email=$a ;; --sessao) sess=$a ;; --maquina) maq=$a ;;
+        esac; shift 2 ;;
+      --*) echo "opção desconhecida: $1" >&2; return 2 ;;
+      *) fez+="${fez:+ }$1"; shift ;;
+    esac
+  done
+  fez=$(tarefas_limpa_texto "$fez"); [[ -n $fez ]] || { echo 'uso: tt --tarefa-log ID "o que foi feito" [--como …] [--modelo …] [--esforco …] [--tokens-ent N --tokens-sai N] [--brl V]' >&2; return 2; }
+  # o que se descobre sozinho
+  if [[ -z $agente ]]; then
+    if [[ -n ${CLAUDECODE:-}${CLAUDE_CODE_ENTRYPOINT:-} ]]; then agente=claude
+    elif [[ -n ${CODEX_HOME:-}${CODEX_SANDBOX:-}${CODEX_THREAD_ID:-} ]]; then agente=codex
+    elif [[ -n ${KIRO_SESSION_ID:-}${KIRO_CLI:-} ]]; then agente=kiro; fi
+  fi
+  : "${modelo:=${TT_LOG_MODELO:-${ANTHROPIC_MODEL:-}}}" "${esforco:=${TT_LOG_ESFORCO:-}}"
+  [[ -n $maq ]] || maq=${MAQUINA//_/-}
+  if [[ -z $sess && -n ${TMUX_PANE:-} ]]; then sess=$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null); fi
+  if [[ -z $conta ]]; then
+    conta=${IA_CONTA:-}
+    [[ -z $conta && -n ${CLAUDE_CONFIG_DIR:-} ]] && conta=$(basename "${CLAUDE_CONFIG_DIR%/}" | sed 's/^\.\?claude-\?//')
+  fi
+  if [[ -z $email && -n $conta && -f $CONF_CONTAS_IA ]]; then
+    email=$(awk -F'\t' -v c="$conta" '$3 == c || $2 == c { print $2; exit }' "$CONF_CONTAS_IA")
+  fi
+  # tokens e custo
+  local total="" detalhe="" custo="" pin pout cot
+  [[ $tent =~ ^[0-9]+$ ]] || tent=""; [[ $tsai =~ ^[0-9]+$ ]] || tsai=""; [[ $tok =~ ^[0-9]+$ ]] || tok=""
+  if [[ -n $tent || -n $tsai ]]; then
+    total=$(( ${tent:-0} + ${tsai:-0} )); detalhe=" (${tent:-0} ent · ${tsai:-0} sai)"
+  elif [[ -n $tok ]]; then total=$tok; fi
+  if [[ $brl =~ ^[0-9]+([.,][0-9]+)?$ ]]; then
+    custo=$(awk -v v="${brl/,/.}" 'BEGIN { printf "%.2f", v }')
+  elif [[ -n $modelo && ( -n $tent || -n $tsai ) && -f $CONF_DIR/precos ]]; then
+    read -r pin pout < <(awk -F'\t' -v m="$modelo" '$1 == m { print $2, $3; exit }' "$CONF_DIR/precos")
+    cot=$(conf cotacao_brl); cot=${cot:-5.50}
+    [[ -n ${pin:-} && -n ${pout:-} ]] && custo=$(awk -v i="${tent:-0}" -v o="${tsai:-0}" -v pi="$pin" -v po="$pout" -v c="${cot/,/.}" 'BEGIN { printf "%.2f", (i * pi + o * po) / 1e6 * c }')
+  fi
+  local bloco por="" cta=""
+  por=$(printf '%s' "${agente:+$agente}${modelo:+${agente:+ · }$modelo}${esforco:+ · esforço $esforco}${sess:+ · sessão $sess}${maq:+ · máquina $maq}")
+  [[ -n $conta || -n $email ]] && cta="${conta}${email:+ <$email>}"
+  bloco="⟡ $(tt_fmt_epoch "$(hora_agora)" '+%Y-%m-%d %H:%M') · $(tarefa_slug "$id")"$'\n'"  fez: $fez"
+  [[ -n $como ]] && bloco+=$'\n'"  como: $(tarefas_limpa_texto "$como")"
+  [[ -n $por ]] && bloco+=$'\n'"  por: ${por# · }"
+  [[ -n $cta ]] && bloco+=$'\n'"  conta: $cta"
+  if [[ -n $total || -n $custo ]]; then
+    bloco+=$'\n'"  uso: ${total:+$total tokens$detalhe}${custo:+${total:+ · }≈ $(tarefa_brl_fmt "$custo")}"
+  fi
+  local atual; atual=$(tarefa_get_desc "$id")
+  tarefa_set_desc "$id" "${atual:+$atual$'\n\n'}$bloco"
+}
+
+# Histórico de trabalho de uma tarefa e das suas subtarefas, com o total de tokens e reais registrados.
+tarefa_historico() { # id
+  local id=$1 i txt sd n=0 tt_=0 brl=0 b1 b2
+  [[ -n $(tarefas_estado_de "$id") ]] || { echo "tarefa $id não existe" >&2; return 1; }
+  for i in "$id" $(tarefas_filhas "$id" | cut -f1); do
+    sd=$(tarefa_get_desc "$i" | awk '/^⟡ /{l=1} l&&/^$/{l=0} l')
+    [[ -n $sd ]] || continue
+    txt=$(tarefas_raw | awk -F'\t' -v i="$i" '$1==i{print $5; exit}')
+    printf '%s [%s]\n%s\n\n' "$txt" "$(tarefa_slug "$i")" "$sd"
+    n=$((n + $(grep -c '^⟡ ' <<<"$sd")))
+    read -r b1 b2 < <(awk '
+      /^  uso: / { if (match($0, /[0-9]+ tokens/)) t += substr($0, RSTART, RLENGTH - 7)
+                   if (match($0, /R\$ [0-9]+,[0-9][0-9]/)) { v = substr($0, RSTART + 3, RLENGTH - 3); sub(",", ".", v); r += v } }
+      END { printf "%d %.2f\n", t, r }' <<<"$sd")
+    tt_=$((tt_ + b1)); brl=$(awk -v a="$brl" -v b="$b2" 'BEGIN { printf "%.2f", a + b }')
+  done
+  ((n > 0)) || { echo "nenhum registro de trabalho em $(tarefa_slug "$id")"; return 0; }
+  printf 'Total: %s registro%s · %s tokens · ≈ %s\n' "$n" "$( ((n == 1)) || echo s)" "$tt_" "$(tarefa_brl_fmt "${brl/./,}")"
+}
 
 tarefa_set_prazo() { # id epoch [1 = com horário] (epoch vazio remove o prazo)
   local id=$1 ep=$2 hora=${3:-} meta
@@ -7667,9 +8004,10 @@ tarefas_lista_fzf() { # [busca]
         return
       }
       if (est == "pendente") {
-        s = " " AMAR NEG "▾" Z " " AMAR "📥" Z " " TXT NEG TTXT[i] Z
+        eup = (mv(meta, "upd") != "")
+        s = " " AMAR NEG "▾" Z " " AMAR (eup ? "↻" : "📥") Z " " TXT NEG TTXT[i] Z
         ex = ""; r = rotulo_prazo(prazo, "aberta", hora); if (r != "") ex = ex "  " r
-        r = mv(meta, "de"); if (r != "") ex = ex "  " DIM "de " r Z
+        r = mv(meta, "de"); if (r != "") ex = ex "  " DIM (eup ? "atualização · " : "") "de " r Z
         if (tagtxt != "") ex = ex "  " LILAS tagtxt Z
         if (TDESC[i] != "") ex = ex "  " SUB "≡" Z
         printf "%s\t%s%s\n", id, s, ex
@@ -7707,7 +8045,7 @@ tarefas_lista_fzf() { # [busca]
       }
       if (TEST[i] == "pendente") {
         for (j = 1; j <= n; j++) { f = S[j]; printf "\t%s%s☐%s %s%s\n", ind, DIM, Z, FTXT[f], Z }
-        printf "apv:%s\t%s%s✓ aprovar%s %s(vira tarefa aberta%s)%s\n", id, ind, VERDE, Z, DIM, (n > 0 ? ", com as " n " subtarefas" : ""), Z
+        printf "apv:%s\t%s%s✓ aprovar%s %s(%s%s)%s\n", id, ind, VERDE, Z, DIM, (mv(TMETA[i], "upd") != "" ? "atualiza a tarefa que já existe" : "vira tarefa aberta"), (n > 0 ? ", com as " n " subtarefas" : ""), Z
         printf "rec:%s\t%s%s✕ recusar%s %s(descarta a demanda)%s\n", id, ind, VERM, Z, DIM, Z
         return
       }
@@ -7917,7 +8255,8 @@ tarefas_menu_linhas() { # id
     if [[ $2 == 1 ]]; then printf 'act:%s:%s\t     %s● %s%s\n' "$1" "$id" "$a$n" "$3" "$z"
     else printf 'act:%s:%s\t     %s○ %s%s\n' "$1" "$id" "$d" "$t$3" "$z"; fi
   }
-  printf 'voltar\t %s‹ voltar para a lista%s\n\t\n' "$a$n" "$z"
+  printf 'voltar\t %s‹ voltar para a lista%s\n' "$a$n" "$z"
+  printf '\t   %s⌗ %s%s%s · %s%s\n\t\n' "$d" "$s" "$(tarefa_slug "$id")" "$d" "$id" "$z"
   if [[ $est == arquivada ]]; then
     _op restaurar "$a↩ Restaurar para a lista" 'volta com as subtarefas, como estava'
     _op apagar "$r✕ Apagar de vez…" 'sem histórico'
@@ -8222,9 +8561,10 @@ tarefa_preview() { # chave
   case $(tarefas_meta_get "$m" rep) in d) info+=("$teal↻ diária$z") ;; w) info+=("$teal↻ semanal$z") ;; m) info+=("$teal↻ mensal$z") ;; esac
   local tgs; tgs=$(tarefas_meta_get "$m" tags); [[ -n $tgs ]] && info+=("$lil#${tgs//,/ #}$z")
   ((${#info[@]})) && { local IFS=$'\x1f'; printf '%s\n' "${info[*]}" | sed $'s/\x1f/   /g'; }
+  printf '%s⌗ %s · %s%s\n' "$d" "$(tarefa_slug "$id")" "$id" "$z"
   printf '\n'
   desc=$(tarefa_get_desc "$id")
-  if [[ -n $desc ]]; then printf '%s\n' "$desc"
+  if [[ -n $desc ]]; then printf '%s\n' "$desc" | awk -v D="$d" -v Z="$z" '/^⟡ /{l=1} l&&/^$/{l=0} { print (l ? D $0 Z : $0) }'
   else printf '%sSem descrição. ^e (ou ✎ Descrição) escreve uma.%s\n' "$d" "$z"; fi
   local arq; arq=$(tarefas_meta_get "$m" arq)
   [[ -n $arq ]] && printf '%s▤ Arquivada em %s · ↩ restaura pelo menu ⋯%s\n' "$d" "$(tt_fmt_epoch "${arq%%:*}" +%d/%m/%Y)" "$z"
@@ -8908,7 +9248,15 @@ abrir_calendario() {
 tarefas_listar() {
   local n; n=$(tarefas_raw | awk -F'\t' '$2 == "aberta"' | wc -l | tr -d ' ')
   printf '📋 tarefas (%s aberta%s)\n' "$n" "$( ((n==1)) || printf s )"
-  tarefas_vivas | awk -F'\t' '{ printf "  %s  %s  [%s]\n", ($2=="feita"?"☑":"☐"), $5, substr($1,1,6) }'
+  local i est txt m pai ap
+  while IFS=$'\t' read -r i est txt m; do
+    [[ $m == - ]] && m=""; pai=$(tarefas_meta_get "$m" pai)
+    [[ -n $pai ]] && continue
+    printf '  %s  %s  [%s %s]\n' "$([[ $est == feita ]] && echo ☑ || echo ☐)" "$txt" "$(tarefa_slug "$i")" "$i"
+    while IFS=$'\t' read -r si sest stxt; do
+      printf '      %s  %s  [%s %s]\n' "$([[ $sest == feita ]] && echo ☑ || echo ☐)" "$stxt" "$(tarefa_slug "$si")" "$si"
+    done < <(tarefas_filhas "$i")
+  done < <(tarefas_vivas | awk -F'\t' '{ print $1 "\t" $2 "\t" $5 "\t" ($6 == "" ? "-" : $6) }')
 }
 
 # Botão direito no 📋: ações rápidas sem abrir o painel inteiro.
@@ -12871,6 +13219,20 @@ case "${1:-}" in
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
 esac
 
+# Verbos de tarefa que recebem um ID aceitam também o apelido (kito47), um prefixo do código (4+ hex) e
+# MÃE.N (kito47.2). Os internos da UI mandam o código inteiro e passam direto.
+case "${1:-}" in
+  --tarefa-ok | --tarefa-abrir | --tarefa-rm | --tarefa-arquivar | --tarefa-restaurar | --tarefa-editar | --tarefa-frase | --tarefa-renomear | --tarefa-sub-add | --tarefa-desc | --tarefa-implementar | --tarefa-ia-prompt | --tarefa-email | --tarefa-codigo | --tarefa-log | --tarefa-historico)
+    if [[ -n ${2:-} ]]; then
+      _id=$(tarefas_resolver "$2"); _rc=$?
+      if ((_rc == 0)); then set -- "$1" "$_id" "${@:3}"
+      elif ((_rc == 2)); then exit 1
+      elif ! [[ ${2,,} =~ ^[0-9a-f]+$ ]]; then echo "tarefa '$2' não encontrada (use o apelido ou o código: tt --tarefa-codigo)" >&2; exit 1; fi
+    fi ;;
+  --demanda-aprovar | --demanda-recusar)
+    _a=("$1"); for _i in "${@:2}"; do _a+=("$(tarefas_id_arg "$_i")"); done; set -- "${_a[@]}" ;;
+esac
+
 case "${1:-}" in
   --listar) listar; exit ;;
   --nome) m=${TT_MACHINE:-$MAQUINA}; echo "${m//_/-}"; exit ;;
@@ -12890,6 +13252,7 @@ case "${1:-}" in
   --definir-paradas) definir_paradas "$2" "${3:-}"; exit ;;
   --config-paradas) config_paradas "$2"; exit 0 ;;
   --reforcar-padrao) reforcar_padrao; exit ;;
+  --reforcar-agentes) reforcar_agentes; exit 0 ;;
   --redesenhar) redesenhar_todos; exit 0 ;;
   --tema-clientes) tema_cliente "${2:-}"; exit 0 ;;
   --copiar-tela) copiar_tela "$2" "$3"; exit 0 ;;
@@ -12996,6 +13359,17 @@ case "${1:-}" in
   --tarefa-cabecalho-clique) tarefa_acao cabecalho "${2:-}"; exit ;;
   --tarefa-acao) shift; tarefa_acao "$@"; exit ;;
   --tarefa-implementar) tarefa_implementar "${2:?uso: tt --tarefa-implementar ID [cliente]}" "${3:-}"; exit ;;
+  --tarefa-codigo)
+    # Código (o id, igual em toda máquina) e apelido curto de uma tarefa; sem argumento, lista todas.
+    if [[ -n ${2:-} ]]; then
+      tarefas_resolver "$2" >/dev/null 2>&1 || { tarefas_resolver "$2" >/dev/null; echo "tarefa '$2' não encontrada" >&2; exit 1; }
+      printf '%s\t%s\t%s\n' "$(tarefa_slug "$2")" "$2" "$(tarefas_raw | awk -F'\t' -v i="$2" '$1==i{print $5; exit}')"
+    else
+      tarefas_vivas | while IFS=$'\t' read -r i _ _ _ t _; do printf '%s\t%s\t%s\n' "$(tarefa_slug "$i")" "$i" "$t"; done
+    fi; exit 0 ;;
+  --tarefa-log) shift; [[ -n ${1:-} ]] || { echo 'uso: tt --tarefa-log ID "o que foi feito" [--como …] [--agente …] [--modelo …] [--esforco …] [--tokens-ent N --tokens-sai N | --tokens N] [--brl V]'; exit 2; }; tarefa_log "$@"; exit $? ;;
+  --tarefa-historico) tarefa_historico "${2:?uso: tt --tarefa-historico ID}"; exit $? ;;
+  --tarefa-email) tarefa_email "${2:?uso: tt --tarefa-email ID [destinatario]}" "${3:-}"; exit ;;
   --tarefa-ia-prompt) tarefa_ia_prompt "${2:?uso: tt --tarefa-ia-prompt ID}"; exit ;;
   --tarefa-limpar-prompt) tarefa_limpar_prompt; exit ;;
   --tarefa-editar-prompt|--tarefa-renomear-prompt) tarefa_editar_prompt "${2:-}"; exit ;;

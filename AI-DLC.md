@@ -25,3 +25,11 @@ pare para revisar e não use `--force` automaticamente.
 O arquivo é uma convenção neutra, não uma instrução exclusiva de um cliente.
 Cada motor pode manter seus próprios adaptadores, mas todos devem reutilizar o
 mesmo projeto AI-DLC local e a mesma fonte de verdade.
+
+## Tarefas do usuário (tt)
+
+Quando o trabalho nasce de uma tarefa ou subtarefa do `tt`, fale dela pelo **apelido** (ex.: `kito47`; o código inteiro vale
+em scripts e e-mails), registre cada marco com `tt --tarefa-log ID "o que fez" --como … --modelo … --esforco …
+--tokens-ent N --tokens-sai N` (a descrição existente é preservada; o log só acrescenta) e conclua com `tt --tarefa-ok ID`.
+Detalhes e o fluxo de compartilhamento por e-mail (upsert pelo código) estão na skill `tt-terminais`; o `tt` mantém essas
+regras atualizadas em todas as IAs de todas as máquinas.

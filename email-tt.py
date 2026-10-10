@@ -1030,9 +1030,11 @@ def demanda(caminho):
             break
         if ln.startswith(">"):                       # citação de resposta
             continue
-        m = re.match(r"^\s*[-*•]\s+(\S.*)$", ln)
+        m = re.match(r"^\s*[-*•]\s+(?:\[([0-9a-fA-F]{6,16})\]\s+)?(?:\[([xX ])\]\s+)?(\S.*)$", ln)
         if m and len(subs) < 30:
-            subs.append(" ".join(m.group(1).split())[:200])
+            # cod<TAB>estado<TAB>texto: "- [código] [x] texto" (código e [x] opcionais; "-" quando faltam)
+            subs.append("\t".join([(m.group(1) or "-").lower(), "f" if (m.group(2) or "").lower() == "x" else "-",
+                                   " ".join(m.group(3).split())[:200]]))
         else:
             desc.append(ln.rstrip())
     descricao = "\n".join(desc).strip()[:8000]

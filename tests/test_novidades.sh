@@ -7,32 +7,39 @@ instalar_isolado; TT=$HOME/.local/bin/tt
 ES=$HOME/.local/state/tt
 cat >"$TT_DIR/NOVIDADES.md" <<'N'
 # Novidades
-## v1.5.12 · 01/01/2099
+## v1.7.2 · 01/01/2099
 - coisa nova C
-## v1.5.11 · 01/01/2099
+## v1.7.1 · 01/01/2099
 - coisa nova B
-## v1.5.10 · 01/01/2099
+## v1.7.0 · 01/01/2099
 - coisa velha A
+## v1.5.3 · 01/01/2099
+- coisa legada Z
 N
-echo "12 teste 2099-01-01" >"$TT_DIR/VERSAO"
-echo 10 >"$(mkdir -p "$ES"; echo "$ES/novidades-visto")"
+echo "312 teste 2099-01-01 1.7.2" >"$TT_DIR/VERSAO"
+echo 1.7.0 >"$(mkdir -p "$ES"; echo "$ES/novidades-visto")"
 saida=$("$TT" --novidades)
 grep -q 'coisa nova C' <<<"$saida" && grep -q 'coisa nova B' <<<"$saida" || falhou "faltou novidade: $saida"
 grep -q 'coisa velha A' <<<"$saida" && falhou 'mostrou o que já foi visto'
-[[ $(cat "$ES/novidades-visto") == 12 ]] || falhou 'não marcou como visto'
+[[ $(cat "$ES/novidades-visto") == 1.7.2 ]] || falhou 'não marcou como visto'
 passou 'mostra só o que saiu depois da última versão vista, e marca como visto'
 saida=$("$TT" --novidades --todas); grep -q 'coisa velha A' <<<"$saida" || falhou '--todas deveria mostrar tudo'
 passou '--todas mostra tudo'
 
 # Vigia: versão nova → um aviso (ação novidades); repetido na mesma versão → nada.
-rm -rf "$ES/notifs" "$ES/novidades-avisada"; echo 10 >"$ES/novidades-visto"
+rm -rf "$ES/notifs" "$ES/novidades-avisada"; echo 1.7.0 >"$ES/novidades-visto"
 "$TT" --novidades-avisar; "$TT" --novidades-avisar
 n=$(grep -l 'novidades$' "$ES"/notifs/* 2>/dev/null | wc -l); ((n == 1)) || falhou "esperava 1 aviso, vi $n"
 # Máquina recém-instalada (sem registro do que foi visto): não avisa.
 rm -rf "$ES/notifs" "$ES/novidades-avisada" "$ES/novidades-visto"; "$TT" --novidades-avisar
 [[ -z $(ls "$ES/notifs" 2>/dev/null) ]] || falhou 'avisou numa máquina recém-instalada'
-[[ $(cat "$ES/novidades-visto") == 12 ]] || falhou 'recém-instalada deveria marcar a versão atual'
+[[ $(cat "$ES/novidades-visto") == 1.7.2 ]] || falhou 'recém-instalada deveria marcar a versão atual'
 passou 'vigia avisa uma vez por versão nova; instalação nova não é incomodada'
+
+# Estado antigo (só o nº de commits) vale como 1.6.N: não reabre o que já passou, mas mostra a série nova.
+echo 999 >"$ES/novidades-visto"; saida=$("$TT" --novidades)
+grep -q 'coisa nova C' <<<"$saida" && ! grep -q 'coisa legada Z' <<<"$saida" || falhou "estado numérico antigo: $saida"
+passou 'estado antigo (nº de commits) é lido como 1.6.N'
 
 # Clique do agente: vale o nome ATUAL da sessão do painel.
 tmux -f /dev/null new -d -s antigo -x 120 -y 30 'sleep 300'; tmux new -d -s outra 'sleep 300'
