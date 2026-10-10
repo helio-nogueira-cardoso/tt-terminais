@@ -19,7 +19,7 @@ for v in --tarefa-editar --tarefa-editar-prompt --tarefa-frase; do
 done
 corpo_ui=$(sed -n '/^tarefas_ui()/,/^}/p' "$TT")
 grep -Fq -- 'f2:transform($a editar {1})' <<<"$corpo_ui" || { echo "FALHOU: F2 não vai para o evento editar"; exit 1; }
-grep -Fq -- "_botao '✎ Editar' editar" "$TT" || { echo "FALHOU: barra sem o botão ✎ Editar"; exit 1; }
+grep -q -- "acoes=(nova sub editar .*rotulos=(.*'✎ Editar'" "$TT" || { echo "FALHOU: barra sem o botão ✎ Editar"; exit 1; }
 echo "ok: funções, verbos, F2 → editar e o botão ✎ Editar existem"
 
 mkdir -p "$T/home/.config/tt" "$T/bin" "$T/rt"

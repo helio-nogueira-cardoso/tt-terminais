@@ -10,7 +10,7 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 bash -n "$TT"; bash -n "$ROOT/ia-conta"
 fail(){ echo "FALHOU: $1" >&2; exit 1; }
 
-grep -Fq -- "_botao '✦ IA' ia" "$TT" || fail "cabeçalho sem o botão ✦ IA"
+grep -q -- "acoes=(nova .* ia) rotulos=(.*'✦ IA'" "$TT" || fail "cabeçalho sem o botão ✦ IA"
 grep -Fq -- 'ctrl-g:transform($a ia {1})' "$TT" || fail "^g não vai para o evento ia"
 grep -Fq -- '--tarefa-implementar)' "$TT" || fail "verbo --tarefa-implementar ausente"
 grep -Fq -- '--prompt-arquivo' "$ROOT/ia-conta" || fail "ia-conta abrir sem --prompt-arquivo"
