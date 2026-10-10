@@ -185,6 +185,7 @@ cat >"$car" <<FALSO
 #!/usr/bin/env python3
 import os, sys, tty
 open("$T/carbonyl.log", "a").write(sys.argv[-1] + "\n")
+open("$T/carbonyl.tam", "w").write("%d %d\n" % tuple(os.get_terminal_size()))
 tty.setraw(0)
 while b"\x03" not in os.read(0, 64): pass
 FALSO
@@ -192,6 +193,9 @@ chmod +x "$car"; cfg navegador=carbonyl; : >"$T/carbonyl.log"
 clicar 20 "$yl"
 esperar '[[ $(tail -1 "$T/carbonyl.log" 2>/dev/null) == "$U" ]]' 8 || falhou "Carbonyl (que só sai com Ctrl+C) não abriu"
 esperar 'fora capture-pane -p -t v | grep -q "Ctrl+Q (ou Ctrl+C) fecha"' 5 || falhou "popup do navegador não apareceu: $(fora capture-pane -p -t v)"
+# Subjanela (tam_popup: 90% x 85% em tela grande), não tela cheia: menos que o cliente menos a borda.
+read -r cc cl <"$T/carbonyl.tam"
+(( cc < L - 2 && cl < 32 - 2 )) || falhou "popup do navegador em tela cheia (${cc}x${cl} num cliente ${L}x32)"
 fora send -t v C-q
 esperar '! fora capture-pane -p -t v | grep -q "Ctrl+Q (ou Ctrl+C) fecha"' 6 || falhou "Ctrl+Q não fechou o popup do Carbonyl: $(fora capture-pane -p -t v)"
 passou "Ctrl+Q fecha o popup do Carbonyl (que sozinho só sai com Ctrl+C)"
