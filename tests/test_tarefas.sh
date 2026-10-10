@@ -7,6 +7,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TT="$ROOT/tt"
 TEST_DIR=$(mktemp -d)
 trap 'rm -rf "$TEST_DIR"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 
 [[ -x "$TT" ]]
 bash -n "$TT"

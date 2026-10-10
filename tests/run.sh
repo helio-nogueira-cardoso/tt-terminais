@@ -16,9 +16,35 @@ exige() { command -v "$1" >/dev/null || { printf 'falta dependência de teste: %
 tem() { rg -q -- "$2" "$1"; }
 
 suite_dir=$(cd "$(dirname "$0")" && pwd)
-# Testes de comportamento: cada tests/test_*.sh roda isolado (HOME, tmux e pacote temporários).
+# Sentinela do tmux de fora: a suíte roda com um tmux padrão só dela (TMUX_TMPDIR temporário, sem o
+# TMUX herdado), onde fica um servidor "sentinela". Um teste que fale com o tmux padrão em vez do
+# próprio (o que, fora daqui, seria o tmux de quem roda a suíte: em 10/10/2026 um display-message
+# de teste cobriu a faixa de notificações do book) aparece no registro de comandos da sentinela e
+# é reprovado. Cada teste também precisa se isolar sozinho (lib.sh ou tmux-isolado.sh): rodado
+# fora da suíte, não há sentinela.
+sentinela_dir=$(mktemp -d "${TMPDIR:-/tmp}/tt-sentinela.XXXXXX")
+export TMUX_TMPDIR=$sentinela_dir
+unset TMUX TMUX_PANE TT_CLIENTE TT_PANE
+sentinela_subir() { tmux -f /dev/null new-session -d -s sentinela 'sleep 86400' 2>/dev/null; }
+sentinela_vazou() {
+  tmux show-messages 2>/dev/null | grep ' command: ' |
+    grep -v -e ' command: show-messages' -e ' command: has-session -t =sentinela' -e ' command: new-session -d -s sentinela' || true
+}
+sentinela_subir
 for t in "$suite_dir"/test_*.sh; do
   if "$t"; then :; else falha "$(basename "$t")"; fi
+  v=$(sentinela_vazou)
+  if ! tmux has-session -t =sentinela 2>/dev/null; then
+    falha "$(basename "$t") derrubou o tmux padrão (fora da suíte seria o tmux de quem a roda)"; sentinela_subir
+  elif [[ -n $v ]]; then
+    falha "$(basename "$t") falou com o tmux de fora (vazaria para o tmux real): $(head -3 <<<"$v" | sed 's/^[0-9:]* client-[0-9]* //' | paste -sd'|')"
+    tmux kill-server 2>/dev/null; sentinela_subir
+  fi
+done
+tmux kill-server 2>/dev/null; rm -rf "$sentinela_dir"
+# Rodado sozinho, cada teste se isola: ou pelo isolar() do lib.sh, ou pelo tmux-isolado.sh.
+for t in "$suite_dir"/test_*.sh; do
+  rg -q 'source .*/(lib|tmux-isolado)\.sh' "$t" || falha "$(basename "$t") não se isola do tmux real (source lib.sh ou tmux-isolado.sh)"
 done
 
 for cmd in bash python3 rg tmux; do exige "$cmd"; done

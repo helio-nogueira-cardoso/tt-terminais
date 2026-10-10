@@ -8,6 +8,7 @@ ok()   { echo "  ok: $1"; }
 erro() { echo "  ERRO: $1"; falhas=$((falhas+1)); }
 
 TH=$(mktemp -d); trap 'rm -rf "$TH"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 export HOME="$TH"
 mkdir -p "$HOME/.config/aerc" "$TH/bin"
 BIN="$TH/bin"

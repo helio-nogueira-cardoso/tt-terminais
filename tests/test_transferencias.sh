@@ -7,6 +7,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TT="$ROOT/tt"
 T=$(mktemp -d); S=ttx$$
 trap 'tmux -L $S kill-server 2>/dev/null; rm -rf "$T"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 fail(){ echo "FALHOU: $1" >&2; tmux -L $S capture-pane -p -t x 2>/dev/null | tail -30 >&2; exit 1; }
 command -v tmux >/dev/null || { echo "sem tmux, pulei"; exit 0; }
 mkdir -p "$T/home/.config/tt" "$T/rt" "$T/orig" "$T/dest"

@@ -6,6 +6,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 mkdir -p "$T/home/.config/tt" "$T/bin" "$T/rt"
 printf 'nome=A\ntarefas_sync=off\n' >"$T/home/.config/tt/config"
 printf '#!/usr/bin/env bash\ncase ${1:-} in list-sessions) exit 1;; display-message) echo cx;; *) exit 0;; esac\n' >"$T/bin/tmux"

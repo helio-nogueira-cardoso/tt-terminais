@@ -6,6 +6,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TT="$ROOT/tt"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 [[ -x "$TT" ]]; bash -n "$TT"
 
 for fn in tt_fmt_epoch tt_epoch_de tarefas_dias_ate tarefas_contagens; do

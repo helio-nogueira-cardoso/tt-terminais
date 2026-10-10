@@ -533,7 +533,12 @@ boot automático, Debian via proot-distro com o Claude, e o tt. Subcomandos: `ve
 
 - `make test` → `tests/run.sh`. `make test-installed` roda contra `~/.local/share/tt`.
 - Cada `tests/test_*.sh` roda isolado em `HOME`/`XDG_CONFIG_HOME`/`TT_RT` temporários e um socket
-  tmux próprio — **nunca** toque o tmux/arquivos reais do usuário num teste.
+  tmux próprio — **nunca** toque o tmux/arquivos reais do usuário num teste. Sem o `isolar()` do
+  `lib.sh`, o teste faz `source "$(dirname "$0")/tmux-isolado.sh"` logo depois do `trap EXIT` dele
+  (tira `TMUX`/`TMUX_PANE`, `TMUX_TMPDIR` temporário, soma a limpeza ao trap). O `run.sh` roda a suíte
+  com um tmux padrão próprio e um servidor sentinela: teste que manda comando a ele (no uso real seria
+  o tmux do usuário: o `avisar` do tt faz display-message em todos os clientes) ou o derruba é
+  reprovado, e teste sem um dos dois `source` também.
 - `run.sh` faz: testes de comportamento, asserts estáticos (`bash -n`, Python da ponte de mouse,
   vigia exige versão publicada, etc.), tmux isolado, e o **contrato de rotas** (cada `range=user|X`
   tem `X)` em `clique()`), botões 📧/📋 (range + rota + verbo + posição), guardrails de segredo do

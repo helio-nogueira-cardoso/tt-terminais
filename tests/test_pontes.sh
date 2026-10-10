@@ -6,6 +6,7 @@ SOCK="tt-test-$$"
 TM() { tmux -L "$SOCK" "$@"; }
 limpar() { TM kill-server 2>/dev/null; }
 trap limpar EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 
 falhas=0
 ok()   { echo "  ok: $1"; }

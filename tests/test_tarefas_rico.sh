@@ -6,6 +6,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TT="$ROOT/tt"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 [[ -x "$TT" ]]; bash -n "$TT"
 
 for fn in tarefas_meta_get tarefas_meta_set tarefa_set_meta tarefa_set_desc tarefa_add_sub \

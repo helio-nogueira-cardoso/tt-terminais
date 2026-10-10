@@ -8,7 +8,10 @@ resultado funciona pelos canais que o elemento expõe: CLI, teclado, mouse/toque
 1. Leia `AI-DLC.md` e `tests/INTERACTIONS.md` antes de alterar o comportamento.
 2. Preserve configurações do usuário, sessões tmux e dados em `~/.config/tt/`.
 3. Prefira um ambiente isolado (`HOME`, `XDG_CONFIG_HOME` e `TT_RT` temporários) para testes de
-   fluxo; nunca use os arquivos ou socket tmux reais do usuário em um teste.
+   fluxo; nunca use os arquivos ou socket tmux reais do usuário em um teste. Todo `tests/test_*.sh`
+   se isola do tmux real: pelo `isolar()` do `tests/lib.sh` ou, sem ele, com
+   `source "$(dirname "$0")/tmux-isolado.sh"` logo depois do seu `trap EXIT`. O `tests/run.sh`
+   reprova teste sem isso e, com uma sentinela no tmux padrão, o teste que falar com ele.
 4. Rode `tests/run.sh` após cada alteração de comportamento.
 5. Para mudança em interface, atualize a matriz de `tests/INTERACTIONS.md` e acrescente ao menos
    uma verificação executável que cubra a rota modificada.

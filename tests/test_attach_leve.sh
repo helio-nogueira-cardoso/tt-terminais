@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # v138: client-attached deve usar o ajuste leve por cliente, nunca o redesenho global.
+source "$(dirname "$0")/tmux-isolado.sh"
 set -u
 raiz=$(cd "$(dirname "$0")/.." && pwd)
 conf="$raiz/tmux.conf"

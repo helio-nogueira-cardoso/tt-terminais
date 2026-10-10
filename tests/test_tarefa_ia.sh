@@ -7,6 +7,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TT="$ROOT/tt"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 bash -n "$TT"; bash -n "$ROOT/ia-conta"
 fail(){ echo "FALHOU: $1" >&2; exit 1; }
 

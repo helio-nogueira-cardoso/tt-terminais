@@ -5,6 +5,7 @@ set -u
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TT="$ROOT/tt"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 [[ -x "$TT" ]] || { echo "FALHOU: tt não executável"; exit 1; }
 bash -n "$TT" || { echo "FALHOU: sintaxe"; exit 1; }
 

@@ -4,6 +4,7 @@
 set -euo pipefail
 RAIZ=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d); trap 'git -C "$T/repo" worktree remove --force "$T/wt" >/dev/null 2>&1; rm -rf "$T"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 fail() { echo "FALHOU: $*" >&2; exit 1; }
 
 git clone -q "$RAIZ" "$T/repo"

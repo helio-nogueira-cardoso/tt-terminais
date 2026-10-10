@@ -8,6 +8,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TT="$ROOT/tt"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 [[ -x "$TT" ]]; bash -n "$TT"
 
 mkdir -p "$T/home/.config/tt" "$T/bin" "$T/rt"
