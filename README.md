@@ -1155,7 +1155,7 @@ os comandos sem executar.
 `celular-android`: as camadas (Android, Termux, Debian no proot), como chegar ao aparelho, onde rodar
 cada comando, o shell do sistema sem root (adb do próprio aparelho em `127.0.0.1` e Shizuku), por que o
 Tasker religa a depuração sem fio depois do reboot, por que o Wi-Fi só é preciso uma vez por boot e
-como operar a tela (screencap, uiautomator, input, am start) e o modo eficiente (servidor de shell e acessibilidade
+como operar a tela (screencap, uiautomator, input, am start) e o controle rápido (servidor de shell e acessibilidade
 com `uid shell` dentro do aparelho, consultado em ~40 ms por uma porta local, com tela virtual, lotes, ponte e
 log do Tasker, sem depender de Wi-Fi depois do primeiro boot). O passo a passo para gente está em
 `termux/ANDROID-ADB.md`.
