@@ -21,7 +21,9 @@ maq() { # nome url
 maq A "file://$R"; maq B "file://$T/atalho-b.git"
 em() { local n=$1; shift; env HOME="$T/$n" XDG_CONFIG_HOME="$T/$n/.config" TT_RT="$T/$n/rt" "$TT" "$@"; }
 # As mudanças sincronizam em segundo plano; espera todas terminarem antes de conferir.
-esperar() { local i; for ((i = 0; i < 120; i++)); do pgrep -f "$T/pkg/tt" >/dev/null || return 0; sleep 0.25; done; falhou "sincronia em 2º plano não terminou"; }
+# Duas leituras vazias seguidas: entre um processo que termina e o filho que ele dispara há uma fresta.
+esperar() { local i livre=0; for ((i = 0; i < 120; i++)); do
+    if pgrep -f "$T/pkg/tt" >/dev/null; then livre=0; else ((++livre >= 2)) && return 0; fi; sleep 0.25; done; falhou "sincronia em 2º plano não terminou"; }
 no_repo() { git -C "$R" show main:tarefas 2>/dev/null | cut -f5; }
 local_de() { awk -F'\t' '$2 != "removida" { print $5 }' "$T/$1/.config/tt/tarefas" 2>/dev/null; }
 tem() { grep -qxF -- "$2" <<<"$1"; }
@@ -103,6 +105,7 @@ grep -qF 'tarefas-sync) eval "$(popup_tt' "$TT" || falhou "a ação tarefas-sync
 em B --tarefa-add "t10 de B sem rede" >/dev/null; esperar
 grep -qxF "t10 de B sem rede" <(local_de B) || falhou "sem rede, a tarefa nova deveria ficar na lista local"
 ln -s "$R" "$T/atalho-b.git"
+em B --tarefas-sync agora >/dev/null; esperar   # uma sincronia lenta de antes da rede voltar não pode reescrever o erro depois
 saida=$(em B --tarefas-sync agora)
 grep -q 'última troca: Hoje' <<<"$saida" && grep -q '✓' <<<"$saida" || falhou "voltando a rede, o estado deveria mostrar a troca ✓: $saida"
 tem "$(no_repo)" "t10 de B sem rede" || falhou "a tarefa feita sem rede não foi ao repositório quando a rede voltou"

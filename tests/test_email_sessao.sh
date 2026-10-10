@@ -3,7 +3,14 @@
 # as seguintes são instantâneas; a sessão não aparece nas listas; Ctrl+q encerra de verdade.
 PATH="$(getent passwd "$(id -un)" | cut -d: -f6)/.local/bin:$PATH" command -v aerc >/dev/null || { echo "(aerc não instalado: teste pulado)"; exit 0; }
 source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado
-R=$HOME_REAL; mkdir -p ~/.local/opt ~/.local/share ~/.local/libexec; for x in aerc-0.20.0 w3m-0.5.3; do ln -s $R/.local/opt/$x ~/.local/opt/; done; ln -s $R/.local/share/aerc ~/.local/share/aerc; ln -s $R/.local/libexec/aerc ~/.local/libexec/aerc; cp $R/.local/bin/aerc $R/.local/bin/w3m ~/.local/bin/; export PATH=$HOME/.local/bin:$PATH
+# aerc/w3m instalados na pasta do usuário (opt/share/libexec + bin) são trazidos para o HOME isolado; os do
+# sistema (/usr/bin) já estão no PATH e não precisam de nada.
+R=$HOME_REAL; mkdir -p ~/.local/opt ~/.local/share ~/.local/libexec ~/.local/bin
+for x in aerc-0.20.0 w3m-0.5.3; do [[ -e $R/.local/opt/$x ]] && ln -s "$R/.local/opt/$x" ~/.local/opt/; done
+[[ -e $R/.local/share/aerc ]] && ln -s "$R/.local/share/aerc" ~/.local/share/aerc
+[[ -e $R/.local/libexec/aerc ]] && ln -s "$R/.local/libexec/aerc" ~/.local/libexec/aerc
+for b in aerc w3m; do [[ -e $R/.local/bin/$b ]] && cp "$R/.local/bin/$b" ~/.local/bin/; done
+export PATH=$HOME/.local/bin:$PATH
 mkdir -p $T/m/INBOX/{cur,new,tmp}; printf 'From: X <x@x>\nSubject: Ola\nDate: %s\nMessage-ID: <1@a>\n\noi\n' "$(date -R)" > $T/m/INBOX/cur/1.x:2,S
 mkdir -p ~/.config/aerc; printf '[Teste]\nsource = maildir://%s/m\nfrom = a@x\noutgoing = /bin/true\n' $T > ~/.config/aerc/accounts.conf; chmod 600 ~/.config/aerc/accounts.conf
 bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { :; }; configurar_aerc"

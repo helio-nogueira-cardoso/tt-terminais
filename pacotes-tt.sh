@@ -44,8 +44,8 @@ pk_arch() { # x86_64 | aarch64 | armv7 | …
 pk_ambiente() {
   if [[ -n ${TT_AMBIENTE:-} ]]; then echo "$TT_AMBIENTE"; return 0; fi
   if [[ ${PREFIX:-} == *com.termux* ]]; then echo termux
-  elif grep -qi microsoft /proc/version 2>/dev/null; then echo wsl
-  elif [[ $(pk_so) == linux ]] && { grep -qiE 'proot|android' /proc/version 2>/dev/null || uname -r 2>/dev/null | grep -qiE 'proot|android' || [[ -n ${PROOT_TMP_DIR:-}${PROOT_L2S_DIR:-} ]]; }; then echo proot
+  elif grep -qi microsoft "${TT_PROC_VERSION:-/proc/version}" 2>/dev/null; then echo wsl
+  elif [[ $(pk_so) == linux ]] && { grep -qiE 'proot|android' "${TT_PROC_VERSION:-/proc/version}" 2>/dev/null || uname -r 2>/dev/null | grep -qiE 'proot|android' || [[ -n ${PROOT_TMP_DIR:-}${PROOT_L2S_DIR:-} ]]; }; then echo proot
   else echo nativo; fi
 }
 

@@ -97,6 +97,13 @@ for a; do case $a in --prefix=*) p=${a#--prefix=} ;; esac; done
 echo "Using SASL"
 printf 'all:\n\t@true\ninstall:\n\tmkdir -p %s/bin && printf "#!/bin/sh\\nexit 0\\n" > %s/bin/mbsync && chmod +x %s/bin/mbsync\n' "$p" "$p" "$p" > Makefile
 EOF
+# Sem make no computador de quem roda o teste, um make mínimo executa a receita do alvo pedido do Makefile.
+command -v make >/dev/null || command -v gmake >/dev/null || { cat >"$B/make" <<'EOF'
+#!/bin/sh
+t=; for a; do case $a in -*) ;; *) t=$a ;; esac; done
+awk -v t="$t" '/^[A-Za-z_-]+:/{c=$1; sub(":","",c); if(t=="")t=c; next} /^\t/{if(c==t){sub(/^\t@?/,""); print}}' Makefile | sh
+EOF
+chmod +x "$B/make"; }
 chmod +x "$T/is/configure"; tar czf "$T/isync.tgz" -C "$T/is" .
 isha=$(sha256sum "$T/isync.tgz" | cut -d' ' -f1)
 out=$(tt_em TT_ISYNC_URL="file://$T/isync.tgz" TT_ISYNC_SHA256="$isha" -- --pedir-sudo --sim isync-sasl </dev/null) || falhou "compilar o isync com SASL: $out"

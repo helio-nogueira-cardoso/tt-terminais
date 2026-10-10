@@ -10,7 +10,7 @@ printf 'lenta.exemplo ninguem lenta\n' >"$XDG_CONFIG_HOME/tt/maquinas"
 printf 'lenta.exemplo\tremota-1\tdo-cache\tremota-1 lenta\n' >"$TT_RT/tt-lista-$(id -u)-lenta"
 tmux -f "$HOME/.tmux.conf" new -d -s local-1 -x 120 -y 35 'bash --norc' 2>/dev/null; anexar v 120 37 local-1; sleep 2
 c=$(tmux list-clients -F '#{client_name}' | head -1)
-t0=$(date +%s%N); tmux display-popup -c "$c" -E -w 90% -h 80% "PATH=$PATH TT_CLIENTE='$c' $TT" &
+t0=$(date +%s%N); tmux display-popup -c "$c" -E -w 90% -h 80% "PATH=$(printf %q "$PATH") TT_CLIENTE='$c' $TT" &
 rapido=""; fresco=""
 while :; do q=$(fora capture-pane -p -t v | grep '│' || true); ms=$(( ($(date +%s%N) - t0) / 1000000 ))
   [[ -z $rapido && $q == *local-1* && $q == *do-cache* ]] && rapido=$ms
