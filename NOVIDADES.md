@@ -3,6 +3,22 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.6.277 · 10/10/2026
+- Novo: as conversas do Claude Code, do Codex e do Kiro CLI ficam iguais em todas as suas máquinas. O
+  `/resume` do Claude (e o `codex resume`, e o `kiro-cli chat --resume`) de qualquer máquina, em qualquer
+  conta, acha a conversa que começou em outra, na pasta equivalente: a home é traduzida
+  (`/home/heliocardoso` ↔ `/home/helio` ↔ o `/root` do Debian do celular). Vem ligado; o vigia troca as
+  conversas a cada 30 min. `tt --sessoes-ia` mostra o estado, `tt --sessoes-ia agora` troca na hora e
+  `tt --sessoes-ia off` desliga nesta máquina. Também no menu administrar → 🧠.
+- Nada se perde: conversa continuada em duas máquinas fica com a versão mais nova nas duas, e a outra é
+  guardada em `~/.local/state/tt/sessoes-ia/conflitos/`. Conversa aberta agora espera a próxima volta.
+- Os testes do tt não falam mais com o seu tmux: rodar a suíte numa máquina em uso não mostra mais avisos
+  de teste por cima da barra (como o "✓ 2 itens de A → …" que cobriu a faixa de notificações).
+- Marco v1.6: esta versão fecha o pacote que trouxe as pendências de instalação multiplataforma (com o tmux
+  3.8), as demandas por e-mail e a aba Entrada, o botão de IA nas tarefas, o painel de tarefas novo e
+  flutuante, a hora confiável, o Carbonyl de volta numa subjanela e, agora, as conversas das IAs em todas
+  as máquinas.
+
 ## v1.5.275 · 10/10/2026
 - O chip 📥 da barra (demandas por e-mail esperando aprovação) agora abre o painel de tarefas direto na aba
   **Entrada**, onde você aprova ou recusa. Antes ele abria o painel no filtro de sempre e a Entrada ficava

@@ -19,6 +19,7 @@
 #   tt --nova [N]   cria uma sessão solta (sem entrar) e imprime o nome
 #   tt --pendencias o que o tt pode precisar instalar nesta máquina, e o que já está pronto
 #   tt --pedir-sudo instala o que falta (pergunta antes; --sim aceita tudo; ids escolhem)
+#   tt --sessoes-ia conversas do Claude/Codex/Kiro iguais em todas as máquinas (status|on|off|agora)
 #
 # Menu: Enter entra; ^n nova; ^r renomeia; ^x fecha; ^a dá nome às genéricas. As palavras do
 # cabeçalho são clicáveis. ^f (ou clique) filtra por máquina; a busca procura em nome, máquina,
@@ -377,7 +378,7 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   faxina_vigia
-  local ultima_puxada=0 ultima_contas=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_email_completo=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_puxada=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_email_completo=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   ultima_email_completo=$(email_ultima_completa)
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
@@ -431,6 +432,14 @@ vigiar() {
       ultima_contas=$agora
       ("$EU" --puxar-contas-ia >/dev/null 2>&1 &)
       ("$EU" --puxar-demandas >/dev/null 2>&1 &)
+    fi
+    # Conversas das IAs (Claude, Codex, Kiro) entre as máquinas: a cada TT_T_SESSOES_IA (1800 s; 0 desliga).
+    # A primeira volta espera 5 min do início do vigia (ele reinicia a cada versão nova).
+    local t_sessoes_ia=${TT_T_SESSOES_IA:-1800}
+    ((${ultima_sessoes_ia:-0} == 0)) && ultima_sessoes_ia=$((agora - t_sessoes_ia + 300))
+    if ((t_sessoes_ia > 0)) && [[ -s $CONF_MAQ ]] && sessoes_ia_ativo && ((agora - ultima_sessoes_ia >= t_sessoes_ia)); then
+      ultima_sessoes_ia=$agora
+      ("$EU" --sessoes-ia-sync >>"$HOME/.cache/tt-sessoes-ia.log" 2>&1 &)
     fi
     # E-mail com sync local (sync_local=1): o INBOX a cada TT_EMAIL_SYNC (120 s; leva segundos) e a
     # volta completa (todas as pastas) a cada TT_EMAIL_SYNC_COMPLETO (1800 s). TT_EMAIL_SYNC=0
@@ -1405,7 +1414,7 @@ versao_num() { versao | awk '{ print $1 + 0 }'; }
 # Versão para humanos: v1.MINOR.PATCH, onde PATCH é o contador de sempre (a ordem total que a
 # propagação, o vigia e a recusa de pacote velho comparam continua sendo o número puro do VERSAO —
 # nada disso muda) e MINOR sobe à mão em marcos. Só o rótulo exibido fica no estilo x.y.z.
-VERSAO_MINOR=5
+VERSAO_MINOR=6
 versao_humana() { printf 'v1.%s.%s' "$VERSAO_MINOR" "$(versao_num)"; }
 
 # tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
@@ -1416,7 +1425,7 @@ ajuda() {
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
-  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md aidlc-tt NOVIDADES.md pacotes-tt.sh)
+  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -5245,6 +5254,7 @@ menu_admin() {
     printf 'm\t  ⚙ tmux…\t%s\n' "$EU --menu-tmux $(q "$c") $p"
     printf -- '-\t\t\n'
     printf 'c\t  📧 Contas de e-mail…\t%s\n' "$EU --email-contas $(q "$c")"
+    printf 's\t  🧠 Conversas das IAs: sincronizar agora…\t%s\n' "$(popup_tt "$c" "🧠 conversas das IAs" "$EU --sessoes-ia agora; echo; $EU --sessoes-ia; read -rsn1 -p '(tecla fecha)'")"
     printf -- '-\t\t\n'
     ((atras)) && printf 'u\t  ⟳ Atualizar as desatualizadas (v%s)\t%s\n' "$vl" "$(popup_tt "$c" sincronizar "$EU --sincronizar; read -rsn1 -p '(tecla fecha)'")"
     (($(versao_github) > vl)) && printf 'g\t  ⟳ Atualizar do GitHub (v%s → v%s)\t%s\n' "$vl" "$(versao_github)" "$(popup_tt "$c" "atualizar do GitHub" "$EU --atualizar --todas; read -rsn1 -p '(tecla fecha)'")"
@@ -5431,6 +5441,94 @@ puxar_contas_ia() {
   while read -r dest rot; do
     timeout 6 ssh "${SSH_OPC[@]}" "$dest" 'cat ~/.config/tt/contas-ia 2>/dev/null' </dev/null 2>/dev/null
   done < <(maquinas) | receber_contas_ia
+}
+
+# --- Conversas das IAs entre as máquinas ------------------------------------------------------------
+#
+# As conversas do Claude Code, do Codex e do Kiro CLI ficam iguais em todas as máquinas: o /resume (ou
+# "codex resume", "kiro-cli chat --resume") de qualquer máquina, em qualquer conta, acha a conversa que
+# começou em outra. Entre as contas de uma máquina já é o mesmo histórico (projects/sessions/history das
+# contas do ia-conta são links para ~/.claude); isto leva o histórico de uma máquina às outras.
+# Ligado de fábrica (sessoes_ia_sync=0 desliga nesta máquina: ela nem manda nem recebe). O vigia roda a
+# cada TT_T_SESSOES_IA s (1800). Quem decide a mescla é quem recebe (sessoes-ia.py): falta → grava, só
+# cresceu → fica a mais longa, divergiu → fica a mais nova e a outra vai para
+# ~/.local/state/tt/sessoes-ia/conflitos; conversa em uso fica para a próxima volta. A home dentro do
+# "cwd" e a pasta do projeto do Claude são traduzidas (/home/heliocardoso ↔ /home/helio ↔ /root do proot).
+# sessoes_ia_excluir= padrões (glob) sobre "provedor/chave", ex.: "claude/@H--secrets*".
+SESSOES_IA_DIR=$ESTADO_DIR/sessoes-ia
+sessoes_ia_ativo() { [[ $(conf sessoes_ia_sync) != 0 ]]; }
+sessoes_ia_py() { TT_SESSOES_EXCLUIR=$(conf sessoes_ia_excluir) python3 "$DIR_TT/sessoes-ia.py" "$@"; }
+
+# Do lado que é chamado por ssh: desligado, responde vazio (quem chama pula esta máquina).
+sessoes_ia_remoto() { # inventario|empacotar|aplicar
+  if ! sessoes_ia_ativo; then cat >/dev/null; return 1; fi
+  sessoes_ia_py "$1"
+}
+
+# tt --sessoes-ia-sync [rótulo…]: troca as conversas com as máquinas cadastradas (todas, ou as dadas).
+sessoes_ia_sync() {
+  sessoes_ia_ativo || { echo "conversas das IAs: sincronização desligada nesta máquina (sessoes_ia_sync=0)"; return 0; }
+  local trava=$RT/tt-sessoes-ia-$UID.trava dest rot inv lista r_p r_e np ne st
+  mkdir -p "$SESSOES_IA_DIR/maquinas" "$RT"
+  if ! mkdir "$trava" 2>/dev/null; then
+    (($(idade_arquivo "$trava") > 3600)) && rmdir "$trava" 2>/dev/null && mkdir "$trava" 2>/dev/null ||
+      { echo "conversas das IAs: já há uma sincronização rodando"; return 0; }
+  fi
+  inv=$(mktemp "$RT/tt-sessoes-inv.XXXXXX")
+  while read -r dest rot; do
+    [[ -n $dest && $dest != . ]] || continue
+    (($# == 0)) || printf '%s\n' "$@" | grep -qxF "$rot" || continue
+    r_p="" r_e="" np=0 ne=0 st=ok
+    if ! timeout 300 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --sessoes-ia-inventario" </dev/null >"$inv" 2>/dev/null ||
+      ! grep -q '"provedores"' "$inv"; then
+      st=pulada # sem rede, tt antigo ou desligada lá
+    else
+      lista=$(sessoes_ia_py pedir "$inv")
+      if [[ -n $lista ]]; then
+        np=$(wc -l <<<"$lista")
+        r_p=$(printf '%s\n' "$lista" | timeout 3600 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --sessoes-ia-empacotar" 2>/dev/null |
+          sessoes_ia_py aplicar 2>/dev/null) || st=falhou
+      fi
+      lista=$(sessoes_ia_py pedir "$inv" --enviar)
+      if [[ -n $lista ]]; then
+        ne=$(wc -l <<<"$lista")
+        r_e=$(printf '%s\n' "$lista" | sessoes_ia_py empacotar 2>/dev/null |
+          timeout 3600 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --sessoes-ia-aplicar" 2>/dev/null) || st=falhou
+      fi
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$st" "$np" "$ne" "${r_p:--}" "${r_e:--}" >"$SESSOES_IA_DIR/maquinas/$rot"
+    printf '%-12s %-7s trazidas %-4s levadas %-4s %s\n' "$rot" "$st" "$np" "$ne" "${r_p:+aqui: $r_p}"
+  done < <(maquinas)
+  rm -f "$inv"; rmdir "$trava" 2>/dev/null
+  return 0
+}
+
+# tt --sessoes-ia [status|on|off|agora]
+sessoes_ia_cmd() {
+  local acao=${1:-status} novo="" f rot t st np ne
+  case $acao in
+    on | ligar) novo=1 ;;
+    off | desligar) novo=0 ;;
+    agora) shift; sessoes_ia_sync "$@"; return ;;
+    status | estado) ;;
+    *) echo "uso: tt --sessoes-ia [status|on|off|agora [rótulo…]]"; return 2 ;;
+  esac
+  if [[ -n $novo ]]; then
+    mkdir -p "$CONF_DIR"
+    grep -v '^sessoes_ia_sync=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "sessoes_ia_sync=$novo" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
+  fi
+  sessoes_ia_ativo && echo "🧠 conversas das IAs: sincronizadas entre as máquinas (a cada $(( ${TT_T_SESSOES_IA:-1800} / 60 )) min)" ||
+    echo "🧠 conversas das IAs: sincronização desligada nesta máquina"
+  echo "Aqui:"
+  sessoes_ia_py estado | awk -F'\t' '{ printf "  %-7s %s\n", $1, ($2 == "-" ? $3 : $2 " conversas  " $3) }'
+  echo "Última troca com cada máquina:"
+  for f in "$SESSOES_IA_DIR"/maquinas/*; do
+    [[ -f $f ]] || { echo "  (nenhuma ainda)"; break; }
+    IFS=$'\t' read -r t st np ne _ <"$f"
+    printf '  %-12s %s  %-7s trazidas %s, levadas %s\n' "${f##*/}" "$(date -d "@$t" '+%d/%m %H:%M' 2>/dev/null || echo "$t")" "$st" "$np" "$ne"
+  done
+  [[ -d $SESSOES_IA_DIR/conflitos ]] && echo "Versões guardadas de conflitos: $SESSOES_IA_DIR/conflitos"
+  return 0
 }
 
 # --- Demandas por e-mail ---------------------------------------------------------------------------
@@ -12782,6 +12880,11 @@ case "${1:-}" in
   --receber-contas-ia) receber_contas_ia; exit ;;
   --propagar-contas-ia) propagar_contas_ia; exit ;;
   --puxar-contas-ia) puxar_contas_ia; exit ;;
+  --sessoes-ia) shift; sessoes_ia_cmd "$@"; exit ;;
+  --sessoes-ia-sync) shift; sessoes_ia_sync "$@"; exit ;;
+  --sessoes-ia-inventario) sessoes_ia_remoto inventario; exit ;;
+  --sessoes-ia-empacotar) sessoes_ia_remoto empacotar; exit ;;
+  --sessoes-ia-aplicar) sessoes_ia_remoto aplicar; exit ;;
   --puxar-fixadas) puxar_fixadas; exit ;;
   --reconciliar-fixadas) reconciliar_fixadas; exit ;;
   --marcar-fixadas) marcar_fixadas; exit ;;

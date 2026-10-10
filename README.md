@@ -310,6 +310,37 @@ mesma aba; fora dele, roda em segundo plano com a saída em `ARQUIVO.saida`. A s
 a consultar o próprio uso em tarefas longas e, perto do limite, a escrever a passagem em
 `~/.local/state/tt/passagens/` e chamar o `--passar`.
 
+### Conversas das IAs iguais em todas as máquinas
+
+As conversas do **Claude Code**, do **Codex** e do **Kiro CLI** são as mesmas em todas as máquinas do
+tt: o `/resume` do Claude, o `codex resume` e o `kiro-cli chat --resume` de qualquer máquina, em
+qualquer conta, acham a conversa que começou em outra. Entre as contas de uma máquina já era assim (o
+`ia-conta` liga `projects`, `sessions` e o histórico de cada conta ao `~/.claude`); o tt leva isso de
+uma máquina para as outras. Vem **ligado**: o vigia troca as conversas com cada máquina cadastrada a
+cada 30 min (`TT_T_SESSOES_IA`, em segundos; 0 desliga o automático).
+
+    tt --sessoes-ia              # estado: conversas daqui por IA e a última troca com cada máquina
+    tt --sessoes-ia agora [rót]  # troca agora (com todas, ou só com as dadas)
+    tt --sessoes-ia off | on     # desliga/religa nesta máquina (desligada, ela nem manda nem recebe)
+
+Também no menu administrar → 🧠. O que vai: no Claude, as transcrições de `~/.claude/projects` (com
+subagentes e resultados de ferramentas; a `memory/` de cada projeto fica em cada máquina); no Codex,
+`~/.codex/sessions` mais a linha da conversa no banco (`state_*.sqlite`, que o `codex resume` lista) e o
+nome dela; no Kiro, `~/.kiro/sessions/cli`. No celular, o Claude e o Codex de dentro do proot. Credenciais
+e configurações não vão.
+
+**A home é traduzida.** A pasta do projeto do Claude e o `cwd` das conversas dizem onde ela foi aberta;
+o tt troca a home de uma máquina pela da outra (`/home/heliocardoso` ↔ `/home/helio` ↔ `/root` do
+proot), e a ida e a volta dão os mesmos bytes. O resto do caminho é igual: `~/Gitlab/x` aqui aparece
+em `~/Gitlab/x` lá.
+
+**Quem recebe decide**, conversa por conversa: falta → grava; transcrição que só cresceu do outro lado →
+fica a mais longa; continuada nas duas máquinas → fica a mais nova e a outra vai para
+`~/.local/state/tt/sessoes-ia/conflitos/` (nada se perde); conversa mexida há menos de 2 min
+(`TT_SESSOES_QUIETO`) está em uso e fica para a próxima volta. Máquina com tt antigo, desligada ou fora
+da rede é pulada. `sessoes_ia_excluir=` no config tira conversas por padrão glob sobre
+`provedor/chave` (a chave do Claude começa por `@H` para a home: `claude/@H-tt-mesh/*` tira o enxame).
+
 ## Contas de e-mail
 
 **Botão direito no 📧** → Contas (também ⚙ administrar → Contas de e-mail, `F2` dentro do e-mail ou

@@ -353,6 +353,28 @@ F4→`dbn`, F5→`tela`, F6→`sair`, F7→`ant`, F8→`zm`, F9→`jn`, F10→`d
 - `tt --fechar-paradas`, `tt --definir-paradas N` (0 desliga), `tt --config-paradas`,
   `tt --encerrar-duplicados`.
 
+### Conversas das IAs entre as máquinas (`sessoes-ia.py`)
+- `tt --sessoes-ia [status|on|off|agora [rótulo…]]` — estado (conversas daqui por IA, última troca com
+  cada máquina em `$ESTADO_DIR/sessoes-ia/maquinas/<rótulo>`), liga/desliga (`sessoes_ia_sync=0|1`, ligado
+  de fábrica; desligada a máquina nem manda nem recebe) e troca agora. Menu administrar → 🧠.
+- `tt --sessoes-ia-sync [rótulo…]` — para cada máquina: inventário de lá (`--sessoes-ia-inventario`),
+  `sessoes-ia.py pedir` decide o que trazer (`--sessoes-ia-empacotar` lá → `aplicar` aqui) e depois o que
+  levar (`empacotar` aqui → `--sessoes-ia-aplicar` lá). Trava `$RT/tt-sessoes-ia-$UID.trava`; log do vigia
+  em `~/.cache/tt-sessoes-ia.log`; vigia a cada `TT_T_SESSOES_IA` (1800; 0 desliga), 1ª volta 5 min após
+  iniciar. tt antigo/desligado/fora da rede: `pulada`.
+- `sessoes-ia.py` (stdlib): provedores Claude (`~/.claude/projects`, recursivo, sem `memory/`; `.jsonl`
+  = anexa, resto = inteiro), Codex (`sessions/**/rollout-*.jsonl` + linha de `threads` em `state_N.sqlite`
+  pelas colunas em comum + `session_index.jsonl`) e Kiro (`sessions/cli/<uuid>.{json,jsonl,history}`,
+  grupo, vence o maior `updated_at`). No Termux, acha o do proot (`rootfs/root/.X`, home `/root`) quando o
+  da home não tem a subpasta. Forma canônica: home no `"cwd"` (inclusive `file://`) → `@@TT_HOME@@`,
+  pasta do projeto do Claude `enc(home)…` → `@H…`, `rollout_path` do Codex → `@@TT_CODEX@@`; hash sha1 da
+  forma canônica com cache em `~/.cache/tt/sessoes-ia-hash.json`. Unidade mexida há menos de
+  `TT_SESSOES_QUIETO` (120 s) fica fora do inventário e não é trocada no destino. Mescla no destino:
+  falta → grava (600, mtime de origem); a daqui contém a outra → mantém; a de lá contém a daqui → troca;
+  divergiu → a de mtime maior, a perdedora em `$ESTADO_DIR/sessoes-ia/conflitos/<prov>/<data>/`.
+  `TT_SESSOES_EXCLUIR` (= `sessoes_ia_excluir=` do config) são globs sobre `provedor/chave`.
+  Novo provedor = nova classe em `PROVEDORES` (descobrir, unidades, chave/rel).
+
 ### Área de transferência e contas de IA
 - `tt --copiar`/`--copiar-buffer`/`--copiado` (clipboard Wayland/X/clip.exe + OSC 52);
   `--propagar-copia`/`--receber-copia`/`--copias` (histórico entre máquinas). `tt --copiar --tela
