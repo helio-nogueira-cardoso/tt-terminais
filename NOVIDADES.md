@@ -3,7 +3,7 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
-## v1.7.3 · 10/10/2026
+## v1.7.4 · 10/10/2026
 - Pendências de instalação 📦: se a janela do modal fechar no meio da instalação, o `apt` termina o que começou em vez
   de morrer pela metade (o que podia deixar o dpkg travado), e o motivo do fechamento fica em
   `~/.cache/tt/pendencias.log` (SIGHUP, SIGTERM, Ctrl+C), junto com o fim da instalação. Antes o modal sumia sem
