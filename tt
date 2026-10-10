@@ -4406,7 +4406,17 @@ pedir_sudo_pendencias() {
   if mkdir "$trava" 2>/dev/null; then pegou=1
   elif [[ -n $(find "$trava" -maxdepth 0 -mmin +60 2>/dev/null) ]] && rm -rf "$trava" && mkdir "$trava" 2>/dev/null; then pegou=1; fi
   ((pegou)) || { echo "  Já há uma instalação em andamento; tente de novo daqui a pouco."; ((sim)) || exec {fd}<&-; return 1; }
-  pend_instalar "$ger" "$priv" "${escolhidos[@]}" <"${tty}" || rc=$?
+  # Diagnóstico e proteção: se o terminal do modal fechar (SIGHUP) no meio, o apt/dpkg não pode morrer pela
+  # metade; o motivo de qualquer sinal fica em pendencias.log (antes o modal sumia sem deixar rastro).
+  # O trap daqui só registra: um sinal com trap volta ao padrão no processo filho, então o apt morreria do
+  # mesmo jeito. Quem protege é o subshell abaixo, que IGNORA o HUP (ignorado passa ao apt e ao sudo).
+  trap 'pk_log "modal: SIGHUP (o terminal fechou); a instalação continua"' HUP
+  trap 'pk_log "modal: SIGTERM"; rmdir "$trava" 2>/dev/null; exit 143' TERM
+  trap 'pk_log "modal: SIGINT (Ctrl+C)"; rmdir "$trava" 2>/dev/null; exit 130' INT
+  trap 'pk_log "modal: SIGPIPE (a saída fechou)"' PIPE
+  (trap '' HUP; pend_instalar "$ger" "$priv" "${escolhidos[@]}") <"${tty}" || rc=$?
+  pk_log "modal: instalação terminou (rc=$rc)"
+  trap - HUP TERM INT PIPE
   rmdir "$trava" 2>/dev/null
   ((sim)) || exec {fd}<&-
   if ((rc == 0)); then echo "  ✓ Pronto."; ((sim)) || sleep 1

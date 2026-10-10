@@ -9,6 +9,7 @@ B=$T/bin; mkdir -p "$B" "$HOME/.config/tt/email"
 cat >"$B/apt-get" <<'EOF'
 #!/bin/sh
 case "$*" in *install*)
+  [ -n "$APTDORME" ] && { sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$/status > "$SUDOLOG.inicio"; sleep "$APTDORME"; }
   [ -n "$APTFALHA" ] && { echo "E: Unable to locate package" >&2; exit 100; }
   echo "$*" >> "$SUDOLOG"
   [ -n "$TT_FINGE_FALTA_ARQ" ] && : > "$TT_FINGE_FALTA_ARQ"
@@ -130,3 +131,17 @@ PY
 [[ $saida == SEGUROU ]] || falhou "$saida"
 passou 'sem pendências a tela segura "tudo em ordem" até uma tecla'
 echo 'ok: modal único de pendências'
+
+# Terminal do modal fecha no meio da instalação: o apt tem de começar com o SIGHUP IGNORADO (um trap no
+# shell do modal não basta: sinal com trap volta ao padrão no filho, e o apt morreria pela metade), e o
+# sinal que chega ao modal fica registrado em pendencias.log.
+limpar; echo "curl" >"$FALTAS"; : >"$SUDOLOG"; rm -f "$HOME/.cache/tt/pendencias.log" "$SUDOLOG.inicio"
+export B FALTAS TT
+APTDORME=2 setsid bash -c 'PATH="$B:$PATH" TT_TTY=/dev/null TT_FINGE_FALTA_ARQ="$FALTAS" "$TT" --pedir-sudo --sim nucleo >/dev/null 2>&1 &
+  for _ in $(seq 1 100); do [ -s "$SUDOLOG.inicio" ] && break; sleep 0.1; done; kill -HUP 0; wait' 2>/dev/null || true
+for _ in $(seq 1 40); do grep -q 'instalação terminou' "$HOME/.cache/tt/pendencias.log" 2>/dev/null && break; sleep 0.2; done
+ign=$(cat "$SUDOLOG.inicio" 2>/dev/null)
+[[ -n $ign ]] && (( (16#$ign & 1) == 1 )) || falhou "o apt começou sem ignorar o SIGHUP (SigIgn=$ign): fechar o terminal o mataria pela metade"
+grep -q 'modal: SIGHUP' "$HOME/.cache/tt/pendencias.log" || falhou "SIGHUP não foi registrado: $(tail -5 "$HOME/.cache/tt/pendencias.log" 2>/dev/null)"
+grep -q 'install curl' "$SUDOLOG" || falhou "a instalação não terminou depois do SIGHUP: $(cat "$SUDOLOG")"
+passou 'terminal do modal fechando no meio: o apt roda com o SIGHUP ignorado e o sinal fica no pendencias.log'
