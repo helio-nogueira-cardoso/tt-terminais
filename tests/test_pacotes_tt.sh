@@ -24,6 +24,13 @@ fake() { printf '#!/bin/sh\n%s\n' "$2" >"$B/$1"; chmod +x "$B/$1"; }
 [[ $(rodar TT_AMBIENTE=proot -- pk_ambiente) == proot ]] || falhou 'override do ambiente'
 [[ $(rodar PREFIX=/data/data/com.termux/files/usr TT_SO=Linux -- pk_ambiente) == termux ]] || falhou 'Termux pelo PREFIX'
 [[ $(rodar TT_SO=Linux TT_AMBIENTE=termux -- pk_libc) == bionic && $(rodar TT_SO=Linux TT_LIBC=musl -- pk_libc) == musl ]] || falhou 'pk_libc'
+# proot-distro (Debian dentro do Termux) se anuncia como "PRoot-Distro", não "android": o kernel dele é fingido.
+fake uname 'case "$1" in -r) echo 6.17.0-PRoot-Distro ;; *) exec /usr/bin/uname "$@" ;; esac'
+[[ $(rodar TT_SO=Linux -- pk_ambiente) == proot ]] || falhou 'proot-distro deveria ser reconhecido pelo uname -r'
+rm -f "$B/uname"
+[[ $(rodar TT_SO=Linux PROOT_TMP_DIR=/tmp -- pk_ambiente) == proot ]] || falhou 'proot deveria ser reconhecido por PROOT_TMP_DIR'
+# O proot do Android não tem /dev/fd: nada na biblioteca pode usar substituição de processo (<(...)).
+! grep -v '^[[:space:]]*#' "$LIB" | grep -n '<(' || falhou 'pacotes-tt.sh usa <(...), que o proot do Android não suporta'
 passou 'plataforma: sistema, arquitetura, ambiente (Termux/proot/WSL) e libc'
 
 osr() { printf 'ID=%s\nID_LIKE="%s"\nVERSION_ID=1\nPRETTY_NAME="%s 1"\n' "$1" "$2" "$1" >"$T/os-release-$1"; echo "$T/os-release-$1"; }

@@ -39,12 +39,13 @@ pk_arch() { # x86_64 | aarch64 | armv7 | …
 }
 
 # termux | proot (Linux de verdade rodando sobre o kernel do Android, como o Debian do proot-distro) |
-# wsl | nativo. O PREFIX do Termux é sinal explícito; o proot não tem PREFIX, mas o kernel diz android.
+# wsl | nativo. O PREFIX do Termux é sinal explícito; o proot não tem PREFIX, mas o kernel se anuncia como
+# "PRoot-Distro" (ou android), e o proot exporta PROOT_TMP_DIR. Nada aqui usa `<(...)`: o proot do Android não tem /dev/fd.
 pk_ambiente() {
   if [[ -n ${TT_AMBIENTE:-} ]]; then echo "$TT_AMBIENTE"; return 0; fi
   if [[ ${PREFIX:-} == *com.termux* ]]; then echo termux
   elif grep -qi microsoft /proc/version 2>/dev/null; then echo wsl
-  elif [[ $(pk_so) == linux ]] && { grep -qi android /proc/version 2>/dev/null || uname -r 2>/dev/null | grep -qi android; }; then echo proot
+  elif [[ $(pk_so) == linux ]] && { grep -qiE 'proot|android' /proc/version 2>/dev/null || uname -r 2>/dev/null | grep -qiE 'proot|android' || [[ -n ${PROOT_TMP_DIR:-}${PROOT_L2S_DIR:-} ]]; }; then echo proot
   else echo nativo; fi
 }
 
@@ -96,7 +97,7 @@ pk_gerenciador() {
     netbsd) command -v pkgin >/dev/null 2>&1 && { echo pkgin; return 0; }; return 1 ;;
   esac
   local id="" like="" resto g ordem
-  { IFS='|' read -r id like resto; } < <(pk_os_release 2>/dev/null) || true
+  IFS='|' read -r id like resto <<<"$(pk_os_release 2>/dev/null)" || true
   case " $id $like " in
     *" debian "*|*" ubuntu "*) ordem="apt-get dnf zypper pacman apk xbps yum" ;;
     *" fedora "*|*" rhel "*|*" centos "*|*" rocky "*|*" almalinux "*|*" amzn "*) ordem="dnf yum zypper apt-get pacman apk xbps" ;;
@@ -117,7 +118,7 @@ pk_gerenciador() {
 # Linha curta para a tela: "Ubuntu 24.04 LTS · WSL · x86_64 · apt-get · sudo".
 pk_resumo() {
   local nome="" a b c ger priv amb
-  { IFS='|' read -r a b c nome; } < <(pk_os_release 2>/dev/null) || true
+  IFS='|' read -r a b c nome <<<"$(pk_os_release 2>/dev/null)" || true
   [[ -n $nome ]] || nome=$(uname -sr 2>/dev/null)
   amb=$(pk_ambiente); ger=$(pk_gerenciador 2>/dev/null) || ger="sem gerenciador"
   priv=$(pk_privilegio "$ger" 2>/dev/null)
@@ -418,13 +419,13 @@ pk_rodar() { # privilégio argv…
 pk_instalar_lote() { # gerenciador privilégio pacote…
   local ger=$1 priv=$2; shift 2
   local -a argv=()
-  mapfile -t argv < <(pk_argv_instalar "$ger" "$@")
+  mapfile -t argv <<<"$(pk_argv_instalar "$ger" "$@")"
   pk_rodar "$priv" "${argv[@]}"
 }
 
 pk_atualizar_indice() { # gerenciador privilégio
   local -a argv=()
-  mapfile -t argv < <(pk_argv_atualizar "$1") || return 1
+  mapfile -t argv <<<"$(pk_argv_atualizar "$1")" || return 1
   ((${#argv[@]})) || return 1
   pk_rodar "$2" "${argv[@]}"
 }
