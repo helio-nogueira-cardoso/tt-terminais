@@ -3989,7 +3989,8 @@ tmux_deps_faltam() { # faltam compilador, make, pkg-config, yacc, tar, curl ou c
   finge_falta tmux-build && return 0
   falta_cmd cc && falta_cmd gcc && falta_cmd clang && return 0
   falta_cmd make && falta_cmd gmake && return 0
-  # o configure do tmux 3.8 para em "yacc not found" (o código da gramática não vem pronto no pacote)
+  # o configure do tmux 3.8 para em "yacc not found": o pacote traz o cmd-parse.c pronto, mas o configure.ac
+  # exige um yacc assim mesmo (AC_CHECK_PROG found_yacc)
   falta_cmd yacc && falta_cmd bison && falta_cmd byacc && return 0
   falta_cmd pkg-config && falta_cmd pkgconf && return 0
   falta_cmd curl && return 0
@@ -3998,6 +3999,19 @@ tmux_deps_faltam() { # faltam compilador, make, pkg-config, yacc, tar, curl ou c
   cabecalho_dir ncurses.h >/dev/null || cabecalho_dir curses.h >/dev/null || return 0
   return 1
 }
+tmux_deps_quais() { # o que falta para compilar o tmux, em palavras (mensagem do modal e pendencias.log)
+  local -a f=()
+  falta_cmd cc && falta_cmd gcc && falta_cmd clang && f+=(compilador)
+  falta_cmd make && falta_cmd gmake && f+=(make)
+  falta_cmd yacc && falta_cmd bison && falta_cmd byacc && f+=("yacc (bison)")
+  falta_cmd pkg-config && falta_cmd pkgconf && f+=(pkg-config)
+  falta_cmd curl && f+=(curl)
+  falta_cmd tar && f+=(tar)
+  cabecalho_dir event2/event.h >/dev/null || f+=("cabeçalhos do libevent")
+  { cabecalho_dir ncurses.h || cabecalho_dir curses.h; } >/dev/null || f+=("cabeçalhos do ncurses")
+  ((${#f[@]})) && printf '%s, ' "${f[@]}" | sed 's/, $//'
+  return 0
+}
 tmux_construir() {
   local tmp mk jobs inc_e inc_n extra="" ldf="" b rc=0
   [[ -x $DIR_TMUX/bin/tmux ]] && ! versao_menor "$(versao_de "$DIR_TMUX/bin/tmux" -V)" "$TMUX_ALVO" && { tmux_ativar; return 0; }
@@ -4005,24 +4019,36 @@ tmux_construir() {
   mk=$(command -v gmake || command -v make) || { echo "✗ sem make." >&2; return 1; }
   inc_e=$(cabecalho_dir event2/event.h) || { echo "✗ sem os cabeçalhos do libevent." >&2; return 1; }
   inc_n=$(cabecalho_dir ncurses.h || cabecalho_dir curses.h) || { echo "✗ sem os cabeçalhos do ncurses." >&2; return 1; }
+  if falta_cmd yacc && falta_cmd bison && falta_cmd byacc; then
+    echo "✗ sem yacc (bison ou byacc): o configure do tmux exige." >&2; pk_log "tmux $TMUX_ALVO: sem yacc (bison ou byacc)"; return 1
+  fi
   tmp=$(mktemp -d) || return 1
   jobs=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
   echo "  Baixando e compilando o tmux $TMUX_ALVO (alguns minutos)…"
   for b in "$inc_e" "$inc_n"; do
     case $b in /usr/include | /usr/local/include) ;; *) extra+=" -I$b"; [[ -d ${b%/include}/lib ]] && ldf+=" -L${b%/include}/lib" ;; esac
   done
+  local etapa=baixar motivo="" m
   if pk_baixar "$TMUX_URL" "$tmp/t.tgz" "$TMUX_SHA256" 20 &&
-     tar xzf "$tmp/t.tgz" -C "$tmp" --strip-components=1 &&
-     (cd "$tmp" && CPPFLAGS="${CPPFLAGS:-}$extra" LDFLAGS="${LDFLAGS:-}$ldf" ./configure --prefix="$DIR_TMUX" >"$tmp/configure.log" 2>&1 &&
-        "$mk" -j"$jobs" >"$tmp/make.log" 2>&1 && "$mk" install >>"$tmp/make.log" 2>&1) &&
-     [[ -x $DIR_TMUX/bin/tmux ]] && "$DIR_TMUX/bin/tmux" -V >/dev/null 2>&1; then
+     etapa=extrair && tar xzf "$tmp/t.tgz" -C "$tmp" --strip-components=1 &&
+     etapa=configure && (cd "$tmp" && CPPFLAGS="${CPPFLAGS:-}$extra" LDFLAGS="${LDFLAGS:-}$ldf" ./configure --prefix="$DIR_TMUX" >"$tmp/configure.log" 2>&1) &&
+     etapa=make && (cd "$tmp" && "$mk" -j"$jobs" >"$tmp/make.log" 2>&1 && "$mk" install >>"$tmp/make.log" 2>&1) &&
+     etapa=teste && [[ -x $DIR_TMUX/bin/tmux ]] && "$DIR_TMUX/bin/tmux" -V >/dev/null 2>&1; then
     tmux_ativar
     echo "  ✓ tmux $(versao_de "$DIR_TMUX/bin/tmux" -V) pronto em $DIR_TMUX"
     echo "    As sessões abertas não foram tocadas: o novo vale no próximo servidor tmux (feche todas as sessões ou reinicie)."
   else
     rc=1; echo "  ✗ Não consegui compilar o tmux $TMUX_ALVO." >&2
-    [[ -s $tmp/configure.log ]] && ! [[ -x $DIR_TMUX/bin/tmux ]] && tail -3 "$tmp/configure.log" >&2
-    [[ -s $tmp/make.log ]] && grep -E 'error|Error' "$tmp/make.log" | head -5 >&2
+    # O motivo, pela etapa que falhou, vai também para o pendencias.log: antes só ficava na tela do modal
+    # e o log dizia só "rc=1" (foi assim com o "yacc not found" de 10/10/2026).
+    case $etapa in
+      baixar | extrair) motivo="download, sha256 ou extração falhou ($TMUX_URL)" ;;
+      configure) motivo="configure falhou: $(tail -3 "$tmp/configure.log" 2>/dev/null)" ;;
+      make) m=$(grep -E 'error|Error' "$tmp/make.log" 2>/dev/null | head -5)
+            motivo="make falhou: ${m:-$(tail -3 "$tmp/make.log" 2>/dev/null)}" ;;
+      teste) motivo="o tmux compilado não roda" ;;
+    esac
+    printf '  %s\n' "$motivo" >&2; pk_log "tmux $TMUX_ALVO: ${motivo//$'\n'/ | }"
     rm -rf "$DIR_TMUX"
   fi
   rm -rf "$tmp"; return $rc
@@ -4096,7 +4122,7 @@ declare -A PEND_ROTULOS=(
 pend_avaliar() {
   pacotes_lib || return 1
   local id=$1 v cli
-  P_APLICA=1; P_NIVEL=recurso; P_SYS=""; P_USR=0; P_MANUAL=""; P_ROTULO=${PEND_ROTULOS[$id]:-$id}; P_MOTIVO=""; P_TAM=""
+  P_APLICA=1; P_NIVEL=recurso; P_SYS=""; P_USR=0; P_MANUAL=""; P_ROTULO=${PEND_ROTULOS[$id]:-$id}; P_MOTIVO=""; P_TAM=""; P_FALTAM=""
   case $id in
     nucleo)
       P_NIVEL=essencial; P_ROTULO="ferramentas básicas"
@@ -4121,7 +4147,7 @@ pend_avaliar() {
       v=${TT_FINGE_TMUX_VERSAO:-$(versao_de tmux -V)}
       if falta_cmd tmux || versao_menor "$v" 3.4 || ! versao_menor "$v" "$TMUX_ALVO" || ! tmux_compilavel; then P_APLICA=0; return 0; fi
       P_MOTIVO="o tmux daqui é o $v; o $TMUX_ALVO traz o painel flutuante do tt (e correções). O tt o compila na sua pasta; as sessões abertas não são tocadas, vale no próximo servidor tmux"
-      P_USR=1; tmux_deps_faltam && P_SYS=tmux-build ;;
+      P_USR=1; tmux_deps_faltam && { P_SYS=tmux-build; P_FALTAM=$(tmux_deps_quais); } ;;
     email-aerc)
       cli=$(conf email); cli=${cli%% *}
       [[ -z $cli || ${cli##*/} == aerc ]] || { P_APLICA=0; return 0; }
@@ -4302,7 +4328,9 @@ pend_instalar() {
   for id in "${ids[@]}"; do
     pend_avaliar "$id" || continue
     ((P_APLICA)) && [[ $P_USR == 1 ]] || continue
-    if [[ -n $P_SYS ]]; then echo "  ✗ $P_ROTULO: ainda faltam ferramentas (${P_SYS})."; continue; fi
+    if [[ -n $P_SYS ]]; then
+      echo "  ✗ $P_ROTULO: ainda faltam ferramentas (${P_FALTAM:-$P_SYS})."; pk_log "$P_ROTULO: ainda faltam ferramentas (${P_FALTAM:-$P_SYS})"; continue
+    fi
     echo "  → $P_ROTULO${P_TAM:+ ($P_TAM)}"
     pend_usuario_instalar "$id" || rc=1
   done

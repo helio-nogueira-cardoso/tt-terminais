@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.7.9 · 10/10/2026
+- Pendências 📦: quando a compilação do tmux 3.8 falha, a tela e o `pendencias.log` dizem em que etapa (download,
+  configure ou make) e por quê; antes o log dizia só "rc=1" e o motivo sumia com o modal. E "ainda faltam
+  ferramentas" passa a dizer quais (por exemplo "yacc (bison)") em vez do nome interno do grupo.
+
 ## v1.7.8 · 10/10/2026
 - Corrigido: a pendência 📦 **tmux 3.8** não compilava em nenhuma máquina. O código do tmux 3.8 precisa do `bison`
   (yacc) para compilar, e o tt não o pedia: o `configure` parava em "yacc not found". Agora o bison entra junto com
