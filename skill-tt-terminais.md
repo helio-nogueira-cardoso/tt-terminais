@@ -199,8 +199,43 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `--imagens` (tecla `i` do aerc: lista as imagens do e-mail cru em stdin e abre as escolhidas; as da
   web só são baixadas sob demanda, via `email-tt.py baixar-imagem`) e `--abrir-imagem ARQ` (opener `image/*`).
   `--email-adicionar provedor=gmail auth=oauth` sem client_id usa o app OAuth embutido do tt (EMAIL_GMAIL_ID; segredo montado em partes, gravado por conta em ~/.secrets). `--email-sync-local CONTA 0|1` (liga/desliga o espelho mbsync pós-cadastro; botão 🔄 em F2).
-  `--pedir-sudo [id…]` (modal único das pendências de instalação com sudo: navegadores, email-sync,
-  email-html; aceitar tudo / selecionar / recusar por 7 dias; pacotes por gerenciador, mbsync→isync).
+  Pendências de instalação: ver a seção "Pendências de instalação" abaixo (`--pendencias`, `--pedir-sudo`).
+
+### Pendências de instalação (📦)
+Catálogo único do que o tt pode precisar, por máquina. A camada de plataforma vive em `pacotes-tt.sh` (também
+usada pelo `instalar.sh`; só funções `pk_*`, carregada sob demanda por `pacotes_lib`); o catálogo, o modal
+e os instaladores da pasta do usuário ficam no `tt`.
+- `tt --pendencias [--tsv]` — estado de TODOS os itens (✓ ok · ✗ falta · ! manual · – não se aplica) com a
+  plataforma (`pk_resumo`: "Ubuntu 24.04 · WSL · x86_64 · apt-get · sudo"); `--tsv` = `id estado nível rótulo detalhe`.
+- `tt --pedir-sudo [--sim] [id…]` — o modal (`pedir_sudo_pendencias`): lista as pendências, mostra o comando
+  exato e oferece [i] instalar [s] selecionar [m] mais tarde (1 dia) [n] nunca. Com ids, ignora recusas e
+  níveis; `--sim` aceita tudo sem terminal. `TT_PEND_TODAS=1` (menu administrar → 📦) inclui opcionais e recusadas.
+  `--pendencias-avisar` (vigia, a cada 6 h): UM aviso de essencial/recurso (dura 6 h, repete após 12 h).
+- Itens (`PEND_IDS`): `nucleo` `fzf-novo` `tmux-antigo` (manual) `email-aerc` `email-sync` `isync-sasl` `email-xoauth2`
+  `email-html` `email-editor` `email-spell` `chrome` `carbonyl` `chrome-libs` `clipboard` `notificacoes` `xdg-utils`
+  `termux-api` `pv` `mosh` `nomeador-local`. `pend_avaliar ID` preenche `P_APLICA P_NIVEL P_SYS P_USR P_MANUAL
+  P_ROTULO P_MOTIVO P_TAM` (P_SYS = o que o gerenciador instala; P_USR=1 = há passo sem administrador). Nível:
+  essencial · recurso · opcional (o vigia ignora opcional e manual).
+- Plataforma (`pacotes-tt.sh`): `pk_so` `pk_arch` `pk_ambiente` (termux|proot|wsl|nativo) `pk_libc`
+  `pk_gerenciador` (apt-get dnf yum zypper pacman apk xbps brew pkg pkg-bsd pkg_add pkgin; a família da
+  distro decide quando há vários) `pk_privilegio` (nenhum|sudo|doas|su|indisponivel). Nomes de pacote:
+  tabela `PK_TABELA` (lógico → nome por gerenciador; conferida em repositórios reais) e `PK_TABELA_LIBS`
+  (sonames do Chrome/Carbonyl); `pend_resolver GER item…` → `PK_PACOTES`/`PK_SEM_PACOTE`; apt escolhe `…t64`.
+- Instalação robusta: `pk_instalar GER PRIV pacote…` = um lote; se falhar, atualiza o índice e repete; depois
+  um a um (nome inexistente não derruba os outros); `PK_OK`/`PK_FALHOS`/`PK_MOTIVO` (permissao|rede|
+  indice_ou_nome); senha errada para na hora; `pk_baixar URL DEST [sha] [MB]` (tentativas, espaço, sha256,
+  atômico). `pend_instalar` confere ✓/✗ no fim e adia 7 dias o que falhou; log em `~/.cache/tt/pendencias.log`;
+  trava `$ESTADO_DIR/pendencias.trava`.
+- Passos da pasta do usuário: `navegador_instalar` (Chrome: `.deb` extraído com python3; Carbonyl: zip),
+  `xoauth2_construir` (`~/.local/share/tt-sasl2`), `isync_sasl_construir` (`~/.local/share/tt-isync`; `mbsync_bin`
+  prefere esse), `fzf_instalar` (`~/.local/share/tt-bin`, na frente do PATH do tt), `email_vim_spell_garantir`.
+- Ganchos de teste: `TT_GERENCIADOR TT_PRIV TT_SO TT_ARCH TT_AMBIENTE TT_LIBC TT_OS_RELEASE TT_PK_LOG`,
+  `TT_FINGE_FALTA` / `TT_FINGE_FALTA_ARQ` (comandos tratados como ausentes; o arquivo é esvaziado por um
+  gerenciador de mentira), `TT_FINGE_CHROME_LIBS[_ARQ]`, `TT_FINGE_FZF_VERSAO`, `TT_FINGE_TMUX_VERSAO`,
+  `TT_PEND_SEM_NAVEGADORES` (esconde Chrome/Carbonyl do catálogo; o `tests/lib.sh` o define),
+  `TT_FZF_URL/SHA256`, `TT_ISYNC_URL/SHA256`, `TT_XOAUTH2_URL/SHA256`, `TT_CARBONYL_URL/SHA256`, `TT_CHROME_INDICE/BASE`.
+- Erros do sync de e-mail que uma pendência resolve (`email_erro_dica`): "built without LibSASL" →
+  `isync-sasl email-xoauth2`; "SASL mechanism(s) not available" → `email-xoauth2`.
 
 ### E-mail (aerc)
 - `tt --email [cliente]` — abre o cliente de e-mail (default `aerc`) numa subjanela popup.
@@ -412,7 +447,7 @@ ControlPath do ssh, transferências em andamento.
 `ARQUIVOS_FONTE` (lista no `tt`): `tt email-tt.py tmux.conf tema-tmux.conf tema-terminal.sh
 tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
 ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
-skill-tt-terminais.md`. `ARQUIVOS_PACOTE` = `ARQUIVOS_FONTE` + `VERSAO`. Mudança que acrescenta um
+skill-tt-terminais.md pacotes-tt.sh`. `ARQUIVOS_PACOTE` = `ARQUIVOS_FONTE` + `VERSAO`. Mudança que acrescenta um
 arquivo ao pacote PRECISA entrar em `ARQUIVOS_FONTE`, senão a autoatualização instala um pacote
 incompleto.
 

@@ -17,6 +17,8 @@
 #   tt --listar     imprime as linhas do menu só desta máquina (as outras chamam isso via ssh)
 #   tt --previa S   mostra a tela atual da sessão S (prévia do fzf)
 #   tt --nova [N]   cria uma sessão solta (sem entrar) e imprime o nome
+#   tt --pendencias o que o tt pode precisar instalar nesta máquina, e o que já está pronto
+#   tt --pedir-sudo instala o que falta (pergunta antes; --sim aceita tudo; ids escolhem)
 #
 # Menu: Enter entra; ^n nova; ^r renomeia; ^x fecha; ^a dá nome às genéricas. As palavras do
 # cabeçalho são clicáveis. ^f (ou clique) filtra por máquina; a busca procura em nome, máquina,
@@ -1050,6 +1052,9 @@ adotar() {
 # Na máquina onde se desenvolve, o repositório (~/Projetos/tt) é a origem de `tt --sincronizar`.
 
 DIR_TT=${TT_DIR:-$HOME/.local/share/tt}
+# Binários que o próprio tt baixa (o fzf atual, quando o do sistema é velho) vêm antes dos do sistema.
+DIR_BIN_TT=$HOME/.local/share/tt-bin
+[[ -d $DIR_BIN_TT ]] && PATH=$DIR_BIN_TT:$PATH
 ATALHOS_PADRAO=${TT_ATALHOS_PADRAO:-$DIR_TT/atalhos-padrao}
 CONF_ATALHOS=$CONF_DIR/atalhos
 # Repositório de origem (só na máquina onde se desenvolve): TT_REPO, "repo=" no config, ou a pasta
@@ -1405,13 +1410,13 @@ versao_humana() { printf 'v1.%s.%s' "$VERSAO_MINOR" "$(versao_num)"; }
 
 # tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
 ajuda() {
-  sed -n '2,36p' "$EU" | sed 's/^# \{0,1\}//'
+  sed -n '2,38p' "$EU" | sed 's/^# \{0,1\}//'
   printf '\nVersão instalada: %s (%s)\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao_humana)" "$(versao)" "$DIR_TT" "$DIR_TT"
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
-  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md aidlc-tt NOVIDADES.md)
+  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md aidlc-tt NOVIDADES.md pacotes-tt.sh)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -1921,21 +1926,23 @@ cadastrar() {
   done
   dest="$usuario@$host"
   # Dependências completas de uma vez (as opcionais — w3m, curl, unzip, mbsync — também: quem
-  # está sendo cadastrado já recebe tudo). Gerenciador detectado lá, não presumido (apt, dnf,
-  # pacman, apk, brew, pkg do Termux); brew e pkg dispensam sudo.
+  # está sendo cadastrado já recebe tudo). O gerenciador e o privilégio são detectados lá (a biblioteca
+  # de pacotes vai pelo ssh e roda no destino: apt, dnf, zypper, pacman, apk, xbps, brew, pkg do Termux
+  # ou do FreeBSD…), não presumidos; brew e o pkg do Termux dispensam sudo.
   falta=$(ssh "${SSH_OPC[@]}" "$dest" 'for p in tmux fzf python3 tar rg w3m curl unzip mbsync; do command -v $p >/dev/null || printf "%s " $p; done' </dev/null)
   if [[ -n $falta ]]; then
     echo "Faltam lá: $falta"
-    local ger_rem pfx_rem; local -a cmd_rem pacotes_rem
-    ger_rem=$(ssh "${SSH_OPC[@]}" "$dest" 'case ${PREFIX:-} in *com.termux*) command -v pkg >/dev/null && { echo pkg; exit; } ;; esac; for g in apt-get dnf pacman apk brew; do command -v $g >/dev/null && { echo $g; break; }; done' </dev/null)
-    if [[ -z $ger_rem ]]; then
+    local ger_rem priv_rem cmd_txt
+    if pacotes_lib; then
+      { read -r ger_rem; read -r priv_rem; } < <({ cat "$PACOTES_LIB"; echo 'pk_gerenciador || echo; pk_privilegio "$(pk_gerenciador 2>/dev/null)"'; } | ssh "${SSH_OPC[@]}" "$dest" 'bash -s' 2>/dev/null)
+    fi
+    if [[ -z ${ger_rem:-} ]]; then
       echo "Não achei um gerenciador de pacotes lá; instale à mão: $falta"
     else
-      read -ra cmd_rem <<<"$(cmd_instalar_do_gerenciador "$ger_rem")"
-      mapfile -t pacotes_rem < <(pacotes_do_gerenciador "$ger_rem" $falta)
-      case $ger_rem in brew|pkg) pfx_rem= ;; *) pfx_rem="sudo " ;; esac
-      read -rp "Instalar lá com $pfx_rem${cmd_rem[*]}? [S/n] " r
-      [[ $r == [nN]* ]] || ssh -t "${SSH_OPC[@]}" "$dest" "$pfx_rem${cmd_rem[*]} ${pacotes_rem[*]}"
+      pend_resolver "$ger_rem" $falta
+      cmd_txt=$(pk_comando_texto "$ger_rem" "${priv_rem:-nenhum}" ${PK_PACOTES[@]+"${PK_PACOTES[@]}"})
+      read -rp "Instalar lá com $cmd_txt? [S/n] " r
+      [[ $r == [nN]* ]] || ssh -t "${SSH_OPC[@]}" "$dest" "$cmd_txt"
     fi
   fi
   h=$(ssh "${SSH_OPC[@]}" "$dest" 'sed -n "s/^nome=//p" ~/.config/tt/config 2>/dev/null | tail -1' </dev/null)
@@ -3430,6 +3437,8 @@ copiar_local() {
     DISPLAY=${DISPLAY:-:0} xclip -selection clipboard <"$t" >/dev/null 2>&1
   elif command -v termux-clipboard-set >/dev/null; then
     termux-clipboard-set <"$t" >/dev/null 2>&1
+  elif command -v pbcopy >/dev/null; then   # macOS
+    pbcopy <"$t" >/dev/null 2>&1
   fi
   return 0
 }
@@ -3469,7 +3478,7 @@ DIR_NAVEGADORES=$HOME/.local/share/tt-navegadores
 CHROME_INDICE=${TT_CHROME_INDICE:-https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages}
 CHROME_BASE=${TT_CHROME_BASE:-https://dl.google.com/linux/chrome/deb}
 CARBONYL_URL=${TT_CARBONYL_URL:-https://github.com/fathyb/carbonyl/releases/download/v0.0.3/carbonyl.linux-amd64.zip}
-CARBONYL_SHA256=46a902ea29bb32f773fb4ee341423705b92345a810422b8df93eaea6a1ec7ad2
+CARBONYL_SHA256=${TT_CARBONYL_SHA256:-46a902ea29bb32f773fb4ee341423705b92345a810422b8df93eaea6a1ec7ad2}
 
 # User-agent do Chrome embutido (ou um atual fixo): o Carbonyl é um Chromium de 2023 e vários
 # sites (login do Google à frente) barram navegador antigo só pelo anúncio; apresentar-se como o
@@ -3480,7 +3489,10 @@ ua_chrome() {
   printf 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36' "$v"
 }
 
-navegadores_graficos_ok() { [[ $(uname -m) == x86_64 && $(uname -s) == Linux ]] && ! command -v termux-open-url >/dev/null; }
+navegadores_graficos_ok() {
+  pacotes_lib 2>/dev/null || { [[ $(uname -m) == x86_64 && $(uname -s) == Linux ]] && ! command -v termux-open-url >/dev/null; return; }
+  [[ $(pk_so) == linux && $(pk_arch) == x86_64 && $(pk_libc) == glibc ]] && [[ $(pk_ambiente) != termux ]] && ! command -v termux-open-url >/dev/null
+}
 bin_chromium() { echo "$DIR_NAVEGADORES/chrome/opt/google/chrome/chrome"; }
 bin_carbonyl() { echo "$DIR_NAVEGADORES/carbonyl/carbonyl-0.0.3/carbonyl"; }
 
@@ -3517,41 +3529,36 @@ PY
 # (O Chrome for Testing avisa que é só para desenvolvimento; o estável não.)
 chrome_instalar() {
   local idx pacote versao arq sha deb dir=$DIR_NAVEGADORES/chrome rc
-  idx=$(curl -fsS -m 30 "$CHROME_INDICE") || { echo "✗ não consegui o índice do Chrome." >&2; return 1; }
+  pacotes_lib || return 1
+  idx=$(curl -fsS --connect-timeout 15 --retry 2 -m 60 "$CHROME_INDICE") || { echo "✗ não consegui o índice do Chrome (sem rede?)." >&2; return 1; }
   pacote=$(awk -v RS= '/(^|\n)Package: google-chrome-stable(\n|$)/ {print; exit}' <<<"$idx")
   versao=$(sed -n 's/^Version: //p' <<<"$pacote"); arq=$(sed -n 's/^Filename: //p' <<<"$pacote"); sha=$(sed -n 's/^SHA256: //p' <<<"$pacote")
   [[ -n $versao && -n $arq && -n $sha ]] || { echo "✗ índice do Chrome sem o pacote estável." >&2; return 1; }
   mkdir -p "$DIR_NAVEGADORES" || return 1
-  deb=$(mktemp "$DIR_NAVEGADORES/dl.XXXXXX") || return 1
+  deb=$DIR_NAVEGADORES/chrome.deb.$$
   echo "Baixando o Google Chrome $versao (sem sudo, em $dir)…" >&2
-  curl -fSL --progress-bar -o "$deb" "$CHROME_BASE/$arq" || { rm -f "$deb"; return 1; }
-  if [[ $(sha256sum "$deb" | cut -d' ' -f1) != "$sha" ]]; then
-    echo "✗ sha256 do Chrome não confere com o índice; nada foi instalado." >&2; rm -f "$deb"; return 1
-  fi
+  pk_baixar "$CHROME_BASE/$arq" "$deb" "$sha" 400 || { rm -f "$deb"; return 1; }
   rm -rf "$dir.novo"; mkdir -p "$dir.novo" && extrair_deb "$deb" "$dir.novo"; rc=$?; rm -f "$deb"
   [[ $rc == 0 && -x $dir.novo/opt/google/chrome/chrome ]] || { echo "✗ falha ao extrair o Chrome." >&2; rm -rf "$dir.novo"; return 1; }
   rm -rf "$dir" "$DIR_NAVEGADORES/chromium"; mv "$dir.novo" "$dir" && echo "$versao" >"$dir/versao"
-  local falta; falta=$(ldd "$(bin_chromium)" 2>/dev/null | awk '/not found/ {printf "%s ", $1}')
-  [[ -z $falta ]] || echo "⚠ faltam bibliotecas do sistema para o Chrome: $falta (em Debian/Ubuntu: sudo apt install libnss3 libgbm1 libasound2 libxkbcommon0 libgtk-3-0)." >&2
 }
 
 # navegador_instalar chromium|carbonyl: instala sob demanda. Mensagens no stderr.
 navegador_instalar() {
   local qual=$1 dir zip
-  command -v curl >/dev/null || { echo "precisa do curl" >&2; return 1; }
+  pacotes_lib || return 1
   case $qual in
-    chromium) [[ -x $(bin_chromium) ]] && return 0; chrome_instalar; return ;;
+    chromium) command -v curl >/dev/null || { echo "precisa do curl (tt --pedir-sudo chrome)" >&2; return 1; }
+              [[ -x $(bin_chromium) ]] && return 0; chrome_instalar; return ;;
     carbonyl) [[ -x $(bin_carbonyl) ]] && return 0 ;;
     *) return 1 ;;
   esac
-  command -v unzip >/dev/null || { echo "precisa do unzip" >&2; return 1; }
+  command -v curl >/dev/null || { echo "precisa do curl (tt --pedir-sudo carbonyl)" >&2; return 1; }
+  command -v unzip >/dev/null || { echo "precisa do unzip (tt --pedir-sudo carbonyl)" >&2; return 1; }
   dir=$DIR_NAVEGADORES/carbonyl; mkdir -p "$DIR_NAVEGADORES" || return 1
-  zip=$(mktemp "$DIR_NAVEGADORES/dl.XXXXXX") || return 1
+  zip=$DIR_NAVEGADORES/carbonyl.zip.$$
   echo "Baixando o Carbonyl (sem sudo, em $dir)…" >&2
-  curl -fSL --progress-bar -o "$zip" "$CARBONYL_URL" || { rm -f "$zip"; return 1; }
-  if [[ $(sha256sum "$zip" | cut -d' ' -f1) != "$CARBONYL_SHA256" ]]; then
-    echo "✗ sha256 do Carbonyl não confere; nada foi instalado." >&2; rm -f "$zip"; return 1
-  fi
+  pk_baixar "$CARBONYL_URL" "$zip" "$CARBONYL_SHA256" 250 || { rm -f "$zip"; return 1; }
   rm -rf "$dir"; mkdir -p "$dir" && unzip -q -o "$zip" -d "$dir"; local rc=$?; rm -f "$zip"
   [[ $rc == 0 && -x $(bin_carbonyl) ]] || { echo "✗ falha ao extrair o Carbonyl." >&2; rm -rf "$dir"; return 1; }
 }
@@ -3567,83 +3574,74 @@ chrome_atualizar_se_velho() {
   chrome_instalar >/dev/null 2>&1
 }
 
-# Gerenciador de pacotes deste sistema (Termux antes do apt-get: lá o apt existe mas o caminho
-# certo é o pkg, sem sudo; brew no macOS também dispensa sudo).
-gerenciador_pacotes() {
-  case ${PREFIX:-} in *com.termux*) command -v pkg >/dev/null 2>&1 && { echo pkg; return 0; } ;; esac
-  local g
-  for g in apt-get dnf pacman apk brew; do command -v "$g" >/dev/null 2>&1 && { echo "$g"; return 0; }; done
-  return 1
+# --- Plataforma, gerenciador de pacotes e pendências de instalação -------------------------------
+#
+# A camada de plataforma (gerenciador de pacotes, privilégio, nomes de pacote por distro e instalação
+# robusta) vive no pacotes-tt.sh, que o instalar.sh também usa; aqui ficam o catálogo do que o tt pode
+# precisar, o modal (tt --pedir-sudo) e os instaladores que não pedem administrador.
+PACOTES_LIB=$DIR_TT/pacotes-tt.sh
+[[ -f $PACOTES_LIB ]] || PACOTES_LIB=${EU%/*}/pacotes-tt.sh
+pacotes_lib() { # carrega a biblioteca uma vez: só quem precisa dela paga o custo
+  [[ -n ${PK_CARREGADA:-} ]] && return 0
+  [[ -f $PACOTES_LIB ]] || { echo "tt: não achei $PACOTES_LIB" >&2; return 1; }
+  # shellcheck disable=SC1090
+  source "$PACOTES_LIB" && PK_CARREGADA=1
 }
 
-cmd_instalar_do_gerenciador() {
-  case $1 in
-    apt-get) echo "apt-get install -y" ;;
-    dnf) echo "dnf install -y" ;;
-    pacman) echo "pacman -S --needed --noconfirm" ;;
-    apk) echo "apk add" ;;
-    brew) echo "brew install" ;;
-    pkg) echo "pkg install -y" ;;
-    *) return 1 ;;
-  esac
+# Compatibilidade: nomes antigos, agora sobre a biblioteca.
+gerenciador_pacotes() { pacotes_lib && pk_gerenciador; }
+cmd_instalar_do_gerenciador() { pacotes_lib && pk_cmd_instalar "$1"; }
+sudo_do_gerenciador() { # "sudo", "doas" ou "su"; nada se já é root ou o gerenciador roda como usuário
+  pacotes_lib || return 0
+  local p; p=$(pk_privilegio "${1:-}")
+  case $p in nenhum|indisponivel) ;; *) echo "$p" ;; esac
 }
-
-# O que vai antes do comando de instalar: sudo, exceto root e os gerenciadores de usuário.
-sudo_do_gerenciador() {
-  ((EUID == 0)) && return 0
-  case $1 in brew|pkg) ;; *) echo "sudo" ;; esac
-}
-
-# Comandos → nomes de pacote no gerenciador dado (o mbsync vem no pacote isync em todos eles).
-pacotes_do_gerenciador() {
-  local g=$1 c; shift
-  for c in "$@"; do
-    case $c in
-      rg) echo ripgrep ;;
-      mbsync) echo isync ;;
-      libnspr4) case $g in apt-get) echo libnspr4 ;; *) echo nspr ;; esac ;;
-      libnss3) case $g in apt-get) echo libnss3 ;; *) echo nss ;; esac ;;
-      libasound2) case $g in
-          apt-get) if apt-cache -q=2 show libasound2t64 >/dev/null 2>&1; then echo libasound2t64; else echo libasound2; fi ;;
-          *) echo alsa-lib ;; esac ;;
-      libgbm1) case $g in apt-get) echo libgbm1 ;; dnf) echo mesa-libgbm ;; pacman) echo mesa ;; apk) echo mesa-gbm ;; *) echo mesa ;; esac ;;
-      libxkbcommon0) case $g in apt-get) echo libxkbcommon0 ;; *) echo libxkbcommon ;; esac ;;
-      libgtk-3-0) case $g in apt-get) echo libgtk-3-0 ;; apk) echo "gtk+3.0" ;; *) echo gtk3 ;; esac ;;
-      python3) case $g in pacman|brew|pkg) echo python ;; *) echo python3 ;; esac ;;
-      tar) case $g in brew) echo gnu-tar ;; *) echo tar ;; esac ;;
-      ssh) case $g in apt-get) echo openssh-client ;; dnf) echo openssh-clients ;; *) echo openssh ;; esac ;;
-      plugin-xoauth2) ;; # nada a instalar como administrador: o tt compila o plugin na pasta do usuário
-      xoauth2-build) # compilador e cabeçalhos do Cyrus SASL, para compilar o plugin XOAUTH2 (um pacote por linha)
-        case $g in
-          apt-get) printf '%s\n' gcc libc6-dev libsasl2-dev ;;
-          dnf) printf '%s\n' gcc glibc-devel cyrus-sasl-devel ;;
-          pacman) printf '%s\n' gcc cyrus-sasl ;;
-          apk) printf '%s\n' build-base cyrus-sasl-dev ;;
-          brew) echo cyrus-sasl ;;
-        esac ;;
-      *) echo "$c" ;;
-    esac
-  done | awk '!v[$0]++'
-}
-
-# Palavras do comando que instala pacotes neste sistema (sem o sudo).
 instalar_pacotes_cmd() { cmd_instalar_do_gerenciador "$(gerenciador_pacotes)"; }
 
-# --- Pendências de instalação com administrador ---------------------------------------------
-#
-# Tudo o que o tt gostaria de instalar com sudo nesta máquina fica registrado aqui e é oferecido
-# num modal ÚNICO (tt --pedir-sudo): o usuário instala tudo, seleciona o que aceitar, ou recusa.
-# Cada pendência tem a sua resposta: instalar agora, mais tarde (volta em 1 dia) ou não instalar (nunca
-# mais avisa; só o menu administrar → 📦 Pendências de instalação, que reavalia tudo, a reabre). Quem instala o tt do zero (instalar.sh) já leva tudo de uma vez.
-# TT_FINGE_FALTA lista comandos tratados como ausentes (testes).
-falta_cmd() {
-  case " ${TT_FINGE_FALTA:-} " in *" $1 "*) return 0 ;; esac
-  ! command -v "$1" >/dev/null 2>&1
+# pend_resolver GER item… — preenche PK_PACOTES (nomes finais de pacote) e PK_SEM_PACOTE (itens sem
+# pacote neste gerenciador). Item = nome lógico (tmux, mbsync…), arquivo de biblioteca (libnss3.so) ou
+# um destes grupos: xoauth2-build (compilador + cabeçalhos do SASL), isync-build (para compilar o isync).
+pend_resolver() {
+  pacotes_lib || return 1
+  local ger=$1 t n; shift
+  local -a logicos=() libs=() sem=()
+  for t in "$@"; do
+    case $t in
+      xoauth2-build) logicos+=(cc libc-dev sasl-dev ssl-dev) ;;
+      isync-build) logicos+=(cc libc-dev make perl sasl-dev ssl-dev zlib-dev pkg-config) ;;
+      -|plugin-xoauth2|'') ;;
+      *.so|*.so.*) if n=$(pk_pacote_lib "$ger" "$t"); then libs+=("$n"); else sem+=("$t"); fi ;;
+      *) logicos+=("$t") ;;
+    esac
+  done
+  pk_resolver "$ger" ${logicos[@]+"${logicos[@]}"}
+  for n in ${libs[@]+"${libs[@]}"}; do
+    case " ${PK_PACOTES[*]-} " in *" $n "*) ;; *) PK_PACOTES+=("$n") ;; esac
+  done
+  PK_SEM_PACOTE+=(${sem[@]+"${sem[@]}"})
 }
 
-# Resposta do usuário por pendência: arquivo com a hora da recusa (vale 7 dias, o comportamento
-# antigo), "nunca" (não instalar e não avisar de novo) ou uma hora no passado que faz o aviso
-# voltar em 1 dia ("mais tarde").
+pacotes_do_gerenciador() { # GER item… → nomes de pacote, um por linha (compatibilidade)
+  pend_resolver "$@" || return 1
+  printf '%s\n' ${PK_PACOTES[@]+"${PK_PACOTES[@]}"}
+}
+
+# TT_FINGE_FALTA lista comandos tratados como ausentes (testes); TT_FINGE_FALTA_ARQ aponta para um arquivo
+# com a mesma lista, que um gerenciador de mentira esvazia ao "instalar".
+finge_falta() { # nome → 0 se os testes mandam tratá-lo como ausente
+  local f=${TT_FINGE_FALTA:-}
+  [[ -n ${TT_FINGE_FALTA_ARQ:-} && -r $TT_FINGE_FALTA_ARQ ]] && f+=" $(cat "$TT_FINGE_FALTA_ARQ")"
+  case " $f " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+falta_cmd() {
+  finge_falta "$1" && return 0
+  ! command -v "$1" >/dev/null 2>&1
+}
+pend_faltam() { local c; for c in "$@"; do falta_cmd "$c" && printf '%s ' "$c"; done | sed 's/ $//'; }
+
+# Resposta do usuário por pendência: arquivo com a hora da recusa (vale 7 dias), "nunca" (não instalar e
+# não avisar de novo) ou uma hora no passado que faz o aviso voltar em 1 dia ("mais tarde").
 sudo_recusa_nunca() { [[ $(cat "$(sudo_recusa_arq "$1")" 2>/dev/null) == nunca ]]; }
 sudo_recusa_gravar() { # id nunca|tarde|semana
   mkdir -p "$ESTADO_DIR"
@@ -3659,20 +3657,56 @@ sudo_recusa_arq() {
     *) echo "$ESTADO_DIR/sudo-recusado-$1" ;;
   esac
 }
+pend_recusado() { # id → 0 se o usuário recusou ou adiou (não perguntar agora)
+  local id=$1 v agora; agora=$(date +%s)
+  sudo_recusa_nunca "$id" && return 0
+  v=$(cat "$(sudo_recusa_arq "$id")" 2>/dev/null || echo 0); [[ $v =~ ^[0-9]+$ ]] || v=0
+  (( agora - v < 604800 )) && return 0
+  case $id in   # a pendência "navegadores" de antes valia para os dois
+    chrome|carbonyl)
+      sudo_recusa_nunca navegadores && return 0
+      v=$(cat "$(sudo_recusa_arq navegadores)" 2>/dev/null || echo 0); [[ $v =~ ^[0-9]+$ ]] || v=0
+      (( agora - v < 604800 )) && return 0 ;;
+  esac
+  return 1
+}
 
 tem_conta_email() { compgen -G "$EMAIL_DIR/*.conf" >/dev/null 2>&1; }
 
-# Bibliotecas do sistema que faltam ao Chrome/Carbonyl baixados (ldd "not found" → pseudo-pacotes,
-# que pacotes_do_gerenciador traduz por gerenciador). Sem elas os dois morrem calados ao abrir.
+# 1.2 < 1.10: compara versões numéricas pontuadas. Versão vazia (não deu para ler) nunca é "velha".
+versao_de() { "$@" 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)+' | head -1; }
+versao_menor() { # A B → 0 se A < B
+  [[ -n $1 ]] || return 1
+  awk -v a="$1" -v b="$2" 'BEGIN { na = split(a, x, "."); nb = split(b, y, "."); n = (na > nb ? na : nb)
+    for (i = 1; i <= n; i++) { if ((x[i]+0) < (y[i]+0)) exit 0; if ((x[i]+0) > (y[i]+0)) exit 1 } exit 1 }'
+}
+
+# Biblioteca presente no sistema? (o ldd não vê o que o navegador carrega em tempo de execução)
+lib_presente() {
+  local l
+  for l in ldconfig /sbin/ldconfig /usr/sbin/ldconfig; do
+    command -v "$l" >/dev/null 2>&1 || continue
+    "$l" -p 2>/dev/null | grep -qF "$1" && return 0
+  done
+  compgen -G "/usr/lib*/$1" >/dev/null 2>&1 || compgen -G "/usr/lib/*/$1" >/dev/null 2>&1 || compgen -G "/lib*/$1" >/dev/null 2>&1
+}
+
+# Bibliotecas que faltam ao Chrome e ao Carbonyl baixados: o que o ldd acusa ("not found"), mais as que o
+# Chrome carrega depois, e fontes (sem nenhuma, a tela do navegador sai em quadradinhos). Imprime
+# nomes de arquivo (libnss3.so…) e o lógico fonts-liberation; o pk_pacote_lib traduz por distro.
 chrome_libs_faltando() {
-  local alvo
-  for alvo in "$(bin_chromium)" "$(bin_carbonyl)"; do [[ -x $alvo ]] && break; alvo=""; done
-  [[ -n $alvo ]] || return 0
-  ldd "$alvo" 2>/dev/null | awk '/not found/ {print $1}' | sed \
-    -e 's/^libnspr4\.so.*/libnspr4/' -e 's/^lib\(nss3\|nssutil3\|smime3\|ssl3\)\.so.*/libnss3/' \
-    -e 's/^libasound\.so.*/libasound2/' -e 's/^libgbm\.so.*/libgbm1/' \
-    -e 's/^libxkbcommon\.so.*/libxkbcommon0/' -e 's/^libgtk-3\.so.*/libgtk-3-0/' |
-    grep -v '\.so' | awk '!v[$0]++' | tr '\n' ' ' | sed 's/ $//'
+  [[ -n ${TT_FINGE_CHROME_LIBS_ARQ:-} ]] && { tr '\n' ' ' <"$TT_FINGE_CHROME_LIBS_ARQ" 2>/dev/null | sed 's/ *$//'; return 0; }
+  [[ -n ${TT_FINGE_CHROME_LIBS:-} ]] && { echo "$TT_FINGE_CHROME_LIBS"; return 0; }
+  local alvo so out=""
+  for alvo in "$(bin_chromium)" "$(bin_carbonyl)"; do
+    [[ -x $alvo ]] || continue
+    out+=$'\n'$(ldd "$alvo" 2>/dev/null | awk '/not found/ {print $1}')
+  done
+  if [[ -x $(bin_chromium) ]]; then
+    for so in libgtk-3.so.0 libvulkan.so.1 libudev.so.1; do lib_presente "$so" || out+=$'\n'$so; done
+    [[ -z $(fc-list 2>/dev/null | head -1) ]] && out+=$'\n'fonts-liberation
+  fi
+  printf '%s\n' "$out" | awk 'NF && !v[$0]++' | tr '\n' ' ' | sed 's/ $//'
 }
 
 # --- Plugin XOAUTH2 do Cyrus SASL (contas Google com auth=oauth e sync local) ---------------------
@@ -3686,7 +3720,8 @@ XOAUTH2_SHA256=${TT_XOAUTH2_SHA256:-a62c26566098100d30aa254e4c1aa4309876b470f139
 
 sasl_dirs_sistema() {
   local d
-  for d in /usr/lib/*/sasl2 /usr/lib64/sasl2 /usr/lib/sasl2 /usr/local/lib/sasl2 /opt/homebrew/lib/sasl2 /opt/homebrew/opt/cyrus-sasl/lib/sasl2; do
+  for d in /usr/lib/*/sasl2 /usr/lib64/sasl2 /usr/lib/sasl2 /usr/local/lib/sasl2 /usr/pkg/lib/sasl2 /opt/homebrew/lib/sasl2 \
+           /opt/homebrew/opt/cyrus-sasl/lib/sasl2 /usr/local/opt/cyrus-sasl/lib/sasl2 "${PREFIX:-/nonexistent}/lib/sasl2"; do
     [[ -d $d ]] && echo "$d"
   done | awk '!v[$0]++'
 }
@@ -3701,25 +3736,32 @@ xoauth2_necessario() { # há conta com login OAuth e sync local?
 }
 
 xoauth2_presente() {
-  case " ${TT_FINGE_FALTA:-} " in *" xoauth2 "*) return 1 ;; esac
+  finge_falta xoauth2 && return 1
   [[ -e $DIR_SASL/libxoauth2.so ]] && return 0
   local d
   while IFS= read -r d; do compgen -G "$d/libxoauth2.*" >/dev/null && return 0; done < <(sasl_dirs_sistema)
   return 1
 }
 
-sasl_cabecalho_dir() { # onde está sasl/sasl.h
-  local d
-  for d in ${TT_SASL_INCLUDE:-} /usr/include /usr/local/include /opt/homebrew/include /opt/homebrew/opt/cyrus-sasl/include; do
-    [[ -f $d/sasl/sasl.h ]] && { echo "$d"; return 0; }
+# Pasta que contém ARQUIVO (sasl/sasl.h, openssl/ssl.h, zlib.h…). TT_SASL_INCLUDE vale para os testes e
+# para quem tem os cabeçalhos num lugar incomum.
+cabecalho_dir() { # arquivo → pasta
+  local d b
+  b=$(command -v brew 2>/dev/null) && b=$(brew --prefix 2>/dev/null)
+  for d in ${TT_SASL_INCLUDE:-} /usr/include /usr/local/include "${PREFIX:-/nonexistent}/include" /usr/pkg/include /opt/homebrew/include \
+           ${b:+$b/include} /opt/homebrew/opt/cyrus-sasl/include /opt/homebrew/opt/openssl@3/include /usr/local/opt/cyrus-sasl/include \
+           /usr/local/opt/openssl@3/include /usr/include/"$(uname -m)"-linux-gnu; do
+    [[ -f $d/$1 ]] && { echo "$d"; return 0; }
   done
   return 1
 }
+sasl_cabecalho_dir() { cabecalho_dir sasl/sasl.h; }
 
-xoauth2_deps_faltam() { # falta o compilador ou os cabeçalhos do SASL?
-  falta_cmd cc && falta_cmd gcc && return 0
-  case " ${TT_FINGE_FALTA:-} " in *" xoauth2-build "*) return 0 ;; esac
+xoauth2_deps_faltam() { # falta o compilador ou os cabeçalhos do SASL (e do OpenSSL, que o saslplug.h puxa)?
+  falta_cmd cc && falta_cmd gcc && falta_cmd clang && return 0
+  finge_falta xoauth2-build && return 0
   sasl_cabecalho_dir >/dev/null || return 0
+  cabecalho_dir openssl/md5.h >/dev/null || return 0
   return 1
 }
 
@@ -3733,110 +3775,446 @@ xoauth2_ambiente() {
 }
 
 xoauth2_construir() {
-  local tmp inc cc rc=0
+  local tmp inc inc2 cc rc=0 flags
   [[ -e $DIR_SASL/libxoauth2.so ]] && return 0
-  cc=$(command -v cc || command -v gcc) || { echo "✗ sem compilador (cc/gcc)." >&2; return 1; }
+  pacotes_lib || return 1
+  cc=$(command -v cc || command -v gcc || command -v clang) || { echo "✗ sem compilador (cc/gcc/clang)." >&2; return 1; }
   inc=$(sasl_cabecalho_dir) || { echo "✗ sem os cabeçalhos do Cyrus SASL (sasl/sasl.h)." >&2; return 1; }
-  command -v curl >/dev/null 2>&1 || { echo "✗ sem curl." >&2; return 1; }
+  inc2=$(cabecalho_dir openssl/md5.h) || { echo "✗ sem os cabeçalhos do OpenSSL (openssl/md5.h)." >&2; return 1; }
   tmp=$(mktemp -d) || return 1
   echo "  Baixando e compilando o plugin XOAUTH2…"
-  if curl -fsSL -m 60 -o "$tmp/x.tgz" "$XOAUTH2_URL" 2>/dev/null &&
-     [[ $( (sha256sum "$tmp/x.tgz" 2>/dev/null || shasum -a 256 "$tmp/x.tgz") | awk '{print $1}') == "$XOAUTH2_SHA256" ]] &&
+  case $(pk_so) in macos) flags=(-dynamiclib -undefined dynamic_lookup) ;; *) flags=(-shared) ;; esac
+  if pk_baixar "$XOAUTH2_URL" "$tmp/x.tgz" "$XOAUTH2_SHA256" 5 &&
      tar xzf "$tmp/x.tgz" -C "$tmp" --strip-components=1 &&
-     (cd "$tmp" && "$cc" -O2 -fPIC -shared -I"$inc" -o libxoauth2.so xoauth2_str.c xoauth2_init.c xoauth2_server.c xoauth2_client.c 2>"$tmp/erro.txt") &&
+     (cd "$tmp" && "$cc" -O2 -fPIC "${flags[@]}" -I"$inc" -I"$inc2" -o libxoauth2.so xoauth2_str.c xoauth2_init.c xoauth2_server.c xoauth2_client.c 2>"$tmp/erro.txt") &&
      mkdir -p "$DIR_SASL" && cp "$tmp/libxoauth2.so" "$DIR_SASL/libxoauth2.so.new" && mv -f "$DIR_SASL/libxoauth2.so.new" "$DIR_SASL/libxoauth2.so"; then
     echo "  ✓ Plugin XOAUTH2 pronto em $DIR_SASL"
   else
     rc=1; echo "  ✗ Não consegui montar o plugin XOAUTH2 (rede, sha256 ou compilação)." >&2
-    [[ -s $tmp/erro.txt ]] && head -5 "$tmp/erro.txt" >&2
+    [[ -s $tmp/erro.txt ]] && grep -E 'error|Error' "$tmp/erro.txt" | head -5 >&2
   fi
   rm -rf "$tmp"; return $rc
 }
 
-# Lista as pendências (id<TAB>comandos que faltam<TAB>por quê). Sem argumentos: as desta máquina,
-# fora as recusadas há menos de 7 dias, as adiadas ("mais tarde", 1 dia) e as que ele pediu para
-# nunca mais avisar. Com ids ou TT_PEND_TODAS=1: SEM olhar a recusa (o usuário acabou de pedir pela
-# interface).
-sudo_pendencias() {
-  local -a so=("$@"); local agora; agora=$(date +%s)
-  cabe() { # a pendência $1 entra? (está nos ids pedidos; ou, sem ids, não foi recusada há <7d)
-    local c
-    if ((${#so[@]})); then
-      for c in "${so[@]}"; do [[ $c == "$1" ]] && return 0; done; return 1
-    fi
-    [[ -n ${TT_PEND_TODAS:-} ]] && return 0   # "reavaliar pendências": ignora toda resposta anterior
-    sudo_recusa_nunca "$1" && return 1
-    (( agora - $(cat "$(sudo_recusa_arq "$1")" 2>/dev/null || echo 0) >= 604800 ))
-  }
-  pend() {
-    local id=$1 cmds=$2 motivo=$3 c f=""
-    cabe "$id" || return 0
-    for c in $cmds; do falta_cmd "$c" && f+="$c "; done
-    [[ -n $f ]] || return 0
-    printf '%s\t%s\t%s\n' "$id" "${f% }" "$motivo"
-  }
-  pend_pronta() { # como pend, mas a lista do que falta já vem pronta (não são comandos)
-    cabe "$1" || return 0
-    printf '%s\t%s\t%s\n' "$1" "$2" "$3"
-  }
-  navegadores_graficos_ok && pend navegadores "curl unzip" "baixar o Google Chrome e o Carbonyl, que abrem os links do e-mail (os navegadores em si ficam na sua pasta, sem sudo)"
-  local libs; libs=${TT_FINGE_CHROME_LIBS:-$(chrome_libs_faltando)}
-  [[ -n $libs ]] && pend_pronta chrome-libs "$libs" "bibliotecas do sistema sem as quais o Chrome e o Carbonyl baixados não abrem"
-  if xoauth2_necessario && ! xoauth2_presente; then
-    local xo=plugin-xoauth2; xoauth2_deps_faltam && xo=xoauth2-build
-    case $(gerenciador_pacotes) in pkg) ;; *)
-      pend_pronta email-xoauth2 "$xo" "contas de e-mail com login OAuth (Google) só sincronizam com o plugin XOAUTH2 do SASL; o tt o compila (4 arquivos C, ~1 s) na sua pasta, sem tocar no sistema" ;;
-    esac
-  fi
-  if tem_conta_email || ((${#so[@]})); then
-    pend email-sync "mbsync" "sync local do e-mail: espelho offline, abre na hora e funciona sem rede"
-    pend email-html "w3m" "mostrar e-mails em HTML bem (tabelas, cores, links)"
-    pend email-editor "vim" "escrever e-mails no editor padronizado do tt (largura certa, ortografia em português)"
-  fi
+# --- isync (mbsync) com suporte a SASL ------------------------------------------------------------
+# Várias distribuições empacotam o isync SEM LibSASL (o do Termux, por exemplo): com ele o mbsync só sabe
+# LOGIN e as contas OAuth falham com "built without LibSASL". Nesse caso o tt compila o isync com SASL em
+# DIR_ISYNC (sem administrador; só o compilador e os cabeçalhos vêm do gerenciador) e o mbsync_bin o usa.
+DIR_ISYNC=$HOME/.local/share/tt-isync
+ISYNC_URL=${TT_ISYNC_URL:-https://downloads.sourceforge.net/project/isync/isync/1.5.1/isync-1.5.1.tar.gz}
+ISYNC_SHA256=${TT_ISYNC_SHA256:-28cc90288036aa5b6f5307bfc7178a397799003b96f7fd6e4bd2478265bb22fa}
+
+mbsync_bin() {
+  if [[ -n ${TT_MBSYNC:-} ]]; then echo "$TT_MBSYNC"
+  elif [[ -x $DIR_ISYNC/bin/mbsync ]]; then echo "$DIR_ISYNC/bin/mbsync"
+  else echo mbsync; fi
+}
+mbsync_presente() { [[ -x $DIR_ISYNC/bin/mbsync ]] || ! falta_cmd "$(mbsync_bin)"; }
+
+# O mbsync em uso sabe SASL? Sonda sem rede: uma conta fictícia com AuthMechs XOAUTH2; a versão sem SASL
+# recusa a configuração na hora ("built without LibSASL"), a com SASL só tenta conectar (e falha à toa).
+mbsync_tem_sasl() {
+  finge_falta isync-sem-sasl && return 1
+  local bin d out rc; bin=$(mbsync_bin)
+  command -v "$bin" >/dev/null 2>&1 || return 0
+  d=$(mktemp -d) || return 0
+  printf 'IMAPAccount p\nHost 127.0.0.1\nPort 1\nUser x\nPass x\nAuthMechs XOAUTH2\nTLSType None\nIMAPStore p-r\nAccount p\nMaildirStore p-l\nPath %s/m/\nChannel p\nFar :p-r:\nNear :p-l:\n' "$d" >"$d/rc"
+  if command -v timeout >/dev/null 2>&1; then out=$(timeout 10 "$bin" -c "$d/rc" -l p 2>&1); rc=$?
+  else out=$("$bin" -c "$d/rc" -l p 2>&1); rc=$?; fi
+  rm -rf "$d"
+  grep -qiE 'without LibSASL|LibSASL' <<<"$out" && return 1
   return 0
 }
 
-# tt --pedir-sudo [id…]: o modal. Mostra as pendências (o quê, por quê, o comando exato) e oferece
-# [a] instalar tudo, [s] selecionar o que instalar, [r] recusar. Só então roda o sudo NO PRÓPRIO
-# terminal do modal, onde o sudo pede a senha: o tt nunca lê, guarda nem registra a senha.
-# TT_TTY troca o terminal de leitura (testes). Código de saída 0 = instalou o que foi aceito.
+isync_deps_faltam() { # faltam compilador, make, perl, tar, curl ou cabeçalhos (SASL, OpenSSL, zlib)?
+  finge_falta isync-build && return 0
+  falta_cmd cc && falta_cmd gcc && falta_cmd clang && return 0
+  falta_cmd make && falta_cmd gmake && return 0
+  falta_cmd perl && return 0
+  falta_cmd curl && return 0
+  falta_cmd tar && return 0
+  cabecalho_dir sasl/sasl.h >/dev/null || return 0
+  cabecalho_dir openssl/ssl.h >/dev/null || return 0
+  cabecalho_dir zlib.h >/dev/null || return 0
+  return 1
+}
+
+isync_sasl_construir() {
+  local tmp mk jobs inc_s inc_o inc_z lib extra="" b rc=0
+  [[ -x $DIR_ISYNC/bin/mbsync ]] && "$DIR_ISYNC/bin/mbsync" -V >/dev/null 2>&1 && return 0
+  pacotes_lib || return 1
+  mk=$(command -v gmake || command -v make) || { echo "✗ sem make." >&2; return 1; }
+  inc_s=$(cabecalho_dir sasl/sasl.h) || { echo "✗ sem os cabeçalhos do Cyrus SASL." >&2; return 1; }
+  inc_o=$(cabecalho_dir openssl/ssl.h) || { echo "✗ sem os cabeçalhos do OpenSSL." >&2; return 1; }
+  inc_z=$(cabecalho_dir zlib.h) || { echo "✗ sem os cabeçalhos do zlib." >&2; return 1; }
+  tmp=$(mktemp -d) || return 1
+  jobs=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+  echo "  Baixando e compilando o isync com SASL (alguns minutos)…"
+  # Cabeçalhos/bibliotecas fora do lugar padrão (Homebrew, pkgsrc): o configure os acha por estas variáveis.
+  local ldf=""
+  for b in "$inc_s" "$inc_o" "$inc_z"; do
+    case $b in /usr/include|/usr/local/include) ;; *) extra+=" -I$b"; [[ -d ${b%/include}/lib ]] && ldf+=" -L${b%/include}/lib" ;; esac
+  done
+  if pk_baixar "$ISYNC_URL" "$tmp/i.tgz" "$ISYNC_SHA256" 60 &&
+     tar xzf "$tmp/i.tgz" -C "$tmp" --strip-components=1 &&
+     (cd "$tmp" && CPPFLAGS="${CPPFLAGS:-}$extra" LDFLAGS="${LDFLAGS:-}$ldf" ./configure --prefix="$DIR_ISYNC" >"$tmp/configure.log" 2>&1 &&
+        grep -q '^Using SASL' "$tmp/configure.log" && "$mk" -j"$jobs" >"$tmp/make.log" 2>&1 && "$mk" install >>"$tmp/make.log" 2>&1) &&
+     [[ -x $DIR_ISYNC/bin/mbsync ]]; then
+    echo "  ✓ isync com SASL pronto em $DIR_ISYNC"
+  else
+    rc=1; echo "  ✗ Não consegui compilar o isync com SASL." >&2
+    if [[ -s $tmp/configure.log ]] && ! grep -q '^Using SASL' "$tmp/configure.log"; then echo "    (o configure não achou o LibSASL; faltam os cabeçalhos?)" >&2; fi
+    [[ -s $tmp/make.log ]] && grep -E 'error|Error' "$tmp/make.log" | head -5 >&2
+    rm -rf "$DIR_ISYNC"
+  fi
+  rm -rf "$tmp"; return $rc
+}
+
+# --- fzf atual, sem administrador -----------------------------------------------------------------
+# A central pede o fzf 0.60 ou mais novo; Ubuntu LTS e Debian estável trazem versões bem mais velhas. O
+# binário oficial (um arquivo só, em Go) vai para DIR_BIN_TT, que o tt põe na frente do PATH.
+FZF_MINIMO=0.60
+FZF_VERSAO=0.74.4
+
+fzf_asset() { # → "arquivo sha256" do release oficial para esta plataforma (rc 1 se não houver)
+  pacotes_lib || return 1
+  local k; k="$(pk_so)-$(pk_arch)"; [[ $(pk_ambiente) == termux ]] && k=android-aarch64
+  case $k in
+    linux-x86_64)   echo "linux_amd64 05e6813a337cc722c3ed07e54a764b75cc5d671e2e60459db0ba696ee5fa7504" ;;
+    linux-aarch64)  echo "linux_arm64 5d673b849f494f0d64ec471d8640b153ca8849e3846a31da17abdcfce8df6b46" ;;
+    linux-armv7)    echo "linux_armv7 0c6e61c89e0932e65b89e6db414c67803b5c10c374ed6a3ab1e14e805eea8486" ;;
+    android-aarch64) echo "android_arm64 dc32053d375160bdd55c001545884ca8333edff69f25defe8a658ad42ea24858" ;;
+    macos-x86_64)   echo "darwin_amd64 2d392b50be66e2ab104ccd52a6072df692b1f9b9c5b449a9c098de885f32c4c5" ;;
+    macos-aarch64)  echo "darwin_arm64 4f6a113bfc0c7959e0005c78d566a51afc4fcefc956f43735c62a9deb19e92ae" ;;
+    freebsd-x86_64) echo "freebsd_amd64 ecefbaa7cb0f85da5b653257a77d804e95cd9d2e203a96c03197adc1badd64b1" ;;
+    openbsd-x86_64) echo "openbsd_amd64 9ce54b78cd0300ced4e2c793b01ed5801fb06245d32427aa9a43883e06c3b715" ;;
+    *) return 1 ;;
+  esac
+}
+
+fzf_instalar() {
+  local a plat sha url tmp
+  a=$(fzf_asset) || { echo "✗ não há fzf pronto para esta plataforma; atualize pelo gerenciador de pacotes." >&2; return 1; }
+  plat=${a%% *}; sha=${a##* }
+  url=${TT_FZF_URL:-https://github.com/junegunn/fzf/releases/download/v$FZF_VERSAO/fzf-$FZF_VERSAO-$plat.tar.gz}
+  sha=${TT_FZF_SHA256:-$sha}
+  tmp=$(mktemp -d) || return 1
+  echo "  Baixando o fzf $FZF_VERSAO…"
+  if pk_baixar "$url" "$tmp/f.tgz" "$sha" 20 && tar xzf "$tmp/f.tgz" -C "$tmp" fzf 2>/dev/null &&
+     mkdir -p "$DIR_BIN_TT" && cp "$tmp/fzf" "$DIR_BIN_TT/fzf.novo" && chmod +x "$DIR_BIN_TT/fzf.novo" && mv -f "$DIR_BIN_TT/fzf.novo" "$DIR_BIN_TT/fzf"; then
+    case ":$PATH:" in *":$DIR_BIN_TT:"*) ;; *) PATH=$DIR_BIN_TT:$PATH ;; esac   # vale já neste processo (a conferência, a central)
+    rm -rf "$tmp"; echo "  ✓ fzf $FZF_VERSAO em $DIR_BIN_TT"; return 0
+  fi
+  rm -rf "$tmp"; echo "  ✗ Não consegui instalar o fzf." >&2; return 1
+}
+
+# --- Catálogo de pendências ---------------------------------------------------------------------
+#
+# Tudo o que o tt pode querer instalar nesta máquina, em um só lugar. Cada item sabe (1) se faz sentido
+# aqui, (2) o que falta do gerenciador de pacotes (administrador), (3) se há passo que só baixa/compila na
+# pasta do usuário e (4) quão importante é: essencial (o tt degrada sem), recurso (de uma função em uso)
+# ou opcional (conforto). O vigia só avisa de essencial e recurso; o menu administrar → 📦 mostra tudo.
+PEND_IDS=(nucleo fzf-novo tmux-antigo email-aerc email-sync isync-sasl email-xoauth2 email-html email-editor email-spell
+          chrome carbonyl chrome-libs clipboard notificacoes xdg-utils termux-api pv mosh nomeador-local)
+
+CHROME_TAM="~120 MB"; CARBONYL_TAM="~60 MB"
+
+# pend_avaliar ID — preenche P_APLICA (1 se faz sentido nesta máquina), P_NIVEL, P_SYS (itens do
+# gerenciador que faltam), P_USR (1 = há passo sem administrador a fazer), P_MANUAL (texto: o tt não
+# resolve sozinho), P_ROTULO, P_MOTIVO e P_TAM.
+declare -A PEND_ROTULOS=(
+  [nucleo]="ferramentas básicas" [fzf-novo]="fzf atual" [tmux-antigo]="tmux atual" [email-aerc]="aerc (cliente de e-mail)"
+  [email-sync]="mbsync (isync)" [isync-sasl]="isync com SASL" [email-xoauth2]="plugin XOAUTH2 do SASL" [email-html]="w3m"
+  [email-editor]="vim" [email-spell]="dicionário de português do vim" [chrome]="Google Chrome interno"
+  [carbonyl]="Carbonyl (navegador no terminal)" [chrome-libs]="bibliotecas do Chrome e do Carbonyl"
+  [clipboard]="área de transferência (wl-clipboard/xclip)" [notificacoes]="notificações da área de trabalho (notify-send)"
+  [xdg-utils]="abrir links no navegador do sistema (xdg-utils)" [termux-api]="Termux:API" [pv]="barra de progresso das transferências (pv)" [mosh]="mosh (acesso pelo celular)" [nomeador-local]="nomeador local de abas")
+pend_avaliar() {
+  pacotes_lib || return 1
+  local id=$1 v cli
+  P_APLICA=1; P_NIVEL=recurso; P_SYS=""; P_USR=0; P_MANUAL=""; P_ROTULO=${PEND_ROTULOS[$id]:-$id}; P_MOTIVO=""; P_TAM=""
+  case $id in
+    nucleo)
+      P_NIVEL=essencial; P_ROTULO="ferramentas básicas"
+      P_MOTIVO="o tt precisa delas para funcionar (central, painéis, sincronização e atualização)"
+      P_SYS=$(pend_faltam bash tmux fzf python3 ssh tar rg git curl) ;;
+    fzf-novo)
+      P_NIVEL=essencial; P_ROTULO="fzf atual"; P_TAM="~4 MB"
+      v=${TT_FINGE_FZF_VERSAO:-$(versao_de fzf --version)}
+      if falta_cmd fzf || ! versao_menor "$v" "$FZF_MINIMO" || ! fzf_asset >/dev/null; then P_APLICA=0; return 0; fi
+      P_MOTIVO="o fzf daqui é o $v; a central e os menus pedem o $FZF_MINIMO ou mais novo (baixo o oficial para a sua pasta)"
+      P_USR=1; P_SYS=$(pend_faltam curl tar) ;;
+    tmux-antigo)
+      P_NIVEL=essencial; P_ROTULO="tmux atual"
+      v=${TT_FINGE_TMUX_VERSAO:-$(versao_de tmux -V)}
+      if falta_cmd tmux || ! versao_menor "$v" 3.4; then P_APLICA=0; return 0; fi
+      P_MOTIVO="o tmux daqui é o $v; popups, barra e mouse do tt pedem o 3.4 ou mais novo"
+      P_MANUAL="atualize o tmux pelo gerenciador de pacotes ou compile a versão 3.4+ (Debian/Ubuntu antigos: backports ou PPA)" ;;
+    email-aerc)
+      cli=$(conf email); cli=${cli%% *}
+      [[ -z $cli || ${cli##*/} == aerc ]] || { P_APLICA=0; return 0; }
+      # Com conta cadastrada o e-mail está em uso (recurso); sem conta é só conforto (opcional, e o botão 📧 oferece na hora).
+      tem_conta_email || P_NIVEL=opcional
+      P_ROTULO="aerc (cliente de e-mail)"; P_MOTIVO="abre o e-mail do 📧; sem ele o botão só avisa que falta"
+      P_SYS=$(pend_faltam aerc) ;;
+    email-sync)
+      tem_conta_email || { P_APLICA=0; return 0; }
+      P_ROTULO="mbsync (isync)"; P_MOTIVO="sync local do e-mail: espelho offline, abre na hora e funciona sem rede"
+      mbsync_presente || P_SYS=mbsync ;;
+    isync-sasl)
+      xoauth2_necessario && mbsync_presente || { P_APLICA=0; return 0; }
+      P_ROTULO="isync com SASL"; P_TAM="~1 MB"
+      P_MOTIVO="o mbsync daqui foi compilado sem LibSASL e não entra por OAuth (conta Google); o tt compila um com SASL na sua pasta"
+      mbsync_tem_sasl && return 0
+      P_USR=1; isync_deps_faltam && P_SYS=isync-build ;;
+    email-xoauth2)
+      xoauth2_necessario || { P_APLICA=0; return 0; }
+      P_ROTULO="plugin XOAUTH2 do SASL"
+      P_MOTIVO="contas de e-mail com login OAuth (Google) só sincronizam com o plugin XOAUTH2 do SASL; o tt o compila (4 arquivos C, ~1 s) na sua pasta, sem tocar no sistema"
+      xoauth2_presente && return 0
+      P_USR=1; xoauth2_deps_faltam && P_SYS="xoauth2-build $(pend_faltam curl)"; P_SYS=${P_SYS% } ;;
+    email-html)
+      tem_conta_email || { P_APLICA=0; return 0; }
+      P_ROTULO="w3m"; P_MOTIVO="mostrar e-mails em HTML bem (tabelas, cores, links)"
+      P_SYS=$(pend_faltam w3m) ;;
+    email-editor)
+      tem_conta_email || { P_APLICA=0; return 0; }
+      P_ROTULO="vim"; P_MOTIVO="escrever e-mails no editor padronizado do tt (largura certa, ortografia em português)"
+      P_SYS=$(pend_faltam vim) ;;
+    email-spell)
+      tem_conta_email && ! falta_cmd vim || { P_APLICA=0; return 0; }
+      P_NIVEL=opcional; P_ROTULO="dicionário de português do vim"; P_TAM="~3 MB"
+      P_MOTIVO="corretor ortográfico em português ao escrever e-mails"
+      email_vim_spell_tem && return 0
+      P_USR=1; P_SYS=$(pend_faltam curl) ;;
+    chrome)
+      navegadores_graficos_ok && ambiente_grafico && [[ -z ${TT_PEND_SEM_NAVEGADORES:-} ]] || { P_APLICA=0; return 0; }
+      P_ROTULO="Google Chrome interno"; P_TAM=$CHROME_TAM
+      P_MOTIVO="abre os links do e-mail e do terminal numa janela gráfica (baixado para ~/.local/share/tt-navegadores, sem sudo)"
+      [[ -x $(bin_chromium) ]] && return 0
+      P_USR=1; P_SYS=$(pend_faltam curl) ;;
+    carbonyl)
+      navegadores_graficos_ok && [[ -z ${TT_PEND_SEM_NAVEGADORES:-} ]] || { P_APLICA=0; return 0; }
+      P_ROTULO="Carbonyl (navegador no terminal)"; P_TAM=$CARBONYL_TAM
+      P_MOTIVO="abre os links dentro do próprio terminal, sem janela gráfica (baixado para ~/.local/share/tt-navegadores, sem sudo)"
+      [[ -x $(bin_carbonyl) ]] && return 0
+      P_USR=1; P_SYS=$(pend_faltam curl unzip) ;;
+    chrome-libs)
+      [[ -x $(bin_chromium) || -x $(bin_carbonyl) || -n ${TT_FINGE_CHROME_LIBS:-}${TT_FINGE_CHROME_LIBS_ARQ:-} ]] || { P_APLICA=0; return 0; }
+      P_ROTULO="bibliotecas do Chrome e do Carbonyl"
+      P_MOTIVO="bibliotecas do sistema sem as quais o Chrome e o Carbonyl baixados não abrem"
+      P_SYS=$(chrome_libs_faltando) ;;
+    clipboard)
+      [[ $(pk_so) == linux && $(pk_ambiente) == nativo ]] && ambiente_grafico || { P_APLICA=0; return 0; }
+      P_NIVEL=opcional; P_ROTULO="área de transferência (wl-clipboard/xclip)"
+      P_MOTIVO="copiar do tt para a área de transferência do sistema (sem isso a cópia vai só pelo terminal, OSC 52)"
+      falta_cmd wl-copy && falta_cmd xclip || return 0
+      if [[ -n ${WAYLAND_DISPLAY:-} ]]; then P_SYS=wl-copy; else P_SYS=xclip; fi ;;
+    notificacoes)
+      [[ $(pk_so) == linux && $(pk_ambiente) == nativo ]] && ambiente_grafico || { P_APLICA=0; return 0; }
+      P_NIVEL=opcional; P_ROTULO="notificações da área de trabalho (notify-send)"
+      P_MOTIVO="avisos do tt (e-mail novo, tarefas, agentes) como notificação do sistema"
+      P_SYS=$(pend_faltam notify-send) ;;
+    xdg-utils)
+      [[ $(pk_so) == linux && $(pk_ambiente) == nativo ]] && ambiente_grafico || { P_APLICA=0; return 0; }
+      P_NIVEL=opcional; P_ROTULO=${PEND_ROTULOS[xdg-utils]}; P_MOTIVO="abrir links no navegador padrão do sistema"
+      P_SYS=$(pend_faltam xdg-open) ;;
+    termux-api)
+      [[ $(pk_ambiente) == termux ]] || { P_APLICA=0; return 0; }
+      P_ROTULO="Termux:API"; P_MOTIVO="notificações, área de transferência e abrir links no celular (precisa também do app Termux:API instalado no Android)"
+      falta_cmd termux-notification && P_SYS=termux-api ;;
+    pv)
+      P_NIVEL=opcional; P_ROTULO=${PEND_ROTULOS[pv]}; P_MOTIVO="barra de progresso nas transferências de arquivos entre máquinas"
+      P_SYS=$(pend_faltam pv) ;;
+    mosh)
+      P_NIVEL=opcional; P_ROTULO=${PEND_ROTULOS[mosh]}; P_MOTIVO="entrar nesta máquina pelo celular sem a conexão cair (mosh)"
+      P_SYS=$(pend_faltam mosh) ;;
+    nomeador-local)
+      [[ $(conf nomeador) == local ]] || { P_APLICA=0; return 0; }
+      P_ROTULO="nomeador local de abas"; P_TAM="1–2,5 GB"
+      P_MOTIVO="você escolheu o nomeador local (modelo que roda só aqui); falta baixar o motor e o modelo"
+      [[ $(python3 -I "$DIR_TT/nomeador-local.py" estado 2>/dev/null | sed -n 's/^instalado=//p') == 1 ]] && return 0
+      P_USR=1; P_SYS=$(pend_faltam curl) ;;
+    *) P_APLICA=0 ;;
+  esac
+  return 0
+}
+
+pend_rotulo() { # id → nome para mostrar
+  pend_avaliar "$1" 2>/dev/null; echo "$P_ROTULO"
+}
+
+pend_estado() { # id → na | ok | falta | manual
+  pend_avaliar "$1" || { echo na; return; }
+  ((P_APLICA)) || { echo na; return; }
+  [[ -n $P_MANUAL ]] && { echo manual; return; }
+  [[ -n $P_SYS || $P_USR == 1 ]] && echo falta || echo ok
+}
+
+# Lista as pendências desta máquina, uma por linha: id<TAB>itens do gerenciador (ou -)<TAB>motivo<TAB>tipo
+# (sistema|usuario|misto)<TAB>nível. Sem argumentos: essencial e recurso, fora as recusadas há menos de 7
+# dias, as adiadas ("mais tarde", 1 dia) e as que ele pediu para nunca mais avisar. Com ids ou
+# TT_PEND_TODAS=1 (menu administrar): inclusive opcionais, SEM olhar a recusa. O que o tt não resolve
+# sozinho (P_MANUAL) só aparece em `tt --pendencias`.
+sudo_pendencias() {
+  local -a so=("$@"); local id c tipo achou
+  pacotes_lib || return 0
+  for id in "${PEND_IDS[@]}"; do
+    if ((${#so[@]})); then
+      achou=0; for c in "${so[@]}"; do [[ $c == "$id" ]] && achou=1; done
+      ((achou)) || continue
+    fi
+    pend_avaliar "$id" || continue
+    ((P_APLICA)) || continue
+    [[ -n $P_MANUAL ]] && continue
+    [[ -n $P_SYS || $P_USR == 1 ]] || continue
+    if ((${#so[@]} == 0)) && [[ -z ${TT_PEND_TODAS:-} ]]; then
+      [[ $P_NIVEL == opcional ]] && continue
+      pend_recusado "$id" && continue
+    fi
+    if [[ -n $P_SYS && $P_USR == 1 ]]; then tipo=misto; elif [[ -n $P_SYS ]]; then tipo=sistema; else tipo=usuario; fi
+    printf '%s\t%s\t%s\t%s\t%s\n' "$id" "${P_SYS:--}" "$P_MOTIVO" "$tipo" "$P_NIVEL"
+  done
+}
+
+# Executa o passo sem administrador de uma pendência.
+pend_usuario_instalar() {
+  case $1 in
+    chrome) navegador_instalar chromium ;;
+    carbonyl) navegador_instalar carbonyl ;;
+    email-xoauth2) xoauth2_construir ;;
+    isync-sasl) isync_sasl_construir ;;
+    email-spell) email_vim_spell_garantir ;;
+    fzf-novo) fzf_instalar ;;
+    nomeador-local) python3 -I "$DIR_TT/nomeador-local.py" instalar auto ;;
+    *) return 0 ;;
+  esac
+}
+
+# pend_instalar GER PRIV linha… — instala o que as linhas (da sudo_pendencias) pedem: primeiro os pacotes
+# do gerenciador (de uma vez, com recuperação por pacote), depois os passos da pasta do usuário e, se
+# baixou navegador, as bibliotecas que ele pede. Confere o resultado e devolve 0 só se tudo ficou certo.
+pend_instalar() {
+  local ger=$1 priv=$2; shift 2
+  local l c id itens="" rc=0 nome p
+  local -a ids=() ruins=()
+  for l in "$@"; do
+    id=${l%%$'\t'*}; ids+=("$id")
+    c=$(cut -f2 <<<"$l"); [[ $c != - ]] && itens+=" $c"
+  done
+  # 1) pacotes do gerenciador
+  if [[ -n ${itens// /} ]]; then
+    if [[ -z $ger ]]; then
+      echo "  ✗ Não achei um gerenciador de pacotes. Instale à mão:${itens}"; rc=1
+    elif [[ $priv == indisponivel ]]; then
+      pend_resolver "$ger" $itens
+      echo "  ✗ Não achei sudo, doas nem su, e você não é administrador. Peça a quem administra, ou rode como root:"
+      echo "      $(pk_comando_texto "$ger" nenhum ${PK_PACOTES[@]+"${PK_PACOTES[@]}"})"; rc=1
+    else
+      pend_resolver "$ger" $itens
+      ((${#PK_SEM_PACOTE[@]})) && echo "  ⚠ Sem pacote em $ger para: ${PK_SEM_PACOTE[*]} (instale por outro meio)."
+      if ((${#PK_PACOTES[@]})); then
+        pk_instalar "$ger" "$priv" "${PK_PACOTES[@]}" || {
+          rc=1; ((${#PK_FALHOS[@]})) && echo "  ✗ Não instalou: ${PK_FALHOS[*]}"
+          case $PK_MOTIVO in
+            permissao) echo "    (sem permissão: senha errada ou você não pode usar $priv)" ;;
+            rede) echo "    (sem rede, ou o repositório não respondeu)" ;;
+            indice_ou_nome) echo "    (o repositório desta distro não tem esse pacote)" ;;
+          esac
+        }
+      fi
+    fi
+  fi
+  # 2) passos sem administrador (o pré-requisito pode ter acabado de chegar)
+  for id in "${ids[@]}"; do
+    pend_avaliar "$id" || continue
+    ((P_APLICA)) && [[ $P_USR == 1 ]] || continue
+    if [[ -n $P_SYS ]]; then echo "  ✗ $P_ROTULO: ainda faltam ferramentas (${P_SYS})."; continue; fi
+    echo "  → $P_ROTULO${P_TAM:+ ($P_TAM)}"
+    pend_usuario_instalar "$id" || rc=1
+  done
+  # 3) navegador baixado agora: instala as bibliotecas que ele pede
+  case " ${ids[*]} " in *" chrome "*|*" carbonyl "*)
+    case " ${ids[*]} " in *" chrome-libs "*) ;; *)
+      p=$(chrome_libs_faltando)
+      if [[ -n $p && -n $ger && $priv != indisponivel ]]; then
+        echo "  → bibliotecas do navegador: $p"
+        pend_resolver "$ger" $p
+        ((${#PK_PACOTES[@]})) && { pk_instalar "$ger" "$priv" "${PK_PACOTES[@]}" || rc=1; }
+      fi ;;
+    esac ;;
+  esac
+  # 4) confere
+  echo
+  for id in "${ids[@]}"; do
+    pend_avaliar "$id" || continue
+    nome=$P_ROTULO
+    if ! ((P_APLICA)) || { [[ -z $P_SYS && $P_USR != 1 ]]; }; then printf '  \033[32m✓\033[0m %s\n' "$nome"
+    else
+      printf '  \033[31m✗\033[0m %s — ainda falta\n' "$nome"; ruins+=("$id"); rc=1
+    fi
+  done
+  # O que falhou não volta a incomodar toda hora: o aviso espera uma semana (ou o menu reabre na hora).
+  for id in ${ruins[@]+"${ruins[@]}"}; do sudo_recusa_gravar "$id" semana; done
+  ((${#ruins[@]})) && echo "  (Detalhes em ${PK_LOG/#$HOME/~}. Aviso desta pendência volta em 7 dias; o menu administrar → 📦 reabre na hora.)"
+  return $rc
+}
+
+# tt --pedir-sudo [--sim] [id…]: o modal. Mostra as pendências (o quê, por quê, o comando exato) e oferece
+# [i] instalar agora, [s] selecionar, [m] mais tarde, [n] não instalar (e não avisar mais). Só então roda o
+# sudo NO PRÓPRIO terminal do modal, onde ele pede a senha: o tt nunca lê, guarda nem registra a senha.
+# --sim aceita tudo sem perguntar (scripts, IA). TT_TTY troca o terminal de leitura (testes).
 pedir_sudo_pendencias() {
-  local tty=${TT_TTY:-/dev/tty} fd r ger cmd pfx lista id cmds motivo
-  local -a escolhidos=() recusados=() pacotes=()
+  pacotes_lib || return 1
+  local sim=0; [[ ${1:-} == --sim ]] && { sim=1; shift; }
+  local tty=${TT_TTY:-/dev/tty} fd r ger priv lista id cmds motivo tipo nivel rot
+  # --sim roda também sem terminal (ssh sem -t, agente de IA): a leitura vem do vazio; o sudo, se pedir senha, falha com clareza.
+  if ((sim)) && ! ( : </dev/tty ) 2>/dev/null && [[ -z ${TT_TTY:-} ]]; then tty=/dev/null; fi
+  local -a escolhidos=() adiados=() nuncas=() sis=() usu=()
   lista=$(sudo_pendencias "$@")
   if [[ -z $lista ]]; then
     echo "Nada pendente de instalação."
-    if [[ -t 1 ]]; then   # num popup: segura a mensagem em vez de piscar e fechar
+    if [[ -t 1 ]] && ((!sim)); then   # num popup: segura a mensagem em vez de piscar e fechar
       local ocultas=0; [[ -z ${TT_PEND_TODAS:-} ]] && ocultas=$(TT_PEND_TODAS=1 sudo_pendencias | wc -l)
       printf '\n  \033[1;32m✓ Tudo em ordem\033[0m — nenhuma pendência de instalação nesta máquina.\n'
-      ((ocultas)) && printf '  (%s adiada(s) ou recusada(s): menu administrar → 📦 Pendências de instalação as reabre.)\n' "$ocultas"
-      read -rsn1 -p $'\n  (qualquer tecla fecha)' <"${TT_TTY:-/dev/tty}"; echo
+      ((ocultas)) && printf '  (%s adiada(s), recusada(s) ou opcional(is): menu administrar → 📦 Pendências de instalação as reabre.)\n' "$ocultas"
+      read -rsn1 -p $'\n  (qualquer tecla fecha)' <"$tty"; echo
     fi
     return 0
   fi
-  ger=$(gerenciador_pacotes) || { echo "Não achei um gerenciador de pacotes."; return 1; }
-  read -ra cmd <<<"$(cmd_instalar_do_gerenciador "$ger")"
-  pfx=$(sudo_do_gerenciador "$ger")
-  exec {fd}<"$tty" || return 1
-  if [[ -n $pfx ]]; then printf '\n  \033[1;33m🔐 O tt precisa de permissão de administrador\033[0m\n\n'
-  else printf '\n  \033[1;33m📦 O tt quer instalar uns pacotes\033[0m\n\n'; fi
+  ger=$(pk_gerenciador 2>/dev/null) || ger=""
+  priv=$(pk_privilegio "$ger" 2>/dev/null)
+  ((sim)) || { exec {fd}<"$tty" || return 1; }
+  if [[ $priv == sudo || $priv == doas || $priv == su ]]; then printf '\n  \033[1;33m🔐 O tt precisa de permissão de administrador\033[0m\n'
+  else printf '\n  \033[1;33m📦 O tt quer instalar uns pacotes\033[0m\n'; fi
+  printf '  \033[2m%s\033[0m\n\n' "$(pk_resumo)"
   printf '  Pendências nesta máquina:\n'
-  while IFS=$'\t' read -r id cmds motivo; do
-    printf '   • \033[1m%s\033[0m — %s\n' "$(pend_rotulo "$cmds")" "$motivo"
+  while IFS=$'\t' read -r id cmds motivo tipo nivel; do
+    pend_avaliar "$id"; rot=$P_ROTULO
+    printf '   • \033[1m%s\033[0m — %s\n' "$rot" "$motivo"
+    [[ $cmds != - ]] && sis+=($cmds)
+    [[ $tipo != sistema ]] && usu+=("$rot${P_TAM:+ ($P_TAM)}")
   done <<<"$lista"
-  mapfile -t pacotes < <(pacotes_do_gerenciador "$ger" $(cut -f2 <<<"$lista"))
-  printf '\n  Comando:  \033[36m%s%s %s\033[0m\n\n' "${pfx:+$pfx }" "${cmd[*]}" "${pacotes[*]}"
-  [[ -n $pfx ]] && printf '  A senha é pedida pelo próprio sudo, aqui; o tt não a vê nem a guarda.\n\n'
-  read -r -n1 -u "$fd" -p '  [i] Instalar agora   [s] Selecionar   [m] Mais tarde   [n] Não instalar (e não avisar mais)  ' r || r=m
+  if ((${#sis[@]})); then
+    pend_resolver "${ger:-apt-get}" "${sis[@]}"
+    if [[ -n $ger ]]; then
+      printf '\n  Do gerenciador de pacotes:  \033[36m%s\033[0m\n' "$(pk_comando_texto "$ger" "$priv" ${PK_PACOTES[@]+"${PK_PACOTES[@]}"})"
+      ((${#PK_SEM_PACOTE[@]})) && printf '  \033[33m⚠ sem pacote em %s para: %s\033[0m\n' "$ger" "${PK_SEM_PACOTE[*]}"
+      [[ $priv == indisponivel ]] && printf '  \033[33m⚠ sem sudo/doas/su e você não é administrador: o comando acima terá de ser rodado por quem pode.\033[0m\n'
+    else printf '\n  \033[33m⚠ Não achei um gerenciador de pacotes; instale à mão: %s\033[0m\n' "${sis[*]}"; fi
+  fi
+  ((${#usu[@]})) && { printf '  Baixado/compilado na sua pasta (sem administrador):  '; printf '%s; ' "${usu[@]}" | sed 's/; $//'; echo; }
+  [[ $priv == sudo || $priv == doas || $priv == su ]] && printf '\n  A senha é pedida pelo próprio %s, aqui; o tt não a vê nem a guarda.\n' "$priv"
   echo
-  local -a adiados=() nuncas=()
+  if ((sim)); then r=i
+  else read -r -n1 -u "$fd" -p '  [i] Instalar agora   [s] Selecionar   [m] Mais tarde   [n] Não instalar (e não avisar mais)  ' r || r=m; echo; fi
   case $r in
     i|I|a|A) mapfile -t escolhidos <<<"$lista" ;;
     s|S)
-      while IFS=$'\t' read -r id cmds motivo; do
-        read -r -n1 -u "$fd" -p "  $(pend_rotulo "$cmds") — [i] instalar  [m] mais tarde  [n] não instalar: " r || r=m; echo
+      while IFS=$'\t' read -r id cmds motivo tipo nivel; do
+        read -r -n1 -u "$fd" -p "  $(pend_rotulo "$id") — [i] instalar  [m] mais tarde  [n] não instalar: " r || r=m; echo
         case $r in
-          i|I|s|S|y|Y) escolhidos+=("$id"$'\t'"$cmds"$'\t'"$motivo") ;;
+          i|I|s|S|y|Y) escolhidos+=("$id"$'\t'"$cmds"$'\t'"$motivo"$'\t'"$tipo"$'\t'"$nivel") ;;
           n|N) nuncas+=("$id") ;;
           *) adiados+=("$id") ;;
         esac
@@ -3849,31 +4227,52 @@ pedir_sudo_pendencias() {
   for id in $(printf '%s\n' ${escolhidos[@]+"${escolhidos[@]}"} | cut -f1); do rm -f "$(sudo_recusa_arq "$id")"; done
   ((${#adiados[@]})) && echo "  Ok. Pergunto de novo amanhã."
   ((${#nuncas[@]})) && echo "  Ok. Não aviso mais. Para voltar atrás: menu administrar → 📦 Pendências de instalação."
-  ((${#escolhidos[@]})) || { exec {fd}<&-; sleep 1; return 1; }
-  local rc=0
-  mapfile -t pacotes < <(pacotes_do_gerenciador "$ger" $(printf '%s\n' "${escolhidos[@]}" | cut -f2))
-  if ((${#pacotes[@]})); then ${pfx:+sudo} "${cmd[@]}" "${pacotes[@]}" <"$tty"; rc=$?; fi
-  exec {fd}<&-
-  if ((rc == 0)); then
-    # Passos sem administrador que dependem do que acabou de ser instalado.
-    for id in $(printf '%s\n' "${escolhidos[@]}" | cut -f1); do
-      case $id in email-xoauth2) xoauth2_construir || rc=1 ;; esac
-    done
-  fi
-  if ((rc == 0)); then echo "  ✓ Instalado."; sleep 1
-  else   # a mensagem de erro fica na tela até uma tecla (o popup fechava sozinho em 1 s e escondia o motivo)
-    echo "  ✗ Falhou (código $rc). A saída do comando está acima."
+  ((${#escolhidos[@]})) || { ((sim)) || exec {fd}<&-; sleep 1; return 1; }
+  local rc=0 trava=$ESTADO_DIR/pendencias.trava pegou=0
+  mkdir -p "$ESTADO_DIR"
+  # Uma instalação por vez (o vigia, um popup esquecido e este modal não podem brigar pela trava do dpkg).
+  # Trava com mais de 1 h é de uma instalação que morreu: vale tomá-la.
+  if mkdir "$trava" 2>/dev/null; then pegou=1
+  elif [[ -n $(find "$trava" -maxdepth 0 -mmin +60 2>/dev/null) ]] && rm -rf "$trava" && mkdir "$trava" 2>/dev/null; then pegou=1; fi
+  ((pegou)) || { echo "  Já há uma instalação em andamento; tente de novo daqui a pouco."; ((sim)) || exec {fd}<&-; return 1; }
+  pend_instalar "$ger" "$priv" "${escolhidos[@]}" <"${tty}" || rc=$?
+  rmdir "$trava" 2>/dev/null
+  ((sim)) || exec {fd}<&-
+  if ((rc == 0)); then echo "  ✓ Pronto."; ((sim)) || sleep 1
+  elif ((!sim)); then   # a mensagem de erro fica na tela até uma tecla (o popup fechava sozinho em 1 s e escondia o motivo)
+    echo "  ✗ Nem tudo ficou pronto. A saída do comando está acima."
     read -rsn1 -p '  (qualquer tecla fecha)' <"$tty"; echo
   fi
   return $rc
 }
 
-pend_rotulo() { # o que mostrar no lugar do nome interno da pendência
-  case $1 in
-    xoauth2-build) echo "compilador + cabeçalhos do SASL (para o plugin XOAUTH2)" ;;
-    plugin-xoauth2) echo "plugin XOAUTH2 do SASL" ;;
-    *) echo "$1" ;;
-  esac
+# tt --pendencias [--tsv]: o estado de TUDO que o tt pode precisar nesta máquina, instalado ou não.
+pendencias_status() {
+  pacotes_lib || return 1
+  local tsv=0 id est mark cor; [[ ${1:-} == --tsv ]] && tsv=1
+  ((tsv)) || printf '\n  \033[1m📦 Pendências de instalação\033[0m\n  \033[2m%s\033[0m\n\n' "$(pk_resumo)"
+  for id in "${PEND_IDS[@]}"; do
+    pend_avaliar "$id"
+    if ! ((P_APLICA)); then est=na
+    elif [[ -n $P_MANUAL ]]; then est=manual
+    elif [[ -n $P_SYS || $P_USR == 1 ]]; then est=falta
+    else est=ok; fi
+    if ((tsv)); then printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$est" "$P_NIVEL" "$P_ROTULO" "${P_MANUAL:-${P_SYS:--}}"; continue; fi
+    case $est in
+      ok) mark="✓"; cor=32 ;;
+      falta) mark="✗"; cor=31 ;;
+      manual) mark="!"; cor=33 ;;
+    esac
+    case $est in
+      na) printf '  \033[2m– %-46s não se aplica a esta máquina\033[0m\n' "$P_ROTULO" ;;
+      *)
+        printf '  \033[%sm%s\033[0m %-46s \033[2m%s\033[0m\n' "$cor" "$mark" "$P_ROTULO" "$P_NIVEL"
+        [[ $est == falta ]] && printf '      \033[2m%s%s\033[0m\n' "${P_SYS:+precisa: $P_SYS  }" "${P_TAM:+(baixa $P_TAM)}"
+        [[ $est == manual ]] && printf '      \033[33m%s\033[0m\n' "$P_MANUAL" ;;
+    esac
+  done
+  ((tsv)) && return 0
+  printf '\n  Para instalar o que falta:  tt --pedir-sudo   (ou menu administrar → 📦)\n  Tudo de uma vez, sem perguntar:  tt --pedir-sudo --sim\n\n'
 }
 
 # --- Novidades do tt ---------------------------------------------------------------------------
@@ -3920,45 +4319,20 @@ novidades_avisar() {
 }
 
 # Chamado pelo vigia (no início e a cada 6 h): se há pendências ainda não respondidas (ou adiadas e
-# vencidas), põe UM aviso na faixa — clicar abre o modal. Não repete o mesmo conjunto em menos de 24 h
-# e nunca avisa do que o usuário mandou "não instalar" (isso só o menu reabre).
+# vencidas), põe UM aviso na faixa — clicar abre o modal. O aviso dura 6 h (um de 1 h passava despercebido
+# de noite) e o mesmo conjunto só volta a ser avisado depois de 12 h. Nunca avisa do que o usuário mandou
+# "não instalar" (isso só o menu reabre), nem de opcionais, nem do que o tt não instala sozinho.
 pendencias_avisar() {
   gerenciador_pacotes >/dev/null 2>&1 || return 0
-  local lista ids marca=$ESTADO_DIR/pendencias-avisadas n rot
+  local lista ids marca=$ESTADO_DIR/pendencias-avisadas n rot id
   lista=$(sudo_pendencias) || return 0
   if [[ -z $lista ]]; then rm -f "$marca"; return 0; fi
   ids=$(cut -f1 <<<"$lista" | tr '\n' ' ')
-  if [[ $(cut -f1 "$marca" 2>/dev/null) == "$ids" ]] && (( $(date +%s) - $(cut -f2 "$marca" 2>/dev/null || echo 0) < 86400 )); then return 0; fi
+  if [[ $(cut -f1 "$marca" 2>/dev/null) == "$ids" ]] && (( $(date +%s) - $(cut -f2 "$marca" 2>/dev/null || echo 0) < 43200 )); then return 0; fi
   mkdir -p "$ESTADO_DIR"; printf '%s\t%s\n' "$ids" "$(date +%s)" >"$marca"
   n=$(wc -l <<<"$lista")
-  rot=$(cut -f2 <<<"$lista" | while read -r c; do pend_rotulo "$c"; done | paste -sd, - | sed 's/,/, /g')
-  notificar "📦 $n pendência$( ((n > 1)) && echo s) de instalação ($rot) — clique para decidir" 3600 pendencias
-}
-
-# Instala curl e unzip se faltarem. Root ou sudo sem senha: direto. Senão, pede com o modalzinho
-# (popup do tmux; ou no terminal de quem chamou). Sem nenhum dos dois, só avisa o comando.
-garantir_dependencias_navegador() {
-  local -a falta=(); local c base
-  for c in curl unzip; do command -v "$c" >/dev/null 2>&1 || falta+=("$c"); done
-  ((${#falta[@]})) || return 0
-  base=$(instalar_pacotes_cmd) || { echo "navegadores: faltam ${falta[*]} e não achei gerenciador de pacotes" >&2; return 1; }
-  if ((EUID == 0)); then $base "${falta[@]}" >/dev/null 2>&1
-  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then sudo -n $base "${falta[@]}" >/dev/null 2>&1
-  else
-    local rec; rec=$(cat "$(sudo_recusa_arq navegadores)" 2>/dev/null || echo 0)
-    if (( $(date +%s) - rec < 604800 )); then
-      echo "navegadores: faltam ${falta[*]} (você recusou a instalação; sudo $base ${falta[*]})" >&2; return 1
-    fi
-    command -v sudo >/dev/null 2>&1 || { echo "navegadores: faltam ${falta[*]}; instale como administrador: $base ${falta[*]}" >&2; return 1; }
-    local cl
-    if [[ -t 0 ]]; then pedir_sudo_pendencias
-    elif cl=$(cliente_externo 2>/dev/null) && [[ -n $cl ]]; then
-      tmux display-popup -c "$cl" -E -w 92 -h 20 -b rounded -S 'fg=#f9e2af' -T ' 🔐 permissão ' "$EU --pedir-sudo"
-    else
-      echo "navegadores: faltam ${falta[*]}; rode: sudo $base ${falta[*]}" >&2; return 1
-    fi
-  fi
-  for c in "${falta[@]}"; do command -v "$c" >/dev/null 2>&1 || return 1; done
+  rot=$(for id in $ids; do pend_rotulo "$id"; done | paste -sd, - | sed 's/,/, /g')
+  notificar "📦 $n pendência$( ((n > 1)) && echo s) de instalação ($rot) — clique para decidir" 21600 pendencias
 }
 
 # Tem ambiente gráfico para o Chrome? (WSLg, X11 ou Wayland). O Carbonyl só precisa de terminal.
@@ -3966,20 +4340,23 @@ ambiente_grafico() {
   [[ -n ${TT_FORCAR_GUI:-} || -d /mnt/wslg || -n ${DISPLAY:-} || -n ${WAYLAND_DISPLAY:-} || -d /tmp/.X11-unix ]]
 }
 
-# tt --garantir-navegadores: deixa os navegadores de links prontos nesta máquina (dependências + download),
-# sem esperar o primeiro clique. Idempotente: o que já está instalado é pulado; uma instância por vez.
+# tt --garantir-navegadores: baixa os navegadores de links (Carbonyl e Chrome) que ainda faltam nesta
+# máquina, sem esperar o primeiro clique. Idempotente: o que já está instalado é pulado; uma instância por
+# vez. Não pede nada: se faltar curl/unzip (administrador) ou o download falhar, a pendência continua no
+# catálogo e o vigia avisa (📦); quem disse "não" ou "mais tarde" a um deles não é incomodado.
 garantir_navegadores() {
   navegadores_graficos_ok || return 0
-  local lock=$DIR_NAVEGADORES.lock
+  local lock=$DIR_NAVEGADORES.lock id
   mkdir -p "$DIR_NAVEGADORES" 2>/dev/null
   mkdir "$lock" 2>/dev/null || { [[ -n $(find "$lock" -maxdepth 0 -mmin +60 2>/dev/null) ]] && rm -rf "$lock" && mkdir "$lock" 2>/dev/null; } || return 0
-  if garantir_dependencias_navegador; then
-    navegador_instalar carbonyl || echo "navegadores: Carbonyl não instalado (tenta de novo na próxima atualização)" >&2
-    if ambiente_grafico; then
-      navegador_instalar chromium || echo "navegadores: Chrome não instalado (tenta de novo na próxima atualização)" >&2
-    fi
-  fi
+  for id in carbonyl chrome; do
+    pend_avaliar "$id" || continue
+    ((P_APLICA)) && [[ $P_USR == 1 && -z $P_SYS ]] || continue
+    pend_recusado "$id" && continue
+    pend_usuario_instalar "$id" || echo "navegadores: $P_ROTULO não instalado (tenta de novo na próxima atualização)" >&2
+  done
   rmdir "$lock" 2>/dev/null
+  ("$EU" --pendencias-avisar >/dev/null 2>&1 &)
   return 0
 }
 
@@ -4026,17 +4403,32 @@ rodar_fora() {
   fi
 }
 
-# Chrome/Carbonyl sem as bibliotecas do sistema: oferece instalar (modal; num popup do tmux, que
-# roda FORA do unshare --net do leitor — sudo/apt precisam de rede). Devolve 0 se ficou utilizável.
-garantir_chrome_libs() {
+# Abre o modal das pendências (ids…) onde for possível: no próprio popup (o tmux não abre popup sobre
+# popup, e o leitor de e-mail roda sem rede, onde sudo/apt não funcionam), num popup do cliente de fora ou
+# no terminal de quem chamou. Devolve 1 se não há onde mostrar (vigia, script sem terminal).
+pedir_pendencia_aqui() {
   local c
-  [[ -n $(chrome_libs_faltando) ]] || return 0
-  if em_popup; then pedir_sudo_pendencias chrome-libs
+  if em_popup; then pedir_sudo_pendencias "$@"
   elif [[ -n ${TMUX:-} ]] && c=$(cliente_externo 2>/dev/null) && [[ -n $c ]]; then
-    tmux display-popup -c "$c" -E -w 92 -h 20 -b rounded -S 'fg=#f9e2af' -T ' 🔐 permissão ' "$EU --pedir-sudo chrome-libs"
-  elif [[ -t 0 ]]; then pedir_sudo_pendencias chrome-libs
-  fi
+    tmux display-popup -c "$c" -E -w 92 -h 22 -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo $*"
+  elif [[ -t 0 ]]; then pedir_sudo_pendencias "$@"
+  else return 1; fi
+}
+
+# Chrome/Carbonyl sem as bibliotecas do sistema: oferece instalar (modal). Devolve 0 se ficou utilizável.
+garantir_chrome_libs() {
+  [[ -n $(chrome_libs_faltando) ]] || return 0
+  pedir_pendencia_aqui chrome-libs
   [[ -z $(chrome_libs_faltando) ]]
+}
+
+# O navegador de links (chromium|carbonyl) está pronto? Baixa se faltar; se faltar curl/unzip (administrador),
+# oferece instalar pelo modal e tenta de novo.
+garantir_navegador() {
+  local id=$1; [[ $id == chromium ]] && id=chrome
+  pend_avaliar "$id" 2>/dev/null
+  if [[ $P_USR == 1 && -n $P_SYS ]]; then pedir_pendencia_aqui "$id" || true; fi
+  navegador_instalar "$1"
 }
 
 # Tela gráfica para o Chrome interno. A sessão do tmux pode estar com DISPLAY/WAYLAND_DISPLAY
@@ -4069,7 +4461,7 @@ abrir_com() {
     sistema) abrir_url "$u" ;;
     copiar) link_copiar "${TT_LINK_CLIENTE:-}" "$u" ;;
     chromium)
-      navegador_instalar chromium || return 1
+      garantir_navegador chromium || return 1
       garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
       (chrome_atualizar_se_velho >/dev/null 2>&1 &)
       { read -r disp; read -r way; read -r xdg; } < <(tela_grafica)
@@ -4079,7 +4471,7 @@ abrir_com() {
       # depois (Chrome fechado à força) não conta.
       rodar_fora 0 "export DISPLAY=$(q "$disp") WAYLAND_DISPLAY=$(q "$way") XDG_RUNTIME_DIR=$(q "$xdg"); t0=\$(date +%s); { setsid $(q "$(bin_chromium)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-chrome") --no-first-run --no-default-browser-check $(q "$u") >$(q "$log") 2>&1 </dev/null || { [ \$(( \$(date +%s) - t0 )) -lt 15 ] && $(q "$EU") --chrome-falhou $(q "${TT_LINK_CLIENTE:-}") $(q "$u"); }; } &" ;;
     carbonyl)
-      navegador_instalar carbonyl || return 1
+      garantir_navegador carbonyl || return 1
       garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
       # O Carbonyl só sai com Ctrl+C; o links-tt.py com-ctrl-q faz o Ctrl+Q do título do popup valer.
       local car; car="$(q "$(bin_carbonyl)") --user-data-dir=$(q "$DIR_NAVEGADORES/perfil-carbonyl") --user-agent=$(q "$(ua_chrome)") $(q "$u")"
@@ -4788,6 +5180,7 @@ menu_admin() {
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'n\t  📰 Novidades do tt…\t%s\n' "$(popup_tt "$c" "📰 novidades do tt" "$EU --novidades")"
     printf 'i\t  📦 Pendências de instalação… (reavaliar todas)\t%s\n' "$(popup_tt "$c" "📦 pendências de instalação" "TT_PEND_TODAS=1 $EU --pedir-sudo")"
+    printf 'I\t  📋 Estado de tudo que o tt usa (instalado ou não)\t%s\n' "$(popup_tt "$c" "📋 o que o tt usa" "$EU --pendencias; read -rsn1 -p '  (qualquer tecla fecha)'")"
     printf 'h\t  ◌ Ocultar máquina…\t%s\n' "$(popup_tt "$c" "ocultar máquina" "$EU --ocultar-maquina; read -rsn1 -p '(tecla fecha)'")"
     printf 'H\t  ◉ Mostrar máquina oculta…\t%s\n' "$(popup_tt "$c" "mostrar máquina" "$EU --mostrar-maquina; read -rsn1 -p '(tecla fecha)'")"
   } | menu_popup "$c" "administrar · tt v$vl"
@@ -8586,8 +8979,11 @@ clique_direito() {
 
 # Botão direito no 📧: tudo do e-mail num lugar só.
 menu_email() {
-  local c=$1
-  menu_popup "$c" "📧 e-mail" <<ITENS
+  local c=$1 itens pend linha=""
+  # Se falta algo para o e-mail funcionar (aerc, mbsync, plugin XOAUTH2…), o menu oferece instalar.
+  pend=$(sudo_pendencias email-aerc email-sync isync-sasl email-xoauth2 email-html email-editor 2>/dev/null | cut -f1 | tr '\n' ' '); pend=${pend% }
+  [[ -n $pend ]] && linha=$(printf 'p\t📦 Instalar o que falta para o e-mail (%s)…\t%s' "$pend" "$(popup_tt "$c" "📦 pendências do e-mail" "$EU --pedir-sudo $pend")")
+  itens=$(cat <<ITENS
 e	📧 Abrir o e-mail	$EU --email $(q "$c")
 r	⟳ Sincronizar agora (consulta as contas; útil esperando um código)	$EU --email-sync-agora $(q "$c")
 c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
@@ -8595,6 +8991,9 @@ n	＋ Cadastrar uma conta…	tmux display-popup -c $(q "$c") -E $(tam_popup "$c"
 a	⌨ Atalhos do e-mail	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' ⌨ atalhos do e-mail ' "$EU --email-atalhos"
 s	🔄 Sync local: estado das rodadas	tmux display-popup -c $(q "$c") -E -w 72 -h 20 -b rounded -T ' 🔄 sync local ' "$EU --email-sync-estado; printf '\\n(qualquer tecla fecha)'; read -rsn1 _"
 ITENS
+)
+  [[ -n $linha ]] && itens+=$'\n'$linha
+  menu_popup "$c" "📧 e-mail" <<<"$itens"
 }
 
 # Imagens de um e-mail. O HTML do leitor não mostra imagens; a tecla i (na mensagem aberta) manda a
@@ -9258,7 +9657,15 @@ botao_email() {
   if [[ ! -s $HOME/.config/aerc/accounts.conf ]] || ! grep -q '^\[' "$HOME/.config/aerc/accounts.conf"; then
     botao_email_contas "$cliente"; return
   fi
-  cmd=$(email_comando) || { botao_aviso "$cliente" "e-mail: instale o aerc (ou defina email=<cliente> em ~/.config/tt/config)"; return; }
+  cmd=$(email_comando) || {
+    local cli; cli=$(conf email); cli=${cli%% *}
+    if [[ -z $cli || ${cli##*/} == aerc ]]; then   # sem o aerc: oferece instalar (modal das pendências) em vez de só avisar
+      tmux display-popup -c "$cliente" -E -w 92 -h 22 -b rounded -S 'fg=#f9e2af' -T ' 📦 aerc ' "$EU --pedir-sudo email-aerc"
+      cmd=$(email_comando) || return
+    else
+      botao_aviso "$cliente" "e-mail: instale o aerc (ou defina email=<cliente> em ~/.config/tt/config)"; return
+    fi
+  }
   # Auto-reparo: se o aerc foi instalado depois do tt ou perdeu o conversor HTML, corrige somente
   # o filtro text/html. Quando houve reparo, reinicia a sessão oculta para carregar a configuração.
   if [[ ${cmd%% *} == */aerc || ${cmd%% *} == aerc ]] && aerc_reparar_se_preciso; then
@@ -9944,7 +10351,6 @@ email_sync_local_definir() {
 EMAIL_MBSYNC_DIR="$CONF_DIR/mbsync"
 email_mbsyncrc() { echo "$EMAIL_MBSYNC_DIR/$1.mbsyncrc"; }
 # O executável do mbsync (TT_MBSYNC troca, para os testes simularem uma máquina sem ele).
-mbsync_bin() { echo "${TT_MBSYNC:-mbsync}"; }
 # A chave do modo TLS no .mbsyncrc: o isync 1.5 renomeou SSLType para TLSType (a antiga ainda vale,
 # com um aviso a cada rodada); versões anteriores só conhecem SSLType.
 mbsync_chave_tls() {
@@ -10397,8 +10803,20 @@ email_sync_estado() { # [curto]
       if [[ -z ${fim:-} ]]; then printf '  %-9s nunca\n' "$modo"; continue; fi
       printf '  %-9s há %s · levou %s · %s\n' "$modo" "$(_dur $((agora - fim)))" "$(_dur $((fim - ini)))" "$( ((st == 0)) && echo ok || echo "✗ erro $st")"
     done
-    [[ -s $dir/$slug.erro ]] && sed 's/^/    /' "$dir/$slug.erro"
+    if [[ -s $dir/$slug.erro ]]; then sed 's/^/    /' "$dir/$slug.erro"; email_erro_dica "$dir/$slug.erro"; fi
   done
+  return 0
+}
+
+# Erro do mbsync que uma pendência de instalação resolve: diz qual (só as que de fato estão pendentes).
+email_erro_dica() { # arquivo-do-erro
+  local f=$1 ids="" pend
+  if grep -qiE 'built without LibSASL|only AuthMech LOGIN' "$f"; then ids="isync-sasl email-xoauth2"
+  elif grep -qiE 'SASL mechanism.*not available|selected:.*XOAUTH2' "$f"; then ids="email-xoauth2"
+  elif grep -qiE 'mbsync.*(not found|não encontrado)|command not found' "$f"; then ids="email-sync"; fi
+  [[ -n $ids ]] || return 0
+  pend=$(sudo_pendencias $ids | cut -f1 | tr '\n' ' '); pend=${pend% }
+  [[ -n $pend ]] && printf '    \033[33m→ falta instalar algo: tt --pedir-sudo %s   (ou menu administrar → 📦 Pendências)\033[0m\n' "$pend"
   return 0
 }
 
@@ -11971,6 +12389,7 @@ case "${1:-}" in
   --links-tela-ui) links_tela_ui "${2:?uso: tt --links-tela-ui PAINEL}"; exit 0 ;;
   --garantir-navegadores) garantir_navegadores; exit ;;
   --pedir-sudo) shift; pedir_sudo_pendencias "$@"; exit ;;
+  --pendencias) pendencias_status "${2:-}"; exit 0 ;;
   --pendencias-avisar) pendencias_avisar; exit 0 ;;
   --novidades) novidades_ver "$@"; exit 0 ;;
   --novidades-avisar) novidades_avisar; exit 0 ;;

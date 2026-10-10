@@ -60,7 +60,7 @@ passou "instalação do Chrome extrai o .deb com python3 e registra a versão"
 
 # 6) tt --garantir-navegadores (usado em máquina nova e em atualização): instala o Chrome sem clique, uma vez.
 rm -rf "$HOME/.local/share/tt-navegadores"
-saida=$(PATH="$B:/usr/bin:/bin" TT_FORCAR_GUI=1 TT_CARBONYL_URL="file://$T/falso.zip" TT_CHROME_INDICE="file://$T/repo/Packages" TT_CHROME_BASE="file://$T/repo" "$TT" --garantir-navegadores 2>&1)
+saida=$(PATH="$B:/usr/bin:/bin" TT_PEND_SEM_NAVEGADORES= TT_FORCAR_GUI=1 TT_CARBONYL_URL="file://$T/falso.zip" TT_CHROME_INDICE="file://$T/repo/Packages" TT_CHROME_BASE="file://$T/repo" "$TT" --garantir-navegadores 2>&1)
 [[ -x $HOME/.local/share/tt-navegadores/chrome/opt/google/chrome/chrome ]] || falhou "garantir-navegadores não instalou o Chrome: $saida"
 [[ ! -d $HOME/.local/share/tt-navegadores.lock ]] || falhou "travou: lock não liberado"
 passou "garantir-navegadores pré-instala o Chrome e libera o lock"
@@ -68,7 +68,7 @@ passou "garantir-navegadores pré-instala o Chrome e libera o lock"
 # 7) Sem ambiente gráfico o Chrome é pulado (servidor sem tela não baixa 150 MB à toa).
 rm -rf "$HOME/.local/share/tt-navegadores"
 if [[ ! -d /mnt/wslg && -z ${DISPLAY:-} && -z ${WAYLAND_DISPLAY:-} && ! -d /tmp/.X11-unix ]]; then
-  PATH="$B:/usr/bin:/bin" TT_CARBONYL_URL="file://$T/falso.zip" TT_CHROME_INDICE="file://$T/repo/Packages" TT_CHROME_BASE="file://$T/repo" "$TT" --garantir-navegadores >/dev/null 2>&1
+  PATH="$B:/usr/bin:/bin" TT_PEND_SEM_NAVEGADORES= TT_CARBONYL_URL="file://$T/falso.zip" TT_CHROME_INDICE="file://$T/repo/Packages" TT_CHROME_BASE="file://$T/repo" "$TT" --garantir-navegadores >/dev/null 2>&1
   [[ ! -e $HOME/.local/share/tt-navegadores/chrome ]] || falhou "baixou o Chrome sem ambiente gráfico"
   passou "sem ambiente gráfico: Chrome pulado"
 fi
@@ -109,25 +109,31 @@ grep -q 'Missing X server' "$HOME/.cache/tt/chrome.log" || falhou "erro do Chrom
 tmux kill-server; unset TT_X11_DIR
 passou "Chrome interno sem tela nenhuma: abre no navegador do sistema e guarda o motivo em ~/.cache/tt/chrome.log"
 
-# 9) Modal do sudo: mostra as pendências e o comando; recusar não roda sudo e grava a recusa.
+# 9) Modal do sudo: o Chrome e o Carbonyl pedem curl/unzip; o modal mostra o comando exato, recusar não roda
+#    sudo e a recusa é gravada por navegador (e lembrada por 7 dias).
 printf '#!/bin/sh\n:\n' >"$B/apt-get"; chmod +x "$B/apt-get"
 printf '#!/bin/sh\necho "$@" >> %s/sudo.log\n' "$T" >"$B/sudo"; chmod +x "$B/sudo"
+printf '#!/bin/sh\necho "  Candidate: 1.0"\n' >"$B/apt-cache"; chmod +x "$B/apt-cache"
+NAVX=(TT_PEND_SEM_NAVEGADORES= TT_FORCAR_GUI=1 TT_GERENCIADOR=apt-get TT_PRIV=sudo TT_FINGE_FALTA="curl unzip")
+rm -rf "$HOME/.local/share/tt-navegadores"; rm -f "$HOME"/.local/state/tt/sudo-recusado-*
 printf r >"$T/resposta"; : >"$T/sudo.log"
-rc=0; saida=$(PATH="$B:$PATH" TT_TTY="$T/resposta" TT_FINGE_FALTA="curl unzip" "$TT" --pedir-sudo 2>&1) || rc=$?
+rc=0; saida=$(env PATH="$B:$PATH" TT_TTY="$T/resposta" "${NAVX[@]}" "$TT" --pedir-sudo 2>&1) || rc=$?
 (( rc != 0 )) || falhou "recusa deveria sair com erro"
 grep -q 'sudo apt-get install -y curl unzip' <<<"$saida" || falhou "resumo sem o comando exato: $saida"
 grep -q 'não a vê' <<<"$saida" || falhou "resumo não explica quem pede a senha: $saida"
+grep -q 'Google Chrome' <<<"$saida" && grep -q 'Carbonyl' <<<"$saida" || falhou "o resumo deveria listar os dois navegadores: $saida"
 [[ ! -s $T/sudo.log ]] || falhou "rodou sudo apesar da recusa"
-[[ -s $HOME/.local/state/tt/navegadores-sudo-recusado ]] || falhou "recusa não foi gravada"
-saida=$(PATH="$B:$PATH" TT_TTY="$T/resposta" TT_FINGE_FALTA="curl unzip" "$TT" --pedir-sudo 2>&1)
+[[ -s $HOME/.local/state/tt/sudo-recusado-chrome && -s $HOME/.local/state/tt/sudo-recusado-carbonyl ]] || falhou "recusa não foi gravada por navegador"
+saida=$(env PATH="$B:$PATH" TT_TTY="$T/resposta" "${NAVX[@]}" "$TT" --pedir-sudo 2>&1)
 grep -q 'Nada pendente' <<<"$saida" || falhou "recusado há pouco deveria dar 'Nada pendente': $saida"
 passou "modal do sudo: resumo com o comando exato; recusa não roda sudo e é lembrada por 7 dias"
 
-# 10) Aceitar tudo roda exatamente o comando mostrado, com sudo (que pede a senha ele mesmo).
-rm -f "$HOME/.local/state/tt/navegadores-sudo-recusado"
+# 10) Aceitar tudo roda o comando mostrado, com sudo (que pede a senha ele mesmo). Como curl/unzip seguem
+#     "ausentes" para o teste, o tt não tenta baixar nada (nem usa a rede): só o comando de instalar é conferido.
+rm -f "$HOME"/.local/state/tt/sudo-recusado-*
 printf a >"$T/resposta"; : >"$T/sudo.log"
-PATH="$B:$PATH" TT_TTY="$T/resposta" TT_FINGE_FALTA="curl unzip" "$TT" --pedir-sudo >/dev/null 2>&1 || falhou "aceite deveria sair com sucesso"
-[[ $(cat "$T/sudo.log") == "apt-get install -y curl unzip" ]] || falhou "sudo rodou outra coisa: '$(cat "$T/sudo.log")'"
-passou "modal do sudo: aceitar tudo roda sudo apt-get install -y com os pacotes do resumo"
+env PATH="$B:$PATH" TT_TTY="$T/resposta" "${NAVX[@]}" "$TT" --pedir-sudo >/dev/null 2>&1 || true
+grep -q 'apt-get -y -o DPkg::Lock::Timeout=120 install curl unzip$' "$T/sudo.log" || falhou "sudo rodou outra coisa: '$(cat "$T/sudo.log")'"
+passou "modal do sudo: aceitar tudo roda sudo apt-get install com os pacotes do resumo"
 
 echo "TODOS OS TESTES PASSARAM"

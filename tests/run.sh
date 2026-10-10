@@ -27,6 +27,7 @@ for cmd in bash python3 rg tmux; do exige "$cmd"; done
 [[ -f $tema ]] || { printf 'tema-tmux.conf não encontrado: %s\n' "$tema" >&2; exit 2; }
 
 if bash -n "$tt"; then ok 'sintaxe Bash'; else falha 'sintaxe Bash'; fi
+for f in pacotes-tt.sh instalar.sh; do if bash -n "$suite_dir/../$f"; then ok "sintaxe Bash: $f"; else falha "sintaxe Bash: $f"; fi; done
 
 # tt --help mostra os verbos; uma opção desconhecida é recusada (antes abria a central em silêncio).
 # (saída capturada antes do rg: com pipefail, o `rg -q` fecha o cano e o sed do --help morre com SIGPIPE)

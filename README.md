@@ -65,6 +65,14 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
 bash, git, tmux ≥ 3.4, fzf ≥ 0.60, python3, ssh, tar (GNU) e `rg` (testes e busca rápida).
 Opcionais: tailscale, mosh (celular), pv (barra de progresso nas cópias), claude (nomes automáticos).
 
+`tt --pendencias` mostra, para a máquina em que você está, tudo isso e mais o que os recursos pedem (aerc,
+mbsync, w3m, vim, Chrome, Carbonyl, bibliotecas, clipboard, notificações…), o que está pronto e o que falta;
+o [modal de pendências](#pendências-de-instalação-) instala o que faltar.
+
+Plataformas: Linux (Debian, Ubuntu e derivados, incluindo WSL; Fedora/RHEL; openSUSE; Arch; Alpine; Void),
+macOS (Homebrew), Termux no Android, Linux (Debian) dentro do proot do Termux e FreeBSD, OpenBSD e NetBSD.
+Os navegadores baixados (Chrome e Carbonyl) são binários glibc x86_64: só entram em Linux x86_64 com glibc.
+
 macOS: bash ≥ 4 e as demais dependências pelo Homebrew (`brew install bash tmux fzf ripgrep`). Como o
 ssh não interativo do macOS (zsh) não carrega o Homebrew, a instalação acrescenta ao `~/.zshenv` um
 bloco entre marcadores que põe `~/.local/bin`, `/opt/homebrew/bin` e `/usr/local/bin` no PATH, e todo
@@ -79,9 +87,13 @@ Ou, instalando automaticamente as dependências que faltarem:
 
     ./instalar.sh [nome-desta-máquina]
 
-O instalador detecta apt, dnf, pacman, apk, Homebrew e Termux/pkg, instala tudo em uma única etapa,
-traduz nomes de pacotes entre as distribuições e verifica novamente os comandos antes de instalar o
-tt. Em Linux, pode ser necessário informar a senha do `sudo` uma vez.
+O instalador detecta o gerenciador de pacotes (apt, dnf/yum, zypper, pacman, apk, xbps, Homebrew, pkg do
+Termux ou do FreeBSD, pkg_add, pkgin) pela família da distro, instala tudo em uma única etapa, traduz os
+nomes de pacote entre as distribuições (tabela conferida em cada uma) e verifica novamente os comandos antes
+de instalar o tt. Usa `sudo`, `doas` ou `su` conforme houver (e nada no root, no Homebrew e no Termux); se
+um pacote não existir na sua distro, os outros continuam. Em Linux, pode ser necessário informar a senha
+uma vez. No macOS com o bash 3.2 de fábrica, instala o bash atual pelo Homebrew e recomeça com ele.
+Quem não tem `bash` (Alpine e Void mínimos) instala-o antes: `apk add bash`, `xbps-install bash`.
 
 Isso põe o tt em `~/.local/share/tt/`, liga `~/.local/bin/tt` a ele, faz o `~/.tmux.conf` carregar o
 `tmux.conf` do tt (o antigo fica em `~/.tmux.conf.antes-tt`) e **configura o `~/.bashrc`** para cada
@@ -487,22 +499,54 @@ Gmail com OAuth2 funciona **de fábrica**: sem informar `client_id`, o cadastro 
 fluxo nativo do Google assume isso, e rclone e Thunderbird embutem os deles). Quem preferir o
 próprio app continua passando `oauth_client_id=`.
 
-Tudo o que o tt quer instalar com administrador (curl/unzip dos navegadores de links, as
-bibliotecas do sistema que o Chrome/Carbonyl baixados pedem, `isync` do sync local, `w3m` do
-HTML, `vim` e o plugin XOAUTH2) se junta num **modal único** (`tt --pedir-sudo`) com quatro
+### Pendências de instalação 📦
+
+Tudo o que o tt pode precisar fica num **catálogo único**, e `tt --pendencias` mostra o estado de cada
+item nesta máquina (✓ pronto, ✗ falta, ! o tt não resolve sozinho, – não se aplica). Entram:
+
+| Grupo | Itens |
+|---|---|
+| Essencial | ferramentas básicas (bash, tmux, fzf, python3, ssh, tar, rg, git, curl); **fzf atual** (o do sistema é velho: baixa o oficial para `~/.local/share/tt-bin`, que passa na frente no PATH do tt); tmux antigo (só orienta) |
+| E-mail | aerc, mbsync (isync), **isync com SASL** (compilado na sua pasta quando o do sistema não tem LibSASL, como no Termux), plugin XOAUTH2 do SASL, w3m, vim, dicionário de português |
+| Navegadores | **Google Chrome** e **Carbonyl** (baixados para `~/.local/share/tt-navegadores`, sem sudo) e as bibliotecas do sistema que eles pedem (as ~25 que o `ldd` acusa, mais GTK, Vulkan e fontes) |
+| Conforto | clipboard (wl-clipboard/xclip), notificações (notify-send), xdg-utils, Termux:API, pv, mosh, nomeador local |
+
+Cada item é **essencial** (o tt degrada sem ele), **recurso** (de uma função que você usa) ou **opcional**;
+o vigia só avisa dos dois primeiros, e o menu administrar → 📦 mostra tudo. O que precisa de
+administrador vai num **modal único** (`tt --pedir-sudo`, ou `--pedir-sudo ID…` para escolher) com quatro
 respostas: **[i] instalar agora**, **[s] selecionar** (decide item a item), **[m] mais tarde** (pergunta de
-novo em 1 dia) e **[n] não instalar** (nunca mais avisa daquilo). O vigia confere as pendências ao
-iniciar e a cada 6 h e põe **um** aviso na faixa (📦 N pendências de instalação…); clicar abre o modal.
-Quem disse "não" não é incomodado de novo, mas pode mudar de ideia: **menu administrar → 📦 Pendências
-de instalação…** reavalia todas, inclusive as recusadas de vez (`TT_PEND_TODAS=1 tt --pedir-sudo`).
+novo em 1 dia) e **[n] não instalar** (nunca mais avisa daquilo). Para scripts e agentes,
+`tt --pedir-sudo --sim` aceita tudo sem perguntar nem precisar de terminal.
+
+O vigia confere as pendências ao iniciar e a cada 6 h e põe **um** aviso na faixa (📦 N pendências de
+instalação…, que dura 6 h e só volta depois de 12 h); clicar abre o modal. O menu do 📧 também oferece
+instalar o que falta para o e-mail, e o erro do sync de e-mail (`tt --email-sync-estado`) aponta a
+pendência que o resolve. Quem disse "não" não é incomodado de novo, mas pode mudar de ideia: **menu
+administrar → 📦 Pendências de instalação…** reavalia todas, inclusive as recusadas de vez (`TT_PEND_TODAS=1
+tt --pedir-sudo`); **📋 Estado de tudo** mostra o catálogo.
+
+Como a instalação é robusta: o gerenciador é escolhido pela família da distro e o privilégio por `sudo` >
+`doas` > `su` (nenhum no root, no Homebrew e no Termux; sem nenhum, o tt mostra o comando para o
+administrador rodar); tudo vai em **uma** chamada, sem perguntas (`DEBIAN_FRONTEND`, espera da trava do
+dpkg) e, se ela falhar, o tt atualiza o índice e repete, e depois tenta **um pacote por vez**, para um nome
+inexistente na sua distro não derrubar os outros; senha errada para na primeira tentativa. No Debian 13 e
+no Ubuntu 24.04 o nome `…t64` é escolhido sozinho; no proot do Termux o apt roda com
+`APT::Sandbox::User=root`. Depois o tt **confere** cada item (✓/✗); o que falhou espera 7 dias para
+voltar a avisar, e o registro de cada tentativa fica em `~/.cache/tt/pendencias.log`. Downloads têm
+tentativas, espaço livre checado antes, sha256 conferido e nunca deixam arquivo pela metade. Uma
+instalação por vez (trava).
 
 **Contas Google com login OAuth** (`auth=oauth`, como uma conta de ex-aluno) só sincronizam com o
 plugin XOAUTH2 do Cyrus SASL, que quase nenhuma distribuição empacota. A pendência `email-xoauth2`
-instala só o compilador e os cabeçalhos do SASL com o gerenciador do sistema (apt, dnf, pacman, apk,
-brew) e o tt baixa o código (cyrus-sasl-xoauth2, MIT, 4 arquivos C), confere o sha256, compila em ~1 s e
+instala só o compilador e os cabeçalhos do SASL com o gerenciador do sistema (apt, dnf, zypper, pacman,
+apk, xbps, brew, pkg) e o tt baixa o código (cyrus-sasl-xoauth2, MIT, 4 arquivos C), confere o sha256, compila em ~1 s e
 deixa `libxoauth2.so` em `~/.local/share/tt-sasl2` — sem tocar no sistema. O `mbsync` a enxerga por
 `SASL_PATH`, que o tt define só nas rodadas de sync (a lista padrão do sistema continua na frente).
-O `instalar.sh` da primeira instalação já traz o resto de uma vez, em qualquer gerenciador; o plugin XOAUTH2 é oferecido pelo modal assim que existe uma conta OAuth com sync local.
+Se o próprio `mbsync` foi empacotado sem LibSASL (é o caso do Termux), a pendência `isync-sasl` compila o
+isync 1.5.1 com SASL em `~/.local/share/tt-isync` (sha256 conferido; só o compilador, o `make`, o `perl` e
+os cabeçalhos vêm do gerenciador), e o tt passa a usar esse `mbsync`. O `instalar.sh` da primeira
+instalação já traz o resto de uma vez, em qualquer gerenciador; o plugin XOAUTH2 é oferecido pelo modal
+assim que existe uma conta OAuth com sync local.
 
 ## Tarefas
 
@@ -969,7 +1013,7 @@ cadastro de conta OAuth e Ctrl+B u abrem o mesmo seletor com três opções (mai
 
 Os dois primeiros são baixados sob demanda para `~/.local/share/tt-navegadores`, sem sudo, e só são
 instalados se o sha256 do pacote bater (o do Chrome, com o índice do repositório do Google; o do Carbonyl, com o fixado no `tt`). Só x86_64; no Termux ficam ocultos.
-Máquina nova (`instalar.sh`) e máquina atualizada (`tt --sincronizar`, `tt --atualizar`) já deixam os dois prontos em segundo plano: instalam `curl`/`unzip` (direto com root ou sudo sem senha; senão abre um modalzinho com o resumo e o comando exato, e o próprio `sudo` pede a senha ali, sem o tt vê-la; "não instalar" silencia de vez e "mais tarde" por 1 dia), baixam o Carbonyl e, havendo ambiente gráfico, o Chrome; o que já está instalado é pulado e o log fica em `~/.cache/tt/navegadores.log`. A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`
+Máquina nova (`instalar.sh`) e máquina atualizada (`tt --sincronizar`, `tt --atualizar`) já deixam os dois prontos em segundo plano: baixam o Carbonyl e, havendo ambiente gráfico, o Chrome (o que já está instalado é pulado; o log fica em `~/.cache/tt/navegadores.log`). Se faltar `curl`/`unzip` (ou as bibliotecas do sistema que os navegadores pedem), eles entram nas [pendências de instalação](#pendências-de-instalação-): o vigia avisa (📦) e o modal instala com o `sudo` pedindo a senha ali, sem o tt vê-la; quem disse "não" a um deles não tem o download em segundo plano. A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`
 no `~/.config/tt/config` (o padrão é `perguntar`). O navegador sobe pelo servidor do tmux, fora do
 isolamento de rede do leitor de e-mail.
 
