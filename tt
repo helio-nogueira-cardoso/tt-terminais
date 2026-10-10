@@ -3739,7 +3739,7 @@ xoauth2_presente() {
   finge_falta xoauth2 && return 1
   [[ -e $DIR_SASL/libxoauth2.so ]] && return 0
   local d
-  while IFS= read -r d; do compgen -G "$d/libxoauth2.*" >/dev/null && return 0; done < <(sasl_dirs_sistema)
+  for d in $(sasl_dirs_sistema); do compgen -G "$d/libxoauth2.*" >/dev/null && return 0; done
   return 1
 }
 
@@ -3770,7 +3770,7 @@ xoauth2_deps_faltam() { # falta o compilador ou os cabeçalhos do SASL (e do Ope
 xoauth2_ambiente() {
   [[ -e $DIR_SASL/libxoauth2.so ]] || return 0
   local d p=$DIR_SASL
-  while IFS= read -r d; do p+=":$d"; done < <(sasl_dirs_sistema)
+  for d in $(sasl_dirs_sistema); do p+=":$d"; done
   echo "$p"
 }
 
@@ -4219,8 +4219,8 @@ pedir_sudo_pendencias() {
           *) adiados+=("$id") ;;
         esac
       done <<<"$lista" ;;
-    n|N|r|R) mapfile -t nuncas < <(cut -f1 <<<"$lista") ;;
-    *) mapfile -t adiados < <(cut -f1 <<<"$lista") ;;   # Enter, Esc, qualquer outra: mais tarde
+    n|N|r|R) mapfile -t nuncas <<<"$(cut -f1 <<<"$lista")" ;;
+    *) mapfile -t adiados <<<"$(cut -f1 <<<"$lista")" ;;   # Enter, Esc, qualquer outra: mais tarde
   esac
   for id in ${adiados[@]+"${adiados[@]}"}; do sudo_recusa_gravar "$id" tarde; done
   for id in ${nuncas[@]+"${nuncas[@]}"}; do sudo_recusa_gravar "$id" nunca; done

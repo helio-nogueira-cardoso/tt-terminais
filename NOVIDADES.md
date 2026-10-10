@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.5.271 · 10/10/2026
+- Corrigido: no Debian do proot do Termux (o Linux de dentro do celular), a detecção da plataforma e a
+  instalação de pacotes falhavam — o proot se anuncia como "PRoot-Distro" e não tem `/dev/fd`. Testado de
+  verdade no celular: agora ele é reconhecido e o `apt` roda com a opção certa para o proot.
+
 ## v1.5.270 · 10/10/2026
 - Pendências de instalação completas: `tt --pendencias` mostra, num lugar só, tudo o que o tt pode usar
   nesta máquina — ferramentas básicas, fzf, tmux, e-mail (aerc, mbsync, w3m, vim, dicionário, plugin XOAUTH2),
