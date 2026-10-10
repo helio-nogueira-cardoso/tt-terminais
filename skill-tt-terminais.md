@@ -150,6 +150,11 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   12:00). Lembrete (`--tarefas-lembrete`, a cada volta do vigia): com horário avisa
   `TT_TAREFAS_ANTECEDENCIA` (10) min antes, uma vez por prazo; sem horário, uma vez por dia. Avisa
   por notify-send/termux-notification e por `display-message` em cada cliente tmux.
+- `tt --tarefa-implementar ID [cliente]` — IA na tarefa: abre a sessão `impl-N` (pasta do painel ativo do cliente)
+  com `ia-conta abrir --prompt-arquivo $RT/tt-impl-ID.md` (a IA de mais folga; Claude/Codex/Kiro recebem o texto como
+  1º pedido) e leva o cliente até ela. O pedido (`--tarefa-ia-prompt ID`) traz título, prazo, descrição e as
+  subtarefas com ids; a IA marca cada uma com `tt --tarefa-ok` e avisa com `--notificar-daqui`; não publica sem
+  ordem. Subtarefa: só ela. Painel: botão ✦ IA, `^g`, ⋯ menu → 🤖 (o painel fecha ao abrir).
 - Internos da UI: `--tarefas-ui`, `--tarefas-lista [busca]`, `--tarefas-cabecalho`,
   `--tarefa-acao EVENTO CHAVE` (despachante único: toda tecla, clique e botão do painel passa por
   ele e devolve as ações do fzf), `--tarefa-nova-prompt`, `--tarefa-sub-prompt`,

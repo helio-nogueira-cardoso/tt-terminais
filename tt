@@ -7059,6 +7059,7 @@ tarefas_ui() {
     --bind="ctrl-x:transform($a apagar {1})" \
     --bind="ctrl-t:transform($a calendario {1})" \
     --bind="ctrl-o:transform($a mais {1})" \
+    --bind="ctrl-g:transform($a ia {1})" \
     --bind="ctrl-l:transform($a limpar {1})" \
     --bind="tab:transform($a filtro-proximo {1})" \
     --bind="ctrl-f:transform($a filtro-proximo {1})" \
@@ -7120,6 +7121,7 @@ tarefas_cabecalho() {
       # ↑ e ↓ numa pílula só, cada seta com a sua ação; as duas metades nunca se separam
       ((col > 1 && col + 6 > larg)) && _quebra
       _item " ↑" "$bg$txt ↑" cima; _item " ↓ " "$bg$txt ↓ $z" baixo colado
+      _botao '✦ IA' ia
       _botao '✕ Apagar' apagar; _botao '⋯ Mais' mais
       _botao '? Ajuda' ajuda
       # Aviso de uma ação recusada (ex.: concluir mãe com subtarefa aberta): aparece uma vez.
@@ -7394,6 +7396,7 @@ tarefas_ajuda_linhas() {
   printf '\t   %s^n%s nova   %s^s%s subtarefa   %s^e%s descrição   %s^d%s prazo   %sF2%s editar\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^p%s prioridade   %s^r%s repetir   %s^k ^j%s sobe/desce   %s^x%s apaga\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^t%s calendário   %s^o%s mais ações   %s^l%s arquiva/apaga as feitas   %s^/%s descrição\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
+  printf '\t   %s^g%s implementa com a melhor IA (a tarefa e as subtarefas, numa sessão nova)\n' "$y" "$z"
   printf '\t   %s?%s ajuda   %sesc%s volta/fecha\n' "$y" "$z" "$y" "$z"
   printf '\t   %s(^n = Ctrl+N)%s\n' "$d" "$z"
   printf '\t\n\t %sSÍMBOLOS%s\n' "$a" "$z"
@@ -7453,6 +7456,7 @@ tarefas_menu_linhas() { # id
     _escolha repm "$([[ $rep == m ]] && echo 1)" 'Todo mês'
     printf '\t\n'
   fi
+  [[ $est == aberta ]] && _op ia "$a🤖 Implementar com a melhor IA" "$([[ -z $pai ]] && echo 'a tarefa e todas as subtarefas · ^g' || echo 'esta subtarefa · ^g')"
   _op cima "$t↑ Subir" '^k'
   _op baixo "$t↓ Descer" '^j'
   [[ -z $pai ]] && _op arquivar "$t▤ Arquivar" 'sai da lista e fica no histórico (aba Arquivo)'
@@ -7642,8 +7646,70 @@ tarefa_acao() { # evento chave
     rep) [[ -n $pai ]] && id=$pai; tarefa_rep_ciclar "$id"; echo "$rl" ;;
     cima|baixo) tarefa_mover "$id" "$ev"; echo "$rl" ;;
     apagar) echo "execute($EU --tarefa-remover-prompt $id)+$rl+$hd" ;;
+    ia) # abre a sessão da IA e fecha o painel (senão ele ficaria por cima da sessão nova)
+      if nome=$(tarefa_implementar "$id" "${TT_CLIENTE:-}" 2>/dev/null); then echo abort
+      else tarefas_ui_set aviso "⚠ Não consegui abrir a IA para esta tarefa"; echo "$rl+$hd"; fi ;;
     *) echo ignore ;;
   esac
+}
+
+# Implementar com a melhor IA: o botão 🤖 do painel de tarefas (e `tt --tarefa-implementar ID`) abre uma
+# sessão nova com a IA de mais folga (ia-conta abrir → ia-rot --melhor) já recebendo o pedido: implementar
+# a tarefa e todas as suas subtarefas, marcando cada uma como feita ao terminar. Subtarefa: só ela.
+
+# O pedido que a IA recebe (texto puro): título, descrição, prazo e as subtarefas abertas com os ids.
+tarefa_ia_prompt() { # id [pasta]
+  local id=$1 pasta=${2:-$PWD} est txt m pai prazo desc sid sest stxt n=0 pai_txt
+  IFS=$'\t' read -r est txt m < <(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $2"\t"$5"\t"($6==""?"-":$6); exit}')
+  [[ -n $est ]] || return 1
+  [[ $m == - ]] && m=""
+  pai=$(tarefas_meta_get "$m" pai); prazo=$(tarefas_meta_get "$m" prazo)
+  desc=$(tarefa_get_desc "$id")
+  printf 'Você foi aberto pelo painel de tarefas do tt-terminais para IMPLEMENTAR %s abaixo, de ponta a ponta.\n\n' \
+    "$([[ -n $pai ]] && echo 'uma subtarefa' || echo 'uma tarefa e todas as suas subtarefas')"
+  if [[ -n $pai ]]; then
+    pai_txt=$(tarefas_raw | awk -F'\t' -v id="$pai" '$1==id{print $5; exit}')
+    printf 'SUBTAREFA [%s]: %s\n(da tarefa [%s]: %s)\n' "$id" "$txt" "$pai" "$pai_txt"
+  else
+    printf 'TAREFA [%s]: %s\n' "$id" "$txt"
+  fi
+  [[ -n $prazo ]] && printf 'Prazo: %s\n' "$(tarefas_prazo_texto "$prazo" "$(tarefas_meta_get "$m" hora)")"
+  [[ -n $desc ]] && printf '\nDescrição:\n%s\n' "$desc"
+  if [[ -z $pai ]]; then
+    while IFS=$'\t' read -r sid sest stxt; do
+      [[ -n $sid ]] || continue
+      if ((n == 0)); then printf '\nSubtarefas (id · estado · texto):\n'; fi
+      n=$((n + 1)); printf '  [%s] %s · %s\n' "$sid" "$([[ $sest == feita ]] && echo feita || echo aberta)" "$stxt"
+    done < <(tarefas_filhas "$id")
+  fi
+  cat <<FIM
+
+Como trabalhar:
+1. Entenda o pedido e o projeto desta pasta ($pasta) antes de mexer: leia AGENTS.md/CLAUDE.md/README se houver, e siga as convenções e o ciclo de testes do projeto.
+2. Implemente $([[ -n $pai ]] && echo 'a subtarefa' || echo 'a tarefa e CADA subtarefa aberta acima'), uma a uma, testando de verdade (rode os testes; não declare pronto sem verificar).
+3. Ao terminar cada $([[ -n $pai ]] && echo 'item' || echo 'subtarefa'), marque-a: tt --tarefa-ok <id>$([[ -z $pai ]] && echo ". Ao fim de todas, marque a própria tarefa [$id] (tt --tarefa-ok $id; ela só conclui com as subtarefas feitas)").
+4. Se algo bloquear (decisão sua, credencial, aprovação), avise com: tt --notificar-daqui "<o que precisa>" --sempre, e espere.
+5. Não publique, não faça push nem instale em outras máquinas sem o dono pedir explicitamente. Commits locais podem ser feitos.
+6. No fim, resuma o que foi feito e avise: tt --notificar-daqui "Tarefa pronta: <título>".
+FIM
+}
+
+# Abre a sessão da IA para a tarefa e leva o cliente até ela. Imprime o nome da sessão.
+tarefa_implementar() { # id [cliente]
+  local id=$1 c=${2:-${TT_CLIENTE:-}} arq pasta nome txt
+  txt=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
+  [[ -n $txt ]] || { echo "tarefa $id não existe" >&2; return 1; }
+  [[ -n ${TMUX:-} ]] || tmux has-session 2>/dev/null || { echo "precisa do tmux ligado" >&2; return 1; }
+  mkdir -p "$RT"; arq="$RT/tt-impl-$id.md"
+  [[ -n $c ]] || c=$(tmux list-clients -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR==1{print $2}')
+  pasta=$([[ -n $c ]] && do_cliente "$c" '#{pane_current_path}'); [[ -d ${pasta:-} ]] || pasta=$HOME
+  tarefa_ia_prompt "$id" "$pasta" >"$arq" || return 1
+  nome=$(proximo_nome impl)
+  local ia="$DIR_TT/ia-conta"; [[ -x $ia ]] || ia=$(command -v ia-conta) || { echo "ia-conta não encontrado" >&2; return 1; }
+  tmux new-session -d -s "$nome" -c "$pasta" "$(printf '%q abrir --prompt-arquivo %q; exec ${SHELL:-bash}' "$ia" "$arq")" || return 1
+  tmux set-option -w -t "=$nome:" @tt_papel ia-impl
+  [[ -n $c ]] && tmux switch-client -c "$c" -t "=$nome"
+  echo "$nome"
 }
 
 # Visão da descrição (a janela de prévia do painel, ^/ ou a linha "≡ descrição" de uma tarefa
@@ -12436,6 +12502,8 @@ case "${1:-}" in
   --tarefas-cabecalho) tarefas_cabecalho; exit ;;
   --tarefa-cabecalho-clique) tarefa_acao cabecalho "${2:-}"; exit ;;
   --tarefa-acao) shift; tarefa_acao "$@"; exit ;;
+  --tarefa-implementar) tarefa_implementar "${2:?uso: tt --tarefa-implementar ID [cliente]}" "${3:-}"; exit ;;
+  --tarefa-ia-prompt) tarefa_ia_prompt "${2:?uso: tt --tarefa-ia-prompt ID}"; exit ;;
   --tarefa-limpar-prompt) tarefa_limpar_prompt; exit ;;
   --tarefa-editar-prompt|--tarefa-renomear-prompt) tarefa_editar_prompt "${2:-}"; exit ;;
   --tarefa-editar) [[ -n ${2:-} && -n ${3:-} ]] && tarefa_editar "$2" "${*:3}" || { echo 'uso: tt --tarefa-editar ID "texto @prazo !prio *rep #tag"'; exit 1; }; exit ;;

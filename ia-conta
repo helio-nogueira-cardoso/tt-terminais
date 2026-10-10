@@ -67,7 +67,7 @@ uso() {
 Uso:
   ia-conta principal [argumentos do claude]
   ia-conta <conta> [argumentos do claude]
-  ia-conta abrir [--retomar <id-da-conversa-do-claude>] [--exceto <conta>]...
+  ia-conta abrir [--retomar <id-da-conversa-do-claude>] [--exceto <conta>]... [--prompt-arquivo <arq>]
   ia-conta adicionar <conta> [--email <e-mail>]
   ia-conta entrar <conta>
   ia-conta renomear <conta> <novo-nome>
@@ -650,12 +650,13 @@ claude_status_email() {
 
 # A IA com mais folga agora (ia-rot --melhor), interativa e sem pedir permissões.
 abrir() {
-  local retomar="" rot linha conta pico texto c
+  local retomar="" rot linha conta pico texto c prompt=""
   local -a exceto=() claude_contas=()
   while (($#)); do
     case $1 in
       --retomar) retomar=${2:-}; shift ;;
       --exceto) exceto+=(--exceto "${2:-}"); shift ;;
+      --prompt-arquivo) [[ -r ${2:-} ]] || die "abrir: não consigo ler '${2:-}'"; prompt=$(<"$2"); shift ;;
       *) die "abrir: opção desconhecida '$1' (veja: ia-conta ajuda)" ;;
     esac
     shift
@@ -675,14 +676,14 @@ abrir() {
     codex)
       [[ -n $retomar ]] && echo '(conversa do Claude não continua no Codex: sessão nova)'
       # No Android (proot) o Codex não tem o pacote do servidor em segundo plano e sai com erro.
-      if [[ -n ${ANDROID_ROOT:-} ]]; then exec env IA_CONTA=codex codex --no-daemon --yolo; fi
-      exec env IA_CONTA=codex codex --yolo ;;
+      if [[ -n ${ANDROID_ROOT:-} ]]; then exec env IA_CONTA=codex codex --no-daemon --yolo ${prompt:+"$prompt"}; fi
+      exec env IA_CONTA=codex codex --yolo ${prompt:+"$prompt"} ;;
     kiro)
       [[ -n $retomar ]] && echo '(conversa do Claude não continua no Kiro: sessão nova)'
-      exec env IA_CONTA=kiro kiro-cli chat --v3 --trust-all-tools ;;
+      exec env IA_CONTA=kiro kiro-cli chat --v3 --trust-all-tools ${prompt:+"$prompt"} ;;
     *)
       if [[ -n $retomar ]]; then rodar "$conta" --dangerously-skip-permissions --resume "$retomar"
-      else rodar "$conta" --dangerously-skip-permissions; fi ;;
+      else rodar "$conta" --dangerously-skip-permissions ${prompt:+"$prompt"}; fi ;;
   esac
 }
 
