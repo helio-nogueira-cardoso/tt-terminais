@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.7.2 · 10/10/2026
+- Conversas das IAs: a troca vai em lotes de 100 conversas. Na primeira troca com o celular a rede caiu no meio
+  (1,3 GB pelo relay) e o pacote inteiro se perdia; agora cada lote entregue já vale e a volta seguinte
+  continua do que faltou. Sobras de uma recepção interrompida são limpas sozinhas.
+
 ## v1.7.1 · 10/10/2026
 - Novo diagnóstico de lentidão ao trocar de sessão: crie o arquivo `~/.config/tt/trace` (`touch`) e os cliques
   e trocas passam a gravar cada linha executada, com a hora, em `~/.cache/tt-trace.log` (zera acima de 5 MB).

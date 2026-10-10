@@ -5567,6 +5567,26 @@ sessoes_ia_remoto() { # inventario|empacotar|aplicar
   sessoes_ia_py "$1"
 }
 
+sessoes_ia_puxar_lote() { # dest (lista no stdin)
+  timeout 1800 ssh "${SSH_OPC[@]}" "$1" "$TT_REMOTO --sessoes-ia-empacotar" 2>/dev/null | sessoes_ia_py aplicar 2>/dev/null
+}
+sessoes_ia_enviar_lote() { # dest (lista no stdin)
+  sessoes_ia_py empacotar 2>/dev/null | timeout 1800 ssh "${SSH_OPC[@]}" "$1" "$TT_REMOTO --sessoes-ia-aplicar" 2>/dev/null
+}
+# Passa LISTA à FUNÇÃO em lotes; para no primeiro lote que falha. Imprime os resumos somados.
+sessoes_ia_lotes() { # lista função dest
+  local lote=${TT_SESSOES_LOTE:-100} r tot="" rc=0
+  local -a l; mapfile -t l <<<"$1"
+  local i
+  for ((i = 0; i < ${#l[@]}; i += lote)); do
+    r=$(printf '%s\n' "${l[@]:i:lote}" | "$2" "$3") || { rc=1; break; }
+    tot+="$r"$'\n'
+  done
+  awk '{ for (i = 1; i <= NF; i++) { split($i, kv, "="); if (!(kv[1] in s)) o[++n] = kv[1]; s[kv[1]] += kv[2] } }
+       END { for (i = 1; i <= n; i++) printf "%s%s=%d", (i > 1 ? " " : ""), o[i], s[o[i]]; print "" }' <<<"$tot"
+  return $rc
+}
+
 # tt --sessoes-ia-sync [rótulo…]: troca as conversas com as máquinas cadastradas (todas, ou as dadas).
 sessoes_ia_sync() {
   sessoes_ia_ativo || { echo "conversas das IAs: sincronização desligada nesta máquina (sessoes_ia_sync=0)"; return 0; }
@@ -5585,17 +5605,17 @@ sessoes_ia_sync() {
       ! grep -q '"provedores"' "$inv"; then
       st=pulada # sem rede, tt antigo ou desligada lá
     else
+      # Em lotes de TT_SESSOES_LOTE conversas (100): na primeira troca são centenas de MB, e um celular
+      # que sai da rede no meio perdia o pacote inteiro; assim cada lote entregue já vale, e a próxima
+      # volta continua do que faltou.
       lista=$(sessoes_ia_py pedir "$inv")
       if [[ -n $lista ]]; then
         np=$(wc -l <<<"$lista")
-        r_p=$(printf '%s\n' "$lista" | timeout 3600 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --sessoes-ia-empacotar" 2>/dev/null |
-          sessoes_ia_py aplicar 2>/dev/null) || st=falhou
+        r_p=$(sessoes_ia_lotes "$lista" sessoes_ia_puxar_lote "$dest") || st=falhou
       fi
-      lista=$(sessoes_ia_py pedir "$inv" --enviar)
-      if [[ -n $lista ]]; then
+      if [[ $st == ok ]] && lista=$(sessoes_ia_py pedir "$inv" --enviar) && [[ -n $lista ]]; then
         ne=$(wc -l <<<"$lista")
-        r_e=$(printf '%s\n' "$lista" | sessoes_ia_py empacotar 2>/dev/null |
-          timeout 3600 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --sessoes-ia-aplicar" 2>/dev/null) || st=falhou
+        r_e=$(sessoes_ia_lotes "$lista" sessoes_ia_enviar_lote "$dest") || st=falhou
       fi
     fi
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$st" "$np" "$ne" "${r_p:--}" "${r_e:--}" >"$SESSOES_IA_DIR/maquinas/$rot"

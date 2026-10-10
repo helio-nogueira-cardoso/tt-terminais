@@ -8,7 +8,7 @@
 # Claude fica em cada máquina, máquina desligada (sessoes_ia_sync=0) e tt antigo pulados.
 source "$(dirname "$0")/lib.sh"; isolar
 instalar_isolado
-export TT_SESSOES_QUIETO=60
+export TT_SESSOES_QUIETO=60 TT_SESSOES_LOTE=1 # um lote por conversa: a troca passa por vários lotes
 
 D=$T/dest; mkdir -p "$D/.local/bin" "$D/.config/tt"; ln -s "$TT" "$D/.local/bin/tt"
 export DEST=$D
@@ -18,6 +18,9 @@ cat >"$B/ssh" <<'EOF'
 cmd=${*: -1}
 printf '%s\n' "$cmd" >>"$SSH_LOG"
 case ${MODO_SSH:-} in
+  # a rede cai no 2º envio de lote (celular que dorme no meio da primeira troca)
+  cai) [[ $cmd == *--sessoes-ia-aplicar* ]] && { n=$(($(cat "$SSH_LOG.cai" 2>/dev/null || echo 0) + 1)); echo $n >"$SSH_LOG.cai"
+         ((n >= 2)) && { cat >/dev/null; echo "Connection reset" >&2; exit 255; }; } ;;
   antigo) echo "tt: opção desconhecida: ${cmd##* } (tt --help mostra as principais)" >&2; exit 2 ;;
 esac
 exec env HOME="$DEST" XDG_CONFIG_HOME="$DEST/.config" bash -c "$cmd"
@@ -60,7 +63,15 @@ printf '{\n  "session_id": "%s",\n  "cwd": "%s/proj",\n  "updated_at": "2026-10-
 printf '{"m":"oi kiro"}\n' >"$KI/$K1.jsonl"
 velho "$PA/$U1.jsonl" "$PA/$U1/subagents/agent-a1.jsonl" "$PA/memory/MEMORY.md" "$CX/$RO" "$KI/$K1".*
 
-# --- 1ª volta: tudo chega do outro lado, com a home de lá ----------------------------------------
+# --- rede cai no meio: o lote entregue fica, a volta seguinte continua -------------------------
+out=$(MODO_SSH=cai "$TT" --sessoes-ia-sync 2>&1)
+grep -q 'outra .*falhou' <<<"$out" || falhou "queda no meio deveria aparecer como falha: $out"
+n1=$( (find "$D/.claude" "$D/.codex/sessions" "$D/.kiro/sessions/cli" -type f 2>/dev/null || true) | wc -l)
+((n1 >= 1)) || falhou 'o lote entregue antes da queda não ficou'
+ls "$D/.local/state/tt/sessoes-ia" | grep -q '^entrada\.' && falhou 'sobrou pasta de recepção'
+passou "rede caindo no meio: o lote entregue fica ($n1 arquivo(s)), sem sobra"
+
+# --- 1ª volta completa: tudo chega do outro lado, com a home de lá ------------------------------
 out=$("$TT" --sessoes-ia-sync 2>&1) || falhou "sync falhou: $out"
 grep -q 'outra .*ok' <<<"$out" || falhou "sem resultado da máquina: $out"
 PD=$D/.claude/projects/$(enc "$D/proj")

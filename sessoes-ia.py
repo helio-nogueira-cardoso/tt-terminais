@@ -550,6 +550,10 @@ def cmd_aplicar():
     res = {"novas": 0, "atualizadas": 0, "conflitos": 0, "em_uso": 0, "iguais": 0, "mantidas": 0}
     with Trava(os.path.join(ESTADO, "trava")):
         os.makedirs(ESTADO, exist_ok=True)
+        # Sobras de uma recepção derrubada no meio (ssh caiu, celular dormiu): a trava é nossa agora.
+        for n in os.listdir(ESTADO):
+            if n.startswith("entrada."):
+                shutil.rmtree(os.path.join(ESTADO, n), ignore_errors=True)
         stg = tempfile.mkdtemp(dir=ESTADO, prefix="entrada.")
         try:
             meta = {}
