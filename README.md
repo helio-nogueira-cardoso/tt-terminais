@@ -785,7 +785,7 @@ por ssh) vê o letreiro rolar como os demais — sem redesenho de tela inteira o
 (`ticker_ponte=parado` o congela). Tudo configurável no `~/.config/tt/config`:
 `ticker_rolagem=continua|paginas` (padrão `continua`: desliza `1/ticker_veloc` colunas por segundo —
 padrão 1/`ticker_fps` → uma coluna por quadro, 6/s; `ticker_veloc=0.5` dá 2/s, `1` dá 1/s; `paginas` troca em
-blocos a cada `ticker_veloc=` s — padrão 6), `ticker_fps=1..10` (quadros por segundo, padrão 6: o tmux só
+blocos a cada `ticker_veloc=` s — padrão 6), `ticker_fps=1..20` (quadros por segundo, padrão 6; o teto é 20 porque cada quadro além do primeiro custa um processo `bash` por cliente. O menor passo de um terminal é 1 coluna: subir o fps com a mesma velocidade só repete redesenhos, o ganho é rolar mais depressa, com `ticker_veloc` ajustando: o tmux só
 redesenha a barra 1 vez/s por `#()`, mas guarda a última linha de cada um — o pintor imprime um quadro
 novo a cada 1/fps s e fps−1 gatilhos de linha vazia, defasados, provocam os redesenhos entre os
 segundos; custo ≈ 2 KB por quadro e ~12 MB o pintor (python) e ~4 MB cada gatilho (`gatilho-tt.sh`, só builtins do bash): 1 pintor + 5 gatilhos ≈ 32 MB por terminal; `1` volta

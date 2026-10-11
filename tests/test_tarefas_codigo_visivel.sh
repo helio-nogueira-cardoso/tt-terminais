@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Apelido e código visíveis na lista do painel: o apelido (o mesmo de `tt --tarefa-codigo`) vem antes do
 # título em toda tarefa, a subtarefa mostra .N (kito47.2), o código completo aparece no fim da linha em painel
-# largo (>= 80 colunas) e a busca acha pelo apelido ou pelo código. A subtarefa também mostra o próprio apelido
+# largo (>= 60 colunas: o painel real tem 64) e a busca acha pelo apelido ou pelo código. A subtarefa também mostra o próprio apelido
 # (.N apelido texto), o código no fim em painel largo e, no preview, '⌗ apelido · código' de cada uma.
 source "$(dirname "$0")/lib.sh"; isolar
 tt() { "$TT" "$@"; }
@@ -23,12 +23,18 @@ sub1=$(tt --tarefa-codigo "$ap.1" | cut -f2); sub1ap=$(tt --tarefa-codigo "$ap.1
 grep -qE "☐ \.1 $sub1ap slide um .*$sub1" <<<"$l" || fail "painel largo: o código da subtarefa deveria fechar a linha: $l"
 passou "painel largo mostra apelido, código e .N das subtarefas, com apelido e código nelas também"
 
-l=$(FZF_COLUMNS=60 tt --tarefas-lista | sem_cor | cut -f2-)
+l=$(FZF_COLUMNS=50 tt --tarefas-lista | sem_cor | cut -f2-)
 grep -qE "☐ $ap Preparar apresentação" <<<"$l" || fail "painel estreito perdeu o apelido: $l"
 grep -q "$id" <<<"$l" && fail "painel estreito não deveria mostrar o código inteiro: $l"
 grep -qE "☐ \.1 $sub1ap slide um" <<<"$l" || fail "painel estreito perdeu o apelido da subtarefa: $l"
 grep -q "$sub1" <<<"$l" && fail "painel estreito não deveria mostrar o código da subtarefa: $l"
-passou "painel estreito mostra o apelido (da tarefa e das subtarefas), sem o código"
+passou "painel estreito (50 colunas) mostra o apelido (da tarefa e das subtarefas), sem o código"
+
+# o painel real do celular: 64 colunas (72 com terminal >= 120) já mostra o código, na tarefa e na subtarefa
+l=$(FZF_COLUMNS=64 tt --tarefas-lista | sem_cor | cut -f2-)
+grep -qE "☐ $ap Preparar apresentação .*$id" <<<"$l" || fail "painel de 64 colunas deveria mostrar o código da tarefa: $l"
+grep -qE "☐ \.1 $sub1ap slide um .*$sub1" <<<"$l" || fail "painel de 64 colunas deveria mostrar o código da subtarefa: $l"
+passou "o painel real (64 colunas) mostra apelido e código"
 
 pv=$(tt --tarefa-preview "$id" | sem_cor)
 grep -qF "⌗ $sub1ap · $sub1" <<<"$pv" || fail "preview sem '⌗ apelido · código' da subtarefa: $pv"

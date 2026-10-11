@@ -7683,11 +7683,11 @@ barra_notifs_fmt() {
   # o slot ocupa exatamente o que sobra. Só muda com o nº de dígitos do 📧 ou do relógio/versão.
   # O 4º é #{client_width}: o tty de um cliente por ssh (Tailscale SSH) é do root e o ioctl falha. Ao
   # redimensionar o tmux cria um processo novo; o antigo percebe que foi substituído e sai.
-  # ticker_fps (1 a 10, padrão 6) = quadros por segundo do letreiro. Cada #() redesenha a barra no
+  # ticker_fps (1 a 20, padrão 6) = quadros por segundo do letreiro. Cada #() redesenha a barra no
   # máximo 1 vez/s, mas o tmux guarda a última linha lida de cada um: o pintor (fluxo) imprime um
   # quadro novo a cada 1/fps s e fps-1 gatilhos (linhas vazias, 1/s, defasadas) provocam os
   # redesenhos entre os segundos, cada um logo depois de um quadro novo.
-  local fps k; fps=$(conf ticker_fps); [[ $fps =~ ^([1-9]|10)$ ]] || fps=6
+  local fps k; fps=$(conf ticker_fps); [[ $fps =~ ^([1-9]|1[0-9]|20)$ ]] || fps=6
   printf '#(python3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}} #{client_width} %s)' "$DIR_TT/letreiro-tt.py" "$fps"
   for ((k = 1; k < fps; k++)); do printf '#(bash %s #{client_pid} %s %s)' "$DIR_TT/gatilho-tt.sh" "$k" "$fps"; done
 }
@@ -8552,7 +8552,7 @@ tarefas_lista_fzf() { # [busca]
       if (AGENDA && hora && !venc) s = s AZUL NEG hhmm(prazo) Z " "
       s = s AZUL slug(id) Z " " (est == "feita" ? DIM RISCO TTXT[i] Z : TXT TTXT[i] Z)
       ex = ""
-      if (COLS >= 80) ex = ex "  " DIM id Z
+      if (COLS >= 60) ex = ex "  " DIM id Z   # o painel real tem 64 colunas (72 com terminal >= 120)
       if (!AGENDA || venc) { r = rotulo_prazo(prazo, est, hora); if (r != "") ex = ex "  " r }
       r = mv(meta, "rep")
       if (r != "") ex = ex "  " TEAL "↻ " (r == "d" ? "diária" : (r == "w" ? "semanal" : "mensal")) Z
@@ -8588,7 +8588,7 @@ tarefas_lista_fzf() { # [busca]
         # .N (o número, para MÃE.N) e o APELIDO da subtarefa antes do texto, como nas tarefas de topo; o código
         # completo (12 hex) fecha a linha em painel largo e está sempre no preview (⌗ apelido · código).
         ln = ind caixa(FEST[f], 0) " " AZUL "." j " " slug(FID[f]) Z " " (FEST[f] == "feita" ? DIM RISCO FTXT[f] Z : TXT FTXT[f] Z)
-        if (COLS >= 80) ln = ln "  " DIM FID[f] Z
+        if (COLS >= 60) ln = ln "  " DIM FID[f] Z
         printf "%s\t%s\n", FID[f], ln
       }
       # Um menuzinho só, discreto e encostado à direita (pedido do dono: as linhas de ação sob a

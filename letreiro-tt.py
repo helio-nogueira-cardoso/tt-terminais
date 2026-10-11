@@ -232,9 +232,10 @@ def transferencias(agora):
 
 
 def fps_de(cfg):
-    """Quadros por segundo do letreiro (ticker_fps, 1 a 10, padrão 6)."""
+    """Quadros por segundo do letreiro (ticker_fps, 1 a 20, padrão 6). O teto existe porque cada quadro além do
+    primeiro custa um gatilho (um processo bash por cliente); remover o teto não é seguro."""
     try:
-        return min(10, max(1, int(cfg.get("ticker_fps", "") or 6)))
+        return min(20, max(1, int(cfg.get("ticker_fps", "") or 6)))
     except ValueError:
         return 6
 

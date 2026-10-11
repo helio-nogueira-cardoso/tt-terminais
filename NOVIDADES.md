@@ -3,6 +3,15 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.10 · 11/10/2026
+- **O código das tarefas e subtarefas aparece no painel real.** O limite caiu de 80 para 60 colunas (`COLS >= 60`): o painel do celular
+  tem 64 colunas (72 com terminal largo) e antes o código quase nunca aparecia. Abaixo de 60 segue só o apelido; o código está sempre
+  no preview (`⌗ apelido · código`). Linhas mais longas quebram na largura (o fzf já usa `--wrap`), nada é cortado.
+- **`ticker_fps` vai até 20** (antes 10; padrão continua 6, nada muda para quem não configurou). O teto existe porque cada quadro além
+  do primeiro custa um gatilho (um processo `bash` por cliente) e tirá-lo não é seguro. Observação: o menor passo de um terminal é 1
+  coluna, então subir o fps com a mesma velocidade só repete redesenhos; o ganho é rolar mais depressa (ajuste com `ticker_veloc`).
+- Testes: `tests/test_ticker_fps_teto.sh` e o painel de 64 colunas em `tests/test_tarefas_codigo_visivel.sh`.
+
 ## v1.8.9 · 11/10/2026
 - **Cada subtarefa mostra o próprio apelido e, discretamente, o código.** Na lista do painel a subtarefa era só `.2`; agora é
   `.2 gore21 texto` (o apelido é o mesmo de `tt --tarefa-codigo kito47.2`), em qualquer largura. O código completo (12 hex) fecha a
