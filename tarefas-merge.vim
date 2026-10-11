@@ -10,6 +10,7 @@
 if exists('g:tt_merge_carregado') | finish | endif
 let g:tt_merge_carregado = 1
 set nocompatible
+set encoding=utf-8 fileencoding=utf-8 fileencodings=utf-8
 set mouse=a
 silent! set ttymouse=sgr          " cliques em qualquer coluna (o tmux e o terminal falam SGR); no Neovim já é assim
 set nowrap nonumber nocursorline nolist

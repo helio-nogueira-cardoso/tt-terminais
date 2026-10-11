@@ -88,24 +88,28 @@ tt --tarefa-add "Logar" >/dev/null; L=$(awk -F'\t' '$5=="Logar"{print $1}' "$C")
 tt --tarefa-sub-add "$L" "Parte um" >/dev/null; LS=$(tt --tarefa-codigo "$(tt --tarefa-codigo | awk -F'\t' '$3=="Parte um"{print $1}')" | cut -f2)
 tt --tarefa-desc "$L" $'aidlc: /tmp/x.md\nnota do dono'
 tt --tarefa-log "$L" "Implementei o login" --como "editei tt e rodei os testes" --agente claude --modelo claude-sonnet-5-5 --esforco high \
-   --tokens-ent 10000 --tokens-sai 2300 --brl 0,45 --sessao impl-3 --maquina notebook --conta trabalho --email voce@exemplo.com || fail "tarefa-log falhou"
+   --tokens-ent 10000 --tokens-sai 2300 --usd 0,09 --brl 0,45 --sessao impl-3 --sessao-codigo 1234abcd --maquina notebook --conta trabalho --email voce@exemplo.com \
+   --inicio 2026-10-10T15:10:00-03:00 --fim 2026-10-10T15:52:00-03:00 || fail "tarefa-log falhou"
 printf 'modelo-x\t3\t15\n' >"$XDG_CONFIG_HOME/tt/precos"; echo 'cotacao_brl=5' >>"$XDG_CONFIG_HOME/tt/config"
-tt --tarefa-log "$LS" "Fechei a parte um" --modelo modelo-x --tokens-ent 1000000 --tokens-sai 0 --agente codex || fail "tarefa-log da subtarefa falhou"
+tt --tarefa-log "$LS" "Fechei a parte um" --modelo modelo-x --tokens-ent 1000000 --tokens-sai 0 --agente codex --inicio 2026-10-10T15:10:00Z --fim 2026-10-10T15:52:00Z || fail "tarefa-log da subtarefa falhou"
 raw=$(awk -F'\t' -v i="$L" '$1==i{print $6}' "$C" | tr '|' '\n' | sed -n 's/^desc=//p' | base64 -d)
 grep -q '^aidlc: /tmp/x.md' <<<"$raw" && grep -q '^nota do dono' <<<"$raw" || fail "o log não pode apagar a descrição que já existia: $raw"
 grep -q "^⟡ .* · $(tt --tarefa-codigo "$L" | cut -f1)$" <<<"$raw" || fail "cabeçalho do registro (quando · apelido): $raw"
 grep -q '^  fez: Implementei o login$' <<<"$raw" && grep -q '^  como: editei tt' <<<"$raw" || fail "fez/como: $raw"
-grep -q '^  por: claude · claude-sonnet-5-5 · esforço high · sessão impl-3 · máquina notebook$' <<<"$raw" || fail "linha 'por': $raw"
+grep -q '^  por: claude · claude-sonnet-5-5 · esforço high · sessão impl-3 \[código 1234abcd\] · máquina notebook$' <<<"$raw" || fail "linha 'por': $raw"
 grep -q '^  conta: trabalho <voce@exemplo.com>$' <<<"$raw" || fail "linha 'conta': $raw"
-grep -q '^  uso: 12300 tokens (10000 ent · 2300 sai) · ≈ R\$ 0,45$' <<<"$raw" || fail "linha 'uso': $raw"
+grep -q '^  período: 2026-10-10T15:10:00-03:00 → 2026-10-10T15:52:00-03:00$' <<<"$raw" || fail "período com fuso: $raw"
+grep -q '^  uso: 12300 tokens (10000 ent · 2300 sai) · ≈ US\$ 0,0900 · ≈ R\$ 0,45$' <<<"$raw" || fail "linha 'uso': $raw"
 rawsub=$(awk -F'\t' -v i="$LS" '$1==i{print $6}' "$C" | tr '|' '\n' | sed -n 's/^desc=//p' | base64 -d)
 grep -q '≈ R\$ 15,00$' <<<"$rawsub" || fail "custo por tabela de preços (1M ent × US\$3 × 5): $rawsub"
-tt --tarefa-log "$L" "sem nada" --agente claude >/dev/null && true
+tt --tarefa-log "$L" "sem nada" --agente claude --inicio 2026-10-10T15:52:00Z --fim 2026-10-10T15:53:00Z >/dev/null && true
 h=$(tt --tarefa-historico "$L")
-grep -q '^Total: 3 registros · 1012300 tokens · ≈ R\$ 15,45$' <<<"$h" || fail "total do histórico: $h"
+grep -q '^Total: 3 registros · 1012300 tokens · ≈ US\$ 3,0900 · ≈ R\$ 15,45$' <<<"$h" || fail "total do histórico: $h"
 tt --tarefa-log "$L" 2>/dev/null && fail "sem texto deveria falhar"
 tt --tarefa-log "$L" "x" --foo 1 2>/dev/null && fail "opção desconhecida deveria falhar"
-echo "ok: registro de trabalho (acrescenta, descobre sozinho, custo por tabela, histórico com total)"
+tt --tarefa-log "$L" "x" --inicio 2026-10-10T15:00:00 --fim 2026-10-10T15:01:00 2>/dev/null && fail "timestamp sem fuso deveria falhar"
+tt --tarefa-log "$L" "x" --inicio 2026-10-10T15:00Z --fim 2026-10-10T15:01Z 2>/dev/null && fail "RFC3339 sem segundos deveria falhar"
+echo "ok: registro de trabalho (identidade de sessão, intervalo RFC3339, tokens e custos USD/BRL)"
 
 # 8) o tt injeta skill + regras em TODAS as IAs (vigia/instalação via reforcar_agentes), sem tocar no resto
 mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.kiro" "$HOME/.local/share/claude-contas/trabalho"

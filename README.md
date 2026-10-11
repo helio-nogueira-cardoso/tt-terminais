@@ -1529,10 +1529,10 @@ derivado dele (ex.: `kito47`). Assim você, a IA e outra pessoa falam da mesma t
 - **Como usar:** todo verbo que recebe um ID (`--tarefa-ok`, `--tarefa-editar`, `--tarefa-sub-add`, `--tarefa-rm`, `--demanda-aprovar`…)
   aceita o apelido, o código, um prefixo do código (4+ caracteres), `MÃE.APELIDO-DA-SUB` (`kito47.ruzi83`, estável) e `MÃE.N`
   (`kito47.2` = a 2ª subtarefa **de hoje**: posição, desliza quando outras entram ou saem). Ambíguo: lista as candidatas.
-- **Registro de trabalho:** `tt --tarefa-log ID "o que fez" --como "…" --modelo M --esforco E --tokens-ent N --tokens-sai N` acrescenta
-  à descrição um bloco (quando, o que fez, como, agente, modelo, esforço, sessão, máquina, conta e e-mail, tokens e estimativa em R$).
-  O que dá para descobrir é descoberto sozinho; modelo, esforço e tokens vêm do agente. O custo vem de `--brl` ou da tabela
-  `~/.config/tt/precos` (`modelo<TAB>USD/Mtok entrada<TAB>USD/Mtok saída`) × `cotacao_brl` (padrão 5,50); sem preço, não escreve valor.
+- **Registro de trabalho:** `tt --tarefa-log ID "o que fez" --inicio 2026-10-10T15:10:00-03:00 --fim 2026-10-10T15:52:00-03:00 --como "…" --modelo M --esforco E --tokens-ent N --tokens-sai N` acrescenta
+  à descrição um bloco com o instante de gravação em UTC e o intervalo RFC 3339 com fuso explícito, além do que foi feito, sessão, tokens e estimativas em USD/BRL.
+  O código persistente da sessão tmux é registrado para localizar a sessão e recuperar seu contexto enquanto ela existir. O custo usa `--usd`/`--brl` explícitos ou a tabela
+  `~/.config/tt/precos` (`modelo<TAB>USD/Mtok entrada<TAB>USD/Mtok saída`) × `cotacao_brl` (padrão 5,50).
   `tt --tarefa-historico ID` lista os registros da tarefa e das subtarefas com o total. Os blocos aparecem em cinza no cartão.
 - **Compartilhar por e-mail (upsert em três vias):** menu ⋯ da tarefa → **✉ Enviar por e-mail…** (ou `tt --tarefa-email ID DESTINO --abrir`,
   ou no menu do 📋 para várias de uma vez, `tt --tarefas-email DESTINO ID…`) abre **um e-mail por tarefa já preenchido** no compositor do tt

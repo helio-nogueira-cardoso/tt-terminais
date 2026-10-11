@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.16 · 11/10/2026
+- **Registro de tarefas mais completo:** cada trecho exige início e fim em RFC 3339 com fuso explícito; registra o código persistente da sessão tmux, tokens usados e custos estimados em USD e R$. O histórico soma tokens e as duas moedas.
+- **Caracteres corretos na revisão de atualizações:** o editor do tt força UTF-8, inclusive quando a máquina usa locale ASCII.
+
 ## v1.8.15 · 11/10/2026
 - Letreiro com fontes (APIs) configuráveis: menu ⋯ → 📰 Letreiro. Cada fonte (dólar, notícias, uma API
   sua…) vira um arquivo `~/.config/tt/letreiro/NOME.conf` e você cria, testa ao vivo e edita pela tela —

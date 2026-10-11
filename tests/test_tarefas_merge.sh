@@ -147,6 +147,7 @@ roda_vim() { # [largura] → sessão tmux com a tela
 }
 bash -c 'DIR_TT=$1; source <(sed -n "/^vimrc_tt_garantir() {/,/^}/p" "$2"); vimrc_tt_garantir' _ "$T/pkg" "$TT"
 [[ -s $T/pkg/vimrc-tt ]] || falhou 'não gerou o vimrc do tt'
+grep -q '^set encoding=utf-8 fileencoding=utf-8 fileencodings=utf-8$' "$T/pkg/vimrc-tt" || falhou 'o vimrc do tt deve preservar UTF-8 mesmo com locale ASCII'
 rm -f "$T/vim.fim"; roda_vim
 tela=$(tmux capture-pane -p -t $sess); grep -q '⇄  Atualização de ana@x.com' <<<"$tela" && grep -q 'Aceitar tudo recebido' <<<"$tela" || falhou "a tela de revisão não abriu direito: $tela"
 grep -q '⚡ Título' <<<"$tela" && grep -q 'minha     │ Título do B' <<<"$tela" && grep -q 'recebida  │ Título da A' <<<"$tela" || falhou "o bloco do conflito (minha × recebida) não apareceu: $tela"

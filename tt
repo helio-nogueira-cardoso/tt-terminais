@@ -7330,36 +7330,52 @@ tarefa_get_desc() { tarefas_unb64 "$(tarefas_meta_get "$(tarefas_meta_de "$1")" 
 
 # --- registro de trabalho (log padronizado na descrição) -------------------------------------------
 # Uma sessão (de IA ou de gente) registra na descrição da tarefa/subtarefa o que fez, no formato:
-#   ⟡ 2026-10-10 15:52 · pinu29
+#   ⟡ 2026-10-10T18:52:00Z · pinu29
 #     fez: …            como: …
-#     por: claude · claude-sonnet-5-5 · esforço high · sessão impl-3 · máquina s23
+#     por: claude · claude-sonnet-5-5 · esforço high · sessão impl-3 [código abcd…] · máquina s23
+#     período: 2026-10-10T18:10:00Z → 2026-10-10T18:52:00Z
 #     conta: ncardo <helioncardo@gmail.com>
-#     uso: 12300 tokens (10000 ent · 2300 sai) · ≈ R$ 0,45
+#     uso: 12300 tokens (10000 ent · 2300 sai) · ≈ US$ 0,0900 · ≈ R$ 0,45
 # Cada registro é um bloco que termina em linha em branco, sempre ACRESCENTADO ao fim da descrição (o que
-# já estava lá, inclusive o "aidlc:", fica). Tudo que dá para descobrir sozinho é descoberto (quando,
-# máquina, sessão tmux, agente, conta/e-mail); modelo, esforço e tokens só o próprio agente sabe: passe-os.
-# Custo: --brl V explícito, ou tokens ent/sai × ~/.config/tt/precos (modelo<TAB>USD/Mtok ent<TAB>USD/Mtok
-# sai) × cotacao_brl do config (padrão 5.50). Sem preço do modelo e sem --brl, não escreve valor.
+# já estava lá, inclusive o "aidlc:", fica). O tt descobre máquina, sessão tmux e agente; o agente informa
+# o período de trabalho, tokens, modelo e esforço. Timestamps do período exigem fuso explícito.
+# Custos: --usd/--brl explícitos, ou tokens × ~/.config/tt/precos (modelo<TAB>USD/Mtok ent<TAB>USD/Mtok
+# sai); a cotação cotacao_brl (padrão 5.50) converte USD em BRL.
 tarefa_brl_fmt() { local v=${1/./,}; printf 'R$ %s' "$v"; }
-tarefa_log() { # id "o que fez" [--como T] [--agente A] [--modelo M] [--esforco E] [--tokens N | --tokens-ent N --tokens-sai N] [--brl V] [--conta C] [--email E] [--sessao S] [--maquina M]
+tarefa_usd_fmt() { local v; v=$(awk -v n="${1/,/.}" 'BEGIN { printf "%.4f", n }'); v=${v/./,}; printf 'US$ %s' "$v"; }
+tarefa_log() { # id "o que fez" [--como T] [--agente A] [--modelo M] [--esforco E] [--tokens N | --tokens-ent N --tokens-sai N] [--usd V] [--brl V] [--inicio RFC3339 --fim RFC3339] [--conta C] [--email E] [--sessao S] [--sessao-codigo ID] [--maquina M]
   local id=$1; shift
   [[ -n $(tarefas_estado_de "$id") ]] || { echo "tarefa $id não existe" >&2; return 1; }
-  local fez="" como="" agente="" modelo="" esforco="" tent="" tsai="" tok="" brl="" conta="" email="" sess="" maq="" a
+  local fez="" como="" agente="" modelo="" esforco="" tent="" tsai="" tok="" usd="" brl="" inicio="" fim="" conta="" email="" sess="" sessid="" maq="" a
   while (($#)); do
     case $1 in
-      --como|--agente|--modelo|--esforco|--tokens|--tokens-ent|--tokens-sai|--brl|--conta|--email|--sessao|--maquina)
+      --como|--agente|--modelo|--esforco|--tokens|--tokens-ent|--tokens-sai|--usd|--brl|--inicio|--fim|--conta|--email|--sessao|--sessao-codigo|--maquina)
         (($# >= 2)) || { echo "faltou o valor de $1" >&2; return 2; }
         a=$2
         case $1 in
           --como) como=$a ;; --agente) agente=$a ;; --modelo) modelo=$a ;; --esforco) esforco=$a ;;
-          --tokens) tok=$a ;; --tokens-ent) tent=$a ;; --tokens-sai) tsai=$a ;; --brl) brl=$a ;;
-          --conta) conta=$a ;; --email) email=$a ;; --sessao) sess=$a ;; --maquina) maq=$a ;;
+          --tokens) tok=$a ;; --tokens-ent) tent=$a ;; --tokens-sai) tsai=$a ;; --usd) usd=$a ;; --brl) brl=$a ;;
+          --inicio) inicio=$a ;; --fim) fim=$a ;; --conta) conta=$a ;; --email) email=$a ;; --sessao) sess=$a ;; --sessao-codigo) sessid=$a ;; --maquina) maq=$a ;;
         esac; shift 2 ;;
       --*) echo "opção desconhecida: $1" >&2; return 2 ;;
       *) fez+="${fez:+ }$1"; shift ;;
     esac
   done
   fez=$(tarefas_limpa_texto "$fez"); [[ -n $fez ]] || { echo 'uso: tt --tarefa-log ID "o que foi feito" [--como …] [--modelo …] [--esforco …] [--tokens-ent N --tokens-sai N] [--brl V]' >&2; return 2; }
+  [[ -n $inicio && -n $fim ]] || { echo 'informe --inicio e --fim em RFC 3339 com fuso (ex.: 2026-10-10T15:10:00-03:00)' >&2; return 2; }
+  python3 -I - "$inicio" "$fim" <<'PY' || { echo 'intervalo inválido: use timestamps RFC 3339 com fuso e início não posterior ao fim' >&2; return 2; }
+import datetime, sys
+import re
+def parse(s):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})", s): raise ValueError()
+    if s.endswith('Z'): s = s[:-1] + '+00:00'
+    d = datetime.datetime.fromisoformat(s)
+    if d.tzinfo is None: raise ValueError()
+    return d
+try:
+    if parse(sys.argv[1]) > parse(sys.argv[2]): raise ValueError()
+except ValueError: sys.exit(1)
+PY
   # o que se descobre sozinho
   if [[ -z $agente ]]; then
     if [[ -n ${CLAUDECODE:-}${CLAUDE_CODE_ENTRYPOINT:-} ]]; then agente=claude
@@ -7369,6 +7385,7 @@ tarefa_log() { # id "o que fez" [--como T] [--agente A] [--modelo M] [--esforco 
   : "${modelo:=${TT_LOG_MODELO:-${ANTHROPIC_MODEL:-}}}" "${esforco:=${TT_LOG_ESFORCO:-}}"
   [[ -n $maq ]] || maq=${MAQUINA//_/-}
   if [[ -z $sess && -n ${TMUX_PANE:-} ]]; then sess=$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null); fi
+  if [[ -z $sessid && -n $sess ]]; then sessid=$(session_id "$sess" 2>/dev/null || true); fi
   if [[ -z $conta ]]; then
     conta=${IA_CONTA:-}
     [[ -z $conta && -n ${CLAUDE_CONFIG_DIR:-} ]] && conta=$(basename "${CLAUDE_CONFIG_DIR%/}" | sed 's/^\.\?claude-\?//')
@@ -7377,27 +7394,33 @@ tarefa_log() { # id "o que fez" [--como T] [--agente A] [--modelo M] [--esforco 
     email=$(awk -F'\t' -v c="$conta" '$3 == c || $2 == c { print $2; exit }' "$CONF_CONTAS_IA")
   fi
   # tokens e custo
-  local total="" detalhe="" custo="" pin pout cot
+  local total="" detalhe="" custo="" custo_usd="" pin pout cot
   [[ $tent =~ ^[0-9]+$ ]] || tent=""; [[ $tsai =~ ^[0-9]+$ ]] || tsai=""; [[ $tok =~ ^[0-9]+$ ]] || tok=""
   if [[ -n $tent || -n $tsai ]]; then
     total=$(( ${tent:-0} + ${tsai:-0} )); detalhe=" (${tent:-0} ent · ${tsai:-0} sai)"
   elif [[ -n $tok ]]; then total=$tok; fi
-  if [[ $brl =~ ^[0-9]+([.,][0-9]+)?$ ]]; then
-    custo=$(awk -v v="${brl/,/.}" 'BEGIN { printf "%.2f", v }')
+  if [[ $usd =~ ^[0-9]+([.,][0-9]+)?$ ]]; then
+    custo_usd=$(awk -v v="${usd/,/.}" 'BEGIN { printf "%.4f", v }')
   elif [[ -n $modelo && ( -n $tent || -n $tsai ) && -f $CONF_DIR/precos ]]; then
     read -r pin pout < <(awk -F'\t' -v m="$modelo" '$1 == m { print $2, $3; exit }' "$CONF_DIR/precos")
+    [[ -n ${pin:-} && -n ${pout:-} ]] && custo_usd=$(awk -v i="${tent:-0}" -v o="${tsai:-0}" -v pi="$pin" -v po="$pout" 'BEGIN { printf "%.4f", (i * pi + o * po) / 1e6 }')
+  fi
+  if [[ $brl =~ ^[0-9]+([.,][0-9]+)?$ ]]; then
+    custo=$(awk -v v="${brl/,/.}" 'BEGIN { printf "%.2f", v }')
+  elif [[ -n $custo_usd ]]; then
     cot=$(conf cotacao_brl); cot=${cot:-5.50}
-    [[ -n ${pin:-} && -n ${pout:-} ]] && custo=$(awk -v i="${tent:-0}" -v o="${tsai:-0}" -v pi="$pin" -v po="$pout" -v c="${cot/,/.}" 'BEGIN { printf "%.2f", (i * pi + o * po) / 1e6 * c }')
+    custo=$(awk -v u="$custo_usd" -v c="${cot/,/.}" 'BEGIN { printf "%.2f", u * c }')
   fi
   local bloco por="" cta=""
-  por=$(printf '%s' "${agente:+$agente}${modelo:+${agente:+ · }$modelo}${esforco:+ · esforço $esforco}${sess:+ · sessão $sess}${maq:+ · máquina $maq}")
+  por=$(printf '%s' "${agente:+$agente}${modelo:+${agente:+ · }$modelo}${esforco:+ · esforço $esforco}${sess:+ · sessão $sess}${sessid:+ [código $sessid]}${maq:+ · máquina $maq}")
   [[ -n $conta || -n $email ]] && cta="${conta}${email:+ <$email>}"
-  bloco="⟡ $(tt_fmt_epoch "$(hora_agora)" '+%Y-%m-%d %H:%M') · $(tarefa_slug "$id")"$'\n'"  fez: $fez"
+  bloco="⟡ $(TZ=UTC tt_fmt_epoch "$(hora_agora)" '+%Y-%m-%dT%H:%M:%SZ') · $(tarefa_slug "$id")"$'\n'"  fez: $fez"
   [[ -n $como ]] && bloco+=$'\n'"  como: $(tarefas_limpa_texto "$como")"
   [[ -n $por ]] && bloco+=$'\n'"  por: ${por# · }"
+  bloco+=$'\n'"  período: $inicio → $fim"
   [[ -n $cta ]] && bloco+=$'\n'"  conta: $cta"
-  if [[ -n $total || -n $custo ]]; then
-    bloco+=$'\n'"  uso: ${total:+$total tokens$detalhe}${custo:+${total:+ · }≈ $(tarefa_brl_fmt "$custo")}"
+  if [[ -n $total || -n $custo_usd || -n $custo ]]; then
+    bloco+=$'\n'"  uso: ${total:+$total tokens$detalhe}${custo_usd:+${total:+ · }≈ $(tarefa_usd_fmt "$custo_usd")}${custo:+${total:+ · }≈ $(tarefa_brl_fmt "$custo")}"
   fi
   local atual; atual=$(tarefa_get_desc "$id")
   tarefa_set_desc "$id" "${atual:+$atual$'\n\n'}$bloco"
@@ -7405,7 +7428,7 @@ tarefa_log() { # id "o que fez" [--como T] [--agente A] [--modelo M] [--esforco 
 
 # Histórico de trabalho de uma tarefa e das suas subtarefas, com o total de tokens e reais registrados.
 tarefa_historico() { # id
-  local id=$1 i txt sd n=0 tt_=0 brl=0 b1 b2
+  local id=$1 i txt sd n=0 tt_=0 brl=0 usd=0 b1 b2 b3
   [[ -n $(tarefas_estado_de "$id") ]] || { echo "tarefa $id não existe" >&2; return 1; }
   for i in "$id" $(tarefas_filhas "$id" | cut -f1); do
     sd=$(tarefa_get_desc "$i" | awk '/^⟡ /{l=1} l&&/^$/{l=0} l')
@@ -7413,14 +7436,15 @@ tarefa_historico() { # id
     txt=$(tarefas_raw | awk -F'\t' -v i="$i" '$1==i{print $5; exit}')
     printf '%s [%s]\n%s\n\n' "$txt" "$(tarefa_slug "$i")" "$sd"
     n=$((n + $(grep -c '^⟡ ' <<<"$sd")))
-    read -r b1 b2 < <(awk '
+    read -r b1 b2 b3 < <(awk '
       /^  uso: / { if (match($0, /[0-9]+ tokens/)) t += substr($0, RSTART, RLENGTH - 7)
+                   if (match($0, /US\$ [0-9]+,[0-9]+/)) { v = substr($0, RSTART + 4, RLENGTH - 4); sub(",", ".", v); u += v }
                    if (match($0, /R\$ [0-9]+,[0-9][0-9]/)) { v = substr($0, RSTART + 3, RLENGTH - 3); sub(",", ".", v); r += v } }
-      END { printf "%d %.2f\n", t, r }' <<<"$sd")
-    tt_=$((tt_ + b1)); brl=$(awk -v a="$brl" -v b="$b2" 'BEGIN { printf "%.2f", a + b }')
+      END { printf "%d %.4f %.2f\n", t, u, r }' <<<"$sd")
+    tt_=$((tt_ + b1)); usd=$(awk -v a="$usd" -v b="$b2" 'BEGIN { printf "%.4f", a + b }'); brl=$(awk -v a="$brl" -v b="$b3" 'BEGIN { printf "%.2f", a + b }')
   done
   ((n > 0)) || { echo "nenhum registro de trabalho em $(tarefa_slug "$id")"; return 0; }
-  printf 'Total: %s registro%s · %s tokens · ≈ %s\n' "$n" "$( ((n == 1)) || echo s)" "$tt_" "$(tarefa_brl_fmt "${brl/./,}")"
+  printf 'Total: %s registro%s · %s tokens · ≈ %s · ≈ %s\n' "$n" "$( ((n == 1)) || echo s)" "$tt_" "$(tarefa_usd_fmt "$usd")" "$(tarefa_brl_fmt "${brl/./,}")"
 }
 
 tarefa_set_prazo() { # id epoch [1 = com horário] (epoch vazio remove o prazo)
@@ -10244,6 +10268,7 @@ vimrc_tt_garantir() {
   cat >"$tmp" <<'VIMRC'
 " Editor do tt — bonito e direto. Salvar e sair: Ctrl+S (ou ZZ, ou :x). Cancelar: :q!
 set nocompatible
+set encoding=utf-8 fileencoding=utf-8 fileencodings=utf-8
 syntax on
 set background=dark
 if has('termguicolors') && ($COLORTERM ==# 'truecolor' || $COLORTERM ==# '24bit')
@@ -14806,7 +14831,7 @@ case "${1:-}" in
     else
       tarefas_vivas | while IFS=$'\t' read -r i _ _ _ t _; do printf '%s\t%s\t%s\t%s\n' "$(tarefa_slug "$i")" "$i" "$t" "$(tarefa_ref "$i")"; done
     fi; exit 0 ;;
-  --tarefa-log) shift; [[ -n ${1:-} ]] || { echo 'uso: tt --tarefa-log ID "o que foi feito" [--como …] [--agente …] [--modelo …] [--esforco …] [--tokens-ent N --tokens-sai N | --tokens N] [--brl V]'; exit 2; }; tarefa_log "$@"; exit $? ;;
+  --tarefa-log) shift; [[ -n ${1:-} ]] || { echo 'uso: tt --tarefa-log ID "o que foi feito" [--como …] [--agente …] [--modelo …] [--esforco …] [--tokens-ent N --tokens-sai N | --tokens N] [--usd V] [--brl V] --inicio RFC3339 --fim RFC3339'; exit 2; }; tarefa_log "$@"; exit $? ;;
   --tarefa-historico) tarefa_historico "${2:?uso: tt --tarefa-historico ID}"; exit $? ;;
   --tarefa-email)
     if [[ ${4:-} == --abrir || ${3:-} == --abrir ]]; then

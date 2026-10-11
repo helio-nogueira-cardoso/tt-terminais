@@ -157,10 +157,10 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   historico`) e `--demanda-aprovar/recusar` aceita apelido, código, prefixo do código (4+ hex) e `MÃE.N`
   (`kito47.2`); ambíguo lista as candidatas e sai 1; apelido/`MÃE.N` que não existe sai 1 (`tarefas_resolver`).
   Subtarefa também aceita `MÃE.APELIDO-DA-SUB` e `MÃE.PREFIXO-DO-CÓDIGO` (procurados só entre as filhas daquela mãe).
-- Registro de trabalho: `tt --tarefa-log ID "o que fez" [--como T] [--agente A] [--modelo M] [--esforco E]
-  [--tokens-ent N --tokens-sai N | --tokens N] [--brl V] [--conta C] [--email E] [--sessao S] [--maquina M]` acrescenta
-  um bloco `⟡ AAAA-MM-DD HH:MM · apelido` (fez/como/por/conta/uso) ao FIM da descrição; `tt --tarefa-historico ID` mostra os
-  blocos da tarefa e das subtarefas e o total de tokens e R$. Ver a seção "Tarefas: código, apelido, registro e e-mail".
+- Registro de trabalho: `tt --tarefa-log ID "o que fez" --inicio RFC3339 --fim RFC3339 [--como T] [--agente A] [--modelo M] [--esforco E]
+  [--tokens-ent N --tokens-sai N | --tokens N] [--usd V] [--brl V] [--conta C] [--email E] [--sessao S] [--sessao-codigo ID] [--maquina M]` acrescenta
+  um bloco com instante de gravação UTC e período RFC 3339 (ambos os limites têm fuso explícito), código estável da sessão tmux, tokens e custos estimados em USD e BRL; `tt --tarefa-historico ID` mostra os
+  blocos da tarefa e das subtarefas e os totais. Ver a seção "Tarefas: código, apelido, registro e e-mail".
 - E-mail de compartilhamento: `tt --tarefa-email ID [destinatário] [--abrir]` imprime Para/Assunto/corpo e um link `mailto:` (`--abrir` abre o e-mail pronto no compositor); `tt --tarefas-email DESTINO ID…` abre um por tarefa; recebido: `tt --demanda-diff|--demanda-merge|--demanda-aprovar [--recebida|--minha] ID`, `--demandas-aprovar-limpas`, `--demandas-recusar-todas`.
 - Conclusão (`tarefa_concluir`): mãe só conclui com todas as subtarefas feitas (senão imprime as
   que faltam e devolve 2; no painel vira a linha ⚠ `aviso=` do cabeçalho, mostrada uma vez; o
@@ -717,22 +717,25 @@ reinjeta esta skill e as regras curtas (`agentes-regras-tt.md`) em todas as IAs 
 ### 3. Registrar o que foi feito (`tt --tarefa-log`)
 Cada registro vira um bloco no fim da descrição da tarefa/subtarefa, em cinza discreto no cartão:
 ```
-⟡ 2026-10-10 15:52 · kito47
+⟡ 2026-10-10T18:52:00Z · kito47
   fez: Implementei o login
   como: editei tt, rodei os testes no Termux
-  por: claude · claude-sonnet-5-5 · esforço high · sessão impl-3 · máquina notebook
+  por: claude · claude-sonnet-5-5 · esforço high · sessão impl-3 [código abcd1234] · máquina notebook
+  período: 2026-10-10T15:10:00-03:00 → 2026-10-10T15:52:00-03:00
   conta: trabalho <voce@exemplo.com>
-  uso: 12300 tokens (10000 ent · 2300 sai) · ≈ R$ 0,45
+  uso: 12300 tokens (10000 ent · 2300 sai) · ≈ US$ 0,0900 · ≈ R$ 0,45
 ```
 - **Sai sozinho:** quando, apelido, máquina (`nome=` do tt), sessão tmux (`$TMUX_PANE`), agente (`CLAUDECODE`, `CODEX_*`, `KIRO_*`),
   conta (`IA_CONTA` ou o perfil de `CLAUDE_CONFIG_DIR`) e e-mail (cadastro `contas-ia`). Modelo, esforço e tokens só o agente
   sabe: **informe** (`--modelo`, `--esforco`, `--tokens-ent/--tokens-sai`). `TT_LOG_MODELO`/`TT_LOG_ESFORCO` são padrões.
-- **Custo em reais** (estimativa): `--brl V` explícito; ou tokens ent/sai × `~/.config/tt/precos` (uma linha por modelo:
-  `modelo<TAB>USD por Mtok entrada<TAB>USD por Mtok saída`) × `cotacao_brl=` do `~/.config/tt/config` (padrão 5.50). Sem preço do
-  modelo e sem `--brl`, não escreve valor (nada inventado). A tabela de preços é do usuário: mantenha-a atualizada.
+- **Custos** (estimativas): `--usd V` e `--brl V` aceitam valores explícitos. Sem eles, calcula pela tabela `~/.config/tt/precos`
+  (`modelo<TAB>USD por Mtok entrada<TAB>USD por Mtok saída`) e `cotacao_brl=` do config (padrão 5.50). Sem preço do modelo, não inventa valor.
+  A tabela de preços e a cotação são do usuário: mantenha-as atualizadas.
+- **Sessão e período:** dentro do tmux, o código persistente da sessão é coletado automaticamente e identifica a sessão após renomear; com `--sessao-codigo` pode ser informado manualmente.
+  `--inicio` e `--fim` são obrigatórios e devem ser RFC 3339 com fuso (`Z` ou `±HH:MM`); o tt recusa fuso ausente e início posterior ao fim.
 - **Quando registrar:** um registro por marco (subtarefa concluída, decisão, bloqueio), não por comando. Texto curto e objetivo no
   "fez"; o "como" diz o método/arquivos/testes. Não ponha segredos nem tokens de acesso.
-- **Ler:** `tt --tarefa-historico ID` (tarefa + subtarefas, com total de tokens e R$).
+- **Ler:** `tt --tarefa-historico ID` (tarefa + subtarefas, com totais de tokens, USD e R$).
 - O log só acrescenta (preserva `aidlc:` e as notas do dono). Testes: `tests/test_tarefas_codigo.sh`.
 
 ### 4. Compartilhar por e-mail = upsert pelo código, em três vias
