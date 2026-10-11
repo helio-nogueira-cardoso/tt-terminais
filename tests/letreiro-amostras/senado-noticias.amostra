@@ -1,0 +1,72 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss version="2.0">
+
+
+
+    
+    <channel>
+        <title>Senado Federal</title>
+        <link>https://www12.senado.leg.br/noticias</link>
+        <language>pt-br</language>
+
+        <description />
+        <image>
+            <url>https://www12.senado.leg.br/noticias/++plone++senado_noticias/img/logorss.gif</url>
+            <title>Portal de Notícias do Senado Federal</title>
+            <link>https://www12.senado.leg.br/noticias</link>
+        </image>
+
+        
+        <item>
+            <title>Áudio: Senado homenageia os 45 anos da Associação do Senhor Jesus</title>
+            <link>https://www12.senado.leg.br/noticias/audios/2026/10/senado-homenageia-os-45-anos-da-associacao-do-senhor-jesus</link>
+            <description>O Senado fez nesta sexta-feira (9) uma sessão especial em homenagem aos 45 anos da Associação do Senhor Jesus, fundada em 1981 pelo padre Eduardo Dougherty. O requerimento foi apresentado pelo senador Astronauta Marcos Pontes (PL-SP), que destacou a importância da instituição para a comunicação cató</description>
+            <source>Senado Federal</source>
+            
+            <pubDate>2026-10-09T21:56:24Z</pubDate>
+            <dataFormatada>09/10/2026 18:56</dataFormatada>
+        </item>
+        
+        <item>
+            <title>Áudio: Consultoria de Orçamento aponta divergências entre previsões para PIB e inflação de 2027</title>
+            <link>https://www12.senado.leg.br/noticias/audios/2026/10/consultoria-de-orcamento-aponta-divergencias-entre-previsoes-para-pib-e-inflacao-de-2027</link>
+            <description>As Consultorias de Orçamento do Senado e da Câmara divulgaram nesta quinta-feira (8) uma nota técnica sobre o projeto de Lei Orçamentária de 2027 (PLN 24/2026) para subsidiar as decisões dos parlamentares sobre o Orçamento. O documento destaca a divergência histórica entre as projeções macroeconômic</description>
+            <source>Senado Federal</source>
+            
+            <pubDate>2026-10-09T21:54:51Z</pubDate>
+            <dataFormatada>09/10/2026 18:54</dataFormatada>
+        </item>
+        
+        <item>
+            <title>Fim da escala  6x1: Davi marca votação em 1º turno para quarta</title>
+            <link>https://www12.senado.leg.br/noticias/materias/2026/10/09/fim-da-6-x-1-senado-pode-concluir-1o-turno-da-votacao-em-mais-duas-sessoes</link>
+            <description>O presidente do Senado, Davi Alcolumbre, marcou para a próxima quarta-feira (15) a votação em primeiro turno da proposta de emenda à Constituição que põe fim à jornada de trabalho 6x1. Antes de ir a voto, matéria precisa passar por duas sessões de discussão, agendadas para terça (14) e quarta.
+Em no</description>
+            <source>Senado Federal</source>
+            <pubDate>2026-10-09T21:39:05Z</pubDate>
+            <dataFormatada>09/10/2026 18:39</dataFormatada>
+        </item>
+        
+        <item>
+            <title>Recorde de eleitores com deficiência amplia desafio de acessibilidade na urna</title>
+            <link>https://www12.senado.leg.br/noticias/infomaterias/2026/10/recorde-de-eleitores-com-deficiencia-amplia-desafio-de-acessibilidade-na-urna</link>
+            
+            <source>Senado Federal</source>
+            <pubDate>2026-10-09T21:16:34Z</pubDate>
+            <dataFormatada>09/10/2026 18:16</dataFormatada>
+        </item>
+        
+        <item>
+            <title>Áudio: Mapa Nacional da Violência de Gênero é apresentado em fórum internacional</title>
+            <link>https://www12.senado.leg.br/noticias/audios/2026/10/mapa-nacional-da-violencia-de-genero-e-apresentado-em-forum-internacional</link>
+            <description>O Mapa Nacional da Violência de Gênero foi apresentado nesta semana no principal encontro internacional sobre evidências para a prevenção e o enfrentamento da violência contra mulheres e meninas. O SVRI Forum 2026, promovido pela Sexual Violence Research Initiative em Bangkok, na Tailândia, termina </description>
+            <source>Senado Federal</source>
+            
+            <pubDate>2026-10-09T20:17:10Z</pubDate>
+            <dataFormatada>09/10/2026 17:17</dataFormatada>
+        </item>
+        
+        </channel>
+
+
+</rss>

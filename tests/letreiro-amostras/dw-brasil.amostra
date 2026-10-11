@@ -1,0 +1,140 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns1="http://purl.org/rss/1.0/" xmlns:ns2="http://purl.org/rss/modules/syndication/" xmlns:ns4="http://rss.dw.com/syndication/dwsyn/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <ns1:channel rdf:about="https://rss.dw.com/syndication/feeds/rss-br-all.1030.rdf">
+  <ns1:description>Deutsche Welle: DW-WORLD.DE - Alemanha</ns1:description>
+  <ns1:link>http://www.dw.com/brazil/?maca=bra-rss-br-all-1030-rdf</ns1:link>
+  <ns1:title>Deutsche Welle: DW-WORLD.DE - Alemanha</ns1:title>
+  <ns2:updatePeriod>hourly</ns2:updatePeriod>
+  <ns2:updateFequency>4</ns2:updateFequency>
+  <ns2:updateBase>2002-05-01T00:00:00Z</ns2:updateBase>
+  <dc:date>2023-01-10T10:34:37Z</dc:date>
+  <ns1:image rdf:resource="https://rss.dw.com/images/DW-L-RGB_whitebg.png" />
+  <ns1:items>
+   <rdf:Seq>
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/sem-anistia-milhares-vão-às-ruas-em-defesa-da-democracia/a-64333425?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/biden-oferece-apoio-inabalável-a-lula-após-ataques/a-64333082?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/o-que-falta-saber-sobre-o-ataque-bolsonarista-em-brasília/a-64332644?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/mp-vai-apurar-atuação-da-polícia-durante-ataques-em-brasília/a-64332513?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/brasileiros-em-berlim-protestam-em-defesa-da-democracia/a-64331935?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/bolsonaro-é-internado-um-dia-após-terror-em-brasília/a-64331628?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/em-nota-conjunta-chefes-dos-três-poderes-pedem-paz-e-democracia/a-64331486?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/bolsonaro-pode-ser-extraditado/a-64330258?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/as-obras-de-arte-atacadas-por-extremistas-em-brasília/a-64329245?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/príncipe-harry-acusa-imprensa-de-semear-a-discórdia-na-família-real/a-64330159?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/cerca-de-1-200-bolsonaristas-presos-em-brasília/a-64330868?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/atos-golpistas-são-organizados-financiados-e-estimulados/a-64325287?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/após-invasão-bolsonaristas-voltam-a-bloquear-rodovias/a-64325033?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/análise-crônica-de-um-ataque-anunciado-à-democracia/a-64325756?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/opinião-veneno-bolsonarista-em-corações-e-mentes-surte-efeito/a-64324972?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/extrema-direita-assinou-o-seu-atestado-de-óbito/a-64325405?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/alemanha-condena-invasões-em-brasília/a-64324490?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/ataque-à-democracia-brasileira/a-64321762?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/mais-de-300-golpistas-são-presos/a-64320597?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/apoio-total-a-lula-declaram-autoridades-da-união-europeia/a-64321503?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/jornais-europeus-dão-destaque-a-atos-golpistas-em-brasília/a-64321331?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/líderes-estrangeiros-condenam-tentativa-de-golpe-em-brasília/a-64321330?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/lula-chama-invasores-de-fascistas-e-decreta-intervenção-no-df/a-64321001?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/bolsonaristas-golpistas-invadem-e-depredam-sedes-dos-três-poderes/a-64320429?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/agência-de-energia-superada-escassez-de-gás-na-alemanha/a-64319510?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/suspeito-de-planejar-atentado-químico-preso-na-alemanha/a-64317901?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/os-álbuns-pop-e-rock-mais-esperados-de-2023/a-64296306?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/aumento-do-número-de-ministérios-significa-mais-gastos/a-64314748?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/criptomoedas-são-esquema-de-pirâmide-e-não-servem-para-nada/a-62543595?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/o-que-o-cinema-internacional-promete-para-2023/a-64308860?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/análise-haddad-será-mesmo-o-patinho-feio-da-esplanada/a-64297320?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/lula-sempre-soube-usar-a-política-externa-para-obter-prestígio/a-64276848?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/desprotegido-e-desvalorizado-vida-de-pesquisador-no-brasil/a-64290592?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/netflix-cancela-série-1899-e-causa-indignação-nos-fãs/a-64288358?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/os-segredos-de-bolsonaro/a-64273429?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/till-lindemann-vocalista-do-rammstein-completa-60-anos/a-64286246?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/posse-de-lula-belo-recomeço-dificuldades-enormes/a-64283778?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/sob-lula-mulheres-ganham-influência-política/a-64276938?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/como-funcionará-o-inédito-ministério-dos-povos-indígenas/a-64269096?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/qual-é-o-tamanho-da-base-de-lula-no-congresso/a-64266495?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/cinco-desafios-para-a-economia-mundial-em-2023/a-64264182?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/como-o-governo-bolsonaro-se-saiu-na-economia/a-64237081?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/como-a-crise-energética-reacendeu-a-indústria-do-carvão-na-alemanha/a-64242697?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/alemanha-quer-suspender-ajuda-humanitária-ao-afeganistão/a-64243171?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/como-a-guerra-de-putin-destruiu-o-modelo-de-negócios-da-rússia/a-64240170?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/os-desertores-russos-que-buscam-refúgio-na-alemanha/a-64222370?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/o-previsível-conflito-entre-o-governo-lula-e-o-banco-central/a-64225865?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/quem-é-bernard-arnault-a-nova-pessoa-mais-rica-do-mundo/a-64220364?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/pablo-picasso-o-gênio-obcecado-pelo-erotismo/a-64189501?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/o-que-esperar-do-bndes-na-nova-gestão-lula/a-64217667?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/a-quem-aproveitou-o-teto-de-despesas-primárias/a-64203204?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/a-história-da-árvore-de-natal/a-5043885?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/receitas-da-culinária-alemã-de-natal/a-1048988?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/data-da-festa-do-natal-tem-origens-pagãs/a-14734876?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/pec-da-transição-só-resolve-metade-do-problema/a-64183563?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/1938-otto-hahn-descobre-a-fissão-nuclear-do-urânio/a-359236?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/opinião-por-que-novo-governo-lula-deixa-tantos-investidores-receosos/a-64161697?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/alemanha-debate-como-lidar-com-os-juízes-de-extrema-direita/a-64102980?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/o-inacreditável-devaneio-de-uma-moeda-comum-para-a-américa-do-sul/a-64102255?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/as-20-crises-humanitárias-mais-graves-do-planeta/a-64082810?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/minhas-copas-favoritas-o-privilégio-de-ter-duas-pátrias/a-64076598?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/como-funciona-o-controle-de-armas-na-alemanha/a-52467263?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/diretor-esportivo-da-seleção-alemã-joga-a-toalha/a-63996487?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/mundo-gasta-mais-com-armas-apesar-de-crise-econômica/a-63981690?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/alemanha-dá-adeus-às-ilusões-com-seu-futebol-de-meia-tigela/a-63964809?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/aos-102-sobrevivente-de-grande-fome-da-era-soviética-quer-ver-a-ucrânia-vencer/a-63933452?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/após-desmonte-sob-bolsonaro-setor-cultural-espera-retomada/a-63924371?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/nova-exposição-traz-as-histórias-não-contadas-da-era-nazista/a-63892775?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/acusações-de-plágio-no-mundo-das-séries-e-filmes/a-63862112?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/café-a-bebida-que-ameaça-virar-luxo-na-europa/a-62968039?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/quais-as-regras-para-brasileiros-entrarem-na-europa/a-58726414?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/pterossauro-do-brasil-abala-teorias-sobre-evolução-das-penas/a-61562273?maca=bra-rss-br-all-1030-rdf" />
+   </rdf:Seq>
+  </ns1:items>
+ </ns1:channel>
+ <ns1:image rdf:about="https://rss.dw.com/images/DW-L-RGB_whitebg.png">
+  <ns1:url>https://rss.dw.com/images/DW-L-RGB_whitebg.png</ns1:url>
+  <ns1:link>http://www.dw.com/brazil/?maca=bra-rss-br-all-1030-rdf</ns1:link>
+  <ns1:title>DW.COM</ns1:title>
+  <ns1:description>News, Analysis and Service from Germany and Europe - in 30 Languages</ns1:description>
+ </ns1:image>
+ <ns1:item rdf:about="https://www.dw.com/pt-br/sem-anistia-milhares-vão-às-ruas-em-defesa-da-democracia/a-64333425?maca=bra-rss-br-all-1030-rdf">
+  <ns1:title>"Sem anistia!": Milhares vão às ruas em defesa da democracia</ns1:title>
+  <ns1:link>https://www.dw.com/pt-br/sem-anistia-milhares-vão-às-ruas-em-defesa-da-democracia/a-64333425?maca=bra-rss-br-all-1030-rdf</ns1:link>
+  <ns1:description>Em São Paulo, Rio de Janeiro, Porto Alegre e em vários outros pontos do país, multidões participam de atos pró-democracia aos gritos de "sem anistia", em repúdio ao ataque golpista ocorrido em Brasília.</ns1:description>
+  <dc:date>2023-01-10T01:39:00Z</dc:date>
+  <dc:subject>Brasil</dc:subject>
+  <dc:language>pt-br</dc:language>
+  <ns4:contentID>64333425</ns4:contentID>
+ </ns1:item>
+ <ns1:item rdf:about="https://www.dw.com/pt-br/biden-oferece-apoio-inabalável-a-lula-após-ataques/a-64333082?maca=bra-rss-br-all-1030-rdf">
+  <ns1:title>Biden oferece "apoio inabalável" a Lula após ataques</ns1:title>
+  <ns1:link>https://www.dw.com/pt-br/biden-oferece-apoio-inabalável-a-lula-após-ataques/a-64333082?maca=bra-rss-br-all-1030-rdf</ns1:link>
+  <ns1:description>Presidente americano convida líder brasileiro a visitá-lo na Casa Branca e manifesta solidariedade após incidentes em Brasília, que se assemelham à invasão do Capitólio em Washington, em 2021.</ns1:description>
+  <dc:date>2023-01-09T23:56:00Z</dc:date>
+  <dc:subject>Brasil</dc:subject>
+  <dc:language>pt-br</dc:language>
+  <ns4:contentID>64333082</ns4:contentID>
+ </ns1:item>
+ <ns1:item rdf:about="https://www.dw.com/pt-br/o-que-falta-saber-sobre-o-ataque-bolsonarista-em-brasília/a-64332644?maca=bra-rss-br-all-1030-rdf">
+  <ns1:title>O que falta saber sobre o ataque bolsonarista em Brasília</ns1:title>
+  <ns1:link>https://www.dw.com/pt-br/o-que-falta-saber-sobre-o-ataque-bolsonarista-em-brasília/a-64332644?maca=bra-rss-br-all-1030-rdf</ns1:link>
+  <ns1:description>Autoridades do DF foram cúmplices do terror? Qual foi a participação de Bolsonaro no ataque? Quem financiou o ato e o deslocamento da horda golpista? As perguntas sobre o 8 de janeiro que ainda precisam de respostas.</ns1:description>
+  <dc:date>2023-01-09T23:44:00Z</dc:date>
+  <dc:subject>Brasil</dc:subject>
+  <dc:language>pt-br</dc:language>
+  <ns4:contentID>64332644</ns4:contentID>
+ </ns1:item>
+ <ns1:item rdf:about="https://www.dw.com/pt-br/mp-vai-apurar-atuação-da-polícia-durante-ataques-em-brasília/a-64332513?maca=bra-rss-br-all-1030-rdf">
+  <ns1:title>MP vai apurar atuação da polícia durante ataques em Brasília</ns1:title>
+  <ns1:link>https://www.dw.com/pt-br/mp-vai-apurar-atuação-da-polícia-durante-ataques-em-brasília/a-64332513?maca=bra-rss-br-all-1030-rdf</ns1:link>
+  <ns1:description>Promotores investigam se policiais do DF evitaram agir contra extremistas, em meio a vários indícios de omissão por parte das forças de segurança. PGR pede inquérito sobre possível conivência de governador afastado.</ns1:description>
+  <dc:date>2023-01-09T22:36:00Z</dc:date>
+  <dc:subject>Brasil</dc:subject>
+  <dc:language>pt-br</dc:language>
+  <ns4:contentID>64332513</ns4:contentID>
+ </ns1:item>
+ <ns1:item rdf:about="https://www.dw.com/pt-br/brasileiros-em-berlim-protestam-em-defesa-da-democracia/a-64331935?maca=bra-rss-br-all-1030-rdf">
+  <ns1:title>Brasileiros em Berlim protestam em defesa da democracia</ns1:title>
+  <ns1:link>https://www.dw.com/pt-br/brasileiros-em-berlim-protestam-em-defesa-da-democracia/a-64331935?maca=bra-rss-br-all-1030-rdf</ns1:link>
+  <ns1:description>Dezenas se reúnem em frente à embaixada brasileira na Alemanha para defender o Estado democrático de direito. Manifestantes cobram responsabilização por ataques extremistas de bolsonaristas em Brasília: "Anistia não."</ns1:description>
+  <dc:date>2023-01-09T21:15:00Z</dc:date>
+  <dc:subject>Brasil</dc:subject>
+  <dc:language>pt-br</dc:language>
+  <ns4:contentID>64331935</ns4:contentID>
+ </ns1:item>
+ </rdf:RDF>

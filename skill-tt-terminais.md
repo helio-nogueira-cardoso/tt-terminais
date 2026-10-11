@@ -218,6 +218,36 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   edita (= botão ✎ Editar e ⋯ menu → ✎ Editar: a frase com os marcadores volta para mexer), `Tab`
   troca a aba, `?`/`F1` ajuda, `esc` volta/limpa a busca/fecha.
 
+### Letreiro da faixa: fontes (APIs)
+O miolo da faixa de notificações (3ª linha) rola o texto de **fontes**; cada uma é `~/.config/tt/letreiro/NOME.conf`
+(versao=1; as nativas `dolar`/`frases`/`noticias` vivem no código e o arquivo só sobrepõe chaves; `letreiro/local/NOME.conf`
+sobrescreve só esta máquina). Quem busca/extrai/formata/guarda cache é `letreiro-fontes.py` (vigia → `ticker_atualizar_fontes`
+→ `atualizar`); quem desenha é `letreiro-tt.py` (um `#()` por cliente), que SÓ lê `~/.cache/tt-ticker/` (`NOME` = linhas com
+marcas de cor \x01–\x04, `NOME.itens` = alvos de clique, `NOME.meta` = estado/diagnóstico, `_roda.json` = fontes ativas
+desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-letreiro.log`. Segredo só em `~/.secrets`
+(`segredo=@arquivo`).
+- `tt --letreiro-listar [--tsv]` · `--letreiro-add NOME chave=valor… [--testar]` / `--catalogo ID [var=valor…]` (sem args,
+  num terminal: assistente) · `--letreiro-editar NOME [chave=valor… | -chave] [--local]` (sem pares: formulário) ·
+  `--letreiro-rm NOME [--sim]` · `--letreiro-duplicar A B` · `--letreiro-ativar/--letreiro-desativar NOME [--local]` ·
+  `--letreiro-mover NOME +1|-1|inicio|fim|N` · `--letreiro-testar NOME|--arquivo F [--cor] [--gravar]` ·
+  `--letreiro-log [NOME] [N]` · `--letreiro-exportar [NOME…]` / `--letreiro-importar ARQ [--sobrescrever]` ·
+  `--letreiro-catalogo [ID]` · `--letreiro-segredo NOME` · `--letreiro-ajustes` / `--letreiro-ajuste CHAVE [VALOR]`
+  (`ticker_ligado`, `ticker_rolagem`, `ticker_veloc`, `ticker_fps`, `ticker_separador`, `ticker_ordem`, `ticker_largura`,
+  `ticker_pausa`, `ticker_cor`, `ticker_economia`, `ticker_bateria_min`, `ticker_ponte`, `ticker_idioma`, `ticker_fuso`) ·
+  `--letreiro-migrar` (indicador_NOME=/indicadores= → arquivos; idempotente, roda sozinho) · `--ticker-fontes`,
+  `--ticker-quadro [largura]` (antigos, valem).
+- Painel: menu ⋯ → 📰 (`--letreiro-ui`; despachante único `--letreiro-acao EVENTO CHAVE`, formulário
+  `--letreiro-form-evento`/`--letreiro-form-exec`, assistente `--letreiro-assistente`, `--letreiro-menu-fonte`,
+  `--letreiro-catalogo-ui`, `--letreiro-ajustes-ui`, `--letreiro-previa`). Clique no item da faixa = range `letreiro` →
+  `letreiro_clique` (url | copiar | painel | pausa). Aviso de falhas seguidas: `--notificar … letreiro`.
+- Sync: `--receber-letreiro` (stdin), `--letreiro-pacote` (stdout), `--propagar-letreiro`, `--puxar-letreiro`; só fontes
+  `escopo=global`, a `mudada` mais nova vence, lápides em `letreiro/.removidas`, nunca segredo.
+- Internos: `--letreiro-dado tarefas-atrasadas|emails-nao-lidos` (fontes `origem=tt`), `--letreiro-lista`,
+  `--letreiro-previa-fonte`, `--letreiro-alternar`, `--letreiro-atualizar`. Ganchos de teste (só com
+  `TT_LETREIRO_TESTE=1`): `TT_LETREIRO_HOSTS`, `TT_LETREIRO_REMAP`, `TT_LETREIRO_CA`, `TT_LETREIRO_CLIENTES`,
+  `TT_LETREIRO_BATERIA`, `TT_AGORA`, `TT_PERFIL`, `TT_BIN`. Teste: `tests/test_letreiro_fontes.sh` (servidor de mentira
+  `tests/servidor_falso.py`, nunca a rede real) e `tests/test_letreiro.sh`.
+
 ### Atalhos de barra
 - `tt --editar-atalhos` — edita os atalhos locais. `--atalhos-barra`/`--atalhos-lista` (internos)
   formatam/listam a partir de `atalhos-padrao` + `~/.config/tt/atalhos` (override por ID; emoji `-`
@@ -444,6 +474,7 @@ Ranges e destino:
 | `painel` | status-right (⋯) | `menu_painel` | — |
 | `email` | status-right (📧) | `botao_email` | `menu_email` |
 | `tarefas` | 2ª linha, à direita (📋 N) | `abrir_tarefas` | `menu_tarefas` |
+| `letreiro` | 3ª linha, miolo (texto do letreiro; desenhado pelo `letreiro-tt.py`) | `letreiro_clique` (ação do item sob o mouse ou pausa) | — |
 | `fx<chave>` | faixa de fixadas | `ir_fixada` | `menu_fixada` |
 | `fxx<chave>` | faixa de fixadas (✕) | `desafixar_item` | `desafixar_item` |
 | `fixmais` | chip `+N ▾` da faixa de fixadas | `fixadas_popup` | — |
@@ -494,6 +525,7 @@ soltar); menus agem no **MouseUp**. Um atalho de teclado deve ter a mesma ação
 - `maquinas` — `host  usuario  rotulo [oculta]` por linha (`host -` = formato antigo sem usuário).
 - `atalhos` — atalhos locais da barra (override de `atalhos-padrao` por ID; emoji `-` desativa).
 - `fixadas` (+ `.v` versão em ns, `.trava` lock) — `maquina\tsessao\tchave`.
+- `letreiro/NOME.conf` (+ `local/NOME.conf`, `.removidas`, `.migrado`) — fontes do letreiro (sem segredo; ver "Letreiro da faixa").
 - `tarefas` (+ `.v`, `.trava`) — `id\testado\tcriada\tmudada\ttexto[\tmeta]`, estado = `aberta|feita|removida` (+ `arquivada`, `pendente`); meta: desc prazo hora prio rep tags pai ord arq de upd scod sest.
 - `precos` — `modelo\tUSD/Mtok entrada\tUSD/Mtok saída` (custo estimado do `--tarefa-log`); `cotacao_brl=` no `config` (padrão 5.50).
 - `contas-ia` — `provedor\temail\tapelido\thora` (cadastro comum das contas de IA).
@@ -512,12 +544,12 @@ de tarefas; só cache) e `tarefas-git.ok` (epoch da última troca boa), `tarefas
 última, motivo), `tarefas-git.trava`/`.pendente` (uma volta por vez) e `.avisado`.
 
 ### Cache e runtime
-`~/.cache/tt-vigia.log`, `tt-github-versao`, `tt-anexos/`, `tt/maildir/<slug>` (sync local);
+`~/.cache/tt-vigia.log`, `tt-ticker/` (cache das fontes do letreiro), `tt-letreiro.log`, `tt-github-versao`, `tt-anexos/`, `tt/maildir/<slug>` (sync local);
 `$RT` (`/run/user/UID` ou `TT_RT`): pidfile e estado do vigia, lock de clique, cache de máquinas,
 ControlPath do ssh, transferências em andamento.
 
 ### Pacote `~/.local/share/tt/`
-`ARQUIVOS_FONTE` (lista no `tt`): `tt email-tt.py links-tt.py letreiro-tt.py gatilho-tt.sh tmux.conf
+`ARQUIVOS_FONTE` (lista no `tt`): `tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json gatilho-tt.sh tmux.conf
 tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile
 README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
 skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py` (a
@@ -535,7 +567,9 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
 - Fixadas/tarefas a cada 300 s: `--puxar-fixadas`, `--reconciliar-fixadas`, `--tarefas-puxar`; na
   mesma volta, a sonda por ssh das pontes órfãs (o fechamento por ociosidade é local e roda sempre).
   A sonda acha o alvo pelo **id da sessão** (+ start_time do servidor), não pelo nome, porque o vigia renomeia sessões; só encerra a ponte quando o destino responde, o id e o nome sumiram e isso se repete em 2 voltas. Todo encerramento de ponte fica em `~/.cache/tt-vigia.log`; toda troca de sessão do tt, em `~/.cache/tt-troca.log`.
-- Contas de IA a cada 1800 s: `--puxar-contas-ia`.
+- Contas de IA a cada 1800 s: `--puxar-contas-ia`; junto, `--puxar-demandas` e `--puxar-letreiro` (fontes globais do letreiro).
+- Fontes do letreiro: toda volta, `ticker_atualizar_fontes` (= `letreiro-fontes.py atualizar`: migra o que for antigo, respeita TTL, janela,
+  cota, espera após erro e modo economia, e recompila `_roda.json`); desligado com `ticker_ligado=0`.
 - E-mail (sync local) a cada `TT_EMAIL_SYNC` s (default 120; 300 ocioso; 0 desliga): `--email-sync --vigia`.
 - Padrão visual + memória a cada 300 s: `--reforcar-padrao`, `--memoria-agentes`.
 - Atualização a cada `TT_T_ATUALIZACAO` s: `--garantir-atualizacao`.

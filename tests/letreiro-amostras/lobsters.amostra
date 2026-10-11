@@ -1,0 +1,59 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:ns0="http://www.w3.org/2005/Atom" version="2.0">
+  <channel>
+    <title>Lobsters</title>
+    <link>https://lobste.rs/</link>
+    <ns0:link href="https://lobste.rs/rss?token=4apkBzaiK0vI2KEjUzh9tV6KSi42ZfU47SQxtJj5WRnThAzj7LM3PUrdK0JX" rel="self" />
+    <description />
+    <pubDate>Sun, 11 Oct 2026 04:37:56 -0500</pubDate>
+    <ttl>120</ttl>
+    <item>
+      <title>What's Wrong with GitHub</title>
+      <link>https://www.gnu.org/philosophy/whats-wrong-with-github.html</link>
+      <guid>https://lobste.rs/s/u9ue6c</guid>
+      <pubDate>Sun, 11 Oct 2026 04:37:56 -0500</pubDate>
+      <comments>https://lobste.rs/s/u9ue6c/what_s_wrong_with_github</comments>
+      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/u9ue6c/what_s_wrong_with_github"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
+      <category>vcs</category>
+    </item>
+    <item>
+      <title>Valen's Memory Safety: A New Kind of Borrow Checking</title>
+      <link>https://verdagon.dev/blog/valen-group-borrowing</link>
+      <guid>https://lobste.rs/s/gmnqhj</guid>
+      <pubDate>Sun, 11 Oct 2026 07:23:01 -0500</pubDate>
+      <comments>https://lobste.rs/s/gmnqhj/valen_s_memory_safety_new_kind_borrow</comments>
+      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/gmnqhj/valen_s_memory_safety_new_kind_borrow"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
+      <category>compilers</category>
+      <category>plt</category>
+    </item>
+    <item>
+      <title>I'm still around.. I'm just not writing here</title>
+      <link>https://rachelbythebay.com/w/2026/10/08/idle/</link>
+      <guid>https://lobste.rs/s/4ehrkn</guid>
+      <pubDate>Sun, 11 Oct 2026 09:44:03 -0500</pubDate>
+      <comments>https://lobste.rs/s/4ehrkn/i_m_still_around_i_m_just_not_writing_here</comments>
+      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/4ehrkn/i_m_still_around_i_m_just_not_writing_here"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
+      <category>culture</category>
+    </item>
+    <item>
+      <title>LineageOS 24.0 released</title>
+      <link>https://lineageos.org/Changelog-32/</link>
+      <guid>https://lobste.rs/s/ecxril</guid>
+      <pubDate>Sun, 11 Oct 2026 01:21:25 -0500</pubDate>
+      <comments>https://lobste.rs/s/ecxril/lineageos_24_0_released</comments>
+      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/ecxril/lineageos_24_0_released"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
+      <category>mobile</category>
+      <category>android</category>
+      <category>release</category>
+    </item>
+    <item>
+      <title>How big is a Git commit?</title>
+      <link>https://ratfactor.com/cards/git-commit-size</link>
+      <guid>https://lobste.rs/s/9wcfld</guid>
+      <pubDate>Sun, 11 Oct 2026 04:25:42 -0500</pubDate>
+      <comments>https://lobste.rs/s/9wcfld/how_big_is_git_commit</comments>
+      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/9wcfld/how_big_is_git_commit"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
+      <category>vcs</category>
+    </item>
+    </channel>
+</rss>

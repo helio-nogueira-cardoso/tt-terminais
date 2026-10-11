@@ -76,8 +76,10 @@ printf 'indicadores=frases
 [[ -s $HOME/.cache/tt-ticker/frases ]] || falhou 'fonte frases não escreveu cache'
 grep -qF "$(cut -c1-12 "$HOME/.cache/tt-ticker/frases")" <<<"$(quadro 140)" || falhou "slot sem aviso não mostra o letreiro (frase da fonte): $(quadro 140)"
 grep -q 'A%' <<<"$(quadro 140)" && falhou 'aviso já expirado/lido não deveria estar no slot'
-rg -q 'noticias\)' "$TT" && rg -q 'dolar\)' "$TT" || falhou 'fontes dolar/noticias ausentes do motor'
-grep -q 'dolar,frases,noticias' "$TT" || falhou 'letreiro não vem ligado de fábrica'
+MOTOR=$(dirname "$TT")/letreiro-fontes.py
+rg -q '^    "noticias": \{' "$MOTOR" && rg -q '^    "dolar": \{' "$MOTOR" && rg -q '^    "frases": \{' "$MOTOR" || falhou 'fontes dolar/frases/noticias ausentes do motor'
+de_fabrica=$(XDG_CONFIG_HOME=$(mktemp -d) "$TT" --letreiro-listar --tsv 2>/dev/null | awk -F'\t' '$2 == 1 { printf "%s ", $1 }')
+[[ $de_fabrica == "dolar frases noticias " ]] || falhou "letreiro não vem ligado de fábrica só com dolar, frases e noticias: '$de_fabrica'"
 passou 'sininho permanente e ticker: fontes com cache, dolar/frases/noticias no motor'
 tt --notificar "📧 Ana — Reunião de sexta" 120 email >/dev/null 2>&1  # o histórico abaixo precisa dele
 tt --notificar "⏳ efêmero" 1 >/dev/null 2>&1; sleep 2; tt --barras >/dev/null 2>&1

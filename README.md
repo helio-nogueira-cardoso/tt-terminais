@@ -790,12 +790,577 @@ redesenha a barra 1 vez/s por `#()`, mas guarda a última linha de cada um — o
 novo a cada 1/fps s e fps−1 gatilhos de linha vazia, defasados, provocam os redesenhos entre os
 segundos; custo ≈ 2 KB por quadro e ~12 MB o pintor (python) e ~4 MB cada gatilho (`gatilho-tt.sh`, só builtins do bash): 1 pintor + 5 gatilhos ≈ 32 MB por terminal; `1` volta
 ao passo de 1 s), `aviso_pisca=1`
-(alternância do aviso a cada segundo; padrão estático em negrito), `indicadores=` (quais fontes passam; `0` desliga o letreiro, o slot segue
-para avisos/transferências) e endpoints próprios: `indicador_nome=URL ;; rótulo ;; caminho.no.json
-;; ttl ;; Header: @arquivo-em-secrets` (caminho `-` = texto cru; a chave de API pode vir de
-`~/.secrets`, fora do config). `faixa_notif=0` no `~/.config/tt/config` desliga e devolve o layout de 3 linhas (padrão: ligada;
+(alternância do aviso a cada segundo; padrão estático em negrito), `indicadores=` e `indicador_nome=URL ;; …` (o formato antigo, migrado sem perda: veja
+**Letreiro: fontes (APIs)** abaixo, com as fontes configuráveis, o painel e o catálogo). `faixa_notif=0` no `~/.config/tt/config` desliga e devolve o layout de 3 linhas (padrão: ligada;
 desligada no Termux, onde a tela é baixa). `tt --ticker-quadro [largura]` imprime o que o letreiro
-mostraria agora; `tt --ticker-fontes` atualiza as fontes. Indicadores acopláveis (clima, cotações…) virão aqui.
+mostraria agora; `tt --ticker-fontes` atualiza as fontes.
+
+## Letreiro: fontes (APIs)
+
+O letreiro da faixa de notificações rola informações de **fontes**, e cada fonte é um objeto configurável:
+um arquivo `~/.config/tt/letreiro/NOME.conf` (perfil seu, nunca sobrescrito pela instalação) que você cria
+**pela tela** (menu ⋯ → 📰 Letreiro), **pelo comando** (`tt --letreiro-add`) ou **à mão** — os três dão
+exatamente a mesma fonte e a mesma linha. Quem busca, extrai, formata e guarda o cache é o
+`letreiro-fontes.py`, chamado pelo vigia a cada volta; quem **desenha** é o `letreiro-tt.py` de cada
+terminal, que só **lê arquivos** em `~/.cache/tt-ticker/`: a rede nunca está dentro do desenho, e uma falha
+de rede nunca trava nem apaga o letreiro (o último valor segue na faixa, marcado como velho depois de um
+tempo).
+
+### O que valia até a v277 (e continua valendo)
+
+- Três fontes nativas no código: **dólar** (AwesomeAPI, TTL 600 s; `💵 dólar R$ 5,123 ▲0,5%`), **frases**
+  (lista embutida de 6, uma sorteada por TTL de 600 s) e **notícias** (RSS do g1 e da BBC World, 2 manchetes
+  de cada, TTL 900 s). O config só ligava/desligava por `indicadores=dolar,frases,noticias`
+  (`indicadores=0` desliga tudo) e `indicador_NOME=URL ;; rótulo ;; caminho.no.json ;; ttl ;; Header: @arquivo`
+  criava fontes próprias (só GET; só JSON ou texto cru com o caminho `-`; um valor por fonte; valor cortado em
+  60 e linha em 90 caracteres; sem formatação, sem cor, sem teste, sem diagnóstico, sem propagação, erro de
+  rede em silêncio). Os ajustes globais eram `ticker_rolagem` (continua/paginas), `ticker_veloc`, `ticker_fps`
+  (1 a 20) e `ticker_ponte`.
+- **Nada disso quebra.** As linhas `indicador_NOME=` e o `indicadores=` são migrados sem perda para arquivos
+  (`tt --letreiro-migrar`; roda sozinho na primeira atualização): o corte em 60/90 vira `valor_max=60` e
+  `truncar=90`, o header `@arquivo` continua apontando para `~/.secrets`, e um header com segredo **literal**
+  tem o valor movido para `~/.secrets/letreiro-NOME` (modo 600) e sai da linha do config. As linhas antigas
+  ficam no config (sem perda); depois de migrada, vale o arquivo. Se você editar `indicadores=` depois, a
+  lista nova é reaplicada. `tt --ticker-fontes` e `tt --ticker-quadro` seguem funcionando.
+- Única diferença visível: o texto sai pelo mesmo motor das demais fontes, então a variação do dólar usa a
+  vírgula do pt-BR (`▲0,5%`, antes `▲0.5%`) e uma variação que arredonda para zero fica neutra (`•0,0%`).
+
+### Arquivo da fonte
+
+`~/.config/tt/letreiro/NOME.conf` — `chave=valor`, uma por linha (`#` comenta; repita a linha nos campos de
+lista; valores com espaços nas pontas vão entre aspas: `prefixo=">> "`). `versao=1` marca o formato. As
+fontes nativas (`dolar`, `frases`, `noticias`) vivem no código: um `NOME.conf` com o mesmo nome só **sobrepõe
+as chaves que traz** (a definição de fábrica não é congelada no seu arquivo; `chave=` vazio desfaz um padrão).
+`escopo=global` propaga a fonte pela rede; `~/.config/tt/letreiro/local/NOME.conf` sobrescreve chaves só
+desta máquina.
+
+**Identidade**
+
+| campo | valor | padrão | o que faz |
+|---|---|---|---|
+| `rotulo` | texto | — | texto que rotula o valor (ex.: dólar) |
+| `icone` | texto | — | ícone/emoji do item (ex.: 💵) |
+| `descricao` | texto | — | descrição livre |
+| `ativa` | 1/0 | `1` | 1 = entra na roda |
+| `ordem` | inteiro 0–9999 | `100` | posição na roda (menor primeiro) |
+| `peso` | inteiro 1–9 | `1` | quantas vezes aparece por volta |
+| `tags` | texto | — | etiquetas separadas por vírgula |
+| `escopo` | local/global | `local` | global = propagada pela rede (a mudança mais nova vence) |
+| `perfil` | todos/desktop/celular | `todos` | só nas máquinas deste perfil |
+| `maquinas` | texto | — | só nestas máquinas (nomes separados por vírgula; !nome exclui) |
+
+**Origem e requisição**
+
+| campo | valor | padrão | o que faz |
+|---|---|---|---|
+| `origem` | rede/lista/tt | `rede` | rede = HTTP; lista = itens fixos do arquivo; tt = dado do próprio tt |
+| `dado` | texto | — | origem=tt: tarefas-atrasadas \| emails-nao-lidos |
+| `item` | lista (repete a linha) | — | origem=lista: um item por linha (sorteia entre eles) |
+| `url` | texto | — | endereço https (aceita {data} {moeda} {segredo} e var.NOME=) |
+| `metodo` | GET/POST | `GET` | método HTTP |
+| `header` | lista (repete a linha) | — | cabeçalho extra 'Nome: valor' (valor secreto: @arquivo) |
+| `query` | lista (repete a linha) | — | parâmetro de query 'nome=valor' (repetível) |
+| `corpo` | texto | — | corpo do POST (aceita {variáveis}) |
+| `timeout` | número 1–60 | `10` | segundos por tentativa |
+| `tentativas` | inteiro 1–5 | `2` | tentativas por atualização |
+| `espera` | número 0–60 | `2` | espera entre tentativas (dobra a cada uma) |
+| `user_agent` | texto | — | User-Agent (padrão do tt) |
+| `tls_verificar` | 1/0 | `1` | 0 = não verificar o certificado TLS (evite) |
+| `proxy` | texto | — | proxy http://host:porta (opcional) |
+| `permitir_http` | 1/0 | `0` | 1 = aceita http:// (sem criptografia; evite) |
+| `tamanho_max` | inteiro 1024–8388608 | `1048576` | bytes máximos da resposta |
+
+**Autenticação**
+
+| campo | valor | padrão | o que faz |
+|---|---|---|---|
+| `auth` | nenhuma/header/query/bearer/basic | `nenhuma` | como enviar o segredo |
+| `auth_nome` | texto | — | nome do header ou do parâmetro (auth=header\|query) |
+| `segredo` | texto | — | @arquivo em ~/.secrets (basic: usuario:senha) |
+
+**Resposta**
+
+| campo | valor | padrão | o que faz |
+|---|---|---|---|
+| `formato` | json/xml/rss/atom/csv/texto/regex | `json` | formato da resposta |
+| `caminho` | texto | — | o que extrair: JSONPath simples, XPath, coluna, regex ou linha |
+| `itens` | inteiro 1–20 | `1` | quantos itens tirar da resposta |
+| `de` | inicio/fim | `inicio` | tirar os itens do início ou do fim da resposta |
+| `csv_sep` | texto | `,` | separador do CSV |
+| `csv_cabecalho` | auto/1/0 | `auto` | CSV com linha de cabeçalho |
+| `codificacao` | texto | `utf-8` | codificação do texto (utf-8, latin-1…) |
+
+**Transformação**
+
+| campo | valor | padrão | o que faz |
+|---|---|---|---|
+| `decimais` | inteiro 0–8 | — | casas decimais (vazio = como veio) |
+| `separador` | pt/en | — | pt = 1.234,56; en = 1,234.56 (vazio = como veio) |
+| `entrada` | auto/pt/en | `auto` | como o número chega na resposta |
+| `milhar` | 1/0 | `1` | separador de milhar ao formatar |
+| `moeda` | texto | — | prefixo do valor (R$, US$…) |
+| `escala` | nenhuma/mil/mi/bi | `nenhuma` | divide o valor e põe o sufixo |
+| `arredondar` | normal/cima/baixo/truncar | `normal` | como arredondar |
+| `variacao` | texto | — | caminho da variação % na resposta, ou 'calculada' (contra o valor anterior) |
+| `var_base` | texto | — | caminho do valor de referência: variação = (valor-base)/base |
+| `var_decimais` | inteiro 0–4 | `1` | casas da variação |
+| `setas` | 1/0 | `1` | ▲/▼ na variação (0 = +/-) |
+| `traduzir` | lista (repete a linha) | — | troca de texto fixo 'origem>destino' |
+| `valor_max` | inteiro 0–400 | `0` | corta o valor bruto em N caracteres (0 = não corta) |
+
+**Exibição**
+
+| campo | valor | padrão | o que faz |
+|---|---|---|---|
+| `modelo` | texto | `{icone} {rotulo} {valor} {var}` | modelo do item: {icone} {rotulo} {valor} {var} {seta} {pct}… |
+| `truncar` | inteiro 10–400 | `90` | largura máxima do item (células) |
+| `prefixo` | texto | — | texto antes do item |
+| `sufixo` | texto | — | texto depois do item |
+| `cor` | 1/0 | `1` | cor por sinal (alta verde, baixa vermelha) |
+| `se_faltar` | esconder/ultimo/erro | `ultimo` | sem dado novo: esconde, mostra o último (marcado) ou o erro |
+| `cache_max` | inteiro 0–100000 | `360` | minutos de cache aceitos sem marca (0 = sem limite) |
+
+**Agenda e cache**
+
+| campo | valor | padrão | o que faz |
+|---|---|---|---|
+| `ttl` | inteiro 10–604800 | `600` | segundos entre atualizações |
+| `dias` | texto | — | dias em que atualiza (seg-sex, sab,dom…) |
+| `horas` | texto | — | horas em que atualiza (10-18, 9:30-12,14-17:45) |
+| `so_com_cliente` | 1/0 | `0` | 1 = só atualiza com um terminal tmux em uso |
+| `limite_hora` | inteiro 0–3600 | `0` | máximo de requisições por hora (0 = sem limite) |
+| `alerta_falhas` | inteiro 0–100 | `5` | avisa na central de notificações após N falhas seguidas (0 = nunca) |
+
+**Condições**
+
+| campo | valor | padrão | o que faz |
+|---|---|---|---|
+| `condicao` | lista (repete a linha) | — | mostra só se: valor>N · var>N · abs>N · cruza N · contem T · mudou |
+| `mostrar_dias` | texto | — | dias em que o item aparece |
+| `mostrar_horas` | texto | — | horas em que o item aparece |
+
+**Clique**
+
+| campo | valor | padrão | o que faz |
+|---|---|---|---|
+| `clique` | nada/url/painel/copiar | `nada` | o que o clique no item faz |
+| `clique_alvo` | texto | — | url (aceita {link} {valor}…) \| painel (tarefas, email, calendario, notificacoes, letreiro) \| texto a copiar |
+
+**Controle (gerenciados pelo tt)**
+
+| campo | valor | padrão | o que faz |
+|---|---|---|---|
+| `versao` | inteiro | `1` | versão do formato do arquivo |
+| `mudada` | inteiro | `0` | hora da última mudança (a mais nova vence ao propagar) |
+
+Variáveis em `url`, `query`, `corpo`, `modelo`, `rotulo`, `caminho` e `clique_alvo`: `{data}` `{hoje}`
+`{ontem}` `{amanha}` `{data_br}` `{ano}` `{mes}` `{dia}` `{hora}` `{epoch}`, as suas (`var.moeda=USD` →
+`{moeda}`), os campos extras (`campo.link=.//item/link` → `{link}`) e, em `url`/`header`/`query`/`corpo`,
+`{segredo}`. No `modelo`: `{icone}` `{rotulo}` `{valor}` `{var}` `{seta}` `{pct}` `{nome}` `{hora}` `{data}`.
+
+Caminhos de extração: **json** `a.b`, `a.b[0]`, `a[-1]`, `a[*].x` (todos), `a[0:3]`, `$.a.b`,
+`['chave com ponto']` e filtros `itens[?data>={hoje}].nome`; **xml/rss/atom** XPath simples (`.//item/title`,
+`channel/item/link`, `.//item/@id`, namespaces ignorados; `rss`/`atom` sem caminho pegam os títulos); **csv**
+a coluna pelo nome ou pelo número (`csv_sep`, `csv_cabecalho`); **texto** vazio (as linhas), `linha:N`;
+**regex** o 1º grupo. `itens=N` tira N achados do início ou do fim (`de=fim`). Se o caminho não existe, o erro
+diz onde parou e quais chaves havia ali.
+
+Condições (`condicao=`, repetível, todas valem juntas): `valor>N`, `valor<=N`, `var>N`, `abs>N` (variação
+absoluta), `cruza N` (alerta de 1 h quando o valor cruza o limite), `contem TEXTO`, `nao_contem TEXTO`,
+`mudou`. Janelas: `dias=seg-sex` e `horas=10-18` (das 10:00 às 17:59; `9:30-12,14-17:45`; `22-6` atravessa a
+meia-noite) valem para **atualizar**; `mostrar_dias`/`mostrar_horas` para **exibir**. O fuso é o da máquina
+ou `ticker_fuso`.
+
+### Exemplos
+
+```
+# ~/.config/tt/letreiro/bitcoin.conf — cotação com variação, alerta de 2% e clique que abre o gráfico
+url=https://economia.awesomeapi.com.br/json/last/BTC-BRL
+caminho=BTCBRL.bid
+variacao=BTCBRL.pctChange
+icone=₿
+rotulo=bitcoin
+moeda=R$
+decimais=0
+separador=pt
+ttl=300
+condicao=abs>2
+clique=url
+clique_alvo=https://www.google.com/finance/quote/BTC-BRL
+
+# ~/.config/tt/letreiro/ci.conf — API com chave: o valor fica em ~/.secrets/github-token (modo 600)
+url=https://api.github.com/repos/{repo}/actions/runs?status=in_progress&per_page=1
+var.repo=dono/projeto
+auth=bearer
+segredo=@github-token
+caminho=total_count
+modelo={icone} CI: {valor} em andamento
+icone=⚙
+```
+
+### Segredos
+
+O segredo **sempre** mora em `~/.secrets/ARQUIVO` (modo 600) e a fonte só o referencia por `@ARQUIVO`
+(`auth=bearer|basic|header|query` + `segredo=@ARQUIVO`; `basic` lê `usuario:senha`). `tt --letreiro-segredo
+NOME` grava o arquivo sem mostrar o valor; o assistente também pergunta. Credencial **literal** em `header`,
+`query` ou na URL é recusada ao salvar, e o valor lido nunca aparece em tela, `testar`, log, cache (se a
+API ecoar a chave, o trecho vira `***`), exportação ou propagação — o pacote leva só `segredo=@nome`, e na
+outra máquina você cria o arquivo de segredo dela.
+
+### Segurança
+
+Só **https** (`http://` exige `permitir_http=1` e avisa). Destinos locais e de rede privada são bloqueados —
+`localhost`, 127.x, 10.x, 172.16–31.x, 192.168.x, 169.254.x (nuvem), 100.64.x (Tailscale), `::1`, endereços
+IPv4-mapeados, `*.local`/`*.internal` e qualquer nome que **resolva** para um deles (o IP validado é o usado
+na conexão, sem segunda resolução) — também a cada redirecionamento (até 3; https→http é recusado e
+credenciais não seguem para outro servidor). Limites: `timeout`, `tentativas` com espera que dobra,
+`tamanho_max` (resposta e descompressão), XML com `DOCTYPE`/`ENTITY` recusado, certificado TLS verificado
+(`tls_verificar=0` avisa). O texto vindo da rede é **dado não confiável**: antes de chegar à faixa perde
+sequências de escape de terminal (CSI, OSC…), controles, controles de direção do Unicode e o `#` que abriria
+`#[`, `#(` ou `#{` do tmux; o desenhista ainda dobra todo `#` e filtra de novo o que lê do cache. Um clique
+só abre `http(s)`.
+
+### Diagnóstico
+
+Por fonte (`tt --letreiro-listar`, e o painel): estado (ok · velha · erro · desligada · fora · aguardando),
+última atualização, HTTP, latência, falhas seguidas e último erro. Depois de um erro a fonte espera 60 s,
+120 s, 240 s… (até 1 h) antes de tentar de novo; após `alerta_falhas` (5) falhas seguidas há **um** aviso na
+central de notificações 🔔 (clique abre o painel). `tt --letreiro-testar NOME` mostra cada etapa (pedido,
+resposta, extração, resultado) sem gravar nada (`--gravar` também atualiza o cache) e `tt --letreiro-log
+[NOME] [N]` lê o log rotativo `~/.cache/tt-letreiro.log` (256 KB, mais um `.1`). O estado fica em
+`~/.cache/tt-ticker/NOME.meta`.
+
+### Propagação e sobrescrita por máquina
+
+`escopo=global` leva a fonte às outras máquinas como o cadastro de demandas: a mudança mais nova vence
+(`mudada`), uma remoção vira lápide que nenhum pacote mais velho ressuscita, e o vigia puxa a cada 30 min
+(`tt --puxar-letreiro`; cadastrar/editar/remover já empurra na hora por ssh). Só o texto do `.conf` viaja, só
+fontes globais, só se passarem na mesma validação (sem credencial literal, sem destino privado, sem chave
+desconhecida). `tt --letreiro-editar NOME --local ativa=0` (ou "só nesta máquina" no painel) guarda a
+escolha em `letreiro/local/` — uma fonte global desligada só aqui, por exemplo — e nada disso é propagado.
+`perfil=celular|desktop` e `maquinas=nome,!outro` escolhem onde a fonte vale.
+
+### Ajustes globais (por máquina, no `~/.config/tt/config`)
+
+`ticker_ligado` (interruptor), `ticker_rolagem` (`continua`/`paginas`), `ticker_veloc`, `ticker_fps`,
+`ticker_separador` (entre itens), `ticker_ordem` (`manual` pelo campo `ordem`, `aleatoria`, `peso`),
+`ticker_largura` (máximo de células), `ticker_pausa`, `ticker_cor`, `ticker_economia`, `ticker_bateria_min`,
+`ticker_ponte`, `ticker_idioma`, `ticker_fuso`. `tt --letreiro-ajustes` lista; `tt --letreiro-ajuste CHAVE
+VALOR` grava (vazio volta ao padrão); a tela tem o mesmo (⚙ Ajustes globais). `peso=N` na fonte é quantas
+vezes ela aparece por volta, espalhadas. **Clique no letreiro**: roda a ação do item sob o mouse (`url`,
+`copiar`, `painel`) e, num item sem ação, pausa/continua (`ticker_pausa=nunca` desliga); o tmux não avisa
+quando o mouse só passa por cima, então a pausa é por clique. **Modo economia** (`ticker_economia=auto`
+liga no celular): não atualiza com a bateria abaixo de `ticker_bateria_min` sem carregar nem sem nenhum
+terminal em uso (e a bateria baixa congela o letreiro em páginas).
+
+### Painel e comandos
+
+Menu ⋯ → **📰 Letreiro** (ou o aviso de falhas): lista com o estado de cada fonte. ⏎ ou duplo clique/botão
+direito abrem as ações; teclas: `^n` nova (assistente: cola a URL, o tt busca, mostra a resposta formatada,
+você escolhe o campo no fzf e define rótulo, TTL e modelo, vê o **teste ao vivo** e só então salva), `F2`
+editar (formulário de todos os campos, com `^t` testar e `^s` salvar), `^t` testar, `^a` liga/desliga, `^d`
+duplicar, `^k`/`^j` subir/descer na roda, `^l` log, `^x` remover (de fábrica: tirar da lista), `Tab` vista (todas · na roda · disponíveis), `^g` ajustes, `^b` catálogo, `^p`
+pré-visualizar na faixa, `^r` atualizar, `esc` fecha.
+
+| comando | faz |
+|---|---|
+| `tt --letreiro-listar [--tsv] [--todas\|--ativas\|--inativas] [--categoria C]` | fontes com estado, atualização, latência e erro (padrão: as ligadas, as suas e as de fábrica que você mexeu) |
+| `tt --letreiro-add NOME url=… caminho=… [chave=valor…] [--testar]` · `--catalogo ID [var=valor…]` | cria (valida antes); sem argumentos num terminal, o assistente |
+| `tt --letreiro-editar NOME [chave=valor…] [--local]` | altera (`-chave` remove); sem pares, o formulário |
+| `tt --letreiro-rm NOME [--sim]` · `--letreiro-duplicar A B` · `--letreiro-ativar/--letreiro-desativar NOME [--local]` · `--letreiro-mover NOME +1\|-1\|inicio\|fim\|N` | gerenciam |
+| `tt --letreiro-testar NOME [--cor] [--gravar]` | busca ao vivo e mostra cada etapa |
+| `tt --letreiro-log [NOME] [N]` | log rotativo |
+| `tt --letreiro-exportar [NOME…]` · `--letreiro-importar ARQ [--sobrescrever]` | pacote de texto (sem segredos) |
+| `tt --letreiro-catalogo [ID [var=valor…]]` | catálogo: liga uma de fábrica (traz de volta a que você tirou) ou cria a partir de um modelo |
+| `tt --letreiro-restaurar NOME` | fonte de fábrica: apaga o que você mudou e mantém na lista |
+| `tt --letreiro-segredo NOME` · `--letreiro-ajustes` · `--letreiro-ajuste CHAVE VALOR` · `--letreiro-migrar` | segredos, ajustes, migração |
+| `tt --letreiro-ui` | o painel |
+
+### Catálogo de fábrica (156 fontes prontas, desligadas)
+
+O pacote leva o `letreiro-catalogo.json` com **156 fontes já definidas e validadas na rede real**. Todas vêm
+**desligadas**: aparecem na lista do painel (por categoria), mas **não buscam nada na rede** até você ligar.
+As únicas ligadas de fábrica continuam sendo `dolar`, `frases` e `noticias`. No painel (menu ⋯ → 📰 Letreiro):
+
+- **Tab** (ou a linha `⇄ Vista`) alterna o que a lista mostra: *todas*, só as *na roda* ou só as *disponíveis*;
+  digitar filtra por nome, categoria ou descrição (`status`, `bolsa`, `rss`…).
+- **`^a`** (ou ⏎ → *Ativar*) liga e a fonte sobe para a seção *Na roda*; **`^t`** testa ao vivo sem ligar; a
+  prévia mostra *como aparece*, com um exemplo validado.
+- **`F2`** (⏎ → *Configurar*) abre o formulário de todos os campos; o arquivo `~/.config/tt/letreiro/NOME.conf`
+  guarda **só o que você mudou** (o resto continua vindo do pacote e acompanha as atualizações do tt).
+  Quase todas as de clima usam `var.lat`, `var.lon` e `var.cidade`: troque para o seu lugar.
+- **`^x`** (⏎ → *Tirar da lista*) esconde uma de fábrica; **📚 Catálogo** (`^b`) ou `tt --letreiro-catalogo NOME`
+  traz de volta e liga. ⏎ → *↺ Voltar ao padrão de fábrica* apaga o que você mudou e mantém na lista.
+- **Adicionar**: `^n` (assistente), os **modelos** abaixo (perguntam o que falta) ou `⧉ Duplicar` uma de fábrica
+  para ajustar à vontade (a cópia é sua).
+
+Pela linha de comando: `tt --letreiro-listar [--todas|--ativas|--inativas] [--categoria C]`,
+`tt --letreiro-ativar NOME`, `--letreiro-desativar`, `--letreiro-editar NOME ttl=300`, `--letreiro-rm NOME`
+(de fábrica: tira da lista), `--letreiro-restaurar NOME`, `--letreiro-catalogo [NOME|MODELO [var=valor…]]`.
+
+Cada fonte foi rodada ao vivo no dia da validação (coluna *como aparece*) e a suíte confere TODAS contra a resposta
+real guardada em `tests/letreiro-amostras/` — sem rede — além de exigir https, destino público, nenhum segredo e
+`ativa=0`. Para revalidar na rede de verdade (quando uma API mudar) ou incluir uma fonte nova:
+`tests/letreiro_catalogo_rede.py [--gravar] [NOME…]` (ferramenta de manutenção, fora da suíte). Algumas usam
+endpoints **não oficiais** (Yahoo Finance, Mega-Sena) e podem mudar sem aviso; o limite do GitHub sem token é 60
+consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
+
+**💱 Moedas** (11)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `dolar-australiano` | Dólar australiano em reais | 🇦🇺 dólar aus. R$ 3,482 ▼0,3% |
+| `dolar-canadense` | Dólar canadense em reais | 🇨🇦 dólar can. R$ 3,498 ▼0,8% |
+| `dolar-turismo` | Dólar turismo em reais | 🧳 dólar turismo R$ 4,953 ▼0,5% |
+| `euro` | Euro em reais (AwesomeAPI, sem chave) | 💶 euro R$ 5,583 ▼0,8% |
+| `euro-dolar` | Euro em dólares | 💱 euro/dólar US$ 1,1201 ▼0,1% |
+| `franco-suico` | Franco suíço em reais | 🇨🇭 franco suíço R$ 6,004 ▼0,5% |
+| `iene` | Iene japonês em reais | 💴 iene R$ 0,0314 ▼1,0% |
+| `libra` | Libra esterlina em reais | 💷 libra R$ 6,593 ▼0,5% |
+| `ouro-onca` | Ouro: onça troy em reais | 🥇 ouro (onça) R$ 20.917 ▲0,6% |
+| `peso-argentino` | Peso argentino em reais | 🇦🇷 peso arg. R$ 0,0032 ▼0,2% |
+| `yuan` | Yuan chinês em reais | 🇨🇳 yuan R$ 0,745 ▼0,5% |
+
+**₿ Criptomoedas** (11)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `bitcoin` | Bitcoin em reais (AwesomeAPI, sem chave) | ₿ bitcoin R$ 420.217 ▲0,8% |
+| `bitcoin-bloco` | Altura do último bloco do Bitcoin (mempool.space, sem chave) | 🧱 bloco BTC 970.972 |
+| `bitcoin-taxa` | Taxa de rede do Bitcoin para confirmar logo (mempool.space, sem chave) | ⛏ taxa BTC 2 sat/vB |
+| `bitcoin-usd` | Bitcoin em dólares (Coinbase, sem chave) | ₿ BTC US$ 83.632 |
+| `dogecoin` | Dogecoin em reais | 🐕 dogecoin R$ 0,436 ▲0,5% |
+| `ethereum` | Ethereum em reais | Ξ ethereum R$ 12.741 ▲1,0% |
+| `ethereum-usd` | Ethereum em dólares (Coinbase, sem chave) | Ξ ETH US$ 2.533 |
+| `litecoin` | Litecoin em reais | Ł litecoin R$ 323,60 ▲0,4% |
+| `medo-ganancia` | Índice de medo e ganância das criptomoedas (alternative.me, sem chave) | 😨 medo/ganância 61 (Greed) |
+| `solana` | Solana em reais | ◎ solana R$ 562,30 ▲1,6% |
+| `xrp` | XRP em reais | ✕ XRP R$ 7,073 ▲0,3% |
+
+**🏦 Juros, inflação e economia (Banco Central)** (13)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `cdi` | CDI anualizado (BCB, série 4389) | 🏦 CDI 13,65% a.a. |
+| `desemprego` | Taxa de desocupação — PNAD Contínua (BCB, série 24369) | 👷 desocupação 5,3% |
+| `dolar-ptax` | Dólar PTAX de venda (BCB, série 1) | 💵 PTAX dólar R$ 4,9892 |
+| `euro-ptax` | Euro PTAX de venda (BCB, série 21619) | 💶 PTAX euro R$ 5,5844 |
+| `igpm` | IGP-M, variação mensal (BCB, série 189) | 📈 IGP-M 1,57% no mês |
+| `inpc` | INPC, variação mensal (BCB, série 188) | 📈 INPC 0,82% no mês |
+| `ipca` | IPCA, variação mensal (BCB, série 433) | 📈 IPCA 0,82% no mês |
+| `ipca-12m` | IPCA acumulado em 12 meses (BCB, série 13522) | 📈 IPCA 12m 4,58% |
+| `ipca-15` | IPCA-15, variação mensal (BCB, série 7478) | 📈 IPCA-15 0,70% no mês |
+| `poupanca` | Rendimento mensal da poupança (BCB, série 195) | 🐖 poupança 0,6218% no mês |
+| `reservas` | Reservas internacionais em milhões de dólares (BCB, série 13621) | 🏛 reservas 362.367 mi US$ |
+| `selic` | Meta da taxa Selic ao ano (BCB, série 432) | 🏦 Selic 13,75% a.a. |
+| `tr` | Taxa Referencial (BCB, série 226) | 💹 TR 0,1212% no mês |
+
+**📊 Bolsas e commodities** (13)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `dow-jones` | Dow Jones em pontos (Yahoo Finance, endpoint não oficial) | 🇺🇸 Dow Jones 51.655 ▲0,8% |
+| `ibovespa` | Ibovespa em pontos; só atualiza no pregão (Yahoo Finance, endpoint não oficial) | 📊 Ibovespa 209.067 ▲1,4% |
+| `itub4` | Itaú Unibanco PN em reais (Yahoo Finance, endpoint não oficial) | 🏦 ITUB4 R$ 50,47 ▲2,3% |
+| `nasdaq` | Nasdaq Composite em pontos (Yahoo Finance, endpoint não oficial) | 🇺🇸 Nasdaq 27.366 ▲0,6% |
+| `nikkei` | Nikkei 225 em pontos (Yahoo Finance, endpoint não oficial) | 🇯🇵 Nikkei 69.031 •0,0% |
+| `ouro-futuro` | Ouro, futuro em dólares por onça (Yahoo Finance, endpoint não oficial) | 🥇 ouro US$ 4.216,30 •0,0% |
+| `petr4` | Petrobras PN em reais (Yahoo Finance, endpoint não oficial) | 🛢 PETR4 R$ 56,00 ▲0,9% |
+| `petroleo-brent` | Petróleo Brent, futuro em dólares (Yahoo Finance, endpoint não oficial) | 🛢 Brent US$ 104,72 •0,0% |
+| `petroleo-wti` | Petróleo WTI, futuro em dólares (Yahoo Finance, endpoint não oficial) | 🛢 WTI US$ 91,85 •0,0% |
+| `prata-futuro` | Prata, futuro em dólares por onça (Yahoo Finance, endpoint não oficial) | 🥈 prata US$ 61,05 •0,0% |
+| `sp500` | S&P 500 em pontos (Yahoo Finance, endpoint não oficial) | 🇺🇸 S&P 500 7.812 ▲0,6% |
+| `vale3` | Vale ON em reais (Yahoo Finance, endpoint não oficial) | ⛏ VALE3 R$ 67,90 ▲0,4% |
+| `vix` | Índice de volatilidade VIX (Yahoo Finance, endpoint não oficial) | 😱 VIX 14,84 ▼3,7% |
+
+**🌤 Tempo e clima** (13)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `clima-chuva` | Chuva neste momento (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌧 São Paulo 0,4 mm |
+| `clima-max-min` | Máxima e mínima de hoje (graus inteiros) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌡 São Paulo 25°/17° |
+| `clima-nascer-do-sol` | Hora do nascer do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌅 São Paulo nasce 05:37 |
+| `clima-pm25` | Partículas finas PM2,5 (µg/m³) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌫 São Paulo 16 µg/m³ |
+| `clima-por-do-sol` | Hora do pôr do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌇 São Paulo põe 18:09 |
+| `clima-prob-chuva` | Probabilidade de chuva hoje (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | ☔ São Paulo 100% |
+| `clima-qualidade-ar` | Qualidade do ar (índice AQI dos EUA: até 50 boa, 100 moderada) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 😷 São Paulo AQI 140 |
+| `clima-sensacao` | Sensação térmica agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🥵 São Paulo 20,9°C |
+| `clima-temperatura` | Temperatura agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌡 São Paulo 19,6°C |
+| `clima-tempo` | Condição do tempo agora (código WMO traduzido) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | ⛅ São Paulo: pancadas fracas |
+| `clima-umidade` | Umidade relativa do ar agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 💧 São Paulo 90% |
+| `clima-uv` | Índice UV máximo de hoje (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 😎 São Paulo UV 7 |
+| `clima-vento` | Velocidade do vento agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌬 São Paulo 10 km/h |
+
+**🚀 Espaço e Terra** (5)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `iss-posicao` | Onde a Estação Espacial Internacional está agora (latitude, longitude; wheretheiss.at, sem chave) | 🛰 ISS -30.86°, 101.30° |
+| `proximo-lancamento` | Próximo lançamento de foguete no mundo (The Space Devs, sem chave; 15 consultas/h) | 🚀 Falcon 9 Block 5 ¦ Starlink Group 15-25 (2026-10-12) |
+| `sismo-recente` | Maior sismo recente (magnitude 4,5+ nas últimas 24 h; USGS, sem chave); some se não houve | 🌋 M 4.7 - 156 km ESE of Neiafu, Tonga |
+| `tempestade-geomagnetica` | Índice Kp de atividade geomagnética (NOAA SWPC, sem chave): 5+ é tempestade | 🧲 Kp 2,3 |
+| `vento-solar` | Velocidade do vento solar (NOAA SWPC, sem chave) | ☀ vento solar 535 km/s |
+
+**🇧🇷 Brasil** (3)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `feriados` | Próximo feriado nacional (BrasilAPI, sem chave) | 📅 feriado Nossa Senhora Aparecida (2026-10-12) |
+| `ibge-noticias` | Notícias do IBGE (API de serviços do IBGE, sem chave) | 📈 IBGE: Acervo bibliográfico de Pedro Geiger é doado à Biblioteca do IBGE |
+| `megasena` | Último concurso da Mega-Sena (API aberta não oficial; sem chave) | 🍀 Mega-Sena 3068: 07-10-39-40-43-57 |
+
+**📰 Notícias do Brasil** (16)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `agencia-brasil` | Manchetes: Agência Brasil (feed RSS, sem chave) | 🇧🇷 Agência Brasil: Interpretação é a base da prova de Linguagens do Enem; veja dicas |
+| `camara-noticias` | Manchetes: Câmara (feed RSS, sem chave) | 🏛 Câmara: Projeto pune empresas que atrasarem pagamento de médicos |
+| `cnn-brasil` | Manchetes: CNN Brasil (feed RSS, sem chave) | 📺 CNN Brasil: Chefe do Deutsche Bank vê eleições na Alemanha como risco para investidores |
+| `estadao` | Manchetes: Estadão (feed RSS, sem chave) | 📰 Estadão: Ex-militar russo condenado à prisão perpétua é preso em Salvador |
+| `exame` | Manchetes: Exame (feed RSS, sem chave) | 💼 Exame: Ciberataques são o principal risco imediato da IA, afirma Bill Gates |
+| `folha` | Manchetes: Folha (feed RSS, sem chave) | 📰 Folha: Slayyyter faz show contido, marcado por aperto e calor no Zig Festival, em São Paulo |
+| `folha-mercado` | Manchetes: Folha Mercado (feed RSS, sem chave) | 💼 Folha Mercado: Lula diz que votação do fim da 6x1 antes do segundo turno já está acordada com Alcolumbre |
+| `g1-ciencia` | Manchetes: g1 Ciência (feed RSS, sem chave) | 🔬 g1 Ciência: 'Ciência Aberta': centro que abriga o Sirius recebe público para apresentar curiosidades e atrações da ciência |
+| `g1-economia` | Manchetes: g1 Economia (feed RSS, sem chave) | 💼 g1 Economia: Mega-Sena acumula, e prêmio vai a R$ 150 milhões; veja os números sorteados |
+| `g1-mundo` | Manchetes: g1 Mundo (feed RSS, sem chave) | 🌎 g1 Mundo: Aeroportos da Arábia Saudita voltam a ser bombardeados; Houthis reivindicam ataques |
+| `g1-politica` | Manchetes: g1 Política (feed RSS, sem chave) | 🏛 g1 Política: Corregedor do TSE suspende preliminarmente decisão de Nunes Marques e libera canal 'Exército do Lula'; decisão |
+| `g1-tecnologia` | Manchetes: g1 Tecnologia (feed RSS, sem chave) | 💻 g1 Tecnologia: IA ameaça aumentar desigualdades de gênero no mercado de trabalho, diz relatório |
+| `ge-esportes` | Manchetes: ge (feed RSS, sem chave) | ⚽ ge: Ferroviária x Inter de Limeira - Campeonato Brasileiro Série C 2026 - globoesporte.com |
+| `infomoney` | Manchetes: InfoMoney (feed RSS, sem chave) | 💼 InfoMoney: EUA ameaçam bloquear armas para Ucrânia devido a ataques a refinarias, diz FT |
+| `poder360` | Manchetes: Poder360 (feed RSS, sem chave) | 📰 Poder360: Messias diz que Senado aprovará fim da 6 X 1 e pede votos para Lula |
+| `senado-noticias` | Manchetes: Senado (feed RSS, sem chave) | 🏛 Senado: Áudio: Senado homenageia os 45 anos da Associação do Senhor Jesus |
+
+**🌍 Notícias do mundo** (7)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `al-jazeera` | Manchetes: Al Jazeera (feed RSS, sem chave) | 🌍 Al Jazeera: Republican senator says Trump diesel agreement with Russia may be illegal |
+| `bbc-brasil` | Manchetes: BBC Brasil (feed RSS, sem chave) | 🌍 BBC Brasil: Corredor Andes-Atlântico: o que se sabe sobre o ambicioso projeto dos EUA para acessar recursos estratégicos d |
+| `bbc-mundo` | Manchetes: BBC World (feed RSS, sem chave) | 🌍 BBC World: Saudi capital airport hit by second Houthi strike in two days |
+| `dw-brasil` | Manchetes: DW Brasil (feed RSS, sem chave) | 🌍 DW Brasil: "Sem anistia!": Milhares vão às ruas em defesa da democracia |
+| `guardian` | Manchetes: Guardian (feed RSS, sem chave) | 🌍 Guardian: Controversial vaccine trial touted by RFK Jr gets go-ahead in Guinea-Bissau |
+| `npr` | Manchetes: NPR (feed RSS, sem chave) | 🎙 NPR: Pope Leo XIV to undergo lung surgery this week |
+| `nyt-mundo` | Manchetes: NYT World (feed RSS, sem chave) | 🗽 NYT World: Saudi Arabia Has Few Options as Houthis Aim at Heart of Its Ambitions |
+
+**💻 Tecnologia** (18)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `ars-technica` | Manchetes: Ars Technica (feed RSS, sem chave) | 💻 Ars Technica: Prime Video unveils Blade Runner 2099 full trailer at NYCC |
+| `bbc-tech` | Manchetes: BBC Tech (feed RSS, sem chave) | 💻 BBC Tech: King warns malicious online actors are evolving tactics |
+| `canaltech` | Manchetes: Canaltech (feed RSS, sem chave) | 💻 Canaltech: Deixar TV ligada para o pet dormir gasta muita energia? Fizemos as contas |
+| `debian-seguranca` | Avisos de segurança do Debian (feed RDF, sem chave) | 🛡 Debian DSA: DSA-6552-1 vips - security update |
+| `go-blog` | Manchetes: Go Blog (feed ATOM, sem chave) | 🐹 Go Blog: Arch-specific SIMD in Go |
+| `hacker-news` | Manchetes: Hacker News (feed RSS, sem chave) | 🟧 Hacker News: Chapter 1 of Ways of Seeing by John Berger |
+| `lobsters` | Manchetes: Lobsters (feed RSS, sem chave) | 🦞 Lobsters: What's Wrong with GitHub |
+| `lwn` | Manchetes: LWN (feed RSS, sem chave) | 🐧 LWN: Stable kernels 7.2.10 and 6.18.56 |
+| `nyt-tech` | Manchetes: NYT Tech (feed RSS, sem chave) | 💻 NYT Tech: Inside Mark Zuckerberg’s Decision to Pull the Trigger on Meta’s A.I. Agent |
+| `olhar-digital` | Manchetes: Olhar Digital (feed RSS, sem chave) | 💻 Olhar Digital: Economize na hora de imprimir: veja uma seleção de impressoras em promoção na Amazon |
+| `phoronix` | Manchetes: Phoronix (feed RSS, sem chave) | 🐧 Phoronix: Linux Landing Kernel Workaround For AMD TLBI Erratum #1718 |
+| `rust-blog` | Manchetes: Rust Blog (feed ATOM, sem chave) | 🦀 Rust Blog: Demoting i686 Windows targets to std-only |
+| `techcrunch` | Manchetes: TechCrunch (feed RSS, sem chave) | 💻 TechCrunch: 48 hours to TechCrunch Disrupt 2026 — hear directly from the people building what’s next |
+| `tecmundo` | Manchetes: Tecmundo (feed RSS, sem chave) | 💻 Tecmundo: Cyberleek vaza gameplay de GTA 6 com Lucia nua e ameaça liberar build completa do jogo |
+| `tecnoblog` | Manchetes: Tecnoblog (feed RSS, sem chave) | 💻 Tecnoblog: TV TCL C7L 65” registra o menor preço desde lançamento em oferta no Magalu |
+| `the-verge` | Manchetes: The Verge (feed ATOM, sem chave) | 💻 The Verge: Silicon Valley is falling in line with Trump’s attempt to rename AI |
+| `ubuntu-seguranca` | Avisos de segurança do Ubuntu (feed RSS, sem chave) | 🛡 Ubuntu USN: USN-8911-1: Linux kernel (OEM) vulnerabilities |
+| `wired` | Manchetes: Wired (feed RSS, sem chave) | 💻 Wired: I Made Terrible Games With Google’s AI Playground |
+
+**🔬 Ciência** (4)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `bbc-ciencia` | Manchetes: BBC Science (feed RSS, sem chave) | 🔬 BBC Science: Orangutans released back into Borneo forest after devastating fires |
+| `nasa` | Manchetes: NASA (feed RSS, sem chave) | 🚀 NASA: APOD: 2026 October 11 – Ice Fishing for Cosmic Neutrinos |
+| `quanta` | Manchetes: Quanta (feed RSS, sem chave) | 🔬 Quanta: How Does Life Unfold? A Landscape Metaphor Comes Into Its Own. |
+| `science-daily` | Manchetes: ScienceDaily (feed RSS, sem chave) | 🔬 ScienceDaily: NASA astronauts splash down after 100 million miles in space |
+
+**🛠 Versões e ferramentas** (13)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `chrome-estavel` | Chrome estável para Linux (Google, sem chave) | 🌐 Chrome 155.0.8059.39 |
+| `claude-code-ultimo` | Última versão do Claude Code (npm, sem chave) | 🤖 Claude Code 2.1.296 |
+| `debian-estavel` | Última versão estável do Debian (endoflife.date, sem chave) | 🌀 Debian 13.7 |
+| `firefox-ultimo` | Última versão do Firefox (Mozilla, sem chave) | 🦊 Firefox 157.0.1 |
+| `go-ultimo` | Última versão do Go (go.dev, sem chave) | 🐹 go1.27.2 |
+| `kernel-linux` | Última versão estável do kernel Linux (kernel.org, sem chave) | 🐧 Linux 7.2.10 |
+| `nodejs-ultimo` | Última versão do Node.js (endoflife.date, sem chave) | 🟩 Node.js 26.11.1 |
+| `python-ultimo` | Última versão do Python (endoflife.date, sem chave) | 🐍 Python 3.15.0 |
+| `rust-ultimo` | Última versão do Rust (GitHub, sem chave; 60 consultas/h por rede) | 🦀 Rust 1.99.0 |
+| `tmux-ultimo` | Última versão do tmux (GitHub, sem chave; 60 consultas/h por rede) | 🪟 tmux 3.8 |
+| `ubuntu-lts` | Última versão LTS do Ubuntu (endoflife.date, sem chave) | 🟠 Ubuntu LTS 26.04.1 |
+| `vim-ultimo` | Última versão do Vim (GitHub, sem chave; 60 consultas/h por rede) | 📝 Vim v9.2.1176 |
+| `vscode-ultimo` | Última versão do VS Code (Microsoft, sem chave) | 🆚 VS Code 1.141.0 |
+
+**🛰 Status de serviços** (16)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `status-atlassian` | Estado de Atlassian (página de status Statuspage) | 🛰 Atlassian: tudo operando |
+| `status-claude` | Estado de Claude (página de status Statuspage) | 🛰 Claude: serviço parcialmente degradado |
+| `status-cloudflare` | Estado de Cloudflare (página de status Statuspage) | 🛰 Cloudflare: queda parcial |
+| `status-digitalocean` | Estado de DigitalOcean (página de status Statuspage) | 🛰 DigitalOcean: tudo operando |
+| `status-discord` | Estado de Discord (página de status Statuspage) | 🛰 Discord: tudo operando |
+| `status-dropbox` | Estado de Dropbox (página de status Statuspage) | 🛰 Dropbox: tudo operando |
+| `status-flyio` | Estado de Fly.io (página de status Statuspage) | 🛰 Fly.io: tudo operando |
+| `status-github` | Estado de GitHub (página de status Statuspage) | 🛰 GitHub: tudo operando |
+| `status-netlify` | Estado de Netlify (página de status Statuspage) | 🛰 Netlify: tudo operando |
+| `status-npm` | Estado de npm (página de status Statuspage) | 🛰 npm: tudo operando |
+| `status-openai` | Estado de OpenAI (página de status Statuspage) | 🛰 OpenAI: sistema parcialmente degradado |
+| `status-pypi` | Estado de Python/PyPI (página de status Statuspage) | 🛰 Python/PyPI: tudo operando |
+| `status-reddit` | Estado de Reddit (página de status Statuspage) | 🛰 Reddit: tudo operando |
+| `status-twilio` | Estado de Twilio (página de status Statuspage) | 🛰 Twilio: serviço parcialmente degradado |
+| `status-vercel` | Estado de Vercel (página de status Statuspage) | 🛰 Vercel: tudo operando |
+| `status-zoom` | Estado de Zoom (página de status Statuspage) | 🛰 Zoom: tudo operando |
+
+**✨ Curiosidades e frases** (10)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `conselho` | Um conselho aleatório em inglês (Advice Slip, sem chave) | 💡 Vinegar is a powerful cleaning agent. |
+| `fato-aleatorio` | Um fato aleatório em inglês (uselessfacts, sem chave) | 🧠 In the great fire of London in 1666 half of London was burnt down but only 6 people were injured. |
+| `fato-gato` | Um fato sobre gatos em inglês (catfact.ninja, sem chave) | 🐈 The oldest cat on record was Crème Puff from Austin, Texas, who lived from 1967 to August 6, 2005, three days after her 38th birthday. A cat typically can live |
+| `frase-zen` | Uma frase inspiradora em inglês (ZenQuotes, sem chave; no máx. 5 consultas/30 s) | 💭 “He who knows how to wait need make no concessions.” — Sigmund Freud |
+| `hoje-na-historia` | Um fato histórico que aconteceu neste dia (Wikipédia em português, sem chave) | 🕰 2018: A missão Soyuz MS-10, transportando uma tripulação destinada à Estação Espacial Internacional, é abortada pouco depois do lançamento; a trip |
+| `piada-ingles` | Uma piada curta em inglês (Official Joke API, sem chave) | 😄 Why did Sweden start painting barcodes on the sides of their battleships? — So they could Scandinavian. |
+| `versiculo` | Um versículo bíblico aleatório (bible-api.com, sem chave) | 📖 Moses stretched out his hand toward the sky, and there was a thick darkness in all the land of Egypt for three days. (Exodus 10:22) |
+| `wikipedia-aleatoria` | Um verbete aleatório da Wikipédia em português (sem chave) | 📚 Li Xiaoxia: mesa-tenista chinesa |
+| `xkcd` | Título da tirinha mais recente do xkcd (feed RSS, sem chave) | 🎨 xkcd: Dogcatcher |
+| `zen-do-github` | Um princípio zen do GitHub (api.github.com/zen, sem chave) | 🧘 Non-blocking is better than blocking. |
+
+**🌐 Rede** (1)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `ip-publico` | O seu endereço IP público (api.ipify.org, sem chave) — aparece na faixa, cuidado ao compartilhar a tela | 🌐 IP 203.0.113.7 |
+
+**📋 Do próprio tt** (2)
+
+| fonte | o que mostra | como aparece |
+|---|---|---|
+| `emails-nao-lidos` | Quantos e-mails não lidos há no espelho local (do próprio tt; some quando zera) | (só aparece quando há algo para avisar) |
+| `tarefas-atrasadas` | Quantas tarefas estão atrasadas (do próprio tt; some quando zera) | (só aparece quando há algo para avisar) |
+
+**Modelos** (`tt --letreiro-catalogo MODELO …`: perguntam o que falta e criam uma fonte **sua**):
+
+| modelo | o que cria | pergunta |
+|---|---|---|
+| `cotacao` | Cotação de uma moeda ou criptomoeda (AwesomeAPI: USD-BRL, EUR-BRL, BTC-BRL, ETH-USD…) | `par` |
+| `acao` | Cotação de uma ação, índice ou commodity (Yahoo Finance: PETR4.SA, ^GSPC, GC=F…) | `simbolo` |
+| `bcb-serie` | Qualquer série do Banco Central (SGS): informe o número da série | `serie`, `nome` |
+| `github-release` | Última versão publicada de um repositório do GitHub | `repo` |
+| `github-estrelas` | Estrelas de um repositório do GitHub | `repo` |
+| `npm-pacote` | Última versão de um pacote do npm | `pacote` |
+| `pypi-pacote` | Última versão de um pacote do PyPI | `pacote` |
+| `fim-de-vida` | Última versão de um produto e quando acaba o suporte (endoflife.date: python, nodejs, ubuntu, debian, postgresql…) | `produto` |
+| `clima` | Temperatura agora no lugar que você escolher (Open-Meteo, sem chave) | `lat`, `lon`, `cidade` |
+| `rss` | Manchetes de qualquer feed RSS/Atom (informe o endereço) | `feed` |
+| `status` | Status de qualquer serviço que use página Statuspage (informe o domínio) | `pagina`, `servico` |
+| `ci-github` | Execuções de CI em andamento num repositório (GitHub Actions) | `repo` |
+
+Testes: `tests/test_letreiro_catalogo.sh` (o catálogo de fábrica contra respostas reais guardadas, sem rede, e o painel), `tests/test_letreiro_fontes.sh` (módulo contra um servidor HTTP/HTTPS de mentira em 127.0.0.1, sem
+a rede real, mais um tmux isolado para o clique, o painel e o assistente) e `tests/test_letreiro.sh` (o
+desenho). `tests/INTERACTIONS.md` guarda a matriz de interação.
 
 ## Sessões fixadas
 

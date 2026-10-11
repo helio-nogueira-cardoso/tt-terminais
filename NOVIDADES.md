@@ -3,6 +3,40 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.15 · 11/10/2026
+- Letreiro com fontes (APIs) configuráveis: menu ⋯ → 📰 Letreiro. Cada fonte (dólar, notícias, uma API
+  sua…) vira um arquivo `~/.config/tt/letreiro/NOME.conf` e você cria, testa ao vivo e edita pela tela —
+  cola a URL, o tt busca e mostra a resposta, você escolhe o campo no fzf — ou por `tt --letreiro-add`,
+  `--letreiro-editar`, `--letreiro-testar`, `--letreiro-log`, `--letreiro-exportar/--letreiro-importar`.
+  Suporta JSON (caminho, `[*]`, filtros), XML, RSS/Atom, CSV, texto e regex; GET e POST; autenticação
+  Bearer, Basic, header e query com o segredo só em `~/.secrets`; casas decimais, pt/en, escala, moeda,
+  variação com ▲▼ e cor; modelo do item, truncar, prefixo/sufixo; janela de dias e horas, cota por hora,
+  condições (só se variar mais de X%, só se cruzar um limite), perfil/máquinas e modo economia no celular.
+- **156 fontes prontas já no pacote, todas desligadas** (`letreiro-catalogo.json`), cada uma validada na rede real:
+  moedas e criptomoedas, juros e inflação do Banco Central (Selic, CDI, IPCA, IGP-M, TR, poupança, PTAX…), bolsas e
+  commodities (Ibovespa, S&P 500, Nasdaq, PETR4, ouro, Brent…), tempo e clima por lugar (temperatura, chuva, UV, nascer
+  e pôr do sol, qualidade do ar), espaço e Terra (sismos, tempestade geomagnética, ISS, próximo lançamento), Brasil
+  (feriados, Mega-Sena, IBGE), 46 feeds de notícias, tecnologia e ciência (g1, Folha, BBC, Guardian, Hacker News, LWN…), versões
+  (kernel, Python, Node, Go, Rust, tmux, Vim, Claude Code, Chrome, Firefox, Ubuntu LTS…), status de 16 serviços,
+  frases e curiosidades. Nada busca na rede até você ligar. No painel: **Tab** alterna a vista (todas · na roda ·
+  disponíveis), **`^a`** liga/desliga, a prévia mostra *como aparece* com um exemplo, **F2** configura (o arquivo guarda
+  só o que você mudou), **`^x`** tira da lista e o **📚 Catálogo** traz de volta, ↺ volta ao padrão de fábrica. Além
+  disso, 12 **modelos** que perguntam o que falta: par de moedas, ação ou índice (Yahoo), série do Banco Central,
+  versão de um repositório do GitHub, estrelas, pacote do npm ou do PyPI, fim de suporte (endoflife.date), clima de
+  qualquer lugar, feed RSS qualquer, status de qualquer serviço, CI do GitHub.
+- Corrigido: uma variável com `dono/nome` (como `{repo}`) virava `dono%2Fnome` na URL e o GitHub respondia 404; o modelo
+  de CI do GitHub nunca funcionava.
+- Segurança: só https; destinos locais e de rede privada bloqueados (também nos redirecionamentos); o texto
+  vindo da rede perde escapes de terminal e a sintaxe de formatação do tmux; o segredo nunca aparece em
+  tela, log, cache, exportação ou propagação.
+- Diagnóstico por fonte (estado, última atualização, HTTP, latência, falhas seguidas, espera crescente após
+  erro, aviso na central após 5 falhas seguidas, log rotativo) e propagação das fontes globais entre as
+  máquinas (a mudança mais nova vence, com sobrescrita por máquina). Clique no letreiro: abre a URL do
+  item, copia, abre um painel do tt ou pausa/continua. Ajustes novos: separador, ordem (manual, aleatória
+  ou por peso), largura máxima, interruptor por máquina. As linhas antigas `indicador_NOME=` são migradas
+  sem perda; `tt --ticker-fontes` e `tt --ticker-quadro` seguem iguais. Detalhes no README, seção
+  "Letreiro: fontes (APIs)".
+
 ## v1.8.14 · 11/10/2026
 - **Emoji aparecendo como `__` nas telas abertas dentro de uma janela flutuante/popup** (e-mail e atalhos do e-mail, pontes). O
   cliente tmux lançado dentro da janela decide se o terminal é UTF-8 pelo ambiente dele (`LC_ALL`/`LC_CTYPE`/`LANG`); sem locale

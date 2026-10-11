@@ -1,0 +1,110 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:ns0="http://www.w3.org/2005/Atom" xmlns:ns1="http://search.yahoo.com/mrss/" version="2.0">
+  <channel>
+    <title>NYT &gt; Technology</title>
+    <link>https://www.nytimes.com/section/technology</link>
+    <ns0:link href="https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml" rel="self" type="application/rss+xml" />
+    <description />
+    <language>en-us</language>
+    <copyright>Copyright 2026 The New York Times Company</copyright>
+    <lastBuildDate>Sun, 11 Oct 2026 19:30:06 +0000</lastBuildDate>
+    <pubDate>Sun, 11 Oct 2026 18:27:05 +0000</pubDate>
+    <image>
+      <title>NYT &gt; Technology</title>
+      <url>https://static01.nyt.com/images/misc/NYT_logo_rss_250x40.png</url>
+      <link>https://www.nytimes.com/section/technology</link>
+    </image>
+    <item>
+      <title>Inside Mark Zuckerberg’s Decision to Pull the Trigger on Meta’s A.I. Agent</title>
+      <link>https://www.nytimes.com/2026/10/09/technology/inside-mark-zuckerbergs-decision-to-pull-the-trigger-on-metas-ai-agent.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/09/technology/inside-mark-zuckerbergs-decision-to-pull-the-trigger-on-metas-ai-agent.html</guid>
+      <ns0:link href="https://www.nytimes.com/2026/10/09/technology/inside-mark-zuckerbergs-decision-to-pull-the-trigger-on-metas-ai-agent.html" rel="standout" />
+      <description>Meta had delayed releasing Muse, its A.I. agent app, for months over safety concerns. Then new competition forced Mr. Zuckerberg’s hand.</description>
+      <pubDate>Fri, 09 Oct 2026 09:03:46 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Artificial Intelligence</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Computers and the Internet</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Mobile Applications</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Computer Security</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Meta Platforms Inc</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Wang, Alexandr (Technology Executive)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Zuckerberg, Mark E</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Friedman, Nat (1977- )</category>
+      <ns1:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/07/multimedia/META-MUSE-1-bwvl/META-MUSE-1-bwvl-mediumSquareAt3X.jpg" width="1800" />
+      <ns1:credit>Gabriela Bhaskar/The New York Times</ns1:credit>
+      <ns1:description>Mark Zuckerberg, Meta’s chief executive, with various iterations of the Muse avatar. </ns1:description>
+    </item>
+    <item>
+      <title>Why My Conversations with OpenAI’s ‘ChatGPT for Teens’ Made Me Very Worried</title>
+      <link>https://www.nytimes.com/2026/10/07/technology/personaltech/chatgpt-teens-openai.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/07/technology/personaltech/chatgpt-teens-openai.html</guid>
+      <ns0:link href="https://www.nytimes.com/2026/10/07/technology/personaltech/chatgpt-teens-openai.html" rel="standout" />
+      <description>A new mode includes a study tool, but it still does a user’s homework. And a children’s safety nonprofit says the chatbot flunked its tests.</description>
+      <pubDate>Wed, 07 Oct 2026 09:07:18 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Artificial Intelligence</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">ChatGPT</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Teenagers and Adolescence</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Children and Childhood</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Suicides and Suicide Attempts</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Education (K-12)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Mental Health and Disorders</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">OpenAI Labs</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Common Sense Media</category>
+      <ns1:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/10/business/06biz-techfix/06biz-techfix-mediumSquareAt3X.jpg" width="1800" />
+      <ns1:credit>Derek Abella</ns1:credit>
+    </item>
+    <item>
+      <title>Anthropic’s Quest to Give A.I. Morals</title>
+      <link>https://www.nytimes.com/2026/10/09/podcasts/hardfork-anthropic-ai-morals.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/09/podcasts/hardfork-anthropic-ai-morals.html</guid>
+      <ns0:link href="https://www.nytimes.com/2026/10/09/podcasts/hardfork-anthropic-ai-morals.html" rel="standout" />
+      <description>“For Anthropic, it was part research and part evangelism.”</description>
+      <pubDate>Fri, 09 Oct 2026 11:01:21 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Science and Technology</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Artificial Intelligence</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Anthropic AI LLC</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Religion and Belief</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Leo XIV</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">internal-open-access-audio</category>
+      <ns1:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/09/podcasts/09hardfork-claude-conscious/09hardfork-claude-conscious-mediumSquareAt3X.jpg" width="1800" />
+      <ns1:credit>Photo Illustration by The New York Times; Images: Getty Images, Anthropic</ns1:credit>
+    </item>
+    <item>
+      <title>The Times’s New Space Editor Has Her Eye on the Cosmos</title>
+      <link>https://www.nytimes.com/2026/10/11/insider/new-york-times-space-editor-victoria-jaggard.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/11/insider/new-york-times-space-editor-victoria-jaggard.html</guid>
+      <ns0:link href="https://www.nytimes.com/2026/10/11/insider/new-york-times-space-editor-victoria-jaggard.html" rel="standout" />
+      <description>On the Science desk, Victoria Jaggard spends her days pondering the universe’s most pressing mysteries.</description>
+      <pubDate>Sun, 11 Oct 2026 18:14:27 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Space and Astronomy</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Moon</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Content Type: Personal Profile</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Eclipses</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Mars Phoenix Lander (Spacecraft)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Extraterrestrial Life</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Satellites</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Jet Propulsion Laboratory</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">New York Times</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Starlink Satellite Constellation (SpaceX)</category>
+    </item>
+    <item>
+      <title>Three Mark Zuckerbergs, Three Surprisingly Different Men</title>
+      <link>https://www.nytimes.com/2026/10/11/movies/mark-zuckerberg-social-network-reckoning.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/11/movies/mark-zuckerberg-social-network-reckoning.html</guid>
+      <ns0:link href="https://www.nytimes.com/2026/10/11/movies/mark-zuckerberg-social-network-reckoning.html" rel="standout" />
+      <description>Jeremy Strong in “The Social Reckoning,” Jesse Eisenberg in “The Social Network” and the real Meta executive are all playing parts. But only one has changed his approach.</description>
+      <pubDate>Sun, 11 Oct 2026 09:01:17 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Actors and Actresses</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Movies</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Eisenberg, Jesse</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Strong, Jeremy (1978- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Zuckerberg, Mark E</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_ttl">The Social Network (Movie)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_ttl">The Social Reckoning (Movie)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Meta Platforms Inc</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Social Media</category>
+      <ns1:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/11/arts/11cul-zuckerberg-film/11cul-zuckerberg-film-mediumSquareAt3X.jpg" width="1800" />
+      <ns1:credit>Columbia Pictures; Andrew Caballero-Reynolds/Agence France-Presse — Getty Images; Columbia Pictures</ns1:credit>
+      <ns1:description>From top, Jesse Eisenberg, Mark Zuckerberg and Jeremy Strong.</ns1:description>
+    </item>
+    </channel>
+</rss>

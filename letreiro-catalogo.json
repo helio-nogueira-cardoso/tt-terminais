@@ -1,0 +1,3489 @@
+{
+ "versao": 1,
+ "categorias": [
+  [
+   "moeda",
+   "💱",
+   "Moedas"
+  ],
+  [
+   "cripto",
+   "₿",
+   "Criptomoedas"
+  ],
+  [
+   "economia",
+   "🏦",
+   "Juros, inflação e economia (Banco Central)"
+  ],
+  [
+   "bolsa",
+   "📊",
+   "Bolsas e commodities"
+  ],
+  [
+   "clima",
+   "🌤",
+   "Tempo e clima"
+  ],
+  [
+   "espaco",
+   "🚀",
+   "Espaço e Terra"
+  ],
+  [
+   "brasil",
+   "🇧🇷",
+   "Brasil"
+  ],
+  [
+   "noticias",
+   "📰",
+   "Notícias do Brasil"
+  ],
+  [
+   "mundo",
+   "🌍",
+   "Notícias do mundo"
+  ],
+  [
+   "tech",
+   "💻",
+   "Tecnologia"
+  ],
+  [
+   "ciencia",
+   "🔬",
+   "Ciência"
+  ],
+  [
+   "dev",
+   "🛠",
+   "Versões e ferramentas"
+  ],
+  [
+   "status",
+   "🛰",
+   "Status de serviços"
+  ],
+  [
+   "curiosidade",
+   "✨",
+   "Curiosidades e frases"
+  ],
+  [
+   "rede",
+   "🌐",
+   "Rede"
+  ],
+  [
+   "tt",
+   "📋",
+   "Do próprio tt"
+  ]
+ ],
+ "fabrica": {
+  "dolar-australiano": {
+   "conf": {
+    "descricao": "Dólar australiano em reais",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/AUD-BRL",
+    "caminho": "AUDBRL.bid",
+    "variacao": "AUDBRL.pctChange",
+    "icone": "🇦🇺",
+    "rotulo": "dólar aus.",
+    "moeda": "R$",
+    "decimais": "3",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "🇦🇺 dólar aus. R$ 3,482 ▼0,3%",
+   "validada": "2026-10-11"
+  },
+  "dolar-canadense": {
+   "conf": {
+    "descricao": "Dólar canadense em reais",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/CAD-BRL",
+    "caminho": "CADBRL.bid",
+    "variacao": "CADBRL.pctChange",
+    "icone": "🇨🇦",
+    "rotulo": "dólar can.",
+    "moeda": "R$",
+    "decimais": "3",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "🇨🇦 dólar can. R$ 3,498 ▼0,8%",
+   "validada": "2026-10-11"
+  },
+  "dolar-turismo": {
+   "conf": {
+    "descricao": "Dólar turismo em reais",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/USD-BRLT",
+    "caminho": "USDBRLT.bid",
+    "variacao": "USDBRLT.pctChange",
+    "icone": "🧳",
+    "rotulo": "dólar turismo",
+    "moeda": "R$",
+    "decimais": "3",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "🧳 dólar turismo R$ 4,953 ▼0,5%",
+   "validada": "2026-10-11"
+  },
+  "euro": {
+   "conf": {
+    "descricao": "Euro em reais (AwesomeAPI, sem chave)",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/EUR-BRL",
+    "caminho": "EURBRL.bid",
+    "variacao": "EURBRL.pctChange",
+    "icone": "💶",
+    "rotulo": "euro",
+    "moeda": "R$",
+    "decimais": "3",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "💶 euro R$ 5,583 ▼0,8%",
+   "validada": "2026-10-11"
+  },
+  "euro-dolar": {
+   "conf": {
+    "descricao": "Euro em dólares",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/EUR-USD",
+    "caminho": "EURUSD.bid",
+    "variacao": "EURUSD.pctChange",
+    "icone": "💱",
+    "rotulo": "euro/dólar",
+    "moeda": "US$",
+    "decimais": "4",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "💱 euro/dólar US$ 1,1201 ▼0,1%",
+   "validada": "2026-10-11"
+  },
+  "franco-suico": {
+   "conf": {
+    "descricao": "Franco suíço em reais",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/CHF-BRL",
+    "caminho": "CHFBRL.bid",
+    "variacao": "CHFBRL.pctChange",
+    "icone": "🇨🇭",
+    "rotulo": "franco suíço",
+    "moeda": "R$",
+    "decimais": "3",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "🇨🇭 franco suíço R$ 6,004 ▼0,5%",
+   "validada": "2026-10-11"
+  },
+  "iene": {
+   "conf": {
+    "descricao": "Iene japonês em reais",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/JPY-BRL",
+    "caminho": "JPYBRL.bid",
+    "variacao": "JPYBRL.pctChange",
+    "icone": "💴",
+    "rotulo": "iene",
+    "moeda": "R$",
+    "decimais": "4",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "💴 iene R$ 0,0314 ▼1,0%",
+   "validada": "2026-10-11"
+  },
+  "libra": {
+   "conf": {
+    "descricao": "Libra esterlina em reais",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/GBP-BRL",
+    "caminho": "GBPBRL.bid",
+    "variacao": "GBPBRL.pctChange",
+    "icone": "💷",
+    "rotulo": "libra",
+    "moeda": "R$",
+    "decimais": "3",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "💷 libra R$ 6,593 ▼0,5%",
+   "validada": "2026-10-11"
+  },
+  "ouro-onca": {
+   "conf": {
+    "descricao": "Ouro: onça troy em reais",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/XAU-BRL",
+    "caminho": "XAUBRL.bid",
+    "variacao": "XAUBRL.pctChange",
+    "icone": "🥇",
+    "rotulo": "ouro (onça)",
+    "moeda": "R$",
+    "decimais": "0",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "🥇 ouro (onça) R$ 20.917 ▲0,6%",
+   "validada": "2026-10-11"
+  },
+  "peso-argentino": {
+   "conf": {
+    "descricao": "Peso argentino em reais",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/ARS-BRL",
+    "caminho": "ARSBRL.bid",
+    "variacao": "ARSBRL.pctChange",
+    "icone": "🇦🇷",
+    "rotulo": "peso arg.",
+    "moeda": "R$",
+    "decimais": "4",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "🇦🇷 peso arg. R$ 0,0032 ▼0,2%",
+   "validada": "2026-10-11"
+  },
+  "yuan": {
+   "conf": {
+    "descricao": "Yuan chinês em reais",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/CNY-BRL",
+    "caminho": "CNYBRL.bid",
+    "variacao": "CNYBRL.pctChange",
+    "icone": "🇨🇳",
+    "rotulo": "yuan",
+    "moeda": "R$",
+    "decimais": "3",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "exemplo": "🇨🇳 yuan R$ 0,745 ▼0,5%",
+   "validada": "2026-10-11"
+  },
+  "bitcoin": {
+   "conf": {
+    "descricao": "Bitcoin em reais (AwesomeAPI, sem chave)",
+    "tags": "cripto",
+    "url": "https://economia.awesomeapi.com.br/json/last/BTC-BRL",
+    "caminho": "BTCBRL.bid",
+    "variacao": "BTCBRL.pctChange",
+    "icone": "₿",
+    "rotulo": "bitcoin",
+    "moeda": "R$",
+    "decimais": "0",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "300"
+   },
+   "exemplo": "₿ bitcoin R$ 420.217 ▲0,8%",
+   "validada": "2026-10-11"
+  },
+  "bitcoin-bloco": {
+   "conf": {
+    "descricao": "Altura do último bloco do Bitcoin (mempool.space, sem chave)",
+    "tags": "cripto",
+    "url": "https://mempool.space/api/blocks/tip/height",
+    "formato": "texto",
+    "icone": "🧱",
+    "rotulo": "bloco BTC",
+    "decimais": "0",
+    "separador": "pt",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "600"
+   },
+   "exemplo": "🧱 bloco BTC 970.972",
+   "validada": "2026-10-11"
+  },
+  "bitcoin-taxa": {
+   "conf": {
+    "descricao": "Taxa de rede do Bitcoin para confirmar logo (mempool.space, sem chave)",
+    "tags": "cripto",
+    "url": "https://mempool.space/api/v1/fees/recommended",
+    "caminho": "fastestFee",
+    "icone": "⛏",
+    "rotulo": "taxa BTC",
+    "sufixo": " sat/vB",
+    "decimais": "0",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "600"
+   },
+   "exemplo": "⛏ taxa BTC 2 sat/vB",
+   "validada": "2026-10-11"
+  },
+  "bitcoin-usd": {
+   "conf": {
+    "descricao": "Bitcoin em dólares (Coinbase, sem chave)",
+    "tags": "cripto",
+    "url": "https://api.coinbase.com/v2/prices/BTC-USD/spot",
+    "caminho": "data.amount",
+    "variacao": "calculada",
+    "icone": "₿",
+    "rotulo": "BTC",
+    "moeda": "US$",
+    "decimais": "0",
+    "separador": "pt",
+    "entrada": "en",
+    "ttl": "300"
+   },
+   "exemplo": "₿ BTC US$ 83.632",
+   "validada": "2026-10-11"
+  },
+  "dogecoin": {
+   "conf": {
+    "descricao": "Dogecoin em reais",
+    "tags": "cripto",
+    "url": "https://economia.awesomeapi.com.br/json/last/DOGE-BRL",
+    "caminho": "DOGEBRL.bid",
+    "variacao": "DOGEBRL.pctChange",
+    "icone": "🐕",
+    "rotulo": "dogecoin",
+    "moeda": "R$",
+    "decimais": "3",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "300"
+   },
+   "exemplo": "🐕 dogecoin R$ 0,436 ▲0,5%",
+   "validada": "2026-10-11"
+  },
+  "ethereum": {
+   "conf": {
+    "descricao": "Ethereum em reais",
+    "tags": "cripto",
+    "url": "https://economia.awesomeapi.com.br/json/last/ETH-BRL",
+    "caminho": "ETHBRL.bid",
+    "variacao": "ETHBRL.pctChange",
+    "icone": "Ξ",
+    "rotulo": "ethereum",
+    "moeda": "R$",
+    "decimais": "0",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "300"
+   },
+   "exemplo": "Ξ ethereum R$ 12.741 ▲1,0%",
+   "validada": "2026-10-11"
+  },
+  "ethereum-usd": {
+   "conf": {
+    "descricao": "Ethereum em dólares (Coinbase, sem chave)",
+    "tags": "cripto",
+    "url": "https://api.coinbase.com/v2/prices/ETH-USD/spot",
+    "caminho": "data.amount",
+    "variacao": "calculada",
+    "icone": "Ξ",
+    "rotulo": "ETH",
+    "moeda": "US$",
+    "decimais": "0",
+    "separador": "pt",
+    "entrada": "en",
+    "ttl": "300"
+   },
+   "exemplo": "Ξ ETH US$ 2.533",
+   "validada": "2026-10-11"
+  },
+  "litecoin": {
+   "conf": {
+    "descricao": "Litecoin em reais",
+    "tags": "cripto",
+    "url": "https://economia.awesomeapi.com.br/json/last/LTC-BRL",
+    "caminho": "LTCBRL.bid",
+    "variacao": "LTCBRL.pctChange",
+    "icone": "Ł",
+    "rotulo": "litecoin",
+    "moeda": "R$",
+    "decimais": "2",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "300"
+   },
+   "exemplo": "Ł litecoin R$ 323,60 ▲0,4%",
+   "validada": "2026-10-11"
+  },
+  "medo-ganancia": {
+   "conf": {
+    "descricao": "Índice de medo e ganância das criptomoedas (alternative.me, sem chave)",
+    "tags": "cripto",
+    "url": "https://api.alternative.me/fng/",
+    "caminho": "data[0].value",
+    "icone": "😨",
+    "rotulo": "medo/ganância",
+    "decimais": "0",
+    "campo.classe": "data[0].value_classification",
+    "modelo": "{icone} {rotulo} {valor} ({classe})",
+    "ttl": "3600"
+   },
+   "exemplo": "😨 medo/ganância 61 (Greed)",
+   "validada": "2026-10-11"
+  },
+  "solana": {
+   "conf": {
+    "descricao": "Solana em reais",
+    "tags": "cripto",
+    "url": "https://economia.awesomeapi.com.br/json/last/SOL-BRL",
+    "caminho": "SOLBRL.bid",
+    "variacao": "SOLBRL.pctChange",
+    "icone": "◎",
+    "rotulo": "solana",
+    "moeda": "R$",
+    "decimais": "2",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "300"
+   },
+   "exemplo": "◎ solana R$ 562,30 ▲1,6%",
+   "validada": "2026-10-11"
+  },
+  "xrp": {
+   "conf": {
+    "descricao": "XRP em reais",
+    "tags": "cripto",
+    "url": "https://economia.awesomeapi.com.br/json/last/XRP-BRL",
+    "caminho": "XRPBRL.bid",
+    "variacao": "XRPBRL.pctChange",
+    "icone": "✕",
+    "rotulo": "XRP",
+    "moeda": "R$",
+    "decimais": "3",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "300"
+   },
+   "exemplo": "✕ XRP R$ 7,073 ▲0,3%",
+   "validada": "2026-10-11"
+  },
+  "cdi": {
+   "conf": {
+    "descricao": "CDI anualizado (BCB, série 4389)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.4389/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "🏦",
+    "rotulo": "CDI",
+    "decimais": "2",
+    "separador": "pt",
+    "sufixo": "% a.a.",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "🏦 CDI 13,65% a.a.",
+   "validada": "2026-10-11"
+  },
+  "desemprego": {
+   "conf": {
+    "descricao": "Taxa de desocupação — PNAD Contínua (BCB, série 24369)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.24369/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "👷",
+    "rotulo": "desocupação",
+    "decimais": "1",
+    "separador": "pt",
+    "sufixo": "%",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "👷 desocupação 5,3%",
+   "validada": "2026-10-11"
+  },
+  "dolar-ptax": {
+   "conf": {
+    "descricao": "Dólar PTAX de venda (BCB, série 1)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "💵",
+    "rotulo": "PTAX dólar",
+    "decimais": "4",
+    "separador": "pt",
+    "sufixo": "",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "3600",
+    "dias": "seg-sex",
+    "cache_max": "20160",
+    "moeda": "R$"
+   },
+   "exemplo": "💵 PTAX dólar R$ 4,9892",
+   "validada": "2026-10-11"
+  },
+  "euro-ptax": {
+   "conf": {
+    "descricao": "Euro PTAX de venda (BCB, série 21619)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.21619/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "💶",
+    "rotulo": "PTAX euro",
+    "decimais": "4",
+    "separador": "pt",
+    "sufixo": "",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "3600",
+    "dias": "seg-sex",
+    "cache_max": "20160",
+    "moeda": "R$"
+   },
+   "exemplo": "💶 PTAX euro R$ 5,5844",
+   "validada": "2026-10-11"
+  },
+  "igpm": {
+   "conf": {
+    "descricao": "IGP-M, variação mensal (BCB, série 189)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.189/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "📈",
+    "rotulo": "IGP-M",
+    "decimais": "2",
+    "separador": "pt",
+    "sufixo": "% no mês",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "📈 IGP-M 1,57% no mês",
+   "validada": "2026-10-11"
+  },
+  "inpc": {
+   "conf": {
+    "descricao": "INPC, variação mensal (BCB, série 188)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.188/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "📈",
+    "rotulo": "INPC",
+    "decimais": "2",
+    "separador": "pt",
+    "sufixo": "% no mês",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "📈 INPC 0,82% no mês",
+   "validada": "2026-10-11"
+  },
+  "ipca": {
+   "conf": {
+    "descricao": "IPCA, variação mensal (BCB, série 433)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "📈",
+    "rotulo": "IPCA",
+    "decimais": "2",
+    "separador": "pt",
+    "sufixo": "% no mês",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "📈 IPCA 0,82% no mês",
+   "validada": "2026-10-11"
+  },
+  "ipca-12m": {
+   "conf": {
+    "descricao": "IPCA acumulado em 12 meses (BCB, série 13522)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "📈",
+    "rotulo": "IPCA 12m",
+    "decimais": "2",
+    "separador": "pt",
+    "sufixo": "%",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "📈 IPCA 12m 4,58%",
+   "validada": "2026-10-11"
+  },
+  "ipca-15": {
+   "conf": {
+    "descricao": "IPCA-15, variação mensal (BCB, série 7478)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.7478/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "📈",
+    "rotulo": "IPCA-15",
+    "decimais": "2",
+    "separador": "pt",
+    "sufixo": "% no mês",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "📈 IPCA-15 0,70% no mês",
+   "validada": "2026-10-11"
+  },
+  "poupanca": {
+   "conf": {
+    "descricao": "Rendimento mensal da poupança (BCB, série 195)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.195/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "🐖",
+    "rotulo": "poupança",
+    "decimais": "4",
+    "separador": "pt",
+    "sufixo": "% no mês",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "🐖 poupança 0,6218% no mês",
+   "validada": "2026-10-11"
+  },
+  "reservas": {
+   "conf": {
+    "descricao": "Reservas internacionais em milhões de dólares (BCB, série 13621)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13621/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "🏛",
+    "rotulo": "reservas",
+    "decimais": "0",
+    "separador": "pt",
+    "sufixo": " mi US$",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "🏛 reservas 362.367 mi US$",
+   "validada": "2026-10-11"
+  },
+  "selic": {
+   "conf": {
+    "descricao": "Meta da taxa Selic ao ano (BCB, série 432)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "🏦",
+    "rotulo": "Selic",
+    "decimais": "2",
+    "separador": "pt",
+    "sufixo": "% a.a.",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "🏦 Selic 13,75% a.a.",
+   "validada": "2026-10-11"
+  },
+  "tr": {
+   "conf": {
+    "descricao": "Taxa Referencial (BCB, série 226)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.226/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "💹",
+    "rotulo": "TR",
+    "decimais": "4",
+    "separador": "pt",
+    "sufixo": "% no mês",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "exemplo": "💹 TR 0,1212% no mês",
+   "validada": "2026-10-11"
+  },
+  "dow-jones": {
+   "conf": {
+    "descricao": "Dow Jones em pontos (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "🇺🇸",
+    "rotulo": "Dow Jones",
+    "decimais": "0",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "horas": "10-18"
+   },
+   "exemplo": "🇺🇸 Dow Jones 51.655 ▲0,8%",
+   "validada": "2026-10-11"
+  },
+  "ibovespa": {
+   "conf": {
+    "descricao": "Ibovespa em pontos; só atualiza no pregão (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EBVSP?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "📊",
+    "rotulo": "Ibovespa",
+    "decimais": "0",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "horas": "10-18"
+   },
+   "exemplo": "📊 Ibovespa 209.067 ▲1,4%",
+   "validada": "2026-10-11"
+  },
+  "itub4": {
+   "conf": {
+    "descricao": "Itaú Unibanco PN em reais (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/ITUB4.SA?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "🏦",
+    "rotulo": "ITUB4",
+    "decimais": "2",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "moeda": "R$",
+    "horas": "10-18"
+   },
+   "exemplo": "🏦 ITUB4 R$ 50,47 ▲2,3%",
+   "validada": "2026-10-11"
+  },
+  "nasdaq": {
+   "conf": {
+    "descricao": "Nasdaq Composite em pontos (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EIXIC?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "🇺🇸",
+    "rotulo": "Nasdaq",
+    "decimais": "0",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "horas": "10-18"
+   },
+   "exemplo": "🇺🇸 Nasdaq 27.366 ▲0,6%",
+   "validada": "2026-10-11"
+  },
+  "nikkei": {
+   "conf": {
+    "descricao": "Nikkei 225 em pontos (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EN225?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "🇯🇵",
+    "rotulo": "Nikkei",
+    "decimais": "0",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1"
+   },
+   "exemplo": "🇯🇵 Nikkei 69.031 •0,0%",
+   "validada": "2026-10-11"
+  },
+  "ouro-futuro": {
+   "conf": {
+    "descricao": "Ouro, futuro em dólares por onça (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "🥇",
+    "rotulo": "ouro",
+    "decimais": "2",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "moeda": "US$"
+   },
+   "exemplo": "🥇 ouro US$ 4.216,30 •0,0%",
+   "validada": "2026-10-11"
+  },
+  "petr4": {
+   "conf": {
+    "descricao": "Petrobras PN em reais (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/PETR4.SA?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "🛢",
+    "rotulo": "PETR4",
+    "decimais": "2",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "moeda": "R$",
+    "horas": "10-18"
+   },
+   "exemplo": "🛢 PETR4 R$ 56,00 ▲0,9%",
+   "validada": "2026-10-11"
+  },
+  "petroleo-brent": {
+   "conf": {
+    "descricao": "Petróleo Brent, futuro em dólares (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/BZ%3DF?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "🛢",
+    "rotulo": "Brent",
+    "decimais": "2",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "moeda": "US$"
+   },
+   "exemplo": "🛢 Brent US$ 104,72 •0,0%",
+   "validada": "2026-10-11"
+  },
+  "petroleo-wti": {
+   "conf": {
+    "descricao": "Petróleo WTI, futuro em dólares (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/CL%3DF?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "🛢",
+    "rotulo": "WTI",
+    "decimais": "2",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "moeda": "US$"
+   },
+   "exemplo": "🛢 WTI US$ 91,85 •0,0%",
+   "validada": "2026-10-11"
+  },
+  "prata-futuro": {
+   "conf": {
+    "descricao": "Prata, futuro em dólares por onça (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/SI%3DF?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "🥈",
+    "rotulo": "prata",
+    "decimais": "2",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "moeda": "US$"
+   },
+   "exemplo": "🥈 prata US$ 61,05 •0,0%",
+   "validada": "2026-10-11"
+  },
+  "sp500": {
+   "conf": {
+    "descricao": "S&P 500 em pontos (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "🇺🇸",
+    "rotulo": "S&P 500",
+    "decimais": "0",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "horas": "10-18"
+   },
+   "exemplo": "🇺🇸 S&P 500 7.812 ▲0,6%",
+   "validada": "2026-10-11"
+  },
+  "vale3": {
+   "conf": {
+    "descricao": "Vale ON em reais (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/VALE3.SA?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "⛏",
+    "rotulo": "VALE3",
+    "decimais": "2",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "moeda": "R$",
+    "horas": "10-18"
+   },
+   "exemplo": "⛏ VALE3 R$ 67,90 ▲0,4%",
+   "validada": "2026-10-11"
+  },
+  "vix": {
+   "conf": {
+    "descricao": "Índice de volatilidade VIX (Yahoo Finance, endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "😱",
+    "rotulo": "VIX",
+    "decimais": "2",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "horas": "10-18"
+   },
+   "exemplo": "😱 VIX 14,84 ▼3,7%",
+   "validada": "2026-10-11"
+  },
+  "clima-chuva": {
+   "conf": {
+    "descricao": "Chuva neste momento (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=precipitation&timezone=auto",
+    "caminho": "current.precipitation",
+    "icone": "🌧",
+    "rotulo": "{cidade}",
+    "decimais": "1",
+    "separador": "pt",
+    "sufixo": " mm",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo"
+   },
+   "exemplo": "🌧 São Paulo 0,4 mm",
+   "validada": "2026-10-11"
+  },
+  "clima-max-min": {
+   "conf": {
+    "descricao": "Máxima e mínima de hoje (graus inteiros) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,temperature_2m_min&forecast_days=1&timezone=auto",
+    "caminho": "\"temperature_2m_max\":\\[(-?[0-9]+)",
+    "icone": "🌡",
+    "rotulo": "{cidade}",
+    "decimais": "",
+    "separador": "",
+    "sufixo": "",
+    "modelo": "{icone} {rotulo} {valor}°/{min}°",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo",
+    "formato": "regex",
+    "campo.min": "\"temperature_2m_min\":\\[(-?[0-9]+)"
+   },
+   "exemplo": "🌡 São Paulo 25°/17°",
+   "validada": "2026-10-11"
+  },
+  "clima-nascer-do-sol": {
+   "conf": {
+    "descricao": "Hora do nascer do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=sunrise&forecast_days=1&timezone=auto",
+    "caminho": "\"sunrise\":\\[\"[0-9-]+T([0-9:]+)\"",
+    "icone": "🌅",
+    "rotulo": "{cidade}",
+    "decimais": "",
+    "separador": "",
+    "sufixo": "",
+    "modelo": "{icone} {rotulo} nasce {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo",
+    "formato": "regex"
+   },
+   "exemplo": "🌅 São Paulo nasce 05:37",
+   "validada": "2026-10-11"
+  },
+  "clima-pm25": {
+   "conf": {
+    "descricao": "Partículas finas PM2,5 (µg/m³) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=pm2_5&timezone=auto",
+    "caminho": "current.pm2_5",
+    "icone": "🌫",
+    "rotulo": "{cidade}",
+    "decimais": "0",
+    "separador": "pt",
+    "sufixo": " µg/m³",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo"
+   },
+   "exemplo": "🌫 São Paulo 16 µg/m³",
+   "validada": "2026-10-11"
+  },
+  "clima-por-do-sol": {
+   "conf": {
+    "descricao": "Hora do pôr do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=sunset&forecast_days=1&timezone=auto",
+    "caminho": "\"sunset\":\\[\"[0-9-]+T([0-9:]+)\"",
+    "icone": "🌇",
+    "rotulo": "{cidade}",
+    "decimais": "",
+    "separador": "",
+    "sufixo": "",
+    "modelo": "{icone} {rotulo} põe {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo",
+    "formato": "regex"
+   },
+   "exemplo": "🌇 São Paulo põe 18:09",
+   "validada": "2026-10-11"
+  },
+  "clima-prob-chuva": {
+   "conf": {
+    "descricao": "Probabilidade de chuva hoje (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=precipitation_probability_max&forecast_days=1&timezone=auto",
+    "caminho": "daily.precipitation_probability_max[0]",
+    "icone": "☔",
+    "rotulo": "{cidade}",
+    "decimais": "0",
+    "separador": "pt",
+    "sufixo": "%",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo"
+   },
+   "exemplo": "☔ São Paulo 100%",
+   "validada": "2026-10-11"
+  },
+  "clima-qualidade-ar": {
+   "conf": {
+    "descricao": "Qualidade do ar (índice AQI dos EUA: até 50 boa, 100 moderada) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=us_aqi&timezone=auto",
+    "caminho": "current.us_aqi",
+    "icone": "😷",
+    "rotulo": "{cidade}",
+    "decimais": "0",
+    "separador": "pt",
+    "sufixo": "",
+    "modelo": "{icone} {rotulo} AQI {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo"
+   },
+   "exemplo": "😷 São Paulo AQI 140",
+   "validada": "2026-10-11"
+  },
+  "clima-sensacao": {
+   "conf": {
+    "descricao": "Sensação térmica agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=apparent_temperature&timezone=auto",
+    "caminho": "current.apparent_temperature",
+    "icone": "🥵",
+    "rotulo": "{cidade}",
+    "decimais": "1",
+    "separador": "pt",
+    "sufixo": "°C",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo"
+   },
+   "exemplo": "🥵 São Paulo 20,9°C",
+   "validada": "2026-10-11"
+  },
+  "clima-temperatura": {
+   "conf": {
+    "descricao": "Temperatura agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m&timezone=auto",
+    "caminho": "current.temperature_2m",
+    "icone": "🌡",
+    "rotulo": "{cidade}",
+    "decimais": "1",
+    "separador": "pt",
+    "sufixo": "°C",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo"
+   },
+   "exemplo": "🌡 São Paulo 19,6°C",
+   "validada": "2026-10-11"
+  },
+  "clima-tempo": {
+   "conf": {
+    "descricao": "Condição do tempo agora (código WMO traduzido) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=weather_code&timezone=auto",
+    "caminho": "current.weather_code",
+    "icone": "⛅",
+    "rotulo": "{cidade}",
+    "decimais": "",
+    "separador": "",
+    "sufixo": "",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo",
+    "traduzir": [
+     "95>trovoada",
+     "96>trovoada com granizo",
+     "99>trovoada com granizo",
+     "45>neblina",
+     "48>neblina com geada",
+     "51>garoa fraca",
+     "53>garoa",
+     "55>garoa forte",
+     "56>garoa congelante",
+     "57>garoa congelante",
+     "61>chuva fraca",
+     "63>chuva",
+     "65>chuva forte",
+     "66>chuva congelante",
+     "67>chuva congelante",
+     "71>neve fraca",
+     "73>neve",
+     "75>neve forte",
+     "77>grãos de neve",
+     "80>pancadas fracas",
+     "81>pancadas de chuva",
+     "82>pancadas fortes",
+     "85>pancadas de neve",
+     "86>pancadas de neve",
+     "0>céu limpo",
+     "1>quase limpo",
+     "2>parcialmente nublado",
+     "3>nublado"
+    ]
+   },
+   "exemplo": "⛅ São Paulo: pancadas fracas",
+   "validada": "2026-10-11"
+  },
+  "clima-umidade": {
+   "conf": {
+    "descricao": "Umidade relativa do ar agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=relative_humidity_2m&timezone=auto",
+    "caminho": "current.relative_humidity_2m",
+    "icone": "💧",
+    "rotulo": "{cidade}",
+    "decimais": "0",
+    "separador": "pt",
+    "sufixo": "%",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo"
+   },
+   "exemplo": "💧 São Paulo 90%",
+   "validada": "2026-10-11"
+  },
+  "clima-uv": {
+   "conf": {
+    "descricao": "Índice UV máximo de hoje (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=uv_index_max&forecast_days=1&timezone=auto",
+    "caminho": "daily.uv_index_max[0]",
+    "icone": "😎",
+    "rotulo": "{cidade}",
+    "decimais": "0",
+    "separador": "pt",
+    "sufixo": "",
+    "modelo": "{icone} {rotulo} UV {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo"
+   },
+   "exemplo": "😎 São Paulo UV 7",
+   "validada": "2026-10-11"
+  },
+  "clima-vento": {
+   "conf": {
+    "descricao": "Velocidade do vento agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=wind_speed_10m&timezone=auto",
+    "caminho": "current.wind_speed_10m",
+    "icone": "🌬",
+    "rotulo": "{cidade}",
+    "decimais": "0",
+    "separador": "pt",
+    "sufixo": " km/h",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "900",
+    "var.lat": "-23.55",
+    "var.lon": "-46.63",
+    "var.cidade": "São Paulo"
+   },
+   "exemplo": "🌬 São Paulo 10 km/h",
+   "validada": "2026-10-11"
+  },
+  "iss-posicao": {
+   "conf": {
+    "descricao": "Onde a Estação Espacial Internacional está agora (latitude, longitude; wheretheiss.at, sem chave)",
+    "tags": "espaco",
+    "url": "https://api.wheretheiss.at/v1/satellites/25544",
+    "formato": "regex",
+    "caminho": "\"latitude\":(-?[0-9]+\\.[0-9]{2})",
+    "icone": "🛰",
+    "rotulo": "ISS",
+    "campo.lon": "\"longitude\":(-?[0-9]+\\.[0-9]{2})",
+    "modelo": "{icone} {rotulo} {valor}°, {lon}°",
+    "ttl": "60"
+   },
+   "exemplo": "🛰 ISS -30.86°, 101.30°",
+   "validada": "2026-10-11"
+  },
+  "proximo-lancamento": {
+   "conf": {
+    "descricao": "Próximo lançamento de foguete no mundo (The Space Devs, sem chave; 15 consultas/h)",
+    "tags": "espaco",
+    "url": "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=1&mode=list",
+    "formato": "regex",
+    "caminho": "\"name\":\\s*\"([^\"]+)\"",
+    "icone": "🚀",
+    "campo.quando": "\"net\":\\s*\"([0-9-]+)T",
+    "modelo": "{icone} {valor} ({quando})",
+    "ttl": "3600",
+    "truncar": "110",
+    "valor_max": "90"
+   },
+   "exemplo": "🚀 Falcon 9 Block 5 | Starlink Group 15-25 (2026-10-12)",
+   "validada": "2026-10-11"
+  },
+  "sismo-recente": {
+   "conf": {
+    "descricao": "Maior sismo recente (magnitude 4,5+ nas últimas 24 h; USGS, sem chave); some se não houve",
+    "tags": "espaco",
+    "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson",
+    "caminho": "features[0].properties.title",
+    "icone": "🌋",
+    "modelo": "{icone} {valor}",
+    "ttl": "900",
+    "se_faltar": "esconder",
+    "clique": "url",
+    "clique_alvo": "https://earthquake.usgs.gov/earthquakes/map/",
+    "truncar": "110",
+    "valor_max": "100"
+   },
+   "exemplo": "🌋 M 4.7 - 156 km ESE of Neiafu, Tonga",
+   "validada": "2026-10-11"
+  },
+  "tempestade-geomagnetica": {
+   "conf": {
+    "descricao": "Índice Kp de atividade geomagnética (NOAA SWPC, sem chave): 5+ é tempestade",
+    "tags": "espaco",
+    "url": "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json",
+    "caminho": "[-1].Kp",
+    "icone": "🧲",
+    "rotulo": "Kp",
+    "decimais": "1",
+    "separador": "pt",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "900"
+   },
+   "exemplo": "🧲 Kp 2,3",
+   "validada": "2026-10-11"
+  },
+  "vento-solar": {
+   "conf": {
+    "descricao": "Velocidade do vento solar (NOAA SWPC, sem chave)",
+    "tags": "espaco",
+    "url": "https://services.swpc.noaa.gov/products/summary/solar-wind-speed.json",
+    "caminho": "[0].proton_speed",
+    "icone": "☀",
+    "rotulo": "vento solar",
+    "sufixo": " km/s",
+    "decimais": "0",
+    "separador": "pt",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "600"
+   },
+   "exemplo": "☀ vento solar 535 km/s",
+   "validada": "2026-10-11"
+  },
+  "feriados": {
+   "conf": {
+    "descricao": "Próximo feriado nacional (BrasilAPI, sem chave)",
+    "tags": "brasil",
+    "url": "https://brasilapi.com.br/api/feriados/v1/{ano}",
+    "caminho": "[?date>={hoje}].name",
+    "campo.quando": "[?date>={hoje}].date",
+    "icone": "📅",
+    "rotulo": "feriado",
+    "itens": "1",
+    "modelo": "{icone} {rotulo} {valor} ({quando})",
+    "ttl": "43200"
+   },
+   "exemplo": "📅 feriado Nossa Senhora Aparecida (2026-10-12)",
+   "validada": "2026-10-11"
+  },
+  "ibge-noticias": {
+   "conf": {
+    "descricao": "Notícias do IBGE (API de serviços do IBGE, sem chave)",
+    "tags": "brasil",
+    "url": "https://servicodados.ibge.gov.br/api/v3/noticias/?qtd=3",
+    "caminho": "items[*].titulo",
+    "itens": "3",
+    "icone": "📈",
+    "rotulo": "IBGE",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "3600",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": "items[*].link"
+   },
+   "exemplo": "📈 IBGE: Acervo bibliográfico de Pedro Geiger é doado à Biblioteca do IBGE",
+   "validada": "2026-10-11"
+  },
+  "megasena": {
+   "conf": {
+    "descricao": "Último concurso da Mega-Sena (API aberta não oficial; sem chave)",
+    "tags": "brasil",
+    "url": "https://loteriascaixa-api.herokuapp.com/api/megasena/latest",
+    "formato": "regex",
+    "caminho": "\"dezenas\":\\[([^\\]]+)\\]",
+    "icone": "🍀",
+    "rotulo": "Mega-Sena",
+    "campo.concurso": "\"concurso\":\\s*([0-9]+)",
+    "traduzir": [
+     "\">",
+     ",>-"
+    ],
+    "modelo": "{icone} {rotulo} {concurso}: {valor}",
+    "ttl": "21600"
+   },
+   "exemplo": "🍀 Mega-Sena 3068: 07-10-39-40-43-57",
+   "validada": "2026-10-11"
+  },
+  "agencia-brasil": {
+   "conf": {
+    "descricao": "Manchetes: Agência Brasil (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🇧🇷",
+    "rotulo": "Agência Brasil",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🇧🇷 Agência Brasil: Interpretação é a base da prova de Linguagens do Enem; veja dicas",
+   "validada": "2026-10-11"
+  },
+  "camara-noticias": {
+   "conf": {
+    "descricao": "Manchetes: Câmara (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://www.camara.leg.br/noticias/rss/ultimas-noticias",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🏛",
+    "rotulo": "Câmara",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🏛 Câmara: Projeto pune empresas que atrasarem pagamento de médicos",
+   "validada": "2026-10-11"
+  },
+  "cnn-brasil": {
+   "conf": {
+    "descricao": "Manchetes: CNN Brasil (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://www.cnnbrasil.com.br/feed/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "📺",
+    "rotulo": "CNN Brasil",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "📺 CNN Brasil: Chefe do Deutsche Bank vê eleições na Alemanha como risco para investidores",
+   "validada": "2026-10-11"
+  },
+  "estadao": {
+   "conf": {
+    "descricao": "Manchetes: Estadão (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://www.estadao.com.br/arc/outboundfeeds/feeds/rss/sections/brasil/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "📰",
+    "rotulo": "Estadão",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "📰 Estadão: Ex-militar russo condenado à prisão perpétua é preso em Salvador",
+   "validada": "2026-10-11"
+  },
+  "exame": {
+   "conf": {
+    "descricao": "Manchetes: Exame (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://exame.com/feed/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💼",
+    "rotulo": "Exame",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💼 Exame: Ciberataques são o principal risco imediato da IA, afirma Bill Gates",
+   "validada": "2026-10-11"
+  },
+  "folha": {
+   "conf": {
+    "descricao": "Manchetes: Folha (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://feeds.folha.uol.com.br/emcimadahora/rss091.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "📰",
+    "rotulo": "Folha",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "📰 Folha: Slayyyter faz show contido, marcado por aperto e calor no Zig Festival, em São Paulo",
+   "validada": "2026-10-11"
+  },
+  "folha-mercado": {
+   "conf": {
+    "descricao": "Manchetes: Folha Mercado (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://feeds.folha.uol.com.br/mercado/rss091.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💼",
+    "rotulo": "Folha Mercado",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💼 Folha Mercado: Lula diz que votação do fim da 6x1 antes do segundo turno já está acordada com Alcolumbre",
+   "validada": "2026-10-11"
+  },
+  "g1-ciencia": {
+   "conf": {
+    "descricao": "Manchetes: g1 Ciência (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://g1.globo.com/rss/g1/ciencia-e-saude/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🔬",
+    "rotulo": "g1 Ciência",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🔬 g1 Ciência: 'Ciência Aberta': centro que abriga o Sirius recebe público para apresentar curiosidades e atrações da ciência",
+   "validada": "2026-10-11"
+  },
+  "g1-economia": {
+   "conf": {
+    "descricao": "Manchetes: g1 Economia (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://g1.globo.com/rss/g1/economia/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💼",
+    "rotulo": "g1 Economia",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💼 g1 Economia: Mega-Sena acumula, e prêmio vai a R$ 150 milhões; veja os números sorteados",
+   "validada": "2026-10-11"
+  },
+  "g1-mundo": {
+   "conf": {
+    "descricao": "Manchetes: g1 Mundo (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://g1.globo.com/rss/g1/mundo/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🌎",
+    "rotulo": "g1 Mundo",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🌎 g1 Mundo: Aeroportos da Arábia Saudita voltam a ser bombardeados; Houthis reivindicam ataques",
+   "validada": "2026-10-11"
+  },
+  "g1-politica": {
+   "conf": {
+    "descricao": "Manchetes: g1 Política (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://g1.globo.com/rss/g1/politica/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🏛",
+    "rotulo": "g1 Política",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🏛 g1 Política: Corregedor do TSE suspende preliminarmente decisão de Nunes Marques e libera canal 'Exército do Lula'; decisão",
+   "validada": "2026-10-11"
+  },
+  "g1-tecnologia": {
+   "conf": {
+    "descricao": "Manchetes: g1 Tecnologia (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://g1.globo.com/rss/g1/tecnologia/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "g1 Tecnologia",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💻 g1 Tecnologia: IA ameaça aumentar desigualdades de gênero no mercado de trabalho, diz relatório",
+   "validada": "2026-10-11"
+  },
+  "ge-esportes": {
+   "conf": {
+    "descricao": "Manchetes: ge (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://ge.globo.com/rss/ge/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "⚽",
+    "rotulo": "ge",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "⚽ ge: Ferroviária x Inter de Limeira - Campeonato Brasileiro Série C 2026 - globoesporte.com",
+   "validada": "2026-10-11"
+  },
+  "infomoney": {
+   "conf": {
+    "descricao": "Manchetes: InfoMoney (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://www.infomoney.com.br/feed/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💼",
+    "rotulo": "InfoMoney",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💼 InfoMoney: EUA ameaçam bloquear armas para Ucrânia devido a ataques a refinarias, diz FT",
+   "validada": "2026-10-11"
+  },
+  "poder360": {
+   "conf": {
+    "descricao": "Manchetes: Poder360 (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://www.poder360.com.br/feed/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "📰",
+    "rotulo": "Poder360",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "📰 Poder360: Messias diz que Senado aprovará fim da 6 X 1 e pede votos para Lula",
+   "validada": "2026-10-11"
+  },
+  "senado-noticias": {
+   "conf": {
+    "descricao": "Manchetes: Senado (feed RSS, sem chave)",
+    "tags": "noticias",
+    "url": "https://www12.senado.leg.br/noticias/rss",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🏛",
+    "rotulo": "Senado",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🏛 Senado: Áudio: Senado homenageia os 45 anos da Associação do Senhor Jesus",
+   "validada": "2026-10-11"
+  },
+  "al-jazeera": {
+   "conf": {
+    "descricao": "Manchetes: Al Jazeera (feed RSS, sem chave)",
+    "tags": "mundo",
+    "url": "https://www.aljazeera.com/xml/rss/all.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🌍",
+    "rotulo": "Al Jazeera",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🌍 Al Jazeera: Republican senator says Trump diesel agreement with Russia may be illegal",
+   "validada": "2026-10-11"
+  },
+  "bbc-brasil": {
+   "conf": {
+    "descricao": "Manchetes: BBC Brasil (feed RSS, sem chave)",
+    "tags": "mundo",
+    "url": "https://feeds.bbci.co.uk/portuguese/rss.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🌍",
+    "rotulo": "BBC Brasil",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🌍 BBC Brasil: Corredor Andes-Atlântico: o que se sabe sobre o ambicioso projeto dos EUA para acessar recursos estratégicos d",
+   "validada": "2026-10-11"
+  },
+  "bbc-mundo": {
+   "conf": {
+    "descricao": "Manchetes: BBC World (feed RSS, sem chave)",
+    "tags": "mundo",
+    "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🌍",
+    "rotulo": "BBC World",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🌍 BBC World: Saudi capital airport hit by second Houthi strike in two days",
+   "validada": "2026-10-11"
+  },
+  "dw-brasil": {
+   "conf": {
+    "descricao": "Manchetes: DW Brasil (feed RSS, sem chave)",
+    "tags": "mundo",
+    "url": "https://rss.dw.com/rdf/rss-br-all",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🌍",
+    "rotulo": "DW Brasil",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🌍 DW Brasil: \"Sem anistia!\": Milhares vão às ruas em defesa da democracia",
+   "validada": "2026-10-11"
+  },
+  "guardian": {
+   "conf": {
+    "descricao": "Manchetes: Guardian (feed RSS, sem chave)",
+    "tags": "mundo",
+    "url": "https://www.theguardian.com/world/rss",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🌍",
+    "rotulo": "Guardian",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🌍 Guardian: Controversial vaccine trial touted by RFK Jr gets go-ahead in Guinea-Bissau",
+   "validada": "2026-10-11"
+  },
+  "npr": {
+   "conf": {
+    "descricao": "Manchetes: NPR (feed RSS, sem chave)",
+    "tags": "mundo",
+    "url": "https://feeds.npr.org/1001/rss.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🎙",
+    "rotulo": "NPR",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🎙 NPR: Pope Leo XIV to undergo lung surgery this week",
+   "validada": "2026-10-11"
+  },
+  "nyt-mundo": {
+   "conf": {
+    "descricao": "Manchetes: NYT World (feed RSS, sem chave)",
+    "tags": "mundo",
+    "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🗽",
+    "rotulo": "NYT World",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🗽 NYT World: Saudi Arabia Has Few Options as Houthis Aim at Heart of Its Ambitions",
+   "validada": "2026-10-11"
+  },
+  "ars-technica": {
+   "conf": {
+    "descricao": "Manchetes: Ars Technica (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://feeds.arstechnica.com/arstechnica/index",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "Ars Technica",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💻 Ars Technica: Prime Video unveils Blade Runner 2099 full trailer at NYCC",
+   "validada": "2026-10-11"
+  },
+  "bbc-tech": {
+   "conf": {
+    "descricao": "Manchetes: BBC Tech (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://feeds.bbci.co.uk/news/technology/rss.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "BBC Tech",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💻 BBC Tech: King warns malicious online actors are evolving tactics",
+   "validada": "2026-10-11"
+  },
+  "canaltech": {
+   "conf": {
+    "descricao": "Manchetes: Canaltech (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://canaltech.com.br/rss/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "Canaltech",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💻 Canaltech: Deixar TV ligada para o pet dormir gasta muita energia? Fizemos as contas",
+   "validada": "2026-10-11"
+  },
+  "debian-seguranca": {
+   "conf": {
+    "descricao": "Avisos de segurança do Debian (feed RDF, sem chave)",
+    "tags": "tech",
+    "url": "https://www.debian.org/security/dsa",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🛡",
+    "rotulo": "Debian DSA",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🛡 Debian DSA: DSA-6552-1 vips - security update",
+   "validada": "2026-10-11"
+  },
+  "go-blog": {
+   "conf": {
+    "descricao": "Manchetes: Go Blog (feed ATOM, sem chave)",
+    "tags": "tech",
+    "url": "https://go.dev/blog/feed.atom",
+    "formato": "atom",
+    "itens": "3",
+    "icone": "🐹",
+    "rotulo": "Go Blog",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//entry/link/@href"
+   },
+   "exemplo": "🐹 Go Blog: Arch-specific SIMD in Go",
+   "validada": "2026-10-11"
+  },
+  "hacker-news": {
+   "conf": {
+    "descricao": "Manchetes: Hacker News (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://hnrss.org/frontpage",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🟧",
+    "rotulo": "Hacker News",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🟧 Hacker News: Chapter 1 of Ways of Seeing by John Berger",
+   "validada": "2026-10-11"
+  },
+  "lobsters": {
+   "conf": {
+    "descricao": "Manchetes: Lobsters (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://lobste.rs/rss",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🦞",
+    "rotulo": "Lobsters",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🦞 Lobsters: What's Wrong with GitHub",
+   "validada": "2026-10-11"
+  },
+  "lwn": {
+   "conf": {
+    "descricao": "Manchetes: LWN (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://lwn.net/headlines/rss",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🐧",
+    "rotulo": "LWN",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🐧 LWN: Stable kernels 7.2.10 and 6.18.56",
+   "validada": "2026-10-11"
+  },
+  "nyt-tech": {
+   "conf": {
+    "descricao": "Manchetes: NYT Tech (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "NYT Tech",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💻 NYT Tech: Inside Mark Zuckerberg’s Decision to Pull the Trigger on Meta’s A.I. Agent",
+   "validada": "2026-10-11"
+  },
+  "olhar-digital": {
+   "conf": {
+    "descricao": "Manchetes: Olhar Digital (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://olhardigital.com.br/feed/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "Olhar Digital",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💻 Olhar Digital: Economize na hora de imprimir: veja uma seleção de impressoras em promoção na Amazon",
+   "validada": "2026-10-11"
+  },
+  "phoronix": {
+   "conf": {
+    "descricao": "Manchetes: Phoronix (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://www.phoronix.com/rss.php",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🐧",
+    "rotulo": "Phoronix",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🐧 Phoronix: Linux Landing Kernel Workaround For AMD TLBI Erratum #1718",
+   "validada": "2026-10-11"
+  },
+  "rust-blog": {
+   "conf": {
+    "descricao": "Manchetes: Rust Blog (feed ATOM, sem chave)",
+    "tags": "tech",
+    "url": "https://blog.rust-lang.org/feed.xml",
+    "formato": "atom",
+    "itens": "3",
+    "icone": "🦀",
+    "rotulo": "Rust Blog",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//entry/link/@href"
+   },
+   "exemplo": "🦀 Rust Blog: Demoting i686 Windows targets to std-only",
+   "validada": "2026-10-11"
+  },
+  "techcrunch": {
+   "conf": {
+    "descricao": "Manchetes: TechCrunch (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://techcrunch.com/feed/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "TechCrunch",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💻 TechCrunch: 48 hours to TechCrunch Disrupt 2026 — hear directly from the people building what’s next",
+   "validada": "2026-10-11"
+  },
+  "tecmundo": {
+   "conf": {
+    "descricao": "Manchetes: Tecmundo (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://rss.tecmundo.com.br/feed",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "Tecmundo",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💻 Tecmundo: Cyberleek vaza gameplay de GTA 6 com Lucia nua e ameaça liberar build completa do jogo",
+   "validada": "2026-10-11"
+  },
+  "tecnoblog": {
+   "conf": {
+    "descricao": "Manchetes: Tecnoblog (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://tecnoblog.net/feed/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "Tecnoblog",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "1800",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💻 Tecnoblog: TV TCL C7L 65” registra o menor preço desde lançamento em oferta no Magalu",
+   "validada": "2026-10-11"
+  },
+  "the-verge": {
+   "conf": {
+    "descricao": "Manchetes: The Verge (feed ATOM, sem chave)",
+    "tags": "tech",
+    "url": "https://www.theverge.com/rss/index.xml",
+    "formato": "atom",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "The Verge",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//entry/link/@href"
+   },
+   "exemplo": "💻 The Verge: Silicon Valley is falling in line with Trump’s attempt to rename AI",
+   "validada": "2026-10-11"
+  },
+  "ubuntu-seguranca": {
+   "conf": {
+    "descricao": "Avisos de segurança do Ubuntu (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://ubuntu.com/security/notices/rss.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🛡",
+    "rotulo": "Ubuntu USN",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🛡 Ubuntu USN: USN-8911-1: Linux kernel (OEM) vulnerabilities",
+   "validada": "2026-10-11"
+  },
+  "wired": {
+   "conf": {
+    "descricao": "Manchetes: Wired (feed RSS, sem chave)",
+    "tags": "tech",
+    "url": "https://www.wired.com/feed/rss",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "💻",
+    "rotulo": "Wired",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "💻 Wired: I Made Terrible Games With Google’s AI Playground",
+   "validada": "2026-10-11"
+  },
+  "bbc-ciencia": {
+   "conf": {
+    "descricao": "Manchetes: BBC Science (feed RSS, sem chave)",
+    "tags": "ciencia",
+    "url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🔬",
+    "rotulo": "BBC Science",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🔬 BBC Science: Orangutans released back into Borneo forest after devastating fires",
+   "validada": "2026-10-11"
+  },
+  "nasa": {
+   "conf": {
+    "descricao": "Manchetes: NASA (feed RSS, sem chave)",
+    "tags": "ciencia",
+    "url": "https://www.nasa.gov/feed/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🚀",
+    "rotulo": "NASA",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🚀 NASA: APOD: 2026 October 11 – Ice Fishing for Cosmic Neutrinos",
+   "validada": "2026-10-11"
+  },
+  "quanta": {
+   "conf": {
+    "descricao": "Manchetes: Quanta (feed RSS, sem chave)",
+    "tags": "ciencia",
+    "url": "https://www.quantamagazine.org/feed/",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🔬",
+    "rotulo": "Quanta",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🔬 Quanta: How Does Life Unfold? A Landscape Metaphor Comes Into Its Own.",
+   "validada": "2026-10-11"
+  },
+  "science-daily": {
+   "conf": {
+    "descricao": "Manchetes: ScienceDaily (feed RSS, sem chave)",
+    "tags": "ciencia",
+    "url": "https://www.sciencedaily.com/rss/top/science.xml",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "🔬",
+    "rotulo": "ScienceDaily",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🔬 ScienceDaily: NASA astronauts splash down after 100 million miles in space",
+   "validada": "2026-10-11"
+  },
+  "chrome-estavel": {
+   "conf": {
+    "descricao": "Chrome estável para Linux (Google, sem chave)",
+    "tags": "dev",
+    "url": "https://versionhistory.googleapis.com/v1/chrome/platforms/linux/channels/stable/versions?pageSize=1",
+    "caminho": "versions[0].version",
+    "icone": "🌐",
+    "rotulo": "Chrome",
+    "ttl": "21600",
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🌐 Chrome 155.0.8059.39",
+   "validada": "2026-10-11"
+  },
+  "claude-code-ultimo": {
+   "conf": {
+    "descricao": "Última versão do Claude Code (npm, sem chave)",
+    "tags": "dev",
+    "url": "https://registry.npmjs.org/@anthropic-ai/claude-code/latest",
+    "caminho": "version",
+    "icone": "🤖",
+    "rotulo": "Claude Code",
+    "ttl": "3600",
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🤖 Claude Code 2.1.296",
+   "validada": "2026-10-11"
+  },
+  "debian-estavel": {
+   "conf": {
+    "descricao": "Última versão estável do Debian (endoflife.date, sem chave)",
+    "tags": "dev",
+    "url": "https://endoflife.date/api/debian.json",
+    "caminho": "[0].latest",
+    "icone": "🌀",
+    "rotulo": "Debian",
+    "ttl": "43200",
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🌀 Debian 13.7",
+   "validada": "2026-10-11"
+  },
+  "firefox-ultimo": {
+   "conf": {
+    "descricao": "Última versão do Firefox (Mozilla, sem chave)",
+    "tags": "dev",
+    "url": "https://product-details.mozilla.org/1.0/firefox_versions.json",
+    "caminho": "LATEST_FIREFOX_VERSION",
+    "icone": "🦊",
+    "rotulo": "Firefox",
+    "ttl": "21600",
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🦊 Firefox 157.0.1",
+   "validada": "2026-10-11"
+  },
+  "go-ultimo": {
+   "conf": {
+    "descricao": "Última versão do Go (go.dev, sem chave)",
+    "tags": "dev",
+    "url": "https://go.dev/dl/?mode=json",
+    "caminho": "[0].version",
+    "icone": "🐹",
+    "rotulo": "Go",
+    "ttl": "21600",
+    "modelo": "{icone} {valor}"
+   },
+   "exemplo": "🐹 go1.27.2",
+   "validada": "2026-10-11"
+  },
+  "kernel-linux": {
+   "conf": {
+    "descricao": "Última versão estável do kernel Linux (kernel.org, sem chave)",
+    "tags": "dev",
+    "url": "https://www.kernel.org/releases.json",
+    "caminho": "latest_stable.version",
+    "icone": "🐧",
+    "rotulo": "Linux",
+    "ttl": "21600",
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🐧 Linux 7.2.10",
+   "validada": "2026-10-11"
+  },
+  "nodejs-ultimo": {
+   "conf": {
+    "descricao": "Última versão do Node.js (endoflife.date, sem chave)",
+    "tags": "dev",
+    "url": "https://endoflife.date/api/nodejs.json",
+    "caminho": "[0].latest",
+    "icone": "🟩",
+    "rotulo": "Node.js",
+    "ttl": "21600",
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🟩 Node.js 26.11.1",
+   "validada": "2026-10-11"
+  },
+  "python-ultimo": {
+   "conf": {
+    "descricao": "Última versão do Python (endoflife.date, sem chave)",
+    "tags": "dev",
+    "url": "https://endoflife.date/api/python.json",
+    "caminho": "[0].latest",
+    "icone": "🐍",
+    "rotulo": "Python",
+    "ttl": "21600",
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🐍 Python 3.15.0",
+   "validada": "2026-10-11"
+  },
+  "rust-ultimo": {
+   "conf": {
+    "descricao": "Última versão do Rust (GitHub, sem chave; 60 consultas/h por rede)",
+    "tags": "dev",
+    "url": "https://api.github.com/repos/rust-lang/rust/releases/latest",
+    "caminho": "tag_name",
+    "icone": "🦀",
+    "rotulo": "Rust",
+    "ttl": "21600",
+    "header": [
+     "Accept: application/vnd.github+json"
+    ],
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🦀 Rust 1.99.0",
+   "validada": "2026-10-11"
+  },
+  "tmux-ultimo": {
+   "conf": {
+    "descricao": "Última versão do tmux (GitHub, sem chave; 60 consultas/h por rede)",
+    "tags": "dev",
+    "url": "https://api.github.com/repos/tmux/tmux/releases/latest",
+    "caminho": "tag_name",
+    "icone": "🪟",
+    "rotulo": "tmux",
+    "ttl": "21600",
+    "header": [
+     "Accept: application/vnd.github+json"
+    ],
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🪟 tmux 3.8",
+   "validada": "2026-10-11"
+  },
+  "ubuntu-lts": {
+   "conf": {
+    "descricao": "Última versão LTS do Ubuntu (endoflife.date, sem chave)",
+    "tags": "dev",
+    "url": "https://endoflife.date/api/ubuntu.json",
+    "caminho": "[?lts==true].latest",
+    "icone": "🟠",
+    "rotulo": "Ubuntu LTS",
+    "ttl": "43200",
+    "itens": "1",
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🟠 Ubuntu LTS 26.04.1",
+   "validada": "2026-10-11"
+  },
+  "vim-ultimo": {
+   "conf": {
+    "descricao": "Última versão do Vim (GitHub, sem chave; 60 consultas/h por rede)",
+    "tags": "dev",
+    "url": "https://api.github.com/repos/vim/vim/tags?per_page=1",
+    "caminho": "[0].name",
+    "icone": "📝",
+    "rotulo": "Vim",
+    "ttl": "21600",
+    "header": [
+     "Accept: application/vnd.github+json"
+    ],
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "📝 Vim v9.2.1176",
+   "validada": "2026-10-11"
+  },
+  "vscode-ultimo": {
+   "conf": {
+    "descricao": "Última versão do VS Code (Microsoft, sem chave)",
+    "tags": "dev",
+    "url": "https://update.code.visualstudio.com/api/releases/stable",
+    "caminho": "[0]",
+    "icone": "🆚",
+    "rotulo": "VS Code",
+    "ttl": "21600",
+    "modelo": "{icone} {rotulo} {valor}"
+   },
+   "exemplo": "🆚 VS Code 1.141.0",
+   "validada": "2026-10-11"
+  },
+  "status-atlassian": {
+   "conf": {
+    "descricao": "Estado de Atlassian (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://status.atlassian.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Atlassian",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://status.atlassian.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Atlassian: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-claude": {
+   "conf": {
+    "descricao": "Estado de Claude (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://status.claude.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Claude",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://status.claude.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Claude: serviço parcialmente degradado",
+   "validada": "2026-10-11"
+  },
+  "status-cloudflare": {
+   "conf": {
+    "descricao": "Estado de Cloudflare (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://www.cloudflarestatus.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Cloudflare",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://www.cloudflarestatus.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Cloudflare: queda parcial",
+   "validada": "2026-10-11"
+  },
+  "status-digitalocean": {
+   "conf": {
+    "descricao": "Estado de DigitalOcean (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://status.digitalocean.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "DigitalOcean",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://status.digitalocean.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 DigitalOcean: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-discord": {
+   "conf": {
+    "descricao": "Estado de Discord (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://discordstatus.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Discord",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://discordstatus.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Discord: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-dropbox": {
+   "conf": {
+    "descricao": "Estado de Dropbox (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://status.dropbox.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Dropbox",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://status.dropbox.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Dropbox: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-flyio": {
+   "conf": {
+    "descricao": "Estado de Fly.io (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://status.flyio.net/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Fly.io",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://status.flyio.net",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Fly.io: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-github": {
+   "conf": {
+    "descricao": "Estado de GitHub (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://www.githubstatus.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "GitHub",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://www.githubstatus.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 GitHub: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-netlify": {
+   "conf": {
+    "descricao": "Estado de Netlify (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://www.netlifystatus.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Netlify",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://www.netlifystatus.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Netlify: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-npm": {
+   "conf": {
+    "descricao": "Estado de npm (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://status.npmjs.org/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "npm",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://status.npmjs.org",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 npm: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-openai": {
+   "conf": {
+    "descricao": "Estado de OpenAI (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://status.openai.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "OpenAI",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://status.openai.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 OpenAI: sistema parcialmente degradado",
+   "validada": "2026-10-11"
+  },
+  "status-pypi": {
+   "conf": {
+    "descricao": "Estado de Python/PyPI (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://status.python.org/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Python/PyPI",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://status.python.org",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Python/PyPI: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-reddit": {
+   "conf": {
+    "descricao": "Estado de Reddit (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://www.redditstatus.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Reddit",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://www.redditstatus.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Reddit: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-twilio": {
+   "conf": {
+    "descricao": "Estado de Twilio (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://status.twilio.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Twilio",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://status.twilio.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Twilio: serviço parcialmente degradado",
+   "validada": "2026-10-11"
+  },
+  "status-vercel": {
+   "conf": {
+    "descricao": "Estado de Vercel (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://www.vercel-status.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Vercel",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://www.vercel-status.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Vercel: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "status-zoom": {
+   "conf": {
+    "descricao": "Estado de Zoom (página de status Statuspage)",
+    "tags": "status",
+    "url": "https://www.zoomstatus.com/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "Zoom",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "clique": "url",
+    "clique_alvo": "https://www.zoomstatus.com",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ]
+   },
+   "exemplo": "🛰 Zoom: tudo operando",
+   "validada": "2026-10-11"
+  },
+  "conselho": {
+   "conf": {
+    "descricao": "Um conselho aleatório em inglês (Advice Slip, sem chave)",
+    "tags": "curiosidade",
+    "url": "https://api.adviceslip.com/advice",
+    "caminho": "slip.advice",
+    "icone": "💡",
+    "modelo": "{icone} {valor}",
+    "ttl": "1800"
+   },
+   "exemplo": "💡 Vinegar is a powerful cleaning agent.",
+   "validada": "2026-10-11"
+  },
+  "fato-aleatorio": {
+   "conf": {
+    "descricao": "Um fato aleatório em inglês (uselessfacts, sem chave)",
+    "tags": "curiosidade",
+    "url": "https://uselessfacts.jsph.pl/api/v2/facts/random",
+    "caminho": "text",
+    "icone": "🧠",
+    "modelo": "{icone} {valor}",
+    "ttl": "1800",
+    "truncar": "200",
+    "valor_max": "160"
+   },
+   "exemplo": "🧠 In the great fire of London in 1666 half of London was burnt down but only 6 people were injured.",
+   "validada": "2026-10-11"
+  },
+  "fato-gato": {
+   "conf": {
+    "descricao": "Um fato sobre gatos em inglês (catfact.ninja, sem chave)",
+    "tags": "curiosidade",
+    "url": "https://catfact.ninja/fact",
+    "caminho": "fact",
+    "icone": "🐈",
+    "modelo": "{icone} {valor}",
+    "ttl": "1800",
+    "truncar": "200",
+    "valor_max": "160"
+   },
+   "exemplo": "🐈 The oldest cat on record was Crème Puff from Austin, Texas, who lived from 1967 to August 6, 2005, three days after her 38th birthday. A cat typically can live",
+   "validada": "2026-10-11"
+  },
+  "frase-zen": {
+   "conf": {
+    "descricao": "Uma frase inspiradora em inglês (ZenQuotes, sem chave; no máx. 5 consultas/30 s)",
+    "tags": "curiosidade",
+    "url": "https://zenquotes.io/api/random",
+    "caminho": "[0].q",
+    "campo.autor": "[0].a",
+    "icone": "💭",
+    "modelo": "{icone} “{valor}” — {autor}",
+    "ttl": "1800",
+    "truncar": "200",
+    "valor_max": "160"
+   },
+   "exemplo": "💭 “He who knows how to wait need make no concessions.” — Sigmund Freud",
+   "validada": "2026-10-11"
+  },
+  "hoje-na-historia": {
+   "conf": {
+    "descricao": "Um fato histórico que aconteceu neste dia (Wikipédia em português, sem chave)",
+    "tags": "curiosidade",
+    "url": "https://api.wikimedia.org/feed/v1/wikipedia/pt/onthisday/events/{mes}/{dia}",
+    "caminho": "events[0].text",
+    "campo.ano": "events[0].year",
+    "icone": "🕰",
+    "modelo": "{icone} {ano}: {valor}",
+    "ttl": "43200",
+    "truncar": "170",
+    "valor_max": "140",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1"
+   },
+   "exemplo": "🕰 2018: A missão Soyuz MS-10, transportando uma tripulação destinada à Estação Espacial Internacional, é abortada pouco depois do lançamento; a trip",
+   "validada": "2026-10-11"
+  },
+  "piada-ingles": {
+   "conf": {
+    "descricao": "Uma piada curta em inglês (Official Joke API, sem chave)",
+    "tags": "curiosidade",
+    "url": "https://official-joke-api.appspot.com/random_joke",
+    "caminho": "setup",
+    "campo.resposta": "punchline",
+    "icone": "😄",
+    "modelo": "{icone} {valor} — {resposta}",
+    "ttl": "1800",
+    "truncar": "200",
+    "valor_max": "120"
+   },
+   "exemplo": "😄 Why did Sweden start painting barcodes on the sides of their battleships? — So they could Scandinavian.",
+   "validada": "2026-10-11"
+  },
+  "versiculo": {
+   "conf": {
+    "descricao": "Um versículo bíblico aleatório (bible-api.com, sem chave)",
+    "tags": "curiosidade",
+    "url": "https://bible-api.com/?random=verse",
+    "caminho": "text",
+    "campo.ref": "reference",
+    "icone": "📖",
+    "modelo": "{icone} {valor} ({ref})",
+    "ttl": "3600",
+    "truncar": "200",
+    "valor_max": "150"
+   },
+   "exemplo": "📖 Moses stretched out his hand toward the sky, and there was a thick darkness in all the land of Egypt for three days. (Exodus 10:22)",
+   "validada": "2026-10-11"
+  },
+  "wikipedia-aleatoria": {
+   "conf": {
+    "descricao": "Um verbete aleatório da Wikipédia em português (sem chave)",
+    "tags": "curiosidade",
+    "url": "https://pt.wikipedia.org/api/rest_v1/page/random/summary",
+    "caminho": "title",
+    "campo.resumo": "description",
+    "icone": "📚",
+    "modelo": "{icone} {valor}: {resumo}",
+    "ttl": "1800",
+    "truncar": "160",
+    "valor_max": "60",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
+    "clique": "url",
+    "clique_alvo": "{url}",
+    "campo.url": "content_urls.desktop.page"
+   },
+   "exemplo": "📚 Li Xiaoxia: mesa-tenista chinesa",
+   "validada": "2026-10-11"
+  },
+  "xkcd": {
+   "conf": {
+    "descricao": "Título da tirinha mais recente do xkcd (feed RSS, sem chave)",
+    "tags": "curiosidade",
+    "url": "https://xkcd.com/rss.xml",
+    "formato": "rss",
+    "itens": "1",
+    "icone": "🎨",
+    "rotulo": "xkcd",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "900",
+    "truncar": "130",
+    "valor_max": "110",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "exemplo": "🎨 xkcd: Dogcatcher",
+   "validada": "2026-10-11"
+  },
+  "zen-do-github": {
+   "conf": {
+    "descricao": "Um princípio zen do GitHub (api.github.com/zen, sem chave)",
+    "tags": "curiosidade",
+    "url": "https://api.github.com/zen",
+    "formato": "texto",
+    "icone": "🧘",
+    "modelo": "{icone} {valor}",
+    "ttl": "900",
+    "header": [
+     "Accept: application/vnd.github+json"
+    ]
+   },
+   "exemplo": "🧘 Non-blocking is better than blocking.",
+   "validada": "2026-10-11"
+  },
+  "ip-publico": {
+   "conf": {
+    "descricao": "O seu endereço IP público (api.ipify.org, sem chave) — aparece na faixa, cuidado ao compartilhar a tela",
+    "tags": "rede",
+    "url": "https://api.ipify.org?format=json",
+    "caminho": "ip",
+    "icone": "🌐",
+    "rotulo": "IP",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "900"
+   },
+   "exemplo": "🌐 IP 203.0.113.7",
+   "validada": "2026-10-11"
+  },
+  "emails-nao-lidos": {
+   "conf": {
+    "descricao": "Quantos e-mails não lidos há no espelho local (do próprio tt; some quando zera)",
+    "tags": "tt",
+    "origem": "tt",
+    "dado": "emails-nao-lidos",
+    "icone": "📧",
+    "rotulo": "não lidos",
+    "modelo": "{icone} {valor} {rotulo}",
+    "ttl": "120",
+    "condicao": [
+     "valor>0"
+    ],
+    "clique": "painel",
+    "clique_alvo": "email"
+   },
+   "exemplo": "",
+   "validada": "2026-10-11"
+  },
+  "tarefas-atrasadas": {
+   "conf": {
+    "descricao": "Quantas tarefas estão atrasadas (do próprio tt; some quando zera)",
+    "tags": "tt",
+    "origem": "tt",
+    "dado": "tarefas-atrasadas",
+    "icone": "⏰",
+    "rotulo": "atrasadas",
+    "modelo": "{icone} {valor} {rotulo}",
+    "ttl": "60",
+    "condicao": [
+     "valor>0"
+    ],
+    "clique": "painel",
+    "clique_alvo": "tarefas"
+   },
+   "exemplo": "",
+   "validada": "2026-10-11"
+  }
+ },
+ "modelos": {
+  "cotacao": {
+   "descricao": "Cotação de uma moeda ou criptomoeda (AwesomeAPI: USD-BRL, EUR-BRL, BTC-BRL, ETH-USD…)",
+   "categoria": "moeda",
+   "conf": {
+    "descricao": "Cotação de um par de moedas ou criptomoedas (AwesomeAPI, sem chave)",
+    "tags": "moeda",
+    "url": "https://economia.awesomeapi.com.br/json/last/{par}",
+    "caminho": "[*].bid",
+    "variacao": "[*].pctChange",
+    "icone": "💱",
+    "rotulo": "{par}",
+    "decimais": "4",
+    "separador": "pt",
+    "arredondar": "truncar",
+    "ttl": "600"
+   },
+   "perguntas": [
+    [
+     "par",
+     "par de moedas (ex.: USD-BRL)",
+     "USD-BRL"
+    ]
+   ]
+  },
+  "acao": {
+   "descricao": "Cotação de uma ação, índice ou commodity (Yahoo Finance: PETR4.SA, ^GSPC, GC=F…)",
+   "categoria": "bolsa",
+   "conf": {
+    "descricao": "Cotação no Yahoo Finance (endpoint não oficial)",
+    "tags": "bolsa",
+    "url": "https://query1.finance.yahoo.com/v8/finance/chart/{simbolo}?interval=1d&range=1d",
+    "caminho": "chart.result[0].meta.regularMarketPrice",
+    "var_base": "chart.result[0].meta.chartPreviousClose",
+    "icone": "📈",
+    "rotulo": "{simbolo}",
+    "decimais": "2",
+    "separador": "pt",
+    "ttl": "300",
+    "dias": "seg-sex",
+    "cache_max": "4320",
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1"
+   },
+   "perguntas": [
+    [
+     "simbolo",
+     "código no Yahoo Finance (ex.: PETR4.SA, ^GSPC, GC=F)",
+     "PETR4.SA"
+    ]
+   ]
+  },
+  "bcb-serie": {
+   "descricao": "Qualquer série do Banco Central (SGS): informe o número da série",
+   "categoria": "economia",
+   "conf": {
+    "descricao": "Último valor de uma série do Banco Central (SGS, sem chave)",
+    "tags": "economia",
+    "url": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{serie}/dados/ultimos/1?formato=json",
+    "caminho": "[0].valor",
+    "icone": "🏦",
+    "rotulo": "{nome}",
+    "decimais": "2",
+    "separador": "pt",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "dias": "seg-sex",
+    "cache_max": "20160"
+   },
+   "perguntas": [
+    [
+     "serie",
+     "número da série no SGS (ex.: 432)",
+     "432"
+    ],
+    [
+     "nome",
+     "nome para mostrar",
+     "Selic"
+    ]
+   ]
+  },
+  "github-release": {
+   "descricao": "Última versão publicada de um repositório do GitHub",
+   "categoria": "dev",
+   "conf": {
+    "descricao": "Última release de um repositório (GitHub, sem chave; 60 consultas/h por rede)",
+    "tags": "dev",
+    "url": "https://api.github.com/repos/{repo}/releases/latest",
+    "caminho": "tag_name",
+    "icone": "🏷",
+    "rotulo": "{repo}",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "21600",
+    "header": [
+     "Accept: application/vnd.github+json"
+    ],
+    "clique": "url",
+    "clique_alvo": "https://github.com/{repo}/releases"
+   },
+   "perguntas": [
+    [
+     "repo",
+     "repositório (dono/nome)",
+     "tmux/tmux"
+    ]
+   ]
+  },
+  "github-estrelas": {
+   "descricao": "Estrelas de um repositório do GitHub",
+   "categoria": "dev",
+   "conf": {
+    "descricao": "Número de estrelas de um repositório (GitHub, sem chave)",
+    "tags": "dev",
+    "url": "https://api.github.com/repos/{repo}",
+    "caminho": "stargazers_count",
+    "icone": "⭐",
+    "rotulo": "{repo}",
+    "decimais": "0",
+    "separador": "pt",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "3600",
+    "header": [
+     "Accept: application/vnd.github+json"
+    ],
+    "clique": "url",
+    "clique_alvo": "https://github.com/{repo}"
+   },
+   "perguntas": [
+    [
+     "repo",
+     "repositório (dono/nome)",
+     "torvalds/linux"
+    ]
+   ]
+  },
+  "npm-pacote": {
+   "descricao": "Última versão de um pacote do npm",
+   "categoria": "dev",
+   "conf": {
+    "descricao": "Última versão de um pacote do npm (registry, sem chave)",
+    "tags": "dev",
+    "url": "https://registry.npmjs.org/{pacote}/latest",
+    "caminho": "version",
+    "icone": "📦",
+    "rotulo": "{pacote}",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "3600"
+   },
+   "perguntas": [
+    [
+     "pacote",
+     "nome do pacote (ex.: typescript)",
+     "typescript"
+    ]
+   ]
+  },
+  "pypi-pacote": {
+   "descricao": "Última versão de um pacote do PyPI",
+   "categoria": "dev",
+   "conf": {
+    "descricao": "Última versão de um pacote do PyPI (sem chave)",
+    "tags": "dev",
+    "url": "https://pypi.org/pypi/{pacote}/json",
+    "caminho": "info.version",
+    "icone": "🐍",
+    "rotulo": "{pacote}",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "3600"
+   },
+   "perguntas": [
+    [
+     "pacote",
+     "nome do pacote (ex.: requests)",
+     "requests"
+    ]
+   ]
+  },
+  "fim-de-vida": {
+   "descricao": "Última versão de um produto e quando acaba o suporte (endoflife.date: python, nodejs, ubuntu, debian, postgresql…)",
+   "categoria": "dev",
+   "conf": {
+    "descricao": "Última versão de um produto (endoflife.date, sem chave)",
+    "tags": "dev",
+    "url": "https://endoflife.date/api/{produto}.json",
+    "caminho": "[0].latest",
+    "campo.eol": "[0].eol",
+    "icone": "📦",
+    "rotulo": "{produto}",
+    "modelo": "{icone} {rotulo} {valor} (suporte até {eol})",
+    "ttl": "43200"
+   },
+   "perguntas": [
+    [
+     "produto",
+     "produto (ex.: python, nodejs, postgresql)",
+     "python"
+    ]
+   ]
+  },
+  "clima": {
+   "descricao": "Temperatura agora no lugar que você escolher (Open-Meteo, sem chave)",
+   "categoria": "clima",
+   "conf": {
+    "descricao": "Temperatura agora no local escolhido",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m&timezone=auto",
+    "caminho": "current.temperature_2m",
+    "icone": "🌡",
+    "rotulo": "{cidade}",
+    "decimais": "1",
+    "separador": "pt",
+    "sufixo": "°C",
+    "modelo": "{icone} {rotulo} {valor}",
+    "ttl": "900"
+   },
+   "perguntas": [
+    [
+     "lat",
+     "latitude",
+     "-23.55"
+    ],
+    [
+     "lon",
+     "longitude",
+     "-46.63"
+    ],
+    [
+     "cidade",
+     "nome do lugar",
+     "São Paulo"
+    ]
+   ]
+  },
+  "rss": {
+   "descricao": "Manchetes de qualquer feed RSS/Atom (informe o endereço)",
+   "categoria": "noticias",
+   "conf": {
+    "descricao": "Manchetes de um feed RSS/Atom",
+    "tags": "noticias",
+    "url": "{feed}",
+    "formato": "rss",
+    "itens": "3",
+    "icone": "📰",
+    "modelo": "{icone} {valor}",
+    "ttl": "900",
+    "truncar": "120",
+    "clique": "url",
+    "clique_alvo": "{link}",
+    "campo.link": ".//item/link"
+   },
+   "perguntas": [
+    [
+     "feed",
+     "endereço https do feed",
+     "https://g1.globo.com/rss/g1/"
+    ]
+   ]
+  },
+  "status": {
+   "descricao": "Status de qualquer serviço que use página Statuspage (informe o domínio)",
+   "categoria": "status",
+   "conf": {
+    "descricao": "Status de um serviço publicado em Statuspage",
+    "tags": "status",
+    "url": "https://{pagina}/api/v2/status.json",
+    "caminho": "status.description",
+    "icone": "🛰",
+    "rotulo": "{servico}",
+    "modelo": "{icone} {rotulo}: {valor}",
+    "ttl": "300",
+    "traduzir": [
+     "All Systems Operational>tudo operando",
+     "Partial System Outage>queda parcial",
+     "Partially Degraded Service>serviço parcialmente degradado",
+     "Partial System Degradation>sistema parcialmente degradado",
+     "Major System Outage>queda geral",
+     "Minor Service Outage>queda pontual",
+     "Degraded Performance>desempenho degradado",
+     "Service Under Maintenance>em manutenção",
+     "Under Maintenance>em manutenção"
+    ],
+    "clique": "url",
+    "clique_alvo": "https://{pagina}"
+   },
+   "perguntas": [
+    [
+     "pagina",
+     "domínio da página de status",
+     "www.githubstatus.com"
+    ],
+    [
+     "servico",
+     "nome do serviço",
+     "GitHub"
+    ]
+   ]
+  },
+  "ci-github": {
+   "descricao": "Execuções de CI em andamento num repositório (GitHub Actions)",
+   "categoria": "dev",
+   "conf": {
+    "descricao": "Execuções do GitHub Actions em andamento num repositório; token opcional em ~/.secrets",
+    "tags": "dev",
+    "url": "https://api.github.com/repos/{repo}/actions/runs?status=in_progress&per_page=1",
+    "caminho": "total_count",
+    "icone": "⚙",
+    "rotulo": "CI",
+    "modelo": "{icone} {rotulo} {valor} em andamento",
+    "ttl": "300",
+    "header": [
+     "Accept: application/vnd.github+json"
+    ],
+    "condicao": [
+     "valor>0"
+    ],
+    "clique": "url",
+    "clique_alvo": "https://github.com/{repo}/actions"
+   },
+   "perguntas": [
+    [
+     "repo",
+     "repositório (dono/nome)",
+     "tmux/tmux"
+    ]
+   ]
+  }
+ }
+}

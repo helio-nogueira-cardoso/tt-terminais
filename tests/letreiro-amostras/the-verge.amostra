@@ -1,0 +1,128 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ns0:feed xmlns:ns0="http://www.w3.org/2005/Atom" xml:lang="en-US">
+	<ns0:title type="text">The Verge</ns0:title>
+	<ns0:subtitle type="text">The Verge is about technology and how it makes us feel. Founded in 2011, we offer our audience everything from breaking news to reviews to award-winning features and investigations, on our site, in video, and in podcasts.</ns0:subtitle>
+
+	<ns0:updated>2026-10-11T18:33:56+00:00</ns0:updated>
+
+	<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com" />
+	<ns0:id>https://www.theverge.com/rss/index.xml</ns0:id>
+	<ns0:link rel="self" type="application/atom+xml" href="https://www.theverge.com/rss/index.xml" />
+
+	<ns0:icon>https://platform.theverge.com/wp-content/uploads/sites/2/2025/01/verge-rss-large_80b47e.png?w=150&amp;h=150&amp;crop=1</ns0:icon>
+		<ns0:entry>
+			
+			<ns0:author>
+				<ns0:name>Terrence O’Brien</ns0:name>
+			</ns0:author>
+			
+			<ns0:title type="html">Silicon Valley is falling in line with Trump’s attempt to rename AI</ns0:title>
+			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/ai-artificial-intelligence/1009406/silicon-valley-is-falling-in-line-with-trumps-attempt-to-rename-ai" />
+			<ns0:id>https://www.theverge.com/?p=1009406</ns0:id>
+			<ns0:updated>2026-10-11T14:33:56-04:00</ns0:updated>
+			<ns0:published>2026-10-11T14:33:56-04:00</ns0:published>
+			<ns0:category scheme="https://www.theverge.com" term="AI" /><ns0:category scheme="https://www.theverge.com" term="News" /><ns0:category scheme="https://www.theverge.com" term="Policy" /><ns0:category scheme="https://www.theverge.com" term="Politics" />
+							<ns0:summary type="html">When President Donald Trump announced his plans to rebrand artificial intelligence as "super intelligence," you'd be forgiven for being skeptical that it would catch on. While most of the broader population is sticking with AI, some of Silicon Valley's most powerful are falling in line and trying to</ns0:summary>
+			
+							<ns0:content type="html">
+											
+
+						
+&lt;figure&gt;
+
+&lt;img alt="Satya Nadella, chief executive officer of Microsoft Corp., from left, Greg Brockman, president and co-founder of OpenAI Inc., Jensen Huang, chief executive officer of Nvidia Corp., US House Speaker Mike Johnson, a Republican from Louisiana, US President Donal</ns0:content>
+			
+					</ns0:entry>
+			<ns0:entry>
+			
+			<ns0:author>
+				<ns0:name>Terrence O’Brien</ns0:name>
+			</ns0:author>
+			
+			<ns0:title type="html">The new Apple TV could have a built-in mic and a remote with a speaker</ns0:title>
+			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/tech/1009397/apple-tv-refresh-built-in-mic-remote-speaker" />
+			<ns0:id>https://www.theverge.com/?p=1009397</ns0:id>
+			<ns0:updated>2026-10-11T13:31:07-04:00</ns0:updated>
+			<ns0:published>2026-10-11T13:31:07-04:00</ns0:published>
+			<ns0:category scheme="https://www.theverge.com" term="Apple" /><ns0:category scheme="https://www.theverge.com" term="Apple Rumors" /><ns0:category scheme="https://www.theverge.com" term="News" /><ns0:category scheme="https://www.theverge.com" term="Tech" />
+							<ns0:summary type="html">The latest rumors are that the new Apple TV will have a built-in microphone, while the upgraded remote will get a speaker. The mic would let users control the set-top box using Siri without having to speak into the remote or a connected HomePod device. That could also let the Apple TV serve as a [&amp;#</ns0:summary>
+			
+							<ns0:content type="html">
+											
+
+						
+&lt;figure&gt;
+
+&lt;img alt="A photo of the third-gen Apple TV 4K on a TV stand." data-caption="" data-portal-copyright="Image: Chris Welch / The Verge" data-has-syndication-rights="1" src="https://platform.theverge.com/wp-content/uploads/sites/2/chorus/uploads/chorus_asset/file/24160553</ns0:content>
+			
+					</ns0:entry>
+			<ns0:entry>
+			
+			<ns0:author>
+				<ns0:name>Terrence O’Brien</ns0:name>
+			</ns0:author>
+			
+			<ns0:title type="html">NASA dumped over 800GB of Artemis II data online</ns0:title>
+			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/science/1009379/nasa-800gb-artemis-ii-data" />
+			<ns0:id>https://www.theverge.com/?p=1009379</ns0:id>
+			<ns0:updated>2026-10-11T11:34:40-04:00</ns0:updated>
+			<ns0:published>2026-10-11T11:34:40-04:00</ns0:published>
+			<ns0:category scheme="https://www.theverge.com" term="News" /><ns0:category scheme="https://www.theverge.com" term="Science" /><ns0:category scheme="https://www.theverge.com" term="Space" />
+							<ns0:summary type="html">If you thought you'd seen all there is to see from the Artemis II mission, you're wrong. This week NASA posted over 800GB worth of science data, images, and videos on the Artemis II: Sights &amp;#38; Sounds of Science site. The archive includes over 11,000 photos and videos, over 8.5 hours of audio, and</ns0:summary>
+			
+							<ns0:content type="html">
+											
+
+						
+&lt;figure&gt;
+
+&lt;img alt="Crew annotated image of where impact flashes were spotted on the dark side of the Moon." data-caption="A crew annotated image showing where the Artemis II team observed impact flashes on the dark side of the Moon. | Image: NASA" data-portal-copyright="Image: </ns0:content>
+			
+					</ns0:entry>
+			<ns0:entry>
+			
+			<ns0:author>
+				<ns0:name>Terrence O’Brien</ns0:name>
+			</ns0:author>
+			
+			<ns0:title type="html">George A. Romero’s Season of the Witch is a slow-burn feminist occult drama</ns0:title>
+			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/entertainment/1009346/george-a-romero-season-of-the-witch-feminist-horror-review" />
+			<ns0:id>https://www.theverge.com/?p=1009346</ns0:id>
+			<ns0:updated>2026-10-11T11:12:52-04:00</ns0:updated>
+			<ns0:published>2026-10-11T11:15:00-04:00</ns0:published>
+			<ns0:category scheme="https://www.theverge.com" term="Column" /><ns0:category scheme="https://www.theverge.com" term="Entertainment" /><ns0:category scheme="https://www.theverge.com" term="Film" /><ns0:category scheme="https://www.theverge.com" term="Movie Review" />
+							<ns0:summary type="html">George A. Romero is obviously best known as the father of the modern zombie movie. But between inventing the genre with Night of the Living Dead and his outbreak horror, The Crazies, Romero made two much lesser-known films: There's Always Vanilla, which I'll admit I've never seen, and Season of the </ns0:summary>
+			
+							<ns0:content type="html">
+											
+
+						
+&lt;figure&gt;
+
+&lt;img alt="Cover of Season of the Witch by George A. Romero." data-caption="" data-portal-copyright="Image: Arrow Films" data-has-syndication-rights="1" src="https://platform.theverge.com/wp-content/uploads/sites/2/2026/10/b4cbdcb8-32ec-4f79-8a23-c2edbf8d58e9.jpg?qualit</ns0:content>
+			
+					</ns0:entry>
+			<ns0:entry>
+			
+			<ns0:author>
+				<ns0:name>Charles Pulliam-Moore</ns0:name>
+			</ns0:author>
+			
+			<ns0:title type="html">Vurt wants you to look at vertical videos as a genre of their own</ns0:title>
+			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/entertainment/1008720/vurt-microdramas-verticals-interview-hilmon-sorey" />
+			<ns0:id>https://www.theverge.com/?p=1008720</ns0:id>
+			<ns0:updated>2026-10-11T06:03:00-04:00</ns0:updated>
+			<ns0:published>2026-10-11T09:00:00-04:00</ns0:published>
+			<ns0:category scheme="https://www.theverge.com" term="Culture" /><ns0:category scheme="https://www.theverge.com" term="Entertainment" /><ns0:category scheme="https://www.theverge.com" term="Film" /><ns0:category scheme="https://www.theverge.com" term="Internet Culture" /><ns0:category scheme="https://www.theverge.com" term="Interview" /><ns0:category scheme="https://www.theverge.com" term="Report" /><ns0:category scheme="https://www.theverge.com" term="Streaming" /><ns0:category scheme="https://www.theverge.com" term="TV Shows" />
+							<ns0:summary type="html">From Disney Plus to HBO Max, almost every major established streaming service is experimenting with ways to get into vertical content. It's clear that these companies see video-focused social media platforms like TikTok and Instagram as existential threats. In this arms race for viewers' attention, </ns0:summary>
+			
+							<ns0:content type="html">
+											
+
+						
+&lt;figure&gt;
+
+&lt;img alt="An image displaying Vurt’s mobile interface." data-caption="" data-portal-copyright="Image: Vurt" data-has-syndication-rights="1" src="https://platform.theverge.com/wp-content/uploads/sites/2/2026/10/IMG_0918.png?quality=90&amp;#038;strip=all&amp;#038;crop=0,0,100,10</ns0:content>
+			
+					</ns0:entry>
+			</ns0:feed>

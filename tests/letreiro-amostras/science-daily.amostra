@@ -1,0 +1,54 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:ns0="http://www.w3.org/2005/Atom" version="2.0">
+	<channel>
+		<title>All Top News -- ScienceDaily</title>
+		<link>https://www.sciencedaily.com/news/top/</link>
+		<description>Top science stories featured on ScienceDaily's home page.</description>
+		<language>en-us</language>
+		<pubDate>Sun, 11 Oct 2026 02:02:28 EDT</pubDate>
+		<lastBuildDate>Sun, 11 Oct 2026 02:02:28 EDT</lastBuildDate>
+		<ttl>60</ttl>
+		<image>
+			<title>All Top News -- ScienceDaily</title>
+			<url>https://www.sciencedaily.com/images/scidaily-logo-rss.png</url>
+			<link>https://www.sciencedaily.com/news/top/</link>
+			<description>For more science news, visit ScienceDaily.</description>
+		</image>
+		<ns0:link rel="self" href="https://www.sciencedaily.com/rss/top.xml" type="application/rss+xml" />
+		<item>
+			<title>NASA astronauts splash down after 100 million miles in space</title>
+			<link>https://www.sciencedaily.com/releases/2026/10/261008232629.htm</link>
+			<description>NASA’s SpaceX Crew-12 astronauts have returned to Earth after 237 days in space, traveling more than 100 million miles and completing over 3,792 orbits while conducting research to prepare for future missions to the Moon and Mars. The mission also made history with record-setting spacewalk achieveme</description>
+			<pubDate>Thu, 08 Oct 2026 23:56:28 EDT</pubDate>
+			<guid isPermaLink="true">https://www.sciencedaily.com/releases/2026/10/261008232629.htm</guid>
+		</item>
+		<item>
+			<title>October’s night sky is full of cosmic tricks and treats</title>
+			<link>https://www.sciencedaily.com/releases/2026/10/261008102704.htm</link>
+			<description>October’s skies are packed with celestial surprises, from Jupiter disappearing behind the Moon to two meteor showers lighting up the darkness. NASA highlights four must-see events, including shooting stars from Halley’s Comet and a glowing Hunter’s Moon just before Halloween.</description>
+			<pubDate>Thu, 08 Oct 2026 22:37:22 EDT</pubDate>
+			<guid isPermaLink="true">https://www.sciencedaily.com/releases/2026/10/261008102704.htm</guid>
+		</item>
+		<item>
+			<title>Scientists build a nuclear clock that could make atomic clocks obsolete</title>
+			<link>https://www.sciencedaily.com/releases/2026/10/261008102701.htm</link>
+			<description>Scientists in Vienna have achieved a major breakthrough in timekeeping by creating the world’s first self-stabilizing nuclear clock, a technology that could eventually surpass even the most precise atomic clocks. Instead of relying on electrons in atoms, the clock uses the tiny nuclei of thorium ato</description>
+			<pubDate>Sat, 10 Oct 2026 23:06:35 EDT</pubDate>
+			<guid isPermaLink="true">https://www.sciencedaily.com/releases/2026/10/261008102701.htm</guid>
+		</item>
+		<item>
+			<title>Neanderthals may have used prehistoric glue as an ancient antibiotic</title>
+			<link>https://www.sciencedaily.com/releases/2026/10/261008005256.htm</link>
+			<description>Neanderthals may have used a sticky substance made from birch bark to treat wounds thousands of years before antibiotics existed. Researchers recreated ancient birch tar production techniques and discovered that every sample could inhibit the growth of bacteria responsible for dangerous wound infect</description>
+			<pubDate>Sat, 10 Oct 2026 20:45:37 EDT</pubDate>
+			<guid isPermaLink="true">https://www.sciencedaily.com/releases/2026/10/261008005256.htm</guid>
+		</item>
+		<item>
+			<title>The eye has a hidden cleanup system scientists never knew existed</title>
+			<link>https://www.sciencedaily.com/releases/2026/10/261008005254.htm</link>
+			<description>Scientists have discovered a hidden cleanup system at the back of the eye that drains fluid and waste through a previously unknown pathway. The surprising finding, demonstrated in mice, could open the door to new treatments for glaucoma, macular degeneration, and other causes of blindness.</description>
+			<pubDate>Sun, 11 Oct 2026 02:01:54 EDT</pubDate>
+			<guid isPermaLink="true">https://www.sciencedaily.com/releases/2026/10/261008005254.htm</guid>
+		</item>
+		</channel>
+</rss>

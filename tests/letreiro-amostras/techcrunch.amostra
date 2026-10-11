@@ -1,0 +1,114 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:ns0="http://www.w3.org/2005/Atom" xmlns:ns1="http://purl.org/rss/1.0/modules/syndication/" version="2.0">
+
+<channel>
+	<title>TechCrunch</title>
+	<ns0:link href="https://techcrunch.com/feed/" rel="self" type="application/rss+xml" />
+	<link>https://techcrunch.com/</link>
+	<description>Startup and Technology News</description>
+	<lastBuildDate>Sun, 11 Oct 2026 19:02:05 +0000</lastBuildDate>
+	<language>en-US</language>
+	<ns1:updatePeriod>
+	hourly	</ns1:updatePeriod>
+	<ns1:updateFrequency>
+	1	</ns1:updateFrequency>
+	<generator>https://wordpress.org/?v=6.9.10</generator>
+
+<image>
+	<url>https://techcrunch.com/wp-content/uploads/2015/02/cropped-cropped-favicon-gradient.png?w=32</url>
+	<title>TechCrunch</title>
+	<link>https://techcrunch.com/</link>
+	<width>32</width>
+	<height>32</height>
+</image> 
+	<item>
+		<title>48 hours to TechCrunch Disrupt 2026 — hear directly from the people building what’s next</title>
+		<link>https://techcrunch.com/2026/10/11/48-hours-to-techcrunch-disrupt-2026-hear-directly-from-the-people-building-whats-next/</link>
+		
+		<pubDate>Sun, 11 Oct 2026 19:00:00 +0000</pubDate>
+				<category>AI</category>
+		<category>Biotech &amp; Health</category>
+		<category>Climate</category>
+		<category>Crypto</category>
+		<category>Fintech</category>
+		<category>Fundraising</category>
+		<category>Robotics</category>
+		<category>Startups</category>
+		<category>TC</category>
+		<category>Venture</category>
+		<category>Startup Battlefield</category>
+		<category>TechCrunch Disrupt</category>
+		<guid isPermaLink="false">https://techcrunch.com/?p=3176474</guid>
+
+					<description>Less than 48 hours, TechCrunch Disrupt 2026 starts in San Francisco’s Moscone West. Save up to $100 on your pass before prices increase at the door, plus get 50% on a second pass. Or score other deals.</description>
+		
+		
+		
+			</item>
+		<item>
+		<title>The investor’s guide to TechCrunch Disrupt 2026: Everything you need to know </title>
+		<link>https://techcrunch.com/2026/10/11/the-investors-guide-to-techcrunch-disrupt-2026-everything-you-need-to-know/</link>
+		
+		<pubDate>Sun, 11 Oct 2026 17:53:37 +0000</pubDate>
+				<category>Venture</category>
+		<category>TechCrunch Disrupt</category>
+		<guid isPermaLink="false">https://techcrunch.com/?p=3154551</guid>
+
+					<description>Year after year, investors who've explored the Expo Halls, met founders, and learned from peers have proven why you need to be on the ground at Disrupt Oct. 13. </description>
+		
+		
+		
+			</item>
+		<item>
+		<title>Can the AI industry persuade data center opponents by getting rid of NDAs?</title>
+		<link>https://techcrunch.com/2026/10/11/can-the-ai-industry-persuade-data-center-opponents-by-getting-rid-of-ndas/</link>
+		
+		<pubDate>Sun, 11 Oct 2026 16:52:33 +0000</pubDate>
+				<category>AI</category>
+		<category>Government &amp; Policy</category>
+		<category>Amazon</category>
+		<category>data centers</category>
+		<category>Equity podcast</category>
+		<guid isPermaLink="false">https://techcrunch.com/?p=3176460</guid>
+
+					<description>On Equity, we debate the impact of data center moratoriums and whether the AI industry has a communication problem.</description>
+		
+		
+		
+			</item>
+		<item>
+		<title>TechCrunch Mobility: A roadblock clears for self-driving trucks</title>
+		<link>https://techcrunch.com/2026/10/11/techcrunch-mobility-a-roadblock-clears-for-self-driving-trucks/</link>
+		
+		<pubDate>Sun, 11 Oct 2026 16:02:00 +0000</pubDate>
+				<category>Transportation</category>
+		<category>TechCrunch Disrupt</category>
+		<category>self-driving trucks</category>
+		<category>Aurora Innovation</category>
+		<category>techcrunch mobility</category>
+		<category>kodiak ai</category>
+		<guid isPermaLink="false">https://techcrunch.com/?p=3176239</guid>
+
+					<description>Welcome back to TechCrunch Mobility, your hub for the future of transportation and now, more than ever, the role AI is playing in it. </description>
+		
+		
+		
+			</item>
+		<item>
+		<title>Dawn Myers is making it easier to style, detangle, and care for curly hair</title>
+		<link>https://techcrunch.com/2026/10/11/dawn-myers-is-making-it-easier-to-style-detangle-and-care-for-curly-hair/</link>
+		
+		<pubDate>Sun, 11 Oct 2026 16:00:00 +0000</pubDate>
+				<category>Startups</category>
+		<category>TechCrunch Disrupt</category>
+		<category>Startup Battlefield 200</category>
+		<category>Richualist</category>
+		<guid isPermaLink="false">https://techcrunch.com/?p=3167173</guid>
+
+					<description>Richualist is one of TechCrunch's Battlefield 200 Companies! </description>
+		
+		
+		
+			</item>
+		</channel>
+</rss>

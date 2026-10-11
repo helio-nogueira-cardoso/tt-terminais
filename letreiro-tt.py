@@ -20,13 +20,20 @@ Modos:
                     slot usa exatamente o que sobra (sem ele, supõe 54).
                     COLUNAS = #{client_width}, usada quando o tty do cliente não abre (ssh).
   quadro [LARGURA]  imprime um quadro e sai (testes, `tt --ticker-quadro`).
+  clique PID X      o que fazer com um clique na coluna X do terminal de PID: imprime "acao<TAB>alvo"
+                    (url | copiar | painel | pausa | nada). Usa a geometria que o `fluxo` deixou em
+                    $TT_RT/tt-letreiro-PID.geo e o mesmo tempo do quadro: o item sob o mouse é o que se vê.
+  pausar            alterna a pausa do letreiro (congela o quadro; vale nesta máquina).
 
 Regras (as mesmas que a barra em bash seguia):
   - orçamento = largura − OCUPADO − 12 (divisórias e respiro); abaixo de 8 células o slot some; aviso só com ≥ 90;
   - aviso fresco (nascido há < TT_NOTIF_SLOT s, padrão 10; não lido; não expirado) tem a vez, em
     negrito (aviso_pisca=1 alterna a cada segundo); depois a transferência ativa; depois o letreiro;
-  - letreiro: fontes em ~/.cache/tt-ticker/<fonte> (o vigia atualiza com TTL; rede nunca aqui), itens
-    separados por " • ", numa roda. O padrão desliza (ticker_rolagem=continua): 1/ticker_veloc colunas
+  - letreiro: fontes em ~/.cache/tt-ticker/<fonte> (o vigia atualiza com TTL, via letreiro-fontes.py;
+    rede nunca aqui), na ordem/peso de _roda.json (a lista compilada das fontes ativas desta máquina; sem
+    ela, vale indicadores= como sempre valeu), itens separados por ticker_separador (" • "), numa roda.
+    O texto da rede já chega limpo (sem escapes de terminal nem #[ #( ); aqui o # ainda é dobrado) e as
+    cores de alta/baixa vêm como marcas \x01-\x04 no cache. O padrão desliza (ticker_rolagem=continua): 1/ticker_veloc colunas
     por segundo (padrão 1/ticker_fps s = 1 coluna por quadro, a ticker_fps=6 quadros/s). Cada #() só
     redesenha a barra 1 vez/s, mas o tmux guarda a última linha lida de cada um: o pintor (fluxo)
     imprime um quadro a cada 1/fps s e fps-1 gatilhos (linhas vazias, 1/s, defasadas) provocam os
@@ -43,6 +50,8 @@ import time
 
 
 import glob
+import json
+import re
 import shutil
 import unicodedata
 
@@ -54,6 +63,11 @@ DIR_TICKER = os.path.join(HOME, ".cache", "tt-ticker")
 RT = os.environ.get("TT_RT") or "/run/user/%d" % os.getuid()
 DIR_TRANSF = os.path.join(RT, "tt-transferencias-%d" % os.getuid())
 CINZA, TEXTO, AVISO, TRANSF, FUNDO = "#45475a", "#7f849c", "#f9e2af", "#89b4fa", "#232838"
+ESTILOS = {"alta": "#a6e3a1", "baixa": "#f38ba8", "neutra": "#9399b2", "velho": "#585b70", "erro": "#fab387"}
+MARC = {"\x01": "alta", "\x02": "baixa", "\x03": "neutra", "\x04": None}  # marcas de cor do cache
+ARQ_RODA = os.path.join(DIR_TICKER, "_roda.json")
+PAUSA = os.path.join(RT, "tt-letreiro-pausa")
+LADO = 5           # "  │  " antes do texto do slot (2 espaços, divisória, 2 espaços)
 OCUPADO = 20 + 34  # sem medida do tmux: chips à esquerda + relógio/versão à direita
 ENQUADRA = 12      # divisórias │ e respiro dos dois lados do texto do slot
 
@@ -97,15 +111,167 @@ def ler(caminho):
         return ""
 
 
+_ESC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[PX^_][^\x1b]*(?:\x1b\\)?|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[ -/]*[0-~]|\x9b[0-?]*[ -/]*[@-~]")
+_CTRL = re.compile(r"[\x00\x05-\x1f\x7f-\x9f]")
+
+
+def limpa(l):
+    """Defesa em profundidade: o cache já vem limpo do letreiro-fontes.py, mas um arquivo adulterado (ou de
+    uma versão antiga) não pode injetar escape de terminal nem sintaxe do tmux (o # vira ## ao desenhar)."""
+    return _CTRL.sub("", _ESC.sub("", l)).strip()
+
+
+_mod_cache = []
+
+
+def modulo():
+    """letreiro-fontes.py, carregado só quando preciso (janelas de exibição); sem ele, o item aparece sempre."""
+    if not _mod_cache:
+        try:
+            import importlib.util
+            sp = importlib.util.spec_from_file_location("letreiro_fontes", os.path.join(os.path.dirname(os.path.abspath(__file__)), "letreiro-fontes.py"))
+            m = importlib.util.module_from_spec(sp)
+            sp.loader.exec_module(m)
+            _mod_cache.append(m)
+        except Exception:
+            _mod_cache.append(None)
+    return _mod_cache[0]
+
+
+_roda_cache = {"mtime": None, "dados": None}
+
+
+def carregar_roda():
+    """_roda.json (compilado pelo letreiro-fontes.py) ou None. Relido só quando o arquivo muda."""
+    try:
+        mt = os.stat(ARQ_RODA).st_mtime_ns
+    except OSError:
+        _roda_cache.update(mtime=None, dados=None)
+        return None
+    if _roda_cache["mtime"] != mt:
+        try:
+            with open(ARQ_RODA, encoding="utf-8") as f:
+                _roda_cache.update(mtime=mt, dados=json.load(f))
+        except (OSError, ValueError):
+            _roda_cache.update(mtime=mt, dados=None)
+    return _roda_cache["dados"]
+
+
+def ligado(cfg):
+    return cfg.get("ticker_ligado", "1") != "0"
+
+
+def entradas_roda(cfg):
+    """[(nome, entrada)] na ordem manual. Sem _roda.json (antes da 1ª atualização ou versão antiga): indicadores=."""
+    if not ligado(cfg):
+        return []
+    r = carregar_roda()
+    if r is not None and isinstance(r.get("itens"), list):
+        return [(e.get("nome", ""), e) for e in r["itens"] if e.get("nome")]
+    return [(f, {"nome": f, "peso": 1, "cache_max": 0, "se_faltar": "ultimo"}) for f in fontes(cfg)]
+
+
+def _janela_ok(e, agora, cfg):
+    if not (e.get("mostrar_dias") or e.get("mostrar_horas")):
+        return True
+    m = modulo()
+    if m is None:
+        return True
+    try:
+        return m.na_janela(agora, e.get("mostrar_dias", ""), e.get("mostrar_horas", ""), cfg)
+    except Exception:
+        return True
+
+
+def linhas_da_fonte(nome, e, agora):
+    """[(texto com marcas, estilo base)] — aplica a política de dado velho/ausente (se_faltar, cache_max)."""
+    arq = os.path.join(DIR_TICKER, nome)
+    try:
+        st = os.stat(arq)
+    except OSError:
+        st = None
+    linhas = [limpa(l) for l in ler(arq).splitlines()] if st else []
+    linhas = [l for l in linhas if l]
+    cm = int(e.get("cache_max", 0) or 0)
+    velho = bool(st) and cm > 0 and (agora - st.st_mtime) / 60 > cm
+    sem_dado = st is None
+    if not sem_dado and not velho:
+        return [(l, None) for l in linhas]
+    pol = e.get("se_faltar", "ultimo")
+    if pol == "esconder":
+        return []
+    if pol == "erro":
+        nome_tela = e.get("rotulo") or nome
+        return [("⚠ %s: sem dado atual" % nome_tela, "erro")]
+    if not linhas:
+        return []
+    return [("⏳ " + linhas[0], "velho")] + [(l, "velho") for l in linhas[1:]]
+
+
+class Roda:
+    """A roda do letreiro como células (caractere, estilo) + a que fonte/linha cada trecho pertence.
+    `fim_roda` é o separador que fecha a volta (conteúdo + separador, repetidos, é a roda)."""
+    def __init__(self):
+        self.cel = []
+        self.fim_roda = []
+        self.segs = []   # (início, fim, nome, índice da linha na fonte)
+
+    def __len__(self):
+        return len(self.cel)
+
+
+def _celulas(texto, base):
+    out, est = [], base
+    for c in texto:
+        if c in MARC:
+            est = MARC[c] or base
+            continue
+        out.append((c, est))
+    return out
+
+
+def montar_roda(cfg, agora):
+    sep = cfg.get("ticker_separador", " • ") or " • "
+    ent = entradas_roda(cfg)
+    ordem = cfg.get("ticker_ordem", "manual")
+    if ordem == "aleatoria":
+        import random
+        random.Random(int(agora // 3600)).shuffle(ent)
+    elif ordem == "peso":
+        ent = sorted(ent, key=lambda x: -int(x[1].get("peso", 1) or 1))
+    voltas = max([int(e.get("peso", 1) or 1) for _n, e in ent] or [1])
+    cor_ok = cfg.get("ticker_cor", "1") != "0"
+    r = Roda()
+    cache = {}
+    for k in range(voltas):
+        for nome, e in ent:
+            if int(e.get("peso", 1) or 1) <= k or not _janela_ok(e, agora, cfg):
+                continue
+            if nome not in cache:
+                cache[nome] = linhas_da_fonte(nome, e, agora)
+            for i, (txt, base) in enumerate(cache[nome]):
+                cel = _celulas(txt, base)
+                if not cor_ok:
+                    cel = [(c, None if est in ("alta", "baixa", "neutra") else est) for c, est in cel]
+                if not cel:
+                    continue
+                if r.cel:
+                    r.cel += [(c, None) for c in sep]
+                r.segs.append((len(r.cel), len(r.cel) + len(cel), nome, i))
+                r.cel += cel
+    r.fim_roda = [(c, None) for c in sep] if r.cel else []
+    return r
+
+
 def linha_letreiro(cfg):
-    partes = []
-    for f in fontes(cfg):
-        partes += [l.strip() for l in ler(os.path.join(DIR_TICKER, f)).splitlines() if l.strip()]
-    return " • ".join(partes)
+    """O letreiro como texto simples (sem cores): serve ao diagnóstico e a quem importa este módulo."""
+    return "".join(c for c, _e in montar_roda(cfg, time.time()).cel)
 
 
 def larg(c):
     """Largura em células: emoji e ideogramas ocupam 2, marcas combinantes e de formato 0."""
+    if c in MARC:
+        return 0
     if unicodedata.category(c) in ("Mn", "Me", "Cf"):
         return 0
     if unicodedata.east_asian_width(c) in "WF" or ord(c) >= 0x1F000:
@@ -146,6 +312,84 @@ def janela(linha, w, off):
 
 def esc(t):
     return t.replace("#", "##")  # a linha impressa é um formato do tmux: # literal vira ##
+
+
+def fatia(roda, w, off):
+    """As células visíveis de uma janela de w colunas da roda (repetida), a partir do índice off:
+    [(índice na roda, caractere, estilo, largura)] e o total de colunas ocupadas."""
+    base = roda.cel + roda.fim_roda
+    if not base:
+        return [], 0
+    ini = off % len(base)
+    vis, tot = [], 0
+    pos = ini
+    for _ in range(w + 16):
+        c, est = base[pos % len(base)]
+        lc = larg(c)
+        if tot + lc > w:
+            break
+        vis.append((pos % len(base), c, est, lc))
+        tot += lc
+        pos += 1
+    return vis, tot
+
+
+def janela_roda(roda, w, off):
+    """Como janela(), para a roda de células: devolve o texto do slot já em formato tmux (cores por
+    trecho, # dobrado) preenchido até w colunas."""
+    vis, tot = fatia(roda, w, off)
+    out, est_ant, buf = [], None, []
+
+    def fecha():
+        if buf:
+            t = esc("".join(buf))
+            out.append(t if est_ant is None else "#[fg=%s]%s#[fg=%s]" % (ESTILOS[est_ant], t, TEXTO))
+            buf.clear()
+    for _i, c, est, _l in vis:
+        if est != est_ant:
+            fecha()
+            est_ant = est
+        buf.append(c)
+    fecha()
+    return "".join(out) + " " * (w - tot)
+
+
+def pausado():
+    """Epoch em que o letreiro foi congelado (clique), ou 0."""
+    try:
+        return float(ler(PAUSA).strip() or 0)
+    except ValueError:
+        return 0.0
+
+
+def alternar_pausa():
+    if pausado():
+        try:
+            os.unlink(PAUSA)
+        except OSError:
+            pass
+        return "continua"
+    try:
+        os.makedirs(os.path.dirname(PAUSA), exist_ok=True)
+        with open(PAUSA, "w") as f:
+            f.write("%.3f\n" % time.time())
+    except OSError:
+        return "erro"
+    return "pausado"
+
+
+def economia_estatica(cfg):
+    """Modo economia: com a bateria baixa (e sem carregar) o letreiro vira páginas (não anima)."""
+    e = cfg.get("ticker_economia", "auto")
+    if e == "0" or (e == "auto" and shutil.which("termux-open-url") is None):
+        return False
+    try:
+        with open(os.path.join(DIR_TICKER, "_energia")) as f:
+            pct, carregando, quando = f.read().split()
+        return (time.time() - float(quando) < 1800 and int(pct) < int(cfg.get("ticker_bateria_min", "20") or 20)
+                and carregando == "0")
+    except (OSError, ValueError):
+        return False
 
 
 def avisos_frescos(agora, slot):
@@ -273,7 +517,11 @@ def _quadro(cfg, cols, ponte, agora, ocupado=OCUPADO, fps=1):
     orc = cols - ocupado - ENQUADRA
     if orc < 8:
         return "", False  # não sobra lugar para um letreiro legível: o slot some e as pontas ficam inteiras
-    orc = min(orc, 400)
+    try:
+        maxima = int(cfg.get("ticker_largura", "") or 400)
+    except ValueError:
+        maxima = 400
+    orc = min(orc, max(8, min(maxima, 400)))
     try:
         slot = int(os.environ.get("TT_NOTIF_SLOT") or 10)
     except ValueError:
@@ -292,13 +540,89 @@ def _quadro(cfg, cols, ponte, agora, ocupado=OCUPADO, fps=1):
     if tx:
         return "  #[fg=%s]│#[range=user|transferencias]#[fg=%s]  %s  #[norange]#[fg=%s]│#[default]#[bg=%s]  " % (
             CINZA, TRANSF, esc(cortar(tx, orc)), CINZA, FUNDO), False
-    linha = linha_letreiro(cfg)
-    if not linha:
+    parado = pausado()
+    t_roda = parado or agora          # pausado: o tempo congela e o quadro fica igual
+    roda = montar_roda(cfg, t_roda)
+    if not len(roda):
         return "", False
-    animado = cfg.get("ticker_rolagem", "") != "paginas" and not (ponte and cfg.get("ticker_ponte", "") == "parado")
+    cfg_rolagem = dict(cfg, ticker_rolagem="paginas") if economia_estatica(cfg) else cfg
+    animado = (cfg_rolagem.get("ticker_rolagem", "") != "paginas" and not parado
+               and not (ponte and cfg.get("ticker_ponte", "") == "parado"))
+    corpo = janela_roda(roda, orc, deslocamento(cfg_rolagem, orc, t_roda, ponte, fps))
     # (#[default] volta ao status-style, de fundo escuro: o fundo da faixa é devolvido logo depois)
-    return "  #[fg=%s]│#[fg=%s]  %s  #[fg=%s]│#[default]#[bg=%s]  " % (
-        CINZA, TEXTO, esc(janela(linha, orc, deslocamento(cfg, orc, agora, ponte, fps))), CINZA, FUNDO), animado
+    return "  #[fg=%s]│#[range=user|letreiro]#[fg=%s]  %s  #[norange]#[fg=%s]│#[default]#[bg=%s]  " % (
+        CINZA, TEXTO, corpo, CINZA, FUNDO), animado
+
+
+def item_sob_mouse(cfg, geo, x, agora, ponte=False):
+    """(nome da fonte, índice da linha) do item que está na coluna x do terminal, ou None."""
+    orc = geo["cols"] - geo["ocupado"] - ENQUADRA
+    try:
+        maxima = int(cfg.get("ticker_largura", "") or 400)
+    except ValueError:
+        maxima = 400
+    orc = min(orc, max(8, min(maxima, 400)))
+    if orc < 8:
+        return None
+    rel = x - geo["esq"] - LADO
+    if rel < 0 or rel >= orc:
+        return None
+    t_roda = pausado() or agora
+    roda = montar_roda(cfg, t_roda)
+    cfg_rolagem = dict(cfg, ticker_rolagem="paginas") if economia_estatica(cfg) else cfg
+    vis, _tot = fatia(roda, orc, deslocamento(cfg_rolagem, orc, t_roda, ponte, geo.get("fps", 1)))
+    col = 0
+    base_n = len(roda.cel)
+    for i, _c, _e, lc in vis:
+        if col <= rel < col + max(lc, 1):
+            if i >= base_n:
+                return None            # separador final da volta
+            for ini, fim, nome, idx in roda.segs:
+                if ini <= i < fim:
+                    return nome, idx
+            return None                # separador entre itens
+        col += lc
+    return None
+
+
+def acao_clique(cfg, geo, x, agora, ponte=False):
+    """'acao<TAB>alvo' para um clique na coluna x: a ação do item sob o mouse (cadastrada na fonte) ou,
+    sem ação, alternar a pausa (ticker_pausa=nunca desliga)."""
+    alvo = item_sob_mouse(cfg, geo, x, agora, ponte)
+    if alvo is None:
+        return "nada\t"
+    nome, idx = alvo
+    try:
+        with open(os.path.join(DIR_TICKER, nome + ".itens"), encoding="utf-8") as f:
+            itens = json.load(f)
+        it = itens[idx]
+        if it.get("acao") in ("url", "copiar", "painel") and it.get("alvo"):
+            return "%s\t%s" % (it["acao"], str(it["alvo"]).replace("\t", " ").replace("\n", " "))
+        if it.get("acao") == "bloqueado":
+            return "nada\t"          # ação configurada mas inválida (ex.: javascript:): não faz nada, nem pausa
+    except (OSError, ValueError, IndexError, TypeError):
+        pass
+    return ("pausa\t" if cfg.get("ticker_pausa", "clique") != "nunca" else "nada\t")
+
+
+def tmux_para_ansi(q):
+    """Formato do tmux (#[fg=#rrggbb] …) → ANSI de 24 bits, para mostrar o quadro num terminal comum."""
+    def troca(m):
+        out = []
+        for p in m.group(1).split(","):
+            p = p.strip()
+            if p.startswith("fg=#") or p.startswith("bg=#"):
+                h = p[4:]
+                if len(h) == 6:
+                    out.append("\033[%d;2;%d;%d;%dm" % (38 if p[0] == "f" else 48, int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)))
+            elif p == "bold":
+                out.append("\033[1m")
+            elif p in ("nobold",):
+                out.append("\033[22m")
+            elif p == "default":
+                out.append("\033[0m")
+        return "".join(out)
+    return re.sub(r"#\[([^\]]*)\]", troca, q).replace("##", "#") + "\033[0m"
 
 
 def e_ponte(pid):
@@ -378,7 +702,19 @@ def marca_anim(pid):
     return os.path.join(d, "tt-letreiro-%d.anim" % pid)
 
 
-def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1):
+def grava_geo(pid, geo):
+    """Geometria do slot para o clique (ver acao_clique): só quando muda."""
+    d = RT if os.path.isdir(RT) else "/tmp"
+    try:
+        tmp = os.path.join(d, "tt-letreiro-%d.geo.%d" % (pid, os.getpid()))
+        with open(tmp, "w") as f:
+            json.dump(geo, f)
+        os.replace(tmp, os.path.join(d, "tt-letreiro-%d.geo" % pid))
+    except OSError:
+        pass
+
+
+def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
     """O pintor: imprime o quadro do letreiro. O tmux só redesenha a barra 1 vez por segundo por #(),
     mas guarda a ÚLTIMA linha lida de cada um na hora: com fps > 1 ele imprime um quadro novo a cada
     1/fps s e os gatilhos (fps-1 #() quase vazios, ver gatilho-tt.sh) provocam os redesenhos entre os
@@ -391,6 +727,7 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1):
         pass
     marca = marca_anim(pid)
     ultimo, repetir, impresso_em, ciclo, tocado = None, False, 0.0, 0, 0.0
+    geo_ant = None
     try:
         while pid_vivo(pid):
             ciclo += 1
@@ -400,7 +737,12 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1):
             if not faixa_ativa(cfg):
                 return 0
             agora = time.time()
-            q, anim = _quadro(cfg, largura(fd, cols_tmux), ponte, agora, ocupado, fps)
+            cols = largura(fd, cols_tmux)
+            geo = {"cols": cols, "ocupado": ocupado, "esq": esq, "fps": fps, "ponte": ponte}
+            if geo != geo_ant:
+                grava_geo(pid, geo)
+                geo_ant = geo
+            q, anim = _quadro(cfg, cols, ponte, agora, ocupado, fps)
             # Sem imprimir por 1 h o tmux dá o #() por abandonado e o recria (format_job_tidy): uma
             # linha igual de tempos em tempos (ponte parada, letreiro desligado) mantém o processo vivo.
             if q != ultimo or repetir or agora - impresso_em > 1500:
@@ -430,10 +772,11 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1):
                 espera = 1.05 - agora % 1  # um tique por segundo, logo após a virada do segundo
             time.sleep(max(0.01 if anim and fps > 1 else 0.2, espera))
     finally:
-        try:
-            os.unlink(marca)
-        except OSError:
-            pass
+        for arq in (marca, os.path.join(RT if os.path.isdir(RT) else "/tmp", "tt-letreiro-%d.geo" % pid)):
+            try:
+                os.unlink(arq)
+            except OSError:
+                pass
     return 0
 
 
@@ -441,13 +784,31 @@ def main(argv):
     modo = argv[1] if len(argv) > 1 else ""
     if modo == "fluxo" and len(argv) >= 4 and argv[3].isdigit():
         n = lambda i, d: int(argv[i]) if len(argv) > i and argv[i].isdigit() else d
-        return fluxo(argv[2], int(argv[3]), n(4, OCUPADO), n(5, 0), n(6, 1))
+        return fluxo(argv[2], int(argv[3]), n(4, OCUPADO), n(5, 0), n(6, 1), n(7, 0))
     if modo == "quadro":
         cfg = ler_conf()
         cols = int(argv[2]) if len(argv) > 2 and argv[2].isdigit() else largura(None)
+        if len(argv) > 4 and argv[4] == "ansi":   # pré-visualização no painel: o slot ocupa a largura toda
+            q = quadro(cfg, cols, False, time.time(), ocupado=0, fps=fps_de(cfg))
+            emitir(tmux_para_ansi(q) if q else "")
+            return 0
         emitir(quadro(cfg, cols, len(argv) > 3 and argv[3] == "ponte", time.time(), fps=fps_de(cfg)) if faixa_ativa(cfg) else "")
         return 0
-    sys.stderr.write("uso: letreiro-tt.py fluxo TTY PID [OCUPADO [COLUNAS [FPS]]] | quadro [LARGURA [ponte]]\n")
+    if modo == "pausar":
+        print(alternar_pausa())
+        return 0
+    if modo == "clique" and len(argv) >= 4 and argv[2].isdigit() and argv[3].lstrip("-").isdigit():
+        cfg = ler_conf()
+        try:
+            with open(os.path.join(RT if os.path.isdir(RT) else "/tmp", "tt-letreiro-%s.geo" % argv[2])) as f:
+                geo = json.load(f)
+        except (OSError, ValueError):
+            print("nada\t")
+            return 0
+        agora = float(os.environ.get("TT_AGORA") or time.time())
+        print(acao_clique(cfg, geo, int(argv[3]), agora, bool(geo.get("ponte"))))
+        return 0
+    sys.stderr.write("uso: letreiro-tt.py fluxo TTY PID [OCUPADO [COLUNAS [FPS [ESQ]]]] | quadro [LARGURA [ponte]] | clique PID X | pausar\n")
     return 2
 
 

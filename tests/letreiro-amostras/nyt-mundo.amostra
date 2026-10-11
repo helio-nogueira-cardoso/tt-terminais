@@ -1,0 +1,133 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:ns0="http://www.w3.org/2005/Atom" xmlns:ns1="http://search.yahoo.com/mrss/" version="2.0">
+  <channel>
+    <title>NYT &gt; World News</title>
+    <link>https://www.nytimes.com/section/world</link>
+    <ns0:link href="https://rss.nytimes.com/services/xml/rss/nyt/World.xml" rel="self" type="application/rss+xml" />
+    <description />
+    <language>en-us</language>
+    <copyright>Copyright 2026 The New York Times Company</copyright>
+    <lastBuildDate>Sun, 11 Oct 2026 19:30:53 +0000</lastBuildDate>
+    <pubDate>Sun, 11 Oct 2026 19:18:12 +0000</pubDate>
+    <image>
+      <title>NYT &gt; World News</title>
+      <url>https://static01.nyt.com/images/misc/NYT_logo_rss_250x40.png</url>
+      <link>https://www.nytimes.com/section/world</link>
+    </image>
+    <item>
+      <title>Saudi Arabia Has Few Options as Houthis Aim at Heart of Its Ambitions</title>
+      <link>https://www.nytimes.com/2026/10/11/world/middleeast/saudi-arabia-options-houthis.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/11/world/middleeast/saudi-arabia-options-houthis.html</guid>
+      <ns0:link href="https://www.nytimes.com/2026/10/11/world/middleeast/saudi-arabia-options-houthis.html" rel="standout" />
+      <description>Three deadly attacks by the Iran-backed Houthis in Yemen on an airport in the Saudi capital underscored the asymmetrical nature of their conflict with the kingdom.</description>
+      <pubDate>Sun, 11 Oct 2026 18:24:42 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">War and Armed Conflicts</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">US and Israeli Attack on Iran (2026)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">International Relations</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Oil (Petroleum) and Gasoline</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Civilian Casualties</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Defense and Military Forces</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Ships and Shipping</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Drones (Pilotless Planes)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Iran-Israel War (2025- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Houthis</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Mohammed bin Salman (1985- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Iran</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Middle East</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Red Sea</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Riyadh (Saudi Arabia)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Saudi Arabia</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Strait of Hormuz</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Yemen</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Bab al-Mandab Strait</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Airlines and Airplanes</category>
+      <ns1:content height="1801" medium="image" url="https://static01.nyt.com/images/2026/10/11/multimedia/11int-saudi-assess-bvtm/11int-saudi-assess-bvtm-mediumSquareAt3X-v2.jpg" width="1800" />
+      <ns1:credit>Pool photo by Julie Sebadelha</ns1:credit>
+      <ns1:description>Crown Prince Mohammed bin Salman of Saudi Arabia in Paris in August. Houthi strikes on the Saudi capital, Riyadh, have cast a shadow on his efforts to transform the kingdom into a global hub for business and tourism.</ns1:description>
+    </item>
+    <item>
+      <title>India’s ‘Cockroach’ Leaders Released as Small Protests Go On in Delhi</title>
+      <link>https://www.nytimes.com/2026/10/11/world/asia/india-cockroach-dipke-new-delhi-protests.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/11/world/asia/india-cockroach-dipke-new-delhi-protests.html</guid>
+      <ns0:link href="https://www.nytimes.com/2026/10/11/world/asia/india-cockroach-dipke-new-delhi-protests.html" rel="standout" />
+      <description>The leaders of the Cockroach Janta Party, an Indian youth movement, had been detained by the police on Saturday before they could lead protests over voting rights.</description>
+      <pubDate>Sun, 11 Oct 2026 16:16:44 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">India</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Cockroach Janta Party (India)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Demonstrations, Protests and Riots</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Political Prisoners</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">New Delhi (India)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Youth</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Dipke, Abhijeet</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Politics and Government</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Voting Rights, Registration and Requirements</category>
+      <ns1:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/11/multimedia/11int-india-protests-hjkb/11int-india-protests-hjkb-mediumSquareAt3X.jpg" width="1800" />
+      <ns1:credit>Saumya Khandelwal for The New York Times</ns1:credit>
+      <ns1:description>Ratna Singh, the legal director of the Cockroach Janta Party, left, with Ashutosh Ranka and Saurav Das, two of the group’s leaders, at the Press Club of India in New Delhi on Saturday.</ns1:description>
+    </item>
+    <item>
+      <title>A Russian Spy’s Lone Regret: ‘I Got Caught’</title>
+      <link>https://www.nytimes.com/2026/10/11/world/europe/russia-spy-ukraine.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/11/world/europe/russia-spy-ukraine.html</guid>
+      <ns0:link href="https://www.nytimes.com/2026/10/11/world/europe/russia-spy-ukraine.html" rel="standout" />
+      <description>Though born in Ukraine, Alexsander supports the Russian cause. He wishes he had deleted one photo from his phone.</description>
+      <pubDate>Sun, 11 Oct 2026 09:00:28 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Russian Invasion of Ukraine (2022)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Espionage and Intelligence Services</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Ukraine</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Russia</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Kharkiv (Ukraine)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Israel</category>
+      <ns1:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/09/16/world/00int-ukraine-spy-tnao/00int-ukraine-spy-tnao-mediumSquareAt3X.jpg" width="1800" />
+      <ns1:credit>Maria Varenikova/The New York Times</ns1:credit>
+      <ns1:description>Alexsander at Prison Colony No. 122 in central Ukraine.</ns1:description>
+    </item>
+    <item>
+      <title>Ukraine Shrugs Off Trump Call to Ditch Zelensky for Energy Strikes</title>
+      <link>https://www.nytimes.com/2026/10/11/world/europe/trump-zelensky-diesel-energy-russia-.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/11/world/europe/trump-zelensky-diesel-energy-russia-.html</guid>
+      <ns0:link href="https://www.nytimes.com/2026/10/11/world/europe/trump-zelensky-diesel-energy-russia-.html" rel="standout" />
+      <description>President Trump lashed out at President Volodymyr Zelensky for striking Russian oil refineries. Mr. Zelensky said he’ll stop — if Russia does too.</description>
+      <pubDate>Sun, 11 Oct 2026 17:59:30 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Russian Invasion of Ukraine (2022)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">United States Politics and Government</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">United States International Relations</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Embargoes and Sanctions</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Diesel Power</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Putin, Vladimir V</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Trump, Donald J</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Zelensky, Volodymyr</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Europe</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Kyiv (Ukraine)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Moscow (Russia)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Odessa (Ukraine)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">United States</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Washington (DC)</category>
+      <ns1:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/11/multimedia/11int-ukraine-zelensky-qvtm/11int-ukraine-zelensky-qvtm-mediumSquareAt3X.jpg" width="1800" />
+      <ns1:credit>Genya Savilov/Agence France-Presse — Getty Images</ns1:credit>
+      <ns1:description>President Volodymyr Zelensky of Ukraine at a World War II memorial ceremony in Kyiv on Tuesday.</ns1:description>
+    </item>
+    <item>
+      <title>Wringing Hope From the Rubble of Gaza</title>
+      <link>https://www.nytimes.com/2026/10/11/world/middleeast/wringing-hope-from-the-rubble-of-gaza.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/11/world/middleeast/wringing-hope-from-the-rubble-of-gaza.html</guid>
+      <ns0:link href="https://www.nytimes.com/2026/10/11/world/middleeast/wringing-hope-from-the-rubble-of-gaza.html" rel="standout" />
+      <description>The cease-fire last October ostensibly brought an end to Israel’s war in Gaza after the Hamas-led attacks on Oct. 7, 2023. A year later, however, Israeli strikes, though less frequent, haven’t stopped.</description>
+      <pubDate>Sun, 11 Oct 2026 11:25:54 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Palestinians</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Gaza Strip</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Refugees and Displaced Persons</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Civilian Casualties</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Peace Process</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Hamas</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Terrorism</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Israel</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Defense and Military Forces</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Israel-Gaza War (2023- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">War Crimes, Genocide and Crimes Against Humanity</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">vis-photo</category>
+      <ns1:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/09/22/multimedia/22Gaza-ceasefire-anniversary-05-hjvz/22Gaza-ceasefire-anniversary-05-hjvz-mediumSquareAt3X.jpg" width="1800" />
+      <ns1:description>It’s been a year since Israel and Hamas signed an agreement to end the war in Gaza. But life in Gaza looks nothing like peace.</ns1:description>
+    </item>
+    </channel>
+</rss>

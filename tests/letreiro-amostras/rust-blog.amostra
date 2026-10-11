@@ -1,0 +1,86 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ns0:feed xmlns:ns0="http://www.w3.org/2005/Atom" xml:lang="en">
+    <ns0:generator uri="https://blog.rust-lang.org/" version="0.1.0">Rust Blog</ns0:generator>
+    <ns0:link href="https://blog.rust-lang.org/feed.xml" rel="self" type="application/atom+xml" />
+    <ns0:link href="https://blog.rust-lang.org/" rel="alternate" type="text/html" />
+    <ns0:id>https://blog.rust-lang.org/</ns0:id>
+    <ns0:title>Rust Blog</ns0:title>
+    <ns0:subtitle>Empowering everyone to build reliable and efficient software.</ns0:subtitle>
+    <ns0:author>
+        <ns0:name>Maintained by the Rust Teams.</ns0:name>
+        <ns0:uri>https://github.com/rust-lang/blog.rust-lang.org/</ns0:uri>
+    </ns0:author>
+    <ns0:updated>2026-10-02T11:31:16+00:00</ns0:updated>
+
+    
+    <ns0:entry>
+        <ns0:title>Demoting i686 Windows targets to std-only</ns0:title>
+        <ns0:link rel="alternate" href="https://blog.rust-lang.org/2026/10/02/demoting-i686-windows-targets-to-std-only/" type="text/html" title="Demoting i686 Windows targets to std-only" />
+        <ns0:published>2026-10-02T00:00:00+00:00</ns0:published>
+        <ns0:updated>2026-10-02T00:00:00+00:00</ns0:updated>
+        <ns0:id>https://blog.rust-lang.org/2026/10/02/demoting-i686-windows-targets-to-std-only/</ns0:id>
+        <ns0:content type="html" xml:base="https://blog.rust-lang.org/2026/10/02/demoting-i686-windows-targets-to-std-only/">&lt;p&gt;With Rust 1.100.0, the following changes to 32-bit Windows targets will happen:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;i686-pc-windows-msvc&lt;/code&gt; Tier 1 &lt;em&gt;with&lt;/em&gt; host tools target will be demoted to Tier 1 &lt;em&gt;without&lt;/em&gt; host tools.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;i686-pc-windows-gnu&lt;/code&gt; Tier 2 &lt;em&gt;with&lt;/em&gt; host tools ta</ns0:content>
+
+        <ns0:author>
+            <ns0:name>Mateusz Mikuła, Ralf Jung</ns0:name>
+        </ns0:author>
+    </ns0:entry>
+    <ns0:entry>
+        <ns0:title>Announcing Rust 1.99.0</ns0:title>
+        <ns0:link rel="alternate" href="https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/" type="text/html" title="Announcing Rust 1.99.0" />
+        <ns0:published>2026-10-01T00:00:00+00:00</ns0:published>
+        <ns0:updated>2026-10-01T00:00:00+00:00</ns0:updated>
+        <ns0:id>https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/</ns0:id>
+        <ns0:content type="html" xml:base="https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/">&lt;p&gt;The Rust team is happy to announce a new version of Rust, 1.99.0. Rust is a programming language empowering everyone to build reliable and efficient software.&lt;/p&gt;
+&lt;p&gt;If you have a previous version of Rust installed via &lt;code&gt;rustup&lt;/code&gt;, you can get 1.99.0 with:&lt;/p&gt;
+&lt;pre class="giallo z-code"&gt;&lt;</ns0:content>
+
+        <ns0:author>
+            <ns0:name>The Rust Release Team</ns0:name>
+        </ns0:author>
+    </ns0:entry>
+    <ns0:entry>
+        <ns0:title>Announcing a Maintainer in Residence: Scott Schafer for the Cargo team</ns0:title>
+        <ns0:link rel="alternate" href="https://blog.rust-lang.org/2026/09/22/announcing-a-maintainer-in-residence-scott-schafer-for-the-cargo-team/" type="text/html" title="Announcing a Maintainer in Residence: Scott Schafer for the Cargo team" />
+        <ns0:published>2026-09-22T00:00:00+00:00</ns0:published>
+        <ns0:updated>2026-09-22T00:00:00+00:00</ns0:updated>
+        <ns0:id>https://blog.rust-lang.org/2026/09/22/announcing-a-maintainer-in-residence-scott-schafer-for-the-cargo-team/</ns0:id>
+        <ns0:content type="html" xml:base="https://blog.rust-lang.org/2026/09/22/announcing-a-maintainer-in-residence-scott-schafer-for-the-cargo-team/">&lt;p&gt;At the end of August, we &lt;a rel="external" href="https://blog.rust-lang.org/2026/08/26/announcing-our-first-maintainers-in-residence/"&gt;announced&lt;/a&gt; our first Maintainers in Residence, Rust Project contributors who are funded for their upstream contributions and &lt;a rel="external" href="https://bl</ns0:content>
+
+        <ns0:author>
+            <ns0:name>Jakub Beránek</ns0:name>
+        </ns0:author>
+    </ns0:entry>
+    <ns0:entry>
+        <ns0:title>GitHub Actions leaking secrets when Miri output is cached</ns0:title>
+        <ns0:link rel="alternate" href="https://blog.rust-lang.org/2026/09/21/github-actions-leaking-secrets-when-miri-output-is-cached/" type="text/html" title="GitHub Actions leaking secrets when Miri output is cached" />
+        <ns0:published>2026-09-21T00:00:00+00:00</ns0:published>
+        <ns0:updated>2026-09-21T00:00:00+00:00</ns0:updated>
+        <ns0:id>https://blog.rust-lang.org/2026/09/21/github-actions-leaking-secrets-when-miri-output-is-cached/</ns0:id>
+        <ns0:content type="html" xml:base="https://blog.rust-lang.org/2026/09/21/github-actions-leaking-secrets-when-miri-output-is-cached/">&lt;p&gt;The Rust Security Response Team was notified that Miri stores all environment variables to &lt;code&gt;target/&lt;/code&gt;, allowing secrets to persist in caches.&lt;/p&gt;
+&lt;p&gt;While not necessary a vulnerability in and of itself, when paired with GitHub Actions caching behavior, it is possible for this to expose </ns0:content>
+
+        <ns0:author>
+            <ns0:name>Manish Goregaokar</ns0:name>
+        </ns0:author>
+    </ns0:entry>
+    <ns0:entry>
+        <ns0:title>Be alert: targeted attacks on prominent Rustaceans</ns0:title>
+        <ns0:link rel="alternate" href="https://blog.rust-lang.org/2026/09/17/targeted-attacks/" type="text/html" title="Be alert: targeted attacks on prominent Rustaceans" />
+        <ns0:published>2026-09-17T00:00:00+00:00</ns0:published>
+        <ns0:updated>2026-09-17T00:00:00+00:00</ns0:updated>
+        <ns0:id>https://blog.rust-lang.org/2026/09/17/targeted-attacks/</ns0:id>
+        <ns0:content type="html" xml:base="https://blog.rust-lang.org/2026/09/17/targeted-attacks/">&lt;p&gt;We believe that there is an ongoing campaign targeting rust-lang members and
+owners of popular crates that is attempting to compromise devices and accounts
+in order to use them to publish malware.&lt;/p&gt;
+&lt;h2 id="what-we-ve-seen"&gt;&lt;a class="anchor" href="#what-we-ve-seen" aria-hidden="true"&gt;&lt;/a&gt;
+What </ns0:content>
+
+        <ns0:author>
+            <ns0:name>Adam Harvey</ns0:name>
+        </ns0:author>
+    </ns0:entry>
+    </ns0:feed>

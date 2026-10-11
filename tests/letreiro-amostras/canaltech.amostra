@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:ns0="http://www.w3.org/2005/Atom" version="2.0">
+<channel>
+  <ns0:link href="https://canaltech.com.br/rss/" rel="self" type="application/rss+xml" />
+  <ns0:link href="https://pubsubhubbub.appspot.com/" rel="hub" />
+  <title>Canaltech</title>
+  <description>Confira em tempo real as últimas matérias da redação do Canaltech.</description>
+  <link>https://canaltech.com.br/</link>
+  <language>pt-br</language>
+  <pubDate>Sun, 11 Oct 2026 19:32:38 +0000</pubDate>
+  <ttl>60</ttl>
+  <item>
+    <title>Deixar TV ligada para o pet dormir gasta muita energia? Fizemos as contas</title>
+    <description>&lt;p&gt;&lt;strong&gt;Deixar a televis&amp;atilde;o ligada enquanto o pet dorme&lt;/strong&gt; &amp;eacute; um h&amp;aacute;bito comum para quem acredita que o som ajuda o animal a relaxar ou simplesmente faz companhia durante a noite. A quest&amp;atilde;o &amp;eacute; que esse h&amp;aacute;bito implica em v&amp;aacute;rias horas de funcioname</description>
+    <link>https://canaltech.com.br/tv/deixar-a-tv-ligada-para-o-pet-dormir-gasta-muita-energia-fizemos-a-conta/</link>
+    <guid isPermalink="true">https://canaltech.com.br/tv/deixar-a-tv-ligada-para-o-pet-dormir-gasta-muita-energia-fizemos-a-conta/</guid>
+    <pubDate>Sun, 11 Oct 2026 19:30:00 +0000</pubDate>
+    </item>
+  <item>
+    <title>Atingiu o limite de geração de imagens do ChatGPT? Saiba o que fazer</title>
+    <description>&lt;p&gt;O ChatGPT tem limites para a gera&amp;ccedil;&amp;atilde;o de imagens durante determinados per&amp;iacute;odos, e a quantidade dispon&amp;iacute;vel varia de acordo com o plano contratado. Quando o limite &amp;eacute; atingido, o recurso fica &lt;strong&gt;temporariamente indispon&amp;iacute;vel &lt;/strong&gt;at&amp;eacute; a restaura</description>
+    <link>https://canaltech.com.br/inteligencia-artificial/chatgpt-o-que-fazer-atingir-limite-criacao-imagens/</link>
+    <guid isPermalink="true">https://canaltech.com.br/inteligencia-artificial/chatgpt-o-que-fazer-atingir-limite-criacao-imagens/</guid>
+    <pubDate>Sun, 11 Oct 2026 18:30:05 +0000</pubDate>
+    </item>
+  <item>
+    <title>7 coisas que você precisa fazer na lava-louças para não estragar a bomba de água</title>
+    <description>&lt;p&gt;A lava-lou&amp;ccedil;as pode at&amp;eacute; dar a impress&amp;atilde;o de que faz todo o trabalho sozinha, mas alguns cuidados antes e depois dos ciclos ajudam a evitar problemas na opera&amp;ccedil;&amp;atilde;o do aparelho. Esses h&amp;aacute;bitos preventivos s&amp;atilde;o especialmente importantes para as &lt;strong&gt;part</description>
+    <link>https://canaltech.com.br/eletro/7-coisas-que-voce-precisa-fazer-na-lava-loucas-para-nao-estragar-a-bomba-de-agua/</link>
+    <guid isPermalink="true">https://canaltech.com.br/eletro/7-coisas-que-voce-precisa-fazer-na-lava-loucas-para-nao-estragar-a-bomba-de-agua/</guid>
+    <pubDate>Sun, 11 Oct 2026 18:00:04 +0000</pubDate>
+    </item>
+  <item>
+    <title>Quais são os benefícios  de ter um 2º monitor?</title>
+    <description>&lt;p&gt;A transi&amp;ccedil;&amp;atilde;o de um setup com apenas um monitor para uma mesa com dois monitores representa um dos &lt;strong&gt;saltos mais significativos na usabilidade di&amp;aacute;ria de um PC&lt;/strong&gt;. O uso de uma tela secund&amp;aacute;ria pode ser uma solu&amp;ccedil;&amp;atilde;o pr&amp;aacute;tica para lidar com o </description>
+    <link>https://canaltech.com.br/hardware/beneficios-de-ter-2-monitores/</link>
+    <guid isPermalink="true">https://canaltech.com.br/hardware/beneficios-de-ter-2-monitores/</guid>
+    <pubDate>Sun, 11 Oct 2026 17:30:00 +0000</pubDate>
+    </item>
+  <item>
+    <title>Quase invencível: por que o Doutor Destino será o maior pesadelo dos Vingadores em Doomsday</title>
+    <description>&lt;p&gt;&lt;strong&gt;Victor Von Doom&lt;/strong&gt; &amp;eacute; um dos maiores vil&amp;otilde;es da &lt;strong&gt;Marvel Comics&lt;/strong&gt; e o diretor de &lt;strong&gt;Vingadores: Doutor Destino &lt;/strong&gt;explica a raz&amp;atilde;o pela qual o personagem &lt;strong&gt;ser&amp;aacute; o maior pesadelo dos Her&amp;oacute;is Mais Poderosos da Terra&lt;/strong&gt;</description>
+    <link>https://canaltech.com.br/entretenimento/por-que-doutor-destino-sera-maior-pesadelo-dos-vingadores/</link>
+    <guid isPermalink="true">https://canaltech.com.br/entretenimento/por-que-doutor-destino-sera-maior-pesadelo-dos-vingadores/</guid>
+    <pubDate>Sun, 11 Oct 2026 17:00:03 +0000</pubDate>
+    </item>
+  </channel>
+</rss>

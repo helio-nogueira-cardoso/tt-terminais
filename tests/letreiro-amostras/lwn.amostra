@@ -1,0 +1,68 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:ns0="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>LWN.net</title>
+        <link>https://lwn.net</link>
+        <description> LWN.net is a comprehensive source of news and opinions from
+        and about the Linux community.  This is the main LWN.net feed,
+        listing all articles which are posted to the site front page.
+</description>
+        <language>en-us</language>
+        <pubDate>Sun, 11 Oct 2026 18:01:04 +0000</pubDate>
+        <lastBuildDate>Sun, 11 Oct 2026 18:01:04 +0000</lastBuildDate>
+        <docs>https://www.rssboard.org/rss-specification</docs>
+        <webMaster>lwn@lwn.net</webMaster>
+        <ns0:link href="https://lwn.net/headlines/rss2" rel="self" type="application/rss+xml" />
+    <item>
+        <title>Stable kernels 7.2.10 and 6.18.56</title>
+        <link>https://lwn.net/Articles/1099764/</link>
+        <guid>https://lwn.net/Articles/1099764/</guid>
+        <description>The &lt;a href="https://lwn.net/Articles/1099765/"&gt;7.2.10&lt;/a&gt; and &lt;a
+href="https://lwn.net/Articles/1099766/"&gt;6.18.56&lt;/a&gt; stable kernels have been released.
+Each contains another several hundred important fixes.</description>
+        <pubDate>Sun, 11 Oct 2026 14:35:57 +0000</pubDate>
+        </item>
+        <item>
+        <title>Python 3.15 released</title>
+        <link>https://lwn.net/Articles/1099602/</link>
+        <guid>https://lwn.net/Articles/1099602/</guid>
+        <description>&lt;p&gt;&lt;a href="https://www.python.org/downloads/release/python-3150/"&gt;Version
+3.15&lt;/a&gt; of the Python programming language has been released. Notable changes
+in this release include the addition of the &lt;tt&gt;sentinel&lt;/tt&gt; and &lt;a
+href="https://lwn.net/Articles/1047238/"&gt;&lt;tt&gt;frozendict&lt;/tt&gt;&lt;/a&gt; built-in typ</description>
+        <pubDate>Fri, 09 Oct 2026 17:15:44 +0000</pubDate>
+        </item>
+        <item>
+        <title>[$] Adding kernel control-flow-integrity checking to GCC</title>
+        <link>https://lwn.net/Articles/1098670/</link>
+        <guid>https://lwn.net/Articles/1098670/</guid>
+        <description>While many developers are struggling to keep up with the flood of
+vulnerability reports, others are still focused on preventing those reports
+from happening in the first place.  Control-flow integrity (CFI) is the
+term for preventing (or at least detecting) exploits that divert the flow
+of control f</description>
+        <pubDate>Fri, 09 Oct 2026 17:06:12 +0000</pubDate>
+        </item>
+        <item>
+        <title>[$] The state of systemd: 2026 edition</title>
+        <link>https://lwn.net/Articles/1099024/</link>
+        <guid>https://lwn.net/Articles/1099024/</guid>
+        <description>&lt;p&gt;At the 2026 &lt;a href="https://all-systems-go.io/"&gt;All Systems Go!&lt;/a&gt;
+conference, systemd maintainers Luca Boccassi and Zbigniew Jędrzejewski-Szmek
+delivered the traditional "state of the project" session with an overview of the
+systemd project's accomplishments in the past year. That was followed</description>
+        <pubDate>Fri, 09 Oct 2026 14:58:15 +0000</pubDate>
+        </item>
+        <item>
+        <title>Let's Encrypt moving to 64-day certificate lifetimes in 2027</title>
+        <link>https://lwn.net/Articles/1099588/</link>
+        <guid>https://lwn.net/Articles/1099588/</guid>
+        <description>&lt;p&gt;&lt;a href="https://letsencrypt.org/2026/10/07/64-day-certs.html"&gt;Let's
+Encrypt&lt;/a&gt;, the nonprofit that provides free TLS certificates for millions of
+sites, has &lt;a
+href="https://letsencrypt.org/2026/10/07/64-day-certs.html"&gt;announced&lt;/a&gt; that
+it will be moving to certificates with 64-day lifetimes </description>
+        <pubDate>Fri, 09 Oct 2026 14:02:44 +0000</pubDate>
+        </item>
+        </channel>
+</rss>
