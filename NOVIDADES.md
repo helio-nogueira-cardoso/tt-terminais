@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.19 · 12/10/2026
+- **Avisos de agentes pelo sininho 🔔:** `tt --notificar-daqui` não pisca mais no miolo da faixa de notificações. O aviso entra no contador do 🔔 (que o mantém, de qualquer idade, até você abri-lo) e na central; ⏎ no aviso leva à sessão e ao painel do agente e `^l` marca todos como lidos (`tt --notifs-lidas`). Vale 24 h por padrão. Os demais avisos (e-mail, lembretes de tarefas) seguem piscando na faixa como antes.
+
 ## v1.8.17 · 11/10/2026
 - `tt --session-resolve CÓDIGO` localiza a sessão tmux pelo identificador persistente, inclusive depois de renomeá-la, para reanexar e recuperar seu contexto enquanto ela existir.
 

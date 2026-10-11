@@ -7989,11 +7989,14 @@ faixa_notif_ativa() {
   ! command -v termux-open-url >/dev/null
 }
 
-notificar() { # texto [segundos (padrão 300)] [ação: email|tarefas|calendario|cmd:...]
-  local txt=${1:-} dura=${2:-300} acao=${3:-}
+notificar() { # texto [segundos (padrão 300)] [ação: email|tarefas|calendario|cmd:...] [canal: sino]
+  # canal=sino (avisos de agentes): vão só para o 🔔 (contador + central), nunca piscam no miolo da faixa.
+  local txt=${1:-} dura=${2:-300} acao=${3:-} canal=${4:-}
   [[ -n $txt ]] || return 0
   mkdir -p "$DIR_NOTIFS"
-  printf '%s\t%s\t%s\n' "$(( $(date +%s) + dura ))" "${txt//$'\n'/ }" "$acao" >"$DIR_NOTIFS/$(date +%s%N)"
+  # O `read` do bash junta tabs seguidos: com canal e sem ação, o campo da ação leva "-" (os leitores o tratam como vazio)
+  [[ -z $acao && -n $canal ]] && acao=-
+  printf '%s\t%s\t%s%s\n' "$(( $(date +%s) + dura ))" "${txt//$'\n'/ }" "$acao" "${canal:+$'\t'$canal}" >"$DIR_NOTIFS/$(date +%s%N)"
   ls -1 "$DIR_NOTIFS" 2>/dev/null | sort | head -n -30 | while read -r f; do rm -f "$DIR_NOTIFS/$f"; done
   atualizar_barras
 }
@@ -8006,16 +8009,30 @@ notificar() { # texto [segundos (padrão 300)] [ação: email|tarefas|calendario
 # No slot, só os avisos FRESCOS (nascidos há < TT_NOTIF_SLOT s; padrão 10): piscam ali e depois
 # vivem só na central (🔔), em negrito até serem abertos (marca <id>.lida).
 barra_notifs_avisos() {
-  local agora exp txt _a f itens="" n=0 ns
+  local agora exp txt _a canal f itens="" n=0 ns
   agora=$(date +%s)
   for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$' | head -6); do
-    IFS=$'\t' read -r exp txt _a <"$DIR_NOTIFS/$f" || continue
+    IFS=$'\t' read -r exp txt _a canal <"$DIR_NOTIFS/$f" || continue
+    [[ $canal == sino ]] && continue   # aviso de agente: só o contador do 🔔 (barra_notifs_sino)
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
     ns=${f:0:10}; [[ $ns =~ ^[0-9]+$ ]] || continue
     (( agora - ns < ${TT_NOTIF_SLOT:-10} )) || continue
     n=$((n + 1)); itens+="${itens:+  ·  }${txt}"
   done
   printf '%s\t%s' "$n" "$itens"
+}
+
+# Avisos de agentes (canal sino) ainda não abertos e não expirados, de QUALQUER idade: o contador do 🔔
+# os mantém até alguém abrir o aviso na central (marca <id>.lida) ou marcar todos como lidos (^l).
+barra_notifs_sino() {
+  local agora exp _t _a canal f n=0
+  agora=$(date +%s)
+  for f in $(ls -1 "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$'); do
+    [[ -f $DIR_NOTIFS/$f.lida ]] && continue
+    IFS=$'\t' read -r exp _t _a canal <"$DIR_NOTIFS/$f" || continue
+    [[ $canal == sino ]] && [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) && n=$((n + 1))
+  done
+  printf '%s' "$n"
 }
 
 barra_notifs_fmt() {
@@ -8706,30 +8723,34 @@ usuario_olhando() { # sessão window_id
     awk -F'\t' -v s="$1" -v w="$2" '$1 == s && $3 == w && $2 ~ /(^|,)focused(,|$)/ { achou = 1 } END { exit !achou }'
 }
 
-# Para agentes de IA (e scripts) que rodam num painel do tt: avisa o usuário na faixa/central (e
-# na notificação do sistema, onde houver) com um clique que leva de volta a este painel. Se o
-# usuário já está olhando para esta janela, não avisa (imprime "vendo"); --sempre avisa assim mesmo.
-# Fora do tmux, vira um aviso comum. Imprime "notificado" ou "vendo".
-notificar_daqui() { # texto [segundos] [--sempre]
-  local txt=${1:-} dura=600 sempre=0 a p s w
+# Para agentes de IA (e scripts) que rodam num painel do tt: avisa o usuário pelo 🔔 (contador na barra
+# e central, com um clique que leva de volta a este painel; também na notificação do sistema, onde
+# houver) — sem piscar no miolo da faixa. O aviso fica no contador até ser aberto (padrão 24 h; o
+# 2º argumento troca). Se o usuário já está olhando para esta janela, não avisa (imprime "vendo");
+# --sempre avisa assim mesmo. Fora do tmux, vira um aviso do 🔔 sem destino. Imprime "notificado" ou "vendo".
+notificar_daqui() { # texto [segundos (padrão 86400)] [--sempre]
+  local txt=${1:-} dura=86400 sempre=0 a p s w canal=""
   for a in "${@:2}"; do
     case $a in --sempre) sempre=1 ;; ''|*[!0-9]*) ;; *) dura=$a ;; esac
   done
   [[ -n $txt ]] || { echo 'uso: tt --notificar-daqui "texto" [segundos] [--sempre]' >&2; return 1; }
+  faixa_notif_ativa && canal=sino
   p=${TMUX_PANE:-}
   if [[ -z $p ]] || ! s=$(tmux display-message -p -t "$p" '#{session_name}' 2>/dev/null); then
-    notificar "$txt" "$dura"; echo notificado; return 0
+    notificar "$txt" "$dura" "" "$canal"; echo notificado; return 0
   fi
   w=$(tmux display-message -p -t "$p" '#{window_id}' 2>/dev/null)
   if ((sempre == 0)) && usuario_olhando "$s" "$w"; then echo vendo; return 0; fi
-  tarefas_notificar "🤖 $s" "$txt" "sessao:$s|$p" >/dev/null 2>&1
+  tarefas_notificar "🤖 $s" "$txt" "sessao:$s|$p" "$canal" "$dura" >/dev/null 2>&1
   echo notificado
 }
 
 notifs_clique() { # cliente
-  local c=$1 f exp txt acao agora; agora=$(date +%s)
+  local c=$1 f exp txt acao canal agora; agora=$(date +%s)
   for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$' | head -6); do
-    IFS=$'\t' read -r exp txt acao <"$DIR_NOTIFS/$f" || continue
+    IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$f" || continue
+    [[ $acao == - ]] && acao=""
+    [[ $canal == sino ]] && continue   # aviso de agente não está no slot: o clique do slot não o abre
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
     [[ -n $acao ]] && notif_abrir "$acao" "$c" && { : >"$DIR_NOTIFS/$f.lida"; atualizar_barras; return 0; }
     break
@@ -8755,12 +8776,20 @@ notif_quando() { # epoch
   elif [[ ${dia:0:4} == "${hoje:0:4}" ]]; then date -d "@$ep" '+%d/%m %H:%M'
   else date -d "@$ep" '+%d/%m/%y %H:%M'; fi
 }
+# Marca todos os avisos como lidos (^l na central): zera o contador do 🔔.
+notifs_marcar_lidas() {
+  local f
+  for f in $(ls -1 "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$'); do : >"$DIR_NOTIFS/$f.lida"; done
+  atualizar_barras >/dev/null 2>&1
+  return 0
+}
 notifs_ui() {
-  local c=${1:-} f exp txt acao esc
+  local c=${1:-} f exp txt acao canal esc
   lista() {
     local neg=$'\033[1m' z=$'\033[0m' m
     for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$'); do
-      IFS=$'\t' read -r exp txt acao <"$DIR_NOTIFS/$f" || continue
+      IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$f" || continue
+      [[ $acao == - ]] && acao=""
       [[ -n $txt ]] || continue
       m=""; [[ -f $DIR_NOTIFS/$f.lida ]] || m=$neg # não lida em negrito
       printf '%s\t%s\t%s%s  %s%s%s\n' "${acao:-}" "$f" "$m" "$(notif_quando "${f:0:10}")" "$txt" "${acao:+  ↗}" "$z"
@@ -8768,7 +8797,8 @@ notifs_ui() {
   }
   if command -v fzf >/dev/null && [[ -t 1 ]]; then
     esc=$(lista | fzf --ansi --delimiter=$'\t' --with-nth=3 --layout=reverse --no-sort --no-input \
-      --header='⏎ abre o destino (↗, e marca como lida) · Esc fecha' --bind 'q:abort') || return 0
+      --header='⏎ abre o destino (↗, e marca como lida) · ^l marca todas como lidas · Esc fecha' \
+      --bind "q:abort,ctrl-l:execute-silent($EU --notifs-lidas)+abort") || return 0
     acao=$(cut -f1 <<<"$esc"); f=$(cut -f2 <<<"$esc")
     [[ -n $f && -f $DIR_NOTIFS/$f ]] && { : >"$DIR_NOTIFS/$f.lida"; atualizar_barras >/dev/null 2>&1; }
     [[ -n $acao ]] && notif_abrir "$acao" "${c:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}"
@@ -8776,9 +8806,11 @@ notifs_ui() {
   return 0
 }
 
-tarefas_notificar() { # titulo corpo [ação para o clique na faixa]
-  local t=$1 c=$2 cl ok=1
-  notificar "$t · $c" 600 "${3:-}"
+tarefas_notificar() { # titulo corpo [ação para o clique na faixa] [canal: sino] [segundos (padrão 600)]
+  local t=$1 c=$2 cl ok=1 canal=${4:-}
+  # canal sino = só o 🔔 (contador e central), sem piscar no slot; sem a faixa não há 🔔: segue o caminho antigo
+  faixa_notif_ativa || canal=""
+  notificar "$t · $c" "${5:-600}" "${3:-}" "$canal"
   # Com a faixa ligada o aviso JÁ aparece nela: o display-message por cima da 1ª linha vira
   # redundância que cobre a barra — só entra quando a faixa está desligada.
   if faixa_notif_ativa; then
@@ -11107,7 +11139,8 @@ atualizar_barras() {
       data) valor=$(barra_data) ;;
       hora) valor=$(barra_hora) ;;
       notifs) valor=$(barra_notifs_fmt) ;;
-      notifs_n) { IFS=$'\t' read -r _qn _qi <<<"$(barra_notifs_avisos)"; valor=""; [[ -n $_qi ]] && valor="#[fg=#f9e2af,bold]$_qn#[nobold]"; } ;;
+      # contador do 🔔: avisos frescos (os que piscam no slot) + avisos de agentes ainda não abertos
+      notifs_n) { IFS=$'\t' read -r _qn _qi <<<"$(barra_notifs_avisos)"; _qs=$(barra_notifs_sino); _qn=$(( ${_qn:-0} + ${_qs:-0} )); valor=""; ((_qn > 0)) && valor="#[fg=#f9e2af,bold]$_qn#[nobold]"; } ;;
       notifs_slot) valor="#{E:@barra_notifs}" ;;
       transf0)
         if faixa_notif_ativa; then valor=""
@@ -12997,7 +13030,7 @@ email_avisos_lidos() { # ação (email:SLUG)
   local f exp txt acao n=""
   for f in $(ls -1 "$DIR_NOTIFS" 2>/dev/null); do
     [[ $f == *.lida ]] && continue
-    IFS=$'\t' read -r exp txt acao <"$DIR_NOTIFS/$f" || continue
+    IFS=$'\t' read -r exp txt acao _canal <"$DIR_NOTIFS/$f" || continue
     [[ $acao == "$1" && ! -f $DIR_NOTIFS/$f.lida ]] && { : >"$DIR_NOTIFS/$f.lida"; n=1; }
   done
   [[ -n $n ]] && atualizar_barras >/dev/null 2>&1   # a central deixa de mostrá-los em negrito
@@ -15039,6 +15072,7 @@ case "${1:-}" in
   --notificar-daqui) shift; notificar_daqui "$@"; exit ;;
   --notifs) notifs_popup "${2:-}"; exit ;;
   --notifs-ui) notifs_ui "${2:-}"; exit ;;
+  --notifs-lidas) notifs_marcar_lidas; exit ;;
   --notif-abrir) notif_abrir "${2:-}" "${3:-}"; exit 0 ;;
   --ticker-loop) exit 0 ;; # compatibilidade: o vigia de uma versão antiga ainda chama isto na troca; o letreiro é o #() da barra
   --ticker-quadro) python3 -I "$DIR_TT/letreiro-tt.py" quadro "${2:-}"; exit ;; # [largura]: um quadro do miolo da faixa (diagnóstico)

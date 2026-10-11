@@ -64,3 +64,60 @@ run --notif-abrir 'sessao:sumiu|%4' /dev/pts/1 || true
 ! grep -q 'switch-client' "$T/log" || fail "sessão inexistente não troca"
 grep -q 'não existe mais' "$T/log" || fail "sessão inexistente avisa"
 echo "ok: clique vai à sessão e ao painel; sessão fechada só avisa"
+
+# 5) aviso de agente vai pelo 🔔, não pelo slot da faixa: grava o canal sino; o miolo da faixa (letreiro-tt.py)
+#    não o mostra, mas mostra um aviso comum; o contador do 🔔 o conta
+quadro(){ env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/state" python3 -I "$ROOT/letreiro-tt.py" quadro 140; }
+rm -rf "$T/state/tt/notifs"; : >"$T/log"; clientes '/dev/pts/1|outra|attached,focused,UTF-8|@9'
+run --notificar "aviso comum" 120 >/dev/null
+run --notificar-daqui "precisa de você" >/dev/null
+f=$(grep -l 'precisa de você' "$T"/state/tt/notifs/*)
+[[ $(cut -f4 "$f") == sino ]] || fail "aviso de agente deveria sair com o canal sino: $(cat "$f")"
+[[ $(cut -f3 "$f") == 'sessao:agente|%3' ]] || fail "a ação de voltar à sessão deveria continuar no 3º campo: $(cat "$f")"
+q=$(quadro)
+grep -q 'aviso comum' <<<"$q" || fail "aviso comum deveria aparecer no slot (controle do teste): $q"
+[[ $q != *'precisa de você'* ]] || fail "aviso de agente não deve piscar no slot da faixa: $q"
+grep -q 'set -g @barra_notifs_n #\[fg=#f9e2af,bold\]2#\[nobold\]' "$T/log" || fail "contador do 🔔 deveria somar o comum e o do agente (2): $(grep barra_notifs_n "$T/log" | tail -2)"
+echo "ok: aviso de agente só no 🔔 (nada no slot); aviso comum segue piscando"
+
+# 6) o contador do 🔔 guarda o aviso do agente (de qualquer idade) até ele ser aberto; expirado não conta
+rm -rf "$T/state/tt/notifs"; mkdir -p "$T/state/tt/notifs"
+agora=$(date +%s)
+printf '%s\t%s\t%s\t%s\n' "$((agora + 600))" "🤖 velho · ainda não lido" 'sessao:agente|%3' sino >"$T/state/tt/notifs/$((agora - 3600))000000000"
+printf '%s\t%s\t%s\t%s\n' "$((agora - 5))" "🤖 expirado · não conta" 'sessao:agente|%3' sino >"$T/state/tt/notifs/$((agora - 7200))000000000"
+env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/state" TT_RT="$T/rt" TT_MACHINE=A LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH="$T/bin:$PATH" TMUX_LOG="$T/log" TMUX_CLIENTES="$T/clientes" "$TT" --notificar-daqui "🤖 sem destino" >/dev/null  # fora do tmux (sem TMUX_PANE): aviso do 🔔 sem destino
+mv "$(ls -1d "$T"/state/tt/notifs/* | tail -1)" "$T/state/tt/notifs/$((agora - 1800))000000000"
+[[ $(cut -f3 "$T/state/tt/notifs/$((agora - 1800))000000000") == - && $(cut -f4 "$T/state/tt/notifs/$((agora - 1800))000000000") == sino ]] || fail "aviso sem destino deveria levar - na ação e sino no canal: $(cat "$T/state/tt/notifs/$((agora - 1800))000000000")"
+: >"$T/log"; run --barras >/dev/null 2>&1 || true
+grep -q 'set -g @barra_notifs_n #\[fg=#f9e2af,bold\]2#\[nobold\]' "$T/log" || fail "contador deveria guardar os 2 avisos de agente não lidos e vigentes: $(grep barra_notifs_n "$T/log" | tail -2)"
+[[ $(quadro) != *'ainda não lido'* ]] || fail "aviso velho de agente não deve voltar ao slot"
+# a central lista com o destino (↗) e sem vazar o canal para a ação
+lista=$(run --notifs-ui | sed 's/\x1b\[[0-9;]*m//g')
+grep -q 'ainda não lido  ↗' <<<"$lista" || fail "central deveria marcar o destino (↗): $lista"
+! grep -q 'sino' <<<"$lista" || fail "o canal não pode vazar para o texto da central: $lista"
+grep -q 'sem destino$' <<<"$lista" || fail "aviso sem destino não deve ter ↗ nem o marcador - : $lista"
+# abrir o aviso (marca .lida) tira do contador; ^l marca todos
+: >"$T/state/tt/notifs/$((agora - 3600))000000000.lida"
+: >"$T/log"; run --barras >/dev/null 2>&1 || true
+grep -q 'set -g @barra_notifs_n #\[fg=#f9e2af,bold\]1#\[nobold\]' "$T/log" || fail "aviso aberto deveria sair do contador (sobra 1): $(grep barra_notifs_n "$T/log" | tail -2)"
+run --notifs-lidas
+: >"$T/log"; run --barras >/dev/null 2>&1 || true
+! grep -q 'set -g @barra_notifs_n #\[fg=' "$T/log" || fail "--notifs-lidas deveria zerar o contador: $(grep barra_notifs_n "$T/log")"
+echo "ok: o 🔔 guarda o aviso do agente até abrir (ou ^l); expirado não conta; a central mostra o destino"
+
+# 7) o clique no slot não abre aviso de agente (ele não está lá): sem aviso comum vigente, abre a central
+rm -rf "$T/state/tt/notifs"; : >"$T/log"
+run --notificar-daqui "só no sino" >/dev/null
+: >"$T/log"; run --clique notifx /dev/pts/1 %3 "$T" 0 >/dev/null 2>&1 || true
+! grep -q 'switch-client' "$T/log" || fail "clicar no slot não pode saltar para a sessão de um aviso que nem aparece nele: $(cat "$T/log")"
+grep -q 'display-popup.*notificações' "$T/log" || fail "sem aviso comum vigente o clique no slot deveria abrir a central: $(cat "$T/log")"
+echo "ok: clique no slot ignora avisos só do 🔔 e abre a central"
+
+# 8) sem a faixa (faixa_notif=0) não há 🔔: o aviso do agente segue o caminho antigo (sem canal) e vai à tela dos clientes
+printf 'faixa_notif=0\n' >>"$T/home/.config/tt/config"
+rm -rf "$T/state/tt/notifs"; : >"$T/log"; clientes '/dev/pts/1|outra|attached,focused,UTF-8|@9'
+printf '/dev/pts/1\n' >"$T/clientes"
+run --notificar-daqui "sem faixa" >/dev/null
+f=$(ls "$T"/state/tt/notifs/* | head -1)
+[[ -z $(cut -sf4 "$f") ]] || fail "sem a faixa não deve haver canal sino: $(cat "$f")"
+echo "ok: faixa desligada mantém o caminho antigo"

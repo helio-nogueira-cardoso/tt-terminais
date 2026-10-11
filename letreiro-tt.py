@@ -412,6 +412,8 @@ def avisos_frescos(agora, slot):
         if len(campos) < 2:
             continue
         exp, txt = campos[0], campos[1]
+        if len(campos) > 3 and campos[3] == "sino":
+            continue  # aviso de agente: só no contador do 🔔 e na central, nunca piscando no slot
         if not exp.isdigit() or int(exp) <= agora:
             continue
         ns = nome[:10]

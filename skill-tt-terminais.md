@@ -131,7 +131,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --fixar [maquina:]sessao` — fixa/desafixa a sessão.
 - `tt --fixadas` — lista as fixadas; `tt --barra-fixadas` (interno) formata a faixa.
 - Internos: `--aplicar-fixadas`/`--barras` (liga a 2ª linha), `--ir-fixada`, `--mover-fixada`,
-  `--notificar TEXTO [SEGUNDOS]` (aviso na faixa de notificações, 3ª linha; expira sozinho), `--notificar-daqui TEXTO [SEGUNDOS] [--sempre]` (aviso de agente: só se o usuário não estiver olhando para a janela de onde veio; o clique leva à sessão e ao painel; ver "Agente avisa o usuário"), `--notifs` (histórico), chave `faixa_notif=0|1`. `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
+  `--notificar TEXTO [SEGUNDOS]` (aviso na faixa de notificações, 3ª linha; expira sozinho), `--notificar-daqui TEXTO [SEGUNDOS] [--sempre]` (aviso de agente pelo 🔔: só se o usuário não estiver olhando para a janela de onde veio; abrir o aviso leva à sessão e ao painel; `--notifs-lidas` marca todos como lidos; ver "Agente avisa o usuário"), `--notifs` (histórico), chave `faixa_notif=0|1`. `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
   `--resolver-fixada`. Sync: `--propagar-fixadas`, `--receber-fixadas [V]`, `--puxar-fixadas`,
   `--reconciliar-fixadas`, `--marcar-fixadas`.
 
@@ -790,9 +790,12 @@ tt --notificar-daqui "Preciso da sua aprovação para o push" --sempre      # av
   e a janela do agente (`$TMUX_PANE`), o usuário já está vendo: nada é enviado e sai `vendo`. Vale
   para vistas aninhadas (sessão aberta num painel do tt): o cliente de dentro só tem foco quando o
   painel de fora tem. Por isso o agente pode chamar sem medo de incomodar; o `tt` decide.
-- Para onde vai: faixa de notificações e central 🔔 (texto `🤖 <sessão> · <texto>`, 10 min), mais a
-  notificação do sistema onde houver (`notify-send`, Termux). O clique (ou ⏎ no histórico) leva o
-  cliente à sessão e ao painel de origem (ação `sessao:<sessão>|<painel>`, `notif_ir_sessao`).
+- Para onde vai: o **sininho 🔔** (texto `🤖 <sessão> · <texto>`): o contador da barra e a central. O aviso
+  NÃO pisca no miolo da faixa (canal `sino`, 4º campo do arquivo em `~/.local/state/tt/notifs`) e fica no
+  contador, de qualquer idade, até alguém abri-lo na central ou marcar tudo como lido (`^l`, `--notifs-lidas`);
+  vale 24 h (o 2º argumento troca). Mais a notificação do sistema onde houver (`notify-send`, Termux). Clicar
+  no 🔔 abre a central; ⏎ num aviso leva o cliente à sessão e ao painel de origem (ação `sessao:<sessão>|<painel>`,
+  `notif_ir_sessao`). Sem a faixa (`faixa_notif=0`, não há 🔔) segue o caminho antigo (tela dos clientes).
 - Fora do tmux (sem `$TMUX_PANE`) vira um `tt --notificar` comum. Notificação de outra máquina
   fica na faixa daquela máquina.
 

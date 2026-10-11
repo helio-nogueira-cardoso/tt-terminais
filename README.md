@@ -765,8 +765,9 @@ entre `│  …  │`, com o mesmo respiro mínimo em qualquer largura
 recente (📧 vai para o e-mail, 📋 para as tarefas); botão direito/`tt --notifs` abre o histórico,
 onde ⏎ abre o destino de cada um (↗). `tt --notificar "texto" [segundos] [email|tarefas|calendario|cmd:...]`.
 Agentes de IA (e scripts) num painel do tt avisam com `tt --notificar-daqui "texto" [segundos] [--sempre]`:
-o aviso só sai se você não estiver olhando para a janela de onde ele veio (o tt vê o foco pelo tmux), e o
-clique leva direto àquela sessão e àquele painel.
+o aviso só sai se você não estiver olhando para a janela de onde ele veio (o tt vê o foco pelo tmux). Ele
+vai para o **🔔** (o contador na barra e a central; não pisca no miolo da faixa), fica no contador até você
+abri-lo (⏎ na central leva direto àquela sessão e àquele painel) ou marcar tudo como lido (`^l`), e vale 24 h.
 Com a faixa, a linha das fixadas fica 100% para as fixadas, e o 📧 e o relógio saem da 1ª linha.
 Sem aviso novo, o slot mostra o **🔔** (sempre visível; é a porta do histórico) e, se você ativar
 um **letreiro** (ligado de fábrica; `indicadores=` escolhe as fontes e `indicadores=0` desliga) rolando com as infos (dólar via
