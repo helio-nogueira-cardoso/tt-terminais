@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.5 · 11/10/2026
+- **Sessões do Termux voltam a aparecer por ssh**: o comando remoto do tt passa `TMUX_TMPDIR=$PREFIX/var/run`
+  (onde mora o servidor tmux do Termux). Antes, o ssh sem login não lia o `profile.d` e o tmux olhava
+  `$PREFIX/tmp`, dizendo "não existe ou está inacessível" para sessões vivas (ponte, abrir, listar).
+- **Tarefas iguais em todas as máquinas**: quando duas versões da mesma tarefa empatam em `mudada` e
+  estado, o merge junta as chaves de meta (`pai`, `ord`, `desc`…) em vez de cada máquina guardar a sua.
+  Antes o painel mostrava contagens diferentes (26 × 19) com os mesmos dados.
+
 ## v1.8.4 · 11/10/2026
 - **Proteção adicional para sessões internas**: o nomeador recusa sugerir nomes para sessões `_nome`,
   e a função de renomeação também bloqueia mudanças automáticas nessas sessões, mesmo quando chamada

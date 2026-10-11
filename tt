@@ -1136,8 +1136,10 @@ SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-ne
 # Comandos remotos rodam no shell não interativo de lá. No macOS (zsh) ele não tem o Homebrew no
 # PATH: nem tmux nem o bash novo que o tt exige (o /bin/bash de lá é o 3.2). Todo comando remoto
 # ganha esse PATH na frente; a instalação no macOS também o põe no ~/.zshenv (ver zshenv_bloco).
-PATH_REMOTO='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH; '
-TT_REMOTO='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" ~/.local/bin/tt'
+# Termux: o servidor tmux mora em $PREFIX/var/run (TMUX_TMPDIR do profile.d/boot), que o ssh não interativo
+# não lê; sem isso o tmux olha $PREFIX/tmp e diz "não existe" para sessões vivas.
+PATH_REMOTO='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH; TMUX_TMPDIR="${TMUX_TMPDIR:-$([ -d "${PREFIX:-/x}/var/run" ] && echo "$PREFIX/var/run")}"; export TMUX_TMPDIR; '
+TT_REMOTO='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" TMUX_TMPDIR="${TMUX_TMPDIR:-$([ -d "${PREFIX:-/x}/var/run" ] && echo "$PREFIX/var/run")}" ~/.local/bin/tt'
 # Estado compartilhado entre processos do tt (pidfile do vigia, caches, transferências): sempre o
 # mesmo diretório, venha o processo do tmux, de um popup, do ssh ou do vigia. Não depende de
 # XDG_RUNTIME_DIR, que uns têm e outros não (a barra e a tela olhavam pastas diferentes).
@@ -6402,15 +6404,28 @@ versao_tarefas()   { local v; v=$(cat "$CONF_TAREFAS.v" 2>/dev/null); echo "${v:
 marcar_tarefas()   { date +%s%N >"$CONF_TAREFAS.v"; }
 
 # Une duas ou mais fontes de tarefas (arquivos) por id, vencendo o maior "mudada" (empate: estado
-# removida ganha de feita, que ganha de aberta — a remoção não pode ser perdida). Imprime o
-# conjunto unido no formato canônico, ordenado.
+# removida ganha de feita, que ganha de aberta — a remoção não pode ser perdida). No empate total
+# (mesmo "mudada" e mesmo estado) as duas linhas se fundem: vence a de texto maior (determinístico, igual
+# em toda máquina) e ela ganha as chaves de meta que só a outra tinha (pai, ord, desc…); sem isso cada
+# máquina guardava a sua versão para sempre e a lista de tarefas ficava diferente entre elas.
+# Imprime o conjunto unido no formato canônico, ordenado.
 tarefas_merge() {
   awk -F'\t' -v OFS='\t' '
     function rank(e){ return e=="removida"?4:(e=="arquivada"?3:(e=="feita"?2:(e=="aberta"?1:0))) }
+    function unir(base, outra,    n, i, par, k, ma, ex, r) {
+      n = split(outra, ma, "|"); r = base
+      for (i = 1; i <= n; i++) { par = ma[i]; k = par; sub(/=.*/, "", k)
+        if (k != "" && index("|" base, "|" k "=") == 0) r = (r == "" ? par : r "|" par) }
+      return r
+    }
     NF >= 5 && $1 ~ /^[0-9a-f]{6,}$/ {
       id=$1
       if (!(id in m) || $4+0 > md[id]+0 || ($4+0==md[id]+0 && rank($2) > rank(st[id]))) {
         m[id]=$0; md[id]=$4; st[id]=$2
+      } else if ($4+0==md[id]+0 && rank($2)==rank(st[id]) && $0 != m[id]) {
+        split(m[id], a, "\t"); b6 = $6; a6 = a[6]
+        if ($0 > m[id]) { t = a6; a6 = b6; b6 = t; split($0, a, "\t") }  # a = linha base (maior); b6 = meta da outra
+        a[6] = unir(a6, b6); m[id] = a[1] OFS a[2] OFS a[3] OFS a[4] OFS a[5] (a[6] == "" ? "" : OFS a[6])
       }
     }
     END { for (id in m) print m[id] }
