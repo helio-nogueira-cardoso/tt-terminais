@@ -1025,22 +1025,43 @@ def demanda(caminho):
     except Exception:
         corpo = ""
     subs, desc = [], []
-    for ln in corpo.replace("\r", "").split("\n")[:400]:
+    trailer = ""
+    linhas = corpo.replace("\r", "").split("\n")[:400]
+    for i, ln in enumerate(linhas):
         if ln.rstrip() == "--":                      # assinatura ("-- " com espaço também)
+            # o tt escreve aqui, depois da assinatura, a linha "tt:2 estado=… removidas=…" (protocolo v2): um tt
+            # antigo ignora tudo depois da assinatura, então o e-mail continua legível e válido para ele
+            for t in linhas[i + 1:i + 6]:
+                mt = re.match(r"^tt:2(?:\s+(.*))?$", t.strip())
+                if mt:
+                    trailer = mt.group(1) or ""
+                    break
             break
         if ln.startswith(">"):                       # citação de resposta
             continue
         m = re.match(r"^\s*[-*•]\s+(?:\[([0-9a-fA-F]{6,16})\]\s+)?(?:\[([xX ])\]\s+)?(\S.*)$", ln)
         if m and len(subs) < 30:
-            # cod<TAB>estado<TAB>texto: "- [código] [x] texto" (código e [x] opcionais; "-" quando faltam)
-            subs.append("\t".join([(m.group(1) or "-").lower(), "f" if (m.group(2) or "").lower() == "x" else "-",
-                                   " ".join(m.group(3).split())[:200]]))
+            # cod<TAB>estado<TAB>texto: "- [código] [x] texto" (código e [x] opcionais; "-" quando faltam;
+            # "a" = "[ ]" explícito, "f" = "[x]")
+            marca = m.group(2)
+            est = "-" if marca is None else ("f" if marca.lower() == "x" else "a")
+            subs.append("\t".join([(m.group(1) or "-").lower(), est, " ".join(m.group(3).split())[:200]]))
         else:
             desc.append(ln.rstrip())
     descricao = "\n".join(desc).strip()[:8000]
     # "-" no lugar de vazio: o read do Bash com IFS=TAB juntaria os campos vazios vizinhos.
     b = lambda t: base64.b64encode(t.encode("utf-8")).decode("ascii") or "-"
-    print("\t".join([de or "-", mid, str(epoch), autenticacao(msg, de), b(assunto), b(descricao), b("\n".join(subs))]))
+    # só valores conhecidos passam do rodapé (é dado não confiável): estado aberta|feita e até 30 códigos hex
+    kv = {}
+    for tok in trailer.split():
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            kv[k] = v
+    est = kv.get("estado", "")
+    rem = [c for c in kv.get("removidas", "").lower().split(",") if re.fullmatch(r"[0-9a-f]{6,16}", c)][:30]
+    ext = ("estado=" + est + "\n" if est in ("aberta", "feita") else "") + ("removidas=" + ",".join(rem) + "\n" if rem else "")
+    ext = ("v2=1\n" + ext) if trailer != "" or ext else ""
+    print("\t".join([de or "-", mid, str(epoch), autenticacao(msg, de), b(assunto), b(descricao), b("\n".join(subs)), b(ext) if ext else "-"]))
     return 0
 
 

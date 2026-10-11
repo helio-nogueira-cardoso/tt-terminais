@@ -150,17 +150,18 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `tarefas_frase_ler`), `tt --tarefa-renomear ID "texto"` (só o texto); `tt --tarefas-ajuda` imprime o
   "Como usar" do painel. `tt --calendario [epoch]` é o seletor de prazo (imprime `EPOCH`, `EPOCH 1`
   com horário, `limpar` ou nada); `tt --calendario-agenda [dia]` é a agenda (relógio da barra).
-- Código e apelido (cada tarefa/subtarefa): `tt --tarefa-codigo [ID]` imprime `apelido<TAB>código<TAB>texto` (sem
+- Código e apelido (cada tarefa/subtarefa): `tt --tarefa-codigo [ID]` imprime `apelido<TAB>código<TAB>texto<TAB>referência` (sem
   argumento, de todas as vivas). O **código** é o próprio id (12 hex; igual em toda máquina e em e-mails) e o
   **apelido** (`kito47`: CVCV + 2 dígitos) sai dele (`tarefa_slug`; não é guardado). Todo verbo `--tarefa-*` que recebe
   ID (`ok abrir rm arquivar restaurar editar frase renomear sub-add desc implementar ia-prompt email codigo log
   historico`) e `--demanda-aprovar/recusar` aceita apelido, código, prefixo do código (4+ hex) e `MÃE.N`
   (`kito47.2`); ambíguo lista as candidatas e sai 1; apelido/`MÃE.N` que não existe sai 1 (`tarefas_resolver`).
+  Subtarefa também aceita `MÃE.APELIDO-DA-SUB` e `MÃE.PREFIXO-DO-CÓDIGO` (procurados só entre as filhas daquela mãe).
 - Registro de trabalho: `tt --tarefa-log ID "o que fez" [--como T] [--agente A] [--modelo M] [--esforco E]
   [--tokens-ent N --tokens-sai N | --tokens N] [--brl V] [--conta C] [--email E] [--sessao S] [--maquina M]` acrescenta
   um bloco `⟡ AAAA-MM-DD HH:MM · apelido` (fez/como/por/conta/uso) ao FIM da descrição; `tt --tarefa-historico ID` mostra os
   blocos da tarefa e das subtarefas e o total de tokens e R$. Ver a seção "Tarefas: código, apelido, registro e e-mail".
-- E-mail de compartilhamento: `tt --tarefa-email ID [destinatário]` imprime Para/Assunto/corpo e um link `mailto:`.
+- E-mail de compartilhamento: `tt --tarefa-email ID [destinatário] [--abrir]` imprime Para/Assunto/corpo e um link `mailto:` (`--abrir` abre o e-mail pronto no compositor); `tt --tarefas-email DESTINO ID…` abre um por tarefa; recebido: `tt --demanda-diff|--demanda-merge|--demanda-aprovar [--recebida|--minha] ID`, `--demandas-aprovar-limpas`, `--demandas-recusar-todas`.
 - Conclusão (`tarefa_concluir`): mãe só conclui com todas as subtarefas feitas (senão imprime as
   que faltam e devolve 2; no painel vira a linha ⚠ `aviso=` do cabeçalho, mostrada uma vez; o
   `--tarefa-ok` sai 1 com a lista). A última subtarefa não conclui a mãe. Reabrir/criar subtarefa
@@ -654,7 +655,15 @@ reinjeta esta skill e as regras curtas (`agentes-regras-tt.md`) em todas as IAs 
 - **Código** = id da tarefa (12 hex). Único por construção (hash de máquina, hora em ns e pid), igual em todas as máquinas
   e nos e-mails; é ele que decide se "é a mesma tarefa". **Apelido** = forma curta e falável derivada do código
   (`kito47`; 562 500 combinações; o mesmo em toda máquina; se dois colidirem, o verbo lista as candidatas e pede o código).
-- Subtarefa também tem código e apelido; `MÃE.N` (ex.: `kito47.2`) é a N-ésima subtarefa daquela mãe.
+- Subtarefa também tem código e apelido próprios (`tt --tarefa-codigo` mostra a referência estável `MÃE.apelido` na 4ª coluna, ex.:
+  `kito47.ruzi83`). `MÃE.N` (ex.: `kito47.2`) é a **posição** da subtarefa entre as filhas vivas de hoje (ordem: `ord`,
+  hora de criação, código — a mesma no painel, no cartão e na linha de comando) e **desliza** quando outra entra, sai ou
+  muda de lugar: serve para olhar, nunca para alterar de forma automática. Os verbos que alteram imprimem em stderr
+  `→ kito47.ruzi83 «texto» (subtarefa de «mãe»)` quando o alvo não foi dado pelo código inteiro (por posição, avisam).
+  Só tarefa de topo tem subtarefa (`--tarefa-sub-add` numa subtarefa é recusado). O código é sorteado uma vez na criação
+  (nunca derivado do conteúdo) e não repete um existente. O apelido tem 562 500 valores (8 primeiros hex), compartilhados com
+  as tarefas: pode repetir (100 itens ≈ 0,8%; 500 ≈ 19%); repetido entre irmãs ou globalmente, o resolvedor lista as
+  candidatas e pede o código.
 - Onde aparecem: na lista do painel (apelido antes do título; `.N` nas subtarefas; código inteiro no fim da linha em painel largo,
   80+ colunas; a busca acha por eles), no cartão da tarefa (`^/`), topo do menu ⋯ da tarefa, `tt --tarefas` (texto),
   `tt --tarefa-codigo`. O usuário pode dizer só "a kito47"; resolva com `tt --tarefa-codigo kito47`.
@@ -692,21 +701,30 @@ Cada registro vira um bloco no fim da descrição da tarefa/subtarefa, em cinza 
 - **Ler:** `tt --tarefa-historico ID` (tarefa + subtarefas, com total de tokens e R$).
 - O log só acrescenta (preserva `aidlc:` e as notas do dono). Testes: `tests/test_tarefas_codigo.sh`.
 
-### 4. Compartilhar por e-mail = upsert pelo código
-- **Enviar:** `tt --tarefa-email ID [destinatário]` gera `Assunto: [tt] título @prazo !prio #tag ~CÓDIGO` e o corpo (descrição +
-  `- [CÓDIGO] [x] texto` por subtarefa) e um `mailto:`. Só tarefa de topo (subtarefa: a mãe).
-- **Receber** (remetente autorizado, ver verbos de demandas; mesmo fluxo e mesmas regras de segurança):
-  - `~CÓDIGO` ausente → demanda nova como sempre (id do Message-ID).
-  - código que **não existe** aqui (ou ainda é pendente) → nasce PENDENTE **com o mesmo código** (e subtarefas com os códigos do
-    remetente); aprovada, as próximas mensagens com esse código a atualizam. Um e-mail mais novo sobre a mesma pendente a substitui.
-  - código que **existe** (aberta, feita, arquivada) → vira uma **proposta de atualização** na aba Entrada (ícone ↻, "atualização · de x"):
-    **aprovar** aplica na tarefa existente (texto, prazo, prioridade, repetição, etiquetas; descrição só se veio; subtarefas por código —
-    atualiza a que já é filha, cria a que falta, `[x]` conclui; sem código, acrescenta se não houver uma de mesmo texto; mãe feita com
-    subtarefa aberta reabre); **recusar** não toca nela. Nada muda sem aprovação.
-  - código de tarefa **removida** → ignorado (remoção nunca ressuscita). Mesma mensagem processada de novo: sem efeito.
-- Conflito de código é minimizado por construção (48 bits com máquina+hora+pid) e, mesmo se ocorresse, a atualização é só uma
-  proposta que o dono aprova ao ver.
-- `tt --demandas-pendentes` mostra `[atualiza CÓDIGO]` nas propostas.
+### 4. Compartilhar por e-mail = upsert pelo código, em três vias
+- **Enviar:** menu ⋯ → ✉ (ou `tt --tarefa-email ID [destinatário] [--abrir]`, `tt --tarefas-email DESTINO ID…`; `TT_EMAIL_MAILTO_CMD` troca o
+  compositor) gera `Assunto: [tt] título @prazo !prio #tag ~CÓDIGO` e o corpo: descrição **sem os blocos `⟡` do diário** (conta, e-mail,
+  máquina, tokens e custo não viajam), `- [CÓDIGO] [x]|[ ] texto` por subtarefa e, depois da assinatura `-- `, o rodapé do protocolo v2
+  `tt:2 estado=aberta|feita removidas=COD,COD`. Um tt antigo ignora tudo depois da assinatura (continua válido para ele). Só tarefa de topo.
+  Enviar grava a **base** (meta `base=`): a versão enviada.
+- **Receber** (remetente autorizado, ver verbos de demandas; mesmas regras de segurança):
+  - `~CÓDIGO` ausente → demanda nova como sempre (id do Message-ID; reenviar duas vezes cria duas — por isso o código).
+  - código que **não existe** aqui (ou ainda é pendente) → nasce PENDENTE **com o mesmo código** (e subtarefas com os códigos do remetente,
+    se livres); `[x]` e o estado da tarefa chegam como estavam; um e-mail mais novo do mesmo remetente substitui a pendente.
+  - código que **existe** → **atualização** (↻) na Entrada, em **três vias** (`tarefas-merge.py`): `atual` × `recebida` × `base` (a última
+    versão que os dois viram: gravada ao enviar e ao aplicar). Por campo (título, prazo, prioridade, repetição, etiquetas, descrição,
+    situação) e por subtarefa (texto, situação, nova, removida): `igual` nada; `minha` só você mudou → fica; `entrada` só o e-mail mudou →
+    entra; `conflito` os dois mudaram (ou não há base e diferem) → **ninguém grava até decidir**. Sem base (tarefa nunca trocada por e-mail)
+    o que difere é conflito. E-mail legado (sem `tt:2`): `[x]` conclui, falta de `[x]` não reabre.
+  - **Triagem ao chegar:** sem diferença em relação à tarefa, superada por uma mais nova do mesmo remetente, ou substituída pela nova → descartada
+    sem aviso. Código de subtarefa que já é de outra coisa (ou removida) nunca é tomado: a subtarefa entra nova, com código daqui (`colide=`).
+    `~CÓDIGO` que aponta para uma subtarefa daqui vira demanda nova. Código de tarefa **removida** → ignorado.
+- **Decidir:** `tt --demanda-diff ID` (texto), `tt --demanda-merge ID` (tela única no vim: botões clicáveis + teclas `r m b e u A M Tab`,
+  `Ctrl+S` aplica / `Q` cancela; sem vim, pergunta no terminal), `tt --demanda-aprovar [--recebida|--minha] ID` (sai **4** se houver conflito
+  sem escolha e não grava nada), `--demandas-aprovar-limpas`, `--demandas-recusar-todas`. Na Entrada: ⇄ revisar mudanças, ✓ aprovar (com
+  conflito abre a revisão), aprovar todas as sem conflito, recusar todas. Aprovar grava a base nova (a versão que chegou).
+- `tt --demandas-pendentes` mostra `[atualiza CÓDIGO]` nas propostas. Testes: `tests/test_tarefas_merge.sh`, `test_tarefas_enviar.sh`,
+  `test_tarefas_identidade.sh`.
 
 ### 5. Reforço pelo vigia (como estas regras chegam às IAs)
 - `instalar_regras_agentes` grava `agentes-regras-tt.md` entre marcadores `<!-- tt-managed:regras-tt BEGIN … END -->` em

@@ -1749,7 +1749,7 @@ ajuda() {
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
-  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py)
+  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -6171,11 +6171,14 @@ demandas_puxar() { # junta os cadastros das outras máquinas (o vigia chama com 
 #    e subtarefas por código), recusar não toca nela;
 #  - foi removida aqui: ignorada (remoção nunca ressuscita).
 # Subtarefas chegam como linhas "cod<TAB>estado<TAB>texto" (cod/estado "-" quando faltam).
-demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas
-  local de=$1 msgid=$2 epoch=$3 tag=$4 frase=$5 desc=$6 subs=$7 id now t meta tags i=0 scod sest sub sid sm cod est upd=""
+demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas [extras do protocolo v2: linhas k=v]
+  local de=$1 msgid=$2 epoch=$3 tag=$4 frase=$5 desc=$6 subs=$7 ext=${8:-} id now t meta tags i=0 scod sest sub sid sm cod est upd="" se vistos=" " v2="" iest="" rem="" d descartada=0
   id=$(printf 'demanda\0%s' "$msgid" | sha256sum | cut -c1-12)
   tarefas_frase_ler "$frase" || return 1
   cod=$TT_F_COD
+  # Código é identidade: o de uma SUBTAREFA nunca é o de uma tarefa. Um "~código" que aponta para uma subtarefa
+  # daqui (de qualquer tarefa) não vale; a mensagem é tratada como demanda nova, sem código.
+  if [[ -n $cod && -n $(tarefas_pai_de "$cod") ]]; then cod=""; fi
   if [[ -n $cod ]]; then
     est=$(tarefas_estado_de "$cod")
     case $est in
@@ -6200,6 +6203,13 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas
   [[ -n $tags ]] && meta=$(tarefas_meta_set "$meta" tags "$tags")
   meta=$(tarefas_meta_set "$meta" de "${de//[^A-Za-z0-9._%+@-]/}")
   [[ -n $upd ]] && meta=$(tarefas_meta_set "$meta" upd "$upd")
+  # Protocolo v2 (rodapé "tt:2 …" do e-mail): estado da tarefa na origem e subtarefas que ela removeu.
+  if [[ $ext == *v2=1* ]]; then
+    v2=1; meta=$(tarefas_meta_set "$meta" v2 1)
+    iest=$(sed -n 's/^estado=//p' <<<"$ext")
+    case $iest in feita) meta=$(tarefas_meta_set "$meta" iest f) ;; aberta) meta=$(tarefas_meta_set "$meta" iest a) ;; esac
+    rem=$(sed -n 's/^removidas=//p' <<<"$ext"); [[ -n $rem ]] && meta=$(tarefas_meta_set "$meta" rem "$rem")
+  fi
   tarefas_travar || return 1
   mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
   {
@@ -6211,14 +6221,35 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas
       sm=$(tarefas_meta_set "" pai "$id"); sm=$(tarefas_meta_set "$sm" ord "$i")
       if [[ $scod =~ ^[0-9a-f]{6,16}$ ]]; then
         if [[ -n $upd ]]; then sm=$(tarefas_meta_set "$sm" scod "$scod")
-        else sid=$scod; fi
+        else
+          # O código que o remetente deu só vale se estiver livre ou já for desta mesma tarefa (pendente que um
+          # e-mail mais novo substitui). Se já é de outra coisa (aberta, feita, arquivada, removida, de outra
+          # tarefa) ou se repete na própria mensagem, esta subtarefa nasce com código novo: nunca toma o lugar
+          # de uma que existe nem ressuscita uma removida.
+          se=$(tarefas_estado_de "$scod")
+          if [[ $scod != "$id" && $vistos != *" $scod "* ]] &&
+             { [[ -z $se ]] || { [[ $se == pendente && $(tarefas_pai_de "$scod") == "$id" ]]; }; }; then sid=$scod
+          else sm=$(tarefas_meta_set "$sm" colide "$scod"); fi
+          vistos+="$scod "
+        fi
       fi
-      [[ -n $upd && $sest == f ]] && sm=$(tarefas_meta_set "$sm" sest f)
+      # [x] vale também na primeira entrega; "[ ]" explícito (só no protocolo v2) é "aberta" de propósito.
+      case $sest in f) sm=$(tarefas_meta_set "$sm" sest f) ;; a) [[ -n $v2 ]] && sm=$(tarefas_meta_set "$sm" sest a) ;; esac
       printf '%s\tpendente\t%s\t%s\t%s\t%s\n' "$sid" "$t" "$t" "$sub" "$sm"
     done <<<"$subs"
   } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
   mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
+  # Triagem das atualizações: sem diferença em relação à tarefa daqui, superada por uma mais nova do mesmo
+  # remetente, ou que substitui as velhas dele. A nova que não traz nada de novo não vira demanda (nem aviso).
+  if [[ -n $upd ]]; then
+    while read -r d; do
+      [[ -n $d ]] || continue
+      [[ $d == "$id" ]] && descartada=1
+      tarefas_demanda_mudar_linhas recusar "$d" >/dev/null
+    done < <(python3 -I "$MERGE_PY" triagem "$CONF_TAREFAS" "$id" 2>/dev/null)
+    ((descartada)) && return 1
+  fi
   atualizar_barras 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
   printf '%s\n' "$id"
@@ -6228,19 +6259,73 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas
 # o tt e você como remetente autorizado, ATUALIZA a mesma tarefa em vez de criar outra) e o corpo, a
 # descrição e as subtarefas "- [código] [x] texto". Imprime Para/Assunto/corpo e, por último, um link
 # mailto: que qualquer cliente abre. Subtarefa: compartilhe a tarefa mãe.
+# Abre o e-mail da tarefa JÁ PREENCHIDO (Para, Assunto "[tt] … ~código" e corpo com as subtarefas e o rodapé v2) para o
+# dono só conferir e enviar. Ordem: TT_EMAIL_MAILTO_CMD (comando que recebe a URL mailto:, para quem usa outro cliente e
+# para testes) → o compositor do tt (aerc, pelo IPC, depois de mostrar a tela de e-mail) → o cliente padrão do sistema →
+# só o texto. Uma tarefa por e-mail: cada uma tem a sua conversa e o seu ~código.
+tarefa_email_compor() { # id [destinatário] [cliente]
+  local id=$1 dest=${2:-} c=${3:-} out url i
+  out=$(tarefa_email "$id" "$dest") || return 1
+  url=$(tail -n1 <<<"$out")
+  if [[ -n ${TT_EMAIL_MAILTO_CMD:-} ]]; then
+    local -a cmd; read -ra cmd <<<"$TT_EMAIL_MAILTO_CMD"; "${cmd[@]}" "$url" >/dev/null 2>&1 </dev/null; return $?
+  fi
+  [[ -n $c ]] || c=$(tmux display-message -p '#{client_name}' 2>/dev/null) || true
+  if [[ -n $c && -z ${TT_EMAIL_SEM_POPUP:-} ]]; then
+    if tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null && email_ipc "$url"; then :
+    else
+      # o popup sobe o aerc; o compositor abre assim que o IPC responder
+      ( for ((i = 0; i < 40; i++)); do sleep 0.5; email_ipc "$url" && break; done ) >/dev/null 2>&1 </dev/null &
+    fi
+    botao_email "$c"; return 0
+  fi
+  if email_ipc "$url"; then return 0; fi
+  if command -v xdg-open >/dev/null && [[ -n ${DISPLAY:-}${WAYLAND_DISPLAY:-} ]]; then xdg-open "$url" >/dev/null 2>&1 </dev/null & return 0; fi
+  printf '%s\n' "$out"
+}
+# Tela de envio: escolhe tarefas (várias com Tab; ou já vêm nos argumentos) e o(s) destinatário(s); abre um e-mail por tarefa.
+tarefas_email_ui() { # [id…]
+  local -a ids=("$@"); local dest ult="$ESTADO_DIR/tarefas-email-ultimo" id
+  if ((${#ids[@]} == 0)); then
+    mapfile -t ids < <(tarefas_topo_ordenadas | awk -F'\t' '$2 == "aberta" || $2 == "feita" { print $1 }' | while read -r id; do
+      printf '%s\t%s  %s\n' "$id" "$(tarefa_slug "$id")" "$(tarefas_raw | awk -F'\t' -v i="$id" '$1 == i { print $5; exit }')"; done |
+      fzf --multi --delimiter=$'\t' --with-nth=2 --prompt='tarefas a enviar (Tab marca, ⏎ confirma) > ' --height=100% --reverse |
+      cut -f1)
+  fi
+  ((${#ids[@]})) || return 0
+  if [[ -n ${TT_EMAIL_PARA:-} ]]; then dest=$TT_EMAIL_PARA   # sem perguntar (scripts, testes)
+  else
+    printf '\n  Enviar %s tarefa(s) por e-mail. Para quem? (vários separados por vírgula)\n' "${#ids[@]}"
+    read -r -e -p '  Para: ' -i "$(cat "$ult" 2>/dev/null)" dest </dev/tty || return 0
+  fi
+  [[ -n $dest ]] || return 0
+  mkdir -p "$ESTADO_DIR"; printf '%s' "$dest" >"$ult"
+  for id in "${ids[@]}"; do tarefa_email_compor "$id" "$dest" "${TT_CLIENTE:-}"; done
+}
+# O diário de trabalho (blocos "⟡ …": máquina, sessão, conta e e-mail, tokens, custo) é do dono e não viaja.
+tarefa_desc_sem_log() { awk '/^⟡ /{ l = 1 } l && /^$/ { l = 0; next } !l { print }' | cat -s; }
 tarefa_email() { # id [destinatário]
-  local id=$1 dest=${2:-} frase desc corpo si sest stxt
+  local id=$1 dest=${2:-} frase desc corpo si sest stxt rem est
   [[ -n $(tarefas_pai_de "$id") ]] && { echo "é subtarefa: compartilhe a tarefa mãe ($(tarefa_slug "$(tarefas_pai_de "$id")"))" >&2; return 1; }
   frase=$(tarefas_frase_de "$id") || { echo "tarefa $id não existe" >&2; return 1; }
-  desc=$(tarefa_get_desc "$id" | sed -E 's/^([[:space:]]*)[-*•][[:space:]]/\1– /')
+  desc=$(tarefa_get_desc "$id" | tarefa_desc_sem_log | sed -E 's/^([[:space:]]*)[-*•][[:space:]]/\1– /')
   corpo=${desc:+$desc$'\n\n'}
   while IFS=$'\t' read -r si sest stxt; do
     [[ -n $si ]] || continue
-    corpo+="- [$si]$([[ $sest == feita ]] && echo ' [x]') $stxt"$'\n'
+    corpo+="- [$si] [$([[ $sest == feita ]] && echo x || echo ' ')] $stxt"$'\n'
   done < <(tarefas_filhas "$id")
+  # Protocolo v2: depois da assinatura ("-- ", que um tt antigo e qualquer leitor ignoram) vai o estado da tarefa
+  # e os códigos das subtarefas que foram removidas aqui, para quem recebe poder propor a mesma remoção.
+  est=$(tarefas_estado_de "$id"); [[ $est == feita ]] || est=aberta
+  rem=$(tarefas_raw | awk -F'\t' -v p="$id" '
+    function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
+    $2 == "removida" && mv($6, "pai") == p { print $4 "\t" $1 }' | sort -rn | head -30 | cut -f2 | paste -sd, -)
+  corpo+=$'\n-- \n'"tt:2 estado=$est${rem:+ removidas=$rem}"$'\n'
   frase="[tt] $frase ~$id"
   printf 'Para: %s\nAssunto: %s\n\n%s\n' "$dest" "$frase" "$corpo"
   python3 -I -c 'import sys,urllib.parse as u; print("mailto:"+u.quote(sys.argv[1])+"?subject="+u.quote(sys.argv[2])+"&body="+u.quote(sys.argv[3]))' "$dest" "$frase" "$corpo"
+  # a versão enviada é a base do próximo confronto
+  tarefa_base_gravar "$id" 2>/dev/null || true
 }
 
 # Aplica uma proposta de atualização (linha pendente com upd=CÓDIGO) na tarefa alvo; não mexe na
@@ -6248,7 +6333,92 @@ tarefa_email() { # id [destinatário]
 # (como ✎ Editar); a descrição só muda se o e-mail trouxe uma. Subtarefas: com código, atualiza a que já
 # é filha desta tarefa ou cria com esse código (removida não ressuscita); sem código, acrescenta se não
 # houver uma de mesmo texto. Alvo que sumiu/removido: não cria nada.
-tarefa_aplicar_proposta() { # id-da-proposta
+# Grava de uma vez linhas de tarefa novas (stdin, TSV de 6 campos): para cada id vale a de "mudada" mais nova.
+tarefas_aplicar_linhas() {
+  local novas; novas=$(cat); [[ -n $novas ]] || return 0
+  tarefas_travar || return 1
+  mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
+  { cat "$CONF_TAREFAS"; printf '%s\n' "$novas"; } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
+  mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tarefas_destravar
+  atualizar_barras 2>/dev/null
+  ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
+}
+# "id:situação:mudanças:conflitos" de cada atualização pendente (situação: igual|limpo|conflito), para a aba Entrada.
+tarefas_props_resumo() {
+  local p r a b c
+  for p in $(tarefas_raw | awk -F'\t' '$2 == "pendente" && $6 ~ /(^|\|)upd=/ && $6 !~ /(^|\|)pai=/ { print $1 }'); do
+    r=$(python3 -I "$MERGE_PY" estado "$CONF_TAREFAS" "$p" 2>/dev/null) || continue
+    IFS=$'\t' read -r a b c <<<"$r"; printf '%s:%s:%s:%s ' "$p" "$a" "$b" "$c"
+  done
+}
+# Aprova de uma vez tudo o que está na Entrada e não tem conflito (demandas novas e atualizações sem conflito). Imprime quantas.
+tarefas_aprovar_limpas() {
+  local id st; local -a ids=()
+  while read -r id; do
+    [[ -n $id ]] || continue
+    if [[ -n $(tarefas_meta_get "$(tarefas_meta_de "$id")" upd) ]]; then
+      st=$(python3 -I "$MERGE_PY" estado "$CONF_TAREFAS" "$id" 2>/dev/null | cut -f1); [[ $st == conflito ]] && continue
+    fi
+    ids+=("$id")
+  done < <(tarefas_raw | awk -F'\t' '$2 == "pendente" && $6 !~ /(^|\|)pai=/ { print $1 }')
+  if ((${#ids[@]})); then tarefas_demanda_mudar aprovar "${ids[@]}"; else echo 0; fi
+}
+tarefas_recusar_todas() {
+  local -a ids; mapfile -t ids < <(tarefas_raw | awk -F'\t' '$2 == "pendente" && $6 !~ /(^|\|)pai=/ { print $1 }')
+  if ((${#ids[@]})); then tarefas_demanda_mudar recusar "${ids[@]}"; else echo 0; fi
+}
+# A tela de revisão de UMA atualização (vim): decide campo a campo e subtarefa a subtarefa, e aplica.
+tarefas_merge_ui() { # id-da-proposta
+  local pid=$1 plano dec rc=0
+  [[ -n $(tarefas_meta_get "$(tarefas_meta_de "$pid")" upd) && $(tarefas_estado_de "$pid") == pendente ]] || { echo "não é uma atualização pendente: $pid" >&2; return 1; }
+  plano=$(mktemp "${TMPDIR:-/tmp}/tt-merge-plano.XXXXXX"); dec=$(mktemp "${TMPDIR:-/tmp}/tt-merge-dec.XXXXXX"); : >"$dec"
+  python3 -I "$MERGE_PY" plano "$CONF_TAREFAS" "$pid" >"$plano" || { rm -f "$plano" "$dec"; return 1; }
+  if [[ -n ${TT_MERGE_AUTO:-} ]] && command -v vim >/dev/null; then
+    TT_MERGE_PLANO=$plano TT_MERGE_SAIDA=$dec vim -es -u NONE -N -S "$DIR_TT/tarefas-merge.vim" </dev/null >/dev/null 2>&1 || rc=$?
+  elif command -v vim >/dev/null && { : >/dev/tty; } 2>/dev/null; then
+    vimrc_tt_garantir
+    TT_MERGE_PLANO=$plano TT_MERGE_SAIDA=$dec vim -u "$DIR_TT/vimrc-tt" -S "$DIR_TT/tarefas-merge.vim" </dev/tty >/dev/tty 2>&1 || rc=$?
+  else
+    tarefas_merge_prompt "$plano" "$dec" || rc=$?
+  fi
+  if ((rc == 0)) && [[ -s $dec ]]; then
+    if tarefa_aplicar_proposta "$pid" --decisoes "$dec"; then
+      tarefas_demanda_mudar_linhas recusar "$pid" >/dev/null
+      echo "✓ atualização aplicada"; rm -f "$plano" "$dec"; return 0
+    fi
+    rc=1
+  fi
+  rm -f "$plano" "$dec"
+  echo "atualização mantida na Entrada (nada foi alterado)" >&2
+  return $((rc == 0 ? 1 : rc))
+}
+# Sem vim (ou sem terminal): pergunta um conflito por vez, no terminal. r recebida · m minha · b as duas · q cancela.
+tarefas_merge_prompt() { # plano decisoes
+  local plano=$1 dec=$2 id grupo rot st cur inc base padrao opc r
+  while IFS=$'\t' read -r id grupo rot st cur inc base padrao opc; do
+    [[ $id == '#' || -z $id || $st == minha ]] && continue
+    if [[ $st == entrada ]]; then printf '%s\tinc\t\n' "$id" >>"$dec"; continue; fi
+    printf '\n⚡ %s\n   minha:    %s\n   recebida: %s\n' "$rot" "$cur" "$inc" >&2
+    while :; do
+      read -r -n1 -p "   [r]ecebida · [m]inha$([[ ,$opc, == *,ambas,* ]] && echo ' · [b] as duas') · [q] cancela > " r </dev/tty 2>/dev/null || return 1
+      echo >&2
+      case $r in
+        r) printf '%s\tinc\t\n' "$id" >>"$dec"; break ;;
+        m) printf '%s\tcur\t\n' "$id" >>"$dec"; break ;;
+        b) [[ ,$opc, == *,ambas,* ]] && { printf '%s\tambas\t\n' "$id" >>"$dec"; break; } ;;
+        q) : >"$dec"; return 1 ;;
+      esac
+    done
+  done <"$plano"
+  return 0
+}
+# Grava a "base" da tarefa (o estado de agora) para o próximo confronto em três vias.
+tarefa_base_gravar() { # id
+  local linha; linha=$(python3 -I "$MERGE_PY" base "$CONF_TAREFAS" "$1" --agora "$(hora_agora)" 2>/dev/null) || return 1
+  tarefas_aplicar_linhas <<<"$linha"
+}
+tarefa_aplicar_proposta_antiga() { # (substituída por tarefa_aplicar_proposta; mantida só para consulta) id-da-proposta
   local pid=$1 txt m alvo ealvo tm k scod sest si sm se sub sord sd
   IFS=$'\t' read -r txt m < <(tarefas_raw | awk -F'\t' -v id="$pid" '$1==id{print $5"\t"($6==""?"-":$6); exit}')
   [[ -n $txt ]] || return 1
@@ -6270,6 +6440,12 @@ tarefa_aplicar_proposta() { # id-da-proposta
       elif [[ $se != removida && $(tarefas_pai_de "$scod") == "$alvo" ]]; then
         sm=$(tarefas_meta_de "$scod")
         tarefas_gravar_linha "$scod" "$([[ $sest == f ]] && echo feita || echo "$se")" "$sub" "$sm"
+      elif ! { [[ $se == removida ]] && [[ $(tarefas_pai_de "$scod") == "$alvo" ]]; }; then
+        # O código é de outra coisa (subtarefa de outra tarefa, ou uma tarefa): não mexe nela. A subtarefa entra
+        # como nova, com código daqui, se a tarefa ainda não tem uma de mesmo texto. (Removida DESTA tarefa:
+        # foi apagada de propósito, não volta.)
+        tarefas_filhas "$alvo" | awk -F'\t' -v t="${sub,,}" 'tolower($3) == t { f = 1 } END { exit !f }' ||
+          { tarefa_add_sub "$alvo" "$sub" >/dev/null; }
       fi
     else
       tarefas_filhas "$alvo" | awk -F'\t' -v t="${sub,,}" 'tolower($3) == t { f = 1 } END { exit !f }' ||
@@ -6284,11 +6460,21 @@ tarefa_aplicar_proposta() { # id-da-proposta
   return 0
 }
 
+# Aplica uma proposta de atualização (linha pendente com upd=CÓDIGO) na tarefa alvo, em TRÊS VIAS (tarefas-merge.py):
+# o que só o e-mail mudou entra, o que só você mudou fica, e o que os dois mudaram é conflito (sai com 3, sem
+# gravar nada, a menos que venha --padrao inc|cur ou --decisoes ARQ). Grava a base nova (a versão que chegou).
+# Não mexe na proposta (quem chama a descarta).
+tarefa_aplicar_proposta() { # id-da-proposta [--padrao inc|cur] [--decisoes ARQ]
+  local pid=$1 linhas; shift
+  linhas=$(python3 -I "$MERGE_PY" aplicar "$CONF_TAREFAS" "$pid" --agora "$(hora_agora)" "$@") || return $?
+  tarefas_aplicar_linhas <<<"$linhas"
+}
+
 # Olha as mensagens ainda não vistas de uma caixa com espelho local e cria as demandas. Sem remetente
 # cadastrado não faz nada (custo zero). Na 1ª vez numa caixa, o que chegou há mais de 1 dia já passou.
 demandas_processar_conta() { # slug
   local slug=${1:?} md dir proc log u arq de msgid epoch auth asb dsb ssb assunto frase desc subs info tag modo seg segmsg
-  local n=0 criadas=0 ignoradas=0 id nome="" ultimo=""
+  local n=0 criadas=0 ignoradas=0 id nome="" ultimo="" ext esb
   demandas_ativas || return 0
   md=$(email_maildir "$slug")/INBOX; dir="$ESTADO_DIR/email-sync"; proc="$dir/$slug.demandas"; log="$dir/$slug.demandas.log"
   [[ -d $md/new || -d $md/cur ]] || return 0
@@ -6298,7 +6484,7 @@ demandas_processar_conta() { # slug
     [[ -n $u ]] || continue
     n=$((n + 1)); ((n <= 25)) || break
     printf '%s\n' "$u" >>"$proc"
-    IFS=$'\t' read -r de msgid epoch auth asb dsb ssb < <(python3 -I "$EMAIL_PY" demanda "$arq" 2>/dev/null) || continue
+    IFS=$'\t' read -r de msgid epoch auth asb dsb ssb esb < <(python3 -I "$EMAIL_PY" demanda "$arq" 2>/dev/null) || continue
     info=$(demandas_remetente "$de"); [[ -n $info ]] || continue
     IFS=$'\t' read -r tag modo seg <<<"$info"
     assunto=$(printf '%s' "$asb" | base64 -d 2>/dev/null)
@@ -6310,9 +6496,10 @@ demandas_processar_conta() { # slug
       aberto) ;;
       *) continue ;;
     esac
-    [[ $dsb == - ]] && dsb=""; [[ $ssb == - ]] && ssb=""
+    [[ $dsb == - ]] && dsb=""; [[ $ssb == - ]] && ssb=""; [[ ${esb:--} == - ]] && esb=""
     desc=$(printf '%s' "$dsb" | base64 -d 2>/dev/null); subs=$(printf '%s' "$ssb" | base64 -d 2>/dev/null)
-    id=$(demanda_criar "$de" "$msgid" "$epoch" "$tag" "$frase" "$desc" "$subs") || continue
+    ext=$(printf '%s' "$esb" | base64 -d 2>/dev/null)
+    id=$(demanda_criar "$de" "$msgid" "$epoch" "$tag" "$frase" "$desc" "$subs" "$ext") || continue
     criadas=$((criadas + 1)); ultimo="$de — $frase"
     printf '%s criada id=%s de=%s\n' "$(date '+%F %T')" "$id" "$de" >>"$log"
   done < <(find "$md/new" "$md/cur" -type f -printf '%f\t%p\n' 2>/dev/null |
@@ -6344,10 +6531,24 @@ tarefas_demanda_mudar_linhas() { # aprovar|recusar ID...
   tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
   awk -F'\t' -v OFS='\t' -v op="$op" -v now="$now" -v ids="$ids" '
     function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
-    NR == FNR { if (NF >= 5 && $2 == "pendente" && mv($6, "pai") == "" && index(ids, " " $1 " ")) alvo[$1] = 1; next }
+    function limpa(m,   n, a, i, o) { n = split(m, a, "|"); o = ""; for (i = 1; i <= n; i++) if (a[i] !~ /^(sest|iest|rem|v2|colide|scod)=/) o = o (o == "" ? "" : "|") a[i]; return o }
+    NR == FNR {
+      if (NF >= 5 && $2 == "pendente") {
+        p = mv($6, "pai")
+        if (p == "" && index(ids, " " $1 " ")) alvo[$1] = 1
+        if (p != "" && mv($6, "sest") != "f") naberta[p]++
+      }
+      next
+    }
     NF >= 5 {
       if ($2 == "pendente" && (($1 in alvo) || (mv($6, "pai") in alvo))) {
-        $2 = (op == "aprovar" ? "aberta" : "removida"); $4 = now; if ($1 in alvo) n++
+        if (op == "aprovar") {
+          # chega como estava na origem: [x] nas subtarefas e a tarefa concluída (se nada ficou aberto)
+          if ($1 in alvo) novo = (mv($6, "iest") == "f" && !(naberta[$1] + 0)) ? "feita" : "aberta"
+          else novo = (mv($6, "sest") == "f") ? "feita" : "aberta"
+          $6 = limpa($6)
+        } else novo = "removida"
+        $2 = novo; $4 = now; if ($1 in alvo) n++
       }
       print
     }
@@ -6361,18 +6562,35 @@ tarefas_demanda_mudar_linhas() { # aprovar|recusar ID...
 }
 # Aprovar uma proposta de atualização aplica-a na tarefa alvo e descarta a proposta; o resto segue o
 # caminho normal (pendente -> aberta). Imprime quantas mudaram.
-tarefas_demanda_mudar() { # aprovar|recusar ID...
-  local op=$1 id n=0 k; shift
-  local -a props=() outros=()
+tarefas_demanda_mudar() { # aprovar|recusar [--recebida|--minha] ID...
+  local op=$1 id n=0 k rc=0 padrao=""; shift
+  while [[ ${1:-} == --* ]]; do
+    case $1 in --recebida) padrao=inc ;; --minha) padrao=cur ;; *) break ;; esac
+    shift
+  done
+  local -a props=() outros=() feitas=()
   for id in "$@"; do
     if [[ -n $(tarefas_meta_get "$(tarefas_meta_de "$id")" upd) && $(tarefas_estado_de "$id") == pendente ]]; then props+=("$id"); else outros+=("$id"); fi
   done
   if ((${#props[@]})); then
-    if [[ $op == aprovar ]]; then for id in "${props[@]}"; do tarefa_aplicar_proposta "$id" || true; done; fi
-    n=$(tarefas_demanda_mudar_linhas recusar "${props[@]}")
+    if [[ $op == aprovar ]]; then
+      for id in "${props[@]}"; do
+        if tarefa_aplicar_proposta "$id" ${padrao:+--padrao "$padrao"}; then feitas+=("$id")
+        else
+          rc=4
+          echo "⚡ $(tarefa_ref "$(tarefas_meta_get "$(tarefas_meta_de "$id")" upd)") tem conflitos: veja tt --demanda-diff $id; resolva com tt --demanda-merge $id ou aprove com --recebida / --minha" >&2
+        fi
+      done
+    else feitas=("${props[@]}"); fi
+    if ((${#feitas[@]})); then n=$(tarefas_demanda_mudar_linhas recusar "${feitas[@]}"); fi
   fi
-  if ((${#outros[@]})); then k=$(tarefas_demanda_mudar_linhas "$op" "${outros[@]}"); n=$((n + k)); fi
+  if ((${#outros[@]})); then
+    k=$(tarefas_demanda_mudar_linhas "$op" "${outros[@]}"); n=$((n + k))
+    # tarefa aprovada: a versão que chegou é a base do próximo confronto
+    if [[ $op == aprovar ]]; then for id in "${outros[@]}"; do [[ $(tarefas_estado_de "$id") != pendente ]] && tarefa_base_gravar "$id"; done; fi
+  fi
   echo "$n"
+  return $rc
 }
 # Texto: demandas pendentes (id, remetente, título).
 demandas_pendentes() {
@@ -6566,7 +6784,14 @@ tarefas_abertas_n() { tarefas_raw | awk -F'\t' '$2 == "aberta"' | wc -l | tr -d 
 # Identidade estável: não pode mudar quando o texto é editado, então entra a hora de criação e um
 # nonce da máquina. 12 hex deixam folga no argumento range=user|X do tmux (limite de 15 bytes).
 tarefas_novo_id() {
-  printf '%s\0%s\0%s\0%s' "$MAQUINA" "$(date +%s%N)" "$$" "${1:-}" | sha256sum | cut -c1-12
+  local id n=0
+  while :; do
+    id=$(printf '%s\0%s\0%s\0%s\0%s' "$MAQUINA" "$(date +%s%N)" "$$" "${1:-}" "$n" | sha256sum | cut -c1-12)
+    # Código é identidade: nunca repete um que já exista (em qualquer estado; removida conta, é lápide).
+    [[ -z $(tarefas_estado_de "$id" 2>/dev/null) ]] && break
+    n=$((n + 1))
+  done
+  printf '%s' "$id"
 }
 
 # Código e apelido. O CÓDIGO é o próprio id (12 hex; hora de criação + máquina + pid, então a chance de
@@ -6578,8 +6803,17 @@ tarefa_slug() { # id -> apelido
   h=${h}00000000; n=$((16#${h:0:8}))
   printf '%s%s%s%s%02d' "${c:n%15:1}" "${v:(n/15)%5:1}" "${c:(n/75)%15:1}" "${v:(n/1125)%5:1}" $(((n/5625)%100))
 }
+# Referência falável e ESTÁVEL de um item: tarefa de topo = o apelido (kito47); subtarefa = apelido da mãe, um
+# ponto e o apelido da própria subtarefa (kito47.ruzi83). Ao contrário de MÃE.N (posição), não muda quando
+# outras subtarefas entram, saem ou trocam de lugar. Sem o item, imprime vazio.
+tarefa_ref() { # id
+  local pai; pai=$(tarefas_meta_get "$(tarefas_meta_de "$1")" pai)
+  if [[ -n $pai ]]; then printf '%s.%s' "$(tarefa_slug "$pai")" "$(tarefa_slug "$1")"; else tarefa_slug "$1"; fi
+}
 # O que o usuário (ou a IA) digitou -> id. Aceita código inteiro, apelido (kito47), prefixo do código
-# (4+ hex) e MÃE.N (a N-ésima subtarefa: kito47.2). Imprime o id; 1 = não achou, 2 = ambíguo (lista no stderr).
+# (4+ hex), MÃE.APELIDO-DA-SUB / MÃE.PREFIXO-DO-CÓDIGO (kito47.ruzi83: dentro da mãe, estável) e MÃE.N (a
+# N-ésima subtarefa viva, 1 a 3 dígitos: kito47.2 — é POSIÇÃO e muda quando subtarefas entram ou saem).
+# Imprime o id; 1 = não achou, 2 = ambíguo (lista no stderr).
 tarefas_resolver() {
   local t=${1,,} i pai n
   t=${t//[[:space:]]/}; t=${t#\~}
@@ -6587,11 +6821,27 @@ tarefas_resolver() {
   local -a vivos=() ap=() pre=()
   mapfile -t vivos < <(tarefas_raw | awk -F'\t' '$2 != "removida" { print $1 }')
   for i in "${vivos[@]}"; do [[ $i == "$t" ]] && { printf '%s\n' "$i"; return 0; }; done
-  if [[ $t =~ ^([a-z0-9]+)\.([0-9]+)$ ]]; then
+  if [[ $t =~ ^([a-z0-9]+)\.([a-z0-9]+)$ ]]; then
+    local fra=${BASH_REMATCH[2]}
     pai=$(tarefas_resolver "${BASH_REMATCH[1]}") || return $?
-    i=$(tarefas_filhas "$pai" | sed -n "${BASH_REMATCH[2]}p" | cut -f1)
-    [[ -n $i ]] && { printf '%s\n' "$i"; return 0; }
-    return 1
+    if [[ $fra =~ ^[0-9]{1,3}$ ]]; then
+      i=$(tarefas_filhas "$pai" | sed -n "$((10#$fra))p" | cut -f1)
+      [[ -n $i ]] && { printf '%s\n' "$i"; return 0; }
+      return 1
+    fi
+    # Apelido (ou prefixo do código, 4+ hex) da subtarefa, procurado só entre as filhas desta mãe (qualquer
+    # estado menos removida): a chance de repetir ali é ínfima, e se repetir pede o código inteiro.
+    local -a ach=()
+    while IFS=$'\t' read -r i; do
+      if [[ $(tarefa_slug "$i") == "$fra" ]] || { [[ $fra =~ ^[0-9a-f]{4,}$ ]] && [[ $i == "$fra"* ]]; }; then ach+=("$i"); fi
+    done < <(tarefas_raw | awk -F'\t' -v p="$pai" '$2 != "removida" && index($6, "pai=" p) { print $1 }')
+    case ${#ach[@]} in
+      0) return 1 ;;
+      1) printf '%s\n' "${ach[0]}"; return 0 ;;
+      *) { echo "ambíguo: '$1' serve para mais de uma subtarefa — use o código inteiro:"
+           for i in "${ach[@]}"; do echo "  $i  $(tarefa_ref "$i")  $(tarefas_raw | awk -F'\t' -v i="$i" '$1==i{print $5; exit}')"; done; } >&2
+         return 2 ;;
+    esac
   fi
   for i in "${vivos[@]}"; do [[ $(tarefa_slug "$i") == "$t" ]] && ap+=("$i"); done
   if ((${#ap[@]} == 0)) && [[ $t =~ ^[0-9a-f]{4,}$ ]]; then
@@ -6604,6 +6854,19 @@ tarefas_resolver() {
          for i in "${ap[@]}"; do echo "  $i  $(tarefa_slug "$i")  $(tarefas_raw | awk -F'\t' -v i="$i" '$1==i{print $5; exit}')"; done; } >&2
        return 2 ;;
   esac
+}
+# Linha de conferência dos verbos que alteram (stderr): "→ kito47.ruzi83 «texto» (subtarefa de «mãe»)". Se o
+# item foi pedido por POSIÇÃO (MÃE.N), avisa que ela muda quando subtarefas entram ou saem e dá a forma estável.
+tarefas_eco_alvo() { # id arg-digitado
+  local id=$1 arg=${2,,} txt pai ptxt linha
+  txt=$(tarefas_raw | awk -F'\t' -v i="$id" '$1==i{print $5; exit}')
+  pai=$(tarefas_pai_de "$id")
+  linha="→ $(tarefa_ref "$id") «$txt»"
+  if [[ -n $pai ]]; then
+    ptxt=$(tarefas_raw | awk -F'\t' -v i="$pai" '$1==i{print $5; exit}'); linha+=" (subtarefa de «$ptxt»)"
+    [[ $arg =~ \.[0-9]{1,3}$ ]] && linha+=" — $arg é posição e muda quando subtarefas entram ou saem; fixo: $(tarefa_ref "$id")"
+  fi
+  printf '%s\n' "$linha" >&2
 }
 # Mesmo, para os verbos de CLI: se não achar, devolve o que veio (o verbo dá o seu próprio erro).
 tarefas_id_arg() { local r; if r=$(tarefas_resolver "$1" 2>/dev/null); then printf '%s' "$r"; else printf '%s' "$1"; fi; }
@@ -6619,11 +6882,11 @@ tarefas_meta_get() { # meta chave
   local meta=$1 chave=$2 par IFS='|'
   for par in $meta; do [[ $par == "$chave="* ]] && { printf '%s' "${par#*=}"; return 0; }; done
 }
-tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|hora|prio|rep|tags|pai|ord|arq|de|upd|scod|sest)
+tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|hora|prio|rep|tags|pai|ord|arq|de|upd|scod|sest|colide|iest|rem|v2|base)
   local meta=$1 chave=$2 valor=$3 k out="" par; local -A M=(); local IFS='|'
   for par in $meta; do [[ $par == *=* ]] && M[${par%%=*}]=${par#*=}; done
   M[$chave]=$valor
-  for k in desc prazo hora prio rep tags pai ord arq de upd scod sest; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
+  for k in desc prazo hora prio rep tags pai ord arq de upd scod sest colide iest rem v2 base; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
   printf '%s' "$out"
 }
 tarefas_b64()   { printf '%s' "$1" | base64 | tr -d '\n'; }
@@ -7217,8 +7480,19 @@ tarefas_proximo_prazo() { # epoch rep -> epoch (mantém a hora do dia)
 
 # Subtarefa de PAI: tarefa normal com meta pai=<id> e ord no fim do grupo.
 tarefa_add_sub() { # pai texto
-  local pai=$1 txt id meta ord
+  local pai=$1 txt id meta ord est
   txt=$(tarefas_limpa_texto "$2"); [[ -n $txt && -n $pai ]] || return 1
+  est=$(tarefas_estado_de "$pai")
+  case $est in
+    aberta | feita | arquivada) ;;
+    "") echo "tarefa '$pai' não existe" >&2; return 1 ;;
+    *) echo "não dá para acrescentar subtarefa a uma tarefa $est" >&2; return 1 ;;
+  esac
+  # Só a tarefa de topo tem subtarefas. Uma "subtarefa da subtarefa" ficaria órfã e invisível no painel.
+  if [[ -n $(tarefas_pai_de "$pai") ]]; then
+    echo "subtarefa não tem subtarefa: acrescente à tarefa mãe ($(tarefa_ref "$(tarefas_pai_de "$pai")"))" >&2; return 1
+  fi
+  tarefas_sub_normalizar "$pai"
   id=$(tarefa_add "$txt") || return 1
   ord=$(tarefas_sub_proxima_ord "$pai")
   meta=$(tarefas_meta_set "" pai "$pai"); meta=$(tarefas_meta_set "$meta" ord "$ord")
@@ -7226,6 +7500,21 @@ tarefa_add_sub() { # pai texto
   # Subtarefa nova numa mãe já feita: a mãe volta a ficar aberta (ainda há o que fazer).
   [[ $(tarefas_estado_de "$pai") == feita ]] && tarefa_estado "$pai" aberta
   printf '%s\n' "$id"
+}
+
+# Empate de "ord" entre irmãs (duas máquinas acrescentaram ao mesmo tempo, importação antiga): a ordem já é
+# determinística (ord, criação, código), mas "subir/descer" trocaria valores iguais sem efeito. Quando há empate,
+# regrava 1..n na ordem de hoje. Sem empate não mexe em nada (não gera tráfego de sincronização à toa).
+tarefas_sub_normalizar() { # pai
+  local pai=$1 id n=0 o m
+  local -a ids=()
+  mapfile -t ids < <(tarefas_filhas "$pai" | cut -f1)
+  ((${#ids[@]} > 1)) || return 0
+  [[ $(for id in "${ids[@]}"; do printf '%s\n' "$(tarefas_meta_get "$(tarefas_meta_de "$id")" ord)"; done | sort | uniq -d | wc -l) -gt 0 ]] || return 0
+  for id in "${ids[@]}"; do
+    n=$((n + 1)); m=$(tarefas_meta_de "$id"); o=$(tarefas_meta_get "$m" ord)
+    [[ $o == "$n" ]] || tarefa_set_meta "$id" "$(tarefas_meta_set "$m" ord "$n")"
+  done
 }
 
 tarefas_sub_proxima_ord() { # pai -> max(ord)+1
@@ -7238,19 +7527,21 @@ tarefas_sub_proxima_ord() { # pai -> max(ord)+1
 }
 
 # Subtarefas vivas de um pai, ordenadas por "ord". Imprime: id<TAB>estado<TAB>texto.
+# A ordem é UMA SÓ no tt inteiro (painel, cartão, linha de comando): "ord", no empate a hora de criação e, no
+# empate disso, o código. Assim o N de MÃE.N é o mesmo em toda parte e em toda máquina.
 tarefas_filhas() { # pai
-  local pai=$1 i est mm txt o
-  while IFS=$'\t' read -r i est txt mm; do
-    [[ $(tarefas_meta_get "$mm" pai) == "$pai" ]] || continue
-    o=$(tarefas_meta_get "$mm" ord); printf '%s\t%s\t%s\t%s\n' "${o:-0}" "$i" "$est" "$txt"
-  done < <(tarefas_raw | awk -F'\t' '($2=="aberta"||$2=="feita"){print $1"\t"$2"\t"$5"\t"$6}') |
-    sort -t$'\t' -k1,1n | cut -f2-
+  local pai=$1
+  tarefas_raw | LC_ALL=C awk -F'\t' -v p="$pai" '
+    function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
+    ($2 == "aberta" || $2 == "feita") && mv($6, "pai") == p { printf "%d\t%d\t%s\t%s\t%s\n", mv($6, "ord") + 0, $3 + 0, $1, $2, $5 }' |
+    LC_ALL=C sort -t$'\t' -k1,1n -k2,2n -k3,3 | cut -f3-
 }
 
 # Sobe/desce uma subtarefa dentro do grupo do pai (troca o "ord" com a vizinha).
 tarefa_sub_mover() { # id cima|baixo
   local id=$1 dir=$2 pai linhas i n vizinho m1 m2 o1 o2
   pai=$(tarefas_meta_get "$(tarefas_meta_de "$id")" pai); [[ -n $pai ]] || return 0
+  tarefas_sub_normalizar "$pai"
   mapfile -t linhas < <(tarefas_filhas "$pai" | cut -f1)
   n=${#linhas[@]}
   for i in "${!linhas[@]}"; do [[ ${linhas[$i]} == "$id" ]] && break; done
@@ -8518,7 +8809,8 @@ tarefas_lista_fzf() { # [busca]
   exp=$(sed -n 's/^exp=//p' "$(tarefas_estado_arq)" 2>/dev/null | tr '\n' ',')
   read -r agora tz < <(tarefas_relogio)
   [[ -f $arq ]] || arq=/dev/null
-  TQ=$q TQL=${q,,} TEXP=",$exp" LC_ALL=C \
+  local tprop=""; [[ $filtro == entrada ]] && tprop=$(tarefas_props_resumo)
+  TQ=$q TQL=${q,,} TEXP=",$exp" TPROP="$tprop" LC_ALL=C \
     awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v FILTRO="$filtro" -v COLS="${FZF_COLUMNS:-64}" "$TAREFAS_AWK"'
     function caixa(est, venc) {
       if (est == "feita") return VERDE "☑" Z
@@ -8545,6 +8837,7 @@ tarefas_lista_fzf() { # [busca]
         s = " " AMAR NEG "▾" Z " " AMAR (eup ? "↻" : "📥") Z " " AMAR slug(id) Z " " TXT NEG TTXT[i] Z
         ex = ""; r = rotulo_prazo(prazo, "aberta", hora); if (r != "") ex = ex "  " r
         r = mv(meta, "de"); if (r != "") ex = ex "  " DIM (eup ? "atualização · " : "") "de " r Z
+        if (eup && (id in PRS)) ex = ex "  " (PRC[id] > 0 ? VERM PRC[id] " ⚡" Z "  " : "") DIM PRM[id] " mudança" (PRM[id] == 1 ? "" : "s") Z
         if (tagtxt != "") ex = ex "  " LILAS tagtxt Z
         if (TDESC[i] != "") ex = ex "  " SUB "≡" Z
         printf "%s\t%s%s\n", id, s, ex
@@ -8578,12 +8871,16 @@ tarefas_lista_fzf() { # [busca]
       for (j = 1; j <= n; j++) S[j] = FI[id, j]
       for (j = 2; j <= n; j++) {
         v = S[j]; k = j - 1
-        while (k >= 1 && (FORD[S[k]] > FORD[v] || (FORD[S[k]] == FORD[v] && FCRI[S[k]] > FCRI[v]))) { S[k + 1] = S[k]; k-- }
+        while (k >= 1 && (FORD[S[k]] > FORD[v] || (FORD[S[k]] == FORD[v] && (FCRI[S[k]] > FCRI[v] || (FCRI[S[k]] == FCRI[v] && (FID[S[k]] "") > (FID[v] "")))))) { S[k + 1] = S[k]; k-- }
         S[k + 1] = v
       }
       if (TEST[i] == "pendente") {
         for (j = 1; j <= n; j++) { f = S[j]; printf "\t%s%s☐%s %s%s\n", ind, DIM, Z, FTXT[f], Z }
-        printf "apv:%s\t%s%s✓ aprovar%s %s(%s%s)%s\n", id, ind, VERDE, Z, DIM, (mv(TMETA[i], "upd") != "" ? "atualiza a tarefa que já existe" : "vira tarefa aberta"), (n > 0 ? ", com as " n " subtarefas" : ""), Z
+        if (mv(TMETA[i], "upd") != "") {
+          printf "rev:%s\t%s%s⇄ revisar mudanças%s %s(%s)%s\n", id, ind, AZUL NEG, Z, DIM, (id in PRS ? PRM[id] " mudança" (PRM[id] == 1 ? "" : "s") ", " PRC[id] " conflito" (PRC[id] == 1 ? "" : "s") : "ver o que muda"), Z
+          printf "apv:%s\t%s%s✓ aprovar%s %s(%s)%s\n", id, ind, VERDE, Z, DIM, (PRC[id] > 0 ? "há conflitos: abre a revisão" : "aplica as mudanças na tarefa que já existe"), Z
+        } else
+          printf "apv:%s\t%s%s✓ aprovar%s %s(vira tarefa aberta%s)%s\n", id, ind, VERDE, Z, DIM, (n > 0 ? ", com as " n " subtarefas" : ""), Z
         printf "rec:%s\t%s%s✕ recusar%s %s(descarta a demanda)%s\n", id, ind, VERM, Z, DIM, Z
         return
       }
@@ -8619,6 +8916,8 @@ tarefas_lista_fzf() { # [busca]
       split("domingo segunda terça quarta quinta sexta sábado", DOWL, " ")
       AGENDA = (FILTRO == "prazo" || FILTRO == "hoje"); ARQ = (FILTRO == "arquivo"); ENT = (FILTRO == "entrada")
       Q = ENVIRON["TQ"]; QL = ENVIRON["TQL"]; EXP = ENVIRON["TEXP"]
+      np_ = split(ENVIRON["TPROP"], PRL, " ")      # atualizações pendentes: id:situação:mudanças:conflitos
+      for (kp = 1; kp <= np_; kp++) { split(PRL[kp], PRF, ":"); PRS[PRF[1]] = PRF[2]; PRM[PRF[1]] = PRF[3] + 0; PRC[PRF[1]] = PRF[4] + 0 }
     }
     NF >= 5 && (valida($1, $2) || (ARQ && $2 == "arquivada" && valida($1, "feita")) || (ENT && $2 == "pendente" && valida($1, "aberta"))) && !($1 in VISTO) {
       VISTO[$1] = 1; meta = (NF >= 6 ? $6 : ""); pai = mv(meta, "pai")
@@ -8652,6 +8951,15 @@ tarefas_lista_fzf() { # [busca]
         O[j + 1] = v
       }
       vistas = 0; grupo = ""
+      if (ENT && Q == "") {
+        npend = 0; nlimp = 0
+        for (k = 1; k <= nt; k++) if (TEST[k] == "pendente") { npend++; if (!(mv(TMETA[k], "upd") != "" && PRC[TID[k]] > 0)) nlimp++ }
+        if (npend >= 2) {
+          printf "apvt:todas\t %s✓ aprovar todas as que não têm conflito%s %s(%d de %d)%s\n", VERDE, Z, DIM, nlimp, npend, Z
+          printf "rect:todas\t %s✕ recusar todas%s %s(%d)%s\n", VERM, Z, DIM, npend, Z
+          printf "\t\n"
+        }
+      }
       for (k = 1; k <= nt; k++) {
         i = O[k]; id = TID[i]; est = TEST[i]; prazo = mv(TMETA[i], "prazo")
         if (ARQ != (est == "arquivada")) continue
@@ -8813,6 +9121,7 @@ tarefas_menu_linhas() { # id
   [[ -n $(tarefas_meta_get "$m" desc) ]] && _op ver "$t≡ Ver a descrição (cartão)" '^/'
   _op desc "$t✎ Descrição…" "$([[ -n $(tarefas_meta_get "$m" desc) ]] && echo 'editar · ^e' || echo 'escrever · ^e')"
   [[ -z $pai ]] && _op sub "$t↳ Adicionar subtarefa…" '^s'
+  [[ -z $pai ]] && _op email "$t✉ Enviar por e-mail…" 'a tarefa e as subtarefas, já com os códigos (quem recebe atualiza em vez de duplicar)'
   if [[ -z $pai ]]; then
     pr=$([[ -n $prazo ]] && tarefas_prazo_texto "$prazo" "$(tarefas_meta_get "$m" hora)")
     _op prazo "$t◷ Prazo e horário…" "${pr:-sem prazo} · ^d"
@@ -8837,7 +9146,7 @@ tarefas_menu_linhas() { # id
 # O id da tarefa por trás de uma chave de linha ("desc:ID", "sub:ID", "menu:ID" ou o próprio ID).
 tarefas_id_da_chave() {
   case $1 in
-    desc:*|sub:*|menu:*|rest:*|apag:*|apv:*|rec:*) echo "${1#*:}" ;;
+    desc:*|sub:*|menu:*|rest:*|apag:*|apv:*|rec:*|rev:*) echo "${1#*:}" ;;
     act:*) echo "${1##*:}" ;;
     criar|voltar|dia:*|'') : ;;
     *) echo "$1" ;;
@@ -8899,6 +9208,10 @@ tarefa_acao() { # evento chave
   esac
   # Linhas especiais da lista.
   case $chave in
+    apvt:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
+            n=$(tarefas_aprovar_limpas); tarefas_ui_set aviso "✓ $n demanda(s) aprovada(s) · as que têm conflito esperam a sua revisão"; echo "$rl+$hd"; return ;;
+    rect:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
+            n=$(tarefas_recusar_todas); tarefas_ui_set aviso "✕ $n demanda(s) recusada(s)"; echo "$rl+$hd"; return ;;
     voltar) [[ $ev == enter || $ev == clique ]] && { _volta; return; } ;;
     dia:*)
       # Título de um dia na agenda: abre o calendário nesse dia.
@@ -8942,21 +9255,35 @@ tarefa_acao() { # evento chave
     [[ $ultimo == "$chave" ]] || { echo ignore; return; }
   fi
   local txt_t; txt_t=$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5; exit}')
+  # Aprovar uma demanda: atualização com conflito abre a revisão (nada é decidido sozinho); o resto aprova na hora.
+  _aprovar_ui() { # id
+    local alvo=$1 st
+    if [[ -n $(tarefas_meta_get "$(tarefas_meta_de "$alvo")" upd) ]]; then
+      st=$(python3 -I "$MERGE_PY" estado "$CONF_TAREFAS" "$alvo" 2>/dev/null | cut -f1)
+      if [[ $st == conflito ]]; then
+        tarefas_ui_set aviso "⚡ Esta atualização tem conflitos: decida na revisão"
+        echo "execute($EU --demanda-merge $alvo)+$rl+$hd"; return
+      fi
+    fi
+    tarefas_demanda_mudar aprovar "$alvo" >/dev/null; tarefas_ui_set aviso "✓ Demanda aprovada: $txt_t · está na lista de tarefas"; echo "$rl+$hd"
+  }
   # Arquivo: restaurar e apagar de vez; o resto não mexe numa tarefa arquivada.
   case $chave in
     rest:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
             tarefa_restaurar "$id"; tarefas_ui_set aviso "↩ Restaurada para a lista: $txt_t"; echo "$rl+$hd"; return ;;
     apag:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
             echo "execute($EU --tarefa-remover-prompt $id)+$rl+$hd"; return ;;
+    rev:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
+           echo "execute($EU --demanda-merge $id)+$rl+$hd"; return ;;
     apv:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
-           tarefas_demanda_mudar aprovar "$id" >/dev/null; tarefas_ui_set aviso "✓ Demanda aprovada: $txt_t · está na lista de tarefas"; echo "$rl+$hd"; return ;;
+           _aprovar_ui "$id"; return ;;
     rec:*) [[ $ev == enter || $ev == clique ]] || { echo ignore; return; }
            tarefas_demanda_mudar recusar "$id" >/dev/null; tarefas_ui_set aviso "✕ Demanda recusada: $txt_t"; echo "$rl+$hd"; return ;;
   esac
   # Demanda pendente: só se aprova (⏎, ✓ Feita ou a linha ✓) ou recusa (✕ Apagar ou a linha ✕); o resto espera a aprovação.
   if [[ $(tarefas_estado_de "${pai:-$id}") == pendente ]]; then
     case $ev in
-      enter|feita) tarefas_demanda_mudar aprovar "${pai:-$id}" >/dev/null; tarefas_ui_set aviso "✓ Demanda aprovada: $txt_t · está na lista de tarefas"; echo "$rl+$hd"; return ;;
+      enter|feita) _aprovar_ui "${pai:-$id}"; return ;;
       apagar) tarefas_demanda_mudar recusar "${pai:-$id}" >/dev/null; tarefas_ui_set aviso "✕ Demanda recusada: $txt_t"; echo "$rl+$hd"; return ;;
       clique|duplo|espaco|direita|esquerda|cima|baixo) echo ignore; return ;;
       *) tarefas_ui_set aviso "⚠ Demanda pendente: aprove (✓) ou recuse (✕) antes de mexer nela"; echo "$rl+$hd"; return ;;
@@ -9011,6 +9338,8 @@ tarefa_acao() { # evento chave
       [[ -n $pai ]] && id=$pai
       echo "execute($EU --tarefa-sub-prompt $id)+$rl+$hd" ;;
     desc) echo "execute($EU --tarefa-desc-prompt $id)+$rl" ;;
+    email) [[ -n $pai ]] && id=$pai
+           echo "execute($EU --tarefa-email-ui $id)+$rl+$hd" ;;
     prazo) [[ -n $pai ]] && id=$pai; echo "execute($EU --tarefa-prazo-prompt $id)+$rl+$hd" ;;
     editar|renomear) echo "execute($EU --tarefa-editar-prompt $id)+$rl+$hd" ;;
     prio) [[ -n $pai ]] && id=$pai; tarefa_prio_ciclar "$id"; echo "$rl" ;;
@@ -9049,8 +9378,8 @@ tarefa_ia_prompt() { # id [pasta]
   if [[ -z $pai ]]; then
     while IFS=$'\t' read -r sid sest stxt; do
       [[ -n $sid ]] || continue
-      if ((n == 0)); then printf '\nSubtarefas (id · estado · texto):\n'; fi
-      n=$((n + 1)); printf '  [%s] %s · %s\n' "$sid" "$([[ $sest == feita ]] && echo feita || echo aberta)" "$stxt"
+      if ((n == 0)); then printf '\nSubtarefas (código · estado · texto · apelido estável; refira-se a elas pelo apelido ou código, nunca pela posição):\n'; fi
+      n=$((n + 1)); printf '  [%s] %s · %s · %s\n' "$sid" "$([[ $sest == feita ]] && echo feita || echo aberta)" "$stxt" "$(tarefa_ref "$sid")"
     done < <(tarefas_filhas "$id")
   fi
   cat <<FIM
@@ -9120,7 +9449,7 @@ tarefa_preview() { # chave
     function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
     mv($6, "pai") == p && ($2 == "aberta" || $2 == "feita" || $2 == "arquivada") {
       e = $2; if (e == "arquivada") e = (mv($6, "arq") ~ /:a$/ ? "aberta" : "feita")
-      print mv($6, "ord") + 0 "\t" $1 "\t" e "\t" $5 }' | sort -t$'\t' -k1,1n | cut -f2-)
+      printf "%d\t%d\t%s\t%s\t%s\n", mv($6, "ord") + 0, $3 + 0, $1, e, $5 }' | LC_ALL=C sort -t$'\t' -k1,1n -k2,2n -k3,3 | cut -f3-)
   ((nt > 0)) && printf '\n%sSubtarefas %s/%s%s\n%s' "$s" "$nf" "$nt" "$z" "$subs"
   return 0
 }
@@ -9797,7 +10126,7 @@ tarefas_listar() {
     [[ -n $pai ]] && continue
     printf '  %s  %s  [%s %s]\n' "$([[ $est == feita ]] && echo ☑ || echo ☐)" "$txt" "$(tarefa_slug "$i")" "$i"
     while IFS=$'\t' read -r si sest stxt; do
-      printf '      %s  %s  [%s %s]\n' "$([[ $sest == feita ]] && echo ☑ || echo ☐)" "$stxt" "$(tarefa_slug "$si")" "$si"
+      printf '      %s  %s  [%s %s]\n' "$([[ $sest == feita ]] && echo ☑ || echo ☐)" "$stxt" "$(tarefa_ref "$si")" "$si"
     done < <(tarefas_filhas "$i")
   done < <(tarefas_vivas | awk -F'\t' '{ print $1 "\t" $2 "\t" $5 "\t" ($6 == "" ? "-" : $6) }')
 }
@@ -9809,6 +10138,7 @@ menu_tarefas() {
 t	📋 Abrir o painel de tarefas	$EU --tarefas $(q "$c")
 a	▦ Agenda (calendário do mês)	$EU --clique relogio $(q "$c") x "$HOME" 0
 n	+ Nova tarefa…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 14) -b rounded -T ' + nova tarefa ' $(q "$EU --tarefa-add-ui")
+e	✉ Enviar tarefas por e-mail…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 90 24) -b rounded -T ' ✉ enviar tarefas ' $(q "TT_CLIENTE=$(q "$c") $EU --tarefa-email-ui")
 s	🔄 Sincronização: $(tarefas_sync_rotulo)…	$(popup_tt "$c" "🔄 sincronização das tarefas" "$EU --tarefas-sync-ui")
 l	▤ Arquivar ou apagar as tarefas feitas…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 13) -b rounded $(q "$EU --tarefa-limpar-prompt")
 ITENS
@@ -11514,6 +11844,8 @@ SECRETS_DIR="$HOME/.secrets"
 EMAIL_DIR="$CONF_DIR/email"
 EMAIL_PY="$DIR_TT/email-tt.py"
 [[ -f $EMAIL_PY ]] || EMAIL_PY="${EU%/*}/email-tt.py"
+MERGE_PY="$DIR_TT/tarefas-merge.py"
+[[ -f $MERGE_PY ]] || MERGE_PY="${EU%/*}/tarefas-merge.py"
 EMAIL_CONTATOS_CACHE="$HOME/.cache/tt/email-contatos.tsv" # índice de destinatários (email_contatos_indexar)
 EMAIL_CONTATOS_MANUAL="$EMAIL_DIR/contatos.tsv"            # contatos escritos à mão: endereço<TAB>nome
 declare -A E=() # conta em edição (as funções declaram a sua cópia local com local -A E)
@@ -13783,8 +14115,15 @@ esac
 case "${1:-}" in
   --tarefa-ok | --tarefa-abrir | --tarefa-rm | --tarefa-arquivar | --tarefa-restaurar | --tarefa-editar | --tarefa-frase | --tarefa-renomear | --tarefa-sub-add | --tarefa-desc | --tarefa-implementar | --tarefa-ia-prompt | --tarefa-email | --tarefa-codigo | --tarefa-log | --tarefa-historico)
     if [[ -n ${2:-} ]]; then
-      _id=$(tarefas_resolver "$2"); _rc=$?
-      if ((_rc == 0)); then set -- "$1" "$_id" "${@:3}"
+      _arg=$2; _id=$(tarefas_resolver "$2"); _rc=$?
+      if ((_rc == 0)); then
+        # Verbo que ALTERA, chamado por apelido/posição/prefixo: diz em qual item vai agir (stderr), para quem
+        # chamou conferir. Pelo código inteiro não há o que conferir, então fica quieto.
+        case $1 in
+          --tarefa-ok | --tarefa-abrir | --tarefa-rm | --tarefa-arquivar | --tarefa-restaurar | --tarefa-editar | --tarefa-renomear | --tarefa-sub-add | --tarefa-desc | --tarefa-log)
+            [[ ${_arg,,} == "$_id" ]] || tarefas_eco_alvo "$_id" "$_arg" ;;
+        esac
+        set -- "$1" "$_id" "${@:3}"
       elif ((_rc == 2)); then exit 1
       elif ! [[ ${2,,} =~ ^[0-9a-f]+$ ]]; then echo "tarefa '$2' não encontrada (use o apelido ou o código: tt --tarefa-codigo)" >&2; exit 1; fi
     fi ;;
@@ -13899,9 +14238,18 @@ case "${1:-}" in
   --demandas-pendentes) demandas_pendentes; exit 0 ;;
   --demandas-processar) demandas_processar "${2:-}"; exit 0 ;;
   --demanda-aprovar|--demanda-recusar)
-    [[ -n ${2:-} ]] || { echo "uso: tt $1 ID [ID...]"; exit 2; }
-    n=$(tarefas_demanda_mudar "${1#--demanda-}" "${@:2}"); [[ $1 == --demanda-aprovar ]] && n="$n aprovada(s)" || n="$n recusada(s)"
-    echo "$n"; exit 0 ;;
+    [[ -n ${2:-} ]] || { echo "uso: tt $1 [--recebida|--minha] ID [ID...]"; exit 2; }
+    n=$(tarefas_demanda_mudar "${1#--demanda-}" "${@:2}"); rc=$?
+    [[ $1 == --demanda-aprovar ]] && n="$n aprovada(s)" || n="$n recusada(s)"
+    echo "$n"; exit $rc ;;
+  --demanda-merge)
+    [[ -n ${2:-} ]] || { echo "uso: tt --demanda-merge ID-DA-ATUALIZACAO"; exit 2; }
+    tarefas_merge_ui "$(tarefas_id_arg "$2")"; exit $? ;;
+  --demandas-aprovar-limpas) echo "$(tarefas_aprovar_limpas) aprovada(s)"; exit 0 ;;
+  --demandas-recusar-todas) echo "$(tarefas_recusar_todas) recusada(s)"; exit 0 ;;
+  --demanda-diff)
+    [[ -n ${2:-} ]] || { echo "uso: tt --demanda-diff ID-DA-ATUALIZACAO"; exit 2; }
+    python3 -I "$MERGE_PY" texto "$CONF_TAREFAS" "$(tarefas_id_arg "$2")" $([[ -t 1 ]] && echo --cor); exit $? ;;
   --receber-demandas) demandas_receber; exit 0 ;;
   --propagar-demandas) demandas_propagar; exit 0 ;;
   --puxar-demandas) demandas_puxar; exit 0 ;;
@@ -13925,16 +14273,25 @@ case "${1:-}" in
   --tarefa-acao) shift; tarefa_acao "$@"; exit ;;
   --tarefa-implementar) tarefa_implementar "${2:?uso: tt --tarefa-implementar ID [cliente]}" "${3:-}"; exit ;;
   --tarefa-codigo)
-    # Código (o id, igual em toda máquina) e apelido curto de uma tarefa; sem argumento, lista todas.
+    # Apelido, código (o id, igual em toda máquina), texto e referência estável (4ª coluna: igual ao apelido numa
+    # tarefa de topo, MÃE.APELIDO numa subtarefa); sem argumento, lista todas.
     if [[ -n ${2:-} ]]; then
       tarefas_resolver "$2" >/dev/null 2>&1 || { tarefas_resolver "$2" >/dev/null; echo "tarefa '$2' não encontrada" >&2; exit 1; }
-      printf '%s\t%s\t%s\n' "$(tarefa_slug "$2")" "$2" "$(tarefas_raw | awk -F'\t' -v i="$2" '$1==i{print $5; exit}')"
+      printf '%s\t%s\t%s\t%s\n' "$(tarefa_slug "$2")" "$2" "$(tarefas_raw | awk -F'\t' -v i="$2" '$1==i{print $5; exit}')" "$(tarefa_ref "$2")"
     else
-      tarefas_vivas | while IFS=$'\t' read -r i _ _ _ t _; do printf '%s\t%s\t%s\n' "$(tarefa_slug "$i")" "$i" "$t"; done
+      tarefas_vivas | while IFS=$'\t' read -r i _ _ _ t _; do printf '%s\t%s\t%s\t%s\n' "$(tarefa_slug "$i")" "$i" "$t" "$(tarefa_ref "$i")"; done
     fi; exit 0 ;;
   --tarefa-log) shift; [[ -n ${1:-} ]] || { echo 'uso: tt --tarefa-log ID "o que foi feito" [--como …] [--agente …] [--modelo …] [--esforco …] [--tokens-ent N --tokens-sai N | --tokens N] [--brl V]'; exit 2; }; tarefa_log "$@"; exit $? ;;
   --tarefa-historico) tarefa_historico "${2:?uso: tt --tarefa-historico ID}"; exit $? ;;
-  --tarefa-email) tarefa_email "${2:?uso: tt --tarefa-email ID [destinatario]}" "${3:-}"; exit ;;
+  --tarefa-email)
+    if [[ ${4:-} == --abrir || ${3:-} == --abrir ]]; then
+      d=${3:-}; [[ $d == --abrir ]] && d=""; tarefa_email_compor "${2:?uso: tt --tarefa-email ID [destinatario] [--abrir]}" "$d"; exit $?
+    fi
+    tarefa_email "${2:?uso: tt --tarefa-email ID [destinatario] [--abrir]}" "${3:-}"; exit ;;
+  --tarefa-email-ui) shift; tarefas_email_ui "$@"; exit 0 ;;
+  --tarefas-email) # tt --tarefas-email DESTINATARIO ID [ID…]: um e-mail por tarefa, abertos no compositor
+    [[ -n ${2:-} && -n ${3:-} ]] || { echo "uso: tt --tarefas-email DESTINATARIO ID [ID…]"; exit 2; }
+    d=$2; for _i in "${@:3}"; do tarefa_email_compor "$(tarefas_id_arg "$_i")" "$d"; done; exit 0 ;;
   --tarefa-ia-prompt) tarefa_ia_prompt "${2:?uso: tt --tarefa-ia-prompt ID}"; exit ;;
   --tarefa-limpar-prompt) tarefa_limpar_prompt; exit ;;
   --tarefa-editar-prompt|--tarefa-renomear-prompt) tarefa_editar_prompt "${2:-}"; exit ;;
@@ -13948,7 +14305,9 @@ case "${1:-}" in
   --tarefa-add) shift; [[ -n ${1:-} ]] && tarefa_add "$*" >/dev/null || { echo 'uso: tt --tarefa-add "texto"'; exit 1; }; exit ;;
   # Subtarefa e descrição pela linha de comando (agentes e scripts; a UI usa os prompts): a subtarefa
   # imprime o id; a descrição vem do 3º argumento em diante, ou do stdin com "-"; vazio remove.
-  --tarefa-sub-add) [[ -n ${2:-} && -n ${3:-} ]] && tarefa_add_sub "$2" "${*:3}" || { echo 'uso: tt --tarefa-sub-add ID-DA-MAE "texto da subtarefa"'; exit 1; }; exit ;;
+  --tarefa-sub-add)
+    [[ -n ${2:-} && -n ${3:-} ]] || { echo 'uso: tt --tarefa-sub-add ID-DA-MAE "texto da subtarefa"'; exit 1; }
+    tarefa_add_sub "$2" "${*:3}" || exit 1; exit ;;
   --tarefa-desc) [[ -n ${2:-} ]] || { echo 'uso: tt --tarefa-desc ID "descrição" (ou - para ler do stdin; vazio remove)'; exit 1; }
     if [[ ${3:-} == - ]]; then tarefa_set_desc "$2" "$(cat)"; else tarefa_set_desc "$2" "${*:3}"; fi; exit ;;
   --tarefa-add-natural) shift; [[ -n ${1:-} ]] && tarefa_add_natural "$*" >/dev/null || { echo 'uso: tt --tarefa-add-natural "texto @prazo !prio *rep"'; exit 1; }; exit ;;

@@ -5,7 +5,9 @@ todas as máquinas dele. Detalhes completos: skill `tt-terminais` (seção "Tare
 
 - **Cada tarefa/subtarefa tem CÓDIGO** (12 hex, único e igual em toda máquina) **e APELIDO curto** (ex.: `kito47`).
   O usuário pode falar só o apelido. Os verbos `tt --tarefa-*` aceitam apelido, código, prefixo do código (4+ hex)
-  e `MÃE.N` (`kito47.2` = 2ª subtarefa). `tt --tarefa-codigo [ID]` mostra apelido, código e texto.
+  e, para subtarefa, `MÃE.APELIDO-DA-SUB` (`kito47.ruzi83`, estável). `MÃE.N` (`kito47.2`) é só a POSIÇÃO de hoje e
+  muda quando subtarefas entram, saem ou trocam de lugar: **nunca use posição para alterar**; pegue o apelido ou o
+  código em `tt --tarefa-codigo` / `tt --tarefa-ia-prompt` e use esse. `tt --tarefa-codigo [ID]` mostra apelido, código e texto.
 - **Trabalhando numa tarefa, registre o que fez** na descrição dela (ou da subtarefa), um registro por marco:
   `tt --tarefa-log ID "o que fez" --como "como fez" --agente claude --modelo <seu modelo> --esforco <seu esforço> --tokens-ent N --tokens-sai N`
   (quando, máquina, sessão, conta e e-mail saem sozinhos; modelo, esforço e tokens só você sabe — informe; `--brl V` se souber o custo).

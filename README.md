@@ -958,20 +958,28 @@ Toda tarefa e subtarefa tem um **código** único (o id: 12 hex, igual em todas 
 derivado dele (ex.: `kito47`). Assim você, a IA e outra pessoa falam da mesma tarefa sem ambiguidade.
 
 - **Onde aparece:** na própria lista do painel — o **apelido** vem antes do título de toda tarefa (`▸ ☐ kito47 Preparar apresentação`)
-  e as subtarefas mostram o número (`☐ .2 slide dois` = `kito47.2`); em painel largo (80+ colunas) o **código** completo fecha a
-  linha. Também no cartão da tarefa (`^/`), no topo do menu ⋯ e em `tt --tarefas`. A busca do painel acha pelo apelido ou pelo código.
-  `tt --tarefa-codigo [ID]` mostra apelido, código e texto.
+  e as subtarefas mostram a posição (`☐ .2 slide dois` = `kito47.2` **hoje**); em painel largo (80+ colunas) o **código** completo
+  fecha a linha da tarefa e o **apelido estável** da subtarefa (`ruzi83` → `kito47.ruzi83`) fecha a dela. Também no cartão da tarefa (`^/`), no topo do menu ⋯ e em `tt --tarefas`. A busca do painel acha pelo apelido ou pelo código.
+  `tt --tarefa-codigo [ID]` mostra apelido, código, texto e a referência estável (`MÃE.APELIDO` numa subtarefa).
 - **Como usar:** todo verbo que recebe um ID (`--tarefa-ok`, `--tarefa-editar`, `--tarefa-sub-add`, `--tarefa-rm`, `--demanda-aprovar`…)
-  aceita o apelido, o código, um prefixo do código (4+ caracteres) e `MÃE.N` (`kito47.2` = 2ª subtarefa). Ambíguo: lista as candidatas.
+  aceita o apelido, o código, um prefixo do código (4+ caracteres), `MÃE.APELIDO-DA-SUB` (`kito47.ruzi83`, estável) e `MÃE.N`
+  (`kito47.2` = a 2ª subtarefa **de hoje**: posição, desliza quando outras entram ou saem). Ambíguo: lista as candidatas.
 - **Registro de trabalho:** `tt --tarefa-log ID "o que fez" --como "…" --modelo M --esforco E --tokens-ent N --tokens-sai N` acrescenta
   à descrição um bloco (quando, o que fez, como, agente, modelo, esforço, sessão, máquina, conta e e-mail, tokens e estimativa em R$).
   O que dá para descobrir é descoberto sozinho; modelo, esforço e tokens vêm do agente. O custo vem de `--brl` ou da tabela
   `~/.config/tt/precos` (`modelo<TAB>USD/Mtok entrada<TAB>USD/Mtok saída`) × `cotacao_brl` (padrão 5,50); sem preço, não escreve valor.
   `tt --tarefa-historico ID` lista os registros da tarefa e das subtarefas com o total. Os blocos aparecem em cinza no cartão.
-- **Compartilhar por e-mail (upsert):** `tt --tarefa-email ID [destinatário]` gera o e-mail (assunto com `~CÓDIGO`, subtarefas
-  `- [CÓDIGO] texto`) e um link `mailto:`. Quem recebe (remetente autorizado, ver Demandas por e-mail): código desconhecido → nasce pendente
-  **com o mesmo código**; código que já existe → **proposta de atualização** (↻) na aba Entrada, que só altera a tarefa quando você aprova
-  (subtarefas casadas por código; `[x]` conclui); tarefa removida nunca ressuscita.
+- **Compartilhar por e-mail (upsert em três vias):** menu ⋯ da tarefa → **✉ Enviar por e-mail…** (ou `tt --tarefa-email ID DESTINO --abrir`,
+  ou no menu do 📋 para várias de uma vez, `tt --tarefas-email DESTINO ID…`) abre **um e-mail por tarefa já preenchido** no compositor do tt
+  (aerc): assunto `[tt] título … ~CÓDIGO`, corpo com a descrição (sem o diário de trabalho ⟡, que nunca viaja) e as subtarefas
+  `- [CÓDIGO] [x] texto`, e depois da assinatura `tt:2 estado=… removidas=…` (um tt antigo ignora). Quem recebe (remetente autorizado, ver
+  Demandas por e-mail): código desconhecido → nasce pendente **com o mesmo código**; código que já existe → **atualização** (↻) na aba Entrada,
+  comparada em **três vias** (a sua tarefa × o e-mail × a última versão que os dois viram): o que só o e-mail mudou entra, o que só você mudou
+  fica, o que os dois mudaram é **conflito** e nada é gravado até você decidir. **⇄ revisar mudanças** abre a tela de revisão (vim, clicável): por
+  campo e por subtarefa, *Aceitar recebida · Manter minha · Ficar com as duas · Editar…*, mais *Aceitar tudo recebido* e *Manter tudo meu*;
+  `Ctrl+S` aplica, `Q` cancela. Na Entrada também há *aprovar todas as que não têm conflito* e *recusar todas*. Estado da tarefa, concluir,
+  reabrir, remover e acrescentar subtarefa viajam. Tarefa removida nunca ressuscita; código de subtarefa que já é de outra coisa vira subtarefa
+  nova com código daqui. Em texto: `tt --demanda-diff ID`; `tt --demanda-aprovar [--recebida|--minha] ID` (sai 4 se houver conflito sem escolha).
 - **Reforço nas IAs:** o vigia (a cada ~5 min) e cada instalação/atualização gravam a skill `tt-terminais` e as regras acima
   (`agentes-regras-tt.md`, bloco gerenciado) no Claude (todas as contas), Codex e Kiro de cada máquina, inclusive nos proots do celular.
   `tt --reforcar-agentes` faz na hora. O que está fora do bloco nunca é tocado.

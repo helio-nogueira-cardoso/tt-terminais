@@ -3,6 +3,34 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.12 · 11/10/2026
+- **Tarefa por e-mail em três vias.** Antes, aprovar uma atualização sobrescrevia em silêncio tudo o que você tinha mudado
+  (prazo, prioridade, etiquetas, até a descrição). Agora o tt compara a sua tarefa × o e-mail × a última versão que os dois
+  viram: o que só o e-mail mudou entra, o que só você mudou fica, e o que os dois mudaram é **conflito** (nada é gravado até
+  você decidir). Na aba Entrada: **⇄ revisar mudanças** abre uma tela única (vim, clicável, também no celular): por campo e por
+  subtarefa, *Aceitar recebida · Manter minha · Ficar com as duas · Editar…*, mais *Aceitar tudo recebido* e *Manter tudo meu*;
+  a descrição mostra só as linhas que diferem. ✓ aprovar com conflito abre a revisão; há *aprovar todas as que não têm
+  conflito* e *recusar todas*. Na linha de comando: `tt --demanda-diff ID`, `--demanda-merge ID`,
+  `--demanda-aprovar [--recebida|--minha] ID` (sai 4 se ficou conflito sem escolha).
+- **O e-mail diz a verdade.** O estado da tarefa, concluir, **reabrir**, **remover** e acrescentar subtarefa agora viajam (antes
+  a mãe concluída continuava aberta do outro lado, `[x]` só valia em atualização e reabrir/remover não chegavam). O rodapé
+  `tt:2 …` fica depois da assinatura, então um tt antigo continua entendendo o e-mail. O **diário de trabalho (⟡) não vai mais
+  no e-mail**: ele levava máquina, sessão, tokens, custo e o **e-mail da conta** de quem trabalhou.
+- **Menos ruído:** reenvio sem diferença, proposta velha que chega depois da nova e e-mails repetidos são descartados sozinhos;
+  a mais nova do mesmo remetente substitui as pendentes dele.
+- **✉ Enviar por e-mail**: menu ⋯ da tarefa (e menu do 📋, para várias, com Tab) abre **um e-mail por tarefa já preenchido**
+  (Para, assunto `[tt] … ~código`, subtarefas com código) no compositor do tt. `tt --tarefa-email ID DESTINO --abrir`,
+  `tt --tarefas-email DESTINO ID…`; `TT_EMAIL_MAILTO_CMD` troca o compositor. Sem onde abrir, imprime o texto e o link.
+- **Subtarefa com identidade estável.** `kito47.2` é a **posição** (muda quando outras entram, saem ou trocam de lugar); agora
+  toda subtarefa tem referência estável `MÃE.APELIDO` (`kito47.ruzi83`), mostrada em `tt --tarefas` e na 4ª coluna de `--tarefa-codigo`
+  (a 1ª continua sendo só o apelido). O painel, o cartão e a linha de comando passam a ordenar as filhas do mesmo jeito (antes divergiam
+  quando duas tinham a mesma ordem). Os verbos que alteram dizem em qual item agiram quando você não deu o código inteiro, e
+  avisam se foi por posição. O pedido que a IA recebe e as regras das IAs mandam usar apelido/código, nunca posição.
+  Subtarefa de subtarefa é recusada (ficava órfã e invisível). O código novo nunca repete um que existe.
+- **Segurança do upsert.** Um e-mail de tarefa nova que citava códigos de subtarefa que você já tem **tomava** a subtarefa de
+  outra tarefa, **ressuscitava** a removida e, ao recusar, a apagava. Agora o código só vale se estiver livre; se já é de outra
+  coisa, a subtarefa entra nova, com código daqui. `~código` que aponta para uma subtarefa vira demanda nova.
+
 ## v1.8.11 · 11/10/2026
 - **Corrigido: par alcançável só por relay (DERP) aparecia como ilha ("sem rota").** O `tailscale ping` sai com erro quando não
   consegue conexão direta, mesmo com `pong`; o diagnóstico (`tt --diagnosticar`, `tt --malha`, vigia) usava o código de saída e
