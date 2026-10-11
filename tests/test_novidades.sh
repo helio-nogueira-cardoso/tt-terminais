@@ -8,7 +8,7 @@ ES=$HOME/.local/state/tt
 cat >"$TT_DIR/NOVIDADES.md" <<'N'
 # Novidades
 ## v1.7.2 · 01/01/2099
-- coisa nova C
+- coisa nova C — atualização com ação
 ## v1.7.1 · 01/01/2099
 - coisa nova B
 ## v1.7.0 · 01/01/2099
@@ -56,6 +56,9 @@ tt = sys.argv[1]
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"; os.environ["LINES"] = "40"; os.environ["COLUMNS"] = "100"
+    # Reproduz Debian sem locale configurado (POSIX/ASCII), como no proot do S23.
+    os.environ["LANG"] = "C"; os.environ["LC_ALL"] = "C"
+    os.environ.pop("LC_CTYPE", None); os.environ.pop("LESSCHARSET", None)
     os.execvp(tt, [tt, "--novidades", "--todas"])
 out = b""; t0 = time.time()
 while time.time() - t0 < 2.5:
@@ -68,9 +71,10 @@ vivo = done == 0
 if vivo:
     os.write(fd, b"q")
     time.sleep(0.6); done, _ = os.waitpid(pid, os.WNOHANG)
-print("SEGUROU" if vivo and done else "PISCOU" if not vivo else "NAO-FECHOU-NO-Q")
+utf8 = "atualização com ação".encode() in out
+print("SEGUROU_UTF8" if vivo and done and utf8 else "PISCOU" if not vivo else "NAO-FECHOU-NO-Q" if not done else "UTF8-ESCAPOU")
 PY
 )
-[[ $res == SEGUROU ]] || falhou "tela de novidades: $res"
-passou 'a tela de novidades fica aberta até o q (não pisca e fecha)'
+[[ $res == SEGUROU_UTF8 ]] || falhou "tela de novidades em locale ASCII: $res"
+passou 'tela de novidades fica aberta e mostra UTF-8 mesmo sem locale UTF-8'
 echo "TODOS OS TESTES PASSARAM"

@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.13 · 11/10/2026
+- **Acentos corretos nas novidades:** a tela agora informa ao `less` que as notas são UTF-8, mesmo em terminais
+  com locale POSIX/ASCII (como o Debian do Termux sem locale configurado). Acentos e símbolos deixam de aparecer
+  como sequências entre sinais de menor e maior.
+
 ## v1.8.12 · 11/10/2026
 - **Tarefa por e-mail em três vias.** Antes, aprovar uma atualização sobrescrevia em silêncio tudo o que você tinha mudado
   (prazo, prioridade, etiquetas, até a descrição). Agora o tt compara a sua tarefa × o e-mail × a última versão que os dois

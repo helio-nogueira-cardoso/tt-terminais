@@ -4902,7 +4902,7 @@ novidades_ver() { # [--todas]
   mkdir -p "$ESTADO_DIR"; echo "$atual" >"$ESTADO_DIR/novidades-visto"
   if [[ -t 1 ]] && command -v less >/dev/null 2>&1; then
     # Sem -F: com pouco texto o less saía sozinho e o popup piscava e fechava. q ou Esc fecham.
-    printf '%s\n\n(q fecha · ↑↓ rolam)\n' "$txt" | sed -e 's/^## \(.*\)$/\x1b[1;33m\1\x1b[0m/' -e 's/^- /  • /' | less -R -P'novidades · q fecha' 2>/dev/null ||
+    printf '%s\n\n(q fecha · ↑↓ rolam)\n' "$txt" | sed -e 's/^## \(.*\)$/\x1b[1;33m\1\x1b[0m/' -e 's/^- /  • /' | LESSCHARSET=utf-8 less -R -P'novidades · q fecha' 2>/dev/null ||
       { printf '%s\n' "$txt"; read -rsn1 -p $'\n  (qualquer tecla fecha)' </dev/tty; echo; }
   else printf '%s\n' "$txt"; fi
 }
