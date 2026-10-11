@@ -3,7 +3,7 @@
 # só em A deixava B e C sem se conhecer, e uma sessão de B não alcançava nenhuma de C. A malha precisa ser
 # completa, coerente, inter-acessível e sem fricção. Simula 4 máquinas, cada uma com a sua configuração, e
 # um ssh falso que executa o tt REAL na máquina de destino (com SSH_CONNECTION do chamador). Sem rede.
-set -u
+set -u; unset PREFIX
 TT="$(cd "$(dirname "$0")/.." && pwd)/tt"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 falhas=0

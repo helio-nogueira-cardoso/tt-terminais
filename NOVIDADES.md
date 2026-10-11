@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.8 · 11/10/2026
+- O diagnóstico de conexão (`tt --diagnosticar`, `tt --malha`) não acusa mais "sem rota" por um único ping lento: tenta de novo, com
+  mais folga, antes de declarar a rota perdida. Era um falso alarme quando o par acabava de acordar ou estava sob carga (visto no
+  celular e no WSL do book logo depois de ligar).
+
 ## v1.8.7 · 11/10/2026
 - **Malha de máquinas sem ilhas.** O cadastro (`--cadastrar`) ligava só duas máquinas: com a C cadastrada só na A, B e C não se
   conheciam e nenhuma sessão de B alcançava as de C (nem por ponte, que também depende de a origem conhecer o alvo). Agora toda

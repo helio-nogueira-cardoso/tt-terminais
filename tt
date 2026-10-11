@@ -1294,7 +1294,9 @@ for p in (d.get("Peer") or {}).values():
 ' "$dest" 2>/dev/null)
     [[ $estado == offline ]] && { echo offline; return; }
     if [[ $estado == online ]]; then
-      timeout 6 tailscale ping -c 1 "$host" >/dev/null 2>&1 || { echo sem-rota; return; }
+      # Um ping só de 6 s dá falso "sem rota" quando o par acabou de acordar ou está sob carga (celular, WSL
+      # recém-ligado): tenta de novo, com mais folga, antes de acusar.
+      timeout 6 tailscale ping -c 1 "$host" >/dev/null 2>&1 || timeout 15 tailscale ping -c 3 "$host" >/dev/null 2>&1 || { echo sem-rota; return; }
     fi
   fi
   # 2) Autenticacao: tenta um comando trivial e classifica o erro.
