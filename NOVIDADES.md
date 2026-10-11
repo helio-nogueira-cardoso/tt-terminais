@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.11 · 11/10/2026
+- **Corrigido: par alcançável só por relay (DERP) aparecia como ilha ("sem rota").** O `tailscale ping` sai com erro quando não
+  consegue conexão direta, mesmo com `pong`; o diagnóstico (`tt --diagnosticar`, `tt --malha`, vigia) usava o código de saída e
+  acusava uma ilha que não existia (visto entre o book e o celular, com `pong` em 30 ms por DERP). Agora vale qualquer `pong`,
+  direto ou por relay, com uma segunda tentativa mais folgada antes de acusar. `tests/test_diagnostico_derp.sh`.
+
 ## v1.8.10 · 11/10/2026
 - **O código das tarefas e subtarefas aparece no painel real.** O limite caiu de 80 para 60 colunas (`COLS >= 60`): o painel do celular
   tem 64 colunas (72 com terminal largo) e antes o código quase nunca aparecia. Abaixo de 60 segue só o apelido; o código está sempre
