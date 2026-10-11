@@ -1,6 +1,6 @@
 ---
 name: celular-android
-description: Como um agente de IA opera um celular Android montado com o tt-terminais, sem root. Cobre as camadas (Android, Termux com tmux/sshd/tt, Debian no proot-distro onde rodam os agentes), como chegar ao aparelho pela rede, onde rodar cada comando, o shell do sistema sem root (adb do próprio aparelho em 127.0.0.1, Shizuku/rish), o que o tt traz pronto, por que o Tasker religa tudo depois do reboot, por que o Wi-Fi só é preciso uma vez por boot, como operar a tela (do jeito simples e do jeito rápido, com um servidor de shell e acessibilidade em uid shell consultado em ~40 ms, tela virtual, lotes, mapa de telas), o Tasker como ponte e como log, e as armadilhas aprendidas. Use quando precisar mexer num celular Android de um usuário do tt, rodar algo no Termux ou no Debian dele, usar permissões do sistema, operar a tela sem atrapalhar quem usa o aparelho, abrir app ou link na frente, recuperar o Shizuku, diagnosticar o Tasker ou um botão físico, ou montar um controle rápido do aparelho.
+description: Como um agente de IA opera um celular Android montado com o tt-terminais, sem root. Cobre as camadas (Android, Termux com tmux/sshd/tt, Debian no proot-distro onde rodam os agentes), como chegar ao aparelho pela rede, onde rodar cada comando, o shell do sistema sem root (adb do próprio aparelho em 127.0.0.1, Shizuku/rish), o que o tt traz pronto, por que o Tasker religa tudo depois do reboot, por que o Wi-Fi só é preciso uma vez por boot, como operar a tela (do jeito simples e do jeito rápido, com um servidor de shell e acessibilidade em uid shell consultado em ~40 ms, tela virtual, lotes, mapa de telas), o Tasker como ponte e como log, as armadilhas aprendidas e a receita (seção 14) que usa o navegador do celular, já logado, como navegador das OUTRAS máquinas do usuário: o agente abre o link de login no celular, lê o código que a página mostra e o entrega ao processo que o espera (ia-login, Claude Code, Codex, Kiro, qualquer OAuth de CLI), sem o usuário copiar link nem colar código. Use quando precisar mexer num celular Android de um usuário do tt, rodar algo no Termux ou no Debian dele, usar permissões do sistema, operar a tela sem atrapalhar quem usa o aparelho, abrir app ou link na frente, recuperar o Shizuku, diagnosticar o Tasker ou um botão físico, montar um controle rápido do aparelho, ou logar/trocar a conta de IA (ou qualquer login por navegador) de uma máquina do usuário pelo celular.
 ---
 
 # Celular Android pelo tt-terminais
@@ -167,17 +167,25 @@ instalação; é lento para muitos gestos (seção 9).
 | saber o app da frente (confira **antes** de tocar) | `dumpsys window \| grep -E 'mCurrentFocus\|mFocusedApp'` |
 | ver a tela | `screencap -p /sdcard/Download/tela.png` e traga o arquivo (`tt --trazer`) |
 | achar elementos | `uiautomator dump /sdcard/Download/ui.xml` (texto, id e `bounds` de cada elemento; toque no centro) |
-| tocar, arrastar, digitar | `input tap X Y`, `input swipe X1 Y1 X2 Y2 300`, `input text 'palavra'` (espaço vira `%s`) |
+| tocar, arrastar, digitar | `input tap X Y`, `input swipe X1 Y1 X2 Y2 300`, `input text 'palavra'` (espaço vira `%s`); em página web só o `input tap` aciona botões (seção 9) |
 | teclas | `input keyevent KEYCODE_BACK`, `KEYCODE_HOME`, `KEYCODE_ENTER`; `111` (Esc) fecha painéis, mas pode descartar o que estava sendo editado |
 | abrir link num navegador, na frente | `am start -a android.intent.action.VIEW -n <pacote>/<atividade> -f 0x10000000 -d '<url>'` |
 | abrir um app | `am start -n <pacote>/<atividade>` ou `monkey -p <pacote> 1` |
 
 - Vindo do app Termux, `termux-open-url` e `am start` nem sempre trazem o app para a frente (o Android
   barra atividade iniciada em segundo plano). Pelo `uid shell` funciona.
+- Muitos aparelhos não têm **navegador padrão**: um `am start -a VIEW -d URL` sem componente abre o seletor
+  do Android (`ResolverActivity`) e espera um toque. Descubra o que há com
+  `pm list packages | grep -i -E 'chrome|firefox|browser|brave|edge'` e abra sempre com `-n PACOTE/ATIVIDADE`
+  (Chrome: `com.android.chrome/com.google.android.apps.chrome.Main`). Se o navegador já estava aberto, o `am`
+  responde `Activity not started, its current task has been brought to the front`: é normal, a URL carregou.
+  Link com `&`: aspas duplas dentro de aspas simples (`'am start … -d "URL"'`); URL não leva aspa simples.
 - `uiautomator dump` espera a tela ficar ociosa: com o Termux animando pode levar 10 s.
 - Retorno de login (OAuth) para `http://127.0.0.1:PORTA` aberto no navegador do celular chega a um
   processo de outra máquina por túnel reverso: `ssh -N -R 127.0.0.1:P:127.0.0.1:P <dest>`, rodado na
   máquina onde o processo escuta. Navegador de texto (Carbonyl) é recusado no login do Google.
+  Quando o login **mostra um código para colar de volta** (Claude Code, `ia-login`), não há túnel nem retorno
+  para `127.0.0.1`: a seção 14 faz o ciclo inteiro pelo celular.
 
 ## 9. Controle rápido: um servidor de shell e tela com uid shell
 
@@ -220,11 +228,28 @@ Uma linha por conexão; a resposta termina quando o servidor fecha:
 
     TOKEN [de DONO] [in PACOTE] comando [ ; comando … ]
 
-- `de DONO`: quem pede (por exemplo o começo do id da sessão do agente); é o que a reserva usa.
-- `in PACOTE`: recusa o comando se aquele app não estiver na frente (evita tocar no app errado).
+- `de DONO`: quem pede (por exemplo o começo do id da sessão do agente); é o que a reserva usa. O nome
+  pode ser **encurtado** pelo servidor (`login-algo` virou `login-de`): se a resposta for `OCUPADO por X até
+  HH:MM`, use exatamente `X` em todas as chamadas seguintes (ou `unlock`).
+- `in PACOTE`: recusa o comando se aquele app não estiver na frente (evita tocar no app errado; a recusa
+  vem como `ABORT frente=<app que está na frente>`). Vale para a **linha inteira** e só no começo dela: um
+  lote que começa por `abrir PACOTE/ATIVIDADE` não leva `in` (o app ainda não está na frente), e `in` no
+  meio do lote dá `comando desconhecido: in`.
 - ` ; ` junta comandos num lote, executado de uma vez, que para no primeiro erro.
 - As ações esperam a tela **assentar** por eventos de acessibilidade (~150 ms sem mudança), sem
   `waitForIdle` e sem `sleep` no chute.
+- Entre **duas chamadas** (dois `ssh` seguidos) o app da frente pode mudar (observado: o Termux voltou à frente
+  enquanto a pessoa acompanhava a conversa com o agente). Tudo o que depende de um app estar na frente (abrir,
+  esperar, ler, tocar) vai **no mesmo lote**: `cel ui 'abrir PACOTE/ATIVIDADE ; assenta 1500 ; click Q ; assenta 1500'`.
+- `click`, `tap` e `press` do servidor (injetados pela acessibilidade) acionam elementos **nativos** (barra, abas,
+  menus do app); um botão de **página web** (WebView, o conteúdo do navegador) responde ✓ e não reage, e o `sh
+  input tap` dentro de um lote também não. O que aciona é `cel sh 'input tap X Y'` **numa chamada avulsa**, nas
+  coordenadas do centro dos limites `[x1,y1,x2,y2]` do `dump all` (observado no Chrome, Android 16). Como entre duas
+  chamadas o Termux pode voltar à frente, proteja o toque: `cel sh "dumpsys window | grep -q 'mCurrentFocus=.*PACOTE'
+  && input tap X Y"`.
+- `click` pode responder `NAO_ACHEI` e, ao mesmo tempo, a tela já mostrar o passo seguinte (observado em
+  redirecionamentos de login: a página andou antes do toque e o botão já tinha sumido). Releia com `tela`
+  antes de repetir o toque.
 
 | Grupo | Comandos do servidor |
 |---|---|
@@ -235,6 +260,12 @@ Uma linha por conexão; a resposta termina quando o servidor fecha:
 
 Busca de elemento (`Q`): texto, descrição ou id, sem acento e sem caixa; `=Q` exige igualdade; prefixo
 de papel opcional `btn:` `tab:` `item:` `menu:` `campo:` `chk:` `txt:`.
+
+Ler **texto** (não só botões): `tela` e `t N` mostram apenas o acionável. O texto puro de uma página web
+(o código de um login, uma mensagem de erro, o e-mail da conta selecionada) é um `TextView` sem ação e só
+aparece em `dump all` (`cel ui 'in PACOTE dump all'`: todas as janelas, uma linha por elemento, com `t="texto"`,
+`d="descrição"`, `id="…"` e os limites `[x1,y1,x2,y2]`; filtre com `awk`/`sed` a seção `== PACOTE`). O
+endereço da aba (`campo` do navegador) sai truncado: leia o código na página, não na barra de endereço.
 
 ### O que isso dá ao agente
 
@@ -327,6 +358,17 @@ proot, Shizuku e `app_process`:
 - `pkill -f PADRÃO` acerta o próprio comando que contém o padrão (e derruba a sua conexão ssh se o
   padrão estiver no script remoto). Monte o padrão para não aparecer literal, ou use o PID.
 
+Navegador e páginas web (a receita de login da seção 14 depende de tudo isto):
+
+- Sem navegador padrão o `am start -a VIEW` abre um seletor: use `-n PACOTE/ATIVIDADE` (a atividade principal de
+  qualquer app: `cmd package resolve-activity --brief -c android.intent.category.LAUNCHER PACOTE`).
+- Logo depois do `abrir`, a janela do navegador ainda não está no dump (600 ms não bastam, 3 s sim): `assenta 2500`
+  ou `wait =TEXTO ms` antes de ler ou tocar.
+- Elemento com limites de altura zero (`[x,y,x,y]`) está **fora da tela** (abaixo da dobra): role (`swipe`) e releia;
+  só então ele ganha limites reais e entra em `tela`.
+- Botão de página web só reage a `input tap` avulso (seção 9); um `click` com ✓ não prova que a página reagiu: releia.
+- Cada login por navegador deixa uma aba com o resultado (às vezes com um código já usado): feche só as que você abriu.
+
 Botões físicos e Termux:
 
 - Tecla simulada (`input keyevent`) **não passa** pelo filtro de acessibilidade nem pelo caminho do
@@ -347,9 +389,12 @@ Botões físicos e Termux:
 - **Lote e espera** em vez de uma chamada por gesto e `sleep` no chute.
 - **Pergunte antes** de `shizuku-desligar`, desligar Wi-Fi/adb/modo dev, desinstalar app ou mudar
   ajuste que não foi pedido. Derrubar o Shizuku tira o acesso de todos os agentes.
-- **Segredos**: nunca digite senha ou código com `input text`; peça para a pessoa digitar. Automação que
-  desbloqueia o aparelho ou lê códigos de verificação guarda um segredo poderoso: só com pedido
-  explícito do dono, num arquivo 600 fora do Git, e dizendo a ele como remover.
+- **Segredos**: nunca digite senha ou código com `input text`; peça para a pessoa digitar (senha, verificação em
+  duas etapas, CAPTCHA e a escolha da conta num login são sempre dela). Automação que desbloqueia o aparelho
+  ou lê códigos de verificação guarda um segredo poderoso: só com pedido explícito do dono, num arquivo 600
+  fora do Git, e dizendo a ele como remover. A única exceção que dispensa arquivo é a receita da seção 14,
+  e só com o pedido do dono: ela lê o código de login que o próprio dono mandou iniciar (uso único, vale
+  poucos minutos), guarda-o só numa variável do shell, não o imprime e o entrega direto ao processo que o espera.
 - **Testes**: teste que mexe em estado do tt roda com HOME, config e tmux temporários. Um
   `tt --fixar` de teste no HOME de verdade vai para a barra de todas as máquinas.
 
@@ -370,3 +415,399 @@ reconhecida), o log do servidor em `/data/local/tmp/` e o log de eventos do Task
 Pegadinhas da montagem: o código de pareamento some quando a tela de pareamento fecha (use tela
 dividida ou janela pop-up); no Android 14+ o `rish_shizuku.dex` precisa ser só leitura; o Shizuku pode
 cair logo depois do `adb tcpip` (o adbd reinicia) e o `shizuku-ligar` o sobe de novo pelo 5555.
+
+Login pelo celular (seção 14) que empacou: `ssh -t <alvo> tmux -L tt-login attach -t login-<provedor>-<conta>`
+mostra o que o processo de login está esperando; `ia-login --tela SESSÃO` (no alvo) imprime a mesma tela sem
+anexar; `cel ui 'abrir PACOTE/ATIVIDADE ; assenta 1500'` mostra o que o navegador do celular está exibindo.
+
+## 14. Receita: o celular como navegador para logins de outras máquinas
+
+Muito login de linha de comando precisa de um navegador logado na conta certa: `claude auth login`
+(`ia-conta adicionar`, `ia-login`), `codex login`, o login do Kiro, `gh auth login`, o OAuth do Google ou da
+Microsoft de qualquer ferramenta. Servidor, WSL, proot e sessão ssh não têm navegador, e o usuário perde tempo
+copiando o link para o celular e o código de volta. Se o navegador **do celular já está logado** na conta, o
+agente faz o ciclo inteiro: abre o link no celular, anda pelas telas do login (inclusive o consentimento, o
+botão "Autorizar"), lê o código que a página mostra e o entrega ao processo que o espera. O dono não toca em
+nada; senha, verificação em duas etapas, CAPTCHA e a escolha de outra conta continuam sendo dele.
+
+**O que foi validado, e como** (leia antes de confiar):
+
+- Três logins reais em sequência (um Linux, um WSL e o Debian do proot do próprio celular), numa versão
+  anterior desta receita. Nela o dono **tocou em "Autorizar" no celular** (a tela de consentimento): foi o que
+  levou o script a tratar o consentimento sozinho.
+- A função abaixo, tal como está aqui, rodou de ponta a ponta contra um celular e um alvo reais (Chrome 154 no
+  Android 16 de um Samsung, alvo Linux com tmux 3.6): tocou em "Autorizar" sozinha, a conta certa entrou, 48 s,
+  nenhuma intervenção. Nessa execução a sessão do site já estava ativa, então a página foi direto ao
+  consentimento.
+- Tudo o mais (login do site, conta do Google, senha, outra conta, erro, celular bloqueado, reserva ocupada,
+  Termux voltando à frente, conexão que cai, tmux do alvo derrubando o servidor, ensaio) está no teste
+  `tests/test_login_pelo_celular.sh`, que **extrai esta função deste markdown** e a roda contra um celular e um
+  alvo simulados. Mexeu na função? Rode o teste; mexeu no teste? Mantenha a função em sincronia.
+- **Não exercitado em aparelho real**: o caminho completo site → Google → consentimento, navegadores que não
+  sejam o Chrome, interface em outro idioma que não o português, Codex e Kiro.
+
+### Quando usar, e quando parar
+
+- **Use** quando o dono pediu o login (ou a troca de conta), o navegador do celular está logado na conta
+  pedida, a máquina-alvo responde por ssh e você controla a tela do celular (seções 8 e 9). O pedido de login
+  cobre o toque em "Autorizar", desde que a página mostre "Conectado como" a conta esperada.
+- **Pare e chame o dono** (`tt --notificar-daqui`) se a página pedir senha, verificação em duas etapas,
+  CAPTCHA ou "confirme que é você"; se o site ou o Google mostrarem **outra conta** que não a esperada ("Trocar
+  conta", "Alternar entre contas"); se a tela do celular estiver bloqueada (desbloquear é segredo, seção 12); ou
+  se o navegador não estiver logado. Nunca escolha uma conta por palpite: o login emitido para a conta errada
+  já vale. A função faz isso sozinha (saída 2 ou 3) e deixa o login aberto no alvo para o dono terminar à mão.
+- **Não use** sem pedido explícito do dono (a seção 12 trata de segredos).
+
+### O ciclo
+
+    máquina-alvo (tmux -L tt-login)            celular (navegador logado)
+    ia-login --iniciar ──► link ──────────────► am start -n NAVEGADOR -d LINK
+                                                   │  cel ui 'abrir … ; assenta 1500 ; dump all'  (ler a página)
+                                                   │  cel sh 'input tap X Y'                      (tocar no botão)
+                                                   ▼
+                                       página "Código de autenticação"
+                                       (um TextView  CÓDIGO#ESTADO)
+    ia-login --codigo ◄── código ◄────────────  leitura do dump
+    ia-login --conferir ──► e-mail que entrou
+
+O login roda sempre num tmux isolado do alvo (`tmux -L tt-login`, longe das abas do dono) e é dirigido só
+pelos verbos que o próprio `ia-login` usa entre máquinas (todos por ssh no alvo, com
+`PATH="$HOME/.local/bin:$PATH"` na frente: comando remoto não lê o `.bashrc`, seção 2):
+
+| Verbo do `ia-login` | O que faz |
+|---|---|
+| `--iniciar PROVEDOR CONTA [E-MAIL]` | abre a sessão `login-PROVEDOR-CONTA` com o login rodando e imprime o nome dela. `claude principal E-MAIL` troca a conta de `~/.claude`; `claude APELIDO E-MAIL` loga um perfil; `codex codex` e `kiro kiro` usam o fluxo de dispositivo. Recusa conta já logada (exceto a principal) e recria a sessão se ela já existir |
+| `--tela SESSÃO` | imprime a tela da sessão (`capture-pane -J`: o link de ~500 caracteres do Claude vem inteiro) |
+| `--codigo SESSÃO TEXTO` | digita TEXTO na sessão e dá Enter (o "Paste code here" do Claude) |
+| `--enter SESSÃO` | só o Enter (perguntas de padrão, como região do Kiro) |
+| `--conferir PROVEDOR CONTA` | imprime o e-mail logado (vazio = ainda sem login); é a prova de que entrou a conta certa |
+| `--encerrar SESSÃO` | mata a sessão (sem isto ela fica 15 min depois do fim) |
+| `--faltas` · `--principal-faltas E-MAIL` | o que falta logar / se a principal já é a conta pedida (o plano do `ia-login`) |
+
+No celular-alvo o `ia-login` do Termux executa o login dentro do proot sozinho; a receita é a mesma.
+
+### O que a função faz, em ordem
+
+0. **Pré-requisitos**, antes de gastar o link (que vale poucos minutos): o `ia-login` do alvo responde (e, para
+   a principal, tem o `--principal`: tt 1.8.1+); o alvo **já** está nessa conta? (então não faz nada; `FORCAR=1`
+   refaz); o controle rápido do celular responde; acha o navegador (Chrome, Firefox, Samsung Internet, Brave,
+   Edge, nessa ordem) e a atividade principal dele pelo sistema; a tela está acesa (se apagada, acorda; acordar
+   não desbloqueia) e **não** bloqueada; lê o tamanho da tela.
+1. **Inicia o login** no alvo e espera o link (o `https://…` mais longo da tela). Repete até 3 vezes se o alvo
+   responder `server exited unexpectedly` (corrida do tmux 3.6, corrigida nos `ia-login` novos) ou "a principal
+   está aberta agora" (o `claude auth login` velho ainda saindo).
+2. **Reserva a tela** do celular e abre o link no navegador, na frente.
+3. **Anda pelas telas** até o código. Cada leitura é **um lote** (`abrir … ; assenta 1500 ; dump all`) que traz o
+   navegador à frente e lê só a janela dele; classifica o que vê:
+
+   | Tela | Reconhecida por | O que faz |
+   |---|---|---|
+   | código | um `TextView` `CÓDIGO#ESTADO` | sai do laço |
+   | consentimento | botão `Autorizar` / `Authorize` / `Permitir` / `Allow` | rola até o botão aparecer, confere o "Conectado como …" da página (outra conta: para, saída 2) e toca em Autorizar |
+   | site | botão `Continuar com o Google` / `Continue with Google` | toca |
+   | google | `Fazer Login com o Google`, `Sign in with Google`, `Escolha uma conta`… | exige o e-mail esperado na página (senão para, saída 2); toca em `Continuar` / `Continue`, ou na própria conta |
+   | humano | texto de senha, duas etapas, CAPTCHA, "confirme que é você", passkey | para (saída 2), deixa o login aberto e avisa o dono |
+   | erro | `Invalid code`, `expired`, `Something went wrong`, `access_denied` | para (saída 1) |
+   | carregando | nada reconhecido | espera `PAUSA` e relê, até o `LIMITE` (saída 5) |
+
+   **Como toca**: lê os limites `[x1,y1,x2,y2]` do botão no dump, rola a página se a altura for zero (botão
+   abaixo da dobra), traz o navegador num lote e dá o toque (`input tap`) **numa chamada avulsa** que só age se a
+   janela em foco é a do navegador (`dumpsys window | grep -q 'mCurrentFocus=.*PKG' && input tap X Y`); se o
+   Termux voltou à frente entre as duas chamadas, não toca e tenta de novo. Se a mesma tela continua depois de
+   4 toques, para (saída 1) em vez de insistir.
+4. **Tira o código da frente**: fecha a aba "Authentication code" (melhor esforço, no idioma do navegador),
+   devolve o Termux e solta a reserva **antes** de entregar o código.
+5. **Entrega e confere**: o código vai pelo stdin do `ssh` ao `ia-login --codigo`, espera `[ia-login: fim N]`,
+   lê o e-mail que entrou e compara com o esperado (outro: saída 4). Ao sair, por qualquer caminho, devolve o
+   Termux, solta a reserva e encerra o login do alvo (salvo nas saídas 2, 3 e 5, que o deixam aberto para o dono).
+
+### Script completo
+
+Uma função de bash, autossuficiente (só `ssh`, `awk`, `sed`, `grep` e o `ia-login` do alvo; não deixa arquivo
+nem imprime o código). `cel` é o nome de exemplo do cliente do controle rápido (seção 9): se o seu tem outro
+nome, ou usa uma variável de ambiente para o dono da reserva, passe `CEL` e `CEL_DONO_VAR`. Variáveis opcionais
+e códigos de saída estão no cabeçalho do próprio bloco. `ENSAIO=1` anda até o consentimento (ou até o código) e
+para: não autoriza, não entrega, não troca login. `DEPURAR=1` mostra em que tela está e onde toca.
+
+```bash
+# login_pelo_celular ALVO CELULAR E-MAIL [CONTA]
+#   Loga o Claude em ALVO (usuario@host do `tt --maquinas`) usando o navegador do CELULAR: o script anda pelo login do
+#   site, pela conta do Google e pelo consentimento ("Autorizar"), lê o código da página e o entrega ao alvo.
+#   CONTA: principal (padrão: a de ~/.claude) ou o apelido de um perfil.
+#   Ambiente, tudo opcional:
+#     CEL            cliente do controle rápido do celular (padrão cel)    CEL_DONO_VAR  variável de dono da reserva (CEL_DONO)
+#     NAVEGADOR      pacote ou pacote/atividade (padrão: o 1º navegador conhecido instalado)
+#     LIMITE         segundos para andar até o código (180)                 PAUSA         segundos entre leituras (2)
+#     ENSAIO=1       anda até o consentimento ou o código e para: não autoriza, não entrega, não troca login
+#     AUTORIZAR=0    nunca toca em "Autorizar" (para o consentimento e chama o dono)
+#     FORCAR=1       refaz o login mesmo se o alvo já está nessa conta      FECHAR_ABA=0  deixa a aba do código aberta
+#     DEPURAR=1      mostra em que tela está e onde toca (sem segredos)
+#   Saída: 0 entrou a conta certa · 1 erro ou pré-requisito · 2 precisa do dono (senha, 2FA, CAPTCHA, outra conta, consentimento)
+#          3 celular apagado ou bloqueado · 4 entrou OUTRA conta · 5 tempo esgotado
+login_pelo_celular() (
+  set -u
+  alvo=${1:?falta ALVO} celular=${2:?falta CELULAR} email=${3:?falta E-MAIL} conta=${4:-principal}
+  cel=${CEL:-cel} dono=${CEL_DONO_VAR:-CEL_DONO} limite=${LIMITE:-180} pausa=${PAUSA:-2}
+  pre='PATH="$HOME/.local/bin:$PATH"; export PATH;'
+  cpre="$pre export $dono=login-tt;"
+  sess='' code='' pagina='' link='' t='' out='' frente=0 manter=0 estado='' anterior='' igual=0 st=''
+  say() { printf 'login_pelo_celular: %s\n' "$*" >&2; }
+  minusc() { tr '[:upper:]' '[:lower:]'; }
+  mascarar() { sed -E 's/[A-Za-z0-9_%#=&.-]{24,}/<…>/g'; }
+  command -v timeout >/dev/null 2>&1 || timeout() { shift; "$@"; }
+
+  sshx() { # ssh com tempo limite; repete só quando a CONEXÃO falha (255): o celular de tela apagada perde a 1ª
+    local h=$1 n r=1; shift
+    for n in 1 2 3; do
+      timeout 60 ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$h" "$@"; r=$?
+      ((r == 255)) || return "$r"
+      sleep "$pausa"
+    done
+    return "$r"
+  }
+  ia()    { sshx "$alvo" "$pre ia-login $*"; }
+  ui()    { sshx "$celular" "$cpre $cel ui $(printf '%q' "$1")"; }
+  shcel() { sshx "$celular" "$cpre $cel sh $(printf '%q' "$1")"; }
+  tem()   { grep -qiE -- "$1" <<<"$pagina"; }
+  secao() { awk -v p="== $pkg" 'index($0, p) == 1 { c = 1; next } /^== / { c = 0 } c' <<<"$1"; } # a janela do navegador no dump
+  centro() { # "x y" do centro do 1º elemento VISÍVEL com um destes textos (limites [x1,y1,x2,y2] do dump; altura 0 = fora da tela)
+    grep -iE " (t|d)=\"($1)\"" <<<"$pagina" | sed -n 's/^[[:space:]]*\[\([0-9]*\),\([0-9]*\),\([0-9]*\),\([0-9]*\)\].*/\1 \2 \3 \4/p' |
+      awk -v H="$H" '$4 - $2 > 20 && $4 <= H { print int(($1 + $3) / 2), int(($2 + $4) / 2); exit }'
+  }
+  rolar() { # rola a página para cima (um botão abaixo da dobra só ganha limites reais depois) e relê
+    out=$(ui "abrir $NAVEGADOR ; assenta 2500 ; swipe $((W / 2)) $((H * 3 / 4)) $((W / 2)) $((H / 4)) 400 ; assenta 1200 ; dump all" 2>&1)
+    pagina=$(secao "$out")
+  }
+  tocar() { # toque de verdade (input tap), numa chamada AVULSA e só com o navegador em foco: dentro de um lote o toque não aciona botão de página web
+    local xy n; xy=$(centro "$1")
+    if [[ -z $xy ]]; then rolar; xy=$(centro "$1"); fi
+    [[ -n $xy ]] || { [[ -z ${DEPURAR:-} ]] || say "não achei na tela: $1"; return 1; }
+    [[ -z ${DEPURAR:-} ]] || say "toque em $xy ($1)"
+    for n in 1 2 3; do
+      ui "abrir $NAVEGADOR ; assenta 2500" >/dev/null 2>&1
+      if shcel "dumpsys window | grep -q 'mCurrentFocus=.*$pkg' && input tap $xy" >/dev/null 2>&1; then sleep 3; return 0; fi
+      sleep "$pausa" # o Termux voltou à frente entre o lote e o toque: não toca, traz o navegador de novo
+    done
+    return 1
+  }
+
+  limpar() { # sempre ao sair: devolve a tela, solta a reserva e (salvo pedido ao dono) encerra o login no alvo
+    code=''
+    ((frente)) && sshx "$celular" "$cpre $cel termux; $cel unlock" >/dev/null 2>&1
+    [[ -n $sess ]] && ((manter == 0)) && ia --encerrar "$sess" >/dev/null 2>&1
+    return 0
+  }
+  trap limpar EXIT
+  trap 'exit 130' INT TERM
+  parar() { # parar CÓDIGO MENSAGEM: 2, 3 e 5 deixam o login aberto no alvo para o dono terminar à mão
+    say "$2"
+    case $1 in
+      2 | 3 | 5)
+        manter=1
+        [[ -n $sess ]] && say "o login segue aberto; para terminar à mão: ssh -t $alvo tmux -L tt-login attach -t $sess"
+        [[ $1 != 5 ]] && command -v tt >/dev/null 2>&1 && tt --notificar-daqui "login pelo celular: $2" >/dev/null 2>&1 ;;
+    esac
+    exit "$1"
+  }
+
+  # 0) pré-requisitos, antes de gastar o link (que vale poucos minutos)
+  out=$(ia --help 2>&1) || parar 1 "o ia-login não respondeu em $alvo: $(tail -n 1 <<<"$out")"
+  if [[ $conta == principal ]]; then
+    grep -q 'ia-login --principal' <<<"$out" || parar 1 "o ia-login de $alvo é antigo (rode tt --sincronizar lá)"
+  fi
+  if [[ -z ${FORCAR:-} ]]; then
+    t=$(ia --conferir claude "$conta")
+    if [[ -n $t && $(minusc <<<"$t") == "$(minusc <<<"$email")" ]]; then
+      say "$alvo já está em $email (FORCAR=1 refaz)"; exit 0
+    fi
+  fi
+  out=$(shcel 'echo ok' 2>&1)
+  [[ $out == *ok* ]] || parar 1 "o controle rápido do celular ($cel) não respondeu: $out"
+  if [[ -z ${NAVEGADOR:-} ]]; then
+    for t in com.android.chrome org.mozilla.firefox com.sec.android.app.sbrowser com.brave.browser com.microsoft.emmx; do
+      if shcel "pm list packages $t" 2>/dev/null | grep -qx "package:$t"; then NAVEGADOR=$t; break; fi
+    done
+  fi
+  [[ -n ${NAVEGADOR:-} ]] || parar 1 "nenhum navegador conhecido no celular (use NAVEGADOR=pacote/atividade)"
+  pkg=${NAVEGADOR%%/*}
+  if [[ $NAVEGADOR != */* ]]; then
+    NAVEGADOR=$(shcel "cmd package resolve-activity --brief -c android.intent.category.LAUNCHER $pkg" 2>/dev/null | tail -n 1 | tr -d '\r')
+    [[ $NAVEGADOR == "$pkg"/* ]] || parar 1 "não achei a atividade principal de $pkg (use NAVEGADOR=pacote/atividade)"
+  fi
+  for t in 1 2; do # tela apagada: acorda (acordar não desbloqueia)
+    out=$(shcel 'dumpsys power | grep -m1 mWakefulness=; dumpsys window | grep -m1 isKeyguardShowing' 2>/dev/null)
+    grep -q 'mWakefulness=Awake' <<<"$out" && break
+    shcel 'input keyevent KEYCODE_WAKEUP' >/dev/null 2>&1; sleep 2
+  done
+  grep -q 'mWakefulness=Awake' <<<"$out" || parar 3 "a tela do celular está apagada"
+  grep -q 'isKeyguardShowing=true' <<<"$out" && parar 3 "o celular está bloqueado: desbloqueie e rode de novo"
+  read -r W H <<<"$(shcel 'wm size' 2>/dev/null | sed -n 's/.*: *\([0-9]*\)x\([0-9]*\).*/\1 \2/p' | tail -n 1)"
+  W=${W:-1080} H=${H:-2316}
+
+  # 1) começa o login no alvo, num tmux isolado, e espera o link (o https mais longo da tela)
+  for n in 1 2 3; do
+    out=$(ia --iniciar claude "$conta" "$email" 2>&1); sess=$(tail -n 1 <<<"$out")
+    if [[ $sess != login-* ]]; then
+      sess='' # tmux 3.6 do alvo ainda derrubando o servidor da sessão de login anterior (ia-login antigo não repete): tenta de novo
+      if ((n < 3)) && grep -qE 'server exited|tmux não abriu' <<<"$out"; then sleep "$(awk -v p="$pausa" 'BEGIN { print p * 3 }')"; continue; fi
+      parar 1 "o alvo não iniciou o login: $(tail -n 2 <<<"$out")"
+    fi
+    link=''
+    for i in $(seq 30); do
+      t=$(ia --tela "$sess")
+      link=$(grep -oE 'https://[^[:space:]"<>]+' <<<"$t" | awk '{ print length, $0 }' | sort -rn | sed -n '1s/^[0-9]* //p')
+      [[ -n $link ]] && break
+      grep -q '^\[ia-login: fim' <<<"$t" && break
+      sleep "$pausa"
+    done
+    [[ -n $link ]] && break
+    if grep -q 'está aberta agora' <<<"$t" && ((n < 3)); then sleep "$(awk -v p="$pausa" 'BEGIN { print p * 3 }')"; continue; fi # o login velho ainda estava saindo
+    parar 1 "o login não mostrou link: $(grep -v '^\[ia-login' <<<"$t" | tail -n 3)"
+  done
+
+  # 2) reserva a tela do celular e abre o link no navegador, na frente
+  st=$(sed -n 's/.*[?&]state=\([^&#]*\).*/\1/p' <<<"$link") # o código da página termina em #STATE: só vale o desta sessão
+  frente=1
+  out=$(sshx "$celular" "$cpre $cel lock 10" 2>&1)
+  if grep -q OCUPADO <<<"$out"; then frente=0; parar 1 "a tela do celular está reservada por outro: $out"; fi
+  shcel "am start -n $NAVEGADOR -a android.intent.action.VIEW -f 0x10000000 -d '$link'" >/dev/null 2>&1
+
+  # 3) anda pelas telas até o código: login do site → conta do Google → consentimento → código.
+  #    Cada leitura traz o navegador à frente NO MESMO LOTE (o Termux pode voltar entre duas chamadas).
+  inicio=$SECONDS
+  while ((SECONDS - inicio < limite)); do
+    out=$(ui "abrir $NAVEGADOR ; assenta 1500 ; dump all" 2>&1)
+    if grep -q '^OCUPADO' <<<"$out"; then parar 1 "a reserva da tela passou a outro: $(grep -m1 '^OCUPADO' <<<"$out")"; fi
+    pagina=$(secao "$out")
+    code=$(sed -n 's/^.* t="\([A-Za-z0-9_-]*#[A-Za-z0-9_-]\{20,\}\)".*$/\1/p' <<<"$pagina" | head -n 1)
+    if [[ -n $code && -n $st && $code != *"#$st" ]]; then # código de outra sessão (aba velha na frente): ignora e espera
+      [[ -z ${DEPURAR:-} ]] || say "ignorei um código de outra sessão"; code=''
+    fi
+    [[ -n $code ]] && break
+    if   tem ' (t|d)="(Autorizar|Authorize|Permitir|Allow)"'; then estado=consentimento
+    elif tem ' (t|d)="(Continuar com o Google|Continue with Google)"'; then estado=site
+    elif tem ' (t|d)="[^"]*(senha|password|duas etapas|2-step|captcha|robô|not a robot|confirme que é você|verify it.s you|atividade incomum|unusual activity|passkey|chave de acesso)'; then estado=humano
+    elif tem ' (t|d)="[^"]*(Invalid (code|request)|expired|expirou|Something went wrong|Algo deu errado|access_denied)'; then estado=erro
+    elif tem 'Fazer Login com o Google|Sign in with Google|Escolha uma conta|Choose an account'; then estado=google
+    else estado=carregando; fi
+    [[ -z ${DEPURAR:-} ]] || say "tela: $estado"
+    if [[ $estado == carregando ]]; then sleep "$pausa"; continue; fi
+    if [[ $estado == "$anterior" ]]; then igual=$((igual + 1)); else igual=0; anterior=$estado; fi
+    ((igual < 4)) || parar 1 "a tela '$estado' não avançou depois de $igual toques"
+    case $estado in
+      consentimento)
+        botao='Autorizar|Authorize|Permitir|Allow'
+        [[ -n $(centro "$botao") ]] || rolar # o "Conectado como …" e o botão ficam abaixo da dobra
+        quem=$(grep -oiE '(Conectado como|Logged in as|Signed in as) [^"]+' <<<"$pagina" | head -n 1 | awk '{ print $NF }')
+        if [[ -n $quem && $(minusc <<<"$quem") != "$(minusc <<<"$email")" ]]; then
+          parar 2 "o site está conectado como $quem, não como $email: use 'Trocar conta' no celular"
+        fi
+        [[ ${AUTORIZAR:-1} != 0 ]] || parar 2 "tela de consentimento do Claude Code${quem:+ (conectado como $quem)}: toque em Autorizar (AUTORIZAR=0)"
+        [[ -z ${ENSAIO:-} ]] || { say "ensaio: cheguei ao consentimento${quem:+ (conectado como $quem)}; não autorizei nada"; exit 0; }
+        tocar "$botao" ;;
+      site) tocar 'Continuar com o Google|Continue with Google' ;;
+      google)
+        grep -qiF -- "$email" <<<"$pagina" || parar 2 "o Google não mostra $email (outra conta ou pede entrar): escolha a conta no celular"
+        tocar 'Continuar|Continue' || tocar "$(sed 's/[][.*^$+?(){}|\\]/\\&/g' <<<"$email")" ;;
+      humano) parar 2 "o celular pede algo que só o dono faz (senha, verificação, CAPTCHA ou outra conta)" ;;
+      erro) parar 1 "a página de login mostrou um erro: $(grep -E ' (t|d)="' <<<"$pagina" | mascarar | cut -c1-120 | head -n 3 | paste -sd'|')" ;;
+    esac
+  done
+  if [[ -z $code ]]; then
+    say "tempo esgotado ($limite s) sem chegar ao código; textos do navegador (valores longos mascarados):"
+    grep -E ' (t|d)="' <<<"$pagina" | mascarar | cut -c1-150 | head -n 20 >&2
+    parar 5 "não cheguei ao código"
+  fi
+
+  # 4) tira o código da frente: fecha a aba dele, devolve o Termux e solta a reserva ANTES de entregar
+  if [[ ${FECHAR_ABA:-1} != 0 ]]; then # melhor esforço, no idioma do navegador
+    out=$(ui "abrir $NAVEGADOR ; assenta 1000 ; click tab:guias ; assenta 1800 ; tela" 2>&1)
+    t=$(grep -oE 'btn +"(Fechar guia|Close tab|Close)[^"|]*Authentication code' <<<"$out" | head -n 1 | sed 's/^btn *"//')
+    [[ -z $t ]] || ui "abrir $NAVEGADOR ; assenta 1000 ; click btn:$t ; assenta 900 ; back" >/dev/null 2>&1
+  fi
+  sshx "$celular" "$cpre $cel termux; $cel unlock" >/dev/null 2>&1; frente=0
+  if [[ -n ${ENSAIO:-} ]]; then say "ensaio: li o código (${#code} caracteres) e não o entreguei"; exit 0; fi
+
+  # 5) entrega pelo stdin do ssh (o printf é builtin: o código não aparece em ps aqui), espera o fim e confere
+  printf '%s\n' "$pre ia-login --codigo $sess '$code' >/dev/null" |
+    timeout 60 ssh -o BatchMode=yes -o ConnectTimeout=10 "$alvo" bash -s || parar 1 "não consegui entregar o código (a conexão caiu?): refaça do início"
+  code=''
+  for i in $(seq 60); do
+    t=$(ia --tela "$sess")
+    grep -q '^\[ia-login: fim' <<<"$t" && break
+    sleep "$pausa"
+  done
+  out=$(ia --conferir claude "$conta")
+  say "$alvo: entrou ${out:-ninguém} (esperado: $email)"
+  [[ -n $out ]] || parar 1 "o login não terminou com sucesso: $(grep -v '^\[ia-login' <<<"$t" | tail -n 3)"
+  [[ $(minusc <<<"$out") == "$(minusc <<<"$email")" ]] || parar 4 "entrou OUTRA conta: $out"
+  exit 0
+)
+```
+
+Uso: `login_pelo_celular usuario@alvo usuario@celular conta@exemplo.com` (a principal) ou
+`… conta@exemplo.com trabalho` (o perfil `trabalho`). Várias máquinas: uma de cada vez, o mesmo celular serve a todas.
+Primeira vez num celular ou numa conta: rode antes com `ENSAIO=1`.
+
+### Variantes e adaptações
+
+- **Outro cliente do celular** (sem o servidor da seção 9): a função só usa quatro primitivas do cliente. Troque
+  as funções `ui` (um lote: abrir o app, esperar a tela assentar, ler as janelas com limites e textos, rolar) e
+  `shcel` (um comando do shell do sistema) e o resto vale. O toque tem de ser `input tap X Y` numa chamada
+  avulsa do shell do sistema.
+- **Codex e Kiro** (fluxo de dispositivo): `ia-login --iniciar codex codex` / `kiro kiro` mostram o link **e** um
+  código de dispositivo (`ABCD-EFGH`) na própria tela do alvo; a página do celular pede esse código e a aprovação, e
+  não há nada para devolver: o login termina sozinho (`[ia-login: fim 0]`). A função **não** cobre isso (ela é do
+  Claude). Não foi exercitado: abra o link no celular como no passo 2 e deixe a digitação do código do dispositivo e
+  o toque em "Aprovar" para o dono, a menos que ele peça o contrário. Nunca inicie `codex login` com o Codex logado
+  (derruba o login existente).
+- **Outra ferramenta com "cole o código"**, sem `ia-login`: use o mesmo tmux isolado. O alvo da sessão leva `=` na
+  frente e `:` atrás, senão `capture-pane` e `send-keys` falham:
+  `tmux -L tt-login -f /dev/null new-session -d -x 400 -y 60 -s NOME 'env -u DISPLAY BROWSER=true COMANDO-DE-LOGIN; sleep 900'`,
+  `tmux -L tt-login capture-pane -J -p -t '=NOME:'`, `tmux -L tt-login send-keys -t '=NOME:' -l 'CÓDIGO'` e
+  `tmux -L tt-login send-keys -t '=NOME:' Enter`, `tmux -L tt-login kill-session -t '=NOME'`. `BROWSER=true` e sem
+  `DISPLAY` fazem a ferramenta mostrar o link em vez de tentar abrir um navegador que não existe. O resto da função
+  (abrir, andar pelas telas, ler o código) vale igual; só mudam o início e a entrega.
+- **Só o shell do sistema** (seção 8): `am start` igual; para ler, `uiautomator dump /sdcard/Download/ui.xml`
+  (`text="…"` e `bounds="[x1,y1][x2,y2]"` por nó) e para tocar `input tap X Y` no centro dos `bounds`; devolva o
+  Termux com `monkey -p com.termux 1`. Não foi exercitado. O `uiautomator dump` abre outro `UiAutomation`: com o
+  servidor da seção 9 de pé, use o cliente dele.
+- **O celular é o alvo**: igual, com o `ssh` do celular como `ALVO` (o `ia-login` do Termux delega ao proot).
+- **Outro idioma do navegador**: os textos dos botões estão em português e inglês (`Autorizar`/`Authorize`,
+  `Continuar`/`Continue`…). Em outro idioma a função não reconhece a tela e para por tempo (saída 5) com os textos
+  da página: acrescente os rótulos às expressões do laço.
+
+### Armadilhas desta receita
+
+| Sintoma | Causa | O que fazer |
+|---|---|---|
+| `click`, `tap`, `press` (ou `sh input tap` **dentro de um lote**) respondem ✓ mas a página web não reage | a injeção pelo servidor de acessibilidade não aciona botão de página web (observado no Chrome, Android 16); só elementos nativos (abas, barra) reagem ao `click` | toque com `input tap X Y` numa chamada **avulsa** do shell do sistema, com a guarda de foco (acima) |
+| o botão "Autorizar" aparece no dump com limites de altura zero (`[90,2018,990,2018]`) e não está em `tela` | está abaixo da dobra | `swipe` para rolar; depois ele ganha limites reais (`[90,1581,990,1697]`) e entra em `tela` |
+| o dump logo depois do `abrir` não tem a janela do navegador | a janela ainda está em transição: 600 ms não bastam, 3 s sim | `assenta 2500` depois do `abrir` (ou `wait =TEXTO ms`) antes de ler ou tocar |
+| a página de consentimento mostra "Conectado como outra@…" | o site está logado em outra conta | pare (saída 2): "Trocar conta" é do dono; autorizar emitiria o login da conta errada |
+| `server exited unexpectedly` / `tmux não abriu a sessão de login` ao iniciar | tmux 3.6 do alvo: matar a última sessão derruba o servidor e o `new-session` seguinte bate nele (corrigido nos `ia-login` novos: 27 falhas em 30 antes) | repita; a função repete sozinha |
+| `ia-conta: a principal está aberta agora (processos: N)` logo depois de encerrar um login anterior | o `claude auth login` velho ainda estava saindo (o `kill-session` leva alguns segundos) ou há um Claude aberto na principal | espere 5 s e repita; `pgrep -af '^claude auth login'` e mate **o PID exato**; nunca `pkill -f` com um padrão que aparece no próprio comando |
+| `OCUPADO por X até HH:MM` | a reserva da tela tem outro dono (o servidor encurtou o nome) | use `X` em todas as chamadas, ou `cel unlock` |
+| `ABORT frente=com.termux` | o Termux voltou à frente entre duas chamadas | um lote só: `abrir PKG/ATIV ; assenta N ; …` |
+| `comando desconhecido: in` | `in PKG` no meio do lote | só no começo da linha, e nunca num lote que começa por `abrir` |
+| `NAO_ACHEI` e a tela já mostra o passo seguinte | a página andou antes do toque (redirecionamento) | releia (`tela`) antes de tocar de novo |
+| a página abre em "Entrar" (e-mail já preenchido) | sessão do site vencida; o Google segue logado | a função toca "Continuar com o Google" e depois "Continuar" na conta já selecionada; nas vezes seguintes o link vai direto ao consentimento |
+| o "código" lido não tem `#` ou tem outro tamanho | você leu a barra de endereço ou outro texto | o certo é o `TextView` sob "Cole isso em Claude Code" |
+| `[ia-login: fim 1]` com "Invalid code" ou expirado | link/código de outra sessão, repetido ou velho (valem uma vez e poucos minutos) | recomece do passo 1; nunca reaproveite entre alvos |
+| login travado na primeira máquina e a segunda não inicia | o nome da sessão (`login-PROVEDOR-CONTA`) é o mesmo para a mesma conta no mesmo alvo | um login por conta e alvo de cada vez |
+| sobram abas "Authentication code \| Claude Platform" no navegador | a função fecha uma por login, mas execuções interrompidas deixam a aba do callback (com o código já usado) | `cel ui 'abrir PKG/ATIV ; assenta 2000 ; click tab:guias ; assenta 2000 ; tela'` lista as abas; depois `cel ui 'abrir PKG/ATIV ; assenta 2000 ; click btn:Fechar guia Authentication code ; assenta 900'` (uma vez por aba sua). **Nunca** feche as do dono: abas `127.0.0.1:PORTA`, de mídia ou de outros sites, e as de título só "Claude" (podem ser conversas dele) não são suas |
+
+### Segurança desta receita
+
+- Só com pedido explícito do dono. O código vive numa variável do shell: não vai para o chat, para um arquivo
+  nem para o histórico; se um arquivo temporário for inevitável, modo 600 e `shred -u` logo depois. A função
+  guarda o código só até entregá-lo e o apaga da variável; o teste reprova qualquer vazamento dele na saída.
+- O toque em "Autorizar" só acontece com "Conectado como" a conta esperada (ou sem essa linha, se a página não a
+  mostrar); depois, `ia-login --conferir` compara o e-mail que de fato entrou.
+- Toca apenas em botões de uma lista conhecida (e, para fechar a aba do código, nos botões da lista de abas do
+  navegador), só com o navegador em foco, nunca em "Recusar", "Cancelar" ou "Trocar conta", e nunca escreve em
+  campo de texto.
+- Termine sempre devolvendo o Termux, liberando a reserva e fechando as abas que você abriu.
+- Trocar a conta principal derruba o login que estava lá: a máquina perde a credencial antiga (por exemplo, a
+  conta que era a principal só existia ali). O plano do `ia-login` mostra "trocar (hoje: outro@…)" antes de agir;
+  avise o dono do que ficará sem login (`ia-conta listar` acusa o que falta).

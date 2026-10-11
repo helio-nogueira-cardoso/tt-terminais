@@ -418,6 +418,13 @@ F4→`dbn`, F5→`tela`, F6→`sair`, F7→`ant`, F8→`zm`, F9→`jn`, F10→`d
   da conta Claude de forma transacional. `--receber-contas-ia`/`--propagar-contas-ia`/
   `--puxar-contas-ia` sincronizam o cadastro `contas-ia`. `--registrar`/`--desregistrar`/
   `--session-id` cuidam de registro e identidade de sessão.
+- `ia-login` (login centralizado das contas de IA: plano por máquina e cada login num tmux isolado `-L tt-login`):
+  para pessoas, `ia-login [máquina…]`, `--plano` e `--principal CONTA|E-MAIL [--plano]`. Os verbos que ele usa entre
+  máquinas, por ssh, e que um agente pode dirigir à mão: `--faltas`, `--principal-faltas E`, `--iniciar PROVEDOR CONTA
+  [E-MAIL]` (imprime a sessão `login-PROVEDOR-CONTA`), `--tela S`, `--codigo S TEXTO`, `--enter S`, `--conferir
+  PROVEDOR CONTA` (o e-mail logado), `--encerrar S`. Para logar sem o dono copiar link nem colar código, o agente usa o
+  navegador do celular: skill `celular-android`, seção 14 (função `login_pelo_celular`). O `--iniciar` repete o
+  `new-session` se o tmux ainda derruba o servidor da sessão anterior (corrida do tmux 3.6).
 
 ## Barra: ranges e roteamento de clique
 
@@ -604,8 +611,10 @@ adb do próprio aparelho (`adb-local`, `127.0.0.1:5555`) ou do Shizuku (`tt-rish
 depuração sem fio depois do reboot. Tudo isso, com receitas de tela (screencap, uiautomator, input,
 am start), está na skill **`celular-android`**, instalada pelo tt nos agentes (no PC e no proot).
 O jeito rápido de operar a tela (servidor `uid shell` local consultado em ~40 ms, tela virtual, lotes, mapa de
-telas), o Tasker como ponte e como log, as armadilhas aprendidas e como dispensar o Wi-Fi depois do primeiro boot
-estão na mesma skill (seções 7 a 11).
+telas), o Tasker como ponte e como log, as armadilhas aprendidas, os hábitos e o diagnóstico e como dispensar o Wi-Fi
+depois do primeiro boot estão na mesma skill. Também está lá a receita que usa o **navegador do celular como navegador
+das outras máquinas do usuário** (logar ou trocar a conta de IA de uma máquina sem o dono copiar link nem colar código:
+`ia-login` + controle rápido, com uma função de bash testada em `tests/test_login_pelo_celular.sh`).
 
 ## Testes e desenvolvimento
 
@@ -859,3 +868,9 @@ completo do aparelho (camadas, shell do sistema, Tasker, Wi-Fi, tela) está na s
   ficou dessincronizada, force `atualizar_barras` / `--aplicar-fixadas` / `tt --barras`.
 - **Nome de sessão não muda**: nome dado à mão nunca é trocado; o automático depende de pedidos e
   tempo (pontos). `tt --nomeador` escolhe a fonte; `tt --nomear-todas` força agora.
+- **Trocar a conta principal ou logar uma conta em várias máquinas**: `ia-login --principal CONTA --plano` e depois
+  `ia-login --principal CONTA` (o dono abre o link e cola o código). Com um celular logado na conta e o pedido do dono,
+  o agente faz o ciclo pelo navegador do celular (skill `celular-android`, seção 14). Prova: o plano diz "Nada a fazer".
+- **Tirar uma conta de IA de todas as máquinas**: passo a passo na skill `rodizio-de-contas` ("Tirar uma conta de
+  todas as máquinas"): trocar a principal antes, esquecer no cadastro (o tombstone `-` fica), remover os perfis,
+  conferir credenciais e atalhos, e lembrar o dono de **revogar o token** em claude.ai (logout local não revoga).

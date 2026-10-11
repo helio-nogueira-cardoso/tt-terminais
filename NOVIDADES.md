@@ -3,6 +3,26 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.6 · 11/10/2026
+- **Logar as outras máquinas pelo navegador do celular, sem copiar link nem colar código** (documentação + teste).
+  A skill `celular-android` ganhou a seção 14 com a receita completa e uma função de bash pronta, `login_pelo_celular`:
+  abre o link de login no navegador do celular, anda pelo login do site e do Google, toca em "Autorizar" (conferindo o
+  "Conectado como …" da página), lê o código, o entrega ao `ia-login` do alvo e confere o e-mail que entrou. Para senha,
+  verificação em duas etapas, CAPTCHA ou outra conta ela para e chama o dono. Validada de ponta a ponta num celular e num
+  alvo reais (48 s, sem intervenção) e, em 26 execuções simuladas, pelo novo `tests/test_login_pelo_celular.sh`, que extrai a função
+  do próprio markdown e a roda contra um celular e um alvo simulados (o código de login nunca pode vazar para a saída).
+  O mesmo ciclo está resumido no README, no `termux/ANDROID-ADB.md` e na skill `tt-terminais`.
+- **Corrigido: dois logins seguidos da mesma conta falhavam com "server exited unexpectedly".** No tmux 3.6, matar a
+  última sessão do tmux isolado dos logins (`-L tt-login`) derruba o servidor e o `new-session` seguinte bate nele ainda
+  morrendo (27 falhas em 30, medido). A sessão de um login anterior dura 15 min, então bastava repetir o login da mesma
+  conta nesse prazo. O `ia-login --iniciar` agora repete até o servidor novo subir (`tests/test_ia_login_corrida.sh`).
+- Documentado o que faltava para quem automatiza a tela do celular: o `click`/`tap` por acessibilidade não aciona botão
+  de página web (só `input tap` avulso), elemento com limites de altura zero está abaixo da dobra, a janela do navegador
+  só aparece no dump ~3 s depois do `abrir`, e o Termux pode voltar à frente entre duas chamadas (seções 8, 9 e 11).
+- A skill `rodizio-de-contas` passou a ensinar a **tirar uma conta de todas as máquinas** (trocar a principal antes,
+  esquecer no cadastro mantendo o tombstone `-`, remover perfis, conferir credenciais e atalhos, e lembrar o dono de
+  revogar o token, que o logout local não revoga) e a restauração do login que a troca da principal derruba.
+
 ## v1.8.5 · 11/10/2026
 - **Sessões do Termux voltam a aparecer por ssh**: o comando remoto do tt passa `TMUX_TMPDIR=$PREFIX/var/run`
   (onde mora o servidor tmux do Termux). Antes, o ssh sem login não lia o `profile.d` e o tmux olhava

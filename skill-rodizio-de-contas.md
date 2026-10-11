@@ -1,6 +1,6 @@
 ---
 name: rodizio-de-contas
-description: Use em tarefas longas ou quando aparecer aviso de limite de uso ("approaching usage limit", "you've hit your limit", "5-hour limit", créditos acabando) — consulta quanto a sua conta de IA já gastou da janela (ia-conta uso --eu) e, perto do fim, grava uma passagem de tarefa e passa o trabalho para a próxima conta ou agente livre (ia-rot --passar), que continua de onde você parou.
+description: Use em tarefas longas ou quando aparecer aviso de limite de uso ("approaching usage limit", "you've hit your limit", "5-hour limit", créditos acabando) — consulta quanto a sua conta de IA já gastou da janela (ia-conta uso --eu) e, perto do fim, grava uma passagem de tarefa e passa o trabalho para a próxima conta ou agente livre (ia-rot --passar), que continua de onde você parou. Também cobre, quando o usuário pedir: trocar a conta PRINCIPAL (a de ~/.claude) de todas as máquinas do tt (ia-login --principal), logar contas que faltam e tirar (expurgar) uma conta de IA de todas as máquinas, inclusive fazendo o login pelo navegador do celular.
 ---
 
 # Rodízio de contas: consultar o uso e passar a tarefa adiante
@@ -102,3 +102,33 @@ ia-conta adicionar principal [--email E]       # só esta máquina
 Nunca copie `.credentials.json` entre contas ou máquinas: duas cópias do mesmo token se derrubam quando um deles
 renova. A troca recusa com um Claude aberto na principal (ele regravaria a credencial antiga); feche essas sessões
 antes, e avise o usuário se for uma que não é sua.
+
+**Sem o usuário copiar link nem colar código**: se o celular dele tem um navegador logado na conta (e ele pediu o
+login), faça o ciclo pelo navegador do celular com a função `login_pelo_celular` da skill `celular-android`
+(seção 14): ela abre o link no celular, anda pelo login do site e do Google, toca em "Autorizar" depois de conferir
+"Conectado como", lê o código e o entrega. Para senha, duas etapas, CAPTCHA ou outra conta ela para e chama o dono.
+Rode com `ENSAIO=1` na primeira vez. Quem tem o celular em mãos pode também só pedir ao `ia-login` e fazer à mão.
+
+A troca derruba o login que estava na principal: a conta que só existia ali some da máquina (o cadastro passa a
+acusar "faltam aqui: …"); restaure com `ia-conta adicionar <apelido>` ou `ia-login <máquina>` se o usuário quiser.
+
+## Tirar uma conta de todas as máquinas (só quando o usuário pedir)
+
+Tirar uma conta (por exemplo, a de uma empresa que o usuário deixou) de todas as máquinas do tt:
+
+1. **Era a principal em alguma máquina?** Troque antes (seção acima): `ia-login --principal OUTRA-CONTA`. O plano
+   mostra em quais máquinas ela é a principal ("trocar (hoje: conta@…)"). `ia-conta remover` não remove a principal.
+2. **Cadastro**: `ia-conta cadastro esquecer claude:conta@exemplo.com` grava uma linha `-` (tombstone) que o
+   sincronismo propaga às máquinas. **Deixe a linha**: sem ela o cadastro de outra máquina ressuscita a conta.
+3. **Perfis**: em cada máquina que tenha um perfil dela, `ia-conta remover PERFIL --sim` (recusa se há Claude aberto
+   no perfil; ele fica guardado em `claude-contas.removidas/` com o comando de desfazer). Um processo longo que
+   herdou `CLAUDE_CONFIG_DIR` do perfil (um agente de deploy, por exemplo) também impede: ache pelo ambiente
+   (`/proc/PID/environ`) e encerre o PID exato.
+4. **Conferir** em cada máquina (também no proot do celular, que é outro sistema de arquivos): perfis e atalhos
+   `claude-<perfil>`, `~/.claude.json` e `~/.claude/.account-email`, o cadastro `~/.config/tt/contas-ia`, e
+   `ia-login --principal OUTRA-CONTA --plano` ("Nada a fazer"). Menções em histórico de shell, sessões antigas do
+   Codex e arquivos do mesh são registro histórico sem credencial: só apague com pedido do usuário.
+5. **Revogar o token**: o logout local não revoga. O token continua válido no servidor até ser revogado em
+   claude.ai (logado na conta) ou pelo administrador da organização. Só o dono faz: **lembre-o disso no fim**.
+6. **Outros provedores são outras contas**: o Kiro e o Codex da mesma pessoa/organização têm login próprio; só mexa
+   neles se o usuário pedir (ele pode querer manter o Kiro na conta da empresa).

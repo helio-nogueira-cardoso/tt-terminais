@@ -83,3 +83,10 @@ guia e acrescenta as camadas (Termux, proot, Android), a chegada pela rede e as 
 - A saída do `rish` redirecionada pode chegar fora de ordem: para coletar muitos dados, mande o
   próprio comando gravar em `/sdcard/...` e leia o arquivo.
 - Diagnóstico: `termux/celular.sh verificar` e `~/.local/state/tt/shizuku.log`.
+- **O celular como navegador das outras máquinas**: com o shell do sistema e a tela sob controle, o agente loga as
+  outras máquinas do dono sem que ele copie link nem cole código (abre o link no navegador do celular, anda pelo login,
+  toca em "Autorizar", lê o código na página e o entrega). Receita, função pronta, armadilhas e o que foi validado
+  em aparelho real: skill `celular-android`, seção 14. Duas lições valem para qualquer automação de tela com
+  navegador: um botão de **página web** só reage a `input tap X Y` numa chamada avulsa do shell do sistema (o
+  `click`/`tap` por acessibilidade responde "ok" e a página não se mexe), e um botão com limites de altura zero
+  está abaixo da dobra (role antes de tocar). Sem navegador padrão, abra sempre com `am start -n PACOTE/ATIVIDADE`.

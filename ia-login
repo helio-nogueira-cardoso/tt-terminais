@@ -146,7 +146,15 @@ iniciar() {
     *) die "provedor desconhecido: $p" ;;
   esac
   [[ -n $PROOT ]] && cmd="proot-distro login $(printf '%q' "$PROOT") -- ${PROOT_ENV[*]} bash -c $(printf '%q' "$cmd")"
-  tm new-session -d -x 400 -y 60 -s "$s" "$cmd; rc=\$?; echo; echo \"[ia-login: fim \$rc]\"; sleep 900" || die 'tmux não abriu a sessão de login'
+  # Matar a ÚLTIMA sessão do tmux isolado derruba o servidor junto, e no tmux 3.6 um new-session logo em seguida
+  # bate nele ainda morrendo ("server exited unexpectedly": 27 falhas em 30 no 3.6). A sessão de um login anterior
+  # fica 15 min depois do fim, então dois logins seguidos da mesma conta caíam aqui: repete até o servidor novo subir.
+  local tentativa
+  for tentativa in 1 2 3 4 5 6 7 8; do
+    tm new-session -d -x 400 -y 60 -s "$s" "$cmd; rc=\$?; echo; echo \"[ia-login: fim \$rc]\"; sleep 900" 2>/dev/null && break
+    sleep 0.4
+  done
+  tm has-session -t "=$s" 2>/dev/null || die 'tmux não abriu a sessão de login'
   echo "$s"
 }
 

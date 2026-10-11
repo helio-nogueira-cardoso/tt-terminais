@@ -293,6 +293,17 @@ sincronizar: fora isso, cada mudança já é enviada na hora e o vigia confere a
 espelha o pacote no proot que já tem `/root/.local/share/tt` (links, skill, cadastro do Termux), e o
 `ia-login` do Termux pergunta ao proot o que falta e roda lá os logins.
 
+**Logar sem abrir link nem colar código (pelo celular).** O `ia-login` conversa com cada máquina por poucos verbos
+(`--iniciar`, `--tela`, `--codigo`, `--enter`, `--conferir`, `--encerrar`, `--faltas`, `--principal-faltas`; ver o
+cabeçalho do script), e isso permite que um agente de IA faça o ciclo inteiro por você: com o celular montado pelo tt
+(controle rápido da tela) e o navegador dele logado na conta, ele abre o link no celular, anda pelo login do site e do
+Google, toca em "Autorizar" (depois de conferir o "Conectado como …" da página), lê o código e o entrega ao alvo — uma
+máquina por vez, menos de um minuto cada. Senha, verificação em duas etapas, CAPTCHA e outra conta o param e chamam
+você. A receita completa, com uma função de bash pronta, as armadilhas e o que foi (e o que não foi) exercitado em
+aparelho real está na skill `celular-android` (seção 14); `tests/test_login_pelo_celular.sh` roda essa função, extraída
+da própria skill, contra um celular e um alvo simulados (26 execuções, 19 verificações). Dois logins seguidos da mesma conta no tmux 3.6
+falhavam com "server exited unexpectedly"; o `ia-login` agora repete o `new-session`.
+
 **Trocar a principal:** a principal é a credencial de `~/.claude` (o `claude` puro e a primeira da rotação);
 os perfis são as outras. `ia-login --principal trabalho` (apelido do cadastro) ou `ia-login --principal
 conta@exemplo.com` faz a principal de todas as máquinas passar para essa conta: o plano mostra "trocar (hoje:
@@ -301,7 +312,10 @@ código e confere o e-mail. `ia-login --principal CONTA --plano [máquina…]` s
 adicionar principal [--email E]`. O login novo grava por cima do antigo (os perfis não mudam) e a troca **recusa**
 com um Claude aberto na principal. Uma máquina cujo `ia-login` é mais velho aparece como "sem suporte"
 (rode `tt --sincronizar` nela). Tirar uma conta de todas as máquinas: `ia-conta cadastro esquecer <conta>`, `ia-conta
-remover <perfil> --sim` em cada uma e, se ela era a principal, `ia-login --principal` para outra conta antes.
+remover <perfil> --sim` em cada uma e, se ela era a principal, `ia-login --principal` para outra conta antes. Lembre-se de
+que o logout local **não revoga** o token: ele vale no servidor até ser revogado em claude.ai (ou pelo administrador da
+organização). O passo a passo completo (principal, cadastro e o tombstone `-` que deve ficar, perfis, credenciais,
+atalhos, proot do celular) está na skill `rodizio-de-contas`, seção "Tirar uma conta de todas as máquinas".
 
 A coluna **USO** mostra a janela de 5 h e a semanal do Claude e do Codex (`5h 23% · 7d 65%`) e os
 créditos do mês do Kiro (o mesmo do `/usage`). O horário entre parênteses é quando a janela volta.
@@ -1206,8 +1220,9 @@ cada comando, o shell do sistema sem root (adb do próprio aparelho em `127.0.0.
 Tasker religa a depuração sem fio depois do reboot, por que o Wi-Fi só é preciso uma vez por boot e
 como operar a tela (screencap, uiautomator, input, am start) e o controle rápido (servidor de shell e acessibilidade
 com `uid shell` dentro do aparelho, consultado em ~40 ms por uma porta local, com tela virtual, lotes, ponte e
-log do Tasker, sem depender de Wi-Fi depois do primeiro boot). O passo a passo para gente está em
-`termux/ANDROID-ADB.md`.
+log do Tasker, sem depender de Wi-Fi depois do primeiro boot). Ela traz também a receita de usar o navegador do celular
+para **logar as outras máquinas** (acima, em "Logar sem abrir link nem colar código"). O passo a passo para gente está
+em `termux/ANDROID-ADB.md`.
 
 ## Celular / tela pequena
 
