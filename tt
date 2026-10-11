@@ -68,6 +68,22 @@ conf_gravar() { # chave valor
 MAQUINA=$(conf nome)
 MAQUINA=${MAQUINA:-$(hostname -s)}
 
+# Diagnóstico de trocas de sessão inesperadas: toda troca (tmux switch-client) feita por este
+# script vai para ~/.cache/tt-troca.log com quem trocou (cadeia de funções), qual cliente, de onde
+# para onde e se veio de ssh (--ir-ponte pedido por outro aparelho). Só registra; nunca altera a troca.
+log_troca() { # os argumentos do switch-client: [-c cliente] [-t alvo] [-l]
+  local c="" t="" quem de ssh=${SSH_CLIENT:-}; ssh=${ssh%% *}
+  while (($#)); do
+    case $1 in -c) c=${2:-}; shift ;; -t) t=${2:-}; shift ;; -l) t="(anterior)" ;; esac
+    shift
+  done
+  quem=$(IFS='<'; printf '%s' "${FUNCNAME[*]:2:4}")
+  if [[ -n $c ]]; then de=$(_tmux_real list-clients -F '#{client_name} #{session_name}' 2>/dev/null | awk -v c="$c" '$1 == c { print $2; exit }')
+  else de=$(_tmux_real display-message -p '#{session_name}' 2>/dev/null); fi
+  printf '%s %s cliente=%s de=%s para=%s ssh=%s via=%s\n' "$(date '+%F %T')" "$MAQUINA" "${c:-?}" "${de:-?}" "${t:-?}" "${ssh:--}" "${quem:-main}" \
+    >>"$HOME/.cache/tt-troca.log" 2>/dev/null || true
+}
+
 proximo_nome() {
   local prefixo=${1:-janela} n=1
   while tmux has-session -t "=$prefixo-$n" 2>/dev/null; do n=$((n + 1)); done
@@ -1100,6 +1116,7 @@ _tmux_real() { command "$TT_TMUX_BIN" "$@"; }
 # ligada (popup_janela, mais abaixo); o resto vai ao tmux do servidor.
 tmux() {
   if [[ ${1:-} == display-popup ]]; then popup_janela "${@:2}"; return; fi
+  [[ ${1:-} == switch-client ]] && log_troca "${@:2}"
   command "$TT_TMUX_BIN" "$@"
 }
 ATALHOS_PADRAO=${TT_ATALHOS_PADRAO:-$DIR_TT/atalhos-padrao}
@@ -2944,6 +2961,26 @@ cmd_ver() {
 # dela, o tmux desconectava essa tela — e a janela do terminal fechava. Este processo fica vivo
 # na sessão-ponte, mostra o erro e permite tentar novamente. Ctrl+B d continua sendo a saída
 # normal da ponte.
+# Grava na sessão-ponte a identidade atual do alvo (id, start_time do servidor e nome de hoje).
+# Quem reaproveita a ponte (criar_ponte) e quem a sonda (fechar_pontes_ociosas) enxergam o mesmo alvo
+# mesmo depois de ele ser renomeado lá.
+ponte_registrar() { # ponte dest id srv nome
+  local p=$1 dest=$2 id=$3 srv=$4 nome=$5
+  [[ -n $id ]] || return 0
+  tmux set-option -t "=$p:" @ponte_id "$id" 2>/dev/null
+  tmux set-option -t "=$p:" @ponte_srv "$srv" 2>/dev/null
+  tmux set-option -t "=$p:" @ponte_alvo "$dest|$nome" 2>/dev/null
+  tmux set-option -t "=$p:" @ponte_sumiu 0 2>/dev/null
+  return 0
+}
+
+# Toda ponte que o tt encerra por conta própria deixa rastro: antes sumia calada e o cliente pulava
+# para outra sessão "sem motivo".
+log_ponte() { # ponte texto
+  { mkdir -p "$HOME/.cache"; echo "$(date '+%F %T') $2 [ponte $1]" >>"$HOME/.cache/tt-vigia.log"; } 2>/dev/null
+  return 0
+}
+
 ponte() {
   local dest=$1 s=$2 ponte=$3 st
   # Uma ponte antiga pode chegar aqui sem host (ex.: o rótulo deixou de resolver). Não
@@ -2955,33 +2992,48 @@ ponte() {
     read -r
     exec "$EU"
   fi
+  local info id="" srv="" nome_atual=$s rc
   while true; do
     clear
-    printf 'Conectando a %s:%s…\n' "$(rotulo_de "$dest")" "$s"
-    # Alvo que não existe mais no destino não vira loop eterno de reconexão: a ponte seria uma
-    # sessão fantasma (aparece viva na máquina de origem, sem par real do outro lado). Só paramos
-    # quando o destino RESPONDE e confirma que a sessão sumiu; se ele não responde (rede/SSH caiu),
-    # mantemos o comportamento antigo de permitir nova tentativa.
-    if ! sessao_remota_existe "$dest" "$s" && alcanca_destino "$dest"; then
+    printf 'Conectando a %s:%s…\n' "$(rotulo_de "$dest")" "$nome_atual"
+    # Identifica a sessão de lá por id (sobrevive a renomeação). O que mata a ponte é a sessão ter
+    # SUMIDO de verdade (nem o id nem o nome existem, e o destino respondeu), conferido duas vezes;
+    # destino mudo (rede/SSH caiu) é transitório e permite nova tentativa.
+    info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv"); rc=$?
+    if ((rc == 1)); then sleep 2; info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv"); rc=$?; fi
+    if ((rc == 1)); then
       printf '\n\033[33mA sessão %s:%s não existe mais no destino. Encerrando esta ponte.\033[0m\n' \
-        "$(rotulo_de "$dest")" "$s"
+        "$(rotulo_de "$dest")" "$nome_atual"
+      log_ponte "$ponte" "ponte encerrada: a sessão $dest|$nome_atual (id ${id:-?}) não existe mais no destino"
       sleep 1
       tmux kill-session -t "=$ponte" 2>/dev/null
       return 0
     fi
+    if ((rc == 0)); then
+      IFS='|' read -r id srv nome_atual <<<"$info"
+      ponte_registrar "$ponte" "$dest" "$id" "$srv" "$nome_atual"
+    fi
+    # Anexa pelo id quando o temos: o nome pode mudar enquanto a ponte está aberta ou reconecta.
     ssh -t "${SSH_OPC[@]}" "$dest" \
-      "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|$ponte") tmux attach -t $(q "=$s")"
+      "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|$ponte") tmux attach -t $(q "${id:-=$nome_atual}")"
     st=$?
     # O attach terminou. Se a sessão sumiu no destino (fim normal: a sessão de lá foi fechada), a
     # ponte não tem mais o que mostrar — encerra em vez de oferecer reconexão a um alvo morto.
-    if ! sessao_remota_existe "$dest" "$s" && alcanca_destino "$dest"; then
+    info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv"); rc=$?
+    if ((rc == 1)); then sleep 2; info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv"); rc=$?; fi
+    if ((rc == 1)); then
       printf '\n\033[33mA sessão %s:%s foi encerrada no destino. Fechando esta ponte.\033[0m\n' \
-        "$(rotulo_de "$dest")" "$s"
+        "$(rotulo_de "$dest")" "$nome_atual"
+      log_ponte "$ponte" "ponte encerrada: a sessão $dest|$nome_atual (id ${id:-?}) foi encerrada no destino"
       sleep 1
       tmux kill-session -t "=$ponte" 2>/dev/null
       return 0
     fi
-    printf '\n\033[33mA conexão com %s:%s terminou (código %s).\033[0m\n' "$(rotulo_de "$dest")" "$s" "$st"
+    if ((rc == 0)); then
+      IFS='|' read -r id srv nome_atual <<<"$info"
+      ponte_registrar "$ponte" "$dest" "$id" "$srv" "$nome_atual"
+    fi
+    printf '\n\033[33mA conexão com %s:%s terminou (código %s).\033[0m\n' "$(rotulo_de "$dest")" "$nome_atual" "$st"
     printf 'A janela foi preservada. Pressione Enter para tentar novamente ou Ctrl+B d para voltar. '
     read -r
   done
@@ -2993,6 +3045,29 @@ ponte() {
 sessao_remota_existe() {
   local dest=$1 s=$2
   timeout 5 ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO tmux has-session -t $(q "=$s")" </dev/null >/dev/null 2>&1
+}
+
+# Acha a sessão remota pela IDENTIDADE, não pelo nome: o vigia renomeia sessões sozinho, e um nome
+# guardado passa a apontar para o nada (a ponte era tomada por órfã e morta com você dentro dela).
+# O id de sessão do tmux ($N) sobrevive à renomeação, mas recomeça do zero se o servidor de lá
+# reiniciar; por isso vale junto com o start_time do servidor. Sem id válido, cai para o nome.
+# Uma única consulta ssh. Imprime "id|start_time|nome-atual". Retorno:
+#   0 achou · 1 o destino respondeu e a sessão não existe · 2 sem resposta (rede/ssh): não concluir nada.
+resolver_remota() { # dest nome [id] [start_time]
+  local dest=$1 nome=$2 id=${3:-} srv=${4:-} out rc
+  [[ -n $dest && $dest != : ]] || return 2
+  out=$(timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO tmux list-sessions -F '#{session_id}|#{start_time}|#{session_name}'" </dev/null 2>/dev/null)
+  rc=$?
+  ((rc == 0 || rc == 1)) || return 2   # 124 (timeout), 255 (ssh) ou outro: não sabemos
+  printf '%s\n' "$out" | awk -F'|' -v id="$id" -v srv="$srv" -v nome="$nome" '
+    NF >= 3 {
+      n = $3; for (i = 4; i <= NF; i++) n = n "|" $i
+      if (id != "" && $1 == id && $2 == srv) { print $1 "|" $2 "|" n; achou = 1; exit }
+      if (n == nome && !porNome) porNome = $1 "|" $2 "|" n
+    }
+    END { if (!achou && porNome != "") { print porNome; exit 0 } exit !achou }
+  ' && return 0
+  return 1
 }
 
 # O destino responde a SSH agora? Serve para distinguir "a sessão sumiu" (destino responde, mas a
@@ -3180,25 +3255,42 @@ criar_ponte() {
 # por ponte: só roda com SONDAR (o vigia marca uma volta a cada 5 min); o fechamento por ociosidade
 # é local e roda em toda volta.
 fechar_pontes_ociosas() {
-  local agora=$1 sondar=${2:-} limite=${TT_T_PONTE:-1800} s anexada ult dest alvo rs
-  while IFS='|' read -r s anexada ult dest alvo; do
+  local agora=$1 sondar=${2:-} limite=${TT_T_PONTE:-1800} s anexada ult dest id srv sumiu alvo rs info rc nid nsrv nnome
+  while IFS='|' read -r s anexada ult dest id srv sumiu alvo; do
     [[ $s == _tt-* ]] && continue # sessões ocultas do tt (e-mail aberto em segundo plano)
     if ((anexada == 0 && ult > 0 && agora - ult >= limite)); then
+      log_ponte "$s" "ponte encerrada: ociosa há $(((agora - ult) / 60)) min (alvo ${alvo:-?})"
       tmux kill-session -t "=$s" 2>/dev/null
       continue
     fi
     [[ -n $sondar ]] || continue
-    # Órfã: o alvo é "dest|sessão"; se o destino responde e a sessão não existe lá, encerra já,
-    # sem esperar o tempo de ociosidade. Pontes anexadas também: uma sessão fantasma anexada é
-    # justamente o sintoma a corrigir. As sondas são opcionais: se não estiverem no escopo (ex.: a
-    # função foi extraída isolada), a verificação de órfã é pulada em vez de quebrar.
+    # Órfã: a sessão de lá deixou de existir. A sonda acha o alvo pelo ID da sessão (e start_time do
+    # servidor), não pelo nome: o vigia renomeia sessões sozinho, e a sonda por nome tomava a ponte
+    # por órfã, matava-a com você dentro e o tmux (detach-on-destroy off) te jogava em outra sessão.
+    # Só vale como sumida quando o destino RESPONDE, nem o id nem o nome existem e isso se repete em
+    # duas voltas seguidas (@ponte_sumiu). Sem resposta (rede/SSH), nada se conclui. As sondas são
+    # opcionais: fora do escopo (ex.: função extraída isolada), a verificação é pulada.
     [[ -n $alvo && $alvo == *"|"* ]] || continue
-    declare -F sessao_remota_existe >/dev/null && declare -F alcanca_destino >/dev/null || continue
+    declare -F resolver_remota >/dev/null || continue
     rs=${alvo#*|}
-    if ! sessao_remota_existe "$dest" "$rs" && alcanca_destino "$dest"; then
-      tmux kill-session -t "=$s" 2>/dev/null
-    fi
-  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{?session_last_attached,#{session_last_attached},#{session_created}}|#{@ponte}|#{@ponte_alvo}' -f '#{@ponte}' 2>/dev/null)
+    info=$(resolver_remota "$dest" "$rs" "$id" "$srv"); rc=$?
+    case $rc in
+      0)
+        IFS='|' read -r nid nsrv nnome <<<"$info"
+        ponte_registrar "$s" "$dest" "$nid" "$nsrv" "$nnome" ;;
+      1)
+        # Ponte antiga, sem id guardado, ainda anexada: não dá para distinguir sumiço de renomeação.
+        # Preserva; o `ponte()` dela reconcilia quando a conexão cair e ela reconectar.
+        [[ -z $id && $anexada != 0 ]] && continue
+        if ((${sumiu:-0} >= 1)); then
+          log_ponte "$s" "ponte encerrada: a sessão $dest|$rs (id ${id:-?}) sumiu do destino (2 sondagens seguidas, anexada=$anexada)"
+          tmux kill-session -t "=$s" 2>/dev/null
+        else
+          tmux set-option -t "=$s:" @ponte_sumiu 1 2>/dev/null
+        fi ;;
+      *) : ;; # destino mudo: transitório, preserva
+    esac
+  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{?session_last_attached,#{session_last_attached},#{session_created}}|#{@ponte}|#{@ponte_id}|#{@ponte_srv}|#{@ponte_sumiu}|#{@ponte_alvo}' -f '#{@ponte}' 2>/dev/null)
   return 0
 }
 
@@ -3217,6 +3309,7 @@ entrar_remoto() {
   fi
   ponte=$(criar_ponte "$dest" "$s" "${TT_CLIENTE:-}") || return 1
   sair_menu
+  log_troca ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$ponte"
   exec "$TT_TMUX_BIN" switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$ponte"
 }
 
@@ -3276,7 +3369,7 @@ ir_para() {
   fi
   if [[ $dest != . ]]; then entrar_remoto "$dest" "$s"; return; fi
   sair_menu
-  if [[ -n ${TMUX:-} ]]; then exec "$TT_TMUX_BIN" switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$s"; fi
+  if [[ -n ${TMUX:-} ]]; then log_troca ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$s"; exec "$TT_TMUX_BIN" switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$s"; fi
   tmux attach-session -t "=$s"
 }
 

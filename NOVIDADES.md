@@ -3,6 +3,17 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.3 · 11/10/2026
+- **Corrigido: ser jogado de uma sessão de outra máquina para outra qualquer "sem motivo".** A causa: o vigia renomeia
+  sessões sozinho; a ponte guardava o nome antigo do alvo, a sonda de pontes órfãs (a cada 5 min) não o achava lá,
+  tomava a ponte por morta, matava-a com você dentro e o tmux (`detach-on-destroy off`) te levava a outra sessão.
+  Agora a ponte acha a sessão de lá pelo **id** (junto do start_time do servidor, que muda se ele reiniciar), nunca
+  pelo nome; conecta por esse id e segue o nome novo. Uma ponte só é encerrada quando o destino responde, o id e o nome
+  sumiram e isso se repete em 2 sondagens seguidas; sem resposta de rede, nada é concluído. Ponte antiga ainda
+  anexada e sem id nunca é morta pela sonda.
+- Rastros: toda ponte que o tt encerra grava o motivo em `~/.cache/tt-vigia.log`, e toda troca de sessão do tt grava
+  `~/.cache/tt-troca.log` (cliente, de onde para onde, quem chamou, se veio de ssh). Testes: `tests/test_ponte_renomeada.sh`.
+
 ## v1.8.2 · 11/10/2026
 - **"Clicar fora fecha" agora vale para as outras telas do tt**, não só para o painel de tarefas: central, seletor ☰,
   menus, agenda, notificações, fixadas, transferências, cópias, e-mail, atalhos… Com o interruptor ligado (menu ⋯ do

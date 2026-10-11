@@ -526,6 +526,7 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
 - Info das máquinas (sessões e versão, para o menu de máquinas) a cada `TT_T_INFO` s (300).
 - Fixadas/tarefas a cada 300 s: `--puxar-fixadas`, `--reconciliar-fixadas`, `--tarefas-puxar`; na
   mesma volta, a sonda por ssh das pontes órfãs (o fechamento por ociosidade é local e roda sempre).
+  A sonda acha o alvo pelo **id da sessão** (+ start_time do servidor), não pelo nome, porque o vigia renomeia sessões; só encerra a ponte quando o destino responde, o id e o nome sumiram e isso se repete em 2 voltas. Todo encerramento de ponte fica em `~/.cache/tt-vigia.log`; toda troca de sessão do tt, em `~/.cache/tt-troca.log`.
 - Contas de IA a cada 1800 s: `--puxar-contas-ia`.
 - E-mail (sync local) a cada `TT_EMAIL_SYNC` s (default 120; 300 ocioso; 0 desliga): `--email-sync --vigia`.
 - Padrão visual + memória a cada 300 s: `--reforcar-padrao`, `--memoria-agentes`.
