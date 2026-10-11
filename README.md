@@ -947,29 +947,38 @@ derivado dele (ex.: `kito47`). Assim você, a IA e outra pessoa falam da mesma t
   `tt --reforcar-agentes` faz na hora. O que está fora do bloco nunca é tocado.
 - Testes: `tests/test_tarefas_codigo.sh`.
 
-## Painel de tarefas flutuante (clicar fora fecha)
+## Janelas flutuantes (clicar fora fecha)
 
-O painel de tarefas abre num `display-popup`, que é modal e **engole o clique fora dele** (medido no tmux
-3.5a: nem dispara bind de mouse nem fecha). O tmux 3.8 trouxe o painel modal (`new-pane -O -C`): um
-floating pane que fecha ao clicar fora. O tt usa esse painel quando você liga, e só onde o tmux sabe
-(detecção pela capacidade do `new-pane`, não pelo número da versão).
+As telas do tt (central, seletor ☰, menus, painel de tarefas, agenda, notificações, fixadas, e-mail, transferências…)
+abrem num `display-popup`, que é modal e **engole o clique fora dele** (medido no tmux 3.5a: nem dispara bind de mouse
+nem fecha). O tmux 3.8 trouxe o painel modal (`new-pane -O -C`): um floating pane que fecha ao clicar fora. O tt usa
+esse painel para **todas** as suas telas quando você liga, e só onde o tmux sabe (detecção pela capacidade do
+`new-pane`, não pelo número da versão).
 
-- **Liga/desliga:** menu **⋯ do painel → 🪟 Painel de tarefas flutuante** (alterna e diz o estado), ou
-  `tt --flutuante [status|on|off|alternar]`. Vem **desligado**: o painel segue como popup, só na tela que
-  clicou. Valor em `painel_flutuante=1` no `~/.config/tt/config` (por máquina, porque depende do tmux dela).
-- **Diferença:** o painel flutuante é da **janela**, não do cliente — todo aparelho que olha a janela (o PC e o
-  celular pela mesma sessão, por exemplo) o vê abrir e fechar. Por isso o padrão é desligado.
-- **Fechar:** clique na janela fora do painel, `Esc` na lista (o `Esc` da ajuda/menu só volta), ou
-  `tt --tarefas` de novo. **Aberto, a barra de status fica inerte** (o tmux bloqueia o clique nela), então o
-  📋 não fecha o painel.
+- **Liga/desliga:** menu **⋯ do painel → 🪟 Janelas flutuantes (clicar fora fecha)** (alterna e diz o estado), ou
+  `tt --flutuante [status|on|off|alternar]`. Vem **desligado**: as telas seguem como popup, só na tela que clicou.
+  Valor em `painel_flutuante=1` no `~/.config/tt/config` (por máquina, porque depende do tmux dela).
+- **Como funciona:** todo `tmux display-popup` do código do tt passa por `popup_janela`, que recebe as mesmas
+  opções e, ligado, abre o painel modal com a mesma caixa (largura/altura com a borda, `-x`, `-y S` encostado na
+  barra, centralizado por padrão), o título na borda e o comando com `TT_CLIENTE` e `TT_EM_JANELA=1`. Os comandos
+  de menu, que rodam em outro shell, chamam `tt --popup` com as mesmas opções do `display-popup`.
+- **Diferenças do popup:** o painel é da **janela**, não do cliente — todo aparelho que olha a janela (o PC e o
+  celular pela mesma sessão, por exemplo) o vê abrir e fechar. A borda `rounded` vira `single`. **Aberto, a barra de
+  status fica inerte** (o tmux bloqueia o clique nela), então o botão que abriu não fecha a janela.
+- **Fechar:** clique na janela fora do painel, `Esc` (ou o `q` da tela), ou escolher o item. Em tela estreita
+  (menos de 80 colunas, o celular) a maioria das telas ocupa a janela inteira e não sobra "fora" para clicar: use
+  `Esc`. Se um aparelho cair com uma janela aberta, ela fica na janela até alguém clicar fora ou apertar `Esc`.
+- **O que continua popup:** o modal das **pendências** (apt/sudo no meio da instalação) e o **navegador**, para um
+  clique perdido não interromper uma instalação nem fechar uma página. Também cai no popup de sempre quando a janela
+  já tem um modal (o painel de tarefas aberto) ou é pequena demais.
+- O painel de tarefas, que já era assim, segue tendo o toggle: `tt --tarefas` de novo o fecha.
 - Sem tmux 3.8 (hoje a maioria das distribuições traz 3.5/3.6), ligar não quebra nada: o rótulo avisa
-  "precisa ser 3.8+" e o painel abre como popup. A opção é por máquina e **vale assim que o tmux dela passa a
-  3.8**: uma máquina que já tinha `painel_flutuante=1` de antes muda de popup para painel modal no dia da atualização.
-- Em tela estreita (menos de 80 colunas, o celular) o painel ocupa a janela inteira. Só o painel de tarefas tem
-  "clicar fora fecha": os demais popups (central, seletor, menus) seguem como `display-popup`.
-- O painel flutuante não conta como divisão da janela para a barrinha de título dos painéis (`tt --bordas`).
-- Testes: `tests/test_flutuante.sh` (a parte com o painel real exige um tmux 3.8; aponte `TT_TMUX_38` para o
-  binário se o do sistema for mais velho).
+  "precisa ser 3.8+" e tudo abre como popup. A opção é por máquina e **vale assim que o tmux dela passa a 3.8**: uma
+  máquina que já tinha `painel_flutuante=1` de antes muda de popup para janela flutuante no dia da atualização.
+- O painel flutuante não conta como divisão da janela para a barrinha de título dos painéis (`tt --bordas`): com
+  um flutuante aberto a borda mostra só o título dele (`pane-border-status top-floating`).
+- Testes: `tests/test_janelas_flutuantes.sh` e `tests/test_flutuante.sh` (a parte com o painel real exige um tmux
+  3.8; aponte `TT_TMUX_38` para o binário se o do sistema for mais velho).
 
 ## Versões de tmux misturadas
 

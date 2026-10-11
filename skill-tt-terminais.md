@@ -108,6 +108,11 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - **Sessão `_nome` = oculta**: nome começando com `_` (`_tt-email`, `_tt-vigia`) fica fora da central, do seletor,
   do mestre de obras, da renomeação do vigia e de toda poda (`[[ -n $ponte || $s == _* ]] && continue` em cada laço
   de `list-sessions`). Ponte (`@ponte`) é outra coisa: sessão que mostra uma sessão de outra máquina.
+- **Janelas flutuantes**: todo `tmux display-popup` do código do tt cai em `popup_janela` (o wrapper `tmux()` do `tt` o
+  intercepta; strings de menu, rodadas por outro shell, usam `$EU --popup …`, mesmas opções). Com `painel_flutuante=1`
+  e `new-pane -O -C -K` vira painel modal (fecha ao clicar fora), com `TT_CLIENTE`/`TT_EM_JANELA=1` no ambiente
+  (`em_popup` os reconhece). `popup_fixo` = display-popup que não deve fechar com um clique perdido (pendências,
+  navegador). Tela nova: use `tmux display-popup` normalmente; para ser fixa use `popup_fixo`.
 - **tmux certo**: um cliente 3.5a não conversa com servidor 3.6/3.8. `tmux_alinhar` (início do `tt`) acha o binário
   do servidor por `$TMUX` → `/proc/PID/exe` e, se o PATH acha outro arquivo, define a função `tmux` e `TT_TMUX_BIN`
   (exportado; `exec`, strings de popup e os `.py` usam). Script novo que chama tmux fora do `tt` deve fazer o mesmo

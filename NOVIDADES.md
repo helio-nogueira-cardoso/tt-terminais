@@ -3,6 +3,17 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.2 · 11/10/2026
+- **"Clicar fora fecha" agora vale para as outras telas do tt**, não só para o painel de tarefas: central, seletor ☰,
+  menus, agenda, notificações, fixadas, transferências, cópias, e-mail, atalhos… Com o interruptor ligado (menu ⋯ do
+  painel → 🪟 **Janelas flutuantes**, `tt --flutuante`) e tmux 3.8+, toda tela que era `display-popup` abre como painel
+  modal com o título na borda, fecha ao clicar na janela fora dela (ou `Esc`) e devolve o controle a quem a chamou. O
+  modal das **pendências** (apt/sudo) e o **navegador** continuam popup, para um clique perdido não os derrubar. Em
+  celular/tela estreita a maioria ocupa a janela toda: lá fecha com `Esc`. Desligado ou em tmux antigo nada muda.
+  Quem já tinha o interruptor ligado passa a ter isso assim que o tmux da máquina chega ao 3.8.
+- `ia-login --principal` tenta duas vezes falar com cada máquina antes de dar "sem resposta" (o celular de tela apagada
+  perdia a primeira conexão fria).
+
 ## v1.8.1 · 11/10/2026
 - **Versões de tmux misturadas deixam de quebrar o tt.** Medido com o 3.5a, 3.6b e 3.8: um cliente tmux 3.5a **não
   conversa** com um servidor 3.6 ou 3.8 (`server exited unexpectedly`); os outros pares funcionam. Num painel cujo

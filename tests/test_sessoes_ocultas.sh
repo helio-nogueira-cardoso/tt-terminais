@@ -40,10 +40,15 @@ if [[ $uso =~ \[-([A-Za-z]+)\] && ${BASH_REMATCH[1]} == *O* ]]; then
   w=$(tmux display -p -t =janela: '#{window_id}')
   bs() { tmux display-message -p -t "$w" '#{pane-border-status}'; }
   tt --bordas; [[ $(bs) == off ]] || falhou "com 1 painel a barrinha deveria estar desligada (está $(bs))"
+  alt0=$(tmux list-panes -t "$w" -F '#{pane_floating_flag} #{pane_height}' | awk '$1 == 0 { print $2 }')
   tmux new-pane -d -t "=janela:" -O -C -K 'sleep 600'; sleep 0.5
   [[ $(tmux list-panes -t "$w" -F '#{pane_floating_flag}' | grep -c '^1$') == 1 ]] || falhou 'o painel flutuante de teste não abriu'
-  tt --bordas; [[ $(bs) == off ]] || falhou "painel flutuante contou como divisão: barrinha ligou ($(bs))"
+  tt --bordas
+  # só o flutuante ganha a linha de título (top-floating); o painel dividido não perde linha
+  [[ $(bs) == top-floating ]] || falhou "painel flutuante contou como divisão: barrinha ficou '$(bs)' (esperado top-floating)"
+  [[ $(tmux list-panes -t "$w" -F '#{pane_floating_flag} #{pane_height}' | awk '$1 == 0 { print $2 }') == "$alt0" ]] || falhou 'o painel dividido mudou de altura com o flutuante aberto'
   tmux kill-pane -t "$(tmux list-panes -t "$w" -F '#{pane_floating_flag} #{pane_id}' | awk '$1 == 1 { print $2 }')"
+  tt --bordas; [[ $(bs) == off ]] || falhou "fechado o flutuante a barrinha deveria voltar a off (está $(bs))"
   tmux split-window -d -t "=janela:" 'sleep 600'; sleep 0.3
   tt --bordas; [[ $(bs) == top ]] || falhou "com 2 painéis divididos a barrinha deveria ligar (está $(bs))"
   passou 'painel flutuante não conta como divisão da janela (barrinha só com 2+ painéis divididos)'

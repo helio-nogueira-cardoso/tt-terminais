@@ -19,7 +19,7 @@ done
 # 1) padrão desligado; alternar liga e desliga; o rótulo diz a verdade sobre o tmux desta máquina
 [[ $(conf_valor=$(grep -c '^painel_flutuante=' "$XDG_CONFIG_HOME/tt/config" || true); echo "$conf_valor") == 0 ]] || falhou "o padrão não pode gravar painel_flutuante"
 saida=$(tt --flutuante); grep -q 'desligado' <<<"$saida" || falhou "padrão deveria ser desligado: $saida"
-saida=$(tt --flutuante on); grep -q '^🪟 painel flutuante: ligado' <<<"$saida" || falhou "on deveria ligar: $saida"
+saida=$(tt --flutuante on); grep -q '^🪟 janelas flutuantes: ligado' <<<"$saida" || falhou "on deveria ligar: $saida"
 grep -q '^painel_flutuante=1$' "$XDG_CONFIG_HOME/tt/config" || falhou "on deveria gravar painel_flutuante=1 no config"
 saida=$(tt --flutuante alternar); grep -q 'desligado' <<<"$saida" || falhou "alternar de ligado deveria desligar: $saida"
 saida=$(tt --flutuante alternar); grep -q 'ligado' <<<"$saida" || falhou "alternar de desligado deveria ligar: $saida"
@@ -34,7 +34,7 @@ tt --flutuante off >/dev/null
 passou "painel flutuante: padrão desligado, alternar grava uma linha só e o rótulo diz a verdade"
 
 # 2) o item do menu ⋯ do painel está ligado ao verbo
-grep -q -- '--flutuante alternar' "$TT" && grep -q 'Painel de tarefas flutuante' "$TT" || falhou "o menu do painel não tem o item do painel flutuante"
+grep -q -- '--flutuante alternar' "$TT" && grep -q 'Janelas flutuantes (clicar fora fecha)' "$TT" || falhou "o menu do painel não tem o item do painel flutuante"
 passou "menu ⋯ do painel tem o toggle 🪟"
 
 if [[ -z $BIN38 ]]; then

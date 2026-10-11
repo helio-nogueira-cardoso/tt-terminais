@@ -222,10 +222,15 @@ montar_plano() {
     elif [[ -n $PRINCIPAL_ALVO ]]; then
       # Máquina com o tt de antes do --principal: o ia-login dela trataria "--principal-faltas" como nome de
       # máquina e abriria o plano completo. Só chama se a ajuda de lá conhece o --principal.
-      ( timeout "${EM_TIMEOUT:-25}" ssh -n -o BatchMode=yes -o ConnectTimeout=6 "$dest" \
-          "$PATH_REMOTO; export PATH; if ia-login --help 2>/dev/null | grep -q 'ia-login --principal CONTA'; then ia-login --principal-faltas $(printf '%q' "$PRINCIPAL_ALVO"); else echo '#sem-suporte'; fi" \
-          >"$tmp/$rot.tsv" 2>/dev/null
-        echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
+      # Duas tentativas: o celular, de tela apagada, perde a 1ª conexão fria (o ssh sem a conexão persistente do tt).
+      ( local_rc=1
+        for _ in 1 2; do
+          timeout "${EM_TIMEOUT:-25}" ssh -n -o BatchMode=yes -o ConnectTimeout=6 "$dest" \
+            "$PATH_REMOTO; export PATH; if ia-login --help 2>/dev/null | grep -q 'ia-login --principal CONTA'; then ia-login --principal-faltas $(printf '%q' "$PRINCIPAL_ALVO"); else echo '#sem-suporte'; fi" \
+            >"$tmp/$rot.tsv" 2>/dev/null
+          local_rc=$?; ((local_rc == 0)) && break; sleep 1
+        done
+        echo $local_rc >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
     elif [[ $dest == . ]]; then
       ( em . --faltas >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
     else

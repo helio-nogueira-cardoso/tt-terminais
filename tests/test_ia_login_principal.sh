@@ -110,4 +110,20 @@ grep -qE 'velha +- +- +- +sem suporte' <<<"$out" || grep -qE 'velha .*sem suport
 [[ ! -e $T/velho/home/velho-rodou ]] || falhou 'o ia-login velho rodou o plano completo por causa do argumento novo'
 grep -qE 'teste +claude +principal +novo@x.com +trocar' <<<"$out" || falhou "a máquina local deveria continuar no plano: $out"
 passou 'máquina com ia-login antigo: "sem suporte", sem rodar o plano completo de lá; a local segue no plano'
+
+# 7) o ssh frio falha na 1ª tentativa (celular de tela apagada): a 2ª resolve e a máquina entra no plano
+rm -f "$T/velho/home/velho-rodou" "$T/ssh-tentativas"
+cat >"$B/ssh" <<EOF2
+#!/usr/bin/env bash
+n=\$(cat "$T/ssh-tentativas" 2>/dev/null || echo 0); echo \$((n + 1)) >"$T/ssh-tentativas"
+((n < 1)) && exit 255
+cmd=\${!#}
+HOME=$T/velho/home PATH=$T/velho/bin:\$PATH bash -c "\$cmd"
+EOF2
+chmod +x "$B/ssh"
+out=$(ia-login --principal novo@x.com --plano 2>&1)
+grep -qE 'velha .*sem suporte' <<<"$out" || falhou "a 2ª tentativa deveria responder (sem suporte, o ia-login de lá é o velho): $out"
+grep -q 'sem resposta' <<<"$out" && falhou "o ssh frio não pode virar 'sem resposta' na 1ª falha: $out"
+[[ $(cat "$T/ssh-tentativas") == 2 ]] || falhou "esperava 2 tentativas de ssh, houve $(cat "$T/ssh-tentativas")"
+passou 'ssh frio: a 2ª tentativa responde e a máquina não vira "sem resposta"'
 echo "TODOS OS TESTES PASSARAM"

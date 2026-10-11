@@ -1092,10 +1092,16 @@ tmux_alinhar() {
   bin=$(readlink "/proc/$pid/exe" 2>/dev/null)
   [[ -x $bin ]] || bin=/proc/$pid/exe # arquivo trocado depois que o servidor subiu (atualização do pacote)
   TT_TMUX_BIN=$bin
-  tmux() { command "$TT_TMUX_BIN" "$@"; }
 }
 tmux_alinhar
 export TT_TMUX_BIN
+_tmux_real() { command "$TT_TMUX_BIN" "$@"; }
+# Todo `tmux` chamado por código do tt passa por aqui: o display-popup vira janela flutuante quando ela está
+# ligada (popup_janela, mais abaixo); o resto vai ao tmux do servidor.
+tmux() {
+  if [[ ${1:-} == display-popup ]]; then popup_janela "${@:2}"; return; fi
+  command "$TT_TMUX_BIN" "$@"
+}
 ATALHOS_PADRAO=${TT_ATALHOS_PADRAO:-$DIR_TT/atalhos-padrao}
 CONF_ATALHOS=$CONF_DIR/atalhos
 # Repositório de origem (só na máquina onde se desenvolve): TT_REPO, "repo=" no config, ou a pasta
@@ -3498,16 +3504,20 @@ seletor_em() {
 # Barrinha de título dos painéis só nas janelas com 2+ painéis (chamado pelos ganchos do tmux).
 bordas() {
   sleep 0.05
-  local w n atual f
-  local -A divididos=()
-  # Painel flutuante (tmux 3.7+: o modal das tarefas, Ctrl+arrastar) não divide a janela: contado como painel, abrir
-  # o painel de tarefas ligava a barrinha de título e o painel de baixo perdia uma linha (o Claude redesenhava a
+  local w n fl atual f quer
+  local -A divididos=() flutuantes=()
+  # Painel flutuante (tmux 3.7+: as janelas flutuantes do tt, Ctrl+arrastar) não divide a janela: contado como painel,
+  # abrir o painel de tarefas ligava a barrinha de título e o painel de baixo perdia uma linha (o Claude redesenhava a
   # tela a cada abrir e fechar). Sem pane_floating_flag (tmux antigo) o campo vem vazio e todo painel conta.
-  while read -r w f; do [[ $f == 1 ]] || divididos[$w]=$((${divididos[$w]:-0} + 1)); done < <(tmux list-panes -a -F '#{window_id} #{pane_floating_flag}' 2>/dev/null)
+  # Com 2+ painéis divididos a barrinha vale para todos ("top"); só com um flutuante, só para ele ("top-floating",
+  # onde o título do flutuante, o da -T, aparece na borda); sem nada disso, desligada.
+  while read -r w f; do
+    if [[ $f == 1 ]]; then flutuantes[$w]=$((${flutuantes[$w]:-0} + 1)); else divididos[$w]=$((${divididos[$w]:-0} + 1)); fi
+  done < <(tmux list-panes -a -F '#{window_id} #{pane_floating_flag}' 2>/dev/null)
   while read -r w atual; do
-    n=${divididos[$w]:-0}
-    if ((n > 1)); then [[ $atual == top ]] || tmux set-option -w -t "$w" pane-border-status top
-    else [[ $atual == off ]] || tmux set-option -w -t "$w" pane-border-status off; fi
+    n=${divididos[$w]:-0} fl=${flutuantes[$w]:-0}
+    if ((n > 1)); then quer=top; elif ((fl > 0)); then quer=top-floating; else quer=off; fi
+    [[ $atual == "$quer" ]] || tmux set-option -w -t "$w" pane-border-status "$quer" 2>/dev/null
   done < <(tmux list-windows -a -F '#{window_id} #{pane-border-status}' 2>/dev/null)
 }
 
@@ -4628,7 +4638,8 @@ cliente_externo() {
 
 # Rodando num popup do tmux com terminal: o tmux não abre outro popup por cima (só modifica o atual),
 # então o que precisaria de um popup roda aqui mesmo. Jobs de popup têm TMUX mas não TMUX_PANE.
-em_popup() { [[ -n ${TMUX:-} && -z ${TMUX_PANE:-} && -t 0 && -t 1 ]]; }
+# Numa janela flutuante (painel modal) o TMUX_PANE existe, então vale a marca TT_EM_JANELA que a popup_janela põe.
+em_popup() { [[ -t 0 && -t 1 ]] && { [[ -n ${TMUX:-} && -z ${TMUX_PANE:-} ]] || [[ -n ${TT_EM_JANELA:-} ]]; }; }
 
 # Roda CMD (string de shell) fora do namespace sem rede do w3m/aerc: pelo servidor do tmux.
 # popup=1 abre num popup grande (para o que precisa de terminal); senão em segundo plano.
@@ -4643,7 +4654,7 @@ rodar_fora() {
     if [[ $popup == 1 && -n ${TT_LINK_CLIENTE:-} ]]; then
       cmd="sleep 0.3; tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q (ou Ctrl+C) fecha ' $(q "$cmd")"
       tmux run-shell -b "${cmd//#/##}"
-    elif [[ $popup == 1 ]]; then tmux display-popup -c "$c" -E $(tam_popup "$c") -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q (ou Ctrl+C) fecha ' "$cmd"
+    elif [[ $popup == 1 ]]; then popup_fixo -c "$c" -E $(tam_popup "$c") -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q (ou Ctrl+C) fecha ' "$cmd"
     else tmux run-shell -b "${cmd//#/##}"; fi
   else
     if [[ $popup == 1 ]]; then bash -c "$cmd"; else setsid bash -c "$cmd" >/dev/null 2>&1 </dev/null & fi
@@ -4657,7 +4668,7 @@ pedir_pendencia_aqui() {
   local c
   if em_popup; then pedir_sudo_pendencias "$@"
   elif [[ -n ${TMUX:-} ]] && c=$(cliente_externo 2>/dev/null) && [[ -n $c ]]; then
-    tmux display-popup -c "$c" -E $(dim_popup "$c" 92 22) -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo $*"
+    popup_fixo -c "$c" -E $(dim_popup "$c" 92 22) -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo $*"
   elif [[ -t 0 ]]; then pedir_sudo_pendencias "$@"
   else return 1; fi
 }
@@ -5175,7 +5186,7 @@ dim_popup() { # cliente largura altura → "-w L -h A", sem passar do tamanho do
 
 popup_tt() { # cliente título args… → comando que abre o tt num popup grande
   local c=$1 t=$2; shift 2
-  echo "tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T $(q " $t ") $(q "$*")"
+  echo "$EU --popup -c $(q "$c") -E $(tam_popup "$c") -T $(q " $t ") $(q "$*")"
 }
 
 # Tela pequena (celular, ou janela estreita/baixa): modo compacto nos menus grandes.
@@ -5210,7 +5221,7 @@ h	📋 Histórico de cópias…	$(popup_tt "$c" "📋 cópias" "$env $EU --copia
 a	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
 k	⏱ Sessões paradas: $( (($(minutos_paradas))) && echo "fecham após $(minutos_paradas) min" || echo desativado)…	$EU --config-paradas $(q "$c")
 n	🧠 Nomeador de abas: $(modo_nomeador)…	$(popup_tt "$c" "🧠 nomeador de abas" "$EU --nomeador-ui")
-g	🪟 Painel de tarefas flutuante: $(flutuante_rotulo)…	$EU --flutuante alternar $(q "$c")
+g	🪟 Janelas flutuantes (clicar fora fecha): $(flutuante_rotulo)…	$EU --flutuante alternar $(q "$c")
 S	🔄 Sincronização das tarefas: $(tarefas_sync_rotulo)…	$(popup_tt "$c" "🔄 sincronização das tarefas" "$EU --tarefas-sync-ui")
 w	✉ Demandas por e-mail (remetentes autorizados)…	$(popup_tt "$c" "✉ demandas por e-mail" "$EU --demandas-ui")
 -		
@@ -5256,7 +5267,7 @@ e	Editar a configuração desta máquina	$(popup_tt "$c" "~/.tmux.conf" "$ed ~/.
 t	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
 l	Recarregar a configuração	tmux source-file ~/.tmux.conf \; display-message -c $(q "$c") 'configuração recarregada'
 -		
-r	Renomear a sessão…	tmux display-popup -c $(q "$c") -E $(dim_popup "$c" 70 7) -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
+r	Renomear a sessão…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 70 7) -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
 d	Desanexar esta tela	tmux detach-client -t $(q "$c")
 D	Desanexar as outras telas	tmux detach-client -a -t $(q "$c")
 X	Fechar a sessão…	tmux confirm-before -t $(q "$c") -p $(q "Fechar a sessão $sess? (y/n)") $(q "kill-session -t =$sess")
@@ -5458,7 +5469,7 @@ menu_sessao() {
   menu_popup "$c" "sessão · $sess" <<ITENS
 s	☰ Trocar de sessão…	$EU --seletor-em $(q "$c") $(q "$MAQUINA") $p
 n	＋ Nova sessão	$EU --nova-e-ir $(q "$c")
-r	✎ Renomear esta sessão…	tmux display-popup -c $(q "$c") -E $(dim_popup "$c" 70 7) -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
+r	✎ Renomear esta sessão…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 70 7) -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
 f	$(fixadas | grep -qxF "$MAQUINA"$'\t'"$sess" && echo "📌 Desafixar da barra" || echo "📌 Fixar na barra")	$EU --alternar-fixada-rotulo $(q "$MAQUINA") $(q "$sess")
 -		
 l	Dividir ao lado (terminal novo)	tmux split-window -h -t $p -c $(q "$pasta")
@@ -7446,7 +7457,7 @@ notif_abrir() { # ação cliente
     email:*) email_ir_novo "${acao#email:}" "$c" ;;   # aviso de e-mail novo: vai à conta e à mensagem (:check-mail vai dentro)
     email) botao_email "$c" ;;
     novidades) tmux display-popup -c "$c" -E $(tam_popup "$c") -T ' 📰 novidades do tt ' "$EU --novidades" ;;
-    pendencias) tmux display-popup -c "$c" -E $(dim_popup "$c" 92 22) -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo" ;;
+    pendencias) popup_fixo -c "$c" -E $(dim_popup "$c" 92 22) -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo" ;;
     tarefas) abrir_tarefas "$c" ;;
     demandas) tarefas_filtro_set entrada; abrir_tarefas "$c" ;;
     calendario) abrir_calendario "$c" ;;
@@ -7761,6 +7772,74 @@ flutuante_suportado() {
   [[ ${BASH_REMATCH[1]} == *O* && ${BASH_REMATCH[1]} == *C* && ${BASH_REMATCH[1]} == *K* ]]
 }
 flutuante_ativo() { [[ $(conf painel_flutuante) == 1 ]] && flutuante_suportado; }
+
+# --- janelas flutuantes: o display-popup do tt que fecha ao clicar fora ------------------------------
+#
+# popup_janela recebe as MESMAS opções do `tmux display-popup` (todo `tmux display-popup` do código do tt cai
+# aqui pelo wrapper tmux(); os comandos de menu, rodados por outro shell, chamam `tt --popup`). Com
+# painel_flutuante=1 e tmux 3.8+ abre um painel MODAL (new-pane -O -C -K): clicar na janela fora dele o fecha,
+# nada atrás recebe tecla nem clique, e o título fica na borda (pane-border-status top-floating, ver `bordas`).
+# Em qualquer outro caso é o display-popup de sempre, com as opções originais: desligado, tmux velho, sem
+# cliente, comando vazio, janela pequena demais ou uma janela que já tem um modal (o do painel de tarefas).
+# A caixa é a mesma: -w/-h em número ou %, -x número, -y número ou S (encostado na barra de status), sem -x/-y
+# centraliza; a largura e a altura incluem a borda, como no popup. Diferenças: o painel é da JANELA (todo aparelho
+# que olha a janela o vê) e a borda "rounded" vira "single" (o painel não tem cantos arredondados).
+# O comando recebe TT_CLIENTE (o painel não tem cliente próprio, e um switch-client sem -c pegaria a tela errada)
+# e TT_EM_JANELA=1 (em_popup: "já estou numa janela, não abra outra por cima").
+_janela_dim() { # valor total padrão-% → número (aceita N e N%)
+  local v=$1 tot=$2 pad=$3
+  if [[ $v =~ ^[0-9]+%$ ]]; then echo $((tot * ${v%\%} / 100))
+  elif [[ $v =~ ^[0-9]+$ ]]; then echo "$v"
+  else echo $((tot * pad / 100)); fi
+}
+popup_janela() {
+  local -a orig=("$@") envs=() args=()
+  local c="" w="" h="" x="" y="" b="" bs="" st="" t="" d="" alvo="" opt e
+  local OPTIND=1
+  while getopts 'BCEkNb:c:d:e:h:s:S:t:T:w:x:y:' opt; do
+    case $opt in
+      c) c=$OPTARG ;; w) w=$OPTARG ;; h) h=$OPTARG ;; x) x=$OPTARG ;; y) y=$OPTARG ;;
+      b) b=$OPTARG ;; S) bs=$OPTARG ;; s) st=$OPTARG ;; T) t=$OPTARG ;; d) d=$OPTARG ;; t) alvo=$OPTARG ;;
+      e) envs+=("$OPTARG") ;;
+      B | C | E | k | N) ;;
+      *) _tmux_real display-popup "${orig[@]}"; return ;;
+    esac
+  done
+  shift $((OPTIND - 1))
+  local pane="" ww="" wh="" modal="" W H X Y
+  if [[ -n $c ]] && (($# > 0)) && flutuante_ativo; then
+    read -r pane ww wh modal <<<"$(do_cliente "$c" '#{pane_id} #{window_width} #{window_height} #{window_modal_pane}')"
+  fi
+  if [[ -z $pane || ! $ww =~ ^[0-9]+$ || ! $wh =~ ^[0-9]+$ || -n $modal ]] || ((ww < 12 || wh < 6)); then
+    _tmux_real display-popup "${orig[@]}"; return
+  fi
+  W=$(_janela_dim "$w" "$ww" 50); H=$(_janela_dim "$h" "$wh" 50)
+  ((W > ww)) && W=$ww; ((H > wh)) && H=$wh; ((W < 8)) && W=8; ((H < 4)) && H=4
+  if [[ $x =~ ^[0-9]+$ ]]; then X=$x; else X=$(((ww - W) / 2)); fi
+  ((X + W > ww)) && X=$((ww - W)); ((X < 0)) && X=0
+  case $y in
+    S) Y=$((wh - H)) ;;
+    '' | *[!0-9]*) Y=$(((wh - H) / 2)) ;;
+    *) Y=$y ;;
+  esac
+  ((Y + H > wh)) && Y=$((wh - H)); ((Y < 0)) && Y=0
+  case $b in single | double | heavy | simple) ;; *) b=single ;; esac
+  args=(new-pane -d -W -t "$pane" -O -C -K -B "$b" -X "$X" -Y "$Y" -x "$W" -y "$H"
+    -e "TT_CLIENTE=$c" -e TT_EM_JANELA=1)
+  [[ -n $bs ]] && args+=(-S "$bs" -R "$bs")
+  [[ -n $st ]] && args+=(-s "$st")
+  args+=(-T "$t") # vazio também: sem -T o título da borda seria o nome da máquina
+  [[ -n $d ]] && args+=(-c "$d")
+  for e in "${envs[@]}"; do args+=(-e "$e"); done
+  # -W: espera o comando terminar, como o display-popup (quem chamou só segue com a janela fechada). O código de
+  # saída é o do comando; o tmux só escreve no stderr quando NÃO conseguiu abrir (aí cai no popup de sempre).
+  local erro rc
+  erro=$(_tmux_real "${args[@]}" -- "$@" 2>&1 >/dev/null </dev/null); rc=$?
+  if [[ -n $erro ]]; then _tmux_real display-popup "${orig[@]}"; return; fi
+  return $rc
+}
+# O popup que NÃO deve fechar com um clique perdido: o modal das pendências (apt/sudo no meio) e o navegador.
+popup_fixo() { _tmux_real display-popup "$@"; }
 flutuante_rotulo() {
   if [[ $(conf painel_flutuante) != 1 ]]; then echo "desligado"
   elif flutuante_suportado; then echo "ligado (fecha ao clicar fora)"
@@ -7779,7 +7858,7 @@ flutuante_cmd() { # [status|on|off|alternar] [cliente]
     mkdir -p "$CONF_DIR"
     grep -v '^painel_flutuante=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "painel_flutuante=$novo" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
   fi
-  msg="🪟 painel flutuante: $(flutuante_rotulo)"
+  msg="🪟 janelas flutuantes: $(flutuante_rotulo)"
   if [[ -n $c ]]; then tmux display-message -c "$c" "$msg"; else echo "$msg"; fi
 }
 # Abre (ou, se já está aberto, fecha) o painel de tarefas como painel modal à direita, altura toda.
@@ -9367,9 +9446,9 @@ menu_tarefas() {
   menu_popup "$c" "📋 tarefas" <<ITENS
 t	📋 Abrir o painel de tarefas	$EU --tarefas $(q "$c")
 a	▦ Agenda (calendário do mês)	$EU --clique relogio $(q "$c") x "$HOME" 0
-n	+ Nova tarefa…	tmux display-popup -c $(q "$c") -E $(dim_popup "$c" 72 14) -b rounded -T ' + nova tarefa ' $(q "$EU --tarefa-add-ui")
+n	+ Nova tarefa…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 14) -b rounded -T ' + nova tarefa ' $(q "$EU --tarefa-add-ui")
 s	🔄 Sincronização: $(tarefas_sync_rotulo)…	$(popup_tt "$c" "🔄 sincronização das tarefas" "$EU --tarefas-sync-ui")
-l	▤ Arquivar ou apagar as tarefas feitas…	tmux display-popup -c $(q "$c") -E $(dim_popup "$c" 72 13) -b rounded $(q "$EU --tarefa-limpar-prompt")
+l	▤ Arquivar ou apagar as tarefas feitas…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 13) -b rounded $(q "$EU --tarefa-limpar-prompt")
 ITENS
 }
 
@@ -9995,9 +10074,9 @@ menu_email() {
 e	📧 Abrir o e-mail	$EU --email $(q "$c")
 r	⟳ Sincronizar agora (consulta as contas; útil esperando um código)	$EU --email-sync-agora $(q "$c")
 c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
-n	＋ Cadastrar uma conta…	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
-a	⌨ Atalhos do e-mail	tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -T ' ⌨ atalhos do e-mail ' "$EU --email-atalhos"
-s	🔄 Sync local: estado das rodadas	tmux display-popup -c $(q "$c") -E $(dim_popup "$c" 72 20) -b rounded -T ' 🔄 sync local ' "$EU --email-sync-estado; printf '\\n(qualquer tecla fecha)'; read -rsn1 _"
+n	＋ Cadastrar uma conta…	$EU --popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
+a	⌨ Atalhos do e-mail	$EU --popup -c $(q "$c") -E $(tam_popup "$c") -T ' ⌨ atalhos do e-mail ' "$EU --email-atalhos"
+s	🔄 Sync local: estado das rodadas	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 20) -b rounded -T ' 🔄 sync local ' "$EU --email-sync-estado; printf '\\n(qualquer tecla fecha)'; read -rsn1 _"
 ITENS
 )
   [[ -n $linha ]] && itens+=$'\n'$linha
@@ -10669,7 +10748,7 @@ botao_email() {
   cmd=$(email_comando) || {
     local cli; cli=$(conf email); cli=${cli%% *}
     if [[ -z $cli || ${cli##*/} == aerc ]]; then   # sem o aerc: oferece instalar (modal das pendências) em vez de só avisar
-      tmux display-popup -c "$cliente" -E $(dim_popup "$cliente" 92 22) -b rounded -S 'fg=#f9e2af' -T ' 📦 aerc ' "$EU --pedir-sudo email-aerc"
+      popup_fixo -c "$cliente" -E $(dim_popup "$cliente" 92 22) -b rounded -S 'fg=#f9e2af' -T ' 📦 aerc ' "$EU --pedir-sudo email-aerc"
       cmd=$(email_comando) || return
     else
       botao_aviso "$cliente" "e-mail: instale o aerc (ou defina email=<cliente> em ~/.config/tt/config)"; return
@@ -13331,7 +13410,7 @@ fi
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --clique | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela | --chrome-falhou)
+  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --clique | --popup | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela | --chrome-falhou)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -13460,6 +13539,7 @@ case "${1:-}" in
   --propagar-demandas) demandas_propagar; exit 0 ;;
   --puxar-demandas) demandas_puxar; exit 0 ;;
   --flutuante) flutuante_cmd "${2:-status}" "${3:-}"; exit $? ;;
+  --popup) shift; popup_janela "$@"; exit $? ;; # mesmas opções do display-popup (os comandos de menu rodam em outro shell)
   --tarefa-clique) [[ -n ${2:-} ]] && tarefa_clique "$2"; exit ;;
   --tarefa-nova-prompt) tarefa_nova_prompt; exit ;;
   --tarefa-remover-prompt) tarefa_remover_prompt "${2:-}"; exit ;;
