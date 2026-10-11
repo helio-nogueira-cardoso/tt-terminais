@@ -40,7 +40,7 @@ grep -qE $'\t ▸ ☐ [a-z]{4}[0-9]{2} folha simples' <<<"$l" || fail "folha dev
 grep 'folha simples' <<<"$(run --tarefas-lista)" | grep -qF $'\e[38;2;69;71;90m▸' || fail "o ▸ da folha deveria ser apagado (#45475a)"
 grep -qE '▾ ☐ [a-z]{4}[0-9]{2} folha simples' <<<"$l" && fail "folha (sem subtarefa) não pode aparecer aberta (▾): $l"
 grep -qE '▾ ☐ [a-z]{4}[0-9]{2} mae' <<<"$l" || fail "mãe com subtarefa recém-criada deveria estar aberta (▾): $l"
-grep -q '^filha\|	      ☐ \.[0-9]* filha' <<<"$(run --tarefas-lista | sem_cor)" || fail "subtarefa não aparece indentada"
+grep -q '^filha\|	      ☐ \.[0-9]* [a-z]\{4\}[0-9]\{2\} filha' <<<"$(run --tarefas-lista | sem_cor)" || fail "subtarefa não aparece indentada"
 grep -q "^menu:$mae	 *⋯ menu$" <<<"$(run --tarefas-lista | sem_cor)" || fail "tarefa aberta sem o '⋯ menu' discreto (uma linha só, à direita)"
 grep -q 'adicionar subtarefa\|mais ações\|escrever uma descrição' <<<"$l" && fail "as linhas de ação sob a tarefa deveriam ter virado só o ⋯ menu: $l"
 [[ $(FZF_COLUMNS=80 run --tarefas-lista | sem_cor | grep "^menu:$mae" | cut -f2 | wc -L) -ge 70 ]] || fail "o ⋯ menu deveria ficar encostado à direita"

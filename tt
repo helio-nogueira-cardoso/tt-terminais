@@ -8561,7 +8561,7 @@ tarefas_lista_fzf() { # [busca]
       if (TDESC[i] != "") ex = ex "  " SUB "≡" Z      # tem descrição (a visão própria mostra)
       printf "%s\t%s%s\n", id, s, ex
     }
-    function detalhes(i,   id, j, k, v, f, n, a, L, ind, prim) {
+    function detalhes(i,   id, j, k, v, f, n, a, L, ind, prim, ln) {
       id = TID[i]; ind = "      "
       # subtarefas na ordem manual (ord) e, no empate, de criação
       n = NFI[id] + 0
@@ -8585,7 +8585,11 @@ tarefas_lista_fzf() { # [busca]
       }
       for (j = 1; j <= n; j++) {
         f = S[j]
-        printf "%s\t%s%s %s%s %s\n", FID[f], ind, caixa(FEST[f], 0), AZUL, "." j Z, (FEST[f] == "feita" ? DIM RISCO FTXT[f] Z : TXT FTXT[f] Z)
+        # .N (o número, para MÃE.N) e o APELIDO da subtarefa antes do texto, como nas tarefas de topo; o código
+        # completo (12 hex) fecha a linha em painel largo e está sempre no preview (⌗ apelido · código).
+        ln = ind caixa(FEST[f], 0) " " AZUL "." j " " slug(FID[f]) Z " " (FEST[f] == "feita" ? DIM RISCO FTXT[f] Z : TXT FTXT[f] Z)
+        if (COLS >= 80) ln = ln "  " DIM FID[f] Z
+        printf "%s\t%s\n", FID[f], ln
       }
       # Um menuzinho só, discreto e encostado à direita (pedido do dono: as linhas de ação sob a
       # tarefa poluíam): clique abre o menu da tarefa — descrição, subtarefa, prazo, prioridade…
@@ -9101,6 +9105,7 @@ tarefa_preview() { # chave
     [[ -n $sid ]] || continue
     nt=$((nt + 1)); [[ $sest == feita ]] && nf=$((nf + 1))
     subs+="  $([[ $sest == feita ]] && echo "$verde☑$z $d$stxt$z" || echo "$t☐ $stxt$z")"$'\n'
+    subs+="      $d⌗ $(tarefa_slug "$sid") · $sid$z"$'\n'   # apelido e código da subtarefa, discretos
   done < <(tarefas_raw | awk -F'\t' -v p="$id" '
     function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
     mv($6, "pai") == p && ($2 == "aberta" || $2 == "feita" || $2 == "arquivada") {

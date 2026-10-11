@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Apelido e código visíveis na lista do painel: o apelido (o mesmo de `tt --tarefa-codigo`) vem antes do
 # título em toda tarefa, a subtarefa mostra .N (kito47.2), o código completo aparece no fim da linha em painel
-# largo (>= 80 colunas) e a busca acha pelo apelido ou pelo código.
+# largo (>= 80 colunas) e a busca acha pelo apelido ou pelo código. A subtarefa também mostra o próprio apelido
+# (.N apelido texto), o código no fim em painel largo e, no preview, '⌗ apelido · código' de cada uma.
 source "$(dirname "$0")/lib.sh"; isolar
 tt() { "$TT" "$@"; }
 passou() { echo "ok: $1"; }
@@ -16,13 +17,23 @@ tt --tarefa-clique "$id" >/dev/null 2>&1   # abre a mãe
 l=$(FZF_COLUMNS=100 tt --tarefas-lista | sem_cor | cut -f2-)
 grep -qE "☐ $ap Preparar apresentação .*$id" <<<"$l" || fail "painel largo: apelido antes do título e código no fim: $l"
 grep -qE '☐ [a-z]{4}[0-9]{2} Comprar café' <<<"$l" || fail "toda tarefa mostra o apelido: $l"
-[[ $(grep -cE '    ☐ \.[0-9]+ slide' <<<"$l") == 2 ]] && grep -qE '☐ \.1 slide' <<<"$l" && grep -qE '☐ \.2 slide' <<<"$l" || fail "subtarefas sem .N: $l"
-passou "painel largo mostra apelido, código e .N das subtarefas"
+sub1=$(tt --tarefa-codigo "$ap.1" | cut -f2); sub1ap=$(tt --tarefa-codigo "$ap.1" | cut -f1)
+[[ $sub1 =~ ^[0-9a-f]{12}$ && $sub1ap =~ ^[a-z]{4}[0-9]{2}$ ]] || fail "subtarefa sem apelido/código: '$sub1ap' '$sub1'"
+[[ $(grep -cE '    ☐ \.[0-9]+ [a-z]{4}[0-9]{2} slide' <<<"$l") == 2 ]] && grep -qE "☐ \.1 $sub1ap slide um" <<<"$l" && grep -qE '☐ \.2 [a-z]{4}[0-9]{2} slide dois' <<<"$l" || fail "subtarefas sem .N e apelido: $l"
+grep -qE "☐ \.1 $sub1ap slide um .*$sub1" <<<"$l" || fail "painel largo: o código da subtarefa deveria fechar a linha: $l"
+passou "painel largo mostra apelido, código e .N das subtarefas, com apelido e código nelas também"
 
 l=$(FZF_COLUMNS=60 tt --tarefas-lista | sem_cor | cut -f2-)
 grep -qE "☐ $ap Preparar apresentação" <<<"$l" || fail "painel estreito perdeu o apelido: $l"
 grep -q "$id" <<<"$l" && fail "painel estreito não deveria mostrar o código inteiro: $l"
-passou "painel estreito mostra só o apelido"
+grep -qE "☐ \.1 $sub1ap slide um" <<<"$l" || fail "painel estreito perdeu o apelido da subtarefa: $l"
+grep -q "$sub1" <<<"$l" && fail "painel estreito não deveria mostrar o código da subtarefa: $l"
+passou "painel estreito mostra o apelido (da tarefa e das subtarefas), sem o código"
+
+pv=$(tt --tarefa-preview "$id" | sem_cor)
+grep -qF "⌗ $sub1ap · $sub1" <<<"$pv" || fail "preview sem '⌗ apelido · código' da subtarefa: $pv"
+grep -qF "⌗ $ap · $id" <<<"$pv" || fail "preview perdeu o '⌗ apelido · código' da tarefa: $pv"
+passou "o preview mostra apelido e código da tarefa e de cada subtarefa"
 
 for q in "$ap" "${id:0:6}"; do
   r=$(FZF_COLUMNS=100 tt --tarefas-lista "$q" | sem_cor | cut -f2-)

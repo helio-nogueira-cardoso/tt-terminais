@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.9 · 11/10/2026
+- **Cada subtarefa mostra o próprio apelido e, discretamente, o código.** Na lista do painel a subtarefa era só `.2`; agora é
+  `.2 gore21 texto` (o apelido é o mesmo de `tt --tarefa-codigo kito47.2`), em qualquer largura. O código completo (12 hex) fecha a
+  linha em painel largo (80+ colunas), como nas tarefas de topo, e o preview da tarefa lista cada subtarefa com `⌗ apelido · código`,
+  então o código de tarefa e subtarefas está sempre a um passo, sem poluir a lista.
+
 ## v1.8.8 · 11/10/2026
 - O diagnóstico de conexão (`tt --diagnosticar`, `tt --malha`) não acusa mais "sem rota" por um único ping lento: tenta de novo, com
   mais folga, antes de declarar a rota perdida. Era um falso alarme quando o par acabava de acordar ou estava sob carga (visto no
