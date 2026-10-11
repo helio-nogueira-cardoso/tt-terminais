@@ -122,7 +122,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `--cabecalho`, `--cabecalho-seletor`, `--clique`, `--clique-direito`, `--clique-linha`,
   `--clique-seletor`, `--clique-cabecalho`, `--previa`, `--previa-em`, `--fechar`, `--fechar-em`,
   `--fechar-vazias`, `--bordas`, `--ajustar`, `--guarda-tamanho`, `--ciclo`, `--descongelar`,
-  `--focar`, `--soltar`, `--ponte`, `--ir-ponte`, `--adotar`, `--janela`, `--listar`,
+  `--focar`, `--soltar`, `--ponte`, `--ir-ponte`, `--malha`, `--malha-completar`, `--malha-lista`, `--malha-vigia`, `--estado-maquina`, `--adotar`, `--janela`, `--listar`,
   `--listar-leve`, `--atualizar-info`, `--pastas-sessoes`, `--pasta-de`,
   `--menu-painel`, `--menu-tmux`, `--menu-sessao`, `--menu-maquinas`, `--menu-admin`,
   `--menu-arquivos`, `--menu-atalhos`, `--menu-popup-ui`, `--avisar`.
@@ -874,3 +874,12 @@ completo do aparelho (camadas, shell do sistema, Tasker, Wi-Fi, tela) está na s
 - **Tirar uma conta de IA de todas as máquinas**: passo a passo na skill `rodizio-de-contas` ("Tirar uma conta de
   todas as máquinas"): trocar a principal antes, esquecer no cadastro (o tombstone `-` fica), remover os perfis,
   conferir credenciais e atalhos, e lembrar o dono de **revogar o token** em claude.ai (logout local não revoga).
+
+## Malha de máquinas (sem ilhas)
+`malha_completar` (vigia a cada `TT_T_MALHA`=900 s, e no fim do `cadastrar`): cada máquina lê `--malha-lista` das outras
+(linhas `EU host usuário rótulo explícito porta`, `M host usuário rótulo` e `S estado epoch rótulo`), aprende as que faltam
+(só as provadas: `tailnet_conhece` + `malha_provar`, que confere o `nome=` de lá e tenta a porta 8022), corrige rótulo de quem
+anuncia `nome=` explícito, aplica estados (`estado_aplicar`, o epoch mais novo vence; `descadastrar` grava `removida` e propaga),
+apresenta-se com o IP de origem que a outra vê (`meu_endereco_em`; nunca `meu_host`, que no Termux é "localhost") e tenta consertar
+as que não conectam (endereço alternativo que as outras usam; `reparar` se for chave). `malha_estado` (`tt --malha`) mostra quem
+alcança quem; `malha_vigia` avisa na barra se a ilha persistir 2 voltas. Rastros em `~/.cache/tt-malha.log`.

@@ -89,6 +89,26 @@ REMOTO=$'$2|50|viva\n'
 TT_T_PONTE=1 fechar_pontes_ociosas $((AGORA + 3600)) ""
 existe p-ociosa && erro "ponte ociosa sobreviveu" || ok "ponte ociosa continua sendo encerrada"
 
+anexadas() { tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null | awk -v n="$1" '$1 == n { print $2 }'; }
+# 9) ponte antiga (sem id) COM cliente anexado de verdade, cujo nome não existe mais lá (foi renomeada): preservada.
+#    É exatamente o caso que te jogava para outra sessão. Um cliente de verdade (pty via script) conta como anexado.
+cria p-anexada destX 'destX|nome-velho'
+if command -v script >/dev/null; then ( sleep 60 | script -qec "tmux attach -t p-anexada" /dev/null ) >/dev/null 2>&1 &
+else ( sleep 60 | tmux -C attach -t p-anexada ) >/dev/null 2>&1 &
+fi
+for _ in $(seq 1 20); do [[ $(anexadas p-anexada) == 1 ]] && break; sleep 0.3; done
+REMOTO=$'$3|100|titulo-novo\n'
+if [[ $(anexadas p-anexada) == 1 ]]; then
+  sonda; sonda; sonda
+  existe p-anexada && ok "ponte antiga ANEXADA e sem id nunca é morta pela sonda (renomeação não é sumiço)" || erro "ponte anexada foi MORTA"
+else
+  echo "  (pulado: não consegui anexar um cliente neste tmux)"
+fi
+# 10) sessão local comum (sem @ponte) jamais é tocada
+tmux new-session -d -s real-local "sleep 600"
+sonda; sonda
+existe real-local && ok "sessão local comum nunca é tocada" || erro "sessão local sumiu"
+
 echo
 if ((falhas == 0)); then echo "TODOS OS TESTES PASSARAM"; else echo "$falhas FALHA(S)"; fi
 exit $falhas

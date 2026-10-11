@@ -936,6 +936,22 @@ tarefa quando você aprova.
   a hora de agora, que vence qualquer recriação tardia. A 1ª vez numa caixa só olha o que chegou nas últimas 24 h.
 - Testes: `tests/test_demandas.sh`.
 
+## Malha de máquinas (sem ilhas)
+
+Todas as máquinas cadastradas se conhecem e se alcançam, sem você fazer nada além do primeiro `--cadastrar`:
+
+- **Completa:** cada máquina publica o que sabe (`tt --malha-lista`) e aprende com as outras as que lhe faltam; quem aprende
+  uma máquina se apresenta a ela. Roda no vigia a cada 15 min (`TT_T_MALHA`, segundos) e ao final do `--cadastrar`.
+- **Coerente:** o rótulo é o que a máquina anuncia (`nome=` no config; sem `nome=` explícito o seu rótulo não é mexido).
+  Descadastrar vale em todas (`~/.config/tt/maquinas-estado`, o registro mais recente vence) e a troca de listas não a ressuscita.
+- **Inter-acessível:** só entra o que se prova (par da tailnet, o ssh entra e o nome de lá confere). A máquina se apresenta pelo
+  IP que a outra vê; porta 8022 (sshd do Termux) vai para o `~/.ssh/config`; endereço que falha é trocado por outro que as demais
+  usam; chave faltando é reparada por uma máquina que já acessa o destino.
+- **Sem fricção:** nada é perguntado. Se uma ilha persistir por 2 voltas, a barra avisa.
+
+`tt --malha` completa e mostra quem alcança quem (`ok`, `○` desligada, `✗` ilha); sai com o número de conexões quebradas.
+Rastros: `~/.cache/tt-malha.log`. Testes: `tests/test_malha.sh`.
+
 ## Código e apelido das tarefas, registro de trabalho e compartilhamento
 
 Toda tarefa e subtarefa tem um **código** único (o id: 12 hex, igual em todas as máquinas) e um **apelido** curto e falável

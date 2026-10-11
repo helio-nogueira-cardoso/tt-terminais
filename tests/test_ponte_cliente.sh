@@ -37,7 +37,7 @@ echo "ok: cada aparelho tem a sua ponte para a mesma sessão remota ($pc, $cel)"
 
 # Ponte sem ninguém há mais que o limite é fechada; ponte em uso fica.
 tmux new -d -s velha 'sleep 600'; tmux set-option -t =velha: @ponte x
-TT_T_PONTE=0 bash -c "source <(sed -n '/^fechar_pontes_ociosas()/,/^}/p' '$TT'); fechar_pontes_ociosas \$(( \$(date +%s) + 5 ))"
+TT_T_PONTE=0 bash -c "source <(sed -n '/^log_ponte()/,/^}/p; /^fechar_pontes_ociosas()/,/^}/p' '$TT'); fechar_pontes_ociosas \$(( \$(date +%s) + 5 ))"
 tmux has-session -t =velha 2>/dev/null && { echo "FALHOU — ponte ociosa não fechou" >&2; exit 1; }
 tmux has-session -t "=$pc" 2>/dev/null || { echo "FALHOU — ponte em uso foi fechada" >&2; exit 1; }
 echo 'ok: pontes ociosas fecham, as em uso ficam'

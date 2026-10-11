@@ -50,6 +50,7 @@ CONF=$CONF_DIR/config
 # que o tt gera sozinho (memória dos agentes, avisos, estado do celular).
 ESTADO_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/tt
 CONF_MAQ=$CONF_DIR/maquinas
+CONF_EST=$CONF_DIR/maquinas-estado # estado por rótulo (ativa|removida + epoch): ver a malha
 # Valor de uma chave do config (a última ocorrência vale). Em bash puro: cada chamada custava dois
 # processos (sed e tail), e o tt lê o config em quase todo subcomando — inclusive nos ganchos do tmux.
 conf() {
@@ -80,8 +81,8 @@ log_troca() { # os argumentos do switch-client: [-c cliente] [-t alvo] [-l]
   quem=$(IFS='<'; printf '%s' "${FUNCNAME[*]:2:4}")
   if [[ -n $c ]]; then de=$(_tmux_real list-clients -F '#{client_name} #{session_name}' 2>/dev/null | awk -v c="$c" '$1 == c { print $2; exit }')
   else de=$(_tmux_real display-message -p '#{session_name}' 2>/dev/null); fi
-  printf '%s %s cliente=%s de=%s para=%s ssh=%s via=%s\n' "$(date '+%F %T')" "$MAQUINA" "${c:-?}" "${de:-?}" "${t:-?}" "${ssh:--}" "${quem:-main}" \
-    >>"$HOME/.cache/tt-troca.log" 2>/dev/null || true
+  # (o 2>/dev/null vem ANTES do >>: senão a mensagem de "No such file" de um ~/.cache ausente vaza para a tela)
+  { mkdir -p "$HOME/.cache"; printf '%s %s cliente=%s de=%s para=%s ssh=%s via=%s\n' "$(date '+%F %T')" "$MAQUINA" "${c:-?}" "${de:-?}" "${t:-?}" "${ssh:--}" "${quem:-main}"; } 2>/dev/null >>"$HOME/.cache/tt-troca.log" || true
 }
 
 proximo_nome() {
@@ -405,7 +406,7 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   faxina_vigia
-  local ultima_puxada=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_email_completo=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_email_completo=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   ultima_email_completo=$(email_ultima_completa)
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
@@ -445,6 +446,11 @@ vigiar() {
       ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
       ("$EU" --reconciliar-fixadas >/dev/null 2>&1 &)
       ("$EU" --tarefas-puxar >/dev/null 2>&1 &)
+    fi
+    # Malha: cada máquina conhece todas as outras (aprende o que falta, se apresenta) e avisa de ilhas.
+    if ((agora - ${ultima_malha:-0} >= ${TT_T_MALHA:-900})); then
+      ultima_malha=$agora
+      ("$EU" --malha-vigia >/dev/null 2>&1 &)
     fi
     # Lembrete das tarefas a cada volta (1 min): prazos com horário avisam na hora certa.
     ("$EU" --tarefas-lembrete >/dev/null 2>&1 &)
@@ -1416,6 +1422,7 @@ registrar() {
   [[ -f $CONF_MAQ ]] || echo '# host  usuario  rótulo   (gerenciado por tt --cadastrar / --descadastrar)' >"$CONF_MAQ"
   desregistrar "$host"
   echo "$host  $usuario  $rot" >>"$CONF_MAQ"
+  case $(estado_de "$rot") in removida*) estado_set "$rot" ativa ;; esac # quem se cadastra de novo volta a valer
   limpar_cache_maquinas
 }
 desregistrar() {
@@ -1423,6 +1430,225 @@ desregistrar() {
   awk -v h="$1" '{ c = $1; sub(/\..*/, "", c); hh = h; sub(/\..*/, "", hh) } !($1 == h || c == hh) || /^#/' "$CONF_MAQ" >"$CONF_MAQ.novo" &&
     mv "$CONF_MAQ.novo" "$CONF_MAQ"
   limpar_cache_maquinas
+}
+
+# ---- Malha: toda máquina cadastrada alcança todas as outras ---------------------------------------
+# O cadastro (--cadastrar) liga só DUAS máquinas: A↔B. Com C cadastrada só em A, B e C ficavam sem se
+# conhecer (ilhas): de B não se ia a nenhuma sessão de C, nem por ponte (o --ir-ponte pergunta à
+# origem, que também tem de conhecer o alvo). A malha fecha isso sozinha, em todas as máquinas, sem
+# perguntar nada (vigia a cada TT_T_MALHA=900 s, e ao cadastrar), e mantém quatro propriedades:
+#   COMPLETA      toda máquina publica o que sabe (--malha-lista) e aprende o que lhe falta com as outras;
+#   COERENTE      o rótulo de uma máquina é o que ELA anuncia (nome=); o que as outras guardaram diferente
+#                 é corrigido; remover uma máquina vale em todas (estado por rótulo, o mais recente vence;
+#                 sem isso a troca de listas ressuscitaria a removida);
+#   INTER-ACESSÍVEL só se aceita o que se PROVA (par da tailnet quando há Tailscale; o ssh entra e o nome=
+#                 de lá é o anunciado), quem aprende uma máquina se apresenta a ela (nos dois sentidos) e
+#                 uma que não responde é consertada: chave faltando (reparar por uma ponte) ou endereço
+#                 que não vale daqui (testa os que as outras usam para ela e adota o que conecta);
+#   SEM FRICÇÃO   nenhuma pergunta ao usuário; só avisa quando a ilha persiste e não deu para consertar.
+# O endereço com que me apresento é o IP de origem que a OUTRA ponta vê no ssh, nunca um nome que eu
+# acho que tenho (no Termux não há tailscale e o hostname é "localhost"). Rastros: ~/.cache/tt-malha.log.
+log_malha() { { mkdir -p "$HOME/.cache"; echo "$(date '+%F %T') $*" >>"$HOME/.cache/tt-malha.log"; } 2>/dev/null; return 0; }
+
+# Estado por rótulo ("rotulo ativa|removida epoch"): o registro mais recente vence em todas as máquinas.
+estado_de() { awk -v r="$1" '$1 == r { print $2, $3; exit }' "$CONF_EST" 2>/dev/null; }
+estado_set() { # rótulo estado [epoch]
+  local ep=${3:-$(date +%s)}
+  mkdir -p "$(dirname "$CONF_EST")"
+  { awk -v r="$1" '$1 != r' "$CONF_EST" 2>/dev/null; echo "$1 $2 $ep"; } >"$CONF_EST.n" && mv -f "$CONF_EST.n" "$CONF_EST"
+}
+estado_aplicar() { # rótulo estado epoch (vindo de outra máquina ou de --estado-maquina)
+  local rot=$1 est=$2 ep=$3 atual host
+  [[ -n $rot && $rot != "$MAQUINA" && $est =~ ^(removida|ativa)$ && $ep =~ ^[0-9]+$ ]] || return 0
+  atual=$(estado_de "$rot"); atual=${atual#* }; [[ $atual =~ ^[0-9]+$ ]] || atual=0
+  ((ep > atual)) || return 0
+  estado_set "$rot" "$est" "$ep"
+  if [[ $est == removida ]]; then
+    host=$(awk -v r="$rot" '!/^#/ && NF && $3 == r { print $1; exit }' "$CONF_MAQ" 2>/dev/null)
+    [[ -n $host ]] && { desregistrar "$host"; log_malha "esqueci $rot (removida em outra máquina)"; }
+  fi
+  return 0
+}
+# Conta o estado a todas as máquinas que respondem agora (as que não, aprendem na próxima volta da malha).
+estado_propagar() { # rótulo estado [epoch]
+  local rot=$1 est=$2 ep=${3:-$(date +%s)} dest r
+  while read -r dest r; do
+    [[ $r == "$rot" ]] && continue
+    timeout 20 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --estado-maquina $(q "$rot" "$est" "$ep")" </dev/null >/dev/null 2>&1 &
+  done < <(maquinas)
+  wait
+}
+
+# O que esta máquina publica: a própria identidade, o cadastro (menos as ocultas, preferência local) e os estados.
+malha_lista() {
+  # EU: host, usuário, rótulo, se o rótulo é explícito (nome= no config: só então os outros podem corrigir o
+  # que guardaram) e a porta do sshd (o do Termux escuta na 8022).
+  printf 'EU\t%s\t%s\t%s\t%s\t%s\n' "$(meu_host)" "$(id -un)" "$MAQUINA" "$([[ -n $(conf nome) ]] && echo 1 || echo 0)" "$([[ ${PREFIX:-} == *com.termux* ]] && echo 8022 || echo 22)"
+  awk '!/^#/ && NF && $2 != "-" && $4 != "oculta" { printf "M\t%s\t%s\t%s\n", $1, $2, ($3 ? $3 : $1) }' "$CONF_MAQ" 2>/dev/null
+  awk 'NF >= 3 { printf "S\t%s\t%s\t%s\n", $2, $3, $1 }' "$CONF_EST" 2>/dev/null
+  return 0 # arquivo de estados ainda inexistente não é falha: quem consulta toma status ≠ 0 por "sem conexão"
+}
+
+# O endereço desta máquina como a máquina DEST a enxerga (IP de origem da conexão ssh).
+meu_endereco_em() {
+  local dest=$1 ip
+  ip=$(timeout 15 ssh "${SSH_OPC[@]}" "$dest" 'echo ${SSH_CONNECTION%% *}' </dev/null 2>/dev/null) || return 1
+  [[ $ip =~ ^[0-9a-fA-F:.]+$ ]] || return 1
+  printf '%s\n' "$ip"
+}
+
+# 0 se HOST é um par desta tailnet (ou se não há Tailscale aqui para dizer o contrário).
+tailnet_conhece() {
+  local host=$1
+  command -v tailscale >/dev/null || return 0
+  tailscale status --json 2>/dev/null | python3 -c '
+import json, sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)  # sem resposta do tailscale: não dá para negar
+h = sys.argv[1].lower(); curto = h.split(".")[0]
+pares = list((d.get("Peer") or {}).values()) + [d.get("Self") or {}]
+for p in pares:
+    nomes = {p.get("HostName", "").lower(), p.get("DNSName", "").rstrip(".").lower(), p.get("DNSName", "").split(".")[0].lower()}
+    nomes |= {i.lower() for i in (p.get("TailscaleIPs") or [])}
+    if h in nomes or curto in nomes: sys.exit(0)
+sys.exit(1)
+' "$host"
+}
+
+# Prova que USUARIO@HOST é a máquina de rótulo ROT (ssh entra, tem tt e anuncia esse nome). Imprime
+# "usuario porta" do que serviu; a porta 8022 é a do sshd do Termux, e entra no ~/.ssh/config para que
+# todo ssh dali em diante (inclusive o das pontes) a use sem ninguém ter de saber.
+malha_provar() { # rótulo host usuário-sugerido
+  local rot=$1 host=$2 sug=$3 u porta nome_la
+  for porta in "" 8022; do
+    for u in "$sug" "$(id -un)" ""; do
+      nome_la=$(timeout 25 ssh "${SSH_OPC[@]}" ${porta:+-p "$porta"} "${u:+$u@}$host" "$TT_REMOTO --malha-lista" </dev/null 2>/dev/null | awk -F'\t' '$1 == "EU" { print $4; exit }') || nome_la=""
+      if [[ $nome_la == "$rot" ]]; then
+        [[ -n $porta ]] && ssh_porta_garantir "$host" "$porta"
+        printf '%s\n' "${u:-$(id -un)}"; return 0
+      fi
+    done
+  done
+  return 1
+}
+# Acrescenta "Host HOST / Port N" ao ~/.ssh/config se nenhum Host já cobre HOST (idempotente).
+ssh_porta_garantir() { # host porta
+  local cfg=$HOME/.ssh/config
+  mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+  grep -qE "^[[:space:]]*Host[[:space:]].*(^|[[:space:]])${1//./\\.}([[:space:]]|\$)" "$cfg" 2>/dev/null && return 0
+  printf '\n# tt (malha): sshd de %s escuta na porta %s\nHost %s\n  Port %s\n' "$1" "$2" "$1" "$2" >>"$cfg"
+  chmod 600 "$cfg"; log_malha "ssh config: porta $2 para $1"
+}
+
+# tt --malha-completar: aprende o que falta, corrige o que está incoerente, apresenta-se, conserta o que não conecta.
+malha_completar() {
+  [[ -s $CONF_MAQ ]] || return 0
+  local trava="$RT/tt-malha-$UID.lock"
+  if [[ -d $trava ]] && (($(date +%s) - $(stat -c %Y "$trava" 2>/dev/null || echo 0) > 600)); then rmdir "$trava" 2>/dev/null; fi
+  mkdir "$trava" 2>/dev/null || return 0
+  trap 'rmdir "$trava" 2>/dev/null' RETURN
+  local dest rot out tipo a b c r temme ip ok cands="" alts="" falhos="" conhecidos hosts_conhecidos u novos=0 eu_rot est
+  while read -r dest rot; do
+    out=$(timeout 25 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --malha-lista" </dev/null 2>/dev/null) || { falhos+=$'\n'"$dest $rot"; continue; }
+    # 1) estados primeiro: uma remoção mais nova que o meu cadastro vale já nesta volta
+    while IFS=$'\t' read -r tipo a b c; do [[ $tipo == S ]] && estado_aplicar "$c" "$a" "$b"; done <<<"$out"
+    conhecidos=$'\n'$(awk '!/^#/ && NF { print ($3 ? $3 : $1) }' "$CONF_MAQ")$'\n'
+    hosts_conhecidos=$'\n'$(awk '!/^#/ && NF { h = $1; sub(/\..*/, "", h); print h }' "$CONF_MAQ")$'\n'
+    eu_rot=$(awk -F'\t' '$1 == "EU" && $5 == 1 { print $4; exit }' <<<"$out") # só o explícito (nome= no config)
+    # 2) coerência: o nome de uma máquina é o que ela anuncia
+    if [[ -n $eu_rot && $eu_rot != "$rot" && $eu_rot != "$MAQUINA" && $conhecidos != *$'\n'"$eu_rot"$'\n'* ]]; then
+      registrar "${dest#*@}" "${dest%@*}" "$eu_rot"; log_malha "corrigi o rótulo de ${dest#*@}: '$rot' → '$eu_rot' (o nome que ela anuncia)"; novos=$((novos + 1)); rot=$eu_rot
+    fi
+    temme=0
+    while IFS=$'\t' read -r tipo a b c; do
+      [[ $tipo == M && -n $a && -n $c ]] || continue
+      [[ $c == "$MAQUINA" ]] && { temme=1; continue; }
+      if [[ $conhecidos == *$'\n'"$c"$'\n'* ]]; then
+        # máquina que já tenho: guarda o endereço que esta outra usa (alternativa, se o meu falhar)
+        [[ $hosts_conhecidos == *$'\n'"${a%%.*}"$'\n'* ]] || alts+=$'\n'"$c"$'\t'"$a"$'\t'"$b"
+        continue
+      fi
+      [[ $hosts_conhecidos == *$'\n'"${a%%.*}"$'\n'* ]] && continue
+      est=$(estado_de "$c"); [[ ${est%% *} == removida ]] && continue
+      [[ $cands == *$'\n'"$c"$'\t'* ]] || cands+=$'\n'"$c"$'\t'"$a"$'\t'"$b"
+    done <<<"$out"
+    if ((!temme)); then
+      if ip=$(meu_endereco_em "$dest") && timeout 25 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --registrar $(q "$ip" "$(id -un)" "$MAQUINA")" </dev/null >/dev/null 2>&1; then
+        log_malha "apresentei $MAQUINA a $rot ($ip)"
+      else
+        log_malha "ILHA: $rot não conhece $MAQUINA e não consegui me apresentar"
+      fi
+    fi
+  done < <(maquinas)
+  # 3) máquinas que as outras conhecem e eu não
+  while IFS=$'\t' read -r rot a b; do
+    [[ -n $rot ]] || continue
+    if ! tailnet_conhece "$a"; then log_malha "ignorada $rot ($a): não é par da tailnet"; continue; fi
+    if ! u=$(malha_provar "$rot" "$a" "$b"); then log_malha "ILHA: aprendi $rot ($a) de outra máquina, mas daqui não conecta"; continue; fi
+    registrar "$a" "$u" "$rot"; log_malha "aprendi $rot ($u@$a)"; novos=$((novos + 1))
+    if ip=$(meu_endereco_em "$u@$a"); then
+      timeout 25 ssh "${SSH_OPC[@]}" "$u@$a" "$TT_REMOTO --registrar $(q "$ip" "$(id -un)" "$MAQUINA")" </dev/null >/dev/null 2>&1 && log_malha "apresentei $MAQUINA a $rot ($ip)"
+    fi
+  done <<<"${cands#$'\n'}"
+  # 4) máquinas cadastradas que não responderam: conserta (endereço que as outras usam; chave faltando)
+  while read -r dest rot; do
+    [[ -n $dest ]] || continue
+    est=$(diagnosticar_conexao "$dest")
+    [[ $est == ok || $est == offline ]] && continue
+    ok=""
+    while IFS=$'\t' read -r r a b; do
+      [[ $r == "$rot" ]] || continue
+      if u=$(malha_provar "$rot" "$a" "$b"); then desregistrar "${dest#*@}"; registrar "$a" "$u" "$rot"; log_malha "religuei $rot por outro endereço: $u@$a (o cadastrado, $dest, estava $est)"; novos=$((novos + 1)); ok=1; break; fi
+    done <<<"${alts#$'\n'}"
+    [[ -n $ok ]] && continue
+    if [[ $est == sem-chave ]] && reparar "$rot" >/dev/null 2>&1; then log_malha "reparei a chave em $rot"; continue; fi
+    log_malha "ILHA: $rot ($dest) não conecta ($est) e não consegui consertar sozinha"
+  done <<<"${falhos#$'\n'}"
+  ((novos)) && limpar_cache_maquinas
+  return 0
+}
+
+# tt --malha: completa e mostra QUEM ALCANÇA QUEM (cada máquina testa as suas conexões). Desligada no
+# Tailscale não é ilha; falha entre duas ligadas, sim. Sai com o número de conexões quebradas.
+malha_estado() {
+  local d="$RT/tt-malha-estado-$UID" dest rot quebrados=0 de para est expl
+  rm -rf "$d"; mkdir -p "$d"
+  ( diagnosticar >"$d/$MAQUINA" 2>/dev/null ) &
+  while read -r dest rot; do
+    ( timeout 120 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --diagnosticar" </dev/null >"$d/$rot" 2>/dev/null ) &
+  done < <(maquinas)
+  wait
+  printf '%-14s %s\n' "de \\ para" "(ok = conecta; ○ = desligada; ✗ = ilha)"
+  for de in "$d"/*; do
+    [[ -f $de ]] || continue
+    printf '%-14s' "$(basename "$de")"
+    while read -r para est expl; do
+      case $est in
+      ok) printf ' %s:ok' "$para" ;;
+      offline) printf ' %s:○' "$para" ;;
+      *) printf ' %s:✗(%s)' "$para" "$est"; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não alcança $para ($est)" ;;
+      esac
+    done <"$de"
+    [[ -s $de ]] || { printf ' (sem resposta: não foi possível consultá-la)'; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não respondeu ao diagnóstico"; }
+    echo
+  done
+  rm -rf "$d"
+  ((quebrados)) && echo "$quebrados conexão(ões) quebrada(s). Detalhe: tt --diagnosticar; conserto manual: tt --reparar <máquina>." || echo "Malha completa: toda máquina ligada alcança todas as outras."
+  return $quebrados
+}
+
+# Vigia: completa a malha e avisa quando uma ilha persiste por 2 voltas seguidas, depois a cada 8.
+# Falha de uma volta só costuma ser rede passageira (celular trocando de Wi-Fi).
+malha_vigia() {
+  local f="$RT/tt-malha-ilha-$UID" n saida
+  malha_completar
+  if saida=$(malha_estado 2>&1); then rm -f "$f"; return 0; fi
+  n=$(($(cat "$f" 2>/dev/null || echo 0) + 1)); echo "$n" >"$f"
+  if ((n == 2 || (n > 2 && n % 8 == 2))); then
+    avisar "⚠ ilha na malha do tt: $(grep -o '[a-zA-Z0-9-]*:✗([a-z-]*)' <<<"$saida" | head -3 | tr '\n' ' ')— rode: tt --malha"
+    log_malha "aviso de ilha (volta $n)"
+  fi
+  return 1
 }
 
 # Ocultar preserva por inteiro a configuração da máquina (host, usuário e rótulo); é apenas uma
@@ -2113,7 +2339,10 @@ cadastrar() {
   instalar_em "$dest" "$rot" | tail -1 || { echo "A instalação falhou."; return 1; }
   instalar_chave_em "$dest" 2>/dev/null && echo "chave desta máquina autorizada em $rot (acesso direto garantido)."
   registrar "$host" "$usuario" "$rot"
-  ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --registrar $(q "$(meu_host)" "$(id -un)" "$MAQUINA")" </dev/null
+  # O endereço com que me apresento é o que ELA enxerga (no Termux o meu_host dá "localhost").
+  ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --registrar $(q "$(meu_endereco_em "$dest" || meu_host)" "$(id -un)" "$MAQUINA")" </dev/null
+  [[ -n $(estado_de "$rot") ]] && estado_propagar "$rot" ativa # já esteve removida: as outras precisam saber que voltou
+  malha_completar # as demais passam a conhecer a nova (e a nova, as demais)
   echo "✓ $rot cadastrada: aparece no menu daqui, e esta ($MAQUINA) no menu de lá."
 }
 
@@ -2138,6 +2367,9 @@ descadastrar() {
     [[ $r == [sSyY]* ]] && ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --desinstalar-aqui" </dev/null
   fi
   desregistrar "$host"
+  # A remoção vale em TODAS as máquinas (a troca de listas da malha não pode ressuscitá-la).
+  estado_set "$rot" removida
+  estado_propagar "$rot" removida
   echo "✓ $rot descadastrada."
 }
 
@@ -13584,6 +13816,11 @@ case "${1:-}" in
   --reparar) shift; reparar "${1:-}"; exit ;;
   --saude) saude; exit ;;
   --registrar) registrar "$2" "$3" "$4"; exit ;;
+  --malha-lista) malha_lista; exit ;;
+  --estado-maquina) estado_aplicar "$2" "$3" "$4"; exit ;;
+  --malha-completar) malha_completar; exit ;;
+  --malha-vigia) malha_vigia; exit ;;
+  --malha) malha_completar; malha_estado; exit $? ;;
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;
   --session-id) session_id "$2"; exit ;;

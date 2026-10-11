@@ -3,6 +3,19 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.7 · 11/10/2026
+- **Malha de máquinas sem ilhas.** O cadastro (`--cadastrar`) ligava só duas máquinas: com a C cadastrada só na A, B e C não se
+  conheciam e nenhuma sessão de B alcançava as de C (nem por ponte, que também depende de a origem conhecer o alvo). Agora toda
+  máquina publica o que sabe e aprende o que lhe falta com as outras, sozinha (vigia a cada 15 min, e ao cadastrar), e a malha é:
+  **completa** (todas se conhecem e se apresentam uma à outra), **coerente** (o rótulo é o que a própria máquina anuncia em `nome=`;
+  descadastrar vale em todas e a troca de listas não ressuscita, o registro mais recente vence),
+  **inter-acessível** (só se aceita o que se prova: par da tailnet, ssh entra, o nome de lá confere; o endereço com que cada uma se
+  apresenta é o IP que a outra vê, não o "localhost" do Termux; sshd do Termux na 8022 vai para o `~/.ssh/config`; endereço que
+  não conecta é trocado por outro que as demais usam; chave faltando é reparada por uma ponte) e **sem fricção** (nenhuma pergunta;
+  só avisa na barra se uma ilha persistir 2 voltas). `tt --malha` completa e mostra quem alcança quem; rastros em `~/.cache/tt-malha.log`.
+  Corrigido junto: `--cadastrar` feito do celular gravava `localhost` como o endereço dele nas outras máquinas.
+- Testes: `tests/test_malha.sh` (4 máquinas simuladas) e a ponte anexada em `tests/test_ponte_renomeada.sh`; o `test_pontes.sh`,
+  que validava uma cópia velha da função, foi removido.
 ## v1.8.6 · 11/10/2026
 - **Logar as outras máquinas pelo navegador do celular, sem copiar link nem colar código** (documentação + teste).
   A skill `celular-android` ganhou a seção 14 com a receita completa e uma função de bash pronta, `login_pelo_celular`:
