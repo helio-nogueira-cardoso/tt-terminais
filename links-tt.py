@@ -191,9 +191,24 @@ def desquebrar(texto, largura, x0):
 
 
 # --- tmux ------------------------------------------------------------------------------------------
+def _tmux_bin():
+    """O tmux do mesmo servidor: um cliente 3.5a não conversa com um servidor 3.6/3.8 ("server exited
+    unexpectedly"). Quem chama pelo tmux.conf (run-shell/if-shell) não passa pelo tt, então o binário vem de
+    $TMUX (socket,PID,sessão): /proc/PID/exe é o do servidor. Sem isso, TT_TMUX_BIN do tt, ou o tmux do PATH."""
+    try:
+        pid = int(os.environ.get("TMUX", "").split(",")[1])
+        exe = os.readlink("/proc/%d/exe" % pid)
+        return exe if os.access(exe, os.X_OK) else "/proc/%d/exe" % pid
+    except Exception:
+        return os.environ.get("TT_TMUX_BIN") or "tmux"
+
+
+TMUX_BIN = _tmux_bin()
+
+
 def tmux(*args):
     try:
-        return subprocess.run(("tmux",) + args, capture_output=True, text=True, timeout=3).stdout
+        return subprocess.run((TMUX_BIN,) + args, capture_output=True, text=True, timeout=3).stdout
     except Exception:
         return ""
 

@@ -61,14 +61,15 @@ def run(*args):
     except OSError:
         return ""
 
+TMUX_BIN = os.environ.get("TT_TMUX_BIN") or "tmux"  # o do servidor (um cliente 3.5a não fala com um servidor 3.6/3.8)
 sessions = []
-for row in run("tmux", "list-sessions", "-F", "#{session_name}\t#{session_created}\t#{window_activity}").splitlines():
+for row in run(TMUX_BIN, "list-sessions", "-F", "#{session_name}\t#{session_created}\t#{window_activity}").splitlines():
     parts = row.split("\t")
     if not parts:
         continue
     name = parts[0]
     panes = []
-    for pane in run("tmux", "list-panes", "-a", "-F", "#{session_name}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_pid}").splitlines():
+    for pane in run(TMUX_BIN, "list-panes", "-a", "-F", "#{session_name}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_pid}").splitlines():
         p = pane.split("\t")
         if len(p) >= 4 and p[0] == name:
             panes.append({"path": p[1], "command": p[2], "pid": p[3]})

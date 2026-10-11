@@ -105,6 +105,13 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --listar-tudo [--tsv|--para-ia]` — linhas do menu de todas as máquinas; `--para-ia` emite um
   TSV estável (contrato do "mestre de obras": máquina, sessão, anexada, ocioso, agente, rascunho,
   última linha etc.) para outra IA recomendar o que fechar.
+- **Sessão `_nome` = oculta**: nome começando com `_` (`_tt-email`, `_tt-vigia`) fica fora da central, do seletor,
+  do mestre de obras, da renomeação do vigia e de toda poda (`[[ -n $ponte || $s == _* ]] && continue` em cada laço
+  de `list-sessions`). Ponte (`@ponte`) é outra coisa: sessão que mostra uma sessão de outra máquina.
+- **tmux certo**: um cliente 3.5a não conversa com servidor 3.6/3.8. `tmux_alinhar` (início do `tt`) acha o binário
+  do servidor por `$TMUX` → `/proc/PID/exe` e, se o PATH acha outro arquivo, define a função `tmux` e `TT_TMUX_BIN`
+  (exportado; `exec`, strings de popup e os `.py` usam). Script novo que chama tmux fora do `tt` deve fazer o mesmo
+  (`ia-rot` e `links-tt.py` fazem); comando remoto leva `$PATH_REMOTO` na frente.
 - Internos do fzf/central: `--lista-tudo`, `--lista-rapida-central`, `--atualizar-uma-vez`,
   `--seletor`, `--seletor-em`, `--lista-seletor`, `--lista-rapida`, `--pos-atual`,
   `--cabecalho`, `--cabecalho-seletor`, `--clique`, `--clique-direito`, `--clique-linha`,

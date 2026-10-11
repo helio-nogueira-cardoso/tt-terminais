@@ -293,6 +293,16 @@ sincronizar: fora isso, cada mudança já é enviada na hora e o vigia confere a
 espelha o pacote no proot que já tem `/root/.local/share/tt` (links, skill, cadastro do Termux), e o
 `ia-login` do Termux pergunta ao proot o que falta e roda lá os logins.
 
+**Trocar a principal:** a principal é a credencial de `~/.claude` (o `claude` puro e a primeira da rotação);
+os perfis são as outras. `ia-login --principal trabalho` (apelido do cadastro) ou `ia-login --principal
+conta@exemplo.com` faz a principal de todas as máquinas passar para essa conta: o plano mostra "trocar (hoje:
+outro@…)" onde for outra, pula as que já são e, para cada uma, abre o login num tmux isolado, mostra o link, recebe o
+código e confere o e-mail. `ia-login --principal CONTA --plano [máquina…]` só mostra. Numa máquina só, `ia-conta
+adicionar principal [--email E]`. O login novo grava por cima do antigo (os perfis não mudam) e a troca **recusa**
+com um Claude aberto na principal. Uma máquina cujo `ia-login` é mais velho aparece como "sem suporte"
+(rode `tt --sincronizar` nela). Tirar uma conta de todas as máquinas: `ia-conta cadastro esquecer <conta>`, `ia-conta
+remover <perfil> --sim` em cada uma e, se ela era a principal, `ia-login --principal` para outra conta antes.
+
 A coluna **USO** mostra a janela de 5 h e a semanal do Claude e do Codex (`5h 23% · 7d 65%`) e os
 créditos do mês do Kiro (o mesmo do `/usage`). O horário entre parênteses é quando a janela volta.
 Os tokens do Claude vencidos são renovados pelo próprio Claude, que sai antes de gastar qualquer uso;
@@ -953,9 +963,33 @@ floating pane que fecha ao clicar fora. O tt usa esse painel quando você liga, 
   `tt --tarefas` de novo. **Aberto, a barra de status fica inerte** (o tmux bloqueia o clique nela), então o
   📋 não fecha o painel.
 - Sem tmux 3.8 (hoje a maioria das distribuições traz 3.5/3.6), ligar não quebra nada: o rótulo avisa
-  "precisa ser 3.8+" e o painel abre como popup.
+  "precisa ser 3.8+" e o painel abre como popup. A opção é por máquina e **vale assim que o tmux dela passa a
+  3.8**: uma máquina que já tinha `painel_flutuante=1` de antes muda de popup para painel modal no dia da atualização.
+- Em tela estreita (menos de 80 colunas, o celular) o painel ocupa a janela inteira. Só o painel de tarefas tem
+  "clicar fora fecha": os demais popups (central, seletor, menus) seguem como `display-popup`.
+- O painel flutuante não conta como divisão da janela para a barrinha de título dos painéis (`tt --bordas`).
 - Testes: `tests/test_flutuante.sh` (a parte com o painel real exige um tmux 3.8; aponte `TT_TMUX_38` para o
   binário se o do sistema for mais velho).
+
+## Versões de tmux misturadas
+
+O tt compila o tmux 3.8 por conta própria quando a máquina tem um mais velho (pendência 📦), então é comum haver
+dois tmux na mesma máquina: o do sistema (3.5/3.6) e o do tt (`~/.local/share/tt-tmux`, com links em
+`~/.local/bin` e `~/.local/share/tt-bin`). Medido com 3.5a, 3.6b e 3.8:
+
+| servidor ↓ / cliente → | 3.5a | 3.6b | 3.8 |
+|---|---|---|---|
+| 3.5a | ok | ok | ok |
+| 3.6b | **falha** | ok | ok |
+| 3.8 | **falha** | ok | ok |
+
+Só um cliente **mais velho que o servidor** (hoje, o 3.5a) falha: `server exited unexpectedly`. Por isso, dentro do
+tmux o tt chama o **binário do próprio servidor** (`$TMUX` = socket,PID,sessão → `/proc/PID/exe`), mesmo que o PATH
+do painel ache outro, e o passa em `TT_TMUX_BIN`; o `ia-rot`, os auxiliares em python e os comandos de popup fazem o
+mesmo. Fora do tmux (cron, ssh) o tt usa o PATH dele, com `~/.local/bin` e `tt-bin` na frente. Seus próprios
+comandos `tmux` num painel seguem o PATH do seu shell: se aparecer `server exited unexpectedly`, ponha
+`~/.local/bin` antes de `/usr/bin` no PATH. Teste: `tests/test_tmux_versoes.sh` (acha sozinho um par velho/novo;
+aponte `TT_TMUX_VELHO` e `TT_TMUX_NOVO` para testar outro).
 
 ## Hora confiável
 
@@ -990,6 +1024,10 @@ que vale para todas as máquinas; padrão 30, 0 desliga) e sem nada rodando, nem
 Shells interativos ociosos aninhados (um `bash -l` aberto para recarregar o PATH) e o invólucro do
 `proot-distro login` não contam como programa; um agente aberto, um `sleep &` ou um `sh -c` contam.
 Sessões abertas em alguma tela, fixadas e pontes nunca são fechadas assim.
+
+**Sessões ocultas:** uma sessão cujo nome começa com `_` (`_tt-email`, `_tt-vigia`…) é infraestrutura e fica fora
+da central, do seletor, do mestre de obras, da renomeação do vigia e de toda poda (vazias, expiradas, paradas). É
+a convenção para manter uma sessão viva sem ela aparecer: `tmux new-session -d -s _minha 'sleep infinity'`.
 
 ## Arquivos
 

@@ -69,6 +69,7 @@ Uso:
   ia-conta <conta> [argumentos do claude]
   ia-conta abrir [--retomar <id-da-conversa-do-claude>] [--exceto <conta>]... [--prompt-arquivo <arq>]
   ia-conta adicionar <conta> [--email <e-mail>]
+  ia-conta adicionar principal [--email <e-mail>]   # troca o login da principal (a de ~/.claude)
   ia-conta entrar <conta>
   ia-conta renomear <conta> <novo-nome>
   ia-conta remover <conta> [--sim]
@@ -96,6 +97,9 @@ são compartilhadas entre as contas); se for Codex ou Kiro, abre uma sessão nov
 
 "principal" usa a credencial que já estava em ~/.claude. Os demais perfis têm
 credenciais separadas, mas compartilham sessões, histórico e memórias locais.
+"adicionar principal" refaz o login dela (o novo grava por cima do antigo; os perfis não mudam) e
+recusa com um Claude aberto na principal: ele guarda o token na memória e, ao renovar, regravaria a
+credencial antiga. Para trocar a principal em várias máquinas de uma vez: ia-login --principal <conta|e-mail>.
 
 listar mostra todas as contas da rotação do ia-rot (Claude, Codex e Kiro) com a
 coluna USO: janela de 5 h e semanal do Claude e do Codex, créditos do mês do Kiro.
@@ -134,8 +138,38 @@ apagar_atalho() {
   fi
 }
 
+# PIDs de Claude rodando na principal (sem CLAUDE_CONFIG_DIR), fora este processo. Sem /proc (macOS) não vê nada.
+principal_em_uso() {
+  local f pid arg0
+  for f in /proc/[0-9]*/environ; do
+    [[ -r $f ]] || continue
+    pid=${f#/proc/}; pid=${pid%/environ}
+    [[ $pid == "$$" || $pid == "$BASHPID" ]] && continue
+    arg0=$(tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | head -n 1)
+    [[ ${arg0##*/} == claude ]] || continue
+    tr '\0' '\n' <"$f" 2>/dev/null | grep -q '^CLAUDE_CONFIG_DIR=' && continue
+    printf '%s ' "$pid"
+  done
+  return 0
+}
+
+# Troca o login da principal (a credencial de ~/.claude, a que o "claude" puro usa nesta máquina). O login novo
+# grava por cima do antigo e os perfis ficam como estão. Recusa com um Claude aberto nela: ele guarda o token na
+# memória e, ao renovar, regravaria a credencial antiga por cima da nova.
+entrar_principal() {
+  local email=${1:-} pids
+  [[ -x $CLAUDE_BIN ]] || die "não achei o Claude Code em $CLAUDE_BIN"
+  [[ -d $BASE ]] || die "não achei a base local $BASE"
+  pids=$(principal_em_uso)
+  [[ -z $pids ]] || die "a principal está aberta agora (processos: ${pids% }); feche essas sessões antes de trocar o login dela"
+  rm -f "$BASE/.account-email" # outro login pode ser outro e-mail
+  printf 'Abrindo o login da conta principal (a de %s). Os perfis não mudam.\n' "$BASE"
+  exec env -u CLAUDE_CONFIG_DIR "$CLAUDE_BIN" auth login ${email:+--email "$email"}
+}
+
 entrar() {
   local nome=$1 email=${2:-} dir
+  [[ $nome == principal ]] && { entrar_principal "$email"; return; }
   nome_valido "$nome" || die "nome inválido: use letras, números, - ou _"
   nome_reservado "$nome" && die "'$nome' é reservado; escolha outro nome"
   [[ -x $CLAUDE_BIN ]] || die "não achei o Claude Code em $CLAUDE_BIN"

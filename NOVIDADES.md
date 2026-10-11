@@ -3,6 +3,28 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.1 · 11/10/2026
+- **Versões de tmux misturadas deixam de quebrar o tt.** Medido com o 3.5a, 3.6b e 3.8: um cliente tmux 3.5a **não
+  conversa** com um servidor 3.6 ou 3.8 (`server exited unexpectedly`); os outros pares funcionam. Num painel cujo
+  PATH acha o tmux do sistema (o Debian trixie traz o 3.5a em `/usr/bin`), as listagens saíam vazias e os comandos falhavam em
+  silêncio. Agora, dentro do tmux, o tt usa o binário do próprio servidor (achado por `$TMUX` → `/proc/PID/exe`, sem
+  subprocesso quando o PATH já acerta) e o repassa em `TT_TMUX_BIN` ao `ia-rot --passar`, aos auxiliares em python,
+  aos popups do e-mail e ao `exec`. A consulta ssh do menu de máquinas também usa o PATH do tt: com o servidor no 3.8
+  ela contava 0 sessões.
+- **Sessões `_nome` ficam ocultas de verdade**: antes só as marcadas como ponte (`@ponte`) saíam das listagens, então
+  uma sessão `_tt-vigia` criada à mão aparecia na central e no seletor, ganhava nome do vigia e entrava na poda de
+  vazias e paradas. Agora qualquer sessão que comece com `_` fica fora da central, do seletor, do mestre de obras, da
+  renomeação e da poda.
+- **O painel flutuante não conta como divisão da janela**: com o painel de tarefas aberto (tmux 3.8) a barrinha de título
+  dos painéis ligava e o painel de baixo perdia uma linha (o Claude redesenhava a tela a cada abrir e fechar). O botão
+  de sair também só considera painéis divididos.
+- **Trocar a conta principal de uma máquina, rápido**: `ia-login --principal CONTA|E-MAIL` troca a principal (a de
+  `~/.claude`, a do `claude` puro) de todas as máquinas do tt de uma vez; pula as que já estão nela, mostra o link e
+  recebe o código como nos outros logins e confere o e-mail que entrou. Numa máquina só: `ia-conta adicionar principal
+  [--email E]`. O login novo grava por cima do antigo e os perfis não mudam; com um Claude aberto na principal o tt
+  **recusa** (ele guardaria o token antigo na memória e regravaria por cima do novo). Máquina com o `ia-login` de antes
+  aparece como "sem suporte" no plano, sem abrir nada lá.
+
 ## v1.8.0 · 10/10/2026
 - **Apelido e código das tarefas agora aparecem na lista do painel**, para você se referir a elas sem abrir nada: o apelido
   (`kito47`) vem antes do título de toda tarefa, as subtarefas mostram o número (`.2` = `kito47.2`) e, em painel largo (80+ colunas),

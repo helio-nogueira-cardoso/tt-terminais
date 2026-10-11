@@ -224,15 +224,23 @@ if [ -n "$PASSAR" ]; then
   fi
   pasta=$PWD
   prompt="Voce esta continuando uma tarefa que outro agente${DE:+ (conta $DE)} passou adiante porque a janela de uso dele estava acabando. Leia por inteiro o arquivo de passagem $arq e continue a partir do proximo passo descrito nele, na pasta $pasta. Ao terminar, registre o resultado no proprio arquivo de passagem."
-  if [ -n "${TMUX:-}" ] && [ "$SEM_TMUX" = 0 ] && command -v tmux >/dev/null; then
+  # O cliente tem de ser do mesmo tmux que o servidor: um 3.5/3.6 não conversa com um 3.8 ("server exited
+  # unexpectedly") e o painel pode ter no PATH o tmux do sistema. O binário do servidor está em /proc/PID/exe e o
+  # PID vem em $TMUX (socket,PID,sessão). Sem /proc (macOS) fica o tmux do PATH.
+  TMUX_BIN=tmux
+  if [ -n "${TMUX:-}" ]; then
+    _p=${TMUX#*,}; _p=${_p%%,*}; _b=$(readlink "/proc/$_p/exe" 2>/dev/null)
+    [ -n "$_b" ] && [ -x "$_b" ] && TMUX_BIN=$_b
+  fi
+  if [ -n "${TMUX:-}" ] && [ "$SEM_TMUX" = 0 ] && command -v "$TMUX_BIN" >/dev/null; then
     case $escolhida in
       codex) cmd=$(printf '%q ' "$CODEX"; [ "$P_YOLO" = 1 ] && printf '%s ' --dangerously-bypass-approvals-and-sandbox; printf '%q' "$prompt") ;;
       kiro)  cmd=$(printf '%q ' "$KIRO" chat; [ "$P_YOLO" = 1 ] && printf '%s ' --trust-all-tools; printf '%q' "$prompt") ;;
       *)     cmd=$(printf '%q %q ' "$HOME/.local/bin/ia-conta" "$escolhida"; [ "$P_YOLO" = 1 ] && printf '%s ' --dangerously-skip-permissions; printf '%q' "$prompt") ;;
     esac
-    alvo=$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#{session_name}' 2>/dev/null)
+    alvo=$("$TMUX_BIN" display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#{session_name}' 2>/dev/null)
     # Ao sair do agente, a janela fica com um shell (da para ver o fim e seguir dali).
-    janela=$(tmux new-window -P -F '#{session_name}:#{window_index}' ${alvo:+-t "=$alvo:"} -c "$pasta" -n "↪$escolhida" \
+    janela=$("$TMUX_BIN" new-window -P -F '#{session_name}:#{window_index}' ${alvo:+-t "=$alvo:"} -c "$pasta" -n "↪$escolhida" \
       "IA_CONTA=$escolhida $cmd; exec \${SHELL:-bash}") || { echo "[ia-rot] passagem: tmux recusou abrir a janela" >&2; exit 1; }
     printf '%s' "$escolhida" > "$CUR"
     echo "[ia-rot] tarefa passada para '$escolhida' na janela tmux $janela (passagem: $arq)"

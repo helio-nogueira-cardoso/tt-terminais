@@ -87,3 +87,18 @@ Se `--eu` disser que não sabe a conta, passe o nome dela (`ia-conta listar` mos
 Leia o arquivo inteiro antes de agir. O pedido original e os cuidados valem como se o usuário os
 tivesse dito a você. Confira o estado real (git status, testes) antes de seguir, porque a IA anterior
 pode ter parado no meio de algo. Ao terminar, acrescente ao arquivo uma seção `## Resultado`.
+
+## Trocar a conta principal (só quando o usuário pedir)
+
+A "principal" é a credencial de `~/.claude` (o `claude` puro); os perfis (`claude-<nome>`) são as outras.
+O usuário pode pedir que a principal passe a ser outra conta:
+
+```bash
+ia-login --principal CONTA|E-MAIL --plano      # o que mudaria, em todas as máquinas do tt
+ia-login --principal CONTA|E-MAIL [máquina…]   # troca (o usuário abre o link e cola o código)
+ia-conta adicionar principal [--email E]       # só esta máquina
+```
+
+Nunca copie `.credentials.json` entre contas ou máquinas: duas cópias do mesmo token se derrubam quando um deles
+renova. A troca recusa com um Claude aberto na principal (ele regravaria a credencial antiga); feche essas sessões
+antes, e avise o usuário se for uma que não é sua.

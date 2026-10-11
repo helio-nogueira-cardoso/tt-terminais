@@ -10,8 +10,11 @@
 #
 #   ia-login [máquina...]      plano + logins (sem argumento: esta máquina e todas as do tt)
 #   ia-login --plano [máq...]  só o plano
+#   ia-login --principal CONTA|E-MAIL [--plano] [máq...]
+#                              troca a conta PRINCIPAL (a de ~/.claude, a do "claude" puro) das máquinas para
+#                              essa conta: pula as que já estão nela e faz o resto como os logins acima
 # Usados entre máquinas (pelo próprio ia-login, via ssh):
-#   --faltas | --iniciar P C E | --tela S | --codigo S X | --enter S | --conferir P C | --encerrar S
+#   --faltas | --principal-faltas E | --iniciar P C E | --tela S | --codigo S X | --enter S | --conferir P C | --encerrar S
 set -uo pipefail
 
 AQUI=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -108,11 +111,26 @@ faltas() {
   return 0
 }
 
+# Troca da principal (--principal): uma linha do plano se a principal daqui não é a conta pedida.
+principal_faltas() { # e-mail
+  local alvo=$1 atual
+  if [[ -n $PROOT ]]; then
+    # ia-login mais velho (sem --principal) trataria o argumento como nome de máquina e abriria o plano completo.
+    no_proot ia-login --help | grep -q 'ia-login --principal CONTA' && no_proot ia-login --principal-faltas "$alvo" || echo '#sem-suporte'
+    return 0
+  fi
+  [[ -x $CLAUDE_BIN ]] || return 0
+  atual=$(email_claude "$BASE")
+  [[ $atual == "$alvo" ]] && return 0
+  printf 'claude\tprincipal\t%s\t%s\n' "$alvo" "$( [[ -n $atual ]] && echo "trocar (hoje: $atual)" || echo 'sem login')"
+}
+
 iniciar() {
   local p=$1 c=$2 e=${3:-} s cmd args
   # Nunca abre login de conta já logada: o `codex login` derruba a credencial que existe ao começar
-  # (aconteceu no dell, 06/10), e o do Claude grava por cima do perfil.
-  [[ -n $(conferir "$p" "$c") ]] && die "$p $c já está logada aqui; nada iniciado"
+  # (aconteceu no dell, 06/10), e o do Claude grava por cima do perfil. A principal é a exceção pedida:
+  # só chega aqui pelo --principal, que já conferiu que a principal daqui não é a conta pedida.
+  [[ $c != principal ]] && [[ -n $(conferir "$p" "$c") ]] && die "$p $c já está logada aqui; nada iniciado"
   s="login-$p-$c"
   tm kill-session -t "=$s" 2>/dev/null
   local ia_conta=$IA_CONTA
@@ -186,6 +204,7 @@ copiar() { # o link vai para a área de transferência (e, pelo tt, para as outr
 }
 
 declare -a PLANO=() RESULTADO=() NAO_USA=()
+PRINCIPAL_ALVO="" # e-mail da conta que a principal das máquinas deve passar a ser (ia-login --principal)
 
 montar_plano() {
   local dest rot tmp f p c e sit
@@ -193,12 +212,21 @@ montar_plano() {
   # O plano sai do cadastro mais completo: junta o das outras máquinas e entrega o resultado a cada
   # uma antes de perguntar o que falta (uma que perdeu a rede sem reiniciar podia estar até 30 min
   # atrás, e o plano dela sairia sem a conta nova).
-  command -v tt >/dev/null 2>&1 && tt --puxar-contas-ia >/dev/null 2>&1
+  [[ -n $PRINCIPAL_ALVO ]] || { command -v tt >/dev/null 2>&1 && tt --puxar-contas-ia >/dev/null 2>&1; }
   local entrada=$CADASTRO
   [[ -f $entrada ]] || entrada=/dev/null
   while IFS=$'\t' read -r dest rot; do
     if (($#)) && ! printf '%s\n' "$@" | grep -qxF -- "$rot"; then continue; fi
-    if [[ $dest == . ]]; then
+    if [[ -n $PRINCIPAL_ALVO && $dest == . ]]; then
+      ( em . --principal-faltas "$PRINCIPAL_ALVO" >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
+    elif [[ -n $PRINCIPAL_ALVO ]]; then
+      # Máquina com o tt de antes do --principal: o ia-login dela trataria "--principal-faltas" como nome de
+      # máquina e abriria o plano completo. Só chama se a ajuda de lá conhece o --principal.
+      ( timeout "${EM_TIMEOUT:-25}" ssh -n -o BatchMode=yes -o ConnectTimeout=6 "$dest" \
+          "$PATH_REMOTO; export PATH; if ia-login --help 2>/dev/null | grep -q 'ia-login --principal CONTA'; then ia-login --principal-faltas $(printf '%q' "$PRINCIPAL_ALVO"); else echo '#sem-suporte'; fi" \
+          >"$tmp/$rot.tsv" 2>/dev/null
+        echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
+    elif [[ $dest == . ]]; then
       ( em . --faltas >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
     else
       ( timeout "${EM_TIMEOUT:-25}" ssh -o BatchMode=yes -o ConnectTimeout=6 "$dest" \
@@ -215,8 +243,11 @@ montar_plano() {
       127) NAO_USA+=("$rot"); continue ;; # sem ia-login (celular: os agentes ficam no proot)
       *) PLANO+=("$rot"$'\t'"$dest"$'\t-\t-\t-\tsem resposta'); continue ;;
     esac
+    if grep -q '^#sem-suporte' "$tmp/$rot.tsv" 2>/dev/null; then
+      PLANO+=("$rot"$'\t'"$dest"$'\t-\t-\t-\t'"sem suporte (o tt de lá é velho: tt --sincronizar)"); continue
+    fi
     while IFS=$'\t' read -r p c e sit; do
-      [[ -n $p ]] && PLANO+=("$rot"$'\t'"$dest"$'\t'"$p"$'\t'"$c"$'\t'"${e:--}"$'\t'"$sit")
+      [[ -n $p && $p != '#'* ]] && PLANO+=("$rot"$'\t'"$dest"$'\t'"$p"$'\t'"$c"$'\t'"${e:--}"$'\t'"$sit")
     done <<<"$(sort -t$'\t' -k1,1 -k2,2 "$tmp/$rot.tsv")" # ordem estável: provedor, conta
   done
   rm -rf "$tmp"
@@ -255,7 +286,7 @@ um_login() {
     printf '  Para terminar na mão: %s\n' "$( [[ $dest == . ]] && echo "tmux -L tt-login attach -t $s" || echo "ssh -t $dest tmux -L tt-login attach -t $s")"
     read -r -p '  Enter quando terminar (ou para pular): ' resp
     email=$(em "$dest" --conferir "$p" "$c"); em "$dest" --encerrar "$s" >/dev/null
-    [[ -n $email ]] && { conferir_email "$email" "$e"; return 0; }
+    [[ -n $email ]] && { conferir_email "$email" "$e"; return; }
     return 1
   fi
   echo "  Abra este link (no celular ou aqui):"; echo; echo "    $link"; echo
@@ -291,6 +322,11 @@ um_login() {
 
 conferir_email() {
   local email=$1 esperado=$2
+  # Na troca da principal o e-mail pedido é a regra: a principal já tinha um login, então "há um e-mail" não prova
+  # que o login novo aconteceu (a recusa por Claude aberto, o código errado e o link perdido deixam o antigo).
+  if [[ -n $PRINCIPAL_ALVO && $email != "$PRINCIPAL_ALVO" ]]; then
+    echo "  ✗ a principal continua em $email (o esperado era $PRINCIPAL_ALVO)"; return 1
+  fi
   if [[ $email == '(logado)' ]]; then echo '  ✓ logado'
   elif [[ -z $esperado || $email == "$esperado" ]]; then echo "  ✓ logado ($email)"
   else echo "  ⚠ logou em $email, mas o esperado era $esperado — confira (ia-conta listar)"; fi
@@ -302,8 +338,12 @@ orquestrar() {
   local l rot dest p c e sit n=0 total=0 ok=0 resp
   echo 'Perguntando às máquinas o que falta…'
   montar_plano "$@"
-  for l in "${PLANO[@]}"; do IFS=$'\t' read -r rot dest p c e sit <<<"$l"; [[ $sit == falta || $sit == 'sem login' ]] && total=$((total + 1)); done
-  if ((${#PLANO[@]} == 0)); then echo 'Nada a fazer: todas as contas do cadastro estão logadas em todas as máquinas.'; return 0; fi
+  for l in "${PLANO[@]}"; do IFS=$'\t' read -r rot dest p c e sit <<<"$l"; [[ $sit == falta || $sit == 'sem login' || $sit == trocar* ]] && total=$((total + 1)); done
+  if ((${#PLANO[@]} == 0)); then
+    if [[ -n $PRINCIPAL_ALVO ]]; then echo "Nada a fazer: a principal de todas as máquinas já é $PRINCIPAL_ALVO."
+    else echo 'Nada a fazer: todas as contas do cadastro estão logadas em todas as máquinas.'; fi
+    return 0
+  fi
   echo; mostrar_plano
   ((${#NAO_USA[@]})) && echo "(sem contas de IA para logar: ${NAO_USA[*]})"
   echo
@@ -313,7 +353,7 @@ orquestrar() {
   [[ -z $resp || $resp == [sS]* ]] || { echo 'Nada feito.'; return 0; }
   for l in "${PLANO[@]}"; do
     IFS=$'\t' read -r rot dest p c e sit <<<"$l"
-    [[ $sit == falta || $sit == 'sem login' ]] || continue
+    [[ $sit == falta || $sit == 'sem login' || $sit == trocar* ]] || continue
     n=$((n + 1))
     printf '\n[%d/%d] %s · %s · %s%s\n' "$n" "$total" "$rot" "$p" "$c" "$( [[ $e != - ]] && echo " ($e)")"
     if um_login "$rot" "$dest" "$p" "$c" "$e"; then ok=$((ok + 1)); RESULTADO+=("✓ $rot $p $c"); else RESULTADO+=("✗ $rot $p $c"); fi
@@ -322,8 +362,22 @@ orquestrar() {
   ((ok == total))
 }
 
+# CONTA (apelido do cadastro) ou e-mail → e-mail.
+resolver_alvo() {
+  local a=$1 e
+  [[ $a == *@* ]] && { printf '%s\n' "$a"; return 0; }
+  e=$(cadastro | awk -F'\t' -v n="$a" '$1 == "claude" && $3 == n { print $2; exit }')
+  [[ -n $e ]] || die "não conheço a conta '$a' no cadastro (veja: ia-conta cadastro); use o e-mail"
+  printf '%s\n' "$e"
+}
+
 case ${1:-} in
   --faltas) faltas ;;
+  --principal-faltas) principal_faltas "$2" ;;
+  --principal)
+    [[ -n ${2:-} ]] || die 'uso: ia-login --principal CONTA|E-MAIL [--plano] [máquina...]'
+    PRINCIPAL_ALVO=$(resolver_alvo "$2") || exit 1
+    if [[ ${3:-} == --plano ]]; then orquestrar 1 "${@:4}"; else orquestrar 0 "${@:3}"; fi ;;
   --iniciar) iniciar "$2" "$3" "${4:-}" ;;
   --tela) tela "$2" ;;
   --codigo) codigo "$2" "$3" ;;
