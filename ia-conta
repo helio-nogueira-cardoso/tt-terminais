@@ -335,6 +335,10 @@ sys.exit(0 if c.get("expiresAt", 0) / 1000 < time.time() + 60 else 1)' "$1/.cred
 # sessão aberta da conta.
 renovar_tokens() {
   local c dir pids=()
+  # A renovação também inicia o Claude: aplique o mesmo contrato de rodar(), preservando
+  # valores já definidos pelo dono (inclusive vazios), antes de abrir os subprocessos.
+  export CLAUDE_CODE_SUBAGENT_MODEL_FORCE=${CLAUDE_CODE_SUBAGENT_MODEL_FORCE-1}
+  export CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP=${CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP-1}
   for c in "$@"; do
     case $c in codex | kiro) continue ;; esac
     dir=$(pasta_claude "$c")

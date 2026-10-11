@@ -33,6 +33,47 @@ grep -qF 'Sessões "_nome" são ocultas de propósito (infraestrutura): ninguém
   grep -qF '[[ -n $ponte || $s == _* ]] && continue' "$RAIZ/tt" || falhou 'o vigia deveria pular sessões _nome ao renomear'
 passou 'o vigia pula sessões _nome ao renomear'
 
+# 3b) reproduz o incidente _tt-vigia → esperando-inicio no ponto de escrita, sem depender
+# do filtro do vigia. Mesmo um chamador que esqueça o filtro não pode expor infraestrutura.
+sed -n '/^renomear() {/,/^}/p; /^limpar() {/,/^}/p; /^sem_acento() {/,/^}/p' "$TT" >"$T/renomear.sh"
+(
+  source "$T/renomear.sh"
+  fixada_renomeada() { :; }
+  tmux new -d -s _tt-vigia 'sleep infinity'
+  pid_antes=$(tmux display -p -t =_tt-vigia: '#{pane_pid}')
+  for s in _tt-vigia _oculta; do
+    if nome=$(renomear "$s" esperando-inicio auto); then
+      falhou "renomeação automática expôs $s: $nome"
+    fi
+    [[ -z $nome ]] || falhou 'renomeação recusada devolveu nome'
+    tmux has-session -t "=$s" || falhou "a sessão $s foi alterada"
+  done
+  [[ $(tmux display -p -t =_tt-vigia: '#{pane_pid}') == "$pid_antes" ]] || falhou 'processo interno mudou'
+  [[ $(renomear visivel assunto-real auto) == assunto-real ]] || falhou 'sessão comum deixou de ser nomeada'
+  [[ $(renomear assunto-real visivel) == visivel ]] || falhou 'renomeação manual comum falhou'
+  [[ $(renomear _oculta oculta-manual) == oculta-manual ]] || falhou 'renomeação manual oculta falhou'
+  tmux rename-session -t =oculta-manual _oculta
+)
+passou 'renomeação automática recusa infraestrutura; processo e renomeação manual preservados'
+
+# --sugerir também recusa a sessão oculta antes de inspecioná-la ou consultar o nomeador.
+# Um Claude falso registra qualquer consulta indevida, sem rede nem uso de conta real.
+mkdir -p "$HOME/.local/bin"
+cat >"$HOME/.local/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+touch "$TT_TEST_NOMEADOR_CHAMADO"
+echo esperando-inicio
+EOF
+chmod +x "$HOME/.local/bin/claude"
+export TT_TEST_NOMEADOR_CHAMADO=$T/nomeador-chamado
+printf '\nnomeador=claude\n' >>"$XDG_CONFIG_HOME/tt/config"
+for s in _tt-vigia _oculta; do
+  if nome=$(tt --sugerir "$s"); then falhou "--sugerir aceitou $s"; fi
+  [[ -z $nome ]] || falhou "--sugerir devolveu assunto para $s"
+done
+[[ ! -e $TT_TEST_NOMEADOR_CHAMADO ]] || falhou 'nomeador consultado para infraestrutura'
+passou '--sugerir recusa sessões ocultas sem consultar IA'
+
 # 4) painel flutuante não liga a barrinha de título
 uso=$(tmux list-commands new-pane 2>/dev/null) || uso=""
 if [[ $uso =~ \[-([A-Za-z]+)\] && ${BASH_REMATCH[1]} == *O* ]]; then

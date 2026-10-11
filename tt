@@ -253,6 +253,8 @@ print("\n".join("- " + p for p in pedidos[-6:]))
 # Sem assunto claro, sugere o nome da pasta e retorna 1.
 sugerir_nome() {
   local s=$1 revisar=${2:-} pid id status rot titulo="" pedidos="" pasta cmd tela claude nome=""
+  # Infraestrutura não tem assunto a nomear: nem captura a tela nem consulta uma IA.
+  [[ $s == _* ]] && return 1
   pid=$(claude_na_sessao "$s")
   if [[ -n $pid ]]; then
     read -r id status rot < <(claude_info "$pid")
@@ -342,6 +344,9 @@ nomear_texto() {
 # sem ele, é um nome escolhido por você e o vigia nunca mais mexe.
 renomear() {
   local s=$1 novo base n=2 auto=${3:-}
+  # Defesa no ponto de escrita: vale também fora do laço do vigia (título, CLI, etc.).
+  # Renomeação manual continua permitida; só o usuário pode tornar uma oculta visível.
+  [[ $auto == auto && $s == _* ]] && return 1
   novo=$(limpar "$2")
   [[ -n $novo ]] || return 1
   base=$novo

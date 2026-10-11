@@ -3,6 +3,15 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.4 · 11/10/2026
+- **Proteção adicional para sessões internas**: o nomeador recusa sugerir nomes para sessões `_nome`,
+  e a função de renomeação também bloqueia mudanças automáticas nessas sessões, mesmo quando chamada
+  fora do vigia. Isso impede a repetição de `_tt-vigia` virar `esperando-inicio` por esses caminhos.
+  Renomeações manuais explícitas continuam permitidas. Teste de regressão preserva o processo interno
+  e verifica que sessões comuns continuam recebendo nomes.
+- A renovação de token pelo `ia-conta` aplica as mesmas variáveis de sub-agentes da conversa normal,
+  preservando valores definidos pelo usuário, inclusive vazios. Corrige a falha da suíte nesse caminho.
+
 ## v1.8.3 · 11/10/2026
 - **Corrigido: ser jogado de uma sessão de outra máquina para outra qualquer "sem motivo".** A causa: o vigia renomeia
   sessões sozinho; a ponte guardava o nome antigo do alvo, a sonda de pontes órfãs (a cada 5 min) não o achava lá,
