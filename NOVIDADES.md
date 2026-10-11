@@ -3,6 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.14 · 11/10/2026
+- **Emoji aparecendo como `__` nas telas abertas dentro de uma janela flutuante/popup** (e-mail e atalhos do e-mail, pontes). O
+  cliente tmux lançado dentro da janela decide se o terminal é UTF-8 pelo ambiente dele (`LC_ALL`/`LC_CTYPE`/`LANG`); sem locale
+  UTF-8 o tmux desenha um `_` por célula no lugar de cada caractere (📋 vira `__`, ✓ vira `_`). Agora todo cliente aninhado
+  (e-mail em popup ou painel flutuante, ponte local e ponte por ssh) é lançado com `tmux -u`, que não depende do ambiente da
+  janela. `tests/test_cliente_aninhado_utf8.sh` reproduz o `_` sem o `-u` e prova a correção.
+
 ## v1.8.13 · 11/10/2026
 - **Acentos corretos nas novidades:** a tela agora informa ao `less` que as notas são UTF-8, mesmo em terminais
   com locale POSIX/ASCII (como o Debian do Termux sem locale configurado). Acentos e símbolos deixam de aparecer

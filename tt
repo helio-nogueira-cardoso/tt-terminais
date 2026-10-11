@@ -3203,9 +3203,12 @@ renomear_painel() {
 # Comando que mostra a sessão S (de "." = esta máquina, ou de usuario@host) num terminal/painel.
 # Nas outras máquinas, o tmux de lá fica sabendo de onde veio (TT_PONTE="máquina|sessão-ponte"),
 # para devolver para cá as trocas de sessão feitas pela barra de lá (veja ir_para).
+# Todo cliente tmux ABERTO DENTRO DE OUTRA JANELA (popup/painel flutuante com o e-mail, ponte local e ponte por ssh) é
+# lançado com `-u`: o cliente decide se o terminal é UTF-8 pelo ambiente dele (LC_ALL/LC_CTYPE/LANG) e, sem isso, o tmux
+# desenha "_" no lugar de cada emoji (um por célula: 📋 vira "__"). O -u não depende do ambiente que a janela recebeu.
 cmd_ver() {
-  if [[ $1 == . ]]; then echo "env -u TMUX $(q "$TT_TMUX_BIN") attach -t $(q "=$2")"
-  else echo "ssh -t $(q "${SSH_OPC[@]}") $(q "$1") $(q "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|${3:-}") tmux attach -t $(q "=$2")")"; fi
+  if [[ $1 == . ]]; then echo "env -u TMUX $(q "$TT_TMUX_BIN") -u attach -t $(q "=$2")"
+  else echo "ssh -t $(q "${SSH_OPC[@]}") $(q "$1") $(q "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|${3:-}") tmux -u attach -t $(q "=$2")")"; fi
 }
 
 # Uma ponte não pode morrer junto com o ssh: se isso acontecia enquanto uma tela estava dentro
@@ -3266,7 +3269,7 @@ ponte() {
     fi
     # Anexa pelo id quando o temos: o nome pode mudar enquanto a ponte está aberta ou reconecta.
     ssh -t "${SSH_OPC[@]}" "$dest" \
-      "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|$ponte") tmux attach -t $(q "${id:-=$nome_atual}")"
+      "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|$ponte") tmux -u attach -t $(q "${id:-=$nome_atual}")"
     st=$?
     # O attach terminou. Se a sessão sumiu no destino (fim normal: a sessão de lá foi fechada), a
     # ponte não tem mais o que mostrar — encerra em vez de oferecer reconexão a um alvo morto.
@@ -11497,12 +11500,12 @@ botao_email() {
     local pane_cmd; pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
     if [[ $pane_cmd != aerc* ]]; then
       # O aerc saiu e o shell da sessão mostra o erro: anexa o popup a ele para o erro ficar visível.
-      tmux display-popup -c "$cliente" -E "${geo[@]}" "env -u TMUX $(q "$TT_TMUX_BIN") attach -t =$EMAIL_SESSAO"
+      tmux display-popup -c "$cliente" -E "${geo[@]}" "env -u TMUX $(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
       tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
       botao_aviso "$cliente" "e-mail: o aerc não abriu. Verifique a conta em 📧 → contas (ou rode: aerc)."
       return
     fi
-    tmux display-popup -c "$cliente" -E "${geo[@]}" "env -u TMUX $(q "$TT_TMUX_BIN") attach -t =$EMAIL_SESSAO"
+    tmux display-popup -c "$cliente" -E "${geo[@]}" "env -u TMUX $(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
     return
   fi
   tmux display-popup -c "$cliente" -E "${geo[@]}" \
