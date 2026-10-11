@@ -1531,7 +1531,7 @@ derivado dele (ex.: `kito47`). Assim você, a IA e outra pessoa falam da mesma t
   (`kito47.2` = a 2ª subtarefa **de hoje**: posição, desliza quando outras entram ou saem). Ambíguo: lista as candidatas.
 - **Registro de trabalho:** `tt --tarefa-log ID "o que fez" --inicio 2026-10-10T15:10:00-03:00 --fim 2026-10-10T15:52:00-03:00 --como "…" --modelo M --esforco E --tokens-ent N --tokens-sai N` acrescenta
   à descrição um bloco com o instante de gravação em UTC e o intervalo RFC 3339 com fuso explícito, além do que foi feito, sessão, tokens e estimativas em USD/BRL.
-  O código persistente da sessão tmux é registrado para localizar a sessão e recuperar seu contexto enquanto ela existir. O custo usa `--usd`/`--brl` explícitos ou a tabela
+  O código persistente da sessão tmux é registrado; `tt --session-resolve CÓDIGO` localiza a sessão pelo código mesmo após renomeá-la, para recuperar seu contexto enquanto ela existir. O custo usa `--usd`/`--brl` explícitos ou a tabela
   `~/.config/tt/precos` (`modelo<TAB>USD/Mtok entrada<TAB>USD/Mtok saída`) × `cotacao_brl` (padrão 5,50).
   `tt --tarefa-historico ID` lista os registros da tarefa e das subtarefas com o total. Os blocos aparecem em cinza no cartão.
 - **Compartilhar por e-mail (upsert em três vias):** menu ⋯ da tarefa → **✉ Enviar por e-mail…** (ou `tt --tarefa-email ID DESTINO --abrir`,

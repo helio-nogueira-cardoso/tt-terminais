@@ -5857,6 +5857,14 @@ session_by_id() {
     awk -F'\t' -v id="$id" '$2 == id { print $1; exit }'
 }
 
+# Resolve um código persistente para a sessão atual, mesmo depois de ela ser renomeada.
+session_resolve() { # código → rótulo da máquina<TAB>nome atual da sessão
+  local id=$1 s
+  s=$(session_by_id "$id") || return 1
+  [[ -n $s ]] || { echo "sessão não encontrada neste tmux: $id" >&2; return 1; }
+  printf '%s\t%s\n' "${MAQUINA//_/-}" "$s"
+}
+
 resolver_fixada_remota() {
   local antigo=$1 id=$2 s
   if [[ -n $id ]]; then s=$(session_by_id "$id"); else s=$antigo; fi
@@ -7401,6 +7409,9 @@ PY
   elif [[ -n $tok ]]; then total=$tok; fi
   if [[ $usd =~ ^[0-9]+([.,][0-9]+)?$ ]]; then
     custo_usd=$(awk -v v="${usd/,/.}" 'BEGIN { printf "%.4f", v }')
+  elif [[ $brl =~ ^[0-9]+([.,][0-9]+)?$ ]]; then
+    cot=$(conf cotacao_brl); cot=${cot:-5.50}
+    custo_usd=$(awk -v v="${brl/,/.}" -v c="${cot/,/.}" 'BEGIN { if (c > 0) printf "%.4f", v / c }')
   elif [[ -n $modelo && ( -n $tent || -n $tsai ) && -f $CONF_DIR/precos ]]; then
     read -r pin pout < <(awk -F'\t' -v m="$modelo" '$1 == m { print $2, $3; exit }' "$CONF_DIR/precos")
     [[ -n ${pin:-} && -n ${pout:-} ]] && custo_usd=$(awk -v i="${tent:-0}" -v o="${tsai:-0}" -v pi="$pin" -v po="$pout" 'BEGIN { printf "%.4f", (i * pi + o * po) / 1e6 }')
@@ -14730,6 +14741,7 @@ case "${1:-}" in
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;
   --session-id) session_id "$2"; exit ;;
+  --session-resolve) session_resolve "$2"; exit $? ;;
   --resolver-fixada) resolver_fixada_remota "$2" "${3:-}"; exit $? ;;
   --instalar-aqui) instalar_aqui; exit ;;
   --instalar)

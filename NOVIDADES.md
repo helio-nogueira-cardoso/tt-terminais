@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.17 · 11/10/2026
+- `tt --session-resolve CÓDIGO` localiza a sessão tmux pelo identificador persistente, inclusive depois de renomeá-la, para reanexar e recuperar seu contexto enquanto ela existir.
+
 ## v1.8.16 · 11/10/2026
 - **Registro de tarefas mais completo:** cada trecho exige início e fim em RFC 3339 com fuso explícito; registra o código persistente da sessão tmux, tokens usados e custos estimados em USD e R$. O histórico soma tokens e as duas moedas.
 - **Caracteres corretos na revisão de atualizações:** o editor do tt força UTF-8, inclusive quando a máquina usa locale ASCII.

@@ -15,6 +15,8 @@ tmux new -d -s beta 'sleep 600'
 tt --fixar alfa >/dev/null
 [[ $(lista) == "teste:alfa " ]] || falha 'fixar alfa'
 [[ -n $(cut -f3 "$XDG_CONFIG_HOME/tt/fixadas") ]] || falha 'fixada sem identificador'
+sid=$(cut -f3 "$XDG_CONFIG_HOME/tt/fixadas")
+[[ $(tt --session-resolve "$sid") == $'teste\talfa' ]] || falha 'código da sessão não resolve a sessão atual para recuperar seu contexto'
 
 tt --reconciliar-fixadas
 [[ $(lista) == "teste:alfa " ]] || falha 'reconciliar desafixou uma sessão que existe'
@@ -22,6 +24,7 @@ tt --reconciliar-fixadas
 tmux rename-session -t =alfa alfa-renomeada
 tt --reconciliar-fixadas
 [[ $(lista) == "teste:alfa-renomeada " ]] || falha 'rename por fora do tt não foi acompanhado'
+[[ $(tt --session-resolve "$sid") == $'teste\talfa-renomeada' ]] || falha 'código persistente não resolve após renomear a sessão'
 
 # Reconciliação lenta (uma máquina que não responde) que também tem algo a mudar (uma sessão que
 # fechou): fixar no meio dela não pode ser desfeito quando ela terminar.

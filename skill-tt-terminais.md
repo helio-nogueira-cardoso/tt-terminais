@@ -732,6 +732,7 @@ Cada registro vira um bloco no fim da descrição da tarefa/subtarefa, em cinza 
   (`modelo<TAB>USD por Mtok entrada<TAB>USD por Mtok saída`) e `cotacao_brl=` do config (padrão 5.50). Sem preço do modelo, não inventa valor.
   A tabela de preços e a cotação são do usuário: mantenha-as atualizadas.
 - **Sessão e período:** dentro do tmux, o código persistente da sessão é coletado automaticamente e identifica a sessão após renomear; com `--sessao-codigo` pode ser informado manualmente.
+  `tt --session-resolve CÓDIGO` informa máquina e nome atual da sessão no servidor tmux local, para você reanexar e recuperar o contexto enquanto ela existir.
   `--inicio` e `--fim` são obrigatórios e devem ser RFC 3339 com fuso (`Z` ou `±HH:MM`); o tt recusa fuso ausente e início posterior ao fim.
 - **Quando registrar:** um registro por marco (subtarefa concluída, decisão, bloqueio), não por comando. Texto curto e objetivo no
   "fez"; o "como" diz o método/arquivos/testes. Não ponha segredos nem tokens de acesso.
