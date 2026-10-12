@@ -862,12 +862,13 @@ tt --notificar-daqui "Preciso da sua aprovação para o push" --sempre      # av
   e a janela do agente (`$TMUX_PANE`), o usuário já está vendo: nada é enviado e sai `vendo`. Vale
   para vistas aninhadas (sessão aberta num painel do tt): o cliente de dentro só tem foco quando o
   painel de fora tem. Por isso o agente pode chamar sem medo de incomodar; o `tt` decide.
-- Para onde vai: o **sininho 🔔** (texto `🤖 <sessão> · <texto>`): o contador da barra e a central. O aviso
-  NÃO pisca no miolo da faixa (canal `sino`, 4º campo do arquivo em `~/.local/state/tt/notifs`) e fica no
-  contador, de qualquer idade, até alguém abri-lo na central ou marcar tudo como lido (`^l`, `--notifs-lidas`);
-  vale 24 h (o 2º argumento troca). Mais a notificação do sistema onde houver (`notify-send`, Termux). Clicar
-  no 🔔 abre a central; ⏎ num aviso leva o cliente à sessão e ao painel de origem (ação `sessao:<sessão>|<painel>`,
-  `notif_ir_sessao`). Sem a faixa (`faixa_notif=0`, não há 🔔) segue o caminho antigo (tela dos clientes).
+- Para onde vai: o **sininho 🔔** (texto `🤖 <sessão> · <texto>`): avisos e marcas de leitura sincronizam
+  por P2P entre todas as máquinas cadastradas; o contador mostra todos os avisos vigentes ainda não lidos,
+  de qualquer canal e idade. A união preserva a marca `.lida`, então uma cópia antiga não desfaz uma leitura.
+  Criar/ler sincroniza logo; o vigia recupera máquinas que estavam offline. Até 30 avisos ativos ficam
+  disponíveis; expiram conforme o tempo configurado (padrão 24 h). Mais a notificação do sistema onde houver
+  (`notify-send`, Termux). Clicar no 🔔 abre a central; ⏎ num aviso de agente leva à máquina de origem e à
+  sessão. Sem a faixa (`faixa_notif=0`, não há 🔔) segue o caminho antigo (tela dos clientes).
 - Fora do tmux (sem `$TMUX_PANE`) vira um `tt --notificar` comum. Notificação de outra máquina
   fica na faixa daquela máquina.
 

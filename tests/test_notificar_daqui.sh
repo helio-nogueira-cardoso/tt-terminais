@@ -44,7 +44,7 @@ echo "ok: usuário olhando para a janela, nada é enviado"
 for c in '/dev/pts/1|outra|attached,focused,UTF-8|@9' '/dev/pts/1|agente|attached,focused,UTF-8|@8' '/dev/pts/1|agente|attached,UTF-8|@7'; do
   rm -rf "$T/state/tt/notifs"; clientes "$c"
   [[ $(run --notificar-daqui "acabou") == notificado ]] || fail "deveria notificar com cliente $c"
-  notifs | grep -q $'🤖 agente · acabou\tsessao:agente|%3' || fail "aviso com texto e ação: $(notifs)"
+notifs | grep -q $'🤖 agente · acabou\tsessao:A|agente|%3' || fail "aviso com texto e ação: $(notifs)"
 done
 echo "ok: foco em outro lugar gera aviso com a ação de voltar à sessão"
 
@@ -73,11 +73,14 @@ run --notificar "aviso comum" 120 >/dev/null
 run --notificar-daqui "precisa de você" >/dev/null
 f=$(grep -l 'precisa de você' "$T"/state/tt/notifs/*)
 [[ $(cut -f4 "$f") == sino ]] || fail "aviso de agente deveria sair com o canal sino: $(cat "$f")"
-[[ $(cut -f3 "$f") == 'sessao:agente|%3' ]] || fail "a ação de voltar à sessão deveria continuar no 3º campo: $(cat "$f")"
+[[ $(cut -f3 "$f") == 'sessao:A|agente|%3' ]] || fail "a ação de voltar à sessão deveria continuar no 3º campo: $(cat "$f")"
 q=$(quadro)
 grep -q 'aviso comum' <<<"$q" || fail "aviso comum deveria aparecer no slot (controle do teste): $q"
 [[ $q != *'precisa de você'* ]] || fail "aviso de agente não deve piscar no slot da faixa: $q"
 grep -q 'set -g @barra_notifs_n #\[fg=#f9e2af,bold\]2#\[nobold\]' "$T/log" || fail "contador do 🔔 deveria somar o comum e o do agente (2): $(grep barra_notifs_n "$T/log" | tail -2)"
+comum=$(grep -l 'aviso comum' "$T"/state/tt/notifs/* | head -1)
+: >"$comum.lida"; : >"$T/log"; run --barras >/dev/null 2>&1 || true
+grep -q 'set -g @barra_notifs_n #\[fg=#f9e2af,bold\]1#\[nobold\]' "$T/log" || fail "marcar o aviso comum como lido deveria removê-lo do contador (sobra o agente): $(grep barra_notifs_n "$T/log" | tail -2)"
 echo "ok: aviso de agente só no 🔔 (nada no slot); aviso comum segue piscando"
 
 # 6) o contador do 🔔 guarda o aviso do agente (de qualquer idade) até ele ser aberto; expirado não conta

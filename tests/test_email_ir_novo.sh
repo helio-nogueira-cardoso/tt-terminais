@@ -29,9 +29,12 @@ for fn in email_ipc email_saltar_novo email_ir_novo email_avisos_lidos; do grep 
 passou 'rota email:SLUG no notif_abrir, aviso com a ação email:SLUG, funções do salto'
 
 # O popup não pode anexar uma segunda vez à sessão já visível nem abrir dois popups concorrentes.
-( source <(sed -n '/^email_popup_abrir()/,/^}/p' "$TT")
-  EMAIL_SESSAO=_tt-email; POPUPS=$T/popups; export POPUPS
+( source <(sed -n '/^popup_exclusivo_reservar()/,/^popup_exclusivo_liberar()/p' "$TT")
+  source <(sed -n '/^email_popup_abrir()/,/^}/p' "$TT")
+  RT=$TT_RT EMAIL_SESSAO=_tt-email; POPUPS=$T/popups; export POPUPS
+  MODAL=0
   tam_popup() { echo '-w 100 -h 20'; }
+  do_cliente() { [[ $MODAL == 1 ]] && echo modal; }
   tmux() {
     case " $* " in
       *'#{session_attached}'*) echo "${ATTACHED:-0}" ;;
@@ -42,8 +45,12 @@ passou 'rota email:SLUG no notif_abrir, aviso com a ação email:SLUG, funções
   [[ ! -s $POPUPS ]] || falhou 'painel já anexado não pode abrir outro popup'
   ATTACHED=0; email_popup_abrir base true & primeiro=$!; sleep 0.1; email_popup_abrir base true; wait "$primeiro"
   [[ $(wc -l <"$POPUPS") == 1 ]] || falhou "cliques concorrentes abriram popups duplicados: $(cat "$POPUPS")"
+  MODAL=1; email_popup_abrir base true
+  [[ $(wc -l <"$POPUPS") == 1 ]] || falhou 'e-mail não pode abrir sobre uma janela modal do tt'
 ) || falhou 'proteção contra popup de e-mail duplicado'
 passou 'popup do aerc é único: sessão já anexada e cliques simultâneos não criam painel em cascata'
+grep -q 'window_modal_pane' "$TT" && grep -q 'session_attached' "$TT" || falhou 'central e e-mail precisam consultar o popup que já está aberto'
+passou 'e-mail e central não empilham um sobre o outro quando há painel flutuante ou leitor anexado'
 
 echo 'S' | tt --email-adicionar nome=Gmail endereco=g@gmail.com provedor=gmail auth=senha sync_local=1 --senha-stdin >/dev/null || falhou 'cadastro gmail'
 echo 'S' | tt --email-adicionar nome=Nada endereco=n@gmail.com provedor=gmail auth=senha --senha-stdin >/dev/null || falhou 'cadastro nada'

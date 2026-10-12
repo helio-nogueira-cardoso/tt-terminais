@@ -30,6 +30,15 @@ cfg navegador=chromium; : >"$LOG"
 rm -f "$B/termux-open-url"
 passou "Termux: opções gráficas ocultas, usa o sistema"
 
+# Samsung Internet fica disponível no seletor do Termux e recebe o intent diretamente pelo pacote.
+printf '#!/bin/sh\nexit 0\n' >"$B/termux-open-url"; chmod +x "$B/termux-open-url"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>%s\n' "$T/am.log" >"$B/am"; chmod +x "$B/am"
+cfg navegador=samsung; : >"$T/am.log"
+"$TT" --abrir-link "$U" </dev/null
+grep -q -- '-p com.sec.android.app.sbrowser' "$T/am.log" && grep -q -- "$U" "$T/am.log" || falhou "Samsung Internet não recebeu intent direcionado: $(cat "$T/am.log")"
+rm -f "$B/termux-open-url" "$B/am"
+passou "Samsung Internet: opção Android direciona a URL ao pacote com.sec.android.app.sbrowser"
+
 # 4) .deb do Chrome com sha256 diferente do índice é recusado e nada é instalado.
 mkdir -p "$T/repo/pool"; echo falso >"$T/repo/pool/chrome.deb"
 printf 'Package: google-chrome-stable\nVersion: 1.0-1\nFilename: pool/chrome.deb\nSHA256: %064d\n' 0 >"$T/repo/Packages"

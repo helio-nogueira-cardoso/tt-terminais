@@ -448,7 +448,7 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   faxina_vigia
-  local ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_email_completo=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_email_completo=0 ultima_notifs=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   ultima_email_completo=$(email_ultima_completa)
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
@@ -488,6 +488,12 @@ vigiar() {
       ("$EU" --puxar-fixadas >/dev/null 2>&1 &)
       ("$EU" --reconciliar-fixadas >/dev/null 2>&1 &)
       ("$EU" --tarefas-puxar >/dev/null 2>&1 &)
+    fi
+    # O sininho e as leituras são da rede, não de cada aparelho. União P2P em segundo plano; a
+    # sincronização também é disparada na hora ao criar/ler aviso e aqui recupera máquinas offline.
+    if ((agora - ultima_notifs >= ${TT_T_NOTIFS_SYNC:-30})); then
+      ultima_notifs=$agora
+      ("$EU" --notifs-sync >/dev/null 2>&1 &)
     fi
     # Malha: cada máquina conhece todas as outras (aprende o que falta, se apresenta) e avisa de ilhas.
     if ((agora - ${ultima_malha:-0} >= ${TT_T_MALHA:-900})); then
@@ -4496,6 +4502,18 @@ abrir_url() {
   return 0
 }
 
+# Samsung Internet é uma opção explícita no Android; direcione o intent ao pacote para não depender
+# do navegador padrão nem deixar o Android abrir um seletor. No proot, am/cmd vêm do Android via PATH.
+samsung_internet_disponivel() {
+  command -v termux-open-url >/dev/null && command -v am >/dev/null
+}
+
+abrir_samsung_internet() {
+  local u=$1
+  samsung_internet_disponivel || return 1
+  am start --user 0 -a android.intent.action.VIEW -p com.sec.android.app.sbrowser -d "$u" >/dev/null 2>&1
+}
+
 # --- Escolha do navegador para links (e-mail) -----------------------------------
 #
 # Enter num link do w3m (e :open-link do aerc) chama tt --abrir-link: o usuário escolhe entre
@@ -5529,6 +5547,26 @@ cliente_externo() {
 # Numa janela flutuante (painel modal) o TMUX_PANE existe, então vale a marca TT_EM_JANELA que a popup_janela põe.
 em_popup() { [[ -t 0 && -t 1 ]] && { [[ -n ${TMUX:-} && -z ${TMUX_PANE:-} ]] || [[ -n ${TT_EM_JANELA:-} ]]; }; }
 
+# O aerc e a central usam janelas temporárias no mesmo cliente. Um marcador por cliente impede que
+# um seja empilhado sobre o outro; o PID permite limpar a reserva se a janela cair inesperadamente.
+popup_exclusivo_reservar() { # tipo cliente; imprime o caminho da reserva em POPUP_EXCLUSIVO
+  local tipo=$1 c=$2 chave dir velho
+  if command -v sha256sum >/dev/null; then chave=$(printf '%s' "$c" | sha256sum | cut -c1-16)
+  else chave=$(printf '%s' "$c" | shasum -a 256 | cut -c1-16); fi
+  [[ -n $chave ]] || return 1
+  dir="$RT/tt-popup-exclusivo-$UID-$chave"
+  mkdir -p "$RT"
+  if ! mkdir "$dir" 2>/dev/null; then
+    read -r velho _ <"$dir/dono" 2>/dev/null || velho=
+    if [[ $velho =~ ^[0-9]+$ ]] && kill -0 "$velho" 2>/dev/null; then return 1; fi
+    rm -rf "$dir"
+    mkdir "$dir" 2>/dev/null || return 1
+  fi
+  printf '%s %s\n' "$$" "$tipo" >"$dir/dono"
+  POPUP_EXCLUSIVO=$dir
+}
+popup_exclusivo_liberar() { [[ -n ${1:-} ]] && rm -rf -- "$1"; }
+
 # Roda CMD (string de shell) fora do namespace sem rede do w3m/aerc: pelo servidor do tmux.
 # popup=1 abre num popup grande (para o que precisa de terminal); senão em segundo plano.
 rodar_fora() {
@@ -5539,7 +5577,7 @@ rodar_fora() {
     # run-shell lê o comando como formato do tmux: um "#S" ou "#{" dentro da URL virava o nome da
     # sessão. "##" é o "#" literal. Num popup (o seletor do clique em link), outro popup não abre
     # (o tmux só modifica o atual): o navegador sobe depois que o seletor fecha.
-    if [[ $popup == 1 && -n ${TT_LINK_CLIENTE:-} ]]; then
+    if [[ $popup == 1 && ${TT_LINK_POPUP:-0} == 1 ]]; then
       cmd="sleep 0.3; tmux display-popup -c $(q "$c") -E $(tam_popup "$c") -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q (ou Ctrl+C) fecha ' $(q "$cmd")"
       tmux run-shell -b "${cmd//#/##}"
     elif [[ $popup == 1 ]]; then popup_fixo -c "$c" -E $(tam_popup "$c") -b rounded -S 'fg=#89b4fa' -T ' 🌐 navegador · Ctrl+Q (ou Ctrl+C) fecha ' "$cmd"
@@ -5605,6 +5643,7 @@ abrir_com() {
   local qual=$1 u=$2 disp=${DISPLAY:-} way=${WAYLAND_DISPLAY:-} xdg=${XDG_RUNTIME_DIR:-}
   case $qual in
     sistema) abrir_url "$u" ;;
+    samsung) abrir_samsung_internet "$u" ;;
     copiar) link_copiar "${TT_LINK_CLIENTE:-}" "$u" ;;
     chromium)
       garantir_navegador chromium || return 1
@@ -5632,15 +5671,21 @@ abrir_link() {
   local u=${1:-} esc pref ultimo c
   [[ -n $u ]] || return 0
   pref=$(conf navegador); pref=${pref:-perguntar}
-  navegadores_graficos_ok || pref=sistema
+  if ! navegadores_graficos_ok; then
+    if [[ $pref == samsung || $pref == perguntar ]]; then samsung_internet_disponivel || pref=sistema
+    else pref=sistema; fi
+  fi
   if [[ $pref == perguntar ]]; then
     if [[ -t 0 ]]; then
       ultimo=$(cat "$ESTADO_DIR/navegador-ultimo" 2>/dev/null)
-      esc=$(printf '%s\t%s\n' \
-        chromium "Google Chrome interno (janela gráfica)" \
-        carbonyl "Carbonyl embutido (no terminal · Chromium de 2023, sem atualizações)" \
-        sistema "Navegador padrão do sistema" \
-        copiar "📋 Só copiar o link (inteiro)" |
+      local -a opcoes=(
+        chromium "Google Chrome interno (janela gráfica)"
+        carbonyl "Carbonyl embutido (no terminal · Chromium de 2023, sem atualizações)"
+        sistema "Navegador padrão do sistema"
+      )
+      samsung_internet_disponivel && opcoes+=(samsung "Samsung Internet")
+      opcoes+=(copiar "📋 Só copiar o link (inteiro)")
+      esc=$(printf '%s\t%s\n' "${opcoes[@]}" |
         awk -F'\t' -v u="$ultimo" 'BEGIN{OFS="\t"} {print $1, $2 ($1==u ? "  ← último" : "")}' |
         fzf --delimiter='\t' --with-nth=2 --no-sort --layout=reverse --height=~8 --prompt='❯ ' \
             --header="Abrir ${u:0:100}" | cut -f1) || return 0
@@ -5677,10 +5722,13 @@ link_abrir() {
     [[ $(tmux display -p -t "$p" '#{pane_in_mode}' 2>/dev/null) == 0 ]] || return 0
   fi
   pref=$(conf navegador); pref=${pref:-perguntar}
-  navegadores_graficos_ok || pref=sistema
+  if ! navegadores_graficos_ok; then
+    if [[ $pref == samsung || $pref == perguntar ]]; then samsung_internet_disponivel || pref=sistema
+    else pref=sistema; fi
+  fi
   if [[ $pref != perguntar ]]; then TT_LINK_CLIENTE=$c abrir_com "$pref" "$u"; return 0; fi
   tmux display-popup -c "$c" -E $(dim_popup "$c" 84 12) -b rounded -T ' 🌐 abrir link ' \
-    "TT_LINK_CLIENTE=$(q "$c") $EU --abrir-link $(q "$u")"
+    "TT_LINK_CLIENTE=$(q "$c") TT_LINK_POPUP=1 $EU --abrir-link $(q "$u")"
 }
 
 # tt --link-copiar CLIENTE URL: o link inteiro vai para o tmux (e o terminal, por OSC 52), para a área
@@ -8504,6 +8552,77 @@ tarefas_lembrete_arq() { echo "$ESTADO_DIR/tt-tarefas-avisadas"; }
 # prazo e e-mails novos entram na faixa de graça.
 DIR_NOTIFS=$ESTADO_DIR/notifs
 
+# As notificações e as marcas de leitura são estado da rede tt, não da máquina. Cada ID é o nome
+# único do arquivo; a sincronização é união (uma marca .lida nunca é desfeita) e só arquivos com
+# esse formato podem entrar no diretório local.
+notifs_nome_valido() { [[ $1 =~ ^[0-9]{18,20}(\.lida)?$ ]]; }
+notifs_mesclar_dir() { # diretório já extraído e validado
+  local src=$1 f nome
+  mkdir -p "$DIR_NOTIFS"
+  for f in "$src"/*; do
+    [[ -f $f ]] || continue
+    nome=${f##*/}; notifs_nome_valido "$nome" || continue
+    [[ -e $DIR_NOTIFS/$nome ]] || cp -p "$f" "$DIR_NOTIFS/$nome"
+  done
+}
+notifs_podar() {
+  local f
+  while IFS= read -r f; do
+    [[ -n $f ]] || continue
+    rm -f "$DIR_NOTIFS/$f" "$DIR_NOTIFS/$f.lida"
+  done < <(ls -1 "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$' | sort | head -n -30)
+}
+notifs_tar_seguro() { # arquivo .tar: só caminhos simples de IDs de notificação
+  local lista
+  lista=$(tar -tf "$1" 2>/dev/null) || return 1
+  awk '$0 == "./" { next } { n=$0; sub(/^\.\//, "", n); if (n !~ /^[0-9]{18,20}(\.lida)?$/) exit 1 }' <<<"$lista"
+}
+notifs_exportar() {
+  mkdir -p "$DIR_NOTIFS"
+  tar -C "$DIR_NOTIFS" -cf - . 2>/dev/null
+}
+notifs_receber() { # arquivo tar no stdin; origem só pode acrescentar arquivos e marcas lidas
+  local tmp
+  tmp=$(mktemp -d "$RT/tt-notifs.XXXXXX") || return 1
+  cat >"$tmp/in.tar" || { rm -rf "$tmp"; return 1; }
+  if notifs_tar_seguro "$tmp/in.tar" && tar -xf "$tmp/in.tar" -C "$tmp" --no-same-owner --no-same-permissions 2>/dev/null; then
+    notifs_mesclar_dir "$tmp"
+    notifs_podar
+    atualizar_barras >/dev/null 2>&1
+  fi
+  rm -rf "$tmp"
+}
+notifs_sincronizar() (
+  local tmp dest rot f n=0 lock="$RT/tt-notifs-sync-$UID.lock"
+  local -a pids=()
+  mkdir -p "$DIR_NOTIFS" "$RT"
+  mkdir "$lock" 2>/dev/null || exit 0
+  tmp=$(mktemp -d "$RT/tt-notifs-sync.XXXXXX") || { rm -rf "$lock"; exit 1; }
+  trap 'rm -rf "$tmp" "$lock"' EXIT
+  while read -r dest rot; do
+    [[ -n $dest ]] || continue
+    f=$n; n=$((n + 1))
+    (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --notifs-exportar" </dev/null >"$tmp/$f.tar" 2>/dev/null || rm -f "$tmp/$f.tar") &
+    pids+=("$!")
+  done < <(maquinas)
+  for f in "${pids[@]}"; do wait "$f" || true; done
+  for f in "$tmp"/*.tar; do
+    [[ -f $f ]] && notifs_tar_seguro "$f" && tar -xf "$f" -C "$tmp" --no-same-owner --no-same-permissions 2>/dev/null || continue
+  done
+  notifs_mesclar_dir "$tmp"
+  notifs_podar
+  tar -C "$DIR_NOTIFS" -cf "$tmp/rede.tar" . 2>/dev/null || { rm -rf "$tmp"; exit 1; }
+  n=0; pids=()
+  while read -r dest rot; do
+    [[ -n $dest ]] || continue
+    (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --notifs-receber" <"$tmp/rede.tar" >/dev/null 2>&1) &
+    pids+=("$!")
+  done < <(maquinas)
+  for f in "${pids[@]}"; do wait "$f" || true; done
+  atualizar_barras >/dev/null 2>&1
+)
+notifs_sincronizar_em_segundo_plano() { ("$EU" --notifs-sync >/dev/null 2>&1 &) }
+
 # Quantas linhas a barra tem: 3 (margem, janelas, fixadas), ou 4 com a faixa de notificações. Sem réguas:
 # as faixas se distinguem só pelo fundo. TODO caminho que mexe no número de linhas passa por aqui — dois
 # pontos discordando faziam a faixa piscar.
@@ -8523,7 +8642,8 @@ notificar() { # texto [segundos (padrão 300)] [ação: email|tarefas|calendario
   # O `read` do bash junta tabs seguidos: com canal e sem ação, o campo da ação leva "-" (os leitores o tratam como vazio)
   [[ -z $acao && -n $canal ]] && acao=-
   printf '%s\t%s\t%s%s\n' "$(( $(date +%s) + dura ))" "${txt//$'\n'/ }" "$acao" "${canal:+$'\t'$canal}" >"$DIR_NOTIFS/$(date +%s%N)"
-  ls -1 "$DIR_NOTIFS" 2>/dev/null | sort | head -n -30 | while read -r f; do rm -f "$DIR_NOTIFS/$f"; done
+  notifs_podar
+  notifs_sincronizar_em_segundo_plano
   atualizar_barras
 }
 
@@ -8538,6 +8658,7 @@ barra_notifs_avisos() {
   local agora exp txt _a canal f itens="" n=0 ns
   agora=$(date +%s)
   for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$' | head -6); do
+    [[ -f $DIR_NOTIFS/$f.lida ]] && continue
     IFS=$'\t' read -r exp txt _a canal <"$DIR_NOTIFS/$f" || continue
     [[ $canal == sino ]] && continue   # aviso de agente: só o contador do 🔔 (barra_notifs_sino)
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
@@ -8548,15 +8669,15 @@ barra_notifs_avisos() {
   printf '%s\t%s' "$n" "$itens"
 }
 
-# Avisos de agentes (canal sino) ainda não abertos e não expirados, de QUALQUER idade: o contador do 🔔
-# os mantém até alguém abrir o aviso na central (marca <id>.lida) ou marcar todos como lidos (^l).
+# Contador universal do 🔔: todo aviso vigente e ainda não lido, de qualquer canal e idade, fica
+# visível até abrir na central ou marcar todos como lidos (^l).
 barra_notifs_sino() {
   local agora exp _t _a canal f n=0
   agora=$(date +%s)
   for f in $(ls -1 "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$'); do
     [[ -f $DIR_NOTIFS/$f.lida ]] && continue
     IFS=$'\t' read -r exp _t _a canal <"$DIR_NOTIFS/$f" || continue
-    [[ $canal == sino ]] && [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) && n=$((n + 1))
+    [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) && n=$((n + 1))
   done
   printf '%s' "$n"
 }
@@ -9292,7 +9413,11 @@ notif_abrir() { # ação cliente
 # Aviso de um agente (tt --notificar-daqui): o clique leva o cliente à sessão e ao painel de onde
 # o aviso saiu. "sessão|painel"; sem a sessão (fechada depois do aviso), só avisa.
 notif_ir_sessao() { # "sessão|painel" cliente
-  local s=${1%%|*} p=${1#*|} c=$2 atual
+  local spec=$1 c=$2 origem= s p atual
+  if [[ $spec == *'|'*'|'* ]]; then
+    origem=${spec%%|*}; spec=${spec#*|}; s=${spec%%|*}; p=${spec#*|}
+    if [[ -n $origem && $origem != "$MAQUINA" ]]; then TT_CLIENTE=$c ir_para "$origem" "$s"; return $?; fi
+  else s=${spec%%|*}; p=${spec#*|}; fi
   # O nome da sessão muda (o nomeador renomeia conforme o assunto); o id do painel não. Vale o nome
   # que o painel tem AGORA; o gravado só serve se o painel já não existe.
   [[ $p == %* ]] && atual=$(tmux display-message -p -t "$p" '#{session_name}' 2>/dev/null) && [[ -n $atual ]] && s=$atual
@@ -9330,18 +9455,19 @@ notificar_daqui() { # texto [segundos (padrão 86400)] [--sempre]
   fi
   w=$(tmux display-message -p -t "$p" '#{window_id}' 2>/dev/null)
   if ((sempre == 0)) && usuario_olhando "$s" "$w"; then echo vendo; return 0; fi
-  tarefas_notificar "🤖 $s" "$txt" "sessao:$s|$p" "$canal" "$dura" >/dev/null 2>&1
+  tarefas_notificar "🤖 $s" "$txt" "sessao:$MAQUINA|$s|$p" "$canal" "$dura" >/dev/null 2>&1
   echo notificado
 }
 
 notifs_clique() { # cliente
   local c=$1 f exp txt acao canal agora; agora=$(date +%s)
   for f in $(ls -1r "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$' | head -6); do
+    [[ -f $DIR_NOTIFS/$f.lida ]] && continue
     IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$f" || continue
     [[ $acao == - ]] && acao=""
     [[ $canal == sino ]] && continue   # aviso de agente não está no slot: o clique do slot não o abre
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
-    [[ -n $acao ]] && notif_abrir "$acao" "$c" && { : >"$DIR_NOTIFS/$f.lida"; atualizar_barras; return 0; }
+    [[ -n $acao ]] && notif_abrir "$acao" "$c" && { : >"$DIR_NOTIFS/$f.lida"; notifs_sincronizar_em_segundo_plano; atualizar_barras; return 0; }
     break
   done
   notifs_popup "$c"
@@ -9352,7 +9478,14 @@ notifs_clique() { # cliente
 notifs_popup() {
   local c=${1:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
   [[ -n $c ]] || return 0
+  # Um modal/um leitor de e-mail por cliente: não empilhe a central sobre uma janela do tt nem sobre
+  # o aerc. No painel flutuante, window_modal_pane identifica a janela já aberta; o aerc é uma sessão
+  # oculta anexada enquanto seu popup está visível.
+  [[ -n $(do_cliente "$c" '#{window_modal_pane}' 2>/dev/null) ]] && return 0
+  [[ $(tmux display -p -t "=$EMAIL_SESSAO:" '#{session_attached}' 2>/dev/null) =~ ^[1-9] ]] && return 0
+  popup_exclusivo_reservar notificacoes "$c" || return 0
   tmux display-popup -c "$c" -E $(dim_popup "$c" 86 18) -b rounded -T ' 🔔 notificações ' "$EU --notifs-ui $(q "$c")"
+  local rc=$?; popup_exclusivo_liberar "$POPUP_EXCLUSIVO"; return "$rc"
 }
 # Quando um aviso nasceu, para a central: "Hoje 08:12", "Ontem 22:05" ou "08/10 22:05" (o ano só
 # aparece quando não é o corrente) — só a hora não distinguia hoje de ontem.
@@ -9369,6 +9502,7 @@ notif_quando() { # epoch
 notifs_marcar_lidas() {
   local f
   for f in $(ls -1 "$DIR_NOTIFS" 2>/dev/null | grep -v '\.lida$'); do : >"$DIR_NOTIFS/$f.lida"; done
+  notifs_sincronizar_em_segundo_plano
   atualizar_barras >/dev/null 2>&1
   return 0
 }
@@ -9389,7 +9523,7 @@ notifs_ui() {
       --header='⏎ abre o destino (↗, e marca como lida) · ^l marca todas como lidas · Esc fecha' \
       --bind "q:abort,ctrl-l:execute-silent($EU --notifs-lidas)+abort") || return 0
     acao=$(cut -f1 <<<"$esc"); f=$(cut -f2 <<<"$esc")
-    [[ -n $f && -f $DIR_NOTIFS/$f ]] && { : >"$DIR_NOTIFS/$f.lida"; atualizar_barras >/dev/null 2>&1; }
+    [[ -n $f && -f $DIR_NOTIFS/$f ]] && { : >"$DIR_NOTIFS/$f.lida"; notifs_sincronizar_em_segundo_plano; atualizar_barras >/dev/null 2>&1; }
     [[ -n $acao ]] && notif_abrir "$acao" "${c:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}"
   else lista | cut -f3-; fi
   return 0
@@ -11783,7 +11917,7 @@ atualizar_barras() {
       hora) valor=$(barra_hora) ;;
       notifs) valor=$(barra_notifs_fmt) ;;
       # contador do 🔔: avisos frescos (os que piscam no slot) + avisos de agentes ainda não abertos
-      notifs_n) { IFS=$'\t' read -r _qn _qi <<<"$(barra_notifs_avisos)"; _qs=$(barra_notifs_sino); _qn=$(( ${_qn:-0} + ${_qs:-0} )); valor=""; ((_qn > 0)) && valor="#[fg=#f9e2af,bold]$_qn#[nobold]"; } ;;
+      notifs_n) { _qn=$(barra_notifs_sino); valor=""; ((_qn > 0)) && valor="#[fg=#f9e2af,bold]$_qn#[nobold]"; } ;;
       notifs_slot) valor="#{E:@barra_notifs}" ;;
       transf0)
         if faixa_notif_ativa; then valor=""
@@ -12785,9 +12919,17 @@ email_popup_abrir() { # cliente comando
     exec {fd}>&-
     return 0
   fi
+  # Uma central ou outra janela flutuante já aberta ocupa o cliente. O browser tem rota própria
+  # (popup_fixo) e continua podendo ser aberto a partir do e-mail.
+  if [[ -n $(do_cliente "$cliente" '#{window_modal_pane}' 2>/dev/null) ]]; then
+    exec {fd}>&-
+    return 0
+  fi
+  popup_exclusivo_reservar email "$cliente" || { exec {fd}>&-; return 0; }
   geo=($(tam_popup "$cliente") -b rounded -S 'fg=#89b4fa' -T ' 📧 e-mail · Esc fecha ')
   tmux display-popup -c "$cliente" -E "${geo[@]}" "$comando"
   local rc=$?
+  popup_exclusivo_liberar "$POPUP_EXCLUSIVO"
   exec {fd}>&-
   return "$rc"
 }
@@ -13836,7 +13978,10 @@ email_avisos_lidos() { # ação (email:SLUG)
     IFS=$'\t' read -r exp txt acao _canal <"$DIR_NOTIFS/$f" || continue
     [[ $acao == "$1" && ! -f $DIR_NOTIFS/$f.lida ]] && { : >"$DIR_NOTIFS/$f.lida"; n=1; }
   done
-  [[ -n $n ]] && atualizar_barras >/dev/null 2>&1   # a central deixa de mostrá-los em negrito
+  if [[ -n $n ]]; then
+    notifs_sincronizar_em_segundo_plano
+    atualizar_barras >/dev/null 2>&1   # a central deixa de mostrá-los em negrito
+  fi
   return 0
 }
 email_ir_novo() { # slug [cliente]
@@ -15516,7 +15661,7 @@ fi
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --clique | --popup | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela | --chrome-falhou)
+  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --notifs-sync | --notifs-receber | --clique | --popup | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela | --chrome-falhou)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -15553,6 +15698,9 @@ case "${1:-}" in
   --propagar-copia) propagar_copia "$2"; exit 0 ;;
   --receber-copia) receber_copia "${2:-}"; exit 0 ;;
   --copias) historico_copias; exit 0 ;;
+  --notifs-exportar) notifs_exportar; exit 0 ;;
+  --notifs-receber) notifs_receber; exit $? ;;
+  --notifs-sync) notifs_sincronizar; exit $? ;;
   --nomear-texto) nomear_texto; exit ;;
   --nomeador) definir_nomeador "${2:-}"; exit ;;
   --nomeador-local) shift; python3 -I "$(nomeador_py)" "${@:-estado}"; exit ;;

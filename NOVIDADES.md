@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.10.1 · 12/10/2026
+- **Sininho igual em todas as máquinas:** avisos e marcas de leitura se propagam por P2P; o contador mostra todos os avisos vigentes não lidos, não só os recém-chegados ou os avisos de agentes. Máquinas que ficaram offline convergem quando voltam.
+- **E-mail e central de notificações não se empilham:** uma reserva por cliente bloqueia a abertura de uma segunda central ou do e-mail sobre ela. A abertura direta do Carbonyl deixou de ser confundida com um seletor temporário; ao fechá-lo, o foco volta ao e-mail.
+- **Samsung Internet no seletor do Android:** o tt direciona links ao pacote Samsung Internet no S23, sem depender do navegador padrão.
+- **Aviso de agente abre a máquina de origem:** a ação sincronizada leva à sessão da máquina onde o aviso nasceu.
+
 ## v1.10.0 · 12/10/2026
 - **⚡ Partida rápida: cada clique, tecla e recarga ficou cerca de 100 ms mais rápido.** O `tt` tem ~850 KB, e o bash lia o arquivo inteiro (de 60 a 90 ms) toda vez que a barra, um menu ou um painel o chamava. Agora a instalação gera um núcleo (~160 KB) e as funções são lidas na primeira vez em que são usadas: `tt --versao` caiu de 138 para 37 ms; a lista e o cabeçalho das tarefas, de 157 e 220 para 67 e 97 ms. A saída é a mesma, e o núcleo só passa a valer depois de conferido contra o arquivo inteiro; qualquer diferença, o tt segue lendo o arquivo todo, como sempre. `tt --rapido` mostra o estado (`gerar`, `remover`); `TT_COMPLETO=1` desliga.
 - **AGENTS.md único para todas as IAs:** as instruções globais (as suas e as regras do tt) moram num arquivo só, `~/.agents/AGENTS.md`. O tt impõe isso sozinho a cada instalação e a cada ~5 min: o `CLAUDE.md` de cada conta do Claude e o `AGENTS.md` do Codex viram link para ele, o Kiro recebe uma cópia gerada (`steering/agentes.md`), e o que você tinha escrito em cada um foi juntado lá, sem repetir parágrafo (o original fica em `~/.local/state/tt/agentes-backup/`). Para mudar uma instrução global, edite `~/.agents/AGENTS.md`.
