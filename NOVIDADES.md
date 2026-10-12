@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.10.10 · 12/10/2026
+- **🌐 Link abre na máquina em que você clicou.** Vendo pelo book-hl uma sessão do PC (ou o e-mail do PC), escolher "Navegador padrão do sistema" ou o Chrome interno abria o navegador no PC, longe da sua tela. Agora o tt percebe pela ponte de onde vem a tela e abre lá; se aquela máquina não responder, abre onde está, como antes. Carbonyl e "só copiar" continuam no próprio terminal.
+
 ## v1.10.9 · 12/10/2026
 - **🔧 O vigia não fica mais preso girando a CPU.** No bash 5.3 (PC e book-hl), um `wait` sem pids dentro de um subshell gira a 100% de CPU para sempre quando o shell de cima tem um trabalho em 2º plano ainda vivo. O vigia caía nisso ao procurar sessões vazias e parava de trabalhar (fechar sessões, sincronizar, atualizar) por horas, com um núcleo inteiro ocupado. Agora cada espera aguarda só os processos que ela mesma lançou.
 

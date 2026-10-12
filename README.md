@@ -1767,6 +1767,12 @@ cadastro de conta OAuth e Ctrl+B u abrem o mesmo seletor com três opções (mai
   de 2023 sem atualizações: use para ler, não para logins sensíveis;
 - **Navegador padrão do sistema**: `xdg-open`, que no WSL abre o do Windows.
 
+O Chrome interno e o navegador do sistema abrem na máquina da tela em que você clicou, não na da sessão:
+vendo pelo book-hl uma sessão (ou o e-mail) do PC, o link abre no book-hl. O tt de lá descobre isso pela
+ponte (`TT_PONTE`, ou `TT_ORIGEM` no cliente do popup do e-mail) e manda `tt --abrir-aqui QUAL URL` por ssh
+para a máquina da tela; se ela não responder, abre onde está, como antes. O Carbonyl e o "só copiar"
+seguem no próprio terminal.
+
 Os dois primeiros são baixados sob demanda para `~/.local/share/tt-navegadores`, sem sudo, e só são
 instalados se o sha256 do pacote bater (o do Chrome, com o índice do repositório do Google; o do Carbonyl, com o fixado no `tt`). Só x86_64; no Termux ficam ocultos.
 Máquina nova (`instalar.sh`) e máquina atualizada (`tt --sincronizar`, `tt --atualizar`) já deixam os dois prontos em segundo plano: baixam o Carbonyl e, havendo ambiente gráfico, o Chrome (o que já está instalado é pulado; o log fica em `~/.cache/tt/navegadores.log`). Se faltar `curl`/`unzip` (ou as bibliotecas do sistema que os navegadores pedem), eles entram nas [pendências de instalação](#pendências-de-instalação-): o vigia avisa (📦) e o modal instala com o `sudo` pedindo a senha ali, sem o tt vê-la; quem disse "não" a um deles não tem o download em segundo plano. A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`

@@ -5770,8 +5770,41 @@ chrome_falhou() {
   abrir_url "$u"
 }
 
+# Máquina onde está a tela do cliente C, quando não é esta: C é uma ponte vinda de outra máquina
+# (TT_PONTE="máquina|ponte") ou um cliente aberto dentro de uma (o do popup do e-mail: TT_ORIGEM).
+# Vazio quando a tela é desta máquina. Sem /proc (macOS), vazio: abre aqui, como antes. No w3m do e-mail
+# (user namespace do unshare) o environ do cliente é negado: aí quem lê é o servidor do tmux (run-shell).
+maquina_da_tela() {
+  local c=${1:-} pid o ler
+  [[ -n $c ]] || return 0
+  pid=$(do_cliente "$c" '#{client_pid}'); [[ $pid =~ ^[0-9]+$ ]] || return 0
+  ler="tr '\\0' '\\n' </proc/$pid/environ | sed -n 's/^TT_PONTE=//p; s/^TT_ORIGEM=//p' | head -1"
+  if [[ -e /proc/$pid/environ ]] && ! (exec 3<"/proc/$pid/environ") 2>/dev/null; then
+    o=$(tmux run-shell "$ler" 2>/dev/null)
+  else o=$(bash -c "$ler" 2>/dev/null); fi
+  o=${o%%|*}
+  [[ -n $o && $o != "$MAQUINA" ]] && printf '%s\n' "$o"
+  return 0
+}
+
+# Navegador gráfico (o do sistema ou o Chrome) abre na máquina em que se clicou, não na da sessão: vendo
+# pelo book-hl uma sessão do PC, o link abre no book-hl. Vai pelo servidor do tmux (rodar_fora: o w3m do
+# e-mail roda sem rede) e por ssh; se a de lá não responder (ou for de uma versão sem --abrir-aqui),
+# abre aqui, como antes. Devolve 1 se a tela é desta máquina.
+abrir_na_tela() {
+  local qual=$1 u=$2 c om d
+  [[ -z ${TT_ABRIR_AQUI:-} ]] || return 1
+  c=${TT_LINK_CLIENTE:-}
+  [[ -n $c || -z ${TMUX:-} ]] || c=$(cliente_externo)
+  om=$(maquina_da_tela "$c"); [[ -n $om ]] || return 1
+  d=$(dest_de "$om"); [[ -n $d && $d != . ]] || return 1
+  [[ -n $c ]] && tmux display-message -c "$c" -d 2500 "🌐 abrindo em $om" 2>/dev/null
+  rodar_fora 0 "timeout 20 ssh $(q "${SSH_OPC[@]}") $(q "$d") $(q "$TT_REMOTO --abrir-aqui $(q "$qual" "$u")") </dev/null >/dev/null 2>&1 || TT_ABRIR_AQUI=1 $(q "$EU") --abrir-aqui $(q "$qual" "$u")"
+}
+
 abrir_com() {
   local qual=$1 u=$2 disp=${DISPLAY:-} way=${WAYLAND_DISPLAY:-} xdg=${XDG_RUNTIME_DIR:-}
+  case $qual in sistema|chromium) abrir_na_tela "$qual" "$u" && return 0 ;; esac
   case $qual in
     sistema) abrir_url "$u" ;;
     samsung) abrir_samsung_internet "$u" ;;
@@ -13257,12 +13290,12 @@ botao_email() {
     local pane_cmd; pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
     if [[ $pane_cmd != aerc* ]]; then
       # O aerc saiu e o shell da sessão mostra o erro: anexa o popup a ele para o erro ficar visível.
-      email_popup_abrir "$cliente" "env -u TMUX $(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
+      email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")$(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
       tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
       botao_aviso "$cliente" "e-mail: o aerc não abriu. Verifique a conta em 📧 → contas (ou rode: aerc)."
       return
     fi
-    email_popup_abrir "$cliente" "env -u TMUX $(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
+    email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")$(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
     return
   fi
   tmux display-popup -c "$cliente" -E "${geo[@]}" \
@@ -13272,6 +13305,9 @@ botao_email() {
 # Um único popup pode anexar-se à sessão oculta do aerc por vez. Cliques repetidos enquanto o
 # painel está aberto (ou duas notificações quase simultâneas) não devem abrir popups aninhados,
 # que no tmux parecem subir em cascata e acabam fechando o cliente.
+# "TT_ORIGEM=máquina " para o cliente de dentro do popup do e-mail quando o cliente de fora é uma ponte de
+# outra máquina: um link aberto no e-mail vai para a tela de lá (abrir_na_tela). O q já termina em espaço.
+email_origem() { local o; o=$(origem_ponte "$1"); o=${o%%|*}; [[ -n $o ]] && printf 'TT_ORIGEM=%s' "$(q "$o")"; return 0; }
 email_popup_abrir() { # cliente comando
   local cliente=$1 comando=$2 fd; local -a geo
   local trava="${XDG_RUNTIME_DIR:-/tmp}/tt-email-popup.lock"
@@ -16146,6 +16182,7 @@ case "${1:-}" in
   --email-atalhos) email_atalhos; exit 0 ;;
   --abrir-url) abrir_url "${2:-}"; exit 0 ;;
   --abrir-link) abrir_link "${2:-}"; exit 0 ;;
+  --abrir-aqui) TT_ABRIR_AQUI=1 abrir_com "${2:?uso: tt --abrir-aqui sistema|chromium URL}" "${3:?uso: tt --abrir-aqui sistema|chromium URL}"; exit ;;
   --chrome-falhou) chrome_falhou "${2:-}" "${3:-}"; exit 0 ;;
   --link-abrir) link_abrir "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit 0 ;;
   --link-copiar) link_copiar "${2:-}" "${3:-}"; exit 0 ;;
