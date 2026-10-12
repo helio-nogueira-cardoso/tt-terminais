@@ -429,15 +429,22 @@ estreita não há prévia; o que fica 3 s na prévia é marcado como lido) e e-m
 mesmo sem `w3m` (usa `lynx` ou o conversor do próprio tt, com os links numerados no fim).
 
 **Tudo clicável.** No rodapé do popup há uma **barra de botões**: 📖 Abrir · + Nova · ↩ Responder ·
-↩↩ Todos · ↪ Encaminhar · ▤ Arquivar · ✕ Apagar · 📁 Pasta · ⟳ Sincronizar · 👤 Contas · ? Atalhos (em
-tela estreita, só os ícones); cada botão faz o mesmo que a tecla. **⟳ Sincronizar** (ou `Ctrl+s`, ou
+↩↩ Todos · ↪ Encaminhar · ▤ Arquivar · ✕ Apagar · 📁 Pasta · ✉ Não lidas · 🧹 Lixeira · ⟳ Sincronizar ·
+👤 Contas · ? Atalhos (em tela estreita, só os ícones; os rótulos entram conforme cabem, os dos ícones
+menos óbvios primeiro); cada botão faz o mesmo que a tecla. **Esc fecha**: na mensagem aberta, volta à
+lista; na lista, limpa o filtro ou a busca, se houver, e senão esconde o e-mail (o `q` também esconde).
+**✉ Não lidas** (ou `F`) mostra só as não lidas da pasta aberta, em cada conta; de novo, ou Esc, mostra
+todas. **🧹 Lixeira** (ou botão direito no 📧 → *Esvaziar a lixeira*, ou `tt --email-lixeira [CONTA…]
+[--sim]`) mostra quantas mensagens há na lixeira de cada conta e, depois de você confirmar, **apaga de
+vez** as da conta escolhida (ou de todas), direto no servidor — a pasta que ele marca como lixeira,
+nunca outra; o espelho local acompanha na rodada do sync que começa em seguida. **⟳ Sincronizar** (ou `Ctrl+s`, ou
 botão direito no 📧 → *Sincronizar agora*, ou `tt --email-sync-agora`) consulta a caixa de entrada de
 todas as contas **agora**, sem esperar a vez do vigia nem a pausa que ele faz depois de um erro — para
 quando você está esperando um código com validade. As contas vão em paralelo; se a volta completa
 estiver no meio, ela é interrompida (o vigia a refaz depois) para a caixa de entrada vir já. O botão
 mostra *consultando…* e depois *✓ 2 novos* (ou *nada novo*), a mensagem aparece na tela e, se chegou
-algo, o aviso de e-mail novo diz de quem é. **Os botões valem de qualquer lugar**: contas e atalhos
-são telas do tt que abrem por cima do aerc (a barra continua embaixo) e se fecham com `q`, Esc ou o
+algo, o aviso de e-mail novo diz de quem é. **Os botões valem de qualquer lugar**: contas, atalhos e lixeira
+são telas do tt que abrem por cima do aerc (a barra continua embaixo) e se fecham com Esc, `q` ou o
 mesmo botão de novo; abrir uma com a outra aberta troca; e um botão do aerc (abrir, responder,
 apagar…) com uma tela dessas na frente primeiro a fecha e depois age. Com uma mensagem sendo escrita
 ou um terminal na frente, os botões do aerc não injetam letras no que está sendo digitado (eles vão por
@@ -448,14 +455,14 @@ pasta, e a roda rola. Atalhos, na lista e na leitura:
 
 | Tecla | Ação | Tecla | Ação |
 |---|---|---|---|
-| ⏎ | abrir | `q` | fechar (a mensagem / o e-mail) |
+| ⏎ | abrir | Esc / `q` | fechar (a mensagem / o e-mail; Esc limpa antes o filtro ou a busca) |
 | `u` | lido ↔ não lido | `*` | estrela (importante) |
 | `rr` / `Rr` | responder a todos / responder | `f` | encaminhar |
 | `a` | arquivar | `d` / `D` | apagar (com confirmação / direto) |
 | `M` | mover para pasta (Tab completa) | `Y` | copiar para pasta |
-| `F` | só não lidos (Esc volta) | `/` | buscar |
+| `F` / ✉ | só não lidas (de novo, ou Esc, volta) | `/` | buscar |
 | `m` | escrever | `J` / `K` | próxima / anterior pasta |
-| `v` / espaço | selecionar várias (as ações valem para todas) | `?` | tela de atalhos, em português |
+| `v` / espaço | selecionar várias (as ações valem para todas) | `?` | tela de atalhos, em português, com um ícone por assunto |
 | Ctrl+j / Ctrl+k | escolher anexo (na mensagem) | `O` / `S` | abrir / salvar o anexo |
 | `E` | **enviar os anexos para a pasta de recebidos de uma máquina do tt** (seletor visual) | `F2` | contas de e-mail |
 | `i` | **imagens do e-mail** (anexadas, embutidas e da web): lista e abre no visualizador de imagens; as da web só são baixadas se você escolher | | |

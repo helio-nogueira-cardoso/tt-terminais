@@ -25,13 +25,15 @@ tmux set -g mouse on >/dev/null
 tt() { "$TT" "$@"; }
 
 # 1) a sessão oculta nasce com a barra de botões (linha de status própria, um range por ação)
-bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao'
+bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao'
 tmux has-session -t =_tt-email 2>/dev/null || falhou 'sessão oculta não foi criada'
 [[ $(tmux show -qv -t =_tt-email: status) == on ]] || falhou 'sessão do e-mail deveria ter a linha de status (botões) ligada'
 fmt=$(tmux show -qv -t =_tt-email: 'status-format[0]')
-for a in abrir nova resp todos enc arq apagar pasta contas atalhos; do grep -q "range=user|em_$a" <<<"$fmt" || falhou "botão em_$a ausente da barra: $fmt"; done
-grep -q 'client_width},100},, Abrir' <<<"$fmt" || falhou 'em tela estreita deveriam ficar só os ícones'
-passou 'barra de botões do e-mail: um range por ação, rótulo só em tela larga'
+for a in abrir nova resp todos enc arq apagar pasta naolidas lixeira contas atalhos; do grep -q "range=user|em_$a" <<<"$fmt" || falhou "botão em_$a ausente da barra: $fmt"; done
+lim() { grep -o "client_width},[0-9]*},, $1" <<<"$fmt" | grep -o '[0-9]*' | tail -1; }
+(( $(lim 'Não lidas') < $(lim Arquivar) && $(lim Arquivar) < $(lim Abrir) && $(lim Abrir) <= 170 && $(lim 'Não lidas') >= 60 )) ||
+  falhou "rótulos deveriam entrar conforme a largura (os menos óbvios primeiro): $(grep -o 'client_width},[0-9]*},, [^}]*' <<<"$fmt" | tr '\n' ' ')"
+passou 'barra de botões do e-mail: um range por ação; só ícones em tela estreita, rótulos entrando conforme a largura'
 
 # 2) clique num botão (rota em_*) vira a tecla de função do aerc (nunca uma letra, que cairia no
 #    que estivesse na frente — editor, terminal)
@@ -70,24 +72,24 @@ passou 'telas do tt (contas, atalhos) abrem como janelas da sessão oculta; troc
 mkdir -p ~/.config/aerc
 printf '[messages]\n<Enter> = :view<Enter>\nq = :quit<Enter>\n? = :term %s/.local/bin/tt --email-atalhos<Enter>\n<F2> = :term %s/.local/bin/tt --email-contas-ui<Enter>\n[view]\n? = :term %s/.local/bin/tt --email-atalhos<Enter>\n' "$HOME" "$HOME" "$HOME" >~/.config/aerc/binds.conf
 tmux kill-session -t =_tt-email
-bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao com binds'
+bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao com binds'
 bo=~/.cache/tt-aerc-binds-oculto.conf
 grep -q "^? = :exec $HOME/.local/bin/tt --email-tela atalhos<Enter>$" "$bo" || falhou "? deveria abrir a tela de atalhos do tt: $(cat "$bo")"
 grep -q "^<F2> = :exec $HOME/.local/bin/tt --email-tela contas<Enter>$" "$bo" || falhou "F2 deveria abrir a tela de contas do tt"
 grep -q ':term' "$bo" && falhou 'ainda há :term nos binds da sessão oculta'
 grep -q '^q = :exec tmux detach-client<Enter>$' "$bo" || falhou 'q deveria desanexar'
 awk '/^\[messages\]/{s="m"} /^\[view\]/{s="v"} /^<F3> = :view<Enter>$/{f[s]++} /^<F9> = :choose -o y .Apagar esta mensagem. delete-message<Enter>$/{d[s]++} END{exit !(f["m"]==1 && !f["v"] && d["m"]==1 && d["v"]==1)}' "$bo" || falhou "F3 só na lista, F9 na lista e na leitura: $(grep -n '^<F\|^\[' "$bo")"
-[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 3:* ]] || falhou "sessão deveria marcar a versão dos binds (versão:soma do binds.conf): $(tmux show -qv -t =_tt-email: @tt_email_binds)"
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 4:* ]] || falhou "sessão deveria marcar a versão dos binds (versão:soma do binds.conf): $(tmux show -qv -t =_tt-email: @tt_email_binds)"
 passou 'binds da sessão oculta: ? e F2 abrem as telas do tt; F3–F10 ligados por contexto; versão marcada'
 
 # 2d) sessão oculta de antes (sem a versão dos binds) é recriada ao abrir — os botões mandam F3–F10
 tmux set -qu -t =_tt-email: @tt_email_binds
-bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao recriar'
-[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 3:* ]] || falhou 'sessão com binds antigos deveria ser recriada com a versão nova'
+bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao recriar'
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 4:* ]] || falhou 'sessão com binds antigos deveria ser recriada com a versão nova'
 # binds.conf mudou (ex.: conta Gmail cadastrada → binds por conta): a sessão também é recriada
 echo '# mudou' >>~/.config/aerc/binds.conf
 antes=$(tmux show -qv -t =_tt-email: @tt_email_binds)
-bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao após mudança'
+bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao após mudança'
 [[ $(tmux show -qv -t =_tt-email: @tt_email_binds) != "$antes" ]] || falhou 'binds.conf mudado deveria recriar a sessão (soma nova)'
 passou 'sessão oculta com binds antigos ou binds.conf mudado é recriada'
 
@@ -105,7 +107,7 @@ passou 'linha de status do aerc: só o estado (TrayInfo); dicas antigas do tt mi
 
 # 3) sessão oculta antiga (sem a barra) ganha a barra quando o popup abre de novo
 tmux set -q -t =_tt-email: status off; tmux set -qu -t =_tt-email: 'status-format[0]'
-bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao de novo'
+bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao de novo'
 [[ $(tmux show -qv -t =_tt-email: status) == on ]] && grep -q 'em_abrir' <<<"$(tmux show -qv -t =_tt-email: 'status-format[0]')" || falhou 'sessão antiga não ganhou a barra'
 passou 'sessão oculta antiga ganha a barra ao reabrir'
 

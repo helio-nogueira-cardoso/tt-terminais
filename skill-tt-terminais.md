@@ -379,7 +379,11 @@ e os instaladores da pasta do usuário ficam no `tt`.
   decodificados; `email_aviso=0` desliga) e `atualizar_barras`; `barra_email_fmt` (`tt --barra-email`)
   preenche `@barra_email` (não lidas do espelho; ⚠ vermelho se `--email-sync-estado curto` tem
   erro/parado, ⏳ âmbar se só atrasado), referenciada pelo range `email` do tema.
-- `tt --email-atalhos` — tela de atalhos do aerc em português.
+- `tt --email-atalhos` — tela de atalhos do aerc em português (um ícone por assunto: `EMAIL_ATALHOS_ICONES`).
+- `tt --email-esc` (Esc na lista da sessão oculta: limpa filtro/busca — "| filter"/"| search" na linha de status do
+  aerc — ou desanexa o popup), `tt --email-naolidas` (botão ✉: `:filter -u` ↔ `:clear`), `tt --email-lixeira
+  [CONTA…|--todas] [--sim]` (🧹: `email-tt.py lixeira CONF [--esvaziar]` conta/apaga de vez a pasta \Trash pelo IMAP;
+  pergunta antes; sem terminal e sem --sim só mostra) e `tt --email-lixeira-ui` (a tela do botão 🧹 e do menu do 📧).
 - Popup do e-mail: `email_sessao` cria a sessão oculta `_tt-email` e `email_sessao_botoes` liga nela
   uma linha de status própria com a barra de botões (`email_barra_fmt`, ranges `user|em_<ação>`,
   lista `EMAIL_BOTOES` = ação|ícone|rótulo|tecla); o clique chega por `MouseDown1Status → tt --clique`

@@ -76,9 +76,9 @@ tmux new-session -d -s _tt-email -x 150 -y 40 'sleep 600'
 tmux set -q -t =_tt-email: @ponte email
 out=$(tt --email-sync-agora base 2>&1) || falhou "com cliente: $out"
 [[ $(tmux show -qv -t =_tt-email: @tt_email_sync) == '✓ 2 novos' ]] || falhou "botão deveria mostrar o resultado: '$(tmux show -qv -t =_tt-email: @tt_email_sync)'"
-fmt=$(bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_barra_fmt")
+fmt=$(bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_barra_fmt")
 grep -q 'range=user|em_sync.*⟳.*@tt_email_sync' <<<"$fmt" || falhou "barra sem o botão ⟳ com estado: $fmt"
-bo=$(bash -c "source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_binds_botoes messages")
+bo=$(bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_binds_botoes messages")
 grep -q '^<F11> = :check-mail<Enter>$' <<<"$bo" || falhou 'F11 (:check-mail) ausente dos binds da sessão oculta'
 B=$HOME/.config/aerc/binds.conf
 sed -n '/# >>> tt (saída rápida/,$p' "$B" | sed -n '/^\[messages\]/,/^\[view\]/p' | grep -q "^<C-s> = :exec $HOME/.local/bin/tt --email-sync-agora<Enter>$" || falhou 'Ctrl+s na lista ausente'

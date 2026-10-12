@@ -7,6 +7,8 @@
   email-tt.py oauth-token CONF           -> imprime um access token novo (renova pelo refresh token)
   email-tt.py testar CONF                -> testa login IMAP e SMTP; imprime ✓/✗ por serviço (rc 0 se ambos ok)
   email-tt.py pastas CONF                -> pastas especiais pelo IMAP (SPECIAL-USE: todos, enviados, lixeira…)
+  email-tt.py lixeira CONF [--esvaziar]  -> pasta= e mensagens= da lixeira da conta (a pasta \\Trash do servidor);
+                                            com --esvaziar, apaga todas de vez e imprime apagadas= e restam=
   email-tt.py html                       -> filtro do aerc: HTML (stdin) → texto legível, links OSC 8 clicáveis
   email-tt.py linkify                    -> pós-filtro: texto (stdin) com [N]/References → links OSC 8 clicáveis
   email-tt.py imagens DESTINO            -> e-mail cru (stdin): salva as imagens embutidas/anexas em DESTINO e lista
@@ -654,8 +656,8 @@ def erro_curto(e):
     return str(e) or e.__class__.__name__
 
 
-def pastas(c):
-    """Pastas especiais pelas marcas do servidor (RFC 6154), que não dependem do idioma."""
+def imap_conectar(c):
+    """Conexão IMAP já autenticada (senha, comando ou OAuth2), como nos testes de conta."""
     tipo, segredo = credencial(c)
     host, porta, seg = c["imap_host"], int(c.get("imap_porta") or 993), c.get("imap_seg", "tls")
     ctx = ssl.create_default_context()
@@ -668,26 +670,90 @@ def pastas(c):
             m.authenticate("XOAUTH2", lambda _: xoauth2(usuario, segredo).encode())
         else:
             m.login(usuario, segredo)
-        st, linhas = m.list()
-        import re
+    except Exception:
+        try:
+            m.logout()
+        except Exception:
+            pass
+        raise
+    return m
+
+
+def listar_pastas(m):
+    """(marcas, nome como o servidor o escreve, nome legível) de cada pasta do LIST."""
+    import re
+    st, linhas = m.list()
+    saida = []
+    for l in linhas or []:
+        l = l.decode("utf-8", "replace") if isinstance(l, bytes) else str(l)
+        r = re.match(r'\((?P<f>[^)]*)\) (?:"[^"]*"|NIL) (?P<n>.*)$', l)
+        if not r:
+            continue
+        nome = r.group("n").strip()
+        if nome.startswith('"') and nome.endswith('"'):
+            nome = nome[1:-1].replace('\\"', '"')
+        saida.append((r.group("f"), nome, decodificar_utf7(nome)))
+    return saida
+
+
+def pastas(c):
+    """Pastas especiais pelas marcas do servidor (RFC 6154), que não dependem do idioma."""
+    m = imap_conectar(c)
+    try:
         # \Important e \Flagged são as "pastas-rótulo" do Gmail (Importantes, Com estrela): o sync
         # local as deixa de fora, porque são visões do que já está nas outras pastas.
         marcas = {"\\All": "todos", "\\Sent": "enviados", "\\Trash": "lixeira", "\\Drafts": "rascunhos", "\\Junk": "spam", "\\Archive": "arquivo",
                   "\\Important": "importantes", "\\Flagged": "estrela"}
-        for l in linhas or []:
-            l = l.decode("utf-8", "replace") if isinstance(l, bytes) else str(l)
-            r = re.match(r'\((?P<f>[^)]*)\) (?:"[^"]*"|NIL) (?P<n>.*)$', l)
-            if not r:
-                continue
-            nome = r.group("n").strip()
-            if nome.startswith('"') and nome.endswith('"'):
-                nome = nome[1:-1].replace('\\"', '"')
-            nome = decodificar_utf7(nome)
+        for f, _, nome in listar_pastas(m):
             for marca, chave in marcas.items():
-                if marca in r.group("f"):
+                if marca in f:
                     print(f"{chave}={nome}")
-            if "\\Noselect" in r.group("f") or "\\NoSelect" in r.group("f"):
+            if "\\Noselect" in f or "\\NoSelect" in f:
                 print(f"naoabre={nome}")
+        return 0
+    finally:
+        try:
+            m.logout()
+        except Exception:
+            pass
+
+
+def lixeira(c, esvaziar=False):
+    """Quantas mensagens há na lixeira e, com esvaziar, apaga todas de vez (STORE \\Deleted + EXPUNGE).
+    A lixeira é a pasta que o servidor marca como \\Trash (RFC 6154; não depende do idioma). Sem essa
+    marca, vale a pasta_lixeira do cadastro, se o servidor a tiver. Nunca toca outra pasta."""
+    m = imap_conectar(c)
+    try:
+        todas = listar_pastas(m)
+        alvo = [p for p in todas if "\\Trash" in p[0]]
+        if not alvo and c.get("pasta_lixeira"):
+            alvo = [p for p in todas if p[2] == c["pasta_lixeira"]]
+        if not alvo:
+            raise RuntimeError("não achei a lixeira desta conta no servidor")
+        _, bruto, nome = alvo[0]
+        if nome.upper() == "INBOX":
+            raise RuntimeError("a pasta marcada como lixeira é a Caixa de entrada; não mexi")
+        caixa = '"' + bruto.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        st, d = m.select(caixa, readonly=not esvaziar)
+        if st != "OK":
+            raise RuntimeError(f"não consegui abrir {nome}")
+        n = int(d[0] or 0)
+        print(f"pasta={nome}")
+        print(f"mensagens={n}")
+        if esvaziar:
+            if n:
+                st, _ = m.store("1:*", "+FLAGS.SILENT", "(\\Deleted)")
+                if st != "OK":
+                    raise RuntimeError("o servidor recusou marcar as mensagens para apagar")
+                st, _ = m.expunge()
+                if st != "OK":
+                    raise RuntimeError("o servidor recusou apagar as mensagens")
+                st, d = m.select(caixa, readonly=True)
+                resta = int(d[0] or 0) if st == "OK" else 0
+            else:
+                resta = 0
+            print(f"apagadas={max(n - resta, 0)}")
+            print(f"restam={resta}")
         return 0
     finally:
         try:
@@ -1106,6 +1172,11 @@ def main(a):
     if cmd == "pastas":
         try:
             return pastas(c)
+        except Exception as e:
+            print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
+    if cmd == "lixeira" and a[2:] in ([], ["--esvaziar"]):
+        try:
+            return lixeira(c, a[2:] == ["--esvaziar"])
         except Exception as e:
             print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
     print(__doc__); return 2

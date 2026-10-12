@@ -11443,6 +11443,7 @@ r	⟳ Sincronizar agora (consulta as contas; útil esperando um código)	$EU --e
 c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
 n	＋ Cadastrar uma conta…	$EU --popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
 a	⌨ Atalhos do e-mail	$EU --popup -c $(q "$c") -E $(tam_popup "$c") -T ' ⌨ atalhos do e-mail ' "$EU --email-atalhos"
+l	🧹 Esvaziar a lixeira…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 90 22) -b rounded -T ' 🧹 lixeira ' "cd ${HOME@Q}; $EU --email-lixeira-ui"
 s	🔄 Sync local: estado das rodadas	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 20) -b rounded -T ' 🔄 sync local ' "$EU --email-sync-estado; printf '\\n(qualquer tecla fecha)'; read -rsn1 _"
 ITENS
 )
@@ -11513,12 +11514,14 @@ anexos_enviar() {
   transferir . "$(encurtar "$lote")" "$dst" "$ddst" "${nomes[@]}"
 }
 
-# Tela de atalhos do aerc em português# Tela de atalhos do aerc em português, por assunto; digite para buscar, Esc ou q fecha.
+# Tela de atalhos do aerc em português, por assunto (cada um com o seu ícone); Esc ou q fecha.
+EMAIL_ATALHOS_ICONES=(Ler 📖 Organizar 📂 Responder 💬 Encontrar 🔍 Anexos 📎 Várias 📑 Escrever 📝 Contas 👤 Ajuda 💡)
 email_atalhos() {
-  local lista
+  local lista cat tecla desc ic i; local -A icone=()
   lista=$(cat <<'AT'
-Ler	Enter	abrir a mensagem
-Ler	q	fechar a mensagem (na lista: esconder o e-mail; ele continua conectado)
+Ler	Enter  ou  botão 📖	abrir a mensagem
+Ler	Esc	voltar: fecha a mensagem; na lista, limpa filtro/busca ou esconde o e-mail
+Ler	q	fechar a mensagem; na lista, esconder o e-mail na hora
 Ler	Ctrl+q	encerrar o e-mail de verdade (a próxima abertura reconecta)
 Ler	Ctrl+s  ou  botão ⟳	sincronizar agora: consulta as contas sem esperar o vigia (útil esperando um código)
 Ler	j / k  ou  setas	mensagem seguinte / anterior
@@ -11526,19 +11529,20 @@ Ler	J / K	pasta seguinte / anterior
 Ler	Tab	recolher / abrir a conversa
 Organizar	u	marcar como lida ↔ não lida
 Organizar	*	estrela (importante) liga / desliga
-Organizar	a	arquivar (no Gmail: sai da Caixa de entrada e fica em Todos os e-mails)
-Organizar	M	mover para uma pasta (Tab completa o nome)
+Organizar	a  ou  botão ▤	arquivar (no Gmail: sai da Caixa de entrada e fica em Todos os e-mails)
+Organizar	M  ou  botão 📁	mover para uma pasta (Tab completa o nome)
 Organizar	Y	copiar para uma pasta
-Organizar	d	apagar (pergunta antes; no Gmail vai para a Lixeira — na Lixeira e no Spam, apaga de vez)
+Organizar	d  ou  botão ✕	apagar (pergunta antes; no Gmail vai para a Lixeira — na Lixeira e no Spam, apaga de vez)
 Organizar	D	apagar sem perguntar
-Responder	Rr	responder ao remetente
-Responder	rr	responder a todos
-Responder	f	encaminhar
-Responder	m  ou  C	escrever uma mensagem nova
+Organizar	botão 🧹	esvaziar a lixeira: escolha a conta (ou todas); pergunta antes e apaga de vez
+Responder	Rr  ou  botão ↩	responder ao remetente
+Responder	rr  ou  botão ↩↩	responder a todos
+Responder	f  ou  botão ↪	encaminhar
+Responder	m  ou  C  ou  botão +	escrever uma mensagem nova
 Encontrar	/	buscar
 Encontrar	n / N	próximo / anterior resultado
-Encontrar	F	mostrar só as não lidas
-Encontrar	Esc	limpar busca e filtro
+Encontrar	F  ou  botão ✉	só as não lidas da pasta aberta (de novo, ou Esc, mostra todas)
+Encontrar	Esc	limpar a busca e o filtro
 Anexos	(na mensagem aberta)	a lista de partes e anexos aparece embaixo
 Anexos	Ctrl+j / Ctrl+k	escolher o anexo seguinte / anterior
 Anexos	O	abrir o anexo escolhido
@@ -11554,14 +11558,24 @@ Escrever	y / n / p	na revisão: enviar / descartar / adiar (vira rascunho)
 Escrever	a / A / d	na revisão: anexar pelo seletor / anexar por caminho / tirar anexo
 Escrever	e / v	na revisão: voltar a editar / ver como vai ficar
 Escrever	Ctrl+x	linha de comando do aerc dentro da mensagem (ex.: :attach, :cc)
-Contas	F2	contas de e-mail: cadastrar, descadastrar, testar, assinatura, propagar (q ou Esc volta)
+Contas	F2  ou  botão 👤	contas de e-mail: cadastrar, descadastrar, testar, assinatura, propagar (Esc volta)
 Contas	Ctrl+n / Ctrl+p	próxima / anterior conta (abas)
 Ajuda	Ctrl+r	redesenhar a tela (se aparecer algo estranho)
-Ajuda	?	esta tela (q, Esc ou o botão de novo fecha; os botões do rodapé valem com ela aberta)
+Ajuda	?  ou  botão ?	esta tela (Esc, q ou o botão de novo fecha; os botões do rodapé valem com ela aberta)
 AT
 )
-  if [[ ! -t 1 ]] || ! command -v fzf >/dev/null; then column -t -s $'\t' <<<"$lista"; return 0; fi
-  awk -F'\t' '{ printf "\033[35m%-10s\033[0m \033[1;36m%-20s\033[0m %s\n", $1, $2, $3 }' <<<"$lista" |
+  for ((i = 0; i < ${#EMAIL_ATALHOS_ICONES[@]}; i += 2)); do icone[${EMAIL_ATALHOS_ICONES[i]}]=${EMAIL_ATALHOS_ICONES[i + 1]}; done
+  if [[ ! -t 1 ]] || ! command -v fzf >/dev/null; then
+    while IFS=$'\t' read -r cat tecla desc; do printf '%s %s · %s · %s\n' "${icone[$cat]:-•}" "$cat" "$tecla" "$desc"; done <<<"$lista"
+    return 0
+  fi
+  # Colunas pela largura na tela (tt_largura: emoji vale 2), não por caracteres nem bytes.
+  while IFS=$'\t' read -r cat tecla desc; do
+    ic=${icone[$cat]:-•}
+    tt_largura "$cat"; printf -v cat '%s%*s' "$cat" $((10 - W)) ''
+    tt_largura "$tecla"; printf -v tecla '%s%*s' "$tecla" $((W < 24 ? 24 - W : 0)) ''
+    printf '%s \033[35m%s\033[0m \033[1;36m%s\033[0m %s\n' "$ic" "$cat" "$tecla" "$desc"
+  done <<<"$lista" |
     fzf --ansi --layout=reverse --no-sort --disabled --prompt='' --header='aerc · Esc ou q fecha' \
       --bind 'q:abort,enter:abort' --info=hidden >/dev/null
   return 0
@@ -12131,7 +12145,7 @@ botao_email() {
   # cliente sai. Mostra no título a tecla de saída do cliente para quem não a conhece.
   prog=${cmd%% *}
   case ${prog##*/} in
-    aerc)        dica="q fecha" ;; # o resto está nos botões do rodapé
+    aerc)        dica="Esc fecha" ;; # o resto está nos botões do rodapé
     mutt|neomutt) dica="q fecha" ;;
     *)           dica="feche o cliente p/ sair" ;;
   esac
@@ -12160,8 +12174,8 @@ botao_email() {
   local geo=($(tam_popup "$cliente") -b rounded -S 'fg=#89b4fa' -T " 📧 e-mail · $dica ")
   if [[ ${prog##*/} == aerc ]]; then
     # aerc fica aberto e conectado numa sessão oculta: abrir de novo é instantâneo (antes, ~6 s
-    # reconectando às contas a cada vez), e e-mail novo chega com ele fechado. q só esconde a
-    # subjanela; Ctrl+q encerra o aerc de verdade.
+    # reconectando às contas a cada vez), e e-mail novo chega com ele fechado. Esc (ou q) só esconde
+    # a subjanela; Ctrl+q encerra o aerc de verdade.
     email_sessao "$cmd" "$modo" || { botao_aviso "$cliente" "e-mail: não consegui abrir o aerc"; return; }
     # Se o aerc morrer logo ao abrir (tema/config/conta inválidos), a sessão fica num shell com o
     # erro em vez de o popup abrir e sumir vazio. Dá um instante para ele iniciar e checa o estado.
@@ -12218,7 +12232,7 @@ email_sessao() {
 }
 # Versão dos binds da sessão oculta: uma sessão criada com binds antigos é recriada (os botões
 # mandam F3–F10, que o aerc de antes não conhecia).
-EMAIL_BINDS_VER=3
+EMAIL_BINDS_VER=4
 email_sessao_criar() {
   local cmd=$1 modo=$2 ver=${3:-$EMAIL_BINDS_VER:0}
   # VAXIS_FORCE_UNICODE: o aerc mede emoji com seletor de variação (🕸️, ⚠️) como 2 colunas, igual ao
@@ -12257,6 +12271,8 @@ EMAIL_BOTOES=(
   'arq|▤|Arquivar|F8'
   'apagar|✕|Apagar|F9'
   'pasta|📁|Pasta|F10'
+  'naolidas|✉|Não lidas|'
+  'lixeira|🧹|Lixeira|'
   'sync|⟳|Sincronizar|'
   'contas|👤|Contas|'
   'atalhos|?|Atalhos|'
@@ -12315,6 +12331,8 @@ email_binds_botoes_contas() { email_binds_contas_gerar '<F9>' '' '<F8>'; }   # �
 # O que cada tecla de função faz no aerc, por contexto (vai para os binds da sessão oculta).
 email_binds_botoes() { # messages|view
   [[ $1 == messages ]] && echo '<F3> = :view<Enter>'
+  # Esc volta um passo: na mensagem aberta, fecha-a; na lista, limpa o filtro/busca ou esconde o e-mail.
+  if [[ $1 == messages ]]; then echo "<Esc> = :exec $HOME/.local/bin/tt --email-esc<Enter>"; else echo '<Esc> = :close<Enter>'; fi
   echo '<F4> = :compose<Enter>'
   echo '<F5> = :reply<Enter>'
   echo '<F6> = :reply -a<Enter>'
@@ -12324,8 +12342,18 @@ email_binds_botoes() { # messages|view
   echo '<F10> = :move<space>'
   echo '<F11> = :check-mail<Enter>' # depois do ⟳: as contas só IMAP conferem também
 }
+# Os rótulos entram conforme a largura do popup: só os ícones cabem em qualquer tela; cada rótulo
+# aparece quando a barra inteira, com ele e com os que vêm antes na ordem abaixo, cabe. Os ícones
+# menos óbvios ganham rótulo primeiro.
+EMAIL_ROTULOS_ORDEM=(naolidas lixeira arq todos enc resp sync atalhos apagar pasta contas nova abrir)
 email_barra_fmt() {
-  local b acao ic rot tecla est out=""
+  local b acao ic rot tecla est out="" largura=0 r; local -A limite=() w=()
+  for b in "${EMAIL_BOTOES[@]}"; do
+    IFS='|' read -r acao ic rot tecla <<<"$b"
+    tt_largura "$rot"; w[$acao]=$W
+    tt_largura "$ic"; largura=$((largura + W + 3)) # " ic " + o espaço depois
+  done
+  for r in "${EMAIL_ROTULOS_ORDEM[@]}"; do [[ -n ${w[$r]:-} ]] && { largura=$((largura + w[$r] + 1)); limite[$r]=$largura; }; done
   for b in "${EMAIL_BOTOES[@]}"; do
     IFS='|' read -r acao ic rot tecla <<<"$b"
     case $acao in
@@ -12335,10 +12363,10 @@ email_barra_fmt() {
     esac
     if [[ $acao == sync ]]; then
       # Enquanto consulta (e logo depois), o botão mostra o estado (@tt_email_sync: "consultando…", "✓ 2 novos").
-      out+="#[range=user|em_$acao]$est $ic#{?#{@tt_email_sync}, #{@tt_email_sync},#{?#{e|<:#{client_width},100},, $rot}} #[norange]#[default] "
+      out+="#[range=user|em_$acao]$est $ic#{?#{@tt_email_sync}, #{@tt_email_sync},#{?#{e|<:#{client_width},${limite[$acao]:-0}},, $rot}} #[norange]#[default] "
       continue
     fi
-    out+="#[range=user|em_$acao]$est $ic#{?#{e|<:#{client_width},100},, $rot} #[norange]#[default] "
+    out+="#[range=user|em_$acao]$est $ic#{?#{e|<:#{client_width},${limite[$acao]:-0}},, $rot} #[norange]#[default] "
   done
   printf '%s' "$out"
 }
@@ -12349,8 +12377,9 @@ email_botao_acao() { # ação
   tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null || return 0
   local b acao ic rot tecla=""
   case $1 in
-    contas | atalhos) email_tela "$1"; return 0 ;;
+    contas | atalhos | lixeira) email_tela "$1"; return 0 ;;
     sync) (email_sync_agora >/dev/null 2>&1 &); return 0 ;; # consulta as contas agora, sem travar o clique
+    naolidas) email_tela_fechar; email_naolidas; return 0 ;;
   esac
   for b in "${EMAIL_BOTOES[@]}"; do IFS='|' read -r acao ic rot tecla <<<"$b"; [[ $acao == "$1" ]] && break; tecla=""; done
   [[ -n $tecla ]] || return 0
@@ -12358,15 +12387,16 @@ email_botao_acao() { # ação
   tmux send-keys -t "=$EMAIL_SESSAO:" "$tecla"
 }
 
-# Telas do tt por cima do aerc (⌨ atalhos, 👤 contas — e dentro dela cadastro, edição, propagar):
+# Telas do tt por cima do aerc (⌨ atalhos, 👤 contas — e dentro dela cadastro, edição, propagar —, 🧹 lixeira):
 # janelas da própria sessão oculta, com a barra de botões visível; a tela fecha com q/Esc, com o
 # mesmo botão de novo, ou quando outro botão age (fecha e age). Abrir uma com outra aberta troca.
 # Vale de qualquer lugar: botão, tecla do aerc (? e F2 na sessão oculta) ou tt --email-tela.
-email_tela() { # atalhos|contas
+email_tela() { # atalhos|contas|lixeira
   local nome cmd tela id
   case $1 in
     atalhos) nome='⌨ atalhos'; cmd="$HOME/.local/bin/tt --email-atalhos" ;;
     contas)  nome='👤 contas';  cmd="cd ${HOME@Q}; $HOME/.local/bin/tt --email-contas-ui" ;;
+    lixeira) nome='🧹 lixeira'; cmd="cd ${HOME@Q}; $HOME/.local/bin/tt --email-lixeira-ui" ;;
     *) return 0 ;;
   esac
   [[ -x $HOME/.local/bin/tt ]] || cmd=${cmd//"$HOME/.local/bin/tt"/"$EU"}
@@ -12383,6 +12413,110 @@ email_tela() { # atalhos|contas
 email_tela_fechar() {
   [[ -n $(tmux show -wqv -t "=$EMAIL_SESSAO:" @tt_email_tela 2>/dev/null) ]] && tmux kill-window -t "=$EMAIL_SESSAO:"
   return 0
+}
+
+# Filtro ou busca ativos na lista do aerc: a linha de status dele (a última linha do painel) mostra
+# "| filter …" ou "| search …" enquanto valem.
+email_aerc_painel() { tmux list-panes -s -t "=$EMAIL_SESSAO" -F '#{pane_current_command} #{pane_id}' 2>/dev/null | awk '$1 ~ /^aerc/ { print $2; exit }'; }
+email_filtro_ativo() {
+  local p; p=$(email_aerc_painel); [[ -n $p ]] || return 1
+  tmux capture-pane -p -t "$p" 2>/dev/null | awk 'NF { u = $0 } END { exit !(u ~ /\| (filter|search) /) }'
+}
+# Manda um comando ao aerc da sessão oculta: pelo IPC; sem ele, digitado na lista (só é chamado
+# com a lista na frente, pela tecla Esc dela ou pelo botão, que antes fecha a tela do tt).
+email_aerc_cmd() { # :comando [argumentos…]
+  email_ipc "$@" && return 0
+  local p; p=$(email_aerc_painel); [[ -n $p ]] || return 1
+  tmux send-keys -t "$p" -l "$*" && tmux send-keys -t "$p" Enter
+}
+# Esc na lista do e-mail (sessão oculta): volta um passo. Com filtro ou busca, limpa (:clear); sem
+# nada, esconde o e-mail como o q (o popup fecha; o aerc segue conectado). Na mensagem aberta o Esc
+# a fecha (:close, nos binds), e nas telas do tt (atalhos, contas, lixeira) o Esc já fechava.
+email_esc() {
+  if email_filtro_ativo; then email_aerc_cmd :clear; return 0; fi
+  local c; c=$(tmux list-clients -t "=$EMAIL_SESSAO" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
+  [[ -n $c ]] && tmux detach-client -t "$c" 2>/dev/null
+  return 0
+}
+# ✉ Não lidas: liga/desliga o filtro do aerc na pasta aberta da conta em uso (cada aba de conta tem
+# o seu). Ligado, a linha de status do aerc mostra "filter -u"; Esc ou o botão de novo desligam.
+email_naolidas() {
+  if email_filtro_ativo; then email_aerc_cmd :clear; else email_aerc_cmd :filter -u; fi
+  return 0
+}
+
+# 🧹 Esvaziar a lixeira. A conta é consultada e esvaziada pelo IMAP (email-tt.py lixeira): a pasta
+# que o servidor marca como \Trash, apagada de vez (no Gmail, apagar na Lixeira é para sempre).
+# Pergunta antes; --sim pula a pergunta; sem terminal e sem --sim, só mostra quanto há. Depois, uma
+# rodada completa do sync (em segundo plano) tira as mesmas mensagens do espelho local.
+#   tt --email-lixeira [CONTA…|--todas] [--sim]
+email_lixeira() {
+  local sim=0 todas=0 a s n total=0 saida pasta ok=0; local -a slugs=() vivas=() rotulos=(); local -A E=()
+  for a in "$@"; do
+    case $a in
+      --sim) sim=1 ;;
+      --todas) todas=1 ;;
+      *) s=$(email_achar "$a") || { echo "Conta não encontrada: $a"; return 1; }; slugs+=("$s") ;;
+    esac
+  done
+  if ((todas || ${#slugs[@]} == 0)); then
+    slugs=(); for s in $(email_slugs); do E=(); email_ler "$s" && [[ -n ${E[imap_host]:-} ]] && slugs+=("$s"); done
+  fi
+  ((${#slugs[@]})) || { echo "Nenhuma conta de e-mail com IMAP cadastrada."; return 1; }
+  for s in "${slugs[@]}"; do
+    E=(); email_ler "$s" || continue
+    printf '%s: consultando a lixeira…' "${E[nome]:-$s}"
+    if ! saida=$(python3 -I "$EMAIL_PY" lixeira "$(email_conf_arq "$s")" 2>&1); then
+      printf '\r\033[K✗ %s: %s\n' "${E[nome]:-$s}" "${saida#✗ }"; continue
+    fi
+    pasta=$(sed -n 's/^pasta=//p' <<<"$saida"); n=$(sed -n 's/^mensagens=//p' <<<"$saida")
+    printf '\r\033[K  %s — %s: %s mensage%s\n' "${E[nome]:-$s}" "$pasta" "${n:-0}" "$( ((${n:-0} == 1)) && echo m || echo ns)"
+    ((${n:-0} > 0)) && { vivas+=("$s"); rotulos+=("${E[nome]:-$s}"); total=$((total + n)); }
+  done
+  ((total)) || { echo "Nada para apagar: a lixeira já está vazia."; return 0; }
+  if ((!sim)); then
+    [[ -t 0 && -t 1 ]] || { echo "(Para esvaziar: tt --email-lixeira ${slugs[*]} --sim)"; return 0; }
+    printf '\nApagar DE VEZ %s mensage%s da lixeira (%s)? Não dá para desfazer.\n  s = sim, apagar · qualquer outra tecla = não  ' \
+      "$total" "$( ((total == 1)) && echo m || echo ns)" "$(IFS=,; echo "${rotulos[*]}" | sed 's/,/, /g')"
+    read -rsn1 a; echo
+    [[ $a == [sS] ]] || { echo "Nada foi apagado."; return 0; }
+  fi
+  for s in "${vivas[@]}"; do
+    E=(); email_ler "$s" || continue
+    if saida=$(python3 -I "$EMAIL_PY" lixeira "$(email_conf_arq "$s")" --esvaziar 2>&1); then
+      n=$(sed -n 's/^apagadas=//p' <<<"$saida"); a=$(sed -n 's/^restam=//p' <<<"$saida")
+      printf '✓ %s: %s apagada%s%s\n' "${E[nome]:-$s}" "${n:-0}" "$( ((${n:-0} == 1)) || echo s)" "$( ((${a:-0} > 0)) && echo " (restam $a que chegaram agora)")"
+      ok=1
+      [[ ${E[sync_local]:-} == 1 ]] && (setsid "$EU" --email-sync "$s" --completo >/dev/null 2>&1 </dev/null &)
+    else
+      printf '✗ %s: %s\n' "${E[nome]:-$s}" "${saida#✗ }"
+    fi
+  done
+  ((ok)) && echo "O espelho local acompanha na rodada do sync que começou agora."
+  return 0
+}
+# A tela 🧹 (botão do popup do e-mail, menu do 📧): escolhe a conta (ou todas) e esvazia com a
+# pergunta de email_lixeira. Esc fecha.
+email_lixeira_ui() {
+  local s esc linhas n md; local -A E=()
+  while :; do
+    linhas=""
+    for s in $(email_slugs); do
+      E=(); email_ler "$s" && [[ -n ${E[imap_host]:-} ]] || continue
+      n=""; md="$(email_maildir "$s")/${E[pasta_lixeira]:-}"
+      [[ ${E[sync_local]:-} == 1 && -n ${E[pasta_lixeira]:-} && -d $md ]] &&
+        n=" · $(( $(find "$md/cur" "$md/new" -type f 2>/dev/null | wc -l) )) no espelho"
+      linhas+="$s"$'\t'"🧹 ${E[nome]:-$s} — ${E[pasta_lixeira]:-lixeira}$n"$'\n'
+    done
+    [[ -n $linhas ]] || { echo "Nenhuma conta de e-mail com IMAP cadastrada."; read -rsn1 -t 5 _; return 0; }
+    (( $(grep -c . <<<"$linhas") > 1 )) && linhas+="--todas"$'\t'"🧹 Todas as contas"$'\n'
+    esc=$(printf '%s' "$linhas" | fzf --delimiter='\t' --with-nth=2 --layout=reverse --no-sort --info=hidden \
+      --border=rounded --border-label=' 🧹 esvaziar a lixeira ' --prompt='❯ ' --pointer='▶' \
+      --header='⏎ esvazia a conta escolhida (pergunta antes; apaga de vez) · Esc fecha') || return 0
+    clear
+    email_lixeira "${esc%%$'\t'*}"
+    printf '\n(qualquer tecla volta)'; read -rsn1 _
+  done
 }
 
 # ─── Escrever e-mails (compose do aerc) ──────────────────────────────────────
@@ -15044,6 +15178,10 @@ case "${1:-}" in
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
   --email-conta-nova-ui) email_conta_nova_ui; exit ;;
   --email-tela) email_tela "${2:-}"; exit 0 ;;
+  --email-esc) email_esc; exit 0 ;;
+  --email-naolidas) email_naolidas; exit 0 ;;
+  --email-lixeira) email_lixeira "${@:2}"; exit ;;
+  --email-lixeira-ui) email_lixeira_ui; exit 0 ;;
   --email-editor) shift; email_editor "$@"; exit ;;
   --email-contatos) email_contatos "${2:-}"; exit 0 ;;
   --email-contatos-indexar) email_contatos_indexar; exit 0 ;;

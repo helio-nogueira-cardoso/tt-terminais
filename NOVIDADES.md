@@ -3,6 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.9.0 · 12/10/2026
+- **E-mail: Esc fecha.** Na mensagem aberta, Esc volta à lista; na lista, limpa o filtro ou a busca, se houver, e senão esconde o e-mail (ele segue conectado; o `q` continua valendo). O título do popup agora diz "Esc fecha".
+- **✉ Não lidas:** botão novo no rodapé do e-mail que mostra só as não lidas da pasta aberta, em cada conta. Clicar de novo, ou Esc, volta a mostrar todas (é o mesmo que a tecla `F`).
+- **🧹 Esvaziar a lixeira:** botão novo no rodapé do e-mail, item no menu do 📧 (botão direito) e `tt --email-lixeira [CONTA…] [--sim]`. Mostra quantas mensagens há na lixeira de cada conta e, depois de você confirmar, apaga de vez as da conta escolhida (ou de todas) direto no servidor: só a pasta que ele marca como lixeira, nunca outra. O espelho local acompanha na rodada de sync que começa em seguida.
+- **Ajuda do e-mail com ícones:** a tela de atalhos (?) ganhou um ícone por assunto (📖 Ler, 📂 Organizar, 💬 Responder, 🔍 Encontrar, 📎 Anexos…), os botões ao lado das teclas e as colunas alinhadas mesmo com emoji.
+- **Rodapé do e-mail cabe na tela:** os rótulos dos botões entram conforme a largura (os dos ícones menos óbvios primeiro), em vez de a barra passar da borda e esconder os últimos botões.
+
 ## v1.8.24 · 12/10/2026
 - **Ctrl copia com o mouse, como o Alt:** Ctrl+arrastar copia a seleção, Ctrl+duplo clique a palavra (num link, o link inteiro) e Ctrl+triplo clique a linha. O tmux 3.8 trazia de fábrica Ctrl+arrastar = desenhar um painel flutuante (a "subjanela" que aparecia onde se arrastava); o tt desliga isso. Ctrl+arrastar a partir de um link copia e não abre o link: o Ctrl+clique num link agora espera o tempo de um duplo clique antes de abrir, como o clique simples. Sem Alt ou Ctrl, arrastar continua indo ao programa, e Shift+arrastar continua sendo a seleção do próprio terminal.
 - **Botão do meio cola a cópia certa:** depois de copiar algo que a tela tinha partido em linhas (um endereço longo, por exemplo), o botão do meio colava a cópia anterior; agora cola a que você acabou de fazer, já religada.
