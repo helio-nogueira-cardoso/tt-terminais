@@ -787,12 +787,17 @@ idade() {
 # quase todo o tempo esperando: o servidor do tmux atende um pedido por vez, na fila atrás dos redesenhos
 # dos painéis (uma IA despejando a tela inteira a cada token o deixa ocupado). N idas juntas esperam a fila
 # uma vez só, em vez de N vezes. par_fim espera todos.
+PAR_PIDS=()
 par() {
   if ((${PAR_N:-0} >= ${TT_PARALELO:-8})); then wait -n 2>/dev/null; PAR_N=$((PAR_N - 1)); fi
   "$@" &
-  PAR_N=$((${PAR_N:-0} + 1))
+  PAR_PIDS+=($!) PAR_N=$((${PAR_N:-0} + 1))
 }
-par_fim() { wait; PAR_N=0; }
+par_fim() { esperar ${PAR_PIDS[@]+"${PAR_PIDS[@]}"}; PAR_PIDS=() PAR_N=0; }
+# Espera só os pids dados. Nunca use "wait" sem pids: no bash 5.3, dentro de um subshell ($(...) ou
+# < <(...)) cujo shell de cima tem um trabalho em 2º plano ainda vivo, ele gira a 100% de CPU para sempre
+# (o vigia ficou horas assim, preso em sessoes_vazias_de). Com pids explícitos não acontece.
+esperar() { local p; for p; do wait "$p" 2>/dev/null; done; return 0; }
 
 # Todos os painéis de todas as sessões numa ida só ao tmux. Separador 0x1F (não é espaço: um campo vazio
 # não desloca as colunas no read). Campos: sessão, painel, janela.painel, comando, histórico, pid, ativo
@@ -976,15 +981,16 @@ fechar_paradas() {
 
 # Grava o tempo (minutos; 0 desliga) aqui e, sem "--local", em todas as máquinas ligadas.
 definir_paradas() {
+  local -a pids=()
   local m=$1 local_so=${2:-} dest rot
   [[ $m =~ ^[0-9]+$ ]] || { echo "minutos inválidos: $m"; return 1; }
   mkdir -p "$(dirname "$CONF")"
   grep -v '^fechar_paradas=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "fechar_paradas=$m" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
   [[ $local_so == --local ]] && return 0
   while read -r dest rot; do
-    timeout 10 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --definir-paradas $m --local" </dev/null >/dev/null 2>&1 &
+    timeout 10 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --definir-paradas $m --local" </dev/null >/dev/null 2>&1 & pids+=($!)
   done < <(maquinas)
-  wait
+  esperar ${pids[@]+"${pids[@]}"}
 }
 
 # nomeador= desta máquina (auto, local, claude ou nenhum; ver modo_nomeador).
@@ -1425,6 +1431,7 @@ maquinas() {
 # Consulta todas as outras máquinas ao mesmo tempo e guarda "quantas-sessões versão" de cada uma
 # ("? ?" se não responder). Demora até 3 s: chame sempre em segundo plano.
 atualizar_info() {
+  local -a pids=()
   local dest rot f r
   while read -r dest rot; do
     f=$(info_maquina "$rot")
@@ -1433,9 +1440,9 @@ atualizar_info() {
       # unexpectedly"), e a contagem de sessões da máquina saía sempre 0 no menu de máquinas.
       r=$(timeout 3 ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0, \$4}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null) || r="? ?"
       echo "$r" >"$f.$$" && mv "$f.$$" "$f"
-    } &
+    } & pids+=($!)
   done < <(maquinas)
-  wait
+  esperar ${pids[@]+"${pids[@]}"}
 }
 limpar_cache_maquinas() { rm -f "$RT/tt-maquinas-$UID" "$RT/tt-maquinas-$UID.t"; }
 
@@ -1761,12 +1768,13 @@ estado_aplicar() { # rótulo estado epoch (vindo de outra máquina ou de --estad
 }
 # Conta o estado a todas as máquinas que respondem agora (as que não, aprendem na próxima volta da malha).
 estado_propagar() { # rótulo estado [epoch]
+  local -a pids=()
   local rot=$1 est=$2 ep=${3:-$(date +%s)} dest r
   while read -r dest r; do
     [[ $r == "$rot" ]] && continue
-    timeout 20 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --estado-maquina $(q "$rot" "$est" "$ep")" </dev/null >/dev/null 2>&1 &
+    timeout 20 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --estado-maquina $(q "$rot" "$est" "$ep")" </dev/null >/dev/null 2>&1 & pids+=($!)
   done < <(maquinas)
-  wait
+  esperar ${pids[@]+"${pids[@]}"}
 }
 
 # O que esta máquina publica: a própria identidade, o cadastro (menos as ocultas, preferência local) e os estados.
@@ -1912,13 +1920,14 @@ malha_completar() {
 # tt --malha: completa e mostra QUEM ALCANÇA QUEM (cada máquina testa as suas conexões). Desligada no
 # Tailscale não é ilha; falha entre duas ligadas, sim. Sai com o número de conexões quebradas.
 malha_estado() {
+  local -a pids=()
   local d="$RT/tt-malha-estado-$UID" dest rot quebrados=0 de para est expl
   rm -rf "$d"; mkdir -p "$d"
-  ( diagnosticar >"$d/$MAQUINA" 2>/dev/null ) &
+  ( diagnosticar >"$d/$MAQUINA" 2>/dev/null ) & pids+=($!)
   while read -r dest rot; do
-    ( timeout 120 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --diagnosticar" </dev/null >"$d/$rot" 2>/dev/null ) &
+    ( timeout 120 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --diagnosticar" </dev/null >"$d/$rot" 2>/dev/null ) & pids+=($!)
   done < <(maquinas)
-  wait
+  esperar ${pids[@]+"${pids[@]}"}
   printf '%-14s %s\n' "de \\ para" "(ok = conecta; ○ = desligada; ✗ = ilha)"
   for de in "$d"/*; do
     [[ -f $de ]] || continue
@@ -3488,6 +3497,7 @@ nth_atual() { [[ $(estado busca) == nomes ]] && echo 1 || echo 1,2; }
 # do Esc segurava o quadro aberto por segundos. Só a lista (stdout) vai para o fzf.
 listar_tudo() { (exec </dev/null 2>/dev/null; listar_tudo_ "$@"); } # exec: sem cópias guardadas do terminal
 listar_tudo_() {
+  local -a pids=()
   if [[ ${TT_COMX:-} == central && -z ${TT_SEM_X:-} ]]; then TT_SEM_X=1 listar_tudo_ | com_x; return; fi
   local tmp dest rot i=0 n filtro
   filtro=$(estado maquina)
@@ -3496,7 +3506,7 @@ listar_tudo_() {
   while read -r dest rot; do
     [[ -z $filtro || $filtro == "$rot" ]] || continue
     i=$((i + 1)); echo "$rot" >>"$tmp/rotulos"
-    listar_remoto "$dest" "$rot" >"$tmp/$i" &
+    listar_remoto "$dest" "$rot" >"$tmp/$i" & pids+=($!)
   done < <(maquinas)
   if [[ -z $filtro || $filtro == "$MAQUINA" ]]; then
     # A lista local também fica guardada, com a assinatura de quando foi feita: a central abre na hora
@@ -3506,7 +3516,7 @@ listar_tudo_() {
     if [[ -s $c.$$ ]]; then printf '%s\n' "$ass" >"$c.assinatura.$$" && mv -f "$c.assinatura.$$" "$c.assinatura" && mv -f "$c.$$" "$c"
     else rm -f "$c.$$"; fi
   fi
-  wait
+  esperar ${pids[@]+"${pids[@]}"}
   for ((n = 1; n <= i; n++)); do
     cat "$tmp/$n"
     # A última lista de cada máquina fica guardada: a central abre na hora com ela (lista_rapida).
@@ -4392,6 +4402,7 @@ lista_rapida_salva() { lista_rapida | tee "$TT_ESTADO.lista"; }
 # junto da barra: sessões recentes embaixo, ações (nova, central) no topo. Guarda a lista para
 # pos_atual.
 lista_seletor() {
+  local -a pids=()
   local i dest rot tmp
   local -a dests rots
   while read -r dest rot; do dests+=("$dest"); rots+=("$rot"); done < <(alvos_seletor)
@@ -4399,9 +4410,9 @@ lista_seletor() {
   for i in "${!dests[@]}"; do
     {
       if [[ ${dests[i]} == . ]]; then listar_leve; else bloco_vivo "${dests[i]}" "${rots[i]}"; fi
-    } | formatar_bloco "${dests[i]}" "${rots[i]}" >"$tmp/$i" &
+    } | formatar_bloco "${dests[i]}" "${rots[i]}" >"$tmp/$i" & pids+=($!)
   done
-  wait
+  esperar ${pids[@]+"${pids[@]}"}
   for ((i = 0; i < ${#dests[@]}; i++)); do cat "$tmp/$i"; done
   acoes_seletor
   rm -rf "$tmp"
@@ -5929,12 +5940,13 @@ registrar_copia() {
 }
 
 propagar_copia() {
+  local -a pids=()
   local t=$1 dest rot
   if (($(stat -c %s "$t" 2>/dev/null || echo 0) <= LIMITE_COPIA)); then
     while read -r dest rot; do
-      timeout 10 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-copia $(q "$MAQUINA")" <"$t" >/dev/null 2>&1 &
+      timeout 10 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-copia $(q "$MAQUINA")" <"$t" >/dev/null 2>&1 & pids+=($!)
     done < <(maquinas)
-    wait
+    esperar ${pids[@]+"${pids[@]}"}
   fi
   rm -f "$t"
 }
@@ -11839,6 +11851,7 @@ fixada_ausente_confirma() { # chave
 }
 
 reconciliar_fixadas() {
+  local -a pids=()
   [[ -f $CONF_FIX ]] || return 0
   local tmp r s id d resposta st mudou=0 novo novo_id v0 k dir tmux_vivo=1 conf
   # Sem resposta do tmux (servidor fora do ar, versão incompatível) nada local é prova de fechamento.
@@ -11854,9 +11867,9 @@ reconciliar_fixadas() {
     IFS=$'\t' read -r r s id <<<"${FX[k]}"
     [[ -n $r && -n $s && $r != "$MAQUINA" ]] || continue
     DS[k]=$(dest_de "$r")
-    [[ -n ${DS[k]} ]] && resolver_fixada_em "$dir/$k" "${DS[k]}" "$s" "$id" &
+    [[ -n ${DS[k]} ]] && resolver_fixada_em "$dir/$k" "${DS[k]}" "$s" "$id" & pids+=($!)
   done
-  wait
+  esperar ${pids[@]+"${pids[@]}"}
   for k in "${!FX[@]}"; do
     IFS=$'\t' read -r r s id <<<"${FX[k]}"
     [[ -n $r && -n $s ]] || continue

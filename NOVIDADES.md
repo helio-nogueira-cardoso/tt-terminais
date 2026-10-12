@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.10.9 · 12/10/2026
+- **🔧 O vigia não fica mais preso girando a CPU.** No bash 5.3 (PC e book-hl), um `wait` sem pids dentro de um subshell gira a 100% de CPU para sempre quando o shell de cima tem um trabalho em 2º plano ainda vivo. O vigia caía nisso ao procurar sessões vazias e parava de trabalhar (fechar sessões, sincronizar, atualizar) por horas, com um núcleo inteiro ocupado. Agora cada espera aguarda só os processos que ela mesma lançou.
+
 ## v1.10.8 · 12/10/2026
 - **⚡ Cliques bem mais rápidos, sem mudar o que eles fazem.** Medido no WSL com um painel redesenhando a tela sem parar: 📌 fixar de ~710 para ~260 ms; marcar uma tarefa no painel de ~790 para ~195 ms; atualizar a barra de ~580 para ~150 ms; abrir a central de ~480 para ~200 ms; um clique dentro de um painel sem link chega ao programa em ~14 ms (eram ~50).
 - **A barra numa ida só ao tmux:** cada segmento que mudava era gravado num pedido separado, e cada um redesenhava a tela inteira de todos os clientes. Agora vai tudo junto, num redesenho só.

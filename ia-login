@@ -215,6 +215,7 @@ declare -a PLANO=() RESULTADO=() NAO_USA=()
 PRINCIPAL_ALVO="" # e-mail da conta que a principal das máquinas deve passar a ser (ia-login --principal)
 
 montar_plano() {
+  local -a pids=()
   local dest rot tmp f p c e sit
   tmp=$(mktemp -d)
   # O plano sai do cadastro mais completo: junta o das outras máquinas e entrega o resultado a cada
@@ -226,7 +227,7 @@ montar_plano() {
   while IFS=$'\t' read -r dest rot; do
     if (($#)) && ! printf '%s\n' "$@" | grep -qxF -- "$rot"; then continue; fi
     if [[ -n $PRINCIPAL_ALVO && $dest == . ]]; then
-      ( em . --principal-faltas "$PRINCIPAL_ALVO" >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
+      ( em . --principal-faltas "$PRINCIPAL_ALVO" >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) & pids+=($!)
     elif [[ -n $PRINCIPAL_ALVO ]]; then
       # Máquina com o tt de antes do --principal: o ia-login dela trataria "--principal-faltas" como nome de
       # máquina e abriria o plano completo. Só chama se a ajuda de lá conhece o --principal.
@@ -238,16 +239,16 @@ montar_plano() {
             >"$tmp/$rot.tsv" 2>/dev/null
           local_rc=$?; ((local_rc == 0)) && break; sleep 1
         done
-        echo $local_rc >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
+        echo $local_rc >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) & pids+=($!)
     elif [[ $dest == . ]]; then
-      ( em . --faltas >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
+      ( em . --faltas >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) & pids+=($!)
     else
       ( timeout "${EM_TIMEOUT:-25}" ssh -o BatchMode=yes -o ConnectTimeout=6 "$dest" \
           "$PATH_REMOTO tt --receber-contas-ia; $PATH_REMOTO ia-login --faltas" <"$entrada" >"$tmp/$rot.tsv" 2>/dev/null
-        echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) &
+        echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) & pids+=($!)
     fi
   done <<<"$(maquinas)"
-  wait
+  for p in ${pids[@]+"${pids[@]}"}; do wait "$p" 2>/dev/null; done # nunca "wait" sem pids (bash 5.3 gira em subshell)
   for f in $(ls "$tmp"/*.dest 2>/dev/null | sort); do
     [[ -e $f ]] || continue
     rot=$(basename "$f" .dest); dest=$(cat "$f")

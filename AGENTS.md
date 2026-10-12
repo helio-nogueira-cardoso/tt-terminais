@@ -38,6 +38,10 @@ O que roda por clique, tecla ou volta da barra não abre processo à toa (README
 (`lote_add`: cada set redesenha todos os clientes), `atualizar_barras_pedir` depois de mudar um dado,
 `printf -v`/`conf_em`/`read` no lugar de `date`/`$(conf)`/`cat`. `tests/test_desempenho.sh` guarda essas regras.
 
+Nunca `wait` sem pids: guarde `$!` e chame `esperar "${pids[@]}"` (ou use `par`/`par_fim`). No bash 5.3, dentro
+de um subshell com trabalho do shell de cima vivo, o `wait` sem pids gira a CPU para sempre
+(`tests/test_esperar_subshell.sh`).
+
 ## Contratos de interação
 
 - Cada `#[range=user|…]` desenhado na barra precisa de uma rota correspondente em `clique()` ou
