@@ -5,6 +5,7 @@
 # repetidas ou velhas são descartadas; e a tela de revisão (vim) resolve tarefa a tarefa, campo a campo, por clique ou tecla.
 # Duas máquinas isoladas (A envia, B recebe) no mesmo pacote; caixa de e-mail falsa em maildir.
 source "$(dirname "$0")/lib.sh"; isolar
+trap 'rc=$?; printf "ERRO interno na linha %s (rc=%s): %s\\n" "$LINENO" "$rc" "$BASH_COMMAND" >&2; exit "$rc"' ERR
 tt() { "$TT" "$@"; }      # B, o receptor
 mkdir -p "$T/A/home/.config/tt" "$T/A/rt" "$T/bin"
 printf 'nome=A\n' >"$T/A/home/.config/tt/config"; : >"$T/A/home/.config/tt/maquinas"
@@ -37,7 +38,8 @@ A --tarefa-desc "$ID" $'Contexto do balanço.\n- ponto da descrição' >/dev/nul
 A --tarefa-sub-add "$ID" "Conciliar bancos" >/dev/null 2>&1; A --tarefa-sub-add "$ID" "Revisar impostos" >/dev/null 2>&1
 S1=$(id_em "Conciliar bancos" "$CA"); S2=$(id_em "Revisar impostos" "$CA")
 A --tarefa-ok "$S1" >/dev/null 2>&1
-A --tarefa-log "$ID" "rodei a conciliação" --como "script" --agente claude --modelo m --tokens-ent 10 --tokens-sai 5 --conta trabalho --email dono@secreto.com >/dev/null 2>&1
+INI=$(date -d '1 second ago' '+%Y-%m-%dT%H:%M:%S%:z'); FIM=$(date '+%Y-%m-%dT%H:%M:%S%:z')
+A --tarefa-log "$ID" "rodei a conciliação" --como "script" --agente claude --modelo m --tokens-ent 10 --tokens-sai 5 --inicio "$INI" --fim "$FIM" --conta trabalho --email dono@secreto.com >/dev/null 2>&1
 out=$(A --tarefa-email "$ID" ana@x.com 2>&1)
 grep -q '⟡' <<<"$out" && falhou "o diário de trabalho (⟡) vazou no e-mail: $out"
 grep -q 'dono@secreto.com' <<<"$out" && falhou 'o e-mail da conta vazou no corpo do e-mail'
@@ -207,7 +209,7 @@ a=$(acao clique "apv:$p"); grep -q "execute(.*--demanda-merge $p)" <<<"$a" || fa
 a=$(acao clique "rev:$p"); grep -q "execute(.*--demanda-merge $p)" <<<"$a" || falhou "⇄ revisar deveria abrir a revisão: $a"
 a=$(acao clique "apv:$O"); grep -q 'execute' <<<"$a" && falhou "demanda nova sem conflito aprova na hora (sem abrir tela): $a"
 [[ $(estado_de "$O" "$CB") == aberta ]] || falhou 'clicar ✓ aprovar na demanda nova deveria aprová-la'
-TT_MERGE_AUTO=inc tt --demanda-merge "$p" >/dev/null || falhou '--demanda-merge (modo automático: tudo recebido) deveria aplicar'
+r=$(TT_MERGE_AUTO=inc tt --demanda-merge "$p" 2>&1) || falhou "--demanda-merge (modo automático: tudo recebido) deveria aplicar: $r"
 [[ $(texto_de "$ID" "$CB") == "Título da A" && $(nprops) == 0 ]] || falhou "tudo recebido: o título da A entra e a proposta some: «$(texto_de "$ID" "$CB")» props=$(nprops)"
 [[ -n $(id_em "Sub da A" "$CB") && -n $(id_em "Sub da B" "$CB") ]] || falhou 'as duas subtarefas (a da B que já existia e a da A) deveriam estar na tarefa'
 # lote: uma atualização com conflito e uma demanda limpa → só a limpa passa; recusar todas limpa o resto

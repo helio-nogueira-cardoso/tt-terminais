@@ -18,7 +18,7 @@ chmod +x "$T/bin/tmux"
 C="$T/home/.config/tt/tarefas"
 UI="$T/rt/tt-tarefas-ui-$(id -u)"
 run(){ env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/home/.local/state" \
-  TT_RT="$T/rt" TT_MACHINE=A LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH="$T/bin:$PATH" "$TT" "$@"; }
+  TT_RT="$T/rt" TT_TAREFAS_LOG="$T/acoes.log" TT_MACHINE=A PREFIX="${TT_TEST_PREFIX:-}" LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH="$T/bin:$PATH" "$TT" "$@"; }
 acao(){ FZF_QUERY=${Q:-} run --tarefa-acao "$@"; }
 sem_cor(){ sed 's/\x1b\[[0-9;]*m//g'; }
 lista(){ run --tarefas-lista "${1:-}" | sem_cor; }
@@ -62,7 +62,8 @@ acao clique "$mae" >/dev/null
 grep -qE '▾ ☐ [a-z]{4}[0-9]{2} mae' <<<"$(lista)" || fail "2º clique (devagar) não reabriu a mãe"
 acao clique "$filha" >/dev/null
 [[ $(est_de filha) == feita ]] || fail "clique na subtarefa não a marcou"
-acao clique "$filha" >/dev/null
+[[ $(acao duplo "$filha") == ignore ]] || fail "duplo clique nativo depois do clique na subtarefa deveria ser ignorado"
+[[ $(est_de filha) == feita ]] || fail "duplo clique nativo desmarcou a subtarefa"
 echo "ok: clique abre/fecha só a tarefa com subtarefa (▸/▾) e marca a subtarefa"
 
 # 2b) descrição não conta como "ter o que abrir"; marca de aberta que sobrou é ignorada
@@ -76,15 +77,21 @@ grep -q 'so nota.*≡' <<<"$l" || fail "a descrição deveria seguir marcada com
 sed -i "/^exp=$n\$/d" "$UI"
 echo "ok: só descrição não abre nada (▸ apagado) e exp= sobrando é ignorado"
 
-# 3) 2º clique rápido na mesma linha = duplo: marca feita (e, se a abriu, desfaz); o double-click
+# 3) 2º clique na mesma linha = duplo: marca feita (e, se a abriu, desfaz); o double-click
 #    nativo que chega depois é ignorado (não desmarca)
-acao clique "$f" >/dev/null; acao clique "$f" >/dev/null
-[[ $(est_de "folha simples") == feita ]] || fail "duplo clique não marcou a tarefa"
+TT_TEST_PREFIX=/data/data/com.termux/files/usr acao clique "$f" >/dev/null
+TT_TEST_PREFIX=/data/data/com.termux/files/usr acao clique "$f" >/dev/null
+[[ $(est_de "folha simples") == feita ]] || fail "duplo clique não marcou a tarefa (estado=$(cat "$UI" 2>/dev/null); ações=$(tail -8 "$T/acoes.log" 2>/dev/null))"
 grep -qE $'\t ▸ ☑ [a-z]{4}[0-9]{2} folha simples' <<<"$(lista)" || fail "duplo clique deveria deixar a tarefa ☑ (▸ apagado, sem abrir)"
 r=$(acao duplo "$f"); [[ $r == ignore ]] || fail "double-click nativo depois do duplo deveria ser ignorado: $r"
 [[ $(est_de "folha simples") == feita ]] || fail "double-click nativo desmarcou a tarefa"
 acao enter "$f" >/dev/null
 [[ $(est_de "folha simples") == aberta ]] || fail "⏎ não desmarcou"
+agora_ms=$(python3 -c 'import time; print(int(time.time()*1000))')
+printf 'clique=%s %s\n' "$f" "$((agora_ms - 600))" >>"$UI"
+TT_TEST_PREFIX=/data/data/com.termux/files/usr acao clique "$f" >/dev/null
+[[ $(est_de "folha simples") == feita ]] || fail "janela Android de 1.500 ms não reconheceu o 2º clique após 600 ms"
+acao enter "$f" >/dev/null
 echo "ok: 2º clique rápido marca feita (duplo) e ⏎ alterna"
 
 # 4) criar digitando na busca: a linha '+ criar' aparece; ⏎ cria com a sintaxe natural
@@ -116,7 +123,8 @@ done
 grep -q 'Como usar' <<<"$(FZF_COLUMNS=70 run --tarefas-cabecalho | sem_cor)" || fail "cabeçalho da ajuda sem título"
 acao esc voltar >/dev/null
 [[ $(sed -n 's/^modo=//p' "$UI" | tail -1) == lista ]] || fail "esc na ajuda não voltou à lista"
-run --tarefas-ajuda | grep -q 'PRAZO E HORÁRIO' || fail "tt --tarefas-ajuda não imprime a ajuda"
+h=$(run --tarefas-ajuda)
+grep -q 'PRAZO E HORÁRIO' <<<"$h" || fail "tt --tarefas-ajuda não imprime a ajuda: $h"
 acao menu "$f" >/dev/null
 mn=$(run --tarefas-lista)
 grep -q "^act:prio1:$f" <<<"$mn" || fail "menu sem a escolha de prioridade alta"
@@ -169,7 +177,7 @@ run --tarefa-remover-prompt "$f" <<<"" >/dev/null 2>&1
 run --tarefa-remover-prompt "$f" <<<"s" >/dev/null 2>&1
 [[ $(est_de "folha simples") == removida ]] || fail "apagar confirmado não removeu"
 run --tarefa-limpar-prompt <<<"n" >/dev/null 2>&1
-[[ $(est_de filha) == feita ]] || fail "limpar sem confirmar removeu as feitas"
+[[ $(est_de filha) == feita ]] || fail "limpar sem confirmar removeu as feitas (tarefas=$(cat \"$C\"); estado=$(cat \"$UI\"); ações=$(tail -12 \"$T/acoes.log\"))"
 run --tarefa-renomear "$mae" "mae renomeada" >/dev/null
 [[ $(awk -F'\t' -v id="$mae" '$1==id{print $5}' "$C") == "mae renomeada" ]] || fail "renomear não trocou o texto"
 grep -q "pai=$mae" "$C" || fail "renomear perdeu as subtarefas"

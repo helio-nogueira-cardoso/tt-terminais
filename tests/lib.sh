@@ -6,6 +6,7 @@ set -euo pipefail
 RAIZ=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 isolar() {
+  local home_real=${HOME_REAL:-${HOME:-}}
   T=$(mktemp -d)
   mkdir -p "$T/pkg" "$T/home/.config/tt" "$T/tmux" "$T/rt"
   local f
@@ -24,12 +25,34 @@ isolar() {
   # resto no seguinte) e o ESC sozinho fecha o menu: o teste do pino da central oscilava assim. O fzf
   # honra ESCDELAY (ms, padrão 100) para esperar o resto da sequência.
   export ESCDELAY=300
-  unset TMUX TMUX_PANE TT_CLIENTE TT_PANE PREFIX XDG_STATE_HOME XDG_DATA_HOME TT_AI_MEMORY_DIR TT_AIDLC_POLICY
+  unset TMUX TMUX_PANE TT_CLIENTE TT_PANE PREFIX ANDROID_ROOT XDG_STATE_HOME XDG_DATA_HOME TT_AI_MEMORY_DIR TT_AIDLC_POLICY
   printf 'nome=teste\n' >"$XDG_CONFIG_HOME/tt/config"
   : >"$XDG_CONFIG_HOME/tt/maquinas"
   TT=$T/pkg/tt
-  : "${HOME_REAL:=$(getent passwd "$(id -un)" | cut -d: -f6)}"; export HOME_REAL
+  if [[ -z ${HOME_REAL:-} ]]; then
+    if command -v getent >/dev/null 2>&1; then HOME_REAL=$(getent passwd "$(id -un)" | cut -d: -f6); fi
+    HOME_REAL=${HOME_REAL:-$home_real}
+  fi
+  export HOME_REAL
   trap limpar_isolado EXIT
+}
+
+# Faz um teste Linux/glibc executável também no Termux: mantém as ferramentas do PATH atual, mas
+# omite o opener gráfico próprio do Termux, cuja presença faria a sonda classificar o host como celular.
+path_sem_termux_open_url() {
+  local destino="$T/path-sem-termux-open-url" d f nome
+  local -a dirs=()
+  mkdir -p "$destino"
+  IFS=: read -r -a dirs <<<"$PATH"
+  for d in "${dirs[@]}"; do
+    [[ -d $d ]] || continue
+    for f in "$d"/*; do
+      [[ -x $f && ! -d $f ]] || continue
+      nome=${f##*/}; [[ $nome == termux-open-url ]] && continue
+      [[ -e $destino/$nome ]] || ln -s "$f" "$destino/$nome"
+    done
+  done
+  TT_PATH_SEM_TERMUX_OPEN=$destino
 }
 
 limpar_isolado() {

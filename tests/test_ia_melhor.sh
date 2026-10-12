@@ -182,7 +182,13 @@ passou 'atalhos: dois padrões (ia-nova, ia-aqui) no PC e no celular (via proot)
 # é reaberto ali mesmo com {retomar} trocado pelo ID, e o agente antigo é fechado.
 mkdir -p "$T/falso"
 # O processo se chama claude, como o de verdade (um link para o sleep não serve: ele pode ser multichamada).
-printf '#!/usr/bin/env bash\nprintf claude >/proc/$$/comm\nwhile :; do sleep 1; done\n' >"$T/falso/claude"
+cat >"$T/falso/claude" <<'PY'
+#!/usr/bin/env python3
+import ctypes, time
+ctypes.CDLL(None).prctl(15, b"claude", 0, 0, 0)  # PR_SET_NAME, inclusive no Termux
+while True:
+    time.sleep(1)
+PY
 chmod +x "$T/falso/claude"
 printf '👇\tia-aqui\t@aqui echo "[{retomar}]" >%q\t\n' "$T/aqui.out" >"$XDG_CONFIG_HOME/tt/atalhos"
 tmux new-session -d -s trabalho -x 120 -y 30 -c "$T" "bash -c '$T/falso/claude; exec bash'"
@@ -197,7 +203,7 @@ i=$(ids | tr ' ' '\n' | grep -n '^ia-aqui$' | cut -d: -f1)
 "$TT" --clique "at$i" cliente-falso "$pane" "$HOME" 2>/dev/null || true
 for _ in $(seq 30); do [[ -s $T/aqui.out ]] && break; sleep 0.2; done
 [[ $(cat "$T/aqui.out" 2>/dev/null) == '[--retomar abcdef12-3456-7890-abcd-ef1234567890]' ]] ||
-  falhou "@aqui não retomou a conversa do painel: '$(cat "$T/aqui.out" 2>/dev/null)'"
+  falhou "@aqui não retomou a conversa do painel: '$(cat "$T/aqui.out" 2>/dev/null)' (pane=$pane pid=$pid claude=$cpid; ps=$(ps -p "$pid,$cpid" -o pid=,ppid=,comm=); sess=$(cat "$HOME/.claude/sessions/$cpid.json" 2>/dev/null))"
 kill -0 "$cpid" 2>/dev/null && falhou '@aqui não fechou o agente que estava no painel'
 [[ $(tmux list-sessions -F '#{session_name}' | wc -l) == 1 ]] || falhou '@aqui abriu sessão nova em vez de usar o painel'
 [[ $(tmux display-message -p -t "$pane" '#{pane_current_path}') == "$T" ]] || falhou '@aqui mudou a pasta do painel'

@@ -138,7 +138,7 @@ zerar
 export TT_DIR=$T/pkg
 cap() { tmux capture-pane -p -t "$1" 2>/dev/null; }
 espera() { local alvo=$1 padrao=$2 i; for i in $(seq 1 60); do [[ $(cap "$alvo") == *"$padrao"* ]] && return 0; sleep 0.2; done; falhou "esperava ver [$padrao] no painel $alvo: $(cap "$alvo" | tail -14)"; }
-tmux new -d -s ui -x 160 -y 48 "$TT_DIR/tt --letreiro-ui"; espera ui 'Nova fonte'
+tmux new -d -s ui -x 160 -y 48 "$TT_DIR/tt --letreiro-ui"; espera ui 'Nova fonte'; espera ui 'Na roda (3)'
 tela=$(cap ui)
 contem "$tela" 'Na roda (3)' 'seção das ligadas'; contem "$tela" 'Disponíveis e desligadas' 'seção das disponíveis'; contem "$tela" 'Moedas (' 'categoria com a contagem'
 contem "$tela" 'Vista: todas' 'a vista atual'

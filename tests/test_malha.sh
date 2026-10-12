@@ -6,6 +6,7 @@
 set -u; unset PREFIX
 TT="$(cd "$(dirname "$0")/.." && pwd)/tt"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+source "$(dirname "$0")/tmux-isolado.sh"
 falhas=0
 ok()   { echo "  ok: $1"; }
 erro() { echo "  ERRO: $1"; falhas=$((falhas+1)); }
@@ -31,9 +32,16 @@ read -r dir ip < <(awk -v h="$host" '$1 == h { print $2, $3 }' "$SIM_HOSTS")
 [[ -n ${dir:-} ]] || { echo "ssh: Could not resolve hostname $host" >&2; exit 255; }
 [[ -e $dir/PORTA8022 && $porta != 8022 ]] && { echo "ssh: connect to host $host port 22: Connection refused" >&2; exit 255; }
 [[ -e $dir/DESLIGADA ]] && { echo "ssh: connect to host $host port 22: Connection timed out" >&2; exit 255; }
-exec env HOME="$dir/home" XDG_CONFIG_HOME="$dir/config" TT_RT="$dir/rt" SSH_CONNECTION="${SIM_IP:-10.9.9.9} 50000 $ip 22" SIM_IP="$ip" bash -c "${cmd:-true}"
+exec env HOME="$dir/home" XDG_CONFIG_HOME="$dir/config" TT_RT="$dir/rt" SIM_HOSTS="$SIM_HOSTS" SSH_CONNECTION="${SIM_IP:-10.9.9.9} 50000 $ip 22" SIM_IP="$ip" bash -c "${cmd:-true}"
 SSH
 chmod +x "$T/bin/ssh"
+# O teste simula máquinas fora da tailnet local. Não consulte o Tailscale instalado no host que roda
+# a suíte, pois ele filtraria os nomes h1..h4 pelo estado real da rede.
+cat >"$T/bin/tailscale" <<'TAILSCALE'
+#!/usr/bin/env bash
+echo indisponivel
+TAILSCALE
+chmod +x "$T/bin/tailscale"
 
 # roda um verbo do tt COMO a máquina N
 como() { local n=$1; shift; env HOME="$T/m$n/home" XDG_CONFIG_HOME="$T/m$n/config" TT_RT="$T/m$n/rt" SIM_HOSTS="$T/hosts" SIM_IP="10.0.0.$n" \

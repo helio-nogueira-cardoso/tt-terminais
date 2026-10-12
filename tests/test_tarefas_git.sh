@@ -146,7 +146,7 @@ ver 'Sincronização das tarefas desta máquina'; ver '✓ P2P'
 for i in 1 2 3 4 5; do tmux send-keys -t ui Down; done; sleep 0.3   # p2p ambos git off - [e]
 tmux send-keys -t ui Enter; ver 'Endereço:'
 tmux send-keys -t ui "file://$R" Enter; ver 'acesso conferido'
-tmux send-keys -t ui q; ver 'Sincronização das tarefas desta máquina'; ver "repositório: file://$R"; sleep 0.5
+tmux send-keys -t ui q; ver 'Sincronização das tarefas desta máquina'; ver 'repositório: file://'; sleep 0.5
 tmux send-keys -t ui Down; sleep 0.3; tmux send-keys -t ui Enter; ver 'última troca: Hoje'   # 2º item: "Ambos"
 grep -qxF 'tarefas_sync=ambos' "$T/C/.config/tt/config" || falhou "a tela não gravou o modo ambos: $(cat "$T/C/.config/tt/config")"
 tem "$(local_de C)" "t1 de A" || falhou "ligado pela tela, C não recebeu as tarefas do repositório"

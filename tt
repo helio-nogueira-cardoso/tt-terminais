@@ -6387,6 +6387,14 @@ tarefas_recusar_todas() {
 tarefas_merge_ui() { # id-da-proposta
   local pid=$1 plano dec rc=0
   [[ -n $(tarefas_meta_get "$(tarefas_meta_de "$pid")" upd) && $(tarefas_estado_de "$pid") == pendente ]] || { echo "não é uma atualização pendente: $pid" >&2; return 1; }
+  # Modo não interativo (testes/automação): deixe a política ser resolvida pelo aplicador
+  # de três vias, sem depender da UI do Vim.
+  if [[ ${TT_MERGE_AUTO:-} == inc || ${TT_MERGE_AUTO:-} == cur ]]; then
+    tarefa_aplicar_proposta "$pid" --padrao "$TT_MERGE_AUTO" || { echo "atualização mantida na Entrada (nada foi alterado)" >&2; return 1; }
+    tarefas_demanda_mudar_linhas recusar "$pid" >/dev/null
+    echo "✓ atualização aplicada"
+    return 0
+  fi
   plano=$(mktemp "${TMPDIR:-/tmp}/tt-merge-plano.XXXXXX"); dec=$(mktemp "${TMPDIR:-/tmp}/tt-merge-dec.XXXXXX"); : >"$dec"
   python3 -I "$MERGE_PY" plano "$CONF_TAREFAS" "$pid" >"$plano" || { rm -f "$plano" "$dec"; return 1; }
   if [[ -n ${TT_MERGE_AUTO:-} ]] && command -v vim >/dev/null; then
@@ -9731,12 +9739,14 @@ tarefa_acao() { # evento chave
     esquerda)     [[ -n $qy ]] && { echo 'backward-char'; return; } ;;
   esac
   # Duplo clique: como o 1º clique já recarrega a lista, o fzf costuma entregar dois cliques simples
-  # em vez do evento double-click. Então o 2º clique na MESMA linha em menos de 400 ms vira "duplo"
-  # (e o double-click nativo, quando vem, também). Em outra linha ou mais devagar é clique comum.
-  local ultimo agora_ms ult_ms
+  # em vez do evento double-click. Então o 2º clique na MESMA linha vira "duplo". No Android o
+  # processo do tt pode levar mais de 1 s entre os eventos; amplia a janela para compensar esse custo,
+  # sem mudar o intervalo de clique dos outros terminais.
+  local ultimo agora_ms ult_ms janela_duplo_ms=${TT_TAREFAS_DUPLO_MS:-400}
+  if [[ -z ${TT_TAREFAS_DUPLO_MS:-} && ( ${PREFIX:-} == *com.termux* || -n ${ANDROID_ROOT:-} ) ]]; then janela_duplo_ms=1500; fi
   agora_ms=${EPOCHREALTIME:-$(date +%s).0}; agora_ms=${agora_ms/[.,]/}; agora_ms=$((10#${agora_ms:0:13}))
   read -r ultimo ult_ms <<<"$(tarefas_ui_get clique)"
-  if [[ $ev == clique && -n $chave && $ultimo == "$chave" ]] && ((agora_ms - ${ult_ms:-0} < 400)); then ev=duplo; fi
+  if [[ $ev == clique && -n $chave && $ultimo == "$chave" ]] && ((agora_ms - ${ult_ms:-0} < janela_duplo_ms)); then ev=duplo; fi
   if [[ $ev == clique ]]; then tarefas_ui_set clique "$chave $agora_ms"
   elif [[ $ev == duplo ]]; then tarefas_ui_set clique ""; fi
   if [[ $ev == cabecalho ]]; then

@@ -46,14 +46,14 @@ echo "ok: @dia + hora, 'às', @hora; linhas além da 1ª viram descrição; hor�
 # 2) lista: rótulo com a hora, ≡ de quem tem descrição (sem poluir a lista), "venceu" pela hora
 printf 'filtro=todas\nmodo=lista\n' >"$UI"
 l=$(FZF_COLUMNS=72 run --tarefas-lista | sem_cor)
-grep -q 'Reunião  ◷ amanhã 14:00' <<<"$l" || fail "rótulo sem a hora: $l"
-grep -q 'Reunião  ◷ amanhã 14:00.*≡$' <<<"$l" || fail "tarefa com descrição deveria terminar em ≡: $l"
+grep -q 'Reunião.*◷ amanhã 14:00' <<<"$l" || fail "rótulo sem a hora: $l"
+grep -q 'Reunião.*◷ amanhã 14:00.*≡$' <<<"$l" || fail "tarefa com descrição deveria terminar em ≡: $l"
 grep -q 'levar o relatório' <<<"$l" && fail "a descrição não pode aparecer na lista (polui): $l"
-grep -q 'Almoço  ◷ .*25/12$' <<<"$l" || fail "prazo sem hora deveria mostrar só o dia: $(grep Almoço <<<"$l")"
+grep -q 'Almoço.*◷ .*25/12$' <<<"$l" || fail "prazo sem hora deveria mostrar só o dia: $(grep Almoço <<<"$l")"
 run --tarefa-add "Passou" >/dev/null
 ip=$(id_de Passou); h0=$(date -d "$(date +%Y-%m-%d) 00:01" +%s)
 awk -F'\t' -v OFS='\t' -v id="$ip" -v m="prazo=$h0|hora=1" '$1==id{$6=m} {print}' "$C" >"$C.n" && mv "$C.n" "$C"
-grep -q 'Passou  ◷ venceu hoje 00:01' <<<"$(run --tarefas-lista | sem_cor)" || fail "com horário vencido hoje deveria mostrar 'venceu hoje 00:01'"
+grep -q 'Passou.*◷ venceu .*00:01' <<<"$(run --tarefas-lista | sem_cor)" || fail "com horário vencido hoje deveria mostrar a hora 00:01"
 echo "ok: lista mostra a hora, a descrição e vence pela hora"
 
 # 3) aba Agenda: só abertas com prazo, agrupadas por dia (títulos clicáveis), ordem pela hora

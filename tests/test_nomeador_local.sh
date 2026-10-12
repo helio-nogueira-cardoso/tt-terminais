@@ -38,7 +38,13 @@ chmod +x "$T/srv/fonte/llama-b11455/llama-server"
 tar -czf "$T/srv/motor.tar.gz" -C "$T/srv/fonte" llama-b11455
 head -c 4096 /dev/urandom >"$T/srv/modelo.gguf"
 # Pacote malicioso: um arquivo que tenta sair da pasta de extração.
-tar -czf "$T/srv/mau.tar.gz" -C "$T/mau" --transform 's|^x|../../fora|' x
+python3 - "$T/srv/mau.tar.gz" <<'PY'
+import sys, tarfile
+with tarfile.open(sys.argv[1], "w:gz") as t:
+    info = tarfile.TarInfo("../../fora")
+    info.size = 1
+    t.addfile(info, __import__("io").BytesIO(b"x"))
+PY
 sha() { sha256sum "$1" | cut -d' ' -f1; }
 python3 -u -m http.server 0 --bind 127.0.0.1 --directory "$T/srv" >"$T/http.log" 2>&1 & HTTP_PID=$!
 for _ in $(seq 50); do P=$(grep -oE 'port [0-9]+' "$T/http.log" | grep -oE '[0-9]+' || true); [[ -n $P ]] && break; sleep 0.1; done

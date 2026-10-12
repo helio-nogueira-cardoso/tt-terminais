@@ -3,7 +3,14 @@
 # WSL, macOS, musl, ARM), e os instaladores da pasta do usuário: Chrome, Carbonyl (e as bibliotecas que
 # pedem), fzf atual, isync com SASL. Tudo com fixtures locais (file://), sem rede e sem tocar no sistema.
 source "$(dirname "$0")/lib.sh"; isolar
+path_sem_termux_open_url
+export PATH="$TT_PATH_SEM_TERMUX_OPEN"
 B=$T/bin; mkdir -p "$B" "$HOME/.config/tt/email"
+cat >"$B/gzip" <<'PY'
+#!/usr/bin/env python3
+import gzip, sys
+sys.stdout.buffer.write(gzip.decompress(sys.stdin.buffer.read()))
+PY
 cat >"$B/apt-get" <<'EOF'
 #!/bin/sh
 case "$*" in *install*)
@@ -47,7 +54,7 @@ passou "catálogo: ${#ids[@]} itens, todos com nome e estado"
 tt_em() { local -a v=(); while [[ $1 != -- ]]; do v+=("$1"); shift; done; shift; env "${v[@]}" PATH="$B:$PATH" TT_FINGE_FALTA_ARQ="$FALTAS" "$TT" "$@" 2>&1; }
 est_em() { local i=$1; shift; tt_em "$@" -- --pendencias --tsv | awk -F'\t' -v i="$i" '$1 == i { print $2 }'; }
 # Linux nativo x86_64 glibc com tela: navegadores entram (falta baixar).
-[[ $(est_em chrome TT_FORCAR_GUI=1 TT_PEND_SEM_NAVEGADORES=) == falta && $(est_em carbonyl TT_FORCAR_GUI=1 TT_PEND_SEM_NAVEGADORES=) == falta ]] || falhou 'Linux x86_64 com tela deveria pedir Chrome e Carbonyl'
+[[ $(PATH="$TT_PATH_SEM_TERMUX_OPEN" est_em chrome TT_FORCAR_GUI=1 TT_PEND_SEM_NAVEGADORES= DISPLAY=:99) == falta && $(PATH="$TT_PATH_SEM_TERMUX_OPEN" est_em carbonyl TT_FORCAR_GUI=1 TT_PEND_SEM_NAVEGADORES= DISPLAY=:99) == falta ]] || falhou 'Linux x86_64 com tela deveria pedir Chrome e Carbonyl'
 # Termux, proot (ARM), macOS, musl, ARM: sem navegadores (binários glibc x86_64).
 for cfg in "TT_AMBIENTE=termux TT_GERENCIADOR=pkg TT_ARCH=aarch64 TT_LIBC=bionic" "TT_AMBIENTE=proot TT_ARCH=aarch64" "TT_SO=macos TT_GERENCIADOR=brew" "TT_LIBC=musl TT_GERENCIADOR=apk" "TT_ARCH=aarch64"; do
   # shellcheck disable=SC2086
@@ -68,7 +75,11 @@ passou 'aplicabilidade: navegadores só em Linux x86_64 glibc (não em Termux/pr
 
 # 3) fzf atual: o do sistema é velho → baixa o oficial para ~/.local/share/tt-bin (sha256 conferido).
 printf '#!/bin/sh\necho "0.29.0 (abc)"\n' >"$B/fzf"; chmod +x "$B/fzf"
-mkdir -p "$T/fz"; printf '#!/bin/sh\necho "0.74.4 (novo)"\n' >"$T/fz/fzf"; chmod +x "$T/fz/fzf"; tar czf "$T/fzf.tgz" -C "$T/fz" fzf
+mkdir -p "$T/fz"; printf '#!/bin/sh\necho "0.74.4 (novo)"\n' >"$T/fz/fzf"; chmod +x "$T/fz/fzf"
+python3 -I - "$T/fz" "$T/fzf.tgz" <<'PY'
+import os, sys, tarfile
+with tarfile.open(sys.argv[2], "w:gz") as t: t.add(os.path.join(sys.argv[1], "fzf"), arcname="fzf")
+PY
 sha=$(sha256sum "$T/fzf.tgz" | cut -d' ' -f1)
 [[ $(estado fzf-novo) == falta ]] || falhou "fzf 0.29 deveria pedir o fzf atual: $(estado fzf-novo)"
 out=$(tt_em TT_FZF_URL="file://$T/fzf.tgz" TT_FZF_SHA256=0000 -- --pedir-sudo --sim fzf-novo </dev/null) && falhou 'fzf com sha errado deveria falhar'
@@ -104,7 +115,12 @@ t=; for a; do case $a in -*) ;; *) t=$a ;; esac; done
 awk -v t="$t" '/^[A-Za-z_-]+:/{c=$1; sub(":","",c); if(t=="")t=c; next} /^\t/{if(c==t){sub(/^\t@?/,""); print}}' Makefile | sh
 EOF
 chmod +x "$B/make"; }
-chmod +x "$T/is/configure"; tar czf "$T/isync.tgz" -C "$T/is" .
+chmod +x "$T/is/configure"
+python3 -I - "$T/is" "$T/isync.tgz" <<'PY'
+import os, sys, tarfile
+with tarfile.open(sys.argv[2], "w:gz") as t:
+    for nome in sorted(os.listdir(sys.argv[1])): t.add(os.path.join(sys.argv[1], nome), arcname="./" + nome)
+PY
 isha=$(sha256sum "$T/isync.tgz" | cut -d' ' -f1)
 out=$(tt_em TT_ISYNC_URL="file://$T/isync.tgz" TT_ISYNC_SHA256="$isha" -- --pedir-sudo --sim isync-sasl </dev/null) || falhou "compilar o isync com SASL: $out"
 [[ -x $HOME/.local/share/tt-isync/bin/mbsync ]] || falhou 'mbsync com SASL não ficou em tt-isync'

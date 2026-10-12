@@ -721,7 +721,7 @@ sed -i '/^ticker_rolagem=continua/d;/^ticker_veloc=0.2/d;/^ticker_fps=6/d' "$XDG
 cap() { tmux capture-pane -p -t "$1" 2>/dev/null; }
 espera() { local alvo=$1 padrao=$2 i; for i in $(seq 1 60); do [[ $(cap "$alvo") == *"$padrao"* ]] && return 0; sleep 0.2; done; falhou "esperava ver [$padrao] no painel $alvo: $(cap "$alvo" | tail -12)"; }
 ativa() { py listar --tsv | awk -F'\t' -v n="$1" '$1==n{print $2}'; }
-tmux new -d -s ui -x 150 -y 40 "$TT_DIR/tt --letreiro-ui" ; espera ui 'Nova fonte'
+tmux new -d -s ui -x 150 -y 40 "$TT_DIR/tt --letreiro-ui" ; espera ui 'Nova fonte'; espera ui 'cl3'
 contem "$(cap ui)" 'Catálogo' 'painel: catálogo'; contem "$(cap ui)" 'Ajustes globais' 'painel: ajustes'; contem "$(cap ui)" 'Pré-visualizar' 'painel: prévia'
 contem "$(cap ui)" 'cl3' 'painel lista as fontes'; contem "$(cap ui)" 'ok' 'com o estado de cada uma'
 tmux send-keys -t ui "'cl2"; sleep 0.8   # aspa simples = casamento exato no fzf (o difuso pegaria cl1 também)
@@ -736,7 +736,7 @@ tmux send-keys -t ui C-u; sleep 0.3; tmux send-keys -t ui Escape; sleep 1; tmux 
 tmux has-session -t ui 2>/dev/null && falhou 'esc deveria fechar o painel'
 passou 'painel por teclado: ^a liga/desliga, ^j/^k reordenam, ^d duplica, F2 abre o formulário, esc fecha'
 # mouse no painel: duplo clique numa fonte abre o menu de ações (SGR, como o fzf recebe do terminal)
-tmux new -d -s ui2 -x 150 -y 40 "$TT_DIR/tt --letreiro-ui"; espera ui2 'Nova fonte'
+tmux new -d -s ui2 -x 150 -y 40 "$TT_DIR/tt --letreiro-ui"; espera ui2 'Nova fonte'; espera ui2 'cl3'
 y=$(cap ui2 | grep -n ' cl3 ' | head -1 | cut -d: -f1); [[ -n $y ]] || falhou 'não achei a linha da fonte cl3 para clicar'
 tmux send-keys -t ui2 -l "$(printf '\033[<0;12;%dM\033[<0;12;%dm\033[<0;12;%dM\033[<0;12;%dm' "$y" "$y" "$y" "$y")"; sleep 1.5
 contem "$(cap ui2)" 'Testar agora' 'duplo clique numa fonte abre o menu de ações (Testar agora, Editar, Duplicar…)'

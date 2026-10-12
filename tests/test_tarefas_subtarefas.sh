@@ -114,7 +114,7 @@ printf '#!/bin/sh\nprintf "primeira linha\\\\nsegunda linha\\\\n" > "$1"\n' >"$T
 EDITOR="$T/bin/ed" run --tarefa-desc-prompt "$r" >/dev/null 2>&1
 printf 'filtro=todas\nmodo=lista\n' >"$UI"
 l=$(run --tarefas-lista | sem_cor)
-grep -q 'Relatório  ≡$' <<<"$l" || fail "tarefa com descrição deveria mostrar só ≡ na linha: $(grep Relatório <<<"$l")"
+grep -q 'Relatório.*≡$' <<<"$l" || fail "tarefa com descrição deveria mostrar só ≡ na linha: $(grep Relatório <<<"$l")"
 grep -q 'primeira linha' <<<"$l" && fail "a descrição não pode aparecer na lista"
 [[ $(acao clique "$r") == ignore ]] || fail "tarefa só com descrição (sem subtarefas) não tem o que abrir: clique deveria ser ignorado"
 l=$(run --tarefas-lista | sem_cor)
