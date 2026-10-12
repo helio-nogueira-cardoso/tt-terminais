@@ -121,3 +121,16 @@ run --notificar-daqui "sem faixa" >/dev/null
 f=$(ls "$T"/state/tt/notifs/* | head -1)
 [[ -z $(cut -sf4 "$f") ]] || fail "sem a faixa não deve haver canal sino: $(cat "$f")"
 echo "ok: faixa desligada mantém o caminho antigo"
+
+# 9) regra do Hélio (12/10/2026): o notify-send dos agentes NUNCA é suprimido. Com o 🔔 ligado, o aviso do agente vai
+#    ao 🔔 (canal sino) E às notificações do sistema; sem a faixa, também. (O stub fica em $T/bin, na frente do PATH.)
+printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$3" "$4" >>"%s/notify.log"\n' "$T" >"$T/bin/notify-send"; chmod +x "$T/bin/notify-send"
+sed -i '/^faixa_notif=/d' "$T/home/.config/tt/config"; printf 'faixa_notif=1\n' >>"$T/home/.config/tt/config"
+rm -rf "$T/state/tt/notifs"; : >"$T/notify.log"; clientes '/dev/pts/1|outra|attached,focused,UTF-8|@9'
+run --notificar-daqui "revisar o PR" >/dev/null
+grep -qx '🤖 agente|revisar o PR' "$T/notify.log" || fail "com o 🔔 ligado o agente também tem de ir ao notify-send: $(cat "$T/notify.log")"
+[[ $(cut -f4 "$(grep -l 'revisar o PR' "$T"/state/tt/notifs/*)") == sino ]] || fail 'e também ao 🔔 (canal sino)'
+sed -i '/^faixa_notif=/d' "$T/home/.config/tt/config"; printf 'faixa_notif=0\n' >>"$T/home/.config/tt/config"
+: >"$T/notify.log"; run --notificar-daqui "sem faixa também" >/dev/null
+grep -qx '🤖 agente|sem faixa também' "$T/notify.log" || fail "sem a faixa o agente vai ao notify-send: $(cat "$T/notify.log")"
+echo "ok: aviso de agente vai ao 🔔 e ao notify-send (nunca suprimido), com ou sem a faixa"

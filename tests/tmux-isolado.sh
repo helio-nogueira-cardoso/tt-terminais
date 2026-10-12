@@ -13,3 +13,5 @@ TMUX_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tt-teste-tmux.XXXXXX"); export TMUX_TMP
 _tmux_isolado_fim() { tmux kill-server 2>/dev/null || true; rm -rf "$TMUX_TMPDIR"; }
 eval "_tmux_isolado_ant=$(trap -p EXIT | sed 's/^trap -- //; s/ EXIT$//')"
 trap "set +e; ${_tmux_isolado_ant:+$_tmux_isolado_ant;} _tmux_isolado_fim" EXIT
+# nem notificações do sistema de verdade (notify-send/termux-notification): veja sem-notificacao-real.sh
+source "$(dirname "${BASH_SOURCE[0]}")/sem-notificacao-real.sh"; sem_notificacao_real "$TMUX_TMPDIR"

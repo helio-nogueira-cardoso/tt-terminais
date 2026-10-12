@@ -31,8 +31,21 @@ sentinela_vazou() {
     grep -v -e ' command: show-messages' -e ' command: has-session -t =sentinela' -e ' command: new-session -d -s sentinela' || true
 }
 sentinela_subir
+# Sentinela das notificações do sistema: na frente do PATH da suíte, um notify-send/termux-notification que só
+# anota. Os isoladores (lib.sh, tmux-isolado.sh) põem outro, mudo, na frente deste; se um teste ainda assim
+# chegar aqui, mandaria o aviso à tela de quem roda a suíte (em 12/10/2026 eram 27 avisos de mentira por rodada).
+notif_dir=$(mktemp -d "${TMPDIR:-/tmp}/tt-sentinela-notif.XXXXXX"); notif_log=$notif_dir/vazou
+for c in notify-send termux-notification; do
+  command -v "$c" >/dev/null 2>&1 || continue
+  printf '#!/bin/sh\necho "%s $*" >>"%s"\n' "$c" "$notif_log" >"$notif_dir/$c"; chmod +x "$notif_dir/$c"
+done
+export PATH="$notif_dir:$PATH"
 for t in "$suite_dir"/test_*.sh; do
   if "$t"; then :; else falha "$(basename "$t")"; fi
+  if [[ -s $notif_log ]]; then
+    falha "$(basename "$t") mandou notificação do sistema de verdade (iria para a tela de quem roda a suíte): $(head -2 "$notif_log" | paste -sd'|')"
+    : >"$notif_log"
+  fi
   v=$(sentinela_vazou)
   if ! tmux has-session -t =sentinela 2>/dev/null; then
     falha "$(basename "$t") derrubou o tmux padrão (fora da suíte seria o tmux de quem a roda)"; sentinela_subir
@@ -41,7 +54,7 @@ for t in "$suite_dir"/test_*.sh; do
     tmux kill-server 2>/dev/null; sentinela_subir
   fi
 done
-tmux kill-server 2>/dev/null; rm -rf "$sentinela_dir"
+tmux kill-server 2>/dev/null; rm -rf "$sentinela_dir" "$notif_dir"
 # Rodado sozinho, cada teste se isola: ou pelo isolar() do lib.sh, ou pelo tmux-isolado.sh.
 for t in "$suite_dir"/test_*.sh; do
   rg -q 'source .*/(lib|tmux-isolado)\.sh' "$t" || falha "$(basename "$t") não se isola do tmux real (source lib.sh ou tmux-isolado.sh)"

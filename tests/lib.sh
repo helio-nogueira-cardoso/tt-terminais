@@ -36,6 +36,7 @@ isolar() {
   fi
   export HOME_REAL
   trap limpar_isolado EXIT
+  source "$RAIZ/tests/sem-notificacao-real.sh"; sem_notificacao_real "$T"
 }
 
 # Faz um teste Linux/glibc executável também no Termux: mantém as ferramentas do PATH atual, mas

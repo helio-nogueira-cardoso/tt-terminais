@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.9.2 · 12/10/2026
+- **Testes não mandam mais notificações ao seu PC:** cada rodada da suíte disparava uns 27 avisos de mentira nas notificações do sistema ("🤖 agente · precisa de você", "📧 Um: 1 e-mail novo", "📋 Pagar aluguel"), que não apareciam no 🔔 porque cada teste grava num lugar temporário. Agora os testes usam um `notify-send` mudo e a suíte reprova quem tentar o de verdade. Os avisos reais dos agentes continuam indo ao 🔔 e às notificações do sistema.
+
 ## v1.9.1 · 12/10/2026
 - **Atalhos de IA do celular sem "código 127":** 🚀 e 👇 no Termux terminavam com `atalho terminou com código 127` quando o `~/.bashrc` do Debian (proot) perdia a linha que põe `~/.local/bin` no PATH. Agora os atalhos, o botão do Claude e os atalhos `cl`/`clc`/`clr` do Termux levam esse PATH no próprio comando. Quem tem os atalhos personalizados em `~/.config/tt/atalhos` com o comando antigo pode trocá-lo pelo novo de `atalhos-padrao-mobile`.
 - **`~/.bashrc` preservado:** quando faltava o marcador de fim do bloco do tt, a instalação apagava tudo o que vinha depois do bloco. Agora ela reconhece o fim do bloco e recoloca o marcador (com cópia em `~/.bashrc.antes-tt`) ou, sem reconhecer, não mexe. Também mantém as permissões do arquivo e não troca um `~/.bashrc` que seja link (dotfiles) por um arquivo comum.

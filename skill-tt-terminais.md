@@ -668,6 +668,11 @@ das outras máquinas do usuário** (logar ou trocar a conta de IA de uma máquin
   com um tmux padrão próprio e um servidor sentinela: teste que manda comando a ele (no uso real seria
   o tmux do usuário: o `avisar` do tt faz display-message em todos os clientes) ou o derruba é
   reprovado, e teste sem um dos dois `source` também.
+- Notificação do sistema também nunca sai de um teste: os dois isoladores põem na frente do PATH um
+  `notify-send`/`termux-notification` mudo (`tests/sem-notificacao-real.sh`; só para os comandos que existem
+  na máquina) e o `run.sh` tem uma sentinela que reprova o teste que ainda chegar ao de verdade. Teste que
+  quer conferir o aviso põe o próprio stub em `$T/bin`. O `notify-send` dos AGENTES (`--notificar-daqui`)
+  nunca é suprimido no uso real: vai ao 🔔 e ao sistema (regra do usuário; `test_notificar_daqui` item 9).
 - `run.sh` faz: testes de comportamento, asserts estáticos (`bash -n`, Python da ponte de mouse,
   vigia exige versão publicada, etc.), tmux isolado, e o **contrato de rotas** (cada `range=user|X`
   tem `X)` em `clique()`), botões 📧/📋 (range + rota + verbo + posição), guardrails de segredo do
