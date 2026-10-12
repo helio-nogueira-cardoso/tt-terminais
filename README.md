@@ -1864,6 +1864,38 @@ todos; um `tt` editado depois da instalação, ou `TT_COMPLETO=1`, roda o arquiv
 vigia) carregam tudo de uma vez, para uma instalação no meio não misturar versões. `tt --rapido` mostra o
 estado, `tt --rapido gerar` refaz e `tt --rapido remover` desliga. Teste: `tests/test_partida_rapida.sh`.
 
+## Desempenho do clique
+
+Entre o clique e a ação há um `tt` que parte, idas ao servidor do tmux (que atende um pedido por vez, atrás
+dos redesenhos dos painéis) e, muitas vezes, a barra recalculada. O que o tt faz para a resposta vir rápida:
+
+- **A barra numa ida só.** Todo `set-option` redesenha a tela inteira de todos os clientes; a barra gravava cada
+  segmento que mudou num pedido separado. Agora tudo vai junto, num redesenho só, e os segmentos que dependem de
+  outros (tarefas e versão medem o canto da faixa das fixadas) são calculados uma vez.
+- **Comando ausente não custa mais nada no WSL.** O PATH do WSL inclui as pastas do Windows, e perguntar por um
+  comando que não existe (o `termux-open-url`, que decide se a faixa de avisos aparece) custava ~35 ms, 8 vezes
+  a cada atualização da barra. As pastas do Linux continuam conferidas a cada pergunta; a resposta das pastas do
+  Windows fica guardada por 10 min (`TT_CMD_WIN_VALE`, em segundos).
+- **Menos processos por clique.** Hora, configuração, versão, chaves das fixadas, contas de e-mail e avisos
+  passaram a ser lidos pelo próprio bash, sem `date`, `cat`, `awk`, `sha256sum` ou `basename` a cada vez; a
+  partida de cada `tt` caiu de ~20 para ~13 ms.
+- **O painel de tarefas não espera a barra.** Marcar, editar ou criar uma tarefa no painel (e na agenda)
+  recarrega a lista na hora; a barra é atualizada em segundo plano, juntando pedidos seguidos e terminando
+  sempre no estado final. Pela linha de comando (`tt --tarefa-ok` etc.) continua tudo síncrono.
+- **Clique dentro de um painel.** Antes de procurar um link com python (~30 ms), o tmux confere em ~2 ms se há
+  `http` ou `://` na tela (ou um hiperlink sob o mouse); sem nenhum, o clique vai direto ao programa.
+- **Janelas flutuantes sem rajada de processos.** Abrir ou fechar uma janela disparava 3 ou 4 `tt --bordas`
+  ao mesmo tempo; agora só o primeiro trabalha.
+
+Medido aqui (WSL, com um painel redesenhando a tela sem parar): 📌 fixar de ~710 para ~260 ms; marcar uma
+tarefa no painel de ~790 para ~195 ms; atualizar a barra de ~580 para ~150 ms; abrir a central de ~480 para
+~200 ms; clique num painel sem link de ~50 para ~14 ms.
+
+Para investigar uma lentidão: `touch ~/.config/tt/trace` grava cada linha executada nos cliques, com hora, em
+`~/.cache/tt-trace.log` (`rm ~/.config/tt/trace` desliga). O log interno do servidor tmux (ligado com
+`kill -USR2` no servidor) dobra o custo de cada comando do tmux: deixe-o ligado só enquanto depura. Teste das
+garantias acima: `tests/test_desempenho.sh`.
+
 ## Desenvolvimento
 
 ### Testes e AI-DLC

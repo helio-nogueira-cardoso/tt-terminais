@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.10.8 · 12/10/2026
+- **⚡ Cliques bem mais rápidos, sem mudar o que eles fazem.** Medido no WSL com um painel redesenhando a tela sem parar: 📌 fixar de ~710 para ~260 ms; marcar uma tarefa no painel de ~790 para ~195 ms; atualizar a barra de ~580 para ~150 ms; abrir a central de ~480 para ~200 ms; um clique dentro de um painel sem link chega ao programa em ~14 ms (eram ~50).
+- **A barra numa ida só ao tmux:** cada segmento que mudava era gravado num pedido separado, e cada um redesenhava a tela inteira de todos os clientes. Agora vai tudo junto, num redesenho só.
+- **WSL sem a demora dos comandos ausentes:** o PATH do WSL inclui as pastas do Windows, e perguntar por um comando que não existe custava ~35 ms; a barra fazia isso 8 vezes a cada atualização. As pastas do Linux seguem conferidas na hora; a resposta das do Windows fica guardada por 10 min.
+- **O painel de tarefas e a agenda não esperam a barra:** marcar, criar ou editar recarrega a lista na hora, e a barra se atualiza logo depois, em segundo plano, sempre terminando no estado certo. Pela linha de comando continua como antes.
+- **Clique dentro de um painel sem link vai direto ao programa:** antes de procurar um link (um python de ~30 ms a cada clique), o tmux confere se há algum endereço na tela.
+- **Menos processos em todo clique:** a partida de cada `tt` caiu de ~20 para ~13 ms; hora, configuração, versão, chaves das fixadas, contas de e-mail e avisos são lidos pelo próprio bash; menus montam os itens medindo a tela uma vez; uma fixada de outra máquina abre com uma ida por ssh a menos; abrir ou fechar uma janela flutuante não dispara mais 3 ou 4 processos ao mesmo tempo.
+
 ## v1.10.7 · 12/10/2026
 - **Envio para a pasta pessoal pede confirmação de propósito:** se o destino é a pasta pessoal e não a de Recebidos, a confirmação avisa e só o `s` envia (⏎ não basta). Evita o arquivo "concluído" que não aparece em Recebidos.
 

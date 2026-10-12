@@ -31,6 +31,13 @@ O tt instalado roda por um núcleo gerado na instalação (`rapido/`, ver README
 nova vai antes da linha `[[ -n ${TT_SO_CARREGAR:-} ]] && …` ("Fim das definições"); depois dela o gerador
 recusa e a instalação fica sem partida rápida (`tests/test_partida_rapida.sh` acusa).
 
+## Desempenho
+
+O que roda por clique, tecla ou volta da barra não abre processo à toa (README "Desempenho do clique"):
+`tem_cmd` em vez de `command -v` (no WSL, comando ausente custa ~35 ms), vários `set-option` num lote só
+(`lote_add`: cada set redesenha todos os clientes), `atualizar_barras_pedir` depois de mudar um dado,
+`printf -v`/`conf_em`/`read` no lugar de `date`/`$(conf)`/`cat`. `tests/test_desempenho.sh` guarda essas regras.
+
 ## Contratos de interação
 
 - Cada `#[range=user|…]` desenhado na barra precisa de uma rota correspondente em `clique()` ou

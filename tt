@@ -48,13 +48,16 @@
 if [[ -z ${TT_COMPLETO:-} && -z ${_TT_RAPIDO:-} ]]; then
   _TT_RAPIDO=${TT_DIR:-$HOME/.local/share/tt}/rapido
   if [[ -r $_TT_RAPIDO/nucleo.sh && $0 -ef ${_TT_RAPIDO%/rapido}/tt && ! ${_TT_RAPIDO%/rapido}/tt -nt $_TT_RAPIDO/nucleo.sh ]]; then
+    # O caminho do tt já é o do pacote (o -ef acima confere que é o mesmo arquivo): sem o readlink, ~4 ms, a
+    # cada partida. Só um caminho absoluto serve (o tt chama a si mesmo de outras pastas).
+    [[ $_TT_RAPIDO == /* ]] && _TT_EU=${_TT_RAPIDO%/rapido}/tt
     source "$_TT_RAPIDO/nucleo.sh"
     exit
   fi
   unset _TT_RAPIDO
 fi
 set -u
-EU=$(readlink -f "$0")
+EU=${_TT_EU:-$(readlink -f "$0")}
 
 CONF_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/tt
 CONF=$CONF_DIR/config
@@ -74,13 +77,21 @@ conf() {
   [[ -n $v ]] && printf '%s\n' "$v"
   return 0
 }
+# O mesmo, sem subshell: grava em VAR o valor da chave (vazio se não há). Para o que roda muitas vezes por clique.
+conf_em() { # VAR chave
+  local _l _v=""
+  if [[ -r $CONF ]]; then
+    while IFS= read -r _l || [[ -n $_l ]]; do [[ $_l == "$2="* ]] && _v=${_l#*=}; done <"$CONF"
+  fi
+  printf -v "$1" '%s' "$_v"
+}
 # Grava chave=valor no config desta máquina (troca a linha da chave; as outras ficam como estão).
 conf_gravar() { # chave valor
   mkdir -p "$(dirname "$CONF")"
   { grep -v "^$1=" "$CONF" 2>/dev/null; printf '%s=%s\n' "$1" "$2"; } >"$CONF.novo" && mv "$CONF.novo" "$CONF"
 }
 # Nome desta máquina no menu: ~/.config/tt/config (nome=…); sem ele, o hostname.
-MAQUINA=$(conf nome)
+conf_em MAQUINA nome # (sem subshell: o tt parte a cada clique, tecla e recarga)
 MAQUINA=${MAQUINA:-$(hostname -s)}
 
 # Diagnóstico de trocas de sessão inesperadas: toda troca (tmux switch-client) feita por este
@@ -472,6 +483,7 @@ vigiar() {
   local peso_pedido=${TT_PESO_PEDIDO:-3} pontos_renomear=${TT_PONTOS_RENOMEAR:-10}
   while tmux list-sessions >/dev/null 2>&1; do
     proximo=$pausa sondar=""
+    _TEM_CMD_PATH="" # o vigia vive dias: a cada volta, pergunta de novo que comandos existem (tem_cmd)
     atualizar_barras
     [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || { echo "$(date '+%F %T') vigia $$ saiu: há outro" >>"$log"; exit 0; }
     agora=$(date +%s)
@@ -742,19 +754,29 @@ nomear_todas() {
 # Janelas de terminal abertas fora do tmux: shells líderes de sessão num pts, sem TMUX no ambiente,
 # que não vieram de SSH/mosh. Saída: "shell|primeiro-plano|programa|diretório".
 soltos() {
-  local meu_sid pid sid tty pai fg cmd
-  meu_sid=$(ps -o sid= -p $$ | tr -d ' ')
-  ps -u "$(id -un)" -o pid=,sid=,tty=,ppid=,tpgid=,comm= | while read -r pid sid tty pai fg cmd; do
+  local meu_sid="" pid sid tty pai fg cmd st v tem c
+  # Com /proc (Linux, Termux), lido direto: eram ps + tr + id e, por janela solta, tr + grep + dois ps
+  # (~60 ms ao abrir a central). Sem /proc (macOS), o ps de antes.
+  if [[ -r /proc/$$/stat ]]; then read -r st <"/proc/$$/stat"; st=${st##*) }; read -r _ _ _ meu_sid _ <<<"$st"
+  else meu_sid=$(ps -o sid= -p $$ | tr -d ' '); fi
+  _comm_de() { c=""; if [[ -r /proc/$1/comm ]]; then read -r c <"/proc/$1/comm"; else c=$(ps -o comm= -p "$1"); fi; }
+  ps -u "$EUID" -o pid=,sid=,tty=,ppid=,tpgid=,comm= | while read -r pid sid tty pai fg cmd; do
     [[ $pid == "$sid" && $tty == pts/* && $cmd =~ ^(bash|zsh|fish)$ && $sid != "$meu_sid" ]] || continue
-    tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -q '^TMUX=' && continue
-    case $(ps -o comm= -p "$pai") in sshd* | mosh-server | tailscaled | tmux*) continue ;; esac
+    tem=0
+    if [[ -r /proc/$pid/environ ]]; then
+      while IFS= read -r -d '' v; do [[ $v == TMUX=* ]] && { tem=1; break; }; done <"/proc/$pid/environ"
+    fi
+    ((tem)) && continue
+    _comm_de "$pai"
+    case $c in sshd* | mosh-server | tailscaled | tmux*) continue ;; esac
     [[ $fg -gt 0 ]] || fg=$pid
-    echo "$pid|$fg|$(ps -o comm= -p "$fg")|$(readlink "/proc/$fg/cwd")"
+    _comm_de "$fg"
+    echo "$pid|$fg|$c|$(readlink "/proc/$fg/cwd")"
   done
 }
 
 idade() {
-  local s=$(($(date +%s) - $1))
+  local s; printf -v s '%(%s)T' -1; s=$((s - $1))
   if ((s < 60)); then echo agora
   elif ((s < 3600)); then echo "$((s / 60)) min"
   elif ((s < 86400)); then echo "$((s / 3600)) h"
@@ -794,7 +816,7 @@ claude_por_painel() {
 
 # Texto de busca de um painel: título da conversa do Claude, nomes e o fim da tela. Vai no fim de
 # cada linha do menu depois de muitos espaços, para a busca achar mas a lista não mostrar.
-ESPACOS=$(printf '%*s' 300 '')
+printf -v ESPACOS '%*s' 300 ''
 # O trabalho de um painel para as listas, feito em paralelo com os outros: grava em ARQ o texto de busca
 # e, com CONTAR=1 (sessão candidata a vazia), em ARQ.v as linhas escritas na tela.
 listar_painel() { # arq painel pid-do-claude contar título nome-do-painel rótulo
@@ -1312,7 +1334,7 @@ ATALHOS_PADRAO=${TT_ATALHOS_PADRAO:-$DIR_TT/atalhos-padrao}
 CONF_ATALHOS=$CONF_DIR/atalhos
 # Repositório de origem (só na máquina onde se desenvolve): TT_REPO, "repo=" no config, ou a pasta
 # deste tt, se ele estiver rodando de dentro de um clone.
-REPO_TT=${TT_REPO:-$(conf repo)}
+if [[ -n ${TT_REPO:-} ]]; then REPO_TT=$TT_REPO; else conf_em REPO_TT repo; fi
 [[ -z $REPO_TT && -e ${EU%/*}/.git && -f ${EU%/*}/tmux.conf ]] && REPO_TT=${EU%/*}
 SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new
   -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%r@%h" -o ControlPersist=12h
@@ -1329,6 +1351,54 @@ TT_REMOTO='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" TMUX_T
 # XDG_RUNTIME_DIR, que uns têm e outros não (a barra e a tela olhavam pastas diferentes).
 RT=${TT_RT:-/run/user/$UID}
 [[ -d $RT && -w $RT ]] || RT=${TMPDIR:-/tmp}
+
+# Existe o comando? O mesmo que `command -v NOME >/dev/null`, sem pagar a procura de quem não existe a cada
+# chamada. No WSL o PATH herda as pastas do Windows (/mnt/c/…), lidas pela ponte de arquivos: cada comando
+# AUSENTE custava ~35 ms (60–80 ms com a máquina ocupada), e a barra perguntava pelo termux-open-url umas 8
+# vezes a cada atualização (só no 📌 eram ~300 ms). As pastas do Linux, funções e builtins são conferidos
+# sempre (é o command -v de verdade, sem as pastas montadas: décimos de ms); só a resposta das pastas do
+# Windows fica guardada, por TT_CMD_WIN_VALE s (600), em $RT/tt-cmd-$UID/ (instalar algo no Windows aparece
+# nesse prazo). Fora do WSL é o command -v de sempre. Cada processo lembra o que já perguntou. Para a
+# resposta exata na hora (pendências, instalação) use command -v.
+declare -A _TEM_CMD=()
+_TEM_CMD_PATH="" _TEM_CMD_LINUX="" _TEM_CMD_WIN=""
+tem_cmd() {
+  local c=${1:-} d r v t k arq agora
+  [[ -n $c ]] || return 1
+  if [[ $PATH != "$_TEM_CMD_PATH" ]]; then # 1ª pergunta do processo (ou o PATH mudou): separa as pastas
+    _TEM_CMD=() _TEM_CMD_PATH=$PATH _TEM_CMD_LINUX="" _TEM_CMD_WIN=""
+    if [[ -n ${WSL_DISTRO_NAME:-}${WSL_INTEROP:-} || -e /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+      local -a _dirs=(); IFS=: read -r -a _dirs <<<"$PATH"
+      local _raiz=${TT_CMD_WIN_RAIZ:-/mnt} # (TT_CMD_WIN_RAIZ: só os testes trocam)
+      for d in "${_dirs[@]}"; do
+        if [[ $d == "$_raiz"/[a-zA-Z]/* || $d == "$_raiz"/[a-zA-Z] ]]; then _TEM_CMD_WIN+=${_TEM_CMD_WIN:+:}$d
+        else _TEM_CMD_LINUX+=$d:; fi
+      done
+      _TEM_CMD_LINUX=${_TEM_CMD_LINUX%:}
+      [[ $PATH == *: ]] && _TEM_CMD_LINUX+=: # entrada vazia no fim (= pasta atual), como no PATH
+    fi
+  fi
+  [[ -n ${_TEM_CMD[$c]:-} ]] && return "${_TEM_CMD[$c]}"
+  if [[ -z $_TEM_CMD_WIN || $c == */* ]]; then
+    command -v -- "$c" >/dev/null 2>&1; r=$?
+  elif PATH=$_TEM_CMD_LINUX command -v -- "$c" >/dev/null 2>&1; then
+    r=0
+  else
+    printf -v agora '%(%s)T' -1
+    arq=$RT/tt-cmd-$UID/${c//[^A-Za-z0-9._+-]/_}
+    r="" v="" t="" k=""
+    { IFS=$'\t' read -r v t k <"$arq"; } 2>/dev/null
+    if [[ $v == [01] && $t =~ ^[0-9]+$ && $k == "$_TEM_CMD_WIN" ]] && ((agora - t < ${TT_CMD_WIN_VALE:-600} && agora >= t)); then
+      r=$v
+    else
+      PATH=$_TEM_CMD_WIN command -v -- "$c" >/dev/null 2>&1 && r=0 || r=1
+      [[ -d $RT/tt-cmd-$UID ]] || mkdir -p "$RT/tt-cmd-$UID" 2>/dev/null
+      { printf '%s\t%s\t%s\n' "$r" "$agora" "$_TEM_CMD_WIN" >"$arq"; } 2>/dev/null
+    fi
+  fi
+  _TEM_CMD[$c]=$r
+  return "$r"
+}
 # O que se soube de cada máquina na última consulta (rótulo = nome dela na barra): as sessões que ela
 # mostrou e "quantas-sessões versão". Os menus abrem na hora com isso e atualizam em segundo plano.
 cache_bloco() { echo "$RT/tt-bloco-$UID-$1"; }
@@ -1337,13 +1407,19 @@ info_maquina() { echo "$RT/tt-info-$UID-$1"; }
 # Máquinas cadastradas e acessíveis: "usuario@host rótulo". Guarda 20 s em cache: a barra e os
 # menus chamam isso a cada clique.
 maquinas() {
-  local cache="$RT/tt-maquinas-$UID"
-  if [[ -f $cache ]] && [[ $cache -nt $CONF_MAQ || ! -f $CONF_MAQ ]] && (($(date +%s) - $(stat -c %Y "$cache") < 20)); then
-    cat "$cache"; return
+  local cache="$RT/tt-maquinas-$UID" agora t="" l
+  # A idade do cache vem do carimbo ao lado (cache.t), lido sem processo: eram date + stat + cat a cada
+  # chamada, e um clique chama maquinas várias vezes. Sem carimbo (cache antigo) vale como vencido.
+  printf -v agora '%(%s)T' -1
+  if [[ -f $cache ]] && [[ $cache -nt $CONF_MAQ || ! -f $CONF_MAQ ]] && { read -r t <"$cache.t"; } 2>/dev/null &&
+     [[ $t =~ ^[0-9]+$ ]] && ((agora >= t && agora - t < 20)); then
+    while IFS= read -r l || [[ -n $l ]]; do printf '%s\n' "$l"; done <"$cache"
+    return
   fi
   local tmp
   tmp=$(mktemp "$cache.XXXXXX") || { maquinas_agora; return; }
-  maquinas_agora >"$tmp" && mv -f "$tmp" "$cache" || rm -f "$tmp" # chamadas em paralelo: cada uma com seu temporário
+  # chamadas em paralelo: cada uma com seu temporário; o carimbo vai depois do mv (nunca mais novo que o cache)
+  if maquinas_agora >"$tmp" && mv -f "$tmp" "$cache"; then printf '%s\n' "$agora" >"$cache.t"; else rm -f "$tmp"; fi
   cat "$cache" 2>/dev/null || maquinas_agora
 }
 # Consulta todas as outras máquinas ao mesmo tempo e guarda "quantas-sessões versão" de cada uma
@@ -1361,7 +1437,7 @@ atualizar_info() {
   done < <(maquinas)
   wait
 }
-limpar_cache_maquinas() { rm -f "$RT/tt-maquinas-$UID"; }
+limpar_cache_maquinas() { rm -f "$RT/tt-maquinas-$UID" "$RT/tt-maquinas-$UID.t"; }
 
 # Chama "FUNÇÃO dest rótulo ARGS..." em cada máquina acessível, todas ao mesmo tempo: o total leva o
 # tempo da mais lenta, não a soma (antes, uma por vez; cada ssh custa de 0,1 s a vários segundos, e um
@@ -1924,7 +2000,14 @@ mostrar_maquina() {
 
 # Versão instalada: "N hash data" (N = nº de commits do repositório; +dev = com mudanças não gravadas).
 versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
-versao_num() { versao | awk '{ print $1 + 0 }'; }
+# O número sai sem processo quando o 1º campo é inteiro (o caso de sempre); o resto segue pelo awk, como antes.
+versao_num() {
+  local v=""
+  if { read -r v _ && ! read -r _; } <"$DIR_TT/VERSAO" 2>/dev/null && [[ $v =~ ^([0-9]+)(\+.*)?$ ]]; then
+    echo $((10#${BASH_REMATCH[1]})); return 0 # uma linha só, "323 …" ou "323+dev …"
+  fi
+  versao | awk '{ print $1 + 0 }'
+}
 
 # Versão para humanos: MAIOR.MENOR.PATCH, hierárquica — quando um número da esquerda sobe, os da direita
 # zeram (1.6.12 -> 1.7.0). O arquivo MARCO do repositório diz a série ("1.7"); o PATCH é quantos commits
@@ -1945,7 +2028,7 @@ versao_marco_git() { # repositório [ref] -> MAIOR.MENOR.PATCH
   printf '%s.%s' "$m" "$p"
 }
 versao_disp() { # rótulo MAIOR.MENOR.PATCH da instalação
-  local d; d=$(awk '{ print $4 }' "$DIR_TT/VERSAO" 2>/dev/null)
+  local d="" _l=""; { IFS= read -r _l <"$DIR_TT/VERSAO"; read -r _ _ _ d _ <<<"$_l"; } 2>/dev/null
   if [[ $d =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then printf '%s' "$d"; else printf '1.%s.%s' "$VERSAO_MINOR" "$(versao_num)"; fi
 }
 versao_humana() { printf 'v%s' "$(versao_disp)"; }
@@ -3385,7 +3468,16 @@ listar_remoto() {
 }
 
 # Estado do menu aberto (filtro de máquina, escopo da busca), num arquivo temporário por menu.
-estado() { [[ -n ${TT_ESTADO:-} ]] && sed -n "s/^$1=//p" "$TT_ESTADO" 2>/dev/null | tail -1; }
+# O último valor de "chave=" no arquivo de estado do menu (o mesmo do sed | tail de antes, sem os dois processos:
+# o seletor e a central leem o estado várias vezes por tecla e por recarga).
+estado() {
+  [[ -n ${TT_ESTADO:-} ]] || return 1
+  [[ -r $TT_ESTADO ]] || return 0
+  local _l _v="" _a=0
+  while IFS= read -r _l || [[ -n $_l ]]; do [[ $_l == "$1="* ]] && { _v=${_l#*=}; _a=1; }; done <"$TT_ESTADO"
+  ((_a)) && printf '%s\n' "$_v"
+  return 0
+}
 estado_por() { [[ -n ${TT_ESTADO:-} ]] && echo "$1=$2" >>"$TT_ESTADO"; }
 nth_atual() { [[ $(estado busca) == nomes ]] && echo 1 || echo 1,2; }
 
@@ -4011,16 +4103,21 @@ criar_ponte() {
   # Uma ponte por aparelho: dois aparelhos vendo a mesma sessão de outra máquina não podem dividir
   # a ponte, senão uma troca de sessão pedida por um (tt --ir-ponte) leva o outro junto. O aparelho
   # reaproveita a ponte dele, ou uma livre (ninguém anexado) do mesmo alvo; senão cria outra.
+  local -a lote=()
   if [[ -n $cliente ]]; then
     ponte=""
-    while IFS=$'\t' read -r nome anexada dono; do
-      [[ $dono == "$cliente" ]] && { ponte=$nome; break; }
-      [[ -z $ponte && $anexada == 0 ]] && ponte=$nome
+    local p_dono="" p_alvo="" a_alvo
+    # Dono e alvo de cada ponte já vêm na lista (separador 0x1F: um dono vazio não desloca as colunas); eram mais
+    # duas idas ao tmux (show-options) para reaproveitar a ponte.
+    while IFS=$'\x1f' read -r nome anexada dono a_alvo; do
+      [[ $dono == "$cliente" ]] && { ponte=$nome p_dono=$dono p_alvo=$a_alvo; break; }
+      [[ -z $ponte && $anexada == 0 ]] && { ponte=$nome p_dono=$dono p_alvo=$a_alvo; }
     done < <(tmux list-sessions -F "#{session_name}"$'\t'"#{session_attached}"$'\t'"#{@ponte_dono}"$'\t'"#{@ponte_alvo}" 2>/dev/null |
-      awk -F'\t' -v a="$alvo" -v b="$base" '$4 == a || ($4 == "" && $1 == b) { print $1 "\t" $2 "\t" $3 }')
+      awk -F'\t' -v a="$alvo" -v b="$base" '$4 == a || ($4 == "" && $1 == b) { print $1 "\037" $2 "\037" $3 "\037" $4 }')
     if [[ -n $ponte ]]; then
-      [[ $(tmux show-options -qv -t "=$ponte:" @ponte_dono) == "$cliente" ]] || tmux set-option -t "=$ponte:" @ponte_dono "$cliente"
-      [[ -n $(tmux show-options -qv -t "=$ponte:" @ponte_alvo) ]] || tmux set-option -t "=$ponte:" @ponte_alvo "$alvo"
+      [[ $p_dono == "$cliente" ]] || lote_add lote set-option -t "=$ponte:" @ponte_dono "$cliente"
+      [[ -n $p_alvo ]] || lote_add lote set-option -t "=$ponte:" @ponte_alvo "$alvo"
+      ((${#lote[@]})) && tmux "${lote[@]}"
       echo "$ponte"; return 0
     fi
     ponte=$base
@@ -4029,12 +4126,14 @@ criar_ponte() {
     ponte=$base
     tmux has-session -t "=$ponte" 2>/dev/null && { echo "$ponte"; return 0; }
   fi
-  tmux new-session -d -s "$ponte" "$(q "$EU" --ponte "$dest" "$s" "$ponte")" || return 1
-  tmux set-option -t "=$ponte:" @ponte "$dest"
-  tmux set-option -t "=$ponte:" @ponte_alvo "$alvo"
-  [[ -n $cliente ]] && tmux set-option -t "=$ponte:" @ponte_dono "$cliente"
-  tmux set-option -t "=$ponte:" @nome_auto 0
-  tmux set-option -t "=$ponte:" status off
+  # A sessão e as marcas dela numa ida só (se o new-session falha, o tmux não roda o resto e devolve erro).
+  lote_add lote new-session -d -s "$ponte" "$(q "$EU" --ponte "$dest" "$s" "$ponte")"
+  lote_add lote set-option -t "=$ponte:" @ponte "$dest"
+  lote_add lote set-option -t "=$ponte:" @ponte_alvo "$alvo"
+  [[ -n $cliente ]] && lote_add lote set-option -t "=$ponte:" @ponte_dono "$cliente"
+  lote_add lote set-option -t "=$ponte:" @nome_auto 0
+  lote_add lote set-option -t "=$ponte:" status off
+  tmux "${lote[@]}" || return 1
   echo "$ponte"
 }
 
@@ -4097,7 +4196,8 @@ entrar_remoto() {
     eval "$(cmd_ver "$dest" "$s")"
     return
   fi
-  if ! sessao_remota_existe "$dest" "$s"; then
+  # (_remota_confirmada: quem chamou acabou de achar a sessão lá pelo id, ver ir_fixada)
+  if [[ ${_remota_confirmada:-} != "$dest" ]] && ! sessao_remota_existe "$dest" "$s"; then
     tmux display-message ${TT_CLIENTE:+-c "$TT_CLIENTE"} "⚠ $(rotulo_de "$dest"):$s não existe mais ou está inacessível"
     return 1
   fi
@@ -4384,20 +4484,40 @@ seletor() {
 # Abre o seletor num popup ancorado na barra, junto do clique. M = rótulo da máquina, ou "todas".
 seletor_em() {
   local c=$1 m=${2:-$MAQUINA} p=${3:-} cw ch w h x prev="" atual
-  read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
+  # Tamanho e sessão numa ida só ao tmux (o nome da sessão por último: pode ter espaço)
+  read -r cw ch atual < <(do_cliente "$c" '#{client_width} #{client_height} #{session_name}')
   if ((cw >= 140)); then w=130; prev=1; else w=$((cw < 74 ? cw : 74)); fi
   h=$((ch * 72 / 100)); ((h < 14)) && h=14; ((h > ch - 2)) && h=$((ch - 2))
   x=${TT_X:-0}
   ((x + w > cw)) && x=$((cw - w))
-  atual=$(do_cliente "$c" '#{session_name}')
   tmux display-popup -c "$c" -x "$x" -y S -w "$w" -h "$h" -T " ☰ sessões " -E \
     "TT_CLIENTE=$(q "$c") TT_SEL_MAQ=$(q "$m") TT_PREVIA=$prev TT_PANE=$p TT_ATUAL=$(q "$MAQUINA|$atual") $EU --seletor"
 }
 
 
 # Barrinha de título dos painéis só nas janelas com 2+ painéis (chamado pelos ganchos do tmux).
-bordas() {
+bordas() { # [gancho]
+  # Abrir ou fechar uma janela flutuante dispara 3 ou 4 ganchos de uma vez (layout, split, kill, exited), cada um
+  # com um `tt --bordas gancho`: só o primeiro confere. Ele grava a marca (pid e hora), espera os 50 ms de sempre
+  # e a apaga ANTES de ler o estado; o gancho que chega enquanto a marca existe sai na hora (a leitura do
+  # primeiro, depois da espera, já vê o que esse evento mudou). Marca de processo morto, ou com mais de 5 s, é
+  # ignorada. Chamado sem "gancho" (linha de comando, testes), sempre confere e só volta com a barrinha certa.
+  local -; set -C
+  local marca=$RT/tt-bordas-$UID.pend agora dono="" quando=""
+  printf -v agora '%(%s)T' -1
+  if [[ ${1:-} != gancho ]]; then
+    :
+  elif ! { printf '%s %s\n' "$BASHPID" "$agora" >"$marca"; } 2>/dev/null; then
+    { read -r dono quando <"$marca"; } 2>/dev/null
+    if [[ $dono =~ ^[0-9]+$ && $quando =~ ^[0-9]+$ ]] && ((agora >= quando && agora - quando < 5)) && kill -0 "$dono" 2>/dev/null; then
+      return 0
+    fi
+    rm -f "$marca"
+    { printf '%s %s\n' "$BASHPID" "$agora" >"$marca"; } 2>/dev/null || return 0
+  fi
+  set +C
   sleep 0.05
+  [[ ${1:-} == gancho ]] && rm -f "$marca"
   local w n fl atual f quer
   local -A divididos=() flutuantes=()
   # Painel flutuante (tmux 3.7+: as janelas flutuantes do tt, Ctrl+arrastar) não divide a janela: contado como painel,
@@ -4505,7 +4625,7 @@ abrir_url() {
 # Samsung Internet é uma opção explícita no Android; direcione o intent ao pacote para não depender
 # do navegador padrão nem deixar o Android abrir um seletor. No proot, am/cmd vêm do Android via PATH.
 samsung_internet_disponivel() {
-  command -v termux-open-url >/dev/null && command -v am >/dev/null
+  tem_cmd termux-open-url && tem_cmd am
 }
 
 abrir_samsung_internet() {
@@ -4539,8 +4659,8 @@ ua_chrome() {
 }
 
 navegadores_graficos_ok() {
-  pacotes_lib 2>/dev/null || { [[ $(uname -m) == x86_64 && $(uname -s) == Linux ]] && ! command -v termux-open-url >/dev/null; return; }
-  [[ $(pk_so) == linux && $(pk_arch) == x86_64 && $(pk_libc) == glibc ]] && [[ $(pk_ambiente) != termux ]] && ! command -v termux-open-url >/dev/null
+  pacotes_lib 2>/dev/null || { [[ $(uname -m) == x86_64 && $(uname -s) == Linux ]] && ! tem_cmd termux-open-url; return; }
+  [[ $(pk_so) == linux && $(pk_arch) == x86_64 && $(pk_libc) == glibc ]] && [[ $(pk_ambiente) != termux ]] && ! tem_cmd termux-open-url
 }
 bin_chromium() { echo "$DIR_NAVEGADORES/chrome/opt/google/chrome/chrome"; }
 bin_carbonyl() { echo "$DIR_NAVEGADORES/carbonyl/carbonyl-0.0.3/carbonyl"; }
@@ -6108,10 +6228,16 @@ menu_popup_ui() {
 
 # Tamanho dos popups grandes: tela cheia em tela pequena (celular), 90%x85% nas outras.
 tam_popup() {
+  # Menus que montam muitos itens (menu_painel, menu_admin…) medem o cliente uma vez (tam_popup_fixar) e os
+  # popup_tt dos itens usam essa medida: era uma ida ao tmux e um awk por item, ~14 por menu.
+  if [[ -n ${_TAM_POPUP_V:-} && ${_TAM_POPUP_C:-} == "$1" ]]; then printf '%s\n' "$_TAM_POPUP_V"; return 0; fi
   local cw ch
   read -r cw ch < <(do_cliente "$1" '#{client_width} #{client_height}')
   if ((${cw:-80} < 80 || ${ch:-30} < 30)); then echo "-w 100% -h 100%"; else echo "-w 90% -h 85%"; fi
 }
+# Mede uma vez para os popup_tt seguintes. Quem chama declara antes: local _TAM_POPUP_C="" _TAM_POPUP_V=""
+# (assim a medida morre com a função que montou o menu).
+tam_popup_fixar() { _TAM_POPUP_V=$(tam_popup "$1"); _TAM_POPUP_C=$1; }
 
 # Popup de tamanho fixo que cabe na tela: o tmux recusa popup maior que a tela do cliente ("width
 # too large") e o clique não fazia nada no celular (63 colunas: +N das fixadas, 🔔, renomear…).
@@ -6133,10 +6259,13 @@ compacto() { (($(tput cols 2>/dev/null || echo 80) < 80 || $(tput lines 2>/dev/n
 
 # Menu do painel (botão ⋯, Ctrl+B m, botão direito no painel).
 menu_painel() {
-  local c=$1 p=$2 pasta env troca=""
-  pasta=$(tmux display-message -p -t "$p" '#{pane_current_path}')
+  local c=$1 p=$2 pasta env troca="" _info painel_tt idx
+  local _TAM_POPUP_C="" _TAM_POPUP_V=""; tam_popup_fixar "$c"
+  # Pasta, marca de painel do tt (@tt_painel só existe no nível do painel) e índice numa ida só (eram três).
+  _info=$(tmux display-message -p -t "$p" "#{pane_current_path}"$'\x1f'"#{@tt_painel}"$'\x1f'"#{pane_index}")
+  pasta=${_info%%$'\x1f'*}; _info=${_info#*$'\x1f'}; painel_tt=${_info%%$'\x1f'*}; idx=${_info#*$'\x1f'}
   env="TT_CLIENTE=$c TT_PANE=$p"
-  [[ -n $(tmux show-options -pqv -t "$p" @tt_painel) ]] && troca="$(popup_tt "$c" trocar "$env TT_MODO=aqui $EU")"
+  [[ -n $painel_tt ]] && troca="$(popup_tt "$c" trocar "$env TT_MODO=aqui $EU")"
   # Se a última cópia é o caminho de um arquivo/pasta que existe (a partir da pasta do painel), oferece enviar.
   local copiado="" cam
   cam=$(tmux show-buffer 2>/dev/null | head -n1 | head -c 400 | sed -e 's/^[[:space:]"'"'"']*//' -e 's/[[:space:]"'"'"']*$//')
@@ -6145,7 +6274,7 @@ menu_painel() {
     cam=$(expandir "$cam")
     [[ -e $cam ]] && copiado=$'\n'"i	📤 Enviar “$(basename "$cam")” (caminho copiado)…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar $(q "$cam")")"
   fi
-  menu_popup "$c" "painel $(tmux display-message -p -t "$p" '#{pane_index}')" <<ITENS
+  menu_popup "$c" "painel $idx" <<ITENS
 l	Dividir ao lado (terminal novo)	tmux split-window -h -t $p -c $(q "$pasta")
 b	Dividir embaixo (terminal novo)	tmux split-window -v -t $p -c $(q "$pasta")
 -		
@@ -6182,15 +6311,19 @@ ITENS
 
 # Menu do próprio tmux: janelas, arrumação dos painéis, opções, sessão/tela atual e os outros menus.
 menu_tmux() {
-  local c=$1 p=${2:-} sess win sinc mouse ed
-  sess=$(do_cliente "$c" '#{session_name}')
-  win=$(do_cliente "$c" '#{window_id}')
-  [[ -n $p ]] || p=$(do_cliente "$c" '#{pane_id}')
+  local c=$1 p=${2:-} sess win sinc mouse ed p0 info ver pasta
+  local _TAM_POPUP_C="" _TAM_POPUP_V=""; tam_popup_fixar "$c"
+  # Janela, painel e sessão do cliente numa ida só (a sessão por último: o nome pode ter espaço); eram três.
+  read -r win p0 sess < <(do_cliente "$c" '#{window_id} #{pane_id} #{session_name}')
+  [[ -n $p ]] || p=$p0
   [[ $(tmux show-options -wv -t "$win" synchronize-panes) == on ]] && sinc="✓ ligado" || sinc="desligado"
   [[ $(tmux show-options -gv mouse) == on ]] && mouse="✓ ligado" || mouse="desligado"
   ed=$(editor_tt)
-  menu_popup "$c" "tmux $(tmux display-message -p '#{version}') · $sess" <<ITENS
-c	Nova janela nesta sessão	tmux new-window -t $(q "=$sess:") -c $(q "$(tmux display-message -p -t "$p" '#{pane_current_path}')")
+  if info=$(tmux display-message -p -t "$p" "#{version}"$'\x1f'"#{pane_current_path}" 2>/dev/null) && [[ $info == *$'\x1f'* ]]; then
+    ver=${info%%$'\x1f'*}; pasta=${info#*$'\x1f'}
+  else ver=$(tmux display-message -p '#{version}'); pasta=""; fi
+  menu_popup "$c" "tmux $ver · $sess" <<ITENS
+c	Nova janela nesta sessão	tmux new-window -t $(q "=$sess:") -c $(q "$pasta")
 n	Próxima janela	tmux next-window -t $(q "=$sess:")
 b	Janela anterior	tmux previous-window -t $(q "=$sess:")
 -		
@@ -6320,6 +6453,7 @@ ITENS
 # Menu de arquivos (botão ⇅ da barra).
 menu_arquivos() {
   local c=$1 p=${2:-} env
+  local _TAM_POPUP_C="" _TAM_POPUP_V=""; tam_popup_fixar "$c"
   env="TT_CLIENTE=$c TT_PANE=$p"
   menu_popup "$c" "⇅ arquivos" <<ITENS
 e	📤 Enviar daqui para outra máquina…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar")
@@ -6365,6 +6499,7 @@ menu_maquinas() {
 # ou "Administrar" no menu das máquinas).
 menu_admin() {
   local c=$1 p=${2:-} vl atras=0 rot f n v
+  local _TAM_POPUP_C="" _TAM_POPUP_V=""; tam_popup_fixar "$c"
   vl=$(versao_num)
   while read -r _ rot; do
     f=$(info_maquina "$rot")
@@ -6465,7 +6600,34 @@ resolver_fixada_remota() {
 # a chave permite resolver o clique contra a máquina e a sessão corretas mesmo nesse intervalo.
 # O tmux limita o argumento de range=user|X a 15 bytes; 12 hexadecimais deixam margem para
 # classificadores e versões que acrescentam o prefixo do tipo ao valor.
-fixada_chave() { printf '%s\t%s' "$1" "${3:-$2}" | sha256sum | cut -c1-12; }
+fixada_chave() { local __fxk; fixada_chave_em __fxk "$@"; printf '%s\n' "$__fxk"; }
+# A chave é função pura de (máquina, id ou sessão): calculada uma vez, fica lembrada no processo e em
+# $RT/tt-fixadas-chaves-$UID (o sha256sum custava 2 processos por fixada, em cada clique e em cada
+# redesenho da faixa). fixada_chave_em grava em VAR sem subshell.
+declare -A _FX_CHAVE=()
+_FX_CHAVE_LIDO=""
+fixada_chave_em() { # VAR máquina sessão [id]
+  local _c=${4:-$3}
+  local _p="$2"$'\t'"$_c" _a=$RT/tt-fixadas-chaves-$UID _r _s _k _n=0
+  if [[ $_FX_CHAVE_LIDO != "$_a" ]]; then
+    _FX_CHAVE_LIDO=$_a
+    if [[ -f $_a && -O $_a ]]; then
+      while IFS=$'\t' read -r _r _s _k; do
+        [[ $_k =~ ^[0-9a-f]{12}$ ]] && _FX_CHAVE["$_r"$'\t'"$_s"]=$_k; _n=$((_n + 1))
+      done <"$_a"
+      ((_n > 2000)) && : >"$_a" # nunca cresce sem fim (as chaves voltam sob demanda)
+    fi
+  fi
+  _k=${_FX_CHAVE[$_p]:-}
+  if [[ -z $_k ]]; then
+    _k=$(printf '%s' "$_p" | sha256sum | cut -c1-12)
+    if [[ $_k =~ ^[0-9a-f]{12}$ && $2 != *$'\n'* && $_c != *$'\n'* ]]; then
+      _FX_CHAVE[$_p]=$_k
+      { printf '%s\t%s\n' "$_p" "$_k" >>"$_a"; } 2>/dev/null
+    fi
+  fi
+  printf -v "$1" '%s' "$_k"
+}
 
 # A lista é a mesma em todas as máquinas: cada mudança é copiada para as cadastradas (em segundo
 # plano), e cada uma redesenha a barra. Assim as fixadas não somem ao entrar numa sessão de outra
@@ -6847,7 +7009,7 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas [extras
     done < <(python3 -I "$MERGE_PY" triagem "$CONF_TAREFAS" "$id" 2>/dev/null)
     ((descartada)) && return 1
   fi
-  atualizar_barras 2>/dev/null
+  atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
   printf '%s\n' "$id"
 }
@@ -6938,7 +7100,7 @@ tarefas_aplicar_linhas() {
   { cat "$CONF_TAREFAS"; printf '%s\n' "$novas"; } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
   mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
-  atualizar_barras 2>/dev/null
+  atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
 }
 # "id:situação:mudanças:conflitos" de cada atualização pendente (situação: igual|limpo|conflito), para a aba Entrada.
@@ -7161,7 +7323,7 @@ tarefas_demanda_mudar_linhas() { # aprovar|recusar ID...
   n=$(cat "$tmp.n" 2>/dev/null); rm -f "$tmp.n"
   mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
-  atualizar_barras 2>/dev/null
+  atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
   echo "${n:-0}"
 }
@@ -7234,18 +7396,26 @@ demandas_ui() {
 
 # Liga/desliga a 2ª linha e força a barra a se redesenhar já (o #() da barra muda de comando).
 aplicar_fixadas() {
-  tmux list-sessions >/dev/null 2>&1 || return 0
-  # A faixa permanece visível mesmo vazia: o marcador deixa claro onde as fixadas aparecerão.
-  local _lin; _lin=$(barra_status_linhas)
-  [[ $(tmux show -gv status 2>/dev/null) == "$_lin" ]] || tmux set -g status "$_lin"
+  # A faixa permanece visível mesmo vazia (o marcador deixa claro onde as fixadas aparecerão): o nº de linhas da
+  # barra (status) é conferido e gravado pelo atualizar_barras, no fim, junto com o resto.
   # Marca nas sessões daqui (@tt_fixada): o 📌 ao lado do nome, na barra, fica aceso nas fixadas.
-  # Só grava o que mudou: todo set-option redesenha a tela inteira de todos os clientes.
-  local sess marca fix
-  fix=$(fixadas | awk -F'\t' -v m="$MAQUINA" '$1 == m { print $2 }')
+  # Só grava o que mudou, e tudo numa ida só: todo set-option redesenha a tela inteira de todos os clientes.
+  local sess marca l lista
+  local -A fix=(); local -a lote=()
+  lista=$(tmux list-sessions -F "#{session_name}"$'\t'"#{@tt_fixada}" 2>/dev/null) || return 0
+  if [[ -f $CONF_FIX ]]; then
+    while IFS= read -r l || [[ -n $l ]]; do
+      [[ $l =~ ^[[:space:]]*$ || $l != *$'\t'* ]] && continue
+      [[ ${l%%$'\t'*} == "$MAQUINA" ]] || continue
+      l=${l#*$'\t'}; l=${l%%$'\t'*}; [[ -n $l ]] && fix[$l]=1
+    done <"$CONF_FIX"
+  fi
   while IFS=$'\t' read -r sess marca; do
-    if grep -qxF -- "$sess" <<<"$fix"; then [[ $marca == 1 ]] || tmux set -q -t "=$sess:" @tt_fixada 1
-    else [[ -z $marca ]] || tmux set -q -u -t "=$sess:" @tt_fixada; fi
-  done < <(tmux list-sessions -F "#{session_name}"$'\t'"#{@tt_fixada}" 2>/dev/null)
+    [[ -n $sess ]] || continue
+    if [[ -n ${fix[$sess]:-} ]]; then [[ $marca == 1 ]] || lote_add lote set -q -t "=$sess:" @tt_fixada 1
+    else [[ -z $marca ]] || lote_add lote set -q -u -t "=$sess:" @tt_fixada; fi
+  done <<<"$lista"
+  ((${#lote[@]})) && tmux "${lote[@]}" 2>/dev/null
   atualizar_barras
 }
 
@@ -7506,7 +7676,7 @@ tarefa_set_meta() { # id meta
     NF>=5 { if ($1==id) { $4=now; $6=meta } print }' "$CONF_TAREFAS" >"$tmp"
   mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
-  atualizar_barras 2>/dev/null
+  atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
 }
 
@@ -7589,7 +7759,7 @@ tarefas_gravar_linha() { # id estado texto meta
   { cat "$CONF_TAREFAS"; printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$est" "$c" "$now" "$txt" "$meta"; } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
   mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
-  atualizar_barras 2>/dev/null
+  atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
 }
 
@@ -7602,7 +7772,7 @@ tarefa_add() {
   { cat "$CONF_TAREFAS"; printf '%s\t%s\t%s\t%s\t%s\n' "$id" aberta "$now" "$now" "$txt"; } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
   mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
-  atualizar_barras 2>/dev/null
+  atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
   printf '%s\n' "$id"
 }
@@ -7776,7 +7946,7 @@ tarefa_editar() { # id frase [--desc]
     NF>=5 { if ($1==id) { $4=now; $5=ENVIRON["TT_TXT"]; $6=meta } print }' "$CONF_TAREFAS" >"$tmp"
   mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
-  atualizar_barras 2>/dev/null
+  atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
 }
 
@@ -7798,7 +7968,7 @@ tarefa_estado() {
       tarefa_estado "$f" removida
     done
   fi
-  atualizar_barras 2>/dev/null
+  atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
 }
 
@@ -7890,7 +8060,7 @@ tarefas_arquivo_mudar() { # arquivar|restaurar --feitas|ID...
   n=$(cat "$tmp.n" 2>/dev/null); rm -f "$tmp.n"
   mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
-  atualizar_barras 2>/dev/null
+  atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
   echo "${n:-0}"
 }
@@ -8638,9 +8808,9 @@ notifs_sincronizar_em_segundo_plano() { ("$EU" --notifs-sync >/dev/null 2>&1 &) 
 barra_status_linhas() { if faixa_notif_ativa; then echo 4; else echo 3; fi; }
 
 faixa_notif_ativa() {
-  local v; v=$(conf faixa_notif)
+  local v; conf_em v faixa_notif
   [[ -n $v ]] && { [[ $v != 0 ]]; return; }
-  ! command -v termux-open-url >/dev/null
+  ! tem_cmd termux-open-url
 }
 
 notificar() { # texto [segundos (padrão 300)] [ação: email|tarefas|calendario|cmd:...] [canal: sino]
@@ -8682,8 +8852,10 @@ barra_notifs_avisos() {
 # visível até abrir na central ou marcar todos como lidos (^l).
 barra_notifs_sino() {
   local agora exp _t _a canal f n=0
-  agora=$(date +%s)
-  for f in $(notifs_ids); do
+  printf -v agora '%(%s)T' -1
+  # Os mesmos ids do notifs_ids (só dígitos, 18 a 20), sem o ls e o grep: aqui só se conta.
+  for f in "$DIR_NOTIFS"/*; do
+    f=${f##*/}; [[ $f =~ ^[0-9]{18,20}$ ]] || continue
     [[ -f $DIR_NOTIFS/$f.lida ]] && continue
     IFS=$'\t' read -r exp _t _a canal <"$DIR_NOTIFS/$f" || continue
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) && n=$((n + 1))
@@ -9553,11 +9725,12 @@ notifs_render() {
 notifs_ui() {
   local c=${1:-} esc acao f
   if command -v fzf >/dev/null && [[ -t 1 ]]; then
-    esc=$(notifs_render | fzf --ansi --delimiter=$'\t' --with-nth=3 --layout=reverse --no-sort --no-input \
+    esc=$(notifs_render | TT_BARRA_FUNDO=1 fzf --ansi --delimiter=$'\t' --with-nth=3 --layout=reverse --no-sort --no-input \
       --header='⟦⏎ Abrir⟧ ⟦^u Não lidas⟧ ⟦^a Todas⟧ ⟦^d Apagar aviso⟧ ⟦^r Apagar lidas⟧ ⟦^l Marcar lidas⟧ ⟦Esc Fechar⟧' \
       --bind "q:abort,ctrl-u:change-query(● Não lida),ctrl-a:change-query(),ctrl-d:execute-silent($EU --notifs-apagar {2})+reload($EU --notifs-render),ctrl-r:execute-silent($EU --notifs-apagar-lidas)+reload($EU --notifs-render),ctrl-l:execute-silent($EU --notifs-lidas)+abort") || return 0
     acao=$(cut -f1 <<<"$esc"); f=$(cut -f2 <<<"$esc")
-    [[ -n $f && -f $DIR_NOTIFS/$f ]] && { : >"$DIR_NOTIFS/$f.lida"; notifs_sincronizar_em_segundo_plano; atualizar_barras >/dev/null 2>&1; }
+    # (a barra em 2º plano: a ação do aviso, como ir à sessão do agente, não espera o contador do 🔔)
+    [[ -n $f && -f $DIR_NOTIFS/$f ]] && { : >"$DIR_NOTIFS/$f.lida"; notifs_sincronizar_em_segundo_plano; atualizar_barras_fundo; }
     [[ -n $acao ]] && notif_abrir "$acao" "${c:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}"
   else notifs_render | cut -f3-; fi
   return 0
@@ -9571,12 +9744,12 @@ tarefas_notificar() { # titulo corpo [ação para o clique na faixa] [canal: sin
   # Com a faixa ligada o aviso JÁ aparece nela: o display-message por cima da 1ª linha vira
   # redundância que cobre a barra — só entra quando a faixa está desligada.
   if faixa_notif_ativa; then
-    command -v notify-send >/dev/null 2>&1 && notify-send -a tt "$t" "$c" >/dev/null 2>&1
-    command -v termux-notification >/dev/null 2>&1 && termux-notification --title "$t" --content "$c" >/dev/null 2>&1
+    tem_cmd notify-send && notify-send -a tt "$t" "$c" >/dev/null 2>&1
+    tem_cmd termux-notification && termux-notification --title "$t" --content "$c" >/dev/null 2>&1
     return 0
   fi
-  if command -v notify-send >/dev/null 2>&1; then notify-send -a tt "$t" "$c" >/dev/null 2>&1 && ok=0
-  elif command -v termux-notification >/dev/null 2>&1; then termux-notification --title "$t" --content "$c" >/dev/null 2>&1 && ok=0; fi
+  if tem_cmd notify-send; then notify-send -a tt "$t" "$c" >/dev/null 2>&1 && ok=0
+  elif tem_cmd termux-notification; then termux-notification --title "$t" --content "$c" >/dev/null 2>&1 && ok=0; fi
   # Também na tela de cada terminal aberto (no WSL não há notify-send).
   while read -r cl; do
     [[ -n $cl ]] && tmux display-message -c "$cl" -d 15000 "$t · $c" 2>/dev/null && ok=0
@@ -9717,9 +9890,10 @@ function rotulo_prazo(p, est, hora,   df, h) {
 '
 
 tarefas_relogio() { # -> "agora deslocamento-do-fuso-em-segundos"
-  local z s off; z=$(date +%z); s=${z:0:1}
+  local z s off agora; printf -v z '%(%z)T' -1; s=${z:0:1}
   off=$(( 10#${z:1:2} * 3600 + 10#${z:3:2} * 60 )); [[ $s == - ]] && off=$((-off))
-  echo "$(hora_agora) $off"
+  hora__ler; printf -v agora '%(%s)T' -1
+  echo "$((agora + HORA_D)) $off"
 }
 
 # Contagem das tarefas de topo: "hoje abertas feitas com-prazo todas" (hoje = abertas vencidas ou
@@ -9770,10 +9944,25 @@ barra_tarefas_fmt() {
 # Enquanto o painel está aberto o tmux bloqueia a barra de status (clicar nela nem fecha nem chega aos
 # binds): fecha-se por clique na janela fora do painel, por Esc, ou chamando de novo `tt --tarefas`.
 flutuante_suportado() {
-  local uso
-  uso=$(tmux list-commands new-pane 2>/dev/null) || return 1
-  [[ $uso =~ \[-([A-Za-z]+)\] ]] || return 1
-  [[ ${BASH_REMATCH[1]} == *O* && ${BASH_REMATCH[1]} == *C* && ${BASH_REMATCH[1]} == *K* ]]
+  # A resposta é do binário do servidor (o tt sempre fala com ele, ver tmux_alinhar): fica guardada por servidor
+  # (pid + instante em que nasceu, lidos de /proc) em $RT, sem uma ida ao tmux a cada popup. Sem $TMUX ou sem
+  # /proc, pergunta ao tmux como sempre.
+  local uso pid st id="" arq=$RT/tt-flutuante-$UID g="" r="" ok=1
+  local -a campos=()
+  if [[ -n ${TMUX:-} ]]; then
+    pid=${TMUX#*,}; pid=${pid%%,*}
+    if [[ $pid =~ ^[0-9]+$ ]] && { read -r st <"/proc/$pid/stat"; } 2>/dev/null; then
+      st=${st##*) }; read -r -a campos <<<"$st"
+      [[ ${campos[19]:-} =~ ^[0-9]+$ ]] && id="$pid:${campos[19]}"
+    fi
+    if [[ -n $id ]] && { read -r g r <"$arq"; } 2>/dev/null && [[ $g == "$id" && $r == [01] ]]; then
+      ((r)); return
+    fi
+  fi
+  if uso=$(tmux list-commands new-pane 2>/dev/null) && [[ $uso =~ \[-([A-Za-z]+)\] ]] &&
+     [[ ${BASH_REMATCH[1]} == *O* && ${BASH_REMATCH[1]} == *C* && ${BASH_REMATCH[1]} == *K* ]]; then ok=0; fi
+  [[ -n $id ]] && { printf '%s %s\n' "$id" "$((1 - ok))" >"$arq"; } 2>/dev/null
+  return "$ok"
 }
 flutuante_ativo() { [[ $(conf painel_flutuante) == 1 ]] && flutuante_suportado; }
 
@@ -9945,6 +10134,11 @@ tarefa_expandivel() { # id
 # Formata um epoch com um +FORMATO de strftime. GNU usa -d @epoch; BSD usa -r epoch.
 tt_fmt_epoch() { # epoch +formato
   local ep=$1 fmt=$2
+  # O printf do bash formata a data sem processo (strftime, com o TZ e o locale do momento, como o date). O que
+  # só o date de GNU entende (%N, %:z, %q…) segue para ele.
+  if [[ $ep =~ ^-?[0-9]+$ && $fmt == +* && $fmt != *%[-_0^#]* && $fmt != *%[0-9:EONPqs]* && $fmt != *[\)\\]* ]]; then
+    printf "%(${fmt#+})T\n" "$ep"; return 0
+  fi
   date -d "@$ep" "$fmt" 2>/dev/null || date -r "$ep" "$fmt" 2>/dev/null
 }
 # Epoch de uma data "YYYY-MM-DD[ HH:MM]". GNU aceita direto; BSD precisa de -j -f.
@@ -9988,8 +10182,9 @@ tarefas_ui() {
   fi
   tarefas_ui_set modo lista
   local a="$EU --tarefa-acao" cols; cols=$(tput cols 2>/dev/null || echo 64)
+  # TT_BARRA_FUNDO: as ações do painel não esperam a barra (atualizar_barras_pedir); a lista recarrega na hora.
   tarefas_lista_fzf |
-  fzf --ansi --disabled --with-nth=2.. --delimiter='\t' --wrap --wrap-sign='   ' \
+  TT_BARRA_FUNDO=1 fzf --ansi --disabled --with-nth=2.. --delimiter='\t' --wrap --wrap-sign='   ' \
     --layout=reverse --height=100% --border=none --info=hidden --no-separator --track \
     --prompt='  buscar ou criar › ' --pointer='▌' --header-first \
     --header="$(FZF_COLUMNS=$cols tarefas_cabecalho)" \
@@ -11050,7 +11245,7 @@ tarefa_renomear() { # id texto
     NF>=5 { if ($1==id) { $4=now; $5=ENVIRON["TT_TXT"] } print }' "$CONF_TAREFAS" >"$tmp"
   mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
-  atualizar_barras 2>/dev/null
+  atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
 }
 # Prompt de edição (F2, ✎ Editar na barra, ⋯ menu; chamado por execute() do fzf: tem o TTY): a
@@ -11495,7 +11690,7 @@ abrir_calendario() {
   read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
   w=76; h=36; ((w > ${cw:-80})) && w=${cw:-80}; ((h > ${ch:-24})) && h=${ch:-24}
   tmux display-popup -c "$c" -w "$w" -h "$h" -b rounded -S 'fg=#89b4fa' -T ' ▦ agenda · esc fecha ' \
-    -E "TT_CLIENTE=$(q "$c") $EU --calendario-agenda"
+    -E "TT_CLIENTE=$(q "$c") TT_BARRA_FUNDO=1 $EU --calendario-agenda"
 }
 
 # Saída texto (CLI pura): usada por `tt --tarefas` fora do tmux e como fallback sem fzf.
@@ -11546,8 +11741,7 @@ alternar_fixada() {
     # A marca fica dentro da sessão. Se ela for renomeada fora do tt, conseguimos achar a
     # mesma sessão pelo marcador e corrigir o nome mostrado na barra.
     if [[ $r == "$MAQUINA" ]]; then
-      tmux set-option -t "=$s:" @nome_auto 0 2>/dev/null
-      tmux set-option -t "=$s:" @tt_fixado_nome "$s" 2>/dev/null
+      tmux set-option -t "=$s:" @nome_auto 0 \; set-option -t "=$s:" @tt_fixado_nome "$s" 2>/dev/null
     else
       d=$(dest_de "$r")
       [[ -n $d ]] && timeout 5 ssh "${SSH_OPC[@]}" "$d" "$PATH_REMOTO tmux set-option -t $(q "=$s:") @nome_auto 0; tmux set-option -t $(q "=$s:") @tt_fixado_nome $(q "$s")" </dev/null >/dev/null 2>&1
@@ -11564,7 +11758,7 @@ alternar_fixada() {
 desafixar_item() {
   local c=$1 chave=${2#fxx} r s id k
   while IFS=$'\t' read -r r s id; do
-    k=$(fixada_chave "$r" "$s" "$id")
+    fixada_chave_em k "$r" "$s" "$id"
     [[ $k == "$chave" ]] && break
     r=""; s=""
   done < <(fixadas)
@@ -11787,12 +11981,29 @@ fixada_abrev() { # texto n -> A
 # letra não mudar quando a lista muda. Esta máquina não tem selo. Preenche SELO[] e SELO_COR[].
 FIX_CORES=('#ffb86c' '#50fa7b' '#8be9fd' '#ff79c6' '#f1fa8c' '#ff5555')
 fixadas_selos() {
-  local -a maqs=(); local r m k n i j ok ordem
+  local -a maqs=() cad=() lista=(); local r m k n i j ok ordem l a b c
   SELO=(); SELO_COR=()
-  while read -r r; do
+  # Em bash puro (eram dois awk e um cut, mais um awk por máquina, a cada redesenho da faixa): os rótulos
+  # das cadastradas (3ª coluna das linhas que não começam com #) e as máquinas das fixadas (1º campo).
+  if [[ -r $CONF_MAQ ]]; then
+    while IFS= read -r l || [[ -n $l ]]; do
+      [[ $l == \#* ]] && continue
+      c=""; read -r a b c _ <<<"$l"
+      [[ -n $c ]] && cad+=("$c")
+    done <"$CONF_MAQ"
+  fi
+  lista=("${cad[@]}")
+  if [[ -f $CONF_FIX ]]; then
+    while IFS= read -r l || [[ -n $l ]]; do
+      [[ $l =~ ^[[:space:]]*$ ]] && continue
+      lista+=("${l%%$'\t'*}")
+    done <"$CONF_FIX"
+  fi
+  for r in "${lista[@]}"; do
+    r=${r#"${r%%[![:blank:]]*}"}; r=${r%"${r##*[![:blank:]]}"} # sem os brancos das pontas, como o read de antes
     [[ -n $r && $r != "$MAQUINA" && -z ${SELO[$r]:-} ]] || continue
     SELO[$r]=x; maqs+=("$r")
-  done < <(awk '!/^#/ && NF >= 3 { print $3 }' "$CONF_MAQ" 2>/dev/null; fixadas | cut -f1)
+  done
   ((${#maqs[@]})) || return 0
   for ((k = 1; k <= 4; k++)); do
     ok=1
@@ -11803,7 +12014,8 @@ fixadas_selos() {
     ((ok)) && break
   done
   for m in "${maqs[@]}"; do
-    ordem=$(awk -v m="$m" '!/^#/ && NF >= 3 { n++; if ($3 == m) { print n; exit } }' "$CONF_MAQ" 2>/dev/null)
+    ordem=""
+    for i in "${!cad[@]}"; do [[ ${cad[i]} == "$m" ]] && { ordem=$((i + 1)); break; }; done
     [[ -n $ordem ]] || ordem=$(( $(printf '%s' "$m" | cksum | cut -d' ' -f1) % 6 + 1 ))
     SELO_COR[$m]=${FIX_CORES[$(( (ordem - 1) % ${#FIX_CORES[@]} ))]}
   done
@@ -11836,25 +12048,28 @@ selo_ansi() { # maquina
 barra_fixadas_fmt() {
   local normal='#[bg=#44475a]#[fg=#f8f8f2]#[nobold]' atual='#[bg=#bd93f9]#[fg=#282a36]#[bold]' morta='#[bg=#282a36]#[fg=#6272a4]#[nobold]'
   local -A existe=() SELO=() SELO_COR=() FX_ABREV=([_]=); local FX_MEMO=1
-  local s r id
+  local s r id fxk
   while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
   if [[ -z $(fixadas) ]]; then
     printf '#[fg=#6272a4] ▸ 📌'
     return 0
   fi
-  [[ $(locale charmap 2>/dev/null) == UTF-8 ]] || local LC_ALL=C.UTF-8
+  # Locale que não é UTF-8: as larguras contariam bytes. O teste é o tamanho de um "é" (1 caractere só em
+  # UTF-8), sem o processo do `locale charmap`.
+  local _u='é'; ((${#_u} == 1)) || local LC_ALL=C.UTF-8
   fixadas_selos
   local -a nome=() maq=() chaves=() vivas=()
   local total=0
   while IFS=$'\t' read -r r s id; do
     total=$((total + 1))
-    chaves[total]=$(fixada_chave "$r" "$s" "$id"); nome[total]=$s; maq[total]=$r
+    fixada_chave_em fxk "$r" "$s" "$id"; chaves[total]=$fxk; nome[total]=$s; maq[total]=$r
     if [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then vivas[total]=0
     elif [[ $r == "$MAQUINA" && $s != *[,}#\']* ]]; then vivas[total]=2
     else vivas[total]=1; fi
   done < <(fixadas)
   # Largura do canto direito (tarefas + versão), medida, mais o marcador " ▸ " da esquerda.
-  local dir; dir=$(printf '%s' "$(barra_tarefas_fmt)$(versao_barra)" | sed 's/#\[[^]]*\]//g')
+  # (o atualizar_barras já calculou os dois e os passa em _BARRA_DIR_TXT; chamada avulsa calcula aqui)
+  local dir; dir=$(printf '%s' "${_BARRA_DIR_TXT-$(barra_tarefas_fmt)$(versao_barra)}" | sed 's/#\[[^]]*\]//g')
   tt_largura "$dir"; dir=$((W + 3 + 1))
   local cfg="" arq
   _fx_opt() { cfg+="set -g $1 '$2'"$'\n'; }   # valores sem aspa simples (vira ’)
@@ -11936,8 +12151,11 @@ barra_fixadas_fmt() {
   # @barra_fixadas, para o formato mudar junto com o conteúdo.
   local carimbo; carimbo=$(printf '%s' "$cfg" | cksum | cut -d' ' -f1)
   # (carimbo igual mas @fx0_1 ausente = opções apagadas à mão: grava de novo)
-  if [[ $(tmux show -gqv @fx_carimbo 2>/dev/null) != "$carimbo" || -z $(tmux show -gqv @fx0_1 2>/dev/null) ]]; then
-    mkdir -p "$RT"; arq=$(mktemp "$RT/tt-fixadas-fmt.XXXXXX") || return 0
+  local no_srv="" no_fx="" _sai
+  _sai=$(tmux display-message -p "#{@fx_carimbo}"$'\x1f'"#{@fx0_1}"$'\x1f'"fim" 2>/dev/null) &&
+    [[ $_sai == *$'\x1f'fim ]] && { no_srv=${_sai%%$'\x1f'*}; _sai=${_sai#*$'\x1f'}; no_fx=${_sai%$'\x1f'fim}; }
+  if [[ $no_srv != "$carimbo" || -z $no_fx ]]; then
+    [[ -d $RT ]] || mkdir -p "$RT"; arq=$(mktemp "$RT/tt-fixadas-fmt.XXXXXX") || return 0
     printf '%sset -g @fx_carimbo %s\n' "$cfg" "$carimbo" >"$arq"; tmux source-file "$arq" 2>/dev/null; rm -f "$arq"
   fi
   printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
@@ -11957,29 +12175,86 @@ barra_fixadas_fmt() {
 # não iniciar processo a cada redesenho da barra.
 versao_barra() { printf '#[fg=#6c7086]%s ' "$(versao_humana)"; }
 
+# Vários comandos do tmux numa ida só (um pedido ao servidor e, se mexem em opções, um redesenho só).
+# lote=(); lote_add lote set -g @a 1; lote_add lote set -g @b 2; tmux "${lote[@]}"
+# Separa com ";", exceto quando o argumento anterior já termina em ";" sem "\" antes: o tmux trata esse
+# argumento como fim de comando (é a mesma regra de uma chamada avulsa), e um ";" a mais seria um comando vazio.
+lote_add() { # NOME_DO_ARRAY comando [args…]
+  local -n _lote_ref=$1; shift
+  if ((${#_lote_ref[@]})); then
+    local _ult=${_lote_ref[-1]}
+    [[ $_ult == *';' && $_ult != *'\;' ]] || _lote_ref+=(';')
+  fi
+  _lote_ref+=("$@")
+}
+
+# Depois de mudar um dado que a barra mostra (tarefas, avisos). Na linha de comando (e nos testes) é o
+# atualizar_barras de sempre: volta com a barra pronta. Nas telas interativas que recarregam a própria lista
+# (painel de tarefas, histórico de avisos: TT_BARRA_FUNDO=1), a tela não espera a barra: o pedido vai para o
+# 2º plano e pedidos seguidos se juntam (atualizar_barras_fundo). Cada ⏎/clique no painel esperava a volta
+# inteira da barra antes de redesenhar a lista.
+atualizar_barras_pedir() {
+  if [[ -n ${TT_BARRA_FUNDO:-} ]]; then atualizar_barras_fundo; else atualizar_barras; fi
+}
+# Uma volta de atualizar_barras em 2º plano por vez. O pedido marca $RT/tt-barras-UID.pedido; quem pega a
+# trava (arquivo com o pid, criado sem sobrescrever) dá voltas enquanto houver pedido novo e confere de novo
+# depois de soltar a trava (o pedido que chegou entre a última conferência e a soltura não fica sem volta).
+# A última volta sempre começa depois do último pedido: a barra termina no estado final, nunca num anterior.
+# Trava de processo que morreu é ignorada.
+atualizar_barras_fundo() {
+  local pedido=$RT/tt-barras-$UID.pedido trava=$RT/tt-barras-$UID.trava
+  { : >"$pedido"; } 2>/dev/null || { atualizar_barras; return; }
+  (
+    exec </dev/null >/dev/null 2>&1
+    local dono quando agora n=0
+    _barras_trava() { local -; set -C; printf -v agora '%(%s)T' -1; { printf '%s %s\n' "$BASHPID" "$agora" >"$trava"; } 2>/dev/null; }
+    while ((n++ < 20)); do
+      if ! _barras_trava; then
+        dono="" quando=""; { read -r dono quando <"$trava"; } 2>/dev/null
+        # a volta em andamento vê este pedido (trava de mais de 30 s, ou de pid que não existe, é de quem morreu)
+        [[ $dono =~ ^[0-9]+$ && $quando =~ ^[0-9]+$ ]] && ((agora >= quando && agora - quando < 30)) &&
+          kill -0 "$dono" 2>/dev/null && exit 0
+        rm -f "$trava"; continue
+      fi
+      while [[ -e $pedido ]]; do rm -f "$pedido"; atualizar_barras; done
+      rm -f "$trava"
+      [[ -e $pedido ]] || exit 0
+    done
+  ) &
+}
+
 # Recalcula as faixas da barra (fixadas, atalhos, transferências) e as guarda em opções do tmux,
 # que a barra só lê. Só grava o que mudou: cada set-option redesenha a tela inteira de todos os
 # clientes (o miolo da faixa nem passa por aqui — é o letreiro-tt.py, ver barra_notifs_fmt).
 atualizar_barras() {
-  tmux list-sessions >/dev/null 2>&1 || return 0
-  local nome valor fmt="" i
-  local -a nomes=(fixadas atalhos transf versao tarefas email data hora notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0) atuais=()
-  # Os valores atuais numa ida só ao tmux (eram 16 show, um por opção, e o servidor do tmux atende um
-  # pedido por vez); #{@x} devolve o valor literal, sem expandir o que está dentro. Se a leitura vier
-  # incompleta, volta ao show por opção: na dúvida, nunca regrava (cada set redesenha todos os clientes).
+  local nome valor fmt="" i sai l1 st_atual="" faixa=0 st _qn v_tarefas v_versao
+  local -a nomes=(fixadas atalhos transf versao tarefas email data hora notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0) atuais=() lote=()
+  # Os valores atuais (e o status) numa ida só ao tmux (eram 16 show, um por opção, e o servidor do tmux
+  # atende um pedido por vez); #{@x} devolve o valor literal, sem expandir o que está dentro. Se a leitura
+  # vier incompleta, volta ao show por opção: na dúvida, nunca regrava (cada set redesenha todos os clientes).
   for nome in "${nomes[@]}"; do fmt+="#{@barra_$nome}"$'\x1f'; done
-  IFS=$'\x1f' read -r -a atuais <<<"$(tmux display-message -p "${fmt}fim" 2>/dev/null)"
+  if ! sai=$(tmux display-message -p "${fmt}fim" \; show -gqv status 2>/dev/null); then
+    tmux list-sessions >/dev/null 2>&1 || return 0
+  fi
+  l1=${sai%%$'\n'*}; [[ $sai == *$'\n'* ]] && st_atual=${sai#*$'\n'}
+  IFS=$'\x1f' read -r -a atuais <<<"$l1"
   if ((${#atuais[@]} != ${#nomes[@]} + 1)) || [[ ${atuais[-1]} != fim ]]; then
     atuais=(); for nome in "${nomes[@]}"; do atuais+=("$(tmux show -gqv "@barra_$nome")"); done
+    st_atual=$(tmux show -gqv status 2>/dev/null)
   fi
+  # A faixa ligada ou não decide 6 dos segmentos e o nº de linhas: perguntada uma vez (eram 7 a cada volta).
+  faixa_notif_ativa && faixa=1
+  # Tarefas e versão também medem o canto direito da faixa das fixadas: calculados uma vez só, aqui.
+  v_tarefas=$(barra_tarefas_fmt); v_versao=$(versao_barra)
+  local _BARRA_DIR_TXT="$v_tarefas$v_versao"
   for i in "${!nomes[@]}"; do
     nome=${nomes[i]}
     case $nome in
       fixadas) valor=$(barra_fixadas_fmt) ;;
       atalhos) valor=$(atalhos_barra) ;;
       transf) valor=$(transferencias_barra) ;;
-      versao) valor=$(versao_barra); [[ $(versao_num) == 0 ]] && continue ;; # troca de pasta em curso
-      tarefas) valor=$(barra_tarefas_fmt) ;;
+      versao) valor=$v_versao; [[ $(versao_num) == 0 ]] && continue ;; # troca de pasta em curso
+      tarefas) valor=$v_tarefas ;;
       email) valor=$(barra_email_fmt) ;;
       data) valor=$(barra_data) ;;
       hora) valor=$(barra_hora) ;;
@@ -11988,30 +12263,33 @@ atualizar_barras() {
       notifs_n) { _qn=$(barra_notifs_sino); valor=""; ((_qn > 0)) && valor="#[fg=#f9e2af,bold]$_qn#[nobold]"; } ;;
       notifs_slot) valor="#{E:@barra_notifs}" ;;
       transf0)
-        if faixa_notif_ativa; then valor=""
+        if ((faixa)); then valor=""
         else valor="#{E:@barra_transf}"; fi ;;
       faixa)
-        if faixa_notif_ativa; then valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{E:@barra_tarefas}#[range=user|notifs]#[fg=#a6adc8] 🔔#{E:@barra_notifs_n} #[norange]#[default]"
+        if ((faixa)); then valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{E:@barra_tarefas}#[range=user|notifs]#[fg=#a6adc8] 🔔#{E:@barra_notifs_n} #[norange]#[default]"
         else valor=""; fi ;;
       faixa_dir)
         # Responsivo por cliente: o letreiro tem prioridade sobre o enfeite. < 120 colunas sai o dia,
         # < 90 sai também a versão (sobra só a hora) — assim ele ganha ~25 células num terminal estreito.
-        if faixa_notif_ativa; then valor="#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},120},,#{E:@barra_data}}#{E:@barra_hora} #[norange]#[default]#{?#{e|<:#{client_width},90},, #{E:@barra_versao}}"
+        if ((faixa)); then valor="#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},120},,#{E:@barra_data}}#{E:@barra_hora} #[norange]#[default]#{?#{e|<:#{client_width},90},, #{E:@barra_versao}}"
         else valor=""; fi ;;
       lado1)
-        if faixa_notif_ativa; then valor=""
+        if ((faixa)); then valor=""
         else valor="#{E:@barra_tarefas}#{E:@barra_versao}"; fi ;;
       fim0)
-        if faixa_notif_ativa; then valor=""
+        if ((faixa)); then valor=""
         else valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{?#{e|<:#{client_width},60},,#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},90},,#{E:@barra_data}}#{E:@barra_hora} #[norange]#[default]}"; fi ;;
     esac
     [[ $valor == "${atuais[i]}" ]] && continue
-    tmux set -g "@barra_$nome" "$valor"
+    lote_add lote set -g "@barra_$nome" "$valor"
   done
-  local st; st=$(barra_status_linhas)
-  [[ $(tmux show -gqv status 2>/dev/null) == "$st" ]] || tmux set -g status "$st" 2>/dev/null
-  # Cada set-option acima já redesenhou tela e barra de todos os clientes; um refresh-client aqui
-  # seria redundante — e recriaria o letreiro (#()) de cada cliente.
+  # Mesmo critério de barra_status_linhas (4 linhas com a faixa, 3 sem).
+  if ((faixa)); then st=4; else st=3; fi
+  [[ $st_atual == "$st" ]] || lote_add lote set -g status "$st"
+  # Tudo o que mudou numa ida só: o servidor aplica os sets juntos e redesenha os clientes UMA vez (cada set
+  # separado era um pedido na fila e um redesenho da tela inteira de todos os clientes).
+  ((${#lote[@]})) && tmux "${lote[@]}" 2>/dev/null
+  # Um refresh-client aqui seria redundante, e recriaria o letreiro (#()) de cada cliente.
   return 0
 }
 
@@ -12040,7 +12318,7 @@ barra_fixadas() {
   printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
   while IFS=$'\t' read -r r s id; do
     i=$((i + 1))
-    chave=$(fixada_chave "$r" "$s" "$id")
+    fixada_chave_em chave "$r" "$s" "$id"
     if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
     rot=${rot:0:22}
     if [[ $r == "$MAQUINA" && $s == "$atual" ]]; then cor='#[bg=#bd93f9,fg=#282a36,bold]'
@@ -12055,7 +12333,7 @@ barra_fixadas() {
 ir_fixada() {
   local c=$1 chave=${2#fx} r s id k d resolvida
   while IFS=$'\t' read -r r s id; do
-    k=$(fixada_chave "$r" "$s" "$id")
+    fixada_chave_em k "$r" "$s" "$id"
     [[ $k == "$chave" ]] && break
     r=""; s=""
   done < <(fixadas)
@@ -12068,6 +12346,9 @@ ir_fixada() {
     else
       resolvida=$(timeout 6 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --resolver-fixada $(q "$s") $(q "$id")" </dev/null 2>/dev/null)
       resolvida=${resolvida%%$'\t'*}
+      # Achada pelo id lá agora há pouco: a sessão existe. O entrar_remoto pula a 2ª ida por ssh
+      # (has-session) que só confirmaria isso (~0,2 a 0,6 s a menos até a troca).
+      [[ -n $resolvida ]] && local _remota_confirmada=$d
     fi
     [[ -n $resolvida ]] && s=$resolvida
   fi
@@ -12082,7 +12363,7 @@ ir_fixada() {
 menu_fixada() {
   local c=$1 chave=${2#fx} r s id k n i
   while IFS=$'\t' read -r r s id; do
-    k=$(fixada_chave "$r" "$s" "$id")
+    fixada_chave_em k "$r" "$s" "$id"
     [[ $k == "$chave" ]] && break
     r=""; s=""
   done < <(fixadas)
@@ -12136,7 +12417,7 @@ fixadas_popup() {
 }
 
 fixadas_ui_lista() {
-  local i=0 r s id rot marca
+  local i=0 r s id rot marca k
   local -A existe SELO SELO_COR
   while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
   fixadas_selos
@@ -12145,7 +12426,8 @@ fixadas_ui_lista() {
     i=$((i + 1))
     if [[ $r == "$MAQUINA" ]]; then rot=$s; marca=$([[ -n ${existe[$s]:-} ]] && echo "" || echo " ✗ fechada")
     else rot="$(selo_ansi "$r") $s"; marca="  · $r"; fi
-    printf 'fx%s\t%2d  📌 %s\033[38;2;108;112;134m%s\033[0m\n' "$(fixada_chave "$r" "$s" "$id")" "$i" "$rot" "$marca"
+    fixada_chave_em k "$r" "$s" "$id"
+    printf 'fx%s\t%2d  📌 %s\033[38;2;108;112;134m%s\033[0m\n' "$k" "$i" "$rot" "$marca"
   done < <(fixadas)
 }
 
@@ -12460,7 +12742,7 @@ clique() {
   # Normalizar aqui evita que um clique válido seja descartado silenciosamente.
   local faixa=${1#user|}
   local marca="$RT/tt-clique-$UID" agora anterior cliente_anterior faixa_anterior
-  agora=$(date +%s%N)
+  agora=${EPOCHREALTIME/[.,]/}000 # ns (com a precisão de µs), como o date +%s%N, sem processo
   if read -r anterior cliente_anterior faixa_anterior <"$marca" 2>/dev/null &&
      [[ $cliente_anterior == "$2" && $faixa_anterior == "$faixa" ]] &&
      ((agora - anterior < 500000000)); then
@@ -13619,7 +13901,7 @@ email_salvar_validado() { # snapshot autorizar_oauth(0|1)
   return 0
 }
 
-email_slugs() { local f; for f in "$EMAIL_DIR"/*.conf; do [[ -e $f ]] && basename "$f" .conf; done; }
+email_slugs() { local f; for f in "$EMAIL_DIR"/*.conf; do [[ -e $f ]] || continue; f=${f##*/}; printf '%s\n' "${f%.conf}"; done; }
 
 # URL do aerc: segurança → esquema; OAuth2 → +xoauth2 e parâmetros para o aerc renovar o token.
 # Com sync_local=1, o IMAP de entrada vira um maildir local (espelho mantido pelo mbsync): o aerc lê
@@ -14102,14 +14384,17 @@ email_nao_lidas_inbox() { # slug
 # persistente ou parada, âmbar com ⏳ quando só atrasou (--email-sync-estado conta o resto). Contas só IMAP não entram na soma (sem abrir o
 # aerc não há como saber). Em tela estreita (< 90) some a palavra "email", como antes.
 barra_email_fmt() {
-  local n=0 alerta="" slug est md; local -A E=()
+  local n=0 alerta="" slug est md; local -A E=(); local -a novos=() curs=()
   for slug in $(email_slugs 2>/dev/null); do
     E=(); email_ler "$slug" 2>/dev/null || continue
     [[ ${E[sync_local]:-} == 1 ]] || continue
-    md=$(email_maildir "$slug")/INBOX
+    md=$EMAIL_MAILDIR_BASE/$slug/INBOX # = email_maildir, sem subshell
     [[ -d $md ]] || continue
-    n=$((n + $(find "$md/new" -type f 2>/dev/null | wc -l) + $(find "$md/cur" -type f ! -name '*:2,*S*' 2>/dev/null | wc -l)))
+    novos+=("$md/new"); curs+=("$md/cur")
   done
+  # As não lidas de todas as contas (new inteiro + cur sem a marca S de lida) em dois find e um wc; eram dois
+  # find e dois wc POR conta a cada redesenho.
+  ((${#novos[@]})) && n=$(( $( { find "${novos[@]}" -type f; find "${curs[@]}" -type f ! -name '*:2,*S*'; } 2>/dev/null | wc -l) ))
   local atraso=""
   while IFS=$'\t' read -r slug est; do
     [[ $est == erro || $est == parado ]] && alerta=1
@@ -14162,7 +14447,7 @@ email_sync_todas() { # [inbox|completo] [vigia]
 EMAIL_ERRO_SENHA='AUTHENTICATIONFAILED|Invalid credentials|login failed|authentication failed|Web login required|Application-specific password|Username and Password not accepted'
 email_sync_resumo() { # slug → ok|nunca|atrasado|erro|parado
   local slug=$1 dir="$ESTADO_DIR/email-sync" agora intervalo ultimo st ok seq vivo ini esp
-  agora=$(date +%s)
+  printf -v agora '%(%s)T' -1
   read -r ultimo st ok seq vivo < <(awk -F'\t' '
     $1 == "inbox" { ultimo = $3; st = $4; if ($4 == 0) { ok = $3; seq = 0 } else seq++ }
     $1 == "completo" && $4 == 0 { ok = $3; seq = 0; st = 0 }   # o grupo inclui o INBOX
@@ -14180,8 +14465,9 @@ email_sync_resumo() { # slug → ok|nunca|atrasado|erro|parado
   fi
   intervalo=${TT_EMAIL_SYNC:-120}
   if ((intervalo > 0)); then
-    intervalo=$(cat "$dir/.intervalo" 2>/dev/null || echo "$intervalo")
-    esp=$(cat "$dir/$slug.espera" 2>/dev/null || echo 0)
+    # (lidos sem processo: o vazio de um arquivo vazio continua vazio, como no cat de antes)
+    [[ -r $dir/.intervalo ]] && { intervalo=""; IFS= read -r intervalo <"$dir/.intervalo"; }
+    esp=0; [[ -r $dir/$slug.espera ]] && { esp=""; IFS= read -r esp <"$dir/$slug.espera"; }
     if ((agora - vivo > 3 * intervalo + 120 && agora >= esp)); then echo parado; return; fi
   fi
   echo ok
@@ -16089,7 +16375,7 @@ case "${1:-}" in
   --ajustar) ajustar "$2"; exit ;;
   --descongelar) descongelar "${2:-}"; exit 0 ;;
   --fechar-vazias) fechar_vazias "${2:-}"; exit ;;
-  --bordas) bordas; exit ;;
+  --bordas) bordas "${2:-}"; exit ;;
   --clique-linha) clique_linha "${2:-}" "${3:-}"; exit ;;
   --barra-fixadas) barra_fixadas "${2:-}"; exit ;;
   --aplicar-fixadas | --barras) aplicar_fixadas; exit ;;

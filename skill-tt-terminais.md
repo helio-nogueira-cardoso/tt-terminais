@@ -711,6 +711,37 @@ a centenas de ms. Regras do código:
   (tela, pasta, programa, Claude) usa `painel_base SESSÃO` ou `paineis_base` (todas, uma ida; campo
   `sobreposta`); flutuantes ficam fora de listas e da detecção de vazias, e o vigia não decide nome com uma
   janela do tt por cima. `tests/test_painel_flutuante_sessao.sh` (precisa de tmux 3.8: `TT_TMUX_38`).
+- **Opções em lote:** todo `set-option` (até de `@opção`) redesenha a tela inteira de todos os clientes. Vários
+  sets numa ida são um pedido e um redesenho: `lote=(); lote_add lote set -g @a 1; lote_add lote set -g @b 2;
+  tmux "${lote[@]}"` (`lote_add` segue a regra do tmux para argumento que termina em `;`). `atualizar_barras`
+  grava tudo o que mudou num lote só (eram até 17 sets, cada um com seu redesenho); `aplicar_fixadas` e
+  `criar_ponte` também.
+- **Comando existe? `tem_cmd NOME`**, não `command -v`, em tudo que roda por clique, barra ou aviso. No WSL o
+  PATH herda as pastas do Windows (`/mnt/c/…`) e cada comando AUSENTE custava ~35 ms (60 a 80 sob carga); a
+  barra perguntava pelo `termux-open-url` 8 vezes por volta. As pastas do Linux, funções e builtins são
+  conferidas sempre (é o `command -v` sem as pastas montadas); só a resposta das pastas do Windows fica
+  guardada, `TT_CMD_WIN_VALE` s (600), em `$RT/tt-cmd-UID/`, e cada processo lembra o que já perguntou (o vigia
+  esquece a cada volta). Para a resposta exata na hora (pendências, instalação), `command -v`.
+- **Sem processo onde o bash resolve:** cada processo custa de 1 a 5 ms (dezenas sob carga) e um clique rodava
+  dezenas. Hora: `printf -v agora '%(%s)T' -1` e `tt_fmt_epoch` (formata pelo `printf` do bash); µs:
+  `${EPOCHREALTIME/[.,]/}`; config: `conf_em VAR chave` (sem subshell); arquivo pequeno: `read`, não `cat`;
+  chave das fixadas: `fixada_chave_em VAR máquina sessão id` (o sha256 fica guardado em
+  `$RT/tt-fixadas-chaves-UID`); `estado`, `maquinas` (idade do cache pelo carimbo `.t`), `soltos` (`/proc` direto)
+  e `fixadas_selos` já são assim. Menus com muitos itens medem o cliente uma vez (`tam_popup_fixar`).
+- **Barra depois de mudar um dado:** `atualizar_barras_pedir`. Na linha de comando (e nos testes) é o
+  `atualizar_barras` síncrono de sempre; nas telas que recarregam a própria lista (painel de tarefas, histórico
+  de avisos, agenda: `TT_BARRA_FUNDO=1`) vai para `atualizar_barras_fundo`, uma volta por vez em 2º plano em
+  que pedidos seguidos se juntam e a última volta começa depois do último pedido (trava
+  `$RT/tt-barras-UID.trava`, pedido `.pedido`).
+- **Ganchos em rajada:** abrir ou fechar uma janela flutuante dispara 3 ou 4 ganchos do tmux; com
+  `tt --bordas gancho` só o primeiro trabalha (marca `$RT/tt-bordas-UID.pend`). `tt --bordas` direto continua
+  síncrono.
+- **Clique dentro de um painel:** antes do `links-tt.py` (~30 ms de python por clique), o `tmux.conf` confere em
+  ~2 ms se há `http` ou `://` nas mesmas linhas que ele leria (ou um hiperlink sob o mouse); sem isso não há
+  link possível e o clique vai direto ao programa. Usa o tmux do próprio servidor (`/proc/#{pid}/exe`).
+- Medir: `touch ~/.config/tt/trace` grava cada linha executada nos cliques, com hora, em
+  `~/.cache/tt-trace.log` (`rm` desliga). O log interno do servidor tmux (SIGUSR2) dobra o custo de cada
+  comando: só para depurar. Teste das garantias acima: `tests/test_desempenho.sh`.
 
 ### Partida rápida (rapido/)
 - O bash lê um script comando a comando: o desvio no topo do `tt` (antes do `set -u`) faz `source
@@ -718,7 +749,8 @@ a centenas de ms. Regras do código:
   existe e não é mais velho que ele, e `TT_COMPLETO` está vazio. O núcleo é o código de topo do `tt` na mesma
   ordem, com cada função de várias linhas (definida uma vez só, na coluna 0) trocada por um stub
   `f() { _tt_f f || return; f "$@"; }`; `_tt_f` lê `rapido/f/f.sh` (o texto original, com os comentários de
-  cima) e, sem ele, `todas.sh`. Processos longos (`--vigia`, `--transferir-fundo`, `--email-sync`,
+  cima) e, sem ele, `todas.sh`. No desvio, o caminho do tt (`EU`) já é o do pacote (sem o `readlink` de cada
+  partida); o código de topo não abre subshell (`conf_em`, `printf -v`): a partida fica em ~13 ms. Processos longos (`--vigia`, `--transferir-fundo`, `--email-sync`,
   `--sessoes-ia-sync`, `--ticker-loop`, `--malha-vigia`, `--instalar-aqui`) carregam `todas.sh` de uma vez.
 - `gerar_rapido PASTA` (na instalação, na pasta nova antes da troca; `tt --rapido gerar`) divide e confere:
   cada corpo lido sozinho == `declare -f` do tt inteiro carregado com `TT_SO_CARREGAR=1` (para na guarda
