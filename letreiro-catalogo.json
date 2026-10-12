@@ -1015,7 +1015,7 @@
     "decimais": "",
     "separador": "",
     "sufixo": "",
-    "modelo": "{icone} {rotulo} {valor}°/{min}°",
+    "modelo": "{icone} {rotulo} {valor}°C/{min}°C",
     "ttl": "900",
     "var.lat": "-21.1775",
     "var.lon": "-47.81028",
@@ -1023,7 +1023,7 @@
     "formato": "regex",
     "campo.min": "\"temperature_2m_min\":\\[(-?[0-9]+)"
    },
-   "exemplo": "🌡 Ribeirão Preto 30°/19°",
+   "exemplo": "🌡 Ribeirão Preto 30°C/19°C",
    "validada": "2026-10-12"
   },
   "clima-nascer-do-sol": {
@@ -3053,8 +3053,9 @@
     "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=7&timezone=America%2FSao_Paulo",
     "formato": "json",
     "caminho": "daily.time[*]",
+    "separador": "pt",
     "itens": "7",
-    "modelo": "Ribeirão Preto {dia}: {max}°/{min}° · chuva {chuva}%",
+    "modelo": "Ribeirão Preto {dia}: {max}°C/{min}°C · chuva {chuva}%",
     "ttl": "21600",
     "ordem": "100",
     "rotulo": "Previsão de 7 dias · Ribeirão Preto",
@@ -3066,7 +3067,7 @@
     "campo.min": "daily.temperature_2m_min[*]",
     "campo.chuva": "daily.precipitation_probability_max[*]"
    },
-   "exemplo": "Ribeirão Preto 12/10/2026 (Seg): 31.2°/19.1° · chuva 10%",
+   "exemplo": "Ribeirão Preto 12/10/2026 (Seg): 30,2°C/19,8°C · chuva 66%",
    "validada": "2026-10-12"
   }
  },

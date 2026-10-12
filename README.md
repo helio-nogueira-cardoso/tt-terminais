@@ -904,7 +904,7 @@ desta máquina.
 | campo | valor | padrão | o que faz |
 |---|---|---|---|
 | `decimais` | inteiro 0–8 | — | casas decimais (vazio = como veio) |
-| `separador` | pt/en | — | pt = 1.234,56; en = 1,234.56 (vazio = como veio) |
+| `separador` | pt/en | — | pt = 1.234,56; en = 1,234.56 (vazio = como veio); vale também para os campos extras que são número decimal (`{max}` 30.2 → 30,2) |
 | `entrada` | auto/pt/en | `auto` | como o número chega na resposta |
 | `milhar` | 1/0 | `1` | separador de milhar ao formatar |
 | `moeda` | texto | — | prefixo do valor (R$, US$…) |
@@ -1196,13 +1196,13 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 | fonte | o que mostra | como aparece |
 |---|---|---|
 | `clima-chuva` | Chuva neste momento (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌧 Ribeirão Preto 0,0 mm |
-| `clima-max-min` | Máxima e mínima de hoje (graus inteiros) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌡 Ribeirão Preto 30°/19° |
+| `clima-max-min` | Máxima e mínima de hoje (graus inteiros) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌡 Ribeirão Preto 30°C/19°C |
 | `clima-nascer-do-sol` | Hora do nascer do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌅 Ribeirão Preto nasce 05:42 |
 | `clima-pm25` | Partículas finas PM2,5 (µg/m³) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌫 Ribeirão Preto 76 µg/m³ |
 | `clima-por-do-sol` | Hora do pôr do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌇 Ribeirão Preto põe 18:13 |
 | `clima-prob-chuva` | Probabilidade de chuva hoje (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | ☔ Ribeirão Preto 66% |
 | `clima-qualidade-ar` | Qualidade do ar (índice AQI dos EUA: até 50 boa, 100 moderada) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 😷 Ribeirão Preto AQI 96 |
-| `clima-rp-7dias` | Previsão diária para os próximos sete dias em Ribeirão Preto (Open-Meteo, sem chave; datas em formato brasileiro) | Ribeirão Preto 12/10/2026 (Seg): 31,2°/19,1° · chuva 10% |
+| `clima-rp-7dias` | Previsão diária para os próximos sete dias em Ribeirão Preto (Open-Meteo, sem chave; datas em formato brasileiro) | Ribeirão Preto 12/10/2026 (Seg): 30,2°C/19,8°C · chuva 66% |
 | `clima-sensacao` | Sensação térmica agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🥵 Ribeirão Preto 22,1°C |
 | `clima-temperatura` | Temperatura agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌡 Ribeirão Preto 20,3°C |
 | `clima-tempo` | Condição do tempo agora (código WMO traduzido) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | ⛅ Ribeirão Preto: nublado |

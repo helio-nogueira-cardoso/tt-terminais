@@ -2122,6 +2122,18 @@ def formatar_valor(f, bruto, cfg):
     return out, x, num
 
 
+def numero_no_separador(valor, sep):
+    """Campo extra que é um número decimal puro ("30.2") segue o separador da fonte (pt → "30,2"), com as casas
+    que vieram; texto, inteiro e o que não for número ficam intactos (link, ano, "M 5.5"…)."""
+    s = str(valor)
+    if not re.fullmatch(r"-?\d+\.\d+", s):
+        return s
+    try:
+        return formatar_num(Decimal(s), None, sep, False)
+    except InvalidOperation:
+        return s
+
+
 def data_iso_pt_br(valor):
     """Converte YYYY-MM-DD em DD/MM/YYYY (dia abreviado em pt-BR); outros valores ficam intactos."""
     s = str(valor)
@@ -2265,6 +2277,8 @@ def processar(f, nome, corpo, ts, meta, cfg, res):
                 valores = [limpar_texto(x) for x in extrair(fmt, corpo, aplicar_vars(v, vars_), f)]
                 if nome_campo in ("dia", "data", "quando"):
                     valores = [data_iso_pt_br(x) for x in valores]
+                elif f["separador"] in ("pt", "en"):
+                    valores = [numero_no_separador(x, f["separador"]) for x in valores]
                 extras[nome_campo] = valores
             except Erro as e:
                 res.avisos.append("%s: %s" % (k, e))

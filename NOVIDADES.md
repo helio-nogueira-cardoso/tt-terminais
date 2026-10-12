@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.9.3 · 12/10/2026
+- **Temperaturas com vírgula e °C:** a previsão de 7 dias de Ribeirão Preto mostra `30,2°C/19,8°C` (antes `30.2°/19.8°`) e a máxima/mínima de hoje, `30°C/19°C`. Os campos extras de uma fonte que são número decimal seguem o `separador` dela (`pt` = vírgula); sem separador, ficam como vieram.
+
 ## v1.9.2 · 12/10/2026
 - **Testes não mandam mais notificações ao seu PC:** cada rodada da suíte disparava uns 27 avisos de mentira nas notificações do sistema ("🤖 agente · precisa de você", "📧 Um: 1 e-mail novo", "📋 Pagar aluguel"), que não apareciam no 🔔 porque cada teste grava num lugar temporário. Agora os testes usam um `notify-send` mudo e a suíte reprova quem tentar o de verdade. Os avisos reais dos agentes continuam indo ao 🔔 e às notificações do sistema.
 

@@ -244,7 +244,9 @@ cria n11 url="$(v 7)" caminho=v prefixo='">> "' sufixo='" <<"' truncar=12 modelo
 LONGO=$(printf 'manchete-longa-%d-' $(seq 1 25))   # 400 caracteres: nenhum corte por padrão
 cria n12 url="$(v "$LONGO")" caminho=v modelo='{icone} {valor}' icone=📰
 cria n13 url="$(v "$LONGO")" caminho=v modelo='{valor}' truncar=30
-for f in n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13; do atual $f; done
+cria n14 url="$(v 7 30.25)" caminho=v campo.t=p separador=pt modelo='{valor} máx {t}°'
+cria n15 url="$(v 7 30.25)" caminho=v campo.t=p modelo='{valor} máx {t}°'
+for f in n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15; do atual $f; done
 igual "$(cache n1)" '1.234.567,89' 'pt: milhar com ponto e vírgula decimal'
 igual "$(cache n2)" '1,234,567.89' 'en'
 igual "$(cache n3)" '1234567,89' 'milhar=0'
@@ -254,6 +256,8 @@ igual "$(cache n9)" '1,234.6' 'entrada=pt (1.234,56) → en com 1 casa'
 igual "$(cache n10)" 'céu:Limpo' 'traduzir texto fixo'
 igual "$(cache n11)" '>> 7 coi… <<' 'prefixo/sufixo (aspas guardam os espaços) e truncar em células (com …)'
 igual "$(cache n12)" "📰 $LONGO" 'sem truncar/valor_max o item sai inteiro, por maior que seja (o letreiro rola, não corta)'
+igual "$(cache n14)" '7 máx 30,25°' 'campo extra numérico segue o separador da fonte (pt: vírgula, com as casas que vieram)'
+igual "$(cache n15)" '7 máx 30.25°' 'sem separador na fonte o campo extra fica como veio'
 igual "$(cache n13)" "$(printf '%s' "$LONGO" | cut -c1-29)…" 'truncar=N continua cortando, mas só quando o usuário pede'
 # variação: campo próprio, valor de referência, calculada contra o valor anterior; setas e cores
 cria v1 url="$(v 100 -1.26)" caminho=v variacao=p modelo='{valor} {var}'
