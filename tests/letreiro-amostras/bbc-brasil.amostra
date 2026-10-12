@@ -10,7 +10,7 @@
             <link>https://www.bbc.com/portuguese</link>
         </image>
         <generator>RSS for Node</generator>
-        <lastBuildDate>Sun, 11 Oct 2026 19:32:29 GMT</lastBuildDate>
+        <lastBuildDate>Mon, 12 Oct 2026 05:34:38 GMT</lastBuildDate>
         <ns0:link href="https://feeds.bbci.co.uk/portuguese/rss.xml" rel="self" type="application/rss+xml" />
         <copyright>Copyright British Broadcasting Corporation </copyright>
         <language>pt-br</language>
@@ -22,6 +22,22 @@
             <guid isPermaLink="false">https://www.bbc.com/portuguese/articles/cmp30v645lz2o#0</guid>
             <pubDate>Sun, 11 Oct 2026 17:16:29 GMT</pubDate>
             <ns1:thumbnail width="240" height="135" url="https://ichef.bbci.co.uk/ace/ws/240/cpsprodpb/516c/live/aada8450-bbdd-11f1-bfea-9d5bb7e7d40b.jpg" />
+        </item>
+        <item>
+            <title>O que se sabe sobre o vaivém de decisões da Justiça Eleitoral sobre o canal de WhatsApp 'Exército de Lula'</title>
+            <description>Comunidade administrada pelo deputado reeleito André Janones (Rede-MG) conta com mais de 3 milhões de apoiadores do presidente Luiz Inácio Lula da Silva. </description>
+            <link>https://www.bbc.com/portuguese/articles/cwn8dre9yg7no?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.com/portuguese/articles/cwn8dre9yg7no#0</guid>
+            <pubDate>Sun, 11 Oct 2026 23:37:53 GMT</pubDate>
+            <ns1:thumbnail width="240" height="135" url="https://ichef.bbci.co.uk/ace/ws/240/cpsprodpb/4bf2/live/f71ef140-c5c7-11f1-84db-416992a97334.jpg" />
+        </item>
+        <item>
+            <title>A nova onda de protestos de jovens do movimento das 'baratas' na Índia em imagens</title>
+            <description>Movimento político satírico liderado pela Geração Z indiana voltou às ruas neste fim de semana para exigir a renúncia da principal autoridade eleitoral do país.</description>
+            <link>https://www.bbc.com/portuguese/articles/cwp9gy84my15o?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.com/portuguese/articles/cwp9gy84my15o#0</guid>
+            <pubDate>Sun, 11 Oct 2026 20:12:14 GMT</pubDate>
+            <ns1:thumbnail width="240" height="135" url="https://ichef.bbci.co.uk/ace/ws/240/cpsprodpb/bb89/live/1ac8c530-c5af-11f1-a4de-494acb94adcb.png" />
         </item>
         <item>
             <title>'A Casa dos Segredos': a luxuosa mansão usada pelo Reino Unido para espionar generais nazistas e que mudou a história da 2ª Guerra Mundial</title>
@@ -38,22 +54,6 @@
             <guid isPermaLink="false">https://www.bbc.com/portuguese/articles/c5pvg2309g8vo#0</guid>
             <pubDate>Sun, 11 Oct 2026 18:07:26 GMT</pubDate>
             <ns1:thumbnail width="240" height="134" url="https://ichef.bbci.co.uk/ace/ws/240/cpsprodpb/9885/live/ea7b5090-bbb9-11f1-83f3-814f6e068d44.jpg" />
-        </item>
-        <item>
-            <title>Os milionários de origem cubana que se preparam em Miami para a possível queda do governo da ilha</title>
-            <description>Os exilados cubanos na Flórida vivem expectativa cada vez maior de mudanças no regime de Cuba no futuro próximo.</description>
-            <link>https://www.bbc.com/portuguese/articles/cmvg6wxndn5zo?at_medium=RSS&amp;at_campaign=rss</link>
-            <guid isPermaLink="false">https://www.bbc.com/portuguese/articles/cmvg6wxndn5zo#0</guid>
-            <pubDate>Sun, 11 Oct 2026 09:24:11 GMT</pubDate>
-            <ns1:thumbnail width="240" height="135" url="https://ichef.bbci.co.uk/ace/ws/240/cpsprodpb/f157/live/3b2f3340-bca9-11f1-a3e9-bbda6f9b9e25.jpg" />
-        </item>
-        <item>
-            <title>Trump anuncia trégua energética entre Rússia e Ucrânia; o que se sabe</title>
-            <description>Moscou ainda não comentou. Ucrânia afirmou ser a favor da medida se a Rússia aceitar.</description>
-            <link>https://www.bbc.com/portuguese/articles/cm86zpgyp789o?at_medium=RSS&amp;at_campaign=rss</link>
-            <guid isPermaLink="false">https://www.bbc.com/portuguese/articles/cm86zpgyp789o#0</guid>
-            <pubDate>Sun, 11 Oct 2026 16:22:19 GMT</pubDate>
-            <ns1:thumbnail width="240" height="134" url="https://ichef.bbci.co.uk/ace/ws/240/cpsprodpb/f83d/live/5edd4270-c58f-11f1-bc2e-018d645d8d21.png" />
         </item>
         </channel>
 </rss>

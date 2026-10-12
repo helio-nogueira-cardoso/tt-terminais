@@ -8098,7 +8098,7 @@ LETREIRO_AJUSTES=(
   "ticker_veloc|num||Velocidade: s por coluna (continua) ou s por página (páginas)"
   "ticker_fps|int:1:20|6|Quadros por segundo (1 a 20)"
   "ticker_separador|texto| • |Separador entre os itens"
-  "ticker_ordem|enum:manual/aleatoria/peso|manual|Ordem: manual (campo ordem), aleatória ou por peso"
+  "ticker_ordem|enum:sequencial/aleatoria/peso|sequencial|Ordem: sequencial (campo ordem), aleatória (mistura as entradas de todas as fontes) ou por peso"
   "ticker_largura|int:8:400||Largura máxima do letreiro em células (vazio = o que couber)"
   "ticker_pausa|enum:clique/nunca|clique|Clique no letreiro pausa/continua (quando o item não tem ação)"
   "ticker_cor|bool|1|Cores por sinal (alta verde, baixa vermelha)"
@@ -8437,6 +8437,15 @@ letreiro_vista_ciclar() {
   local n; case $(letreiro_vista) in todas) n=ativas ;; ativas) n=disponiveis ;; *) n=todas ;; esac
   mkdir -p "${ARQ_LETREIRO_VISTA%/*}"; printf '%s\n' "$n" >"$ARQ_LETREIRO_VISTA"
 }
+letreiro_ordem() { # sequencial | aleatoria | peso (o ticker_ordem desta máquina; "manual" é o nome antigo do sequencial)
+  case $(conf ticker_ordem) in aleatoria | peso) conf ticker_ordem ;; *) echo sequencial ;; esac
+}
+letreiro_ordem_ciclar() { # sequencial ⇄ aleatória (peso, escolhido nos ajustes, volta ao sequencial)
+  case $(letreiro_ordem) in
+    sequencial) letreiro_ajuste ticker_ordem aleatoria >/dev/null ;;
+    *) letreiro_ajuste ticker_ordem "" >/dev/null ;;
+  esac
+}
 letreiro_lista() { # linhas "chave<TAB>desenho"
   local vista nome_vista; vista=$(letreiro_vista)
   case $vista in ativas) nome_vista='só as que estão na roda' ;; disponiveis) nome_vista='só as disponíveis (desligadas)' ;; *) nome_vista='todas' ;; esac
@@ -8445,6 +8454,11 @@ letreiro_lista() { # linhas "chave<TAB>desenho"
   printf '@cfg\t\033[33m⚙ Ajustes globais do letreiro\033[0m\n'
   printf '@pre\t\033[35m👁 Pré-visualizar na faixa\033[0m\n'
   printf '@vis\t\033[34m⇄ Vista: %s \033[90m(Tab ou clique alterna: todas · na roda · disponíveis)\033[0m\n' "$nome_vista"
+  case $(letreiro_ordem) in
+    aleatoria) printf '@ord\t\033[34m🔀 Ordem: aleatória \033[90m(mistura as entradas de todas as fontes; ^o ou clique volta ao sequencial)\033[0m\n' ;;
+    peso) printf '@ord\t\033[34m🔀 Ordem: por peso \033[90m(^o ou clique volta ao sequencial; escolhida nos ajustes)\033[0m\n' ;;
+    *) printf '@ord\t\033[34m🔀 Ordem: sequencial \033[90m(uma fonte depois da outra; ^o ou clique mistura as entradas de todas as fontes)\033[0m\n' ;;
+  esac
   printf -- '-\t\033[90m────────────────────────────────────────────────────────\033[0m\n'
   letreiro_py listar --tsv --todas | awk -F'\t' -v vista="$vista" -v cats="$(letreiro_py categorias)" '
     BEGIN { n = split(cats, L, "\n"); for (i = 1; i <= n; i++) { split(L[i], p, "\t"); ROT[p[1]] = p[2]; CAT[i] = p[1] } nc = n }
@@ -8595,6 +8609,7 @@ letreiro_acao() { # EVENTO CHAVE → ações do fzf. Despachante único: toda te
         @cfg) echo "execute($a --letreiro-ajustes-ui)$rec" ;;
         @pre) echo "execute($a --letreiro-previa)" ;;
         @vis) echo "execute-silent($a --letreiro-vista-ciclar)$rec" ;;
+        @ord) echo "execute-silent($a --letreiro-ordem-ciclar)$rec" ;;
         *) ((fonte)) && echo "execute($a --letreiro-menu-fonte $k)$rec" ;;
       esac ;;
     menu) ((fonte)) && echo "execute($a --letreiro-menu-fonte $k)$rec" ;;
@@ -8603,6 +8618,7 @@ letreiro_acao() { # EVENTO CHAVE → ações do fzf. Despachante único: toda te
     ajustes) echo "execute($a --letreiro-ajustes-ui)$rec" ;;
     previa) echo "execute($a --letreiro-previa)" ;;
     vista) echo "execute-silent($a --letreiro-vista-ciclar)$rec" ;;
+    ordem) echo "execute-silent($a --letreiro-ordem-ciclar)$rec" ;;
     editar) ((fonte)) && echo "execute($a --letreiro-editar $k)$rec" ;;
     testar) ((fonte)) && echo "execute($a --letreiro-testar-ui $k)" ;;
     log) ((fonte)) && echo "execute($a --letreiro-log-ui $k)" ;;
@@ -8621,7 +8637,7 @@ letreiro_ui() {
   letreiro_lista |
     fzf --ansi --delimiter='\t' --with-nth=2.. --layout=reverse --height=100% --no-sort --info=hidden --no-separator \
       --prompt='  letreiro › ' --pointer='▌' --header-first \
-      --header=$'📰 Letreiro — as fontes (APIs) da faixa · ● ok  ◐ velha  ✖ erro  ○ desligada  🌐 propagada  ✎ ajustada só aqui\n⏎/duplo clique: ações · Tab vista (todas/na roda/disponíveis) · ^n nova · F2 configura · ^t testa · ^a liga/desliga · ^d duplica · ^k/^j sobe/desce · ^l log · ^x remove/tira da lista · ^g ajustes · ^b catálogo · ^p prévia · ^r atualiza · esc fecha\n' \
+      --header=$'📰 Letreiro — as fontes (APIs) da faixa · ● ok  ◐ velha  ✖ erro  ○ desligada  🌐 propagada  ✎ ajustada só aqui\n⏎/duplo clique: ações · Tab vista (todas/na roda/disponíveis) · ^o ordem (sequencial/aleatória) · ^n nova · F2 configura · ^t testa · ^a liga/desliga · ^d duplica · ^k/^j sobe/desce · ^l log · ^x remove/tira da lista · ^g ajustes · ^b catálogo · ^p prévia · ^r atualiza · esc fecha\n' \
       --color='bg:#1e1e2e,fg:#cdd6f4,header:#a6adc8,pointer:#89b4fa,prompt:#6c7086,fg+:#cdd6f4,bg+:#313244,gutter:#1e1e2e,info:#6c7086,border:#45475a' \
       --preview="$EU --letreiro-previa-fonte {1}" --preview-window='down,45%,border-top,wrap' \
       --bind="enter:transform($a enter {1})" \
@@ -8642,6 +8658,7 @@ letreiro_ui() {
       --bind="ctrl-b:transform($a catalogo {1})" \
       --bind="ctrl-p:transform($a previa {1})" \
       --bind="tab:transform($a vista {1})" \
+      --bind="ctrl-o:transform($a ordem {1})" \
       --bind="ctrl-r:transform($a atualizar {1})" \
       --bind="esc:transform($a esc {1})" >/dev/null 2>&1 || true
 }
@@ -15102,6 +15119,7 @@ case "${1:-}" in
   --letreiro-ui) letreiro_ui; exit 0 ;;
   --letreiro-lista) letreiro_lista; exit 0 ;;
   --letreiro-vista-ciclar) letreiro_vista_ciclar; exit 0 ;;
+  --letreiro-ordem-ciclar) letreiro_ordem_ciclar; exit 0 ;;
   --letreiro-restaurar) shift; letreiro_simples restaurar "$@"; exit $? ;;
   --letreiro-acao) letreiro_acao "${2:-}" "${3:-}"; exit 0 ;;
   --letreiro-menu-fonte) letreiro_menu_fonte "${2:-}"; exit 0 ;;

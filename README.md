@@ -818,8 +818,8 @@ tempo).
   rede em silêncio). Os ajustes globais eram `ticker_rolagem` (continua/paginas), `ticker_veloc`, `ticker_fps`
   (1 a 20) e `ticker_ponte`.
 - **Nada disso quebra.** As linhas `indicador_NOME=` e o `indicadores=` são migrados sem perda para arquivos
-  (`tt --letreiro-migrar`; roda sozinho na primeira atualização): o corte em 60/90 vira `valor_max=60` e
-  `truncar=90`, o header `@arquivo` continua apontando para `~/.secrets`, e um header com segredo **literal**
+  (`tt --letreiro-migrar`; roda sozinho na primeira atualização): o antigo corte em 60/90 caracteres
+  não é levado (o letreiro não corta entradas), o header `@arquivo` continua apontando para `~/.secrets`, e um header com segredo **literal**
   tem o valor movido para `~/.secrets/letreiro-NOME` (modo 600) e sai da linha do config. As linhas antigas
   ficam no config (sem perda); depois de migrada, vale o arquivo. Se você editar `indicadores=` depois, a
   lista nova é reaplicada. `tt --ticker-fontes` e `tt --ticker-quadro` seguem funcionando.
@@ -914,7 +914,7 @@ desta máquina.
 | campo | valor | padrão | o que faz |
 |---|---|---|---|
 | `modelo` | texto | `{icone} {rotulo} {valor} {var}` | modelo do item: {icone} {rotulo} {valor} {var} {seta} {pct}… |
-| `truncar` | inteiro 10–400 | `90` | largura máxima do item (células) |
+| `truncar` | inteiro 0–400 | `0` | largura máxima do item em células (`0` = não corta, o padrão: o letreiro rola, não corta) |
 | `prefixo` | texto | — | texto antes do item |
 | `sufixo` | texto | — | texto depois do item |
 | `cor` | 1/0 | `1` | cor por sinal (alta verde, baixa vermelha) |
@@ -1044,7 +1044,9 @@ escolha em `letreiro/local/` — uma fonte global desligada só aqui, por exempl
 ### Ajustes globais (por máquina, no `~/.config/tt/config`)
 
 `ticker_ligado` (interruptor), `ticker_rolagem` (`continua`/`paginas`), `ticker_veloc`, `ticker_fps`,
-`ticker_separador` (entre itens), `ticker_ordem` (`manual` pelo campo `ordem`, `aleatoria`, `peso`),
+`ticker_separador` (entre itens), `ticker_ordem` (`sequencial` pelo campo `ordem` — `manual` é o nome antigo —, `aleatoria`: mistura as ENTRADAS de todas as
+fontes, não só a ordem delas; estável dentro da hora e sem pular quando uma fonte atualiza; ou `peso`; no painel, `^o` alterna
+sequencial ⇄ aleatória),
 `ticker_largura` (máximo de células), `ticker_pausa`, `ticker_cor`, `ticker_economia`, `ticker_bateria_min`,
 `ticker_ponte`, `ticker_idioma`, `ticker_fuso`. `tt --letreiro-ajustes` lista; `tt --letreiro-ajuste CHAVE
 VALOR` grava (vazio volta ao padrão); a tela tem o mesmo (⚙ Ajustes globais). `peso=N` na fonte é quantas
@@ -1060,7 +1062,7 @@ Menu ⋯ → **📰 Letreiro** (ou o aviso de falhas): lista com o estado de cad
 direito abrem as ações; teclas: `^n` nova (assistente: cola a URL, o tt busca, mostra a resposta formatada,
 você escolhe o campo no fzf e define rótulo, TTL e modelo, vê o **teste ao vivo** e só então salva), `F2`
 editar (formulário de todos os campos, com `^t` testar e `^s` salvar), `^t` testar, `^a` liga/desliga, `^d`
-duplicar, `^k`/`^j` subir/descer na roda, `^l` log, `^x` remover (de fábrica: tirar da lista), `Tab` vista (todas · na roda · disponíveis), `^g` ajustes, `^b` catálogo, `^p`
+duplicar, `^k`/`^j` subir/descer na roda, `^l` log, `^x` remover (de fábrica: tirar da lista), `Tab` vista (todas · na roda · disponíveis), `^o` ordem (sequencial ⇄ aleatória), `^g` ajustes, `^b` catálogo, `^p`
 pré-visualizar na faixa, `^r` atualizar, `esc` fecha.
 
 | comando | faz |
@@ -1178,27 +1180,27 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
-| `clima-chuva` | Chuva neste momento (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌧 São Paulo 0,4 mm |
-| `clima-max-min` | Máxima e mínima de hoje (graus inteiros) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌡 São Paulo 25°/17° |
-| `clima-nascer-do-sol` | Hora do nascer do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌅 São Paulo nasce 05:37 |
-| `clima-pm25` | Partículas finas PM2,5 (µg/m³) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌫 São Paulo 16 µg/m³ |
-| `clima-por-do-sol` | Hora do pôr do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌇 São Paulo põe 18:09 |
-| `clima-prob-chuva` | Probabilidade de chuva hoje (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | ☔ São Paulo 100% |
-| `clima-qualidade-ar` | Qualidade do ar (índice AQI dos EUA: até 50 boa, 100 moderada) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 😷 São Paulo AQI 140 |
-| `clima-sensacao` | Sensação térmica agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🥵 São Paulo 20,9°C |
-| `clima-temperatura` | Temperatura agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌡 São Paulo 19,6°C |
-| `clima-tempo` | Condição do tempo agora (código WMO traduzido) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | ⛅ São Paulo: pancadas fracas |
-| `clima-umidade` | Umidade relativa do ar agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 💧 São Paulo 90% |
-| `clima-uv` | Índice UV máximo de hoje (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 😎 São Paulo UV 7 |
-| `clima-vento` | Velocidade do vento agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌬 São Paulo 10 km/h |
+| `clima-chuva` | Chuva neste momento (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌧 Ribeirão Preto 0,0 mm |
+| `clima-max-min` | Máxima e mínima de hoje (graus inteiros) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌡 Ribeirão Preto 30°/19° |
+| `clima-nascer-do-sol` | Hora do nascer do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌅 Ribeirão Preto nasce 05:42 |
+| `clima-pm25` | Partículas finas PM2,5 (µg/m³) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌫 Ribeirão Preto 76 µg/m³ |
+| `clima-por-do-sol` | Hora do pôr do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌇 Ribeirão Preto põe 18:13 |
+| `clima-prob-chuva` | Probabilidade de chuva hoje (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | ☔ Ribeirão Preto 66% |
+| `clima-qualidade-ar` | Qualidade do ar (índice AQI dos EUA: até 50 boa, 100 moderada) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 😷 Ribeirão Preto AQI 96 |
+| `clima-sensacao` | Sensação térmica agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🥵 Ribeirão Preto 22,1°C |
+| `clima-temperatura` | Temperatura agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌡 Ribeirão Preto 20,3°C |
+| `clima-tempo` | Condição do tempo agora (código WMO traduzido) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | ⛅ Ribeirão Preto: nublado |
+| `clima-umidade` | Umidade relativa do ar agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 💧 Ribeirão Preto 89% |
+| `clima-uv` | Índice UV máximo de hoje (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 😎 Ribeirão Preto UV 8 |
+| `clima-vento` | Velocidade do vento agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌬 Ribeirão Preto 9 km/h |
 
 **🚀 Espaço e Terra** (5)
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
 | `iss-posicao` | Onde a Estação Espacial Internacional está agora (latitude, longitude; wheretheiss.at, sem chave) | 🛰 ISS -30.86°, 101.30° |
-| `proximo-lancamento` | Próximo lançamento de foguete no mundo (The Space Devs, sem chave; 15 consultas/h) | 🚀 Falcon 9 Block 5 ¦ Starlink Group 15-25 (2026-10-12) |
-| `sismo-recente` | Maior sismo recente (magnitude 4,5+ nas últimas 24 h; USGS, sem chave); some se não houve | 🌋 M 4.7 - 156 km ESE of Neiafu, Tonga |
+| `proximo-lancamento` | Próximo lançamento de foguete no mundo (The Space Devs, sem chave; 15 consultas/h) | 🚀 Falcon 9 Block 5 \| Starlink Group 15-25 (2026-10-13) |
+| `sismo-recente` | Maior sismo recente (magnitude 4,5+ nas últimas 24 h; USGS, sem chave); some se não houve | 🌋 M 5.5 - 123 km W of Neiafu, Tonga |
 | `tempestade-geomagnetica` | Índice Kp de atividade geomagnética (NOAA SWPC, sem chave): 5+ é tempestade | 🧲 Kp 2,3 |
 | `vento-solar` | Velocidade do vento solar (NOAA SWPC, sem chave) | ☀ vento solar 535 km/s |
 
@@ -1214,55 +1216,55 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
-| `agencia-brasil` | Manchetes: Agência Brasil (feed RSS, sem chave) | 🇧🇷 Agência Brasil: Interpretação é a base da prova de Linguagens do Enem; veja dicas |
+| `agencia-brasil` | Manchetes: Agência Brasil (feed RSS, sem chave) | 🇧🇷 Agência Brasil: Henrique Marques leva ouro, o 2º do Brasil em Grand Prix de taekwond |
 | `camara-noticias` | Manchetes: Câmara (feed RSS, sem chave) | 🏛 Câmara: Projeto pune empresas que atrasarem pagamento de médicos |
-| `cnn-brasil` | Manchetes: CNN Brasil (feed RSS, sem chave) | 📺 CNN Brasil: Chefe do Deutsche Bank vê eleições na Alemanha como risco para investidores |
-| `estadao` | Manchetes: Estadão (feed RSS, sem chave) | 📰 Estadão: Ex-militar russo condenado à prisão perpétua é preso em Salvador |
-| `exame` | Manchetes: Exame (feed RSS, sem chave) | 💼 Exame: Ciberataques são o principal risco imediato da IA, afirma Bill Gates |
-| `folha` | Manchetes: Folha (feed RSS, sem chave) | 📰 Folha: Slayyyter faz show contido, marcado por aperto e calor no Zig Festival, em São Paulo |
-| `folha-mercado` | Manchetes: Folha Mercado (feed RSS, sem chave) | 💼 Folha Mercado: Lula diz que votação do fim da 6x1 antes do segundo turno já está acordada com Alcolumbre |
+| `cnn-brasil` | Manchetes: CNN Brasil (feed RSS, sem chave) | 📺 CNN Brasil: China impõe sanções a ministros de Paraguai e Belize por laços com Taiwan |
+| `estadao` | Manchetes: Estadão (feed RSS, sem chave) | 📰 Estadão: ‘Não poderia ter acontecido’, diz idosa que teve prótese implantada no joelho errado |
+| `exame` | Manchetes: Exame (feed RSS, sem chave) | 💼 Exame: Como células de defesa encontram seu caminho pelo corpo? Estudo revela mecanismo |
+| `folha` | Manchetes: Folha (feed RSS, sem chave) | 📰 Folha: Estudo aponta cinco estratégias para reduzir hesitação vacinal |
+| `folha-mercado` | Manchetes: Folha Mercado (feed RSS, sem chave) | 💼 Folha Mercado: Consumo deixa de ser motor do PIB e deve ter menor crescimento desde pandemia |
 | `g1-ciencia` | Manchetes: g1 Ciência (feed RSS, sem chave) | 🔬 g1 Ciência: 'Ciência Aberta': centro que abriga o Sirius recebe público para apresentar curiosidades e atrações da ciência |
-| `g1-economia` | Manchetes: g1 Economia (feed RSS, sem chave) | 💼 g1 Economia: Mega-Sena acumula, e prêmio vai a R$ 150 milhões; veja os números sorteados |
-| `g1-mundo` | Manchetes: g1 Mundo (feed RSS, sem chave) | 🌎 g1 Mundo: Aeroportos da Arábia Saudita voltam a ser bombardeados; Houthis reivindicam ataques |
-| `g1-politica` | Manchetes: g1 Política (feed RSS, sem chave) | 🏛 g1 Política: Corregedor do TSE suspende preliminarmente decisão de Nunes Marques e libera canal 'Exército do Lula'; decisão |
-| `g1-tecnologia` | Manchetes: g1 Tecnologia (feed RSS, sem chave) | 💻 g1 Tecnologia: IA ameaça aumentar desigualdades de gênero no mercado de trabalho, diz relatório |
-| `ge-esportes` | Manchetes: ge (feed RSS, sem chave) | ⚽ ge: Ferroviária x Inter de Limeira - Campeonato Brasileiro Série C 2026 - globoesporte.com |
-| `infomoney` | Manchetes: InfoMoney (feed RSS, sem chave) | 💼 InfoMoney: EUA ameaçam bloquear armas para Ucrânia devido a ataques a refinarias, diz FT |
-| `poder360` | Manchetes: Poder360 (feed RSS, sem chave) | 📰 Poder360: Messias diz que Senado aprovará fim da 6 X 1 e pede votos para Lula |
+| `g1-economia` | Manchetes: g1 Economia (feed RSS, sem chave) | 💼 g1 Economia: Mega-Sena pode pagar R$ 150 milhões nesta terça (13); veja os 10 maiores prêmios da loteria |
+| `g1-mundo` | Manchetes: g1 Mundo (feed RSS, sem chave) | 🌎 g1 Mundo: A nova onda de protestos de jovens do movimento das 'baratas' na Índia em imagens |
+| `g1-politica` | Manchetes: g1 Política (feed RSS, sem chave) | 🏛 g1 Política: Nem todo eleitor que deixa de votar é desinteressado pela política, diz pesquisador |
+| `g1-tecnologia` | Manchetes: g1 Tecnologia (feed RSS, sem chave) | 💻 g1 Tecnologia: Bill Gates considera ciberataques o principal risco atual da IA: 'Teremos muitas surpresas desagradáveis' |
+| `ge-esportes` | Manchetes: ge (feed RSS, sem chave) | ⚽ ge: Análise: Singapura tem show de Verstappen e dá chance para Antonelli ser campeão em Austin |
+| `infomoney` | Manchetes: InfoMoney (feed RSS, sem chave) | 💼 InfoMoney: Flamengo e Fluminense protestam contra MP das Bets; torcedores estendem faixa |
+| `poder360` | Manchetes: Poder360 (feed RSS, sem chave) | 📰 Poder360: Homem rasga bandeira dos EUA em ato pró-Lula na Paulista |
 | `senado-noticias` | Manchetes: Senado (feed RSS, sem chave) | 🏛 Senado: Áudio: Senado homenageia os 45 anos da Associação do Senhor Jesus |
 
 **🌍 Notícias do mundo** (7)
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
-| `al-jazeera` | Manchetes: Al Jazeera (feed RSS, sem chave) | 🌍 Al Jazeera: Republican senator says Trump diesel agreement with Russia may be illegal |
-| `bbc-brasil` | Manchetes: BBC Brasil (feed RSS, sem chave) | 🌍 BBC Brasil: Corredor Andes-Atlântico: o que se sabe sobre o ambicioso projeto dos EUA para acessar recursos estratégicos d |
-| `bbc-mundo` | Manchetes: BBC World (feed RSS, sem chave) | 🌍 BBC World: Saudi capital airport hit by second Houthi strike in two days |
+| `al-jazeera` | Manchetes: Al Jazeera (feed RSS, sem chave) | 🌍 Al Jazeera: China sanctions Paraguay, Belize ministers over Taiwan ties |
+| `bbc-brasil` | Manchetes: BBC Brasil (feed RSS, sem chave) | 🌍 BBC Brasil: Corredor Andes-Atlântico: o que se sabe sobre o ambicioso projeto dos EUA para acessar recursos estratégicos da Argentina (e competir com a China) |
+| `bbc-mundo` | Manchetes: BBC World (feed RSS, sem chave) | 🌍 BBC World: Trump's 'energy ceasefire' claim welcomed by Zelensky but Russia silent |
 | `dw-brasil` | Manchetes: DW Brasil (feed RSS, sem chave) | 🌍 DW Brasil: "Sem anistia!": Milhares vão às ruas em defesa da democracia |
 | `guardian` | Manchetes: Guardian (feed RSS, sem chave) | 🌍 Guardian: Controversial vaccine trial touted by RFK Jr gets go-ahead in Guinea-Bissau |
-| `npr` | Manchetes: NPR (feed RSS, sem chave) | 🎙 NPR: Pope Leo XIV to undergo lung surgery this week |
+| `npr` | Manchetes: NPR (feed RSS, sem chave) | 🎙 NPR: Tropical Storm Rachel downgraded as high winds and rain turn inward |
 | `nyt-mundo` | Manchetes: NYT World (feed RSS, sem chave) | 🗽 NYT World: Saudi Arabia Has Few Options as Houthis Aim at Heart of Its Ambitions |
 
 **💻 Tecnologia** (18)
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
-| `ars-technica` | Manchetes: Ars Technica (feed RSS, sem chave) | 💻 Ars Technica: Prime Video unveils Blade Runner 2099 full trailer at NYCC |
-| `bbc-tech` | Manchetes: BBC Tech (feed RSS, sem chave) | 💻 BBC Tech: King warns malicious online actors are evolving tactics |
-| `canaltech` | Manchetes: Canaltech (feed RSS, sem chave) | 💻 Canaltech: Deixar TV ligada para o pet dormir gasta muita energia? Fizemos as contas |
+| `ars-technica` | Manchetes: Ars Technica (feed RSS, sem chave) | 💻 Ars Technica: Review: 4-hour Musk documentary feels like two different films |
+| `bbc-tech` | Manchetes: BBC Tech (feed RSS, sem chave) | 💻 BBC Tech: AI is less regulated than milk, says Microsoft president |
+| `canaltech` | Manchetes: Canaltech (feed RSS, sem chave) | 💻 Canaltech: 6 filmes que prometeram muito e floparam na estreia nos cinemas |
 | `debian-seguranca` | Avisos de segurança do Debian (feed RDF, sem chave) | 🛡 Debian DSA: DSA-6552-1 vips - security update |
 | `go-blog` | Manchetes: Go Blog (feed ATOM, sem chave) | 🐹 Go Blog: Arch-specific SIMD in Go |
-| `hacker-news` | Manchetes: Hacker News (feed RSS, sem chave) | 🟧 Hacker News: Chapter 1 of Ways of Seeing by John Berger |
-| `lobsters` | Manchetes: Lobsters (feed RSS, sem chave) | 🦞 Lobsters: What's Wrong with GitHub |
-| `lwn` | Manchetes: LWN (feed RSS, sem chave) | 🐧 LWN: Stable kernels 7.2.10 and 6.18.56 |
+| `hacker-news` | Manchetes: Hacker News (feed RSS, sem chave) | 🟧 Hacker News: Type-safe HTML templating in Zig |
+| `lobsters` | Manchetes: Lobsters (feed RSS, sem chave) | 🦞 Lobsters: I'm sorry, but you still have to think |
+| `lwn` | Manchetes: LWN (feed RSS, sem chave) | 🐧 LWN: Kernel prepatch 7.3-rc7 |
 | `nyt-tech` | Manchetes: NYT Tech (feed RSS, sem chave) | 💻 NYT Tech: Inside Mark Zuckerberg’s Decision to Pull the Trigger on Meta’s A.I. Agent |
-| `olhar-digital` | Manchetes: Olhar Digital (feed RSS, sem chave) | 💻 Olhar Digital: Economize na hora de imprimir: veja uma seleção de impressoras em promoção na Amazon |
-| `phoronix` | Manchetes: Phoronix (feed RSS, sem chave) | 🐧 Phoronix: Linux Landing Kernel Workaround For AMD TLBI Erratum #1718 |
+| `olhar-digital` | Manchetes: Olhar Digital (feed RSS, sem chave) | 💻 Olhar Digital: Carregador portátil pega fogo em voo e força pouso de emergência na Índia |
+| `phoronix` | Manchetes: Phoronix (feed RSS, sem chave) | 🐧 Phoronix: Linus Torvalds Working On A Hefty Linux Kernel Improvement With Claude Code |
 | `rust-blog` | Manchetes: Rust Blog (feed ATOM, sem chave) | 🦀 Rust Blog: Demoting i686 Windows targets to std-only |
-| `techcrunch` | Manchetes: TechCrunch (feed RSS, sem chave) | 💻 TechCrunch: 48 hours to TechCrunch Disrupt 2026 — hear directly from the people building what’s next |
-| `tecmundo` | Manchetes: Tecmundo (feed RSS, sem chave) | 💻 Tecmundo: Cyberleek vaza gameplay de GTA 6 com Lucia nua e ameaça liberar build completa do jogo |
+| `techcrunch` | Manchetes: TechCrunch (feed RSS, sem chave) | 💻 TechCrunch: The founder’s guide to TechCrunch Disrupt 2026: Everything you need to know |
+| `tecmundo` | Manchetes: Tecmundo (feed RSS, sem chave) | 💻 Tecmundo: Valor Mortis, Enshrouded, Castlevania Belmonts Curse e mais! Veja os lançamentos de games da semana |
 | `tecnoblog` | Manchetes: Tecnoblog (feed RSS, sem chave) | 💻 Tecnoblog: TV TCL C7L 65” registra o menor preço desde lançamento em oferta no Magalu |
-| `the-verge` | Manchetes: The Verge (feed ATOM, sem chave) | 💻 The Verge: Silicon Valley is falling in line with Trump’s attempt to rename AI |
+| `the-verge` | Manchetes: The Verge (feed ATOM, sem chave) | 💻 The Verge: A college in Illinois tried to cancel its Flock contact and it refused |
 | `ubuntu-seguranca` | Avisos de segurança do Ubuntu (feed RSS, sem chave) | 🛡 Ubuntu USN: USN-8911-1: Linux kernel (OEM) vulnerabilities |
 | `wired` | Manchetes: Wired (feed RSS, sem chave) | 💻 Wired: I Made Terrible Games With Google’s AI Playground |
 
@@ -1270,8 +1272,8 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
-| `bbc-ciencia` | Manchetes: BBC Science (feed RSS, sem chave) | 🔬 BBC Science: Orangutans released back into Borneo forest after devastating fires |
-| `nasa` | Manchetes: NASA (feed RSS, sem chave) | 🚀 NASA: APOD: 2026 October 11 – Ice Fishing for Cosmic Neutrinos |
+| `bbc-ciencia` | Manchetes: BBC Science (feed RSS, sem chave) | 🔬 BBC Science: 'Prepare for the unthinkable' warning over autumn flooding |
+| `nasa` | Manchetes: NASA (feed RSS, sem chave) | 🚀 NASA: APOD: 2026 October 12 – Jupiter and the Moons |
 | `quanta` | Manchetes: Quanta (feed RSS, sem chave) | 🔬 Quanta: How Does Life Unfold? A Landscape Metaphor Comes Into Its Own. |
 | `science-daily` | Manchetes: ScienceDaily (feed RSS, sem chave) | 🔬 ScienceDaily: NASA astronauts splash down after 100 million miles in space |
 
@@ -1319,13 +1321,13 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 | fonte | o que mostra | como aparece |
 |---|---|---|
 | `conselho` | Um conselho aleatório em inglês (Advice Slip, sem chave) | 💡 Vinegar is a powerful cleaning agent. |
-| `fato-aleatorio` | Um fato aleatório em inglês (uselessfacts, sem chave) | 🧠 In the great fire of London in 1666 half of London was burnt down but only 6 people were injured. |
-| `fato-gato` | Um fato sobre gatos em inglês (catfact.ninja, sem chave) | 🐈 The oldest cat on record was Crème Puff from Austin, Texas, who lived from 1967 to August 6, 2005, three days after her 38th birthday. A cat typically can live |
-| `frase-zen` | Uma frase inspiradora em inglês (ZenQuotes, sem chave; no máx. 5 consultas/30 s) | 💭 “He who knows how to wait need make no concessions.” — Sigmund Freud |
-| `hoje-na-historia` | Um fato histórico que aconteceu neste dia (Wikipédia em português, sem chave) | 🕰 2018: A missão Soyuz MS-10, transportando uma tripulação destinada à Estação Espacial Internacional, é abortada pouco depois do lançamento; a trip |
-| `piada-ingles` | Uma piada curta em inglês (Official Joke API, sem chave) | 😄 Why did Sweden start painting barcodes on the sides of their battleships? — So they could Scandinavian. |
-| `versiculo` | Um versículo bíblico aleatório (bible-api.com, sem chave) | 📖 Moses stretched out his hand toward the sky, and there was a thick darkness in all the land of Egypt for three days. (Exodus 10:22) |
-| `wikipedia-aleatoria` | Um verbete aleatório da Wikipédia em português (sem chave) | 📚 Li Xiaoxia: mesa-tenista chinesa |
+| `fato-aleatorio` | Um fato aleatório em inglês (uselessfacts, sem chave) | 🧠 Tigers not only have striped fur, they have striped skin! |
+| `fato-gato` | Um fato sobre gatos em inglês (catfact.ninja, sem chave) | 🐈 If they have ample water, cats can tolerate temperatures up to 133 °F. |
+| `frase-zen` | Uma frase inspiradora em inglês (ZenQuotes, sem chave; no máx. 5 consultas/30 s) | 💭 “It's not what we do once in a while that shapes our lives, but what we do consistently.” — Tony Robbins |
+| `hoje-na-historia` | Um fato histórico que aconteceu neste dia (Wikipédia em português, sem chave) | 🕰 2019: O tufão Hagibis atinge o Japão, matando ao menos 70 pessoas, causando graves inundações e forçando a evacuação de um milhão de pessoas. |
+| `piada-ingles` | Uma piada curta em inglês (Official Joke API, sem chave) | 😄 What did one ocean say to the other ocean? — Nothing, they just waved. |
+| `versiculo` | Um versículo bíblico aleatório (bible-api.com, sem chave) | 📖 For it is written, “I will destroy the wisdom of the wise, I will bring the discernment of the discerning to nothing.” (1 Corinthians 1:19) |
+| `wikipedia-aleatoria` | Um verbete aleatório da Wikipédia em português (sem chave) | 📚 Nykvarn (comuna): comuna da Suécia |
 | `xkcd` | Título da tirinha mais recente do xkcd (feed RSS, sem chave) | 🎨 xkcd: Dogcatcher |
 | `zen-do-github` | Um princípio zen do GitHub (api.github.com/zen, sem chave) | 🧘 Non-blocking is better than blocking. |
 

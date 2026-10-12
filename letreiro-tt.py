@@ -233,15 +233,14 @@ def _celulas(texto, base):
 def montar_roda(cfg, agora):
     sep = cfg.get("ticker_separador", " • ") or " • "
     ent = entradas_roda(cfg)
-    ordem = cfg.get("ticker_ordem", "manual")
-    if ordem == "aleatoria":
-        import random
-        random.Random(int(agora // 3600)).shuffle(ent)
-    elif ordem == "peso":
+    # ticker_ordem: sequencial (a ordem das fontes; "manual" é o nome antigo), aleatoria (mistura as ENTRADAS de todas
+    # as fontes, não só a ordem delas) ou peso
+    ordem = cfg.get("ticker_ordem", "sequencial")
+    if ordem == "peso":
         ent = sorted(ent, key=lambda x: -int(x[1].get("peso", 1) or 1))
     voltas = max([int(e.get("peso", 1) or 1) for _n, e in ent] or [1])
     cor_ok = cfg.get("ticker_cor", "1") != "0"
-    r = Roda()
+    itens = []   # (chave de sorteio, nome da fonte, índice da linha, células), na ordem sequencial
     cache = {}
     for k in range(voltas):
         for nome, e in ent:
@@ -255,10 +254,19 @@ def montar_roda(cfg, agora):
                     cel = [(c, None if est in ("alta", "baixa", "neutra") else est) for c, est in cel]
                 if not cel:
                     continue
-                if r.cel:
-                    r.cel += [(c, None) for c in sep]
-                r.segs.append((len(r.cel), len(r.cel) + len(cel), nome, i))
-                r.cel += cel
+                itens.append(("%d:%s:%d:%d" % (int(agora // 3600), nome, i, k), nome, i, cel))
+    if ordem == "aleatoria":
+        # A posição de cada entrada sai de um hash da hora + fonte + linha + volta, não do sorteio da lista inteira:
+        # quando UMA fonte atualiza (entra ou sai manchete, muda um valor), as outras entradas ficam onde estavam e o
+        # letreiro não "pula" no meio da rolagem. A ordem muda sozinha a cada hora.
+        import hashlib
+        itens.sort(key=lambda x: hashlib.md5(x[0].encode("utf-8")).digest())
+    r = Roda()
+    for _chave, nome, i, cel in itens:
+        if r.cel:
+            r.cel += [(c, None) for c in sep]
+        r.segs.append((len(r.cel), len(r.cel) + len(cel), nome, i))
+        r.cel += cel
     r.fim_roda = [(c, None) for c in sep] if r.cel else []
     return r
 

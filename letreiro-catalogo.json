@@ -997,12 +997,12 @@
     "sufixo": " mm",
     "modelo": "{icone} {rotulo} {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo"
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto"
    },
-   "exemplo": "🌧 São Paulo 0,4 mm",
-   "validada": "2026-10-11"
+   "exemplo": "🌧 Ribeirão Preto 0,0 mm",
+   "validada": "2026-10-12"
   },
   "clima-max-min": {
    "conf": {
@@ -1017,14 +1017,14 @@
     "sufixo": "",
     "modelo": "{icone} {rotulo} {valor}°/{min}°",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo",
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto",
     "formato": "regex",
     "campo.min": "\"temperature_2m_min\":\\[(-?[0-9]+)"
    },
-   "exemplo": "🌡 São Paulo 25°/17°",
-   "validada": "2026-10-11"
+   "exemplo": "🌡 Ribeirão Preto 30°/19°",
+   "validada": "2026-10-12"
   },
   "clima-nascer-do-sol": {
    "conf": {
@@ -1039,13 +1039,13 @@
     "sufixo": "",
     "modelo": "{icone} {rotulo} nasce {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo",
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto",
     "formato": "regex"
    },
-   "exemplo": "🌅 São Paulo nasce 05:37",
-   "validada": "2026-10-11"
+   "exemplo": "🌅 Ribeirão Preto nasce 05:42",
+   "validada": "2026-10-12"
   },
   "clima-pm25": {
    "conf": {
@@ -1060,12 +1060,12 @@
     "sufixo": " µg/m³",
     "modelo": "{icone} {rotulo} {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo"
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto"
    },
-   "exemplo": "🌫 São Paulo 16 µg/m³",
-   "validada": "2026-10-11"
+   "exemplo": "🌫 Ribeirão Preto 76 µg/m³",
+   "validada": "2026-10-12"
   },
   "clima-por-do-sol": {
    "conf": {
@@ -1080,13 +1080,13 @@
     "sufixo": "",
     "modelo": "{icone} {rotulo} põe {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo",
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto",
     "formato": "regex"
    },
-   "exemplo": "🌇 São Paulo põe 18:09",
-   "validada": "2026-10-11"
+   "exemplo": "🌇 Ribeirão Preto põe 18:13",
+   "validada": "2026-10-12"
   },
   "clima-prob-chuva": {
    "conf": {
@@ -1101,12 +1101,12 @@
     "sufixo": "%",
     "modelo": "{icone} {rotulo} {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo"
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto"
    },
-   "exemplo": "☔ São Paulo 100%",
-   "validada": "2026-10-11"
+   "exemplo": "☔ Ribeirão Preto 66%",
+   "validada": "2026-10-12"
   },
   "clima-qualidade-ar": {
    "conf": {
@@ -1121,12 +1121,12 @@
     "sufixo": "",
     "modelo": "{icone} {rotulo} AQI {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo"
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto"
    },
-   "exemplo": "😷 São Paulo AQI 140",
-   "validada": "2026-10-11"
+   "exemplo": "😷 Ribeirão Preto AQI 96",
+   "validada": "2026-10-12"
   },
   "clima-sensacao": {
    "conf": {
@@ -1141,12 +1141,12 @@
     "sufixo": "°C",
     "modelo": "{icone} {rotulo} {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo"
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto"
    },
-   "exemplo": "🥵 São Paulo 20,9°C",
-   "validada": "2026-10-11"
+   "exemplo": "🥵 Ribeirão Preto 22,1°C",
+   "validada": "2026-10-12"
   },
   "clima-temperatura": {
    "conf": {
@@ -1161,12 +1161,12 @@
     "sufixo": "°C",
     "modelo": "{icone} {rotulo} {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo"
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto"
    },
-   "exemplo": "🌡 São Paulo 19,6°C",
-   "validada": "2026-10-11"
+   "exemplo": "🌡 Ribeirão Preto 20,3°C",
+   "validada": "2026-10-12"
   },
   "clima-tempo": {
    "conf": {
@@ -1181,9 +1181,9 @@
     "sufixo": "",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo",
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto",
     "traduzir": [
      "95>trovoada",
      "96>trovoada com granizo",
@@ -1215,8 +1215,8 @@
      "3>nublado"
     ]
    },
-   "exemplo": "⛅ São Paulo: pancadas fracas",
-   "validada": "2026-10-11"
+   "exemplo": "⛅ Ribeirão Preto: nublado",
+   "validada": "2026-10-12"
   },
   "clima-umidade": {
    "conf": {
@@ -1231,12 +1231,12 @@
     "sufixo": "%",
     "modelo": "{icone} {rotulo} {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo"
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto"
    },
-   "exemplo": "💧 São Paulo 90%",
-   "validada": "2026-10-11"
+   "exemplo": "💧 Ribeirão Preto 89%",
+   "validada": "2026-10-12"
   },
   "clima-uv": {
    "conf": {
@@ -1251,12 +1251,12 @@
     "sufixo": "",
     "modelo": "{icone} {rotulo} UV {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo"
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto"
    },
-   "exemplo": "😎 São Paulo UV 7",
-   "validada": "2026-10-11"
+   "exemplo": "😎 Ribeirão Preto UV 8",
+   "validada": "2026-10-12"
   },
   "clima-vento": {
    "conf": {
@@ -1271,12 +1271,12 @@
     "sufixo": " km/h",
     "modelo": "{icone} {rotulo} {valor}",
     "ttl": "900",
-    "var.lat": "-23.55",
-    "var.lon": "-46.63",
-    "var.cidade": "São Paulo"
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto"
    },
-   "exemplo": "🌬 São Paulo 10 km/h",
-   "validada": "2026-10-11"
+   "exemplo": "🌬 Ribeirão Preto 9 km/h",
+   "validada": "2026-10-12"
   },
   "iss-posicao": {
    "conf": {
@@ -1304,12 +1304,10 @@
     "icone": "🚀",
     "campo.quando": "\"net\":\\s*\"([0-9-]+)T",
     "modelo": "{icone} {valor} ({quando})",
-    "ttl": "3600",
-    "truncar": "110",
-    "valor_max": "90"
+    "ttl": "3600"
    },
-   "exemplo": "🚀 Falcon 9 Block 5 | Starlink Group 15-25 (2026-10-12)",
-   "validada": "2026-10-11"
+   "exemplo": "🚀 Falcon 9 Block 5 | Starlink Group 15-25 (2026-10-13)",
+   "validada": "2026-10-12"
   },
   "sismo-recente": {
    "conf": {
@@ -1322,12 +1320,10 @@
     "ttl": "900",
     "se_faltar": "esconder",
     "clique": "url",
-    "clique_alvo": "https://earthquake.usgs.gov/earthquakes/map/",
-    "truncar": "110",
-    "valor_max": "100"
+    "clique_alvo": "https://earthquake.usgs.gov/earthquakes/map/"
    },
-   "exemplo": "🌋 M 4.7 - 156 km ESE of Neiafu, Tonga",
-   "validada": "2026-10-11"
+   "exemplo": "🌋 M 5.5 - 123 km W of Neiafu, Tonga",
+   "validada": "2026-10-12"
   },
   "tempestade-geomagnetica": {
    "conf": {
@@ -1389,14 +1385,12 @@
     "rotulo": "IBGE",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "3600",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": "items[*].link"
    },
    "exemplo": "📈 IBGE: Acervo bibliográfico de Pedro Geiger é doado à Biblioteca do IBGE",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "megasena": {
    "conf": {
@@ -1429,14 +1423,12 @@
     "rotulo": "Agência Brasil",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🇧🇷 Agência Brasil: Interpretação é a base da prova de Linguagens do Enem; veja dicas",
-   "validada": "2026-10-11"
+   "exemplo": "🇧🇷 Agência Brasil: Henrique Marques leva ouro, o 2º do Brasil em Grand Prix de taekwond",
+   "validada": "2026-10-12"
   },
   "camara-noticias": {
    "conf": {
@@ -1449,14 +1441,12 @@
     "rotulo": "Câmara",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🏛 Câmara: Projeto pune empresas que atrasarem pagamento de médicos",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "cnn-brasil": {
    "conf": {
@@ -1469,14 +1459,12 @@
     "rotulo": "CNN Brasil",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "📺 CNN Brasil: Chefe do Deutsche Bank vê eleições na Alemanha como risco para investidores",
-   "validada": "2026-10-11"
+   "exemplo": "📺 CNN Brasil: China impõe sanções a ministros de Paraguai e Belize por laços com Taiwan",
+   "validada": "2026-10-12"
   },
   "estadao": {
    "conf": {
@@ -1489,14 +1477,12 @@
     "rotulo": "Estadão",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "📰 Estadão: Ex-militar russo condenado à prisão perpétua é preso em Salvador",
-   "validada": "2026-10-11"
+   "exemplo": "📰 Estadão: ‘Não poderia ter acontecido’, diz idosa que teve prótese implantada no joelho errado",
+   "validada": "2026-10-12"
   },
   "exame": {
    "conf": {
@@ -1509,14 +1495,12 @@
     "rotulo": "Exame",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💼 Exame: Ciberataques são o principal risco imediato da IA, afirma Bill Gates",
-   "validada": "2026-10-11"
+   "exemplo": "💼 Exame: Como células de defesa encontram seu caminho pelo corpo? Estudo revela mecanismo",
+   "validada": "2026-10-12"
   },
   "folha": {
    "conf": {
@@ -1529,14 +1513,12 @@
     "rotulo": "Folha",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "📰 Folha: Slayyyter faz show contido, marcado por aperto e calor no Zig Festival, em São Paulo",
-   "validada": "2026-10-11"
+   "exemplo": "📰 Folha: Estudo aponta cinco estratégias para reduzir hesitação vacinal",
+   "validada": "2026-10-12"
   },
   "folha-mercado": {
    "conf": {
@@ -1549,14 +1531,12 @@
     "rotulo": "Folha Mercado",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💼 Folha Mercado: Lula diz que votação do fim da 6x1 antes do segundo turno já está acordada com Alcolumbre",
-   "validada": "2026-10-11"
+   "exemplo": "💼 Folha Mercado: Consumo deixa de ser motor do PIB e deve ter menor crescimento desde pandemia",
+   "validada": "2026-10-12"
   },
   "g1-ciencia": {
    "conf": {
@@ -1569,14 +1549,12 @@
     "rotulo": "g1 Ciência",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🔬 g1 Ciência: 'Ciência Aberta': centro que abriga o Sirius recebe público para apresentar curiosidades e atrações da ciência",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "g1-economia": {
    "conf": {
@@ -1589,14 +1567,12 @@
     "rotulo": "g1 Economia",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💼 g1 Economia: Mega-Sena acumula, e prêmio vai a R$ 150 milhões; veja os números sorteados",
-   "validada": "2026-10-11"
+   "exemplo": "💼 g1 Economia: Mega-Sena pode pagar R$ 150 milhões nesta terça (13); veja os 10 maiores prêmios da loteria",
+   "validada": "2026-10-12"
   },
   "g1-mundo": {
    "conf": {
@@ -1609,14 +1585,12 @@
     "rotulo": "g1 Mundo",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🌎 g1 Mundo: Aeroportos da Arábia Saudita voltam a ser bombardeados; Houthis reivindicam ataques",
-   "validada": "2026-10-11"
+   "exemplo": "🌎 g1 Mundo: A nova onda de protestos de jovens do movimento das 'baratas' na Índia em imagens",
+   "validada": "2026-10-12"
   },
   "g1-politica": {
    "conf": {
@@ -1629,14 +1603,12 @@
     "rotulo": "g1 Política",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🏛 g1 Política: Corregedor do TSE suspende preliminarmente decisão de Nunes Marques e libera canal 'Exército do Lula'; decisão",
-   "validada": "2026-10-11"
+   "exemplo": "🏛 g1 Política: Nem todo eleitor que deixa de votar é desinteressado pela política, diz pesquisador",
+   "validada": "2026-10-12"
   },
   "g1-tecnologia": {
    "conf": {
@@ -1649,14 +1621,12 @@
     "rotulo": "g1 Tecnologia",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💻 g1 Tecnologia: IA ameaça aumentar desigualdades de gênero no mercado de trabalho, diz relatório",
-   "validada": "2026-10-11"
+   "exemplo": "💻 g1 Tecnologia: Bill Gates considera ciberataques o principal risco atual da IA: 'Teremos muitas surpresas desagradáveis'",
+   "validada": "2026-10-12"
   },
   "ge-esportes": {
    "conf": {
@@ -1669,14 +1639,12 @@
     "rotulo": "ge",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "⚽ ge: Ferroviária x Inter de Limeira - Campeonato Brasileiro Série C 2026 - globoesporte.com",
-   "validada": "2026-10-11"
+   "exemplo": "⚽ ge: Análise: Singapura tem show de Verstappen e dá chance para Antonelli ser campeão em Austin",
+   "validada": "2026-10-12"
   },
   "infomoney": {
    "conf": {
@@ -1689,14 +1657,12 @@
     "rotulo": "InfoMoney",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💼 InfoMoney: EUA ameaçam bloquear armas para Ucrânia devido a ataques a refinarias, diz FT",
-   "validada": "2026-10-11"
+   "exemplo": "💼 InfoMoney: Flamengo e Fluminense protestam contra MP das Bets; torcedores estendem faixa",
+   "validada": "2026-10-12"
   },
   "poder360": {
    "conf": {
@@ -1709,14 +1675,12 @@
     "rotulo": "Poder360",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "📰 Poder360: Messias diz que Senado aprovará fim da 6 X 1 e pede votos para Lula",
-   "validada": "2026-10-11"
+   "exemplo": "📰 Poder360: Homem rasga bandeira dos EUA em ato pró-Lula na Paulista",
+   "validada": "2026-10-12"
   },
   "senado-noticias": {
    "conf": {
@@ -1729,14 +1693,12 @@
     "rotulo": "Senado",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🏛 Senado: Áudio: Senado homenageia os 45 anos da Associação do Senhor Jesus",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "al-jazeera": {
    "conf": {
@@ -1749,14 +1711,12 @@
     "rotulo": "Al Jazeera",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🌍 Al Jazeera: Republican senator says Trump diesel agreement with Russia may be illegal",
-   "validada": "2026-10-11"
+   "exemplo": "🌍 Al Jazeera: China sanctions Paraguay, Belize ministers over Taiwan ties",
+   "validada": "2026-10-12"
   },
   "bbc-brasil": {
    "conf": {
@@ -1769,14 +1729,12 @@
     "rotulo": "BBC Brasil",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🌍 BBC Brasil: Corredor Andes-Atlântico: o que se sabe sobre o ambicioso projeto dos EUA para acessar recursos estratégicos d",
-   "validada": "2026-10-11"
+   "exemplo": "🌍 BBC Brasil: Corredor Andes-Atlântico: o que se sabe sobre o ambicioso projeto dos EUA para acessar recursos estratégicos da Argentina (e competir com a China)",
+   "validada": "2026-10-12"
   },
   "bbc-mundo": {
    "conf": {
@@ -1789,14 +1747,12 @@
     "rotulo": "BBC World",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🌍 BBC World: Saudi capital airport hit by second Houthi strike in two days",
-   "validada": "2026-10-11"
+   "exemplo": "🌍 BBC World: Trump's 'energy ceasefire' claim welcomed by Zelensky but Russia silent",
+   "validada": "2026-10-12"
   },
   "dw-brasil": {
    "conf": {
@@ -1809,14 +1765,12 @@
     "rotulo": "DW Brasil",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🌍 DW Brasil: \"Sem anistia!\": Milhares vão às ruas em defesa da democracia",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "guardian": {
    "conf": {
@@ -1829,14 +1783,12 @@
     "rotulo": "Guardian",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🌍 Guardian: Controversial vaccine trial touted by RFK Jr gets go-ahead in Guinea-Bissau",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "npr": {
    "conf": {
@@ -1849,14 +1801,12 @@
     "rotulo": "NPR",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🎙 NPR: Pope Leo XIV to undergo lung surgery this week",
-   "validada": "2026-10-11"
+   "exemplo": "🎙 NPR: Tropical Storm Rachel downgraded as high winds and rain turn inward",
+   "validada": "2026-10-12"
   },
   "nyt-mundo": {
    "conf": {
@@ -1869,14 +1819,12 @@
     "rotulo": "NYT World",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🗽 NYT World: Saudi Arabia Has Few Options as Houthis Aim at Heart of Its Ambitions",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "ars-technica": {
    "conf": {
@@ -1889,14 +1837,12 @@
     "rotulo": "Ars Technica",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💻 Ars Technica: Prime Video unveils Blade Runner 2099 full trailer at NYCC",
-   "validada": "2026-10-11"
+   "exemplo": "💻 Ars Technica: Review: 4-hour Musk documentary feels like two different films",
+   "validada": "2026-10-12"
   },
   "bbc-tech": {
    "conf": {
@@ -1909,14 +1855,12 @@
     "rotulo": "BBC Tech",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💻 BBC Tech: King warns malicious online actors are evolving tactics",
-   "validada": "2026-10-11"
+   "exemplo": "💻 BBC Tech: AI is less regulated than milk, says Microsoft president",
+   "validada": "2026-10-12"
   },
   "canaltech": {
    "conf": {
@@ -1929,14 +1873,12 @@
     "rotulo": "Canaltech",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💻 Canaltech: Deixar TV ligada para o pet dormir gasta muita energia? Fizemos as contas",
-   "validada": "2026-10-11"
+   "exemplo": "💻 Canaltech: 6 filmes que prometeram muito e floparam na estreia nos cinemas",
+   "validada": "2026-10-12"
   },
   "debian-seguranca": {
    "conf": {
@@ -1949,14 +1891,12 @@
     "rotulo": "Debian DSA",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🛡 Debian DSA: DSA-6552-1 vips - security update",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "go-blog": {
    "conf": {
@@ -1969,14 +1909,12 @@
     "rotulo": "Go Blog",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//entry/link/@href"
    },
    "exemplo": "🐹 Go Blog: Arch-specific SIMD in Go",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "hacker-news": {
    "conf": {
@@ -1989,14 +1927,12 @@
     "rotulo": "Hacker News",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🟧 Hacker News: Chapter 1 of Ways of Seeing by John Berger",
-   "validada": "2026-10-11"
+   "exemplo": "🟧 Hacker News: Type-safe HTML templating in Zig",
+   "validada": "2026-10-12"
   },
   "lobsters": {
    "conf": {
@@ -2009,14 +1945,12 @@
     "rotulo": "Lobsters",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🦞 Lobsters: What's Wrong with GitHub",
-   "validada": "2026-10-11"
+   "exemplo": "🦞 Lobsters: I'm sorry, but you still have to think",
+   "validada": "2026-10-12"
   },
   "lwn": {
    "conf": {
@@ -2029,14 +1963,12 @@
     "rotulo": "LWN",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🐧 LWN: Stable kernels 7.2.10 and 6.18.56",
-   "validada": "2026-10-11"
+   "exemplo": "🐧 LWN: Kernel prepatch 7.3-rc7",
+   "validada": "2026-10-12"
   },
   "nyt-tech": {
    "conf": {
@@ -2049,14 +1981,12 @@
     "rotulo": "NYT Tech",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "💻 NYT Tech: Inside Mark Zuckerberg’s Decision to Pull the Trigger on Meta’s A.I. Agent",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "olhar-digital": {
    "conf": {
@@ -2069,14 +1999,12 @@
     "rotulo": "Olhar Digital",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💻 Olhar Digital: Economize na hora de imprimir: veja uma seleção de impressoras em promoção na Amazon",
-   "validada": "2026-10-11"
+   "exemplo": "💻 Olhar Digital: Carregador portátil pega fogo em voo e força pouso de emergência na Índia",
+   "validada": "2026-10-12"
   },
   "phoronix": {
    "conf": {
@@ -2089,14 +2017,12 @@
     "rotulo": "Phoronix",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🐧 Phoronix: Linux Landing Kernel Workaround For AMD TLBI Erratum #1718",
-   "validada": "2026-10-11"
+   "exemplo": "🐧 Phoronix: Linus Torvalds Working On A Hefty Linux Kernel Improvement With Claude Code",
+   "validada": "2026-10-12"
   },
   "rust-blog": {
    "conf": {
@@ -2109,14 +2035,12 @@
     "rotulo": "Rust Blog",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//entry/link/@href"
    },
    "exemplo": "🦀 Rust Blog: Demoting i686 Windows targets to std-only",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "techcrunch": {
    "conf": {
@@ -2129,14 +2053,12 @@
     "rotulo": "TechCrunch",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💻 TechCrunch: 48 hours to TechCrunch Disrupt 2026 — hear directly from the people building what’s next",
-   "validada": "2026-10-11"
+   "exemplo": "💻 TechCrunch: The founder’s guide to TechCrunch Disrupt 2026: Everything you need to know",
+   "validada": "2026-10-12"
   },
   "tecmundo": {
    "conf": {
@@ -2149,14 +2071,12 @@
     "rotulo": "Tecmundo",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "💻 Tecmundo: Cyberleek vaza gameplay de GTA 6 com Lucia nua e ameaça liberar build completa do jogo",
-   "validada": "2026-10-11"
+   "exemplo": "💻 Tecmundo: Valor Mortis, Enshrouded, Castlevania Belmonts Curse e mais! Veja os lançamentos de games da semana",
+   "validada": "2026-10-12"
   },
   "tecnoblog": {
    "conf": {
@@ -2169,14 +2089,12 @@
     "rotulo": "Tecnoblog",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "1800",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "💻 Tecnoblog: TV TCL C7L 65” registra o menor preço desde lançamento em oferta no Magalu",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "the-verge": {
    "conf": {
@@ -2189,14 +2107,12 @@
     "rotulo": "The Verge",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//entry/link/@href"
    },
-   "exemplo": "💻 The Verge: Silicon Valley is falling in line with Trump’s attempt to rename AI",
-   "validada": "2026-10-11"
+   "exemplo": "💻 The Verge: A college in Illinois tried to cancel its Flock contact and it refused",
+   "validada": "2026-10-12"
   },
   "ubuntu-seguranca": {
    "conf": {
@@ -2209,14 +2125,12 @@
     "rotulo": "Ubuntu USN",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🛡 Ubuntu USN: USN-8911-1: Linux kernel (OEM) vulnerabilities",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "wired": {
    "conf": {
@@ -2229,14 +2143,12 @@
     "rotulo": "Wired",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "💻 Wired: I Made Terrible Games With Google’s AI Playground",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "bbc-ciencia": {
    "conf": {
@@ -2249,14 +2161,12 @@
     "rotulo": "BBC Science",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🔬 BBC Science: Orangutans released back into Borneo forest after devastating fires",
-   "validada": "2026-10-11"
+   "exemplo": "🔬 BBC Science: 'Prepare for the unthinkable' warning over autumn flooding",
+   "validada": "2026-10-12"
   },
   "nasa": {
    "conf": {
@@ -2269,14 +2179,12 @@
     "rotulo": "NASA",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
-   "exemplo": "🚀 NASA: APOD: 2026 October 11 – Ice Fishing for Cosmic Neutrinos",
-   "validada": "2026-10-11"
+   "exemplo": "🚀 NASA: APOD: 2026 October 12 – Jupiter and the Moons",
+   "validada": "2026-10-12"
   },
   "quanta": {
    "conf": {
@@ -2289,14 +2197,12 @@
     "rotulo": "Quanta",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🔬 Quanta: How Does Life Unfold? A Landscape Metaphor Comes Into Its Own.",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "science-daily": {
    "conf": {
@@ -2309,14 +2215,12 @@
     "rotulo": "ScienceDaily",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🔬 ScienceDaily: NASA astronauts splash down after 100 million miles in space",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "chrome-estavel": {
    "conf": {
@@ -2963,12 +2867,10 @@
     "caminho": "text",
     "icone": "🧠",
     "modelo": "{icone} {valor}",
-    "ttl": "1800",
-    "truncar": "200",
-    "valor_max": "160"
+    "ttl": "1800"
    },
-   "exemplo": "🧠 In the great fire of London in 1666 half of London was burnt down but only 6 people were injured.",
-   "validada": "2026-10-11"
+   "exemplo": "🧠 Tigers not only have striped fur, they have striped skin!",
+   "validada": "2026-10-12"
   },
   "fato-gato": {
    "conf": {
@@ -2978,12 +2880,10 @@
     "caminho": "fact",
     "icone": "🐈",
     "modelo": "{icone} {valor}",
-    "ttl": "1800",
-    "truncar": "200",
-    "valor_max": "160"
+    "ttl": "1800"
    },
-   "exemplo": "🐈 The oldest cat on record was Crème Puff from Austin, Texas, who lived from 1967 to August 6, 2005, three days after her 38th birthday. A cat typically can live",
-   "validada": "2026-10-11"
+   "exemplo": "🐈 If they have ample water, cats can tolerate temperatures up to 133 °F.",
+   "validada": "2026-10-12"
   },
   "frase-zen": {
    "conf": {
@@ -2994,12 +2894,10 @@
     "campo.autor": "[0].a",
     "icone": "💭",
     "modelo": "{icone} “{valor}” — {autor}",
-    "ttl": "1800",
-    "truncar": "200",
-    "valor_max": "160"
+    "ttl": "1800"
    },
-   "exemplo": "💭 “He who knows how to wait need make no concessions.” — Sigmund Freud",
-   "validada": "2026-10-11"
+   "exemplo": "💭 “It's not what we do once in a while that shapes our lives, but what we do consistently.” — Tony Robbins",
+   "validada": "2026-10-12"
   },
   "hoje-na-historia": {
    "conf": {
@@ -3011,12 +2909,10 @@
     "icone": "🕰",
     "modelo": "{icone} {ano}: {valor}",
     "ttl": "43200",
-    "truncar": "170",
-    "valor_max": "140",
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1"
    },
-   "exemplo": "🕰 2018: A missão Soyuz MS-10, transportando uma tripulação destinada à Estação Espacial Internacional, é abortada pouco depois do lançamento; a trip",
-   "validada": "2026-10-11"
+   "exemplo": "🕰 2019: O tufão Hagibis atinge o Japão, matando ao menos 70 pessoas, causando graves inundações e forçando a evacuação de um milhão de pessoas.",
+   "validada": "2026-10-12"
   },
   "piada-ingles": {
    "conf": {
@@ -3027,12 +2923,10 @@
     "campo.resposta": "punchline",
     "icone": "😄",
     "modelo": "{icone} {valor} — {resposta}",
-    "ttl": "1800",
-    "truncar": "200",
-    "valor_max": "120"
+    "ttl": "1800"
    },
-   "exemplo": "😄 Why did Sweden start painting barcodes on the sides of their battleships? — So they could Scandinavian.",
-   "validada": "2026-10-11"
+   "exemplo": "😄 What did one ocean say to the other ocean? — Nothing, they just waved.",
+   "validada": "2026-10-12"
   },
   "versiculo": {
    "conf": {
@@ -3043,12 +2937,10 @@
     "campo.ref": "reference",
     "icone": "📖",
     "modelo": "{icone} {valor} ({ref})",
-    "ttl": "3600",
-    "truncar": "200",
-    "valor_max": "150"
+    "ttl": "3600"
    },
-   "exemplo": "📖 Moses stretched out his hand toward the sky, and there was a thick darkness in all the land of Egypt for three days. (Exodus 10:22)",
-   "validada": "2026-10-11"
+   "exemplo": "📖 For it is written, “I will destroy the wisdom of the wise, I will bring the discernment of the discerning to nothing.” (1 Corinthians 1:19)",
+   "validada": "2026-10-12"
   },
   "wikipedia-aleatoria": {
    "conf": {
@@ -3060,15 +2952,13 @@
     "icone": "📚",
     "modelo": "{icone} {valor}: {resumo}",
     "ttl": "1800",
-    "truncar": "160",
-    "valor_max": "60",
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
     "clique": "url",
     "clique_alvo": "{url}",
     "campo.url": "content_urls.desktop.page"
    },
-   "exemplo": "📚 Li Xiaoxia: mesa-tenista chinesa",
-   "validada": "2026-10-11"
+   "exemplo": "📚 Nykvarn (comuna): comuna da Suécia",
+   "validada": "2026-10-12"
   },
   "xkcd": {
    "conf": {
@@ -3081,14 +2971,12 @@
     "rotulo": "xkcd",
     "modelo": "{icone} {rotulo}: {valor}",
     "ttl": "900",
-    "truncar": "130",
-    "valor_max": "110",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"
    },
    "exemplo": "🎨 xkcd: Dogcatcher",
-   "validada": "2026-10-11"
+   "validada": "2026-10-12"
   },
   "zen-do-github": {
    "conf": {
@@ -3378,17 +3266,17 @@
     [
      "lat",
      "latitude",
-     "-23.55"
+     "-21.1775"
     ],
     [
      "lon",
      "longitude",
-     "-46.63"
+     "-47.81028"
     ],
     [
      "cidade",
      "nome do lugar",
-     "São Paulo"
+     "Ribeirão Preto"
     ]
    ]
   },
@@ -3404,7 +3292,6 @@
     "icone": "📰",
     "modelo": "{icone} {valor}",
     "ttl": "900",
-    "truncar": "120",
     "clique": "url",
     "clique_alvo": "{link}",
     "campo.link": ".//item/link"

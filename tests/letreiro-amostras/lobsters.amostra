@@ -3,28 +3,18 @@
   <channel>
     <title>Lobsters</title>
     <link>https://lobste.rs/</link>
-    <ns0:link href="https://lobste.rs/rss?token=4apkBzaiK0vI2KEjUzh9tV6KSi42ZfU47SQxtJj5WRnThAzj7LM3PUrdK0JX" rel="self" />
+    <ns0:link href="https://lobste.rs/rss?token=8pgvc4qaaved4di0e7i6zd7aelk3njtrwlqe0siwrikrvnye4fljpnezqlke" rel="self" />
     <description />
-    <pubDate>Sun, 11 Oct 2026 04:37:56 -0500</pubDate>
+    <pubDate>Sun, 11 Oct 2026 13:09:49 -0500</pubDate>
     <ttl>120</ttl>
     <item>
-      <title>What's Wrong with GitHub</title>
-      <link>https://www.gnu.org/philosophy/whats-wrong-with-github.html</link>
-      <guid>https://lobste.rs/s/u9ue6c</guid>
-      <pubDate>Sun, 11 Oct 2026 04:37:56 -0500</pubDate>
-      <comments>https://lobste.rs/s/u9ue6c/what_s_wrong_with_github</comments>
-      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/u9ue6c/what_s_wrong_with_github"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
-      <category>vcs</category>
-    </item>
-    <item>
-      <title>Valen's Memory Safety: A New Kind of Borrow Checking</title>
-      <link>https://verdagon.dev/blog/valen-group-borrowing</link>
-      <guid>https://lobste.rs/s/gmnqhj</guid>
-      <pubDate>Sun, 11 Oct 2026 07:23:01 -0500</pubDate>
-      <comments>https://lobste.rs/s/gmnqhj/valen_s_memory_safety_new_kind_borrow</comments>
-      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/gmnqhj/valen_s_memory_safety_new_kind_borrow"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
-      <category>compilers</category>
-      <category>plt</category>
+      <title>I'm sorry, but you still have to think</title>
+      <link>https://itsallaboutthebit.com/i-am-sorry-but-you-still-have-to-think/</link>
+      <guid>https://lobste.rs/s/k2natg</guid>
+      <pubDate>Sun, 11 Oct 2026 13:09:49 -0500</pubDate>
+      <comments>https://lobste.rs/s/k2natg/i_m_sorry_you_still_have_think</comments>
+      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/k2natg/i_m_sorry_you_still_have_think"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
+      <category>vibecoding</category>
     </item>
     <item>
       <title>I'm still around.. I'm just not writing here</title>
@@ -36,24 +26,32 @@
       <category>culture</category>
     </item>
     <item>
-      <title>LineageOS 24.0 released</title>
-      <link>https://lineageos.org/Changelog-32/</link>
-      <guid>https://lobste.rs/s/ecxril</guid>
-      <pubDate>Sun, 11 Oct 2026 01:21:25 -0500</pubDate>
-      <comments>https://lobste.rs/s/ecxril/lineageos_24_0_released</comments>
-      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/ecxril/lineageos_24_0_released"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
-      <category>mobile</category>
-      <category>android</category>
-      <category>release</category>
+      <title>What's Wrong with GitHub</title>
+      <link>https://www.gnu.org/philosophy/whats-wrong-with-github.html</link>
+      <guid>https://lobste.rs/s/u9ue6c</guid>
+      <pubDate>Sun, 11 Oct 2026 04:37:56 -0500</pubDate>
+      <comments>https://lobste.rs/s/u9ue6c/what_s_wrong_with_github</comments>
+      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/u9ue6c/what_s_wrong_with_github"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
+      <category>vcs</category>
     </item>
     <item>
-      <title>How big is a Git commit?</title>
-      <link>https://ratfactor.com/cards/git-commit-size</link>
-      <guid>https://lobste.rs/s/9wcfld</guid>
-      <pubDate>Sun, 11 Oct 2026 04:25:42 -0500</pubDate>
-      <comments>https://lobste.rs/s/9wcfld/how_big_is_git_commit</comments>
-      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/9wcfld/how_big_is_git_commit"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
-      <category>vcs</category>
+      <title>D-Bus Hell</title>
+      <link>https://dbushell.com/2026/10/11/d-bus-hell/</link>
+      <guid>https://lobste.rs/s/qgybwb</guid>
+      <pubDate>Sun, 11 Oct 2026 15:36:07 -0500</pubDate>
+      <comments>https://lobste.rs/s/qgybwb/d_bus_hell</comments>
+      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/qgybwb/d_bus_hell"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
+      <category>person</category>
+      <category>satire</category>
+    </item>
+    <item>
+      <title>'AI' is Not a Tool</title>
+      <link>https://www.linkedin.com/pulse/ai-tool-rich-hickey-kjl8e</link>
+      <guid>https://lobste.rs/s/ikk8ie</guid>
+      <pubDate>Sun, 11 Oct 2026 20:18:09 -0500</pubDate>
+      <comments>https://lobste.rs/s/ikk8ie/ai_is_not_tool</comments>
+      <description>&lt;p&gt;&lt;a href="https://lobste.rs/s/ikk8ie/ai_is_not_tool"&gt;Comments&lt;/a&gt;&lt;/p&gt;</description>
+      <category>vibecoding</category>
     </item>
     </channel>
 </rss>

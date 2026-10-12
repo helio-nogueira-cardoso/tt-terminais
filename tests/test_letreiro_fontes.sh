@@ -91,7 +91,8 @@ igual "$(cache sec)" '🔑 zero' 'indicador antigo com header @arquivo'
 igual "$(jq_ "$(ultimo /lista)" key)" 'segredo123' 'o header com @arquivo chegou ao servidor com o valor de ~/.secrets'
 igual "$(py linha)" '💵 dólar R$ 5,123 ▲0,5% • 📰 Manchete A do g1 • 📰 Manchete B • 🌍 World one • 🌍 World two • ₿ 67890.12 • ℹ primeira linha do texto • 📋 um • 🔑 zero' 'a linha do letreiro: itens unidos por " • " na ordem de indicadores='
 [[ -e $HOME/.config/tt/letreiro/btc.conf && -e $HOME/.config/tt/letreiro/dolar.conf ]] || falhou 'a migração deveria ter criado os arquivos (btc.conf; dolar.conf com ativa/ordem)'
-grep -q '^valor_max=60' "$HOME/.config/tt/letreiro/btc.conf" && grep -q '^header=X-Api-Key: @chave' "$HOME/.config/tt/letreiro/sec.conf" || falhou 'migração sem perda: valor cortado em 60 e header @chave'
+grep -q '^header=X-Api-Key: @chave' "$HOME/.config/tt/letreiro/sec.conf" || falhou 'migração sem perda: header @chave'
+grep -qE '^(valor_max|truncar)=' "$HOME/.config/tt/letreiro/btc.conf" && falhou 'a migração não deve criar corte de tamanho (o letreiro não corta entradas)'
 grep -q 'segredo123' "$HOME/.config/tt/letreiro"/*.conf && falhou 'segredo literal em arquivo de fonte'
 grep -q '^indicador_btc=' "$XDG_CONFIG_HOME/tt/config" || falhou 'a migração não pode apagar a linha antiga do config (sem perda)'
 n1=$(hits /btc); atual btc >/dev/null; py atualizar >/dev/null 2>&1; igual "$(hits /btc)" "$((n1 + 1))" 'sem --forcar o TTL (300 s) impede nova busca; --forcar busca'
@@ -232,7 +233,10 @@ cria n8 url="$(v 2.345)" caminho=v decimais=2 modelo='{valor}'
 cria n9 url="$(v 1.234,56)" caminho=v decimais=1 separador=en entrada=pt modelo='{valor}'
 cria n10 url="$(v Clear)" caminho=v traduzir='Clear>Limpo' modelo='{rotulo}:{valor}' rotulo=céu
 cria n11 url="$(v 7)" caminho=v prefixo='">> "' sufixo='" <<"' truncar=12 modelo='{valor} coisa muito comprida'
-for f in n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11; do atual $f; done
+LONGO=$(printf 'manchete-longa-%d-' $(seq 1 25))   # 400 caracteres: nenhum corte por padrão
+cria n12 url="$(v "$LONGO")" caminho=v modelo='{icone} {valor}' icone=📰
+cria n13 url="$(v "$LONGO")" caminho=v modelo='{valor}' truncar=30
+for f in n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13; do atual $f; done
 igual "$(cache n1)" '1.234.567,89' 'pt: milhar com ponto e vírgula decimal'
 igual "$(cache n2)" '1,234,567.89' 'en'
 igual "$(cache n3)" '1234567,89' 'milhar=0'
@@ -241,6 +245,8 @@ igual "$(cache n5)" '2,34' 'arredondar=truncar'; igual "$(cache n6)" '2,35' 'arr
 igual "$(cache n9)" '1,234.6' 'entrada=pt (1.234,56) → en com 1 casa'
 igual "$(cache n10)" 'céu:Limpo' 'traduzir texto fixo'
 igual "$(cache n11)" '>> 7 coi… <<' 'prefixo/sufixo (aspas guardam os espaços) e truncar em células (com …)'
+igual "$(cache n12)" "📰 $LONGO" 'sem truncar/valor_max o item sai inteiro, por maior que seja (o letreiro rola, não corta)'
+igual "$(cache n13)" "$(printf '%s' "$LONGO" | cut -c1-29)…" 'truncar=N continua cortando, mas só quando o usuário pede'
 # variação: campo próprio, valor de referência, calculada contra o valor anterior; setas e cores
 cria v1 url="$(v 100 -1.26)" caminho=v variacao=p modelo='{valor} {var}'
 cria v2 url="$(v 100 2.04)" caminho=v variacao=p setas=0 modelo='{valor} {var}'

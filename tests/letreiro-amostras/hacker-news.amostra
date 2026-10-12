@@ -1,23 +1,22 @@
 <?xml version='1.0' encoding='utf-8'?>
-<rss xmlns:ns0="http://www.w3.org/2005/Atom" version="2.0"><channel><title>Hacker News: Front Page</title><link>https://news.ycombinator.com/</link><description>Hacker News RSS</description><docs>https://hnrss.org/</docs><generator>hnrss v2.1.1</generator><lastBuildDate>Sun, 11 Oct 2026 19:17:26 +0000</lastBuildDate><ns0:link href="https://hnrss.org/frontpage" rel="self" type="application/rss+xml" /><item><title>Chapter 1 of Ways of Seeing by John Berger</title><description>
-&lt;p&gt;Article URL: &lt;a href="https://www.ways-of-seeing.com/ch1"&gt;https://www.ways-of-seeing.com/ch1&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Comments URL: &lt;a href="https://news.ycombinator.com/item?id=50046241"&gt;https://news.ycombinator.com/item?id=50046241&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Points: 3&lt;/p&gt;
-&lt;p&gt;# Comments: 0&lt;/p&gt;
-</description><pubDate>Sun, 11 Oct 2026 18:26:24 +0000</pubDate><link>https://www.ways-of-seeing.com/ch1</link><comments>https://news.ycombinator.com/item?id=50046241</comments><guid isPermaLink="false">https://news.ycombinator.com/item?id=50046241</guid></item><item><title>Total Annihilation, rebuilt for modern computers</title><description>
-&lt;p&gt;Article URL: &lt;a href="https://nanolathe.gg"&gt;https://nanolathe.gg&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Comments URL: &lt;a href="https://news.ycombinator.com/item?id=50045984"&gt;https://news.ycombinator.com/item?id=50045984&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Points: 81&lt;/p&gt;
-&lt;p&gt;# Comments: 43&lt;/p&gt;
-</description><pubDate>Sun, 11 Oct 2026 18:04:47 +0000</pubDate><link>https://nanolathe.gg</link><comments>https://news.ycombinator.com/item?id=50045984</comments><guid isPermaLink="false">https://news.ycombinator.com/item?id=50045984</guid></item><item><title>NYC's "Click to Cancel" rule is now in effect</title><description>
-&lt;p&gt;Article URL: &lt;a href="https://www.nyc.gov/main/click-to-cancel"&gt;https://www.nyc.gov/main/click-to-cancel&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Comments URL: &lt;a href="https://news.ycombinator.com/item?id=50045946"&gt;https://news.ycombinator.com/item?id=50045946&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Points: 68&lt;/p&gt;
-&lt;p&gt;# Comments: 16&lt;/p&gt;
-</description><pubDate>Sun, 11 Oct 2026 18:01:16 +0000</pubDate><link>https://www.nyc.gov/main/click-to-cancel</link><comments>https://news.ycombinator.com/item?id=50045946</comments><guid isPermaLink="false">https://news.ycombinator.com/item?id=50045946</guid></item><item><title>YouTuber builds 'Flock-like' camera to track police vehicles, gets police visit</title><description>
-&lt;p&gt;Article URL: &lt;a href="https://www.tomshardware.com/tech-industry/cyber-security/canadian-youtuber-builds-flock-like-camera-to-exclusively-track-police-vehicles-officers-visit-his-home-to-express-privacy-concerns"&gt;https://www.tomshardware.com/tech-industry/cyber-security/canadian-youtuber-builds-</description><pubDate>Sun, 11 Oct 2026 17:40:42 +0000</pubDate><link>https://www.tomshardware.com/tech-industry/cyber-security/canadian-youtuber-builds-flock-like-camera-to-exclusively-track-police-vehicles-officers-visit-his-home-to-express-privacy-concerns</link><comments>https://news.ycombinator.com/item?id=50045735</comments><guid isPermaLink="false">https://news.ycombinator.com/item?id=50045735</guid></item><item><title>apsw: Another Python SQLite Wrapper</title><description>
-&lt;p&gt;Article URL: &lt;a href="https://github.com/rogerbinns/apsw"&gt;https://github.com/rogerbinns/apsw&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Comments URL: &lt;a href="https://news.ycombinator.com/item?id=50045273"&gt;https://news.ycombinator.com/item?id=50045273&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;Points: 24&lt;/p&gt;
-&lt;p&gt;# Comments: 8&lt;/p&gt;
-</description><pubDate>Sun, 11 Oct 2026 16:58:22 +0000</pubDate><link>https://github.com/rogerbinns/apsw</link><comments>https://news.ycombinator.com/item?id=50045273</comments><guid isPermaLink="false">https://news.ycombinator.com/item?id=50045273</guid></item></channel></rss>
+<rss xmlns:ns0="http://www.w3.org/2005/Atom" version="2.0"><channel><title>Hacker News: Front Page</title><link>https://news.ycombinator.com/</link><description>Hacker News RSS</description><docs>https://hnrss.org/</docs><generator>hnrss v2.1.1</generator><lastBuildDate>Mon, 12 Oct 2026 05:28:24 +0000</lastBuildDate><ns0:link href="https://hnrss.org/frontpage" rel="self" type="application/rss+xml" /><item><title>Type-safe HTML templating in Zig</title><description>
+&lt;p&gt;Article URL: &lt;a href="https://lalinsky.com/2026/10/11/type-safe-html-templating-in-zig.html"&gt;https://lalinsky.com/2026/10/11/type-safe-html-templating-in-zig.html&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Comments URL: &lt;a href="https://news.ycombinator.com/item?id=50051573"&gt;https://news.ycombinator.com/item?id=50051573&lt;/a&gt;&lt;/p</description><pubDate>Mon, 12 Oct 2026 05:02:34 +0000</pubDate><link>https://lalinsky.com/2026/10/11/type-safe-html-templating-in-zig.html</link><comments>https://news.ycombinator.com/item?id=50051573</comments><guid isPermaLink="false">https://news.ycombinator.com/item?id=50051573</guid></item><item><title>Yandex bot traffic down 99% after data center attack</title><description>
+&lt;p&gt;Article URL: &lt;a href="https://radar.cloudflare.com/bots/as13238?dateRange=7d#bot-traffic"&gt;https://radar.cloudflare.com/bots/as13238?dateRange=7d#bot-traffic&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Comments URL: &lt;a href="https://news.ycombinator.com/item?id=50051532"&gt;https://news.ycombinator.com/item?id=50051532&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;P</description><pubDate>Mon, 12 Oct 2026 04:54:12 +0000</pubDate><link>https://radar.cloudflare.com/bots/as13238?dateRange=7d#bot-traffic</link><comments>https://news.ycombinator.com/item?id=50051532</comments><guid isPermaLink="false">https://news.ycombinator.com/item?id=50051532</guid></item><item><title>Doory – Open-Source Canva</title><description>
+&lt;p&gt;Article URL: &lt;a href="https://github.com/shaongitbd/doory"&gt;https://github.com/shaongitbd/doory&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Comments URL: &lt;a href="https://news.ycombinator.com/item?id=50049872"&gt;https://news.ycombinator.com/item?id=50049872&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Points: 54&lt;/p&gt;
+&lt;p&gt;# Comments: 18&lt;/p&gt;
+</description><pubDate>Mon, 12 Oct 2026 00:48:27 +0000</pubDate><link>https://github.com/shaongitbd/doory</link><comments>https://news.ycombinator.com/item?id=50049872</comments><guid isPermaLink="false">https://news.ycombinator.com/item?id=50049872</guid></item><item><title>Local Indexing to reduce tool calling and token usage</title><description>
+&lt;p&gt;Article URL: &lt;a href="https://tedhaley.ca/pensieve/"&gt;https://tedhaley.ca/pensieve/&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Comments URL: &lt;a href="https://news.ycombinator.com/item?id=50049508"&gt;https://news.ycombinator.com/item?id=50049508&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Points: 49&lt;/p&gt;
+&lt;p&gt;# Comments: 12&lt;/p&gt;
+</description><pubDate>Mon, 12 Oct 2026 00:03:53 +0000</pubDate><link>https://tedhaley.ca/pensieve/</link><comments>https://news.ycombinator.com/item?id=50049508</comments><guid isPermaLink="false">https://news.ycombinator.com/item?id=50049508</guid></item><item><title>HashiCorp archives the Boundary open source repo</title><description>
+&lt;p&gt;Article URL: &lt;a href="https://github.com/hashicorp/boundary"&gt;https://github.com/hashicorp/boundary&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Comments URL: &lt;a href="https://news.ycombinator.com/item?id=50049498"&gt;https://news.ycombinator.com/item?id=50049498&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;Points: 61&lt;/p&gt;
+&lt;p&gt;# Comments: 11&lt;/p&gt;
+</description><pubDate>Mon, 12 Oct 2026 00:02:45 +0000</pubDate><link>https://github.com/hashicorp/boundary</link><comments>https://news.ycombinator.com/item?id=50049498</comments><guid isPermaLink="false">https://news.ycombinator.com/item?id=50049498</guid></item></channel></rss>

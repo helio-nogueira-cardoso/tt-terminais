@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.21 · 12/10/2026
+- **Letreiro sem cortes:** nenhuma entrada é mais cortada no meio. Antes, o catálogo e as notícias embutidas cortavam o título em 90 a 200 caracteres (`valor_max`/`truncar`); agora `truncar` vale `0` (não corta) e o catálogo não define corte nenhum. Quem quiser limitar uma fonte ainda pode pôr `truncar=N`.
+- **Clima de Ribeirão Preto:** as 13 fontes de clima do catálogo e o modelo "clima" trazem Ribeirão Preto como lugar padrão (antes, São Paulo). Os exemplos do catálogo foram regravados com a resposta real.
+- **Letreiro: ordem sequencial ou aleatória:** o painel do letreiro ganhou a linha **🔀 Ordem** (⏎, clique ou `^o`) que alterna entre *sequencial* (uma fonte depois da outra) e *aleatória*, que agora mistura as **entradas** de todas as fontes, não só a ordem delas. A mistura muda a cada hora e não pula quando uma fonte atualiza. `manual`, o nome antigo, segue valendo como sequencial.
+
 ## v1.8.20 · 12/10/2026
 - **Título dos popups sem códigos estranhos:** a tela do letreiro (e qualquer popup com emoji no título, como 📤 enviar) mostrava `\360\237\223\260` antes do nome quando o tmux rodava sem locale UTF-8. O texto agora chega inteiro.
 

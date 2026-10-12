@@ -7,8 +7,8 @@
     <description />
     <language>en-us</language>
     <copyright>Copyright 2026 The New York Times Company</copyright>
-    <lastBuildDate>Sun, 11 Oct 2026 19:30:06 +0000</lastBuildDate>
-    <pubDate>Sun, 11 Oct 2026 18:27:05 +0000</pubDate>
+    <lastBuildDate>Mon, 12 Oct 2026 05:32:25 +0000</lastBuildDate>
+    <pubDate>Mon, 12 Oct 2026 03:00:20 +0000</pubDate>
     <image>
       <title>NYT &gt; Technology</title>
       <url>https://static01.nyt.com/images/misc/NYT_logo_rss_250x40.png</url>
@@ -39,7 +39,7 @@
       <guid isPermaLink="true">https://www.nytimes.com/2026/10/07/technology/personaltech/chatgpt-teens-openai.html</guid>
       <ns0:link href="https://www.nytimes.com/2026/10/07/technology/personaltech/chatgpt-teens-openai.html" rel="standout" />
       <description>A new mode includes a study tool, but it still does a user’s homework. And a children’s safety nonprofit says the chatbot flunked its tests.</description>
-      <pubDate>Wed, 07 Oct 2026 09:07:18 +0000</pubDate>
+      <pubDate>Mon, 12 Oct 2026 03:00:20 +0000</pubDate>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">Artificial Intelligence</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">ChatGPT</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">Teenagers and Adolescence</category>
@@ -74,17 +74,17 @@
       <guid isPermaLink="true">https://www.nytimes.com/2026/10/11/insider/new-york-times-space-editor-victoria-jaggard.html</guid>
       <ns0:link href="https://www.nytimes.com/2026/10/11/insider/new-york-times-space-editor-victoria-jaggard.html" rel="standout" />
       <description>On the Science desk, Victoria Jaggard spends her days pondering the universe’s most pressing mysteries.</description>
-      <pubDate>Sun, 11 Oct 2026 18:14:27 +0000</pubDate>
+      <pubDate>Sun, 11 Oct 2026 18:14:28 +0000</pubDate>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">Space and Astronomy</category>
-      <category domain="http://www.nytimes.com/namespaces/keywords/des">Moon</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">News and News Media</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">Content Type: Personal Profile</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Moon</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">Eclipses</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">Mars Phoenix Lander (Spacecraft)</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">Extraterrestrial Life</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">Satellites</category>
-      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Jet Propulsion Laboratory</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Jaggard, Victoria</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">New York Times</category>
-      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Starlink Satellite Constellation (SpaceX)</category>
     </item>
     <item>
       <title>Three Mark Zuckerbergs, Three Surprisingly Different Men</title>

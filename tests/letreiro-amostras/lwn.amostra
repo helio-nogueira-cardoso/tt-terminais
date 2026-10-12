@@ -8,12 +8,22 @@
         listing all articles which are posted to the site front page.
 </description>
         <language>en-us</language>
-        <pubDate>Sun, 11 Oct 2026 18:01:04 +0000</pubDate>
-        <lastBuildDate>Sun, 11 Oct 2026 18:01:04 +0000</lastBuildDate>
+        <pubDate>Mon, 12 Oct 2026 03:31:35 +0000</pubDate>
+        <lastBuildDate>Mon, 12 Oct 2026 03:31:35 +0000</lastBuildDate>
         <docs>https://www.rssboard.org/rss-specification</docs>
         <webMaster>lwn@lwn.net</webMaster>
         <ns0:link href="https://lwn.net/headlines/rss2" rel="self" type="application/rss+xml" />
     <item>
+        <title>Kernel prepatch 7.3-rc7</title>
+        <link>https://lwn.net/Articles/1099798/</link>
+        <guid>https://lwn.net/Articles/1099798/</guid>
+        <description>The &lt;a href="https://lwn.net/Articles/1099809/"&gt;7.3-rc7&lt;/a&gt; kernel prepatch is out for
+testing.  According to Linus: "&lt;q&gt;As always, I would have preferred to see a smaller
+rc, but it's not like anything in here looks like a reason to delay
+the final release. So that's still set for next weekend unle</description>
+        <pubDate>Mon, 12 Oct 2026 03:31:34 +0000</pubDate>
+        </item>
+        <item>
         <title>Stable kernels 7.2.10 and 6.18.56</title>
         <link>https://lwn.net/Articles/1099764/</link>
         <guid>https://lwn.net/Articles/1099764/</guid>
@@ -52,17 +62,6 @@ conference, systemd maintainers Luca Boccassi and Zbigniew Jędrzejewski-Szmek
 delivered the traditional "state of the project" session with an overview of the
 systemd project's accomplishments in the past year. That was followed</description>
         <pubDate>Fri, 09 Oct 2026 14:58:15 +0000</pubDate>
-        </item>
-        <item>
-        <title>Let's Encrypt moving to 64-day certificate lifetimes in 2027</title>
-        <link>https://lwn.net/Articles/1099588/</link>
-        <guid>https://lwn.net/Articles/1099588/</guid>
-        <description>&lt;p&gt;&lt;a href="https://letsencrypt.org/2026/10/07/64-day-certs.html"&gt;Let's
-Encrypt&lt;/a&gt;, the nonprofit that provides free TLS certificates for millions of
-sites, has &lt;a
-href="https://letsencrypt.org/2026/10/07/64-day-certs.html"&gt;announced&lt;/a&gt; that
-it will be moving to certificates with 64-day lifetimes </description>
-        <pubDate>Fri, 09 Oct 2026 14:02:44 +0000</pubDate>
         </item>
         </channel>
 </rss>

@@ -7,7 +7,7 @@
   <ns2:updatePeriod>hourly</ns2:updatePeriod>
   <ns2:updateFequency>4</ns2:updateFequency>
   <ns2:updateBase>2002-05-01T00:00:00Z</ns2:updateBase>
-  <dc:date>2023-01-10T10:34:37Z</dc:date>
+  <dc:date>2023-01-10T08:13:08Z</dc:date>
   <ns1:image rdf:resource="https://rss.dw.com/images/DW-L-RGB_whitebg.png" />
   <ns1:items>
    <rdf:Seq>
@@ -41,6 +41,7 @@
     <rdf:li rdf:resource="https://www.dw.com/pt-br/aumento-do-número-de-ministérios-significa-mais-gastos/a-64314748?maca=bra-rss-br-all-1030-rdf" />
     <rdf:li rdf:resource="https://www.dw.com/pt-br/criptomoedas-são-esquema-de-pirâmide-e-não-servem-para-nada/a-62543595?maca=bra-rss-br-all-1030-rdf" />
     <rdf:li rdf:resource="https://www.dw.com/pt-br/o-que-o-cinema-internacional-promete-para-2023/a-64308860?maca=bra-rss-br-all-1030-rdf" />
+    <rdf:li rdf:resource="https://www.dw.com/pt-br/repórter-chinesa-presa-na-pandemia-revela-detalhes-da-prisão/a-64298269?maca=bra-rss-br-all-1030-rdf" />
     <rdf:li rdf:resource="https://www.dw.com/pt-br/análise-haddad-será-mesmo-o-patinho-feio-da-esplanada/a-64297320?maca=bra-rss-br-all-1030-rdf" />
     <rdf:li rdf:resource="https://www.dw.com/pt-br/lula-sempre-soube-usar-a-política-externa-para-obter-prestígio/a-64276848?maca=bra-rss-br-all-1030-rdf" />
     <rdf:li rdf:resource="https://www.dw.com/pt-br/desprotegido-e-desvalorizado-vida-de-pesquisador-no-brasil/a-64290592?maca=bra-rss-br-all-1030-rdf" />

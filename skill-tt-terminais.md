@@ -238,7 +238,10 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   `--ticker-quadro [largura]` (antigos, valem).
 - Painel: menu ⋯ → 📰 (`--letreiro-ui`; despachante único `--letreiro-acao EVENTO CHAVE`, formulário
   `--letreiro-form-evento`/`--letreiro-form-exec`, assistente `--letreiro-assistente`, `--letreiro-menu-fonte`,
-  `--letreiro-catalogo-ui`, `--letreiro-ajustes-ui`, `--letreiro-previa`). Clique no item da faixa = range `letreiro` →
+  `--letreiro-catalogo-ui`, `--letreiro-ajustes-ui`, `--letreiro-previa`, `--letreiro-ordem-ciclar`). `ticker_ordem` =
+  `sequencial` (`manual` é o nome antigo) | `aleatoria` (mistura as entradas de todas as fontes: o desenhista ordena cada entrada por
+  um hash de hora+fonte+linha+volta, então atualizar uma fonte não move as outras) | `peso`; `^o` no painel alterna sequencial ⇄ aleatória.
+  O letreiro NÃO corta entradas: `truncar` e `valor_max` valem 0 por padrão (só cortam se o usuário pedir). Clique no item da faixa = range `letreiro` →
   `letreiro_clique` (url | copiar | painel | pausa). Aviso de falhas seguidas: `--notificar … letreiro`.
 - Sync: `--receber-letreiro` (stdin), `--letreiro-pacote` (stdout), `--propagar-letreiro`, `--puxar-letreiro`; só fontes
   `escopo=global`, a `mudada` mais nova vence, lápides em `letreiro/.removidas`, nunca segredo.

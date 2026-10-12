@@ -6,6 +6,13 @@
 		<description>Linux Hardware Reviews, Performance Benchmarks &amp; Open-Source / Free Software News</description>
 		<language>en-us</language>
 	  <item>
+   <title>Linus Torvalds Working On A Hefty Linux Kernel Improvement With Claude Code</title>
+   <link>https://www.phoronix.com/news/Linus-Torvalds-Claude-Code</link>
+   <guid>https://www.phoronix.com/news/Linus-Torvalds-Claude-Code</guid>
+   <description>Linux creator Linus Torvalds has been known to use AI to help with kernel debugging and outside of the kernel tree has also done some vibe coding with Google's Antigravity. He has previously said he views AI as a useful tool. It turns out he's even now using Claude Code for working on new Linux kern</description>
+   <pubDate>Sun, 11 Oct 2026 20:16:25 -0400</pubDate>
+   </item>
+  <item>
    <title>Linux Landing Kernel Workaround For AMD TLBI Erratum #1718</title>
    <link>https://www.phoronix.com/news/Linux-WA-TLBI-Erratum-1718</link>
    <guid>https://www.phoronix.com/news/Linux-WA-TLBI-Erratum-1718</guid>
@@ -32,13 +39,6 @@
    <guid>https://www.phoronix.com/news/Drgn-0.3-Released</guid>
    <description>Drgn is the open-source project out of Meta developing a very versatile debugger with the intent being a debugger focused on programmability with it striving to "make scripting as natural as possible so that debugging feels like coding." Drgn 0.3 released this weekend with the latest round of improv</description>
    <pubDate>Sun, 11 Oct 2026 06:07:17 -0400</pubDate>
-   </item>
-  <item>
-   <title>Corsair Novablade Pro &amp; 8BitDo Pro 2 Controllers To Be Supported With Linux 7.3-rc7</title>
-   <link>https://www.phoronix.com/news/Corsair-Novablade-Pro-Linux-7.3</link>
-   <guid>https://www.phoronix.com/news/Corsair-Novablade-Pro-Linux-7.3</guid>
-   <description>Sent out today as part of this week's input subsystem fixes are device ID additions to the XPad driver for enabling two more gaming controllers to work nicely under Linux...</description>
-   <pubDate>Sun, 11 Oct 2026 05:58:19 -0400</pubDate>
    </item>
   </channel>
 	</rss>

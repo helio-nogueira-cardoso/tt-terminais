@@ -7,8 +7,8 @@
     <description />
     <language>en-us</language>
     <copyright>Copyright 2026 The New York Times Company</copyright>
-    <lastBuildDate>Sun, 11 Oct 2026 19:30:53 +0000</lastBuildDate>
-    <pubDate>Sun, 11 Oct 2026 19:18:12 +0000</pubDate>
+    <lastBuildDate>Mon, 12 Oct 2026 05:30:20 +0000</lastBuildDate>
+    <pubDate>Mon, 12 Oct 2026 05:24:57 +0000</pubDate>
     <image>
       <title>NYT &gt; World News</title>
       <url>https://static01.nyt.com/images/misc/NYT_logo_rss_250x40.png</url>
@@ -20,7 +20,7 @@
       <guid isPermaLink="true">https://www.nytimes.com/2026/10/11/world/middleeast/saudi-arabia-options-houthis.html</guid>
       <ns0:link href="https://www.nytimes.com/2026/10/11/world/middleeast/saudi-arabia-options-houthis.html" rel="standout" />
       <description>Three deadly attacks by the Iran-backed Houthis in Yemen on an airport in the Saudi capital underscored the asymmetrical nature of their conflict with the kingdom.</description>
-      <pubDate>Sun, 11 Oct 2026 18:24:42 +0000</pubDate>
+      <pubDate>Sun, 11 Oct 2026 19:57:48 +0000</pubDate>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">War and Armed Conflicts</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">US and Israeli Attack on Iran (2026)</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/des">International Relations</category>
@@ -77,7 +77,6 @@
       <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Ukraine</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Russia</category>
       <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Kharkiv (Ukraine)</category>
-      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Israel</category>
       <ns1:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/09/16/world/00int-ukraine-spy-tnao/00int-ukraine-spy-tnao-mediumSquareAt3X.jpg" width="1800" />
       <ns1:credit>Maria Varenikova/The New York Times</ns1:credit>
       <ns1:description>Alexsander at Prison Colony No. 122 in central Ukraine.</ns1:description>

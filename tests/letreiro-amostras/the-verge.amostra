@@ -3,7 +3,7 @@
 	<ns0:title type="text">The Verge</ns0:title>
 	<ns0:subtitle type="text">The Verge is about technology and how it makes us feel. Founded in 2011, we offer our audience everything from breaking news to reviews to award-winning features and investigations, on our site, in video, and in podcasts.</ns0:subtitle>
 
-	<ns0:updated>2026-10-11T18:33:56+00:00</ns0:updated>
+	<ns0:updated>2026-10-11T22:31:45+00:00</ns0:updated>
 
 	<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com" />
 	<ns0:id>https://www.theverge.com/rss/index.xml</ns0:id>
@@ -12,9 +12,24 @@
 	<ns0:icon>https://platform.theverge.com/wp-content/uploads/sites/2/2025/01/verge-rss-large_80b47e.png?w=150&amp;h=150&amp;crop=1</ns0:icon>
 		<ns0:entry>
 			
-			<ns0:author>
-				<ns0:name>Terrence O’Brien</ns0:name>
-			</ns0:author>
+			<ns0:title type="html">A college in Illinois tried to cancel its Flock contact and it refused</ns0:title>
+			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/tech/1009411/elgin-community-college-flock-safety-cameras" />
+			<ns0:id>https://www.theverge.com/?p=1009411</ns0:id>
+			<ns0:updated>2026-10-11T17:08:43-04:00</ns0:updated>
+			<ns0:published>2026-10-11T16:06:43-04:00</ns0:published>
+			<ns0:category scheme="https://www.theverge.com" term="Policy" /><ns0:category scheme="https://www.theverge.com" term="Politics" /><ns0:category scheme="https://www.theverge.com" term="Privacy" /><ns0:category scheme="https://www.theverge.com" term="Tech" />
+							<ns0:summary type="html">In April of 2025, Elgin Community College had six Flock safety cameras installed to "enhance the safety and security of students." But by September of that year, the school's administration grew concerned that Flock was sharing data with Customs and Border Patrol, that camera feeds were not properly</ns0:summary>
+			
+							<ns0:content type="html">
+											
+
+						
+&lt;figure&gt;
+
+&lt;img alt="" data-caption="BOULDER, CO - MARCH 5:A Flock Safety license plate recognition camera is seen near the intersection of Marine Street and Arapahoe Avenue in Boulder on Thursday, March 5, 2026. (Photo by Matthew Jonas/MediaNews Group/Boulder Daily Camera via Ge</ns0:content>
+			
+					</ns0:entry>
+			<ns0:entry>
 			
 			<ns0:title type="html">Silicon Valley is falling in line with Trump’s attempt to rename AI</ns0:title>
 			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/ai-artificial-intelligence/1009406/silicon-valley-is-falling-in-line-with-trumps-attempt-to-rename-ai" />
@@ -35,10 +50,6 @@
 					</ns0:entry>
 			<ns0:entry>
 			
-			<ns0:author>
-				<ns0:name>Terrence O’Brien</ns0:name>
-			</ns0:author>
-			
 			<ns0:title type="html">The new Apple TV could have a built-in mic and a remote with a speaker</ns0:title>
 			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/tech/1009397/apple-tv-refresh-built-in-mic-remote-speaker" />
 			<ns0:id>https://www.theverge.com/?p=1009397</ns0:id>
@@ -57,10 +68,6 @@
 			
 					</ns0:entry>
 			<ns0:entry>
-			
-			<ns0:author>
-				<ns0:name>Terrence O’Brien</ns0:name>
-			</ns0:author>
 			
 			<ns0:title type="html">NASA dumped over 800GB of Artemis II data online</ns0:title>
 			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/science/1009379/nasa-800gb-artemis-ii-data" />
@@ -81,14 +88,10 @@
 					</ns0:entry>
 			<ns0:entry>
 			
-			<ns0:author>
-				<ns0:name>Terrence O’Brien</ns0:name>
-			</ns0:author>
-			
 			<ns0:title type="html">George A. Romero’s Season of the Witch is a slow-burn feminist occult drama</ns0:title>
 			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/entertainment/1009346/george-a-romero-season-of-the-witch-feminist-horror-review" />
 			<ns0:id>https://www.theverge.com/?p=1009346</ns0:id>
-			<ns0:updated>2026-10-11T11:12:52-04:00</ns0:updated>
+			<ns0:updated>2026-10-11T18:31:45-04:00</ns0:updated>
 			<ns0:published>2026-10-11T11:15:00-04:00</ns0:published>
 			<ns0:category scheme="https://www.theverge.com" term="Column" /><ns0:category scheme="https://www.theverge.com" term="Entertainment" /><ns0:category scheme="https://www.theverge.com" term="Film" /><ns0:category scheme="https://www.theverge.com" term="Movie Review" />
 							<ns0:summary type="html">George A. Romero is obviously best known as the father of the modern zombie movie. But between inventing the genre with Night of the Living Dead and his outbreak horror, The Crazies, Romero made two much lesser-known films: There's Always Vanilla, which I'll admit I've never seen, and Season of the </ns0:summary>
@@ -100,29 +103,6 @@
 &lt;figure&gt;
 
 &lt;img alt="Cover of Season of the Witch by George A. Romero." data-caption="" data-portal-copyright="Image: Arrow Films" data-has-syndication-rights="1" src="https://platform.theverge.com/wp-content/uploads/sites/2/2026/10/b4cbdcb8-32ec-4f79-8a23-c2edbf8d58e9.jpg?qualit</ns0:content>
-			
-					</ns0:entry>
-			<ns0:entry>
-			
-			<ns0:author>
-				<ns0:name>Charles Pulliam-Moore</ns0:name>
-			</ns0:author>
-			
-			<ns0:title type="html">Vurt wants you to look at vertical videos as a genre of their own</ns0:title>
-			<ns0:link rel="alternate" type="text/html" href="https://www.theverge.com/entertainment/1008720/vurt-microdramas-verticals-interview-hilmon-sorey" />
-			<ns0:id>https://www.theverge.com/?p=1008720</ns0:id>
-			<ns0:updated>2026-10-11T06:03:00-04:00</ns0:updated>
-			<ns0:published>2026-10-11T09:00:00-04:00</ns0:published>
-			<ns0:category scheme="https://www.theverge.com" term="Culture" /><ns0:category scheme="https://www.theverge.com" term="Entertainment" /><ns0:category scheme="https://www.theverge.com" term="Film" /><ns0:category scheme="https://www.theverge.com" term="Internet Culture" /><ns0:category scheme="https://www.theverge.com" term="Interview" /><ns0:category scheme="https://www.theverge.com" term="Report" /><ns0:category scheme="https://www.theverge.com" term="Streaming" /><ns0:category scheme="https://www.theverge.com" term="TV Shows" />
-							<ns0:summary type="html">From Disney Plus to HBO Max, almost every major established streaming service is experimenting with ways to get into vertical content. It's clear that these companies see video-focused social media platforms like TikTok and Instagram as existential threats. In this arms race for viewers' attention, </ns0:summary>
-			
-							<ns0:content type="html">
-											
-
-						
-&lt;figure&gt;
-
-&lt;img alt="An image displaying Vurt’s mobile interface." data-caption="" data-portal-copyright="Image: Vurt" data-has-syndication-rights="1" src="https://platform.theverge.com/wp-content/uploads/sites/2/2026/10/IMG_0918.png?quality=90&amp;#038;strip=all&amp;#038;crop=0,0,100,10</ns0:content>
 			
 					</ns0:entry>
 			</ns0:feed>

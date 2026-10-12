@@ -125,7 +125,7 @@ CAMPOS = [
     ("valor_max", "int:0:400", "0", "transformacao", "corta o valor bruto em N caracteres (0 = não corta)"),
     # exibição
     ("modelo", "str", "{icone} {rotulo} {valor} {var}", "exibicao", "modelo do item: {icone} {rotulo} {valor} {var} {seta} {pct}…"),
-    ("truncar", "int:10:400", "90", "exibicao", "largura máxima do item (células)"),
+    ("truncar", "int:0:400", "0", "exibicao", "largura máxima do item em células (0 = não corta, o padrão)"),
     ("prefixo", "str", "", "exibicao", "texto antes do item"),
     ("sufixo", "str", "", "exibicao", "texto depois do item"),
     ("cor", "bool", "1", "exibicao", "cor por sinal (alta verde, baixa vermelha)"),
@@ -861,14 +861,14 @@ NATIVAS = {
     },
     "frases": {
         "descricao": "Frases (lista embutida; troque pelos seus item=)", "tags": "curiosidade",
-        "origem": "lista", "item": FRASES, "modelo": "{valor}", "ttl": "600", "ordem": "20", "truncar": "400",
+        "origem": "lista", "item": FRASES, "modelo": "{valor}", "ttl": "600", "ordem": "20",
     },
     "noticias": {
         "descricao": "Manchetes do g1 e da BBC World (RSS, sem chave)", "tags": "noticias",
-        "formato": "rss", "modelo": "{icone} {valor}", "ttl": "900", "ordem": "30", "truncar": "400",
+        "formato": "rss", "modelo": "{icone} {valor}", "ttl": "900", "ordem": "30",
         "_sub": [
-            {"url": "https://g1.globo.com/rss/g1/", "icone": "📰", "itens": "2", "valor_max": "90"},
-            {"url": "https://feeds.bbci.co.uk/news/world/rss.xml", "icone": "🌍", "itens": "2", "valor_max": "90"},
+            {"url": "https://g1.globo.com/rss/g1/", "icone": "📰", "itens": "2"},
+            {"url": "https://feeds.bbci.co.uk/news/world/rss.xml", "icone": "🌍", "itens": "2"},
         ],
     },
 }
@@ -968,7 +968,7 @@ def converter_legado(nome, linha):
     ttl = p[3] if len(p) > 3 and p[3].isdigit() else "600"
     hdr = p[4] if len(p) > 4 else ""
     d = {"descricao": "Migrada de indicador_%s= do config" % nome, "url": url, "rotulo": rot, "ttl": str(max(10, int(ttl))),
-         "modelo": "{rotulo} {valor}", "valor_max": "60", "truncar": "90"}
+         "modelo": "{rotulo} {valor}"}
     if cam == "-" or cam == "":
         d["formato"] = "texto"
     else:
@@ -2149,8 +2149,9 @@ def renderizar_item(f, nome, valor_txt, var_txt, seta, pct, ctx, ts, cfg):
     linha = re.sub(r"[ ]{2,}", " ", limpar_texto(linha, manter_marcas=True)).strip()
     pre = limpar_borda(aplicar_vars(f["prefixo"], v)) if f["prefixo"] else ""
     suf = limpar_borda(aplicar_vars(f["sufixo"], v)) if f["sufixo"] else ""
-    # truncar vale para o item inteiro: prefixo e sufixo ficam, o miolo é que encurta
-    linha = cortar_celulas(linha, max(1, int(f["truncar"]) - sum(larg(c) for c in pre + suf)))
+    # truncar só corta quando o usuário pede (> 0): vale para o item inteiro, prefixo e sufixo ficam, o miolo é que encurta
+    if int(f["truncar"] or 0) > 0:
+        linha = cortar_celulas(linha, max(1, int(f["truncar"]) - sum(larg(c) for c in pre + suf)))
     linha = pre + linha + suf
     return redigir(linha), v   # uma API que ecoa a chave não a põe na faixa
 
