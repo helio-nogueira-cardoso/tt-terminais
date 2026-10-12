@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.10.4 · 12/10/2026
+- **Envio para a pasta pessoal pede confirmação de propósito:** se o destino é a pasta pessoal e não a de Recebidos, a confirmação avisa e só o `s` envia (⏎ não basta). Evita o arquivo "concluído" que não aparece em Recebidos.
+
 ## v1.10.2 · 12/10/2026
 - **Central de notificações mais clara e prática:** fundo âmbar e “● Não lida” identificam avisos pendentes; fundo azulado e “✓ Lida” identificam os abertos. `^u` filtra as não lidas, `^a` limpa o filtro, `^d` apaga a selecionada e `^r` apaga todas as lidas. As exclusões propagam lápides pela rede para não ressuscitarem em outra máquina.
 
