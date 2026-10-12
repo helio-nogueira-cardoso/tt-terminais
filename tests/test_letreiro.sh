@@ -15,8 +15,16 @@ grep -q 'letreiro-tt.py fluxo #{client_tty} #{client_pid}' <<<"$(tmux show -gqv 
 # Largura exata: o slot recebe do tmux (#{w:}) o que as pontas ocupam e preenche TODO o resto.
 grep -q '#{w:#{E:@barra_faixa}}' <<<"$(tmux show -gqv @barra_notifs)" || falhou "slot sem a largura medida pelo tmux: $(tmux show -gqv @barra_notifs)"
 python3 -I - "$TT_DIR/letreiro-tt.py" <<'PY' || falhou 'o slot não preenche exatamente a largura que sobra'
-import importlib.util, sys, time, re, unicodedata
+import importlib.util, sys, time, re, unicodedata, os
 sp = importlib.util.spec_from_file_location("lt", sys.argv[1]); lt = importlib.util.module_from_spec(sp); sp.loader.exec_module(lt)
+assert lt.capitalizar_inicio("📅 feriado amanhã") == "📅 Feriado amanhã"
+assert lt.capitalizar_inicio("🌍 g1 Brasil") == "🌍 G1 Brasil"
+assert lt.capitalizar_inicio("  \x01g1 Ciência") == "  \x01G1 Ciência"
+os.makedirs(lt.DIR_TICKER, exist_ok=True)
+cache = os.path.join(lt.DIR_TICKER, "_teste-capitalizacao")
+with open(cache, "w", encoding="utf-8") as f: f.write("📅 feriado\n🌍 g1\n")
+assert lt.linhas_da_fonte("_teste-capitalizacao", {}, time.time()) == [("📅 Feriado", None), ("🌍 G1", None)]
+os.unlink(cache)
 def celulas(q):
     t = re.sub(r"#\[[^\]]*\]", "", q).replace("##", "#")
     return sum(lt.larg(c) for c in t)

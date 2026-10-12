@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.23 · 12/10/2026
+- **Datas completas em português:** previsões, feriados e lançamentos exibem `DD/MM/AAAA (Dia)`.
+- **Títulos legíveis:** o primeiro caractere alfabético de cada item fica em maiúscula depois dos ícones, por exemplo `g1` → `G1` e `feriado` → `Feriado`.
+
 ## v1.8.22 · 12/10/2026
 - **Letreiro pronto ao instalar:** as 48 fontes atualmente ativas viram padrão de fábrica; Ribeirão Preto é a localidade padrão, com previsão para sete dias e datas em `DD/MM/AAAA (Dia)`.
 - **Ajustes do painel:** nomes mais claros e ritmos de velocidade prontos, com limites de 0,1–5 s por coluna ou 1–60 s por página.

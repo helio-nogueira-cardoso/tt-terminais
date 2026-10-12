@@ -1207,7 +1207,7 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 | fonte | o que mostra | como aparece |
 |---|---|---|
 | `iss-posicao` | Onde a Estação Espacial Internacional está agora (latitude, longitude; wheretheiss.at, sem chave) | 🛰 ISS -30.86°, 101.30° |
-| `proximo-lancamento` | Próximo lançamento de foguete no mundo (The Space Devs, sem chave; 15 consultas/h) | 🚀 Falcon 9 Block 5 \| Starlink Group 15-25 (2026-10-13) |
+| `proximo-lancamento` | Próximo lançamento de foguete no mundo (The Space Devs, sem chave; 15 consultas/h) | 🚀 Falcon 9 Block 5 \| Starlink Group 15-25 (13/10/2026 (Ter)) |
 | `sismo-recente` | Maior sismo recente (magnitude 4,5+ nas últimas 24 h; USGS, sem chave); some se não houve | 🌋 M 5.5 - 123 km W of Neiafu, Tonga |
 | `tempestade-geomagnetica` | Índice Kp de atividade geomagnética (NOAA SWPC, sem chave): 5+ é tempestade | 🧲 Kp 2,3 |
 | `vento-solar` | Velocidade do vento solar (NOAA SWPC, sem chave) | ☀ vento solar 535 km/s |
@@ -1216,7 +1216,7 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
-| `feriados` | Próximo feriado nacional (BrasilAPI, sem chave) | 📅 feriado Nossa Senhora Aparecida (2026-10-12) |
+| `feriados` | Próximo feriado nacional (BrasilAPI, sem chave; data em formato brasileiro) | 📅 Feriado Nossa Senhora Aparecida — 12/10/2026 (Seg) |
 | `ibge-noticias` | Notícias do IBGE (API de serviços do IBGE, sem chave) | 📈 IBGE: Acervo bibliográfico de Pedro Geiger é doado à Biblioteca do IBGE |
 | `megasena` | Último concurso da Mega-Sena (API aberta não oficial; sem chave) | 🍀 Mega-Sena 3068: 07-10-39-40-43-57 |
 
@@ -1231,11 +1231,11 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 | `exame` | Manchetes: Exame (feed RSS, sem chave) | 💼 Exame: Como células de defesa encontram seu caminho pelo corpo? Estudo revela mecanismo |
 | `folha` | Manchetes: Folha (feed RSS, sem chave) | 📰 Folha: Estudo aponta cinco estratégias para reduzir hesitação vacinal |
 | `folha-mercado` | Manchetes: Folha Mercado (feed RSS, sem chave) | 💼 Folha Mercado: Consumo deixa de ser motor do PIB e deve ter menor crescimento desde pandemia |
-| `g1-ciencia` | Manchetes: g1 Ciência (feed RSS, sem chave) | 🔬 g1 Ciência: 'Ciência Aberta': centro que abriga o Sirius recebe público para apresentar curiosidades e atrações da ciência |
-| `g1-economia` | Manchetes: g1 Economia (feed RSS, sem chave) | 💼 g1 Economia: Mega-Sena pode pagar R$ 150 milhões nesta terça (13); veja os 10 maiores prêmios da loteria |
-| `g1-mundo` | Manchetes: g1 Mundo (feed RSS, sem chave) | 🌎 g1 Mundo: A nova onda de protestos de jovens do movimento das 'baratas' na Índia em imagens |
-| `g1-politica` | Manchetes: g1 Política (feed RSS, sem chave) | 🏛 g1 Política: Nem todo eleitor que deixa de votar é desinteressado pela política, diz pesquisador |
-| `g1-tecnologia` | Manchetes: g1 Tecnologia (feed RSS, sem chave) | 💻 g1 Tecnologia: Bill Gates considera ciberataques o principal risco atual da IA: 'Teremos muitas surpresas desagradáveis' |
+| `g1-ciencia` | Manchetes: G1 Ciência (feed RSS, sem chave) | 🔬 G1 Ciência: 'Ciência Aberta': centro que abriga o Sirius recebe público para apresentar curiosidades e atrações da ciência |
+| `g1-economia` | Manchetes: G1 Economia (feed RSS, sem chave) | 💼 G1 Economia: Mega-Sena pode pagar R$ 150 milhões nesta terça (13); veja os 10 maiores prêmios da loteria |
+| `g1-mundo` | Manchetes: G1 Mundo (feed RSS, sem chave) | 🌎 G1 Mundo: A nova onda de protestos de jovens do movimento das 'baratas' na Índia em imagens |
+| `g1-politica` | Manchetes: G1 Política (feed RSS, sem chave) | 🏛 G1 Política: Nem todo eleitor que deixa de votar é desinteressado pela política, diz pesquisador |
+| `g1-tecnologia` | Manchetes: G1 Tecnologia (feed RSS, sem chave) | 💻 G1 Tecnologia: Bill Gates considera ciberataques o principal risco atual da IA: 'Teremos muitas surpresas desagradáveis' |
 | `ge-esportes` | Manchetes: ge (feed RSS, sem chave) | ⚽ ge: Análise: Singapura tem show de Verstappen e dá chance para Antonelli ser campeão em Austin |
 | `infomoney` | Manchetes: InfoMoney (feed RSS, sem chave) | 💼 InfoMoney: Flamengo e Fluminense protestam contra MP das Bets; torcedores estendem faixa |
 | `poder360` | Manchetes: Poder360 (feed RSS, sem chave) | 📰 Poder360: Homem rasga bandeira dos EUA em ato pró-Lula na Paulista |

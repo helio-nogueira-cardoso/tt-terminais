@@ -1306,7 +1306,7 @@
     "modelo": "{icone} {valor} ({quando})",
     "ttl": "3600"
    },
-   "exemplo": "🚀 Falcon 9 Block 5 | Starlink Group 15-25 (2026-10-13)",
+   "exemplo": "🚀 Falcon 9 Block 5 | Starlink Group 15-25 (13/10/2026 (Ter))",
    "validada": "2026-10-12"
   },
   "sismo-recente": {
@@ -1366,12 +1366,12 @@
     "caminho": "[?date>={hoje}].name",
     "campo.quando": "[?date>={hoje}].date",
     "icone": "📅",
-    "rotulo": "feriado",
+    "rotulo": "Feriado",
     "itens": "1",
-    "modelo": "{icone} {rotulo} {valor} ({quando})",
+    "modelo": "{icone} {rotulo} {valor} — {quando}",
     "ttl": "43200"
    },
-   "exemplo": "📅 feriado Nossa Senhora Aparecida (2026-10-12)",
+   "exemplo": "📅 Feriado Nossa Senhora Aparecida — 12/10/2026 (Seg)",
    "validada": "2026-10-11"
   },
   "ibge-noticias": {

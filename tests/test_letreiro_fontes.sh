@@ -285,14 +285,14 @@ cria d1 url="$H/valor?v=1" caminho=v modelo='um {valor}' cache_max=60 se_faltar=
 cria d2 url="$H/valor?v=2" caminho=v modelo='dois {valor}' cache_max=60 se_faltar=esconder
 cria d3 url="$H/valor?v=3" caminho=v modelo='tres {valor}' cache_max=60 se_faltar=erro rotulo=Três
 atual d1 d2 d3
-q=$(roda_tmux); contem "$q" 'um 1' 'dado novo aparece'; nao_contem "$q" '⏳' 'sem marca de velho enquanto está dentro de cache_max'
+q=$(roda_tmux); contem "$q" 'Um 1' 'dado novo aparece com a inicial capitalizada'; nao_contem "$q" '⏳' 'sem marca de velho enquanto está dentro de cache_max'
 for f in d1 d2 d3; do touch -d '-3 hours' "$HOME/.cache/tt-ticker/$f"; done
 q=$(roda_tmux)
-contem "$q" '⏳ um 1' 'se_faltar=ultimo: o último valor com a marca de velho'; contem "$q" '#[fg=#585b70]' 'e apagado'
-nao_contem "$q" 'dois 2' 'se_faltar=esconder: some'; contem "$q" '⚠ Três: sem dado atual' 'se_faltar=erro: mostra o problema'
+contem "$q" '⏳ Um 1' 'se_faltar=ultimo: o último valor com a marca de velho'; contem "$q" '#[fg=#585b70]' 'e apagado'
+nao_contem "$q" 'Dois 2' 'se_faltar=esconder: some'; contem "$q" '⚠ Três: sem dado atual' 'se_faltar=erro: mostra o problema'
 py editar d1 url="$H/erro500" >/dev/null; atual d1
 igual "$(meta d1 falhas)" 1 'falha registrada'; contem "$(cru d1)" 'um 1' 'a falha de rede NÃO apagou o cache'
-contem "$(roda_tmux)" 'um 1' 'nem o letreiro'
+contem "$(roda_tmux)" 'Um 1' 'nem o letreiro'
 passou 'dado velho/ausente: esconder, último com marca ⏳ (apagado) ou erro; falha de rede nunca apaga o letreiro'
 
 # ============================================================================================

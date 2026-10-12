@@ -196,16 +196,24 @@ def linhas_da_fonte(nome, e, agora):
     velho = bool(st) and cm > 0 and (agora - st.st_mtime) / 60 > cm
     sem_dado = st is None
     if not sem_dado and not velho:
-        return [(l, None) for l in linhas]
+        return [(capitalizar_inicio(l), None) for l in linhas]
     pol = e.get("se_faltar", "ultimo")
     if pol == "esconder":
         return []
     if pol == "erro":
         nome_tela = e.get("rotulo") or nome
-        return [("⚠ %s: sem dado atual" % nome_tela, "erro")]
+        return [(capitalizar_inicio("⚠ %s: sem dado atual" % nome_tela), "erro")]
     if not linhas:
         return []
-    return [("⏳ " + linhas[0], "velho")] + [(l, "velho") for l in linhas[1:]]
+    return [(capitalizar_inicio("⏳ " + linhas[0]), "velho")] + [(capitalizar_inicio(l), "velho") for l in linhas[1:]]
+
+
+def capitalizar_inicio(texto):
+    """Capitaliza a primeira letra visível do item, preservando ícones, espaços e marcas de cor."""
+    for i, c in enumerate(texto):
+        if c.isalpha():
+            return texto[:i] + c.upper() + texto[i + 1:]
+    return texto
 
 
 class Roda:

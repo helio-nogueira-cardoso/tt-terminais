@@ -2263,7 +2263,7 @@ def processar(f, nome, corpo, ts, meta, cfg, res):
             try:
                 nome_campo = k[6:]
                 valores = [limpar_texto(x) for x in extrair(fmt, corpo, aplicar_vars(v, vars_), f)]
-                if nome_campo == "dia":
+                if nome_campo in ("dia", "data", "quando"):
                     valores = [data_iso_pt_br(x) for x in valores]
                 extras[nome_campo] = valores
             except Erro as e:
