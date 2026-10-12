@@ -3714,7 +3714,7 @@ fechar_em() {
   fi
   # Fechar uma sessão pelo tt é uma identificação imediata: não espere o próximo ciclo do vigia
   # para retirar um eventual item fixado.
-  [[ $s == %* ]] || reconciliar_fixadas
+  [[ $s == %* ]] || TT_RECONC_IMEDIATO=1 reconciliar_fixadas
 }
 
 # Painel %N: deixa ele em foco na sessão dele e imprime o nome da sessão.
@@ -6513,6 +6513,9 @@ receber_fixadas() {
   tmp=$(mktemp "$CONF_FIX.XXXXXX"); cat >"$tmp"
   travar_fixadas || { rm -f "$tmp"; return 1; }
   if [[ $v =~ ^[0-9]+$ ]] && ((v > $(versao_fixadas))); then
+    local antes depois
+    antes=$(grep -vc '^\s*$' "$CONF_FIX" 2>/dev/null); depois=$(grep -vc '^\s*$' "$tmp" 2>/dev/null)
+    ((${depois:-0} < ${antes:-0})) && fixadas_log "lista recebida (v$v) tem ${depois:-0} fixada(s) e a daqui tinha ${antes:-0}: origem ${SSH_CLIENT%% *}"
     mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"
     destravar_fixadas
     aplicar_fixadas
@@ -11622,9 +11625,30 @@ resolver_fixada_em() { # arq dest sessão id
   st=$?
   printf '%s\t%s\n' "$st" "$r" >"$1"
 }
+# Registro de tudo que tira uma fixada da lista (e de listas recebidas que a encolhem): sem ele não há como
+# saber quando nem por que uma aba fixada sumiu. ~/.cache/tt-fixadas.log, cortado a 500 linhas.
+fixadas_log() {
+  local f=$HOME/.cache/tt-fixadas.log
+  { mkdir -p "$HOME/.cache"; echo "$(date '+%F %T') $*" >>"$f"
+    (($(wc -l <"$f") > 1000)) && { tail -n 500 "$f" >"$f.novo"; mv "$f.novo" "$f"; }; } 2>/dev/null
+  return 0
+}
+
+# Fixada local sem sessão: só conta como fechada se o tmux respondeu e a ausência se repetiu em duas
+# conferências seguidas (marca em $RT); fechar pelo tt (TT_RECONC_IMEDIATO=1) confirma na hora.
+# Imprime "fechada" quando pode remover; senão, o motivo de preservar.
+fixada_ausente_confirma() { # chave
+  local m=$RT/tt-fixada-ausente-$1
+  if [[ ${TT_RECONC_IMEDIATO:-} == 1 ]]; then rm -f "$m"; echo fechada; return 0; fi
+  if [[ -e $m ]]; then rm -f "$m"; echo fechada; return 0; fi
+  : >"$m"; echo aguardando-2a-conferencia
+}
+
 reconciliar_fixadas() {
   [[ -f $CONF_FIX ]] || return 0
-  local tmp r s id d resposta st mudou=0 novo novo_id v0 k dir
+  local tmp r s id d resposta st mudou=0 novo novo_id v0 k dir tmux_vivo=1 conf
+  # Sem resposta do tmux (servidor fora do ar, versão incompatível) nada local é prova de fechamento.
+  tmux list-sessions -F '#{session_name}' >/dev/null 2>&1 || tmux_vivo=0
   local -a FX=() DS=()
   v0=$(versao_fixadas)
   tmp=$(mktemp "$CONF_FIX.XXXXXX") || return 1
@@ -11659,8 +11683,21 @@ reconciliar_fixadas() {
           awk -F'\t' -v antigo="$s" '$2 == antigo { print $1; exit }')
         [[ -n $novo ]] && novo_id=$(session_id "$novo")
       fi
-      # Sem sessão e sem marca correspondente: ela foi fechada.
-      [[ -n $novo ]] || { mudou=1; continue; }
+      # Sem sessão e sem marca correspondente: ela foi fechada (se o tmux respondeu e a ausência se confirmou).
+      if [[ -z $novo ]]; then
+        if ((! tmux_vivo)); then
+          fixadas_log "preservada $r:$s ($id): tmux sem resposta, nada removido"
+        else
+          conf=$(fixada_ausente_confirma "$(fixada_chave "$r" "$s" "$id")")
+          if [[ $conf == fechada ]]; then
+            fixadas_log "removida $r:$s ($id): sessão não existe mais neste tmux (via ${FUNCNAME[1]:-?})"
+            mudou=1; continue
+          fi
+          fixadas_log "preservada $r:$s ($id): ausente, $conf"
+        fi
+        printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$tmp"; continue
+      fi
+      rm -f "$RT/tt-fixada-ausente-$(fixada_chave "$r" "$s" "$id")"
     else
       d=${DS[k]:-}
       # Rótulo desconhecido ou máquina inacessível não é evidência de fechamento.
@@ -11669,7 +11706,7 @@ reconciliar_fixadas() {
       [[ -r $dir/$k ]] && { ler_arquivo resposta "$dir/$k"; st=${resposta%%$'\t'*}; resposta=${resposta#*$'\t'}; }
       [[ $st == 0 ]] || { printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$tmp"; continue; }
       novo=${resposta%%$'\t'*}; novo_id=${resposta#*$'\t'}
-      [[ -n $novo ]] || { mudou=1; continue; }
+      [[ -n $novo ]] || { fixadas_log "removida $r:$s ($id): a máquina respondeu sem a sessão"; mudou=1; continue; }
     fi
     [[ $novo == "$s" && $novo_id == "$id" ]] || mudou=1
     printf '%s\t%s\t%s\n' "$r" "$novo" "$novo_id" >>"$tmp"
@@ -12035,7 +12072,7 @@ ir_fixada() {
     [[ -n $resolvida ]] && s=$resolvida
   fi
   if [[ $d == . ]] && ! tmux has-session -t "=$s" 2>/dev/null; then
-    reconciliar_fixadas
+    TT_RECONC_IMEDIATO=1 reconciliar_fixadas
     tmux display-message -c "$c" "📌 a sessão \"$s\" não existe mais e foi desafixada"; return 0
   fi
   TT_CLIENTE=$c ir_para "$d" "$s"
