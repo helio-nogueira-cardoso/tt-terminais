@@ -50,6 +50,9 @@ grep -qw 'bison' "$SUDOLOG" || falhou "o apt deveria receber o bison (o configur
 [[ -L $HOME/.local/share/tt-bin/tmux && -L $HOME/.local/bin/tmux ]] || falhou "o executável deveria ser ligado em tt-bin e ~/.local/bin"
 grep -q 'servidor tmux' <<<"$out" || falhou "a saída deveria avisar que o servidor atual não foi tocado: $out"
 passou "compila na pasta do usuário, liga o executável e avisa que as sessões abertas não foram tocadas"
+# 2b) o tmux do PATH segue o servidor em execução (3.6) mesmo com o 3.8 já compilado: a pendência tem de fechar
+[[ $(estado tmux-novo) == na ]] || falhou "com o 3.8 compilado em tt-tmux a pendência deveria fechar: $(estado tmux-novo)"
+passou "3.8 compilado fecha a pendência mesmo com o servidor ainda no 3.6"
 
 # 3) já tem o 3.8 (ou mais novo): nada a fazer; 3.2 é assunto do tmux-antigo (manual), não deste
 [[ $(estado tmux-novo TT_FINGE_TMUX_VERSAO=3.8) == na ]] || falhou "com tmux 3.8 a pendência não se aplica"

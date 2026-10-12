@@ -5202,7 +5202,7 @@ declare -A PEND_ROTULOS=(
   [xdg-utils]="abrir links no navegador do sistema (xdg-utils)" [termux-api]="Termux:API" [pv]="barra de progresso das transferências (pv)" [mosh]="mosh (acesso pelo celular)" [nomeador-local]="nomeador local de abas")
 pend_avaliar() {
   pacotes_lib || return 1
-  local id=$1 v cli
+  local id=$1 v vc cli
   P_APLICA=1; P_NIVEL=recurso; P_SYS=""; P_USR=0; P_MANUAL=""; P_ROTULO=${PEND_ROTULOS[$id]:-$id}; P_MOTIVO=""; P_TAM=""; P_FALTAM=""
   case $id in
     nucleo)
@@ -5226,6 +5226,11 @@ pend_avaliar() {
       # distribuições ficam no 3.5/3.6, então o tt compila o 3.8 na pasta do usuário (sem tocar no sistema).
       P_NIVEL=recurso; P_ROTULO="tmux $TMUX_ALVO"; P_TAM="~1 MB"
       v=${TT_FINGE_TMUX_VERSAO:-$(versao_de tmux -V)}
+      # O tmux do PATH acompanha o servidor em execução (tmux_alinhar) e fica no 3.6 até o servidor reiniciar,
+      # mesmo com o 3.8 já compilado em DIR_TMUX: sem esta conferência a pendência nunca fechava ("ainda falta").
+      if [[ -z ${TT_FINGE_TMUX_VERSAO:-} && -x $DIR_TMUX/bin/tmux ]]; then
+        vc=$(versao_de "$DIR_TMUX/bin/tmux" -V); versao_menor "$vc" "$TMUX_ALVO" || v=$vc
+      fi
       if falta_cmd tmux || versao_menor "$v" 3.4 || ! versao_menor "$v" "$TMUX_ALVO" || ! tmux_compilavel; then P_APLICA=0; return 0; fi
       P_MOTIVO="o tmux daqui é o $v; o $TMUX_ALVO traz o painel flutuante do tt (e correções). O tt o compila na sua pasta; as sessões abertas não são tocadas, vale no próximo servidor tmux"
       P_USR=1; tmux_deps_faltam && { P_SYS=tmux-build; P_FALTAM=$(tmux_deps_quais); } ;;

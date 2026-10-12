@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.10.11 · 12/10/2026
+- **📦 A pendência "tmux 3.8" fecha depois de instalada.** O `tt` conferia a versão pelo tmux do PATH, que acompanha o servidor em execução (ainda o 3.6 até reiniciar); então, mesmo com o 3.8 já compilado na sua pasta, a pendência continuava aparecendo e a instalação terminava com "ainda falta". Agora ele também olha o 3.8 compilado em `~/.local/share/tt-tmux`: se está lá, a pendência some. O 3.8 vale a partir do próximo servidor tmux, como sempre.
+
 ## v1.10.10 · 12/10/2026
 - **🌐 Link abre na máquina em que você clicou.** Vendo pelo book-hl uma sessão do PC (ou o e-mail do PC), escolher "Navegador padrão do sistema" ou o Chrome interno abria o navegador no PC, longe da sua tela. Agora o tt percebe pela ponte de onde vem a tela e abre lá; se aquela máquina não responder, abre onde está, como antes. Carbonyl e "só copiar" continuam no próprio terminal.
 
