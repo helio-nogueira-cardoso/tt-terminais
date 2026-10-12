@@ -83,8 +83,18 @@ printf 'aaaa' >"$T/orig/um.txt"; printf 'bbbbbb' >"$T/orig/pasta/sub/dois.txt"
 r=$($E bash "$TT" --conferir "$T/orig" um.txt pasta); [[ $r == "2 10" ]] || fail "conferir deveria dar '2 10', deu '$r'"
 h1=$($E bash "$TT" --conferir --hash "$T/orig" um.txt pasta); [[ ${#h1} == 64 ]] || fail "hash inválido: $h1"
 printf 'x' >"$T/dest/um.txt"
-r=$($E bash "$TT" --destino-info "$T/dest" um.txt pasta); read -r livre conf <<<"$r"
+r=$($E bash "$TT" --destino-info "$T/dest" um.txt pasta); read -r livre conf _ <<<"$r"
 [[ $conf == 1 && $livre -gt 0 ]] || fail "destino-info deveria achar 1 conflito e espaço livre: $r"
+# pasta pessoal ≠ Recebidos: destino-info avisa (3º campo) e a confirmação pede "s", não ⏎
+printf 'recebidos=%s\n' "$T/dest" >>"$T/home/.config/tt/config"
+r=$($E bash "$TT" --destino-info "$T/home" um.txt); read -r _ _ casa <<<"$r"
+[[ $casa == 1 ]] || fail "destino-info deveria marcar a pasta pessoal (3º campo=1): $r"
+r=$($E bash "$TT" --destino-info "$T/dest" um.txt); read -r _ _ casa <<<"$r"
+[[ $casa == 0 ]] || fail "destino-info não deveria marcar Recebidos como pasta pessoal: $r"
+sai=$(printf '\n' | $E script -qec "bash $TT --confirmar-transferencia . $T/orig . $T/home um.txt" /dev/null >/dev/null 2>&1; echo $?)
+[[ $sai != 0 ]] || fail "⏎ não pode confirmar envio para a pasta pessoal"
+sai=$(printf 's' | $E script -qec "bash $TT --confirmar-transferencia . $T/orig . $T/home um.txt" /dev/null >/dev/null 2>&1; echo $?)
+[[ $sai == 0 ]] || fail "s deveria confirmar envio para a pasta pessoal (saiu $sai)"
 
 # cópia local ponta a ponta: termina conferida (contagem/tamanho e, com TT_CONFERIR=1, sha256)
 espera_fim(){ local i; for i in $(seq 1 60); do grep -Fq -- "$1" "$D"/*.log 2>/dev/null && return 0; sleep 0.5; done; fail "log não mostrou: $1"; }

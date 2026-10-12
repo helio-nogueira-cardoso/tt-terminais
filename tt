@@ -15151,11 +15151,13 @@ conferir() {
 
 # "LIVRE_BYTES CONFLITOS": espaço livre onde DIR está (ou estará) e quantos NOMES já existem lá.
 destino_info() {
-  local dir p n c=0 livre; dir=$(expandir "$1"); shift
+  local dir p n c=0 livre casa; dir=$(expandir "$1"); shift
   for n in "$@"; do [[ -e $dir/$n ]] && c=$((c + 1)); done
   p=$dir; while [[ ! -d $p && $p != / ]]; do p=$(dirname "$p"); done
   livre=$(df -Pk "$p" 2>/dev/null | awk 'NR == 2 { printf "%.0f", $4 * 1024 }')
-  echo "${livre:-0} $c"
+  # 3º campo: 1 se o destino é a pasta pessoal (e não a de Recebidos) — arquivo que "some" no início.
+  casa=0; [[ $(cd "$dir" 2>/dev/null && pwd -P) == "$(cd "$HOME" && pwd -P)" && $(expandir "$(pasta_recebidos </dev/null)") != "$dir" ]] && casa=1
+  echo "${livre:-0} $c $casa"
 }
 
 # Últimas rotas usadas ("envio" ou "traz"): modo, máquina e pasta. A mais recente fica em cima.
@@ -15170,11 +15172,11 @@ rota_recente() { awk -F'\t' -v m="$1" '$1 == m { print $2 "\t" $3; exit }' "$EST
 # ⏎ confirma; Esc ou q cancela; sem espaço suficiente, recusa. TT_SEM_CONFIRMAR=1 pula (scripts).
 confirmar_transferencia() {
   local src=$1 dsrc=$2 dst=$3 ddst=$4; shift 4
-  local bytes info livre=0 conf=0 k n=$#
+  local bytes info livre=0 conf=0 casa=0 k n=$#
   [[ ${TT_SEM_CONFIRMAR:-} == 1 || ! -t 0 ]] && return 0
   printf '\033[90mcalculando tamanho…\033[0m'
   bytes=$(rodar "$src" --tamanho "$dsrc" "$@" 2>/dev/null); bytes=${bytes//[!0-9]/}
-  info=$(rodar "$dst" --destino-info "$ddst" "$@" 2>/dev/null); read -r livre conf <<<"$info"
+  info=$(rodar "$dst" --destino-info "$ddst" "$@" 2>/dev/null); read -r livre conf casa <<<"$info"
   printf '\r\033[2K\033[1m⇅ Confirmar a transferência\033[0m\n\n  %d ite%s · %s\n  %s:%s → \033[1m%s:%s\033[0m\n' \
     "$n" "$([[ $n == 1 ]] && echo m || echo ns)" "$(humano "${bytes:-0}")" "$(rotulo "$src")" "$dsrc" "$(rotulo "$dst")" "$ddst"
   ((${conf:-0} > 0)) && printf '  \033[33m%d já existe%s lá: chega como "nome (2)"; nada é sobrescrito\033[0m\n' "$conf" "$([[ $conf == 1 ]] || echo m)"
@@ -15183,6 +15185,13 @@ confirmar_transferencia() {
     read -rsn1 k; return 1
   fi
   [[ ${livre:-0} =~ ^[0-9]+$ ]] && ((livre > 0)) && printf '  \033[90mlivre no destino: %s\033[0m\n' "$(humano "$livre")"
+  if [[ ${casa:-0} == 1 ]]; then
+    # Pasta pessoal não é a de Recebidos: lá o arquivo "some" no meio dos outros. Exige confirmar de propósito.
+    printf '\n  \033[1;33m⚠ este destino é a pasta pessoal de %s, não a de Recebidos\033[0m\n' "$(rotulo "$dst")"
+    printf '\n\033[90ms envia mesmo assim · Esc cancela\033[0m'
+    read -rsn1 k; [[ $k == [sS] ]]
+    return
+  fi
   printf '\n\033[90m⏎ envia · Esc cancela\033[0m'
   read -rsn1 k; [[ -z $k ]]
 }
