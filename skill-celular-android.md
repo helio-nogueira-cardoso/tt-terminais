@@ -357,6 +357,12 @@ proot, Shizuku e `app_process`:
 - `app_process` sem fontes: `Paint.measureText`/`drawText` derrubam o processo.
 - `pkill -f PADRÃO` acerta o próprio comando que contém o padrão (e derruba a sua conexão ssh se o
   padrão estiver no script remoto). Monte o padrão para não aparecer literal, ou use o PID.
+- `proot-distro login debian -- bash -lc '…'` só tem `~/.local/bin` (ia-conta, claude, codex, tt) no PATH
+  se o `/root/.bashrc` do Debian tiver a linha `export PATH="$HOME/.local/bin:$PATH"` (o `/etc/profile`
+  de lá reescreve o PATH). Ela já sumiu uma vez e os atalhos de IA terminaram com código 127: desde a
+  v1.9.1 os atalhos, o `claude_comando` e o `dbn CMD` levam o PATH no próprio comando, e o
+  `termux/celular.sh verificar` avisa quando a linha falta. Diagnóstico:
+  `proot-distro login debian -- bash -lc 'command -v ia-conta'` vazio.
 
 Navegador e páginas web (a receita de login da seção 14 depende de tudo isto):
 

@@ -182,8 +182,9 @@ passo_debian() {
       { erro "apt no Debian falhou"; return 1; }
   fi
   ok "pacotes básicos no Debian"
-  # ~/.local/bin no PATH do root, onde o instalador do Claude põe o binário.
-  faz no_debian 'grep -q "\.local/bin" ~/.bashrc 2>/dev/null || echo '\''export PATH="$HOME/.local/bin:$PATH"'\'' >> ~/.bashrc'
+  # ~/.local/bin no PATH do root, onde o instalador do Claude põe o binário. A busca é pela linha do
+  # PATH: o bloco do tt também cita ~/.local/bin (o tt --janela) e enganava a busca antiga.
+  faz no_debian 'grep -qE "^[^#]*PATH=.*\.local/bin" ~/.bashrc 2>/dev/null || echo '\''export PATH="$HOME/.local/bin:$PATH"'\'' >> ~/.bashrc'
   [[ $com_claude ]] || return 0
   if [[ -z $SIMULAR ]] && no_debian 'command -v claude' >/dev/null 2>&1; then ok "Claude Code no Debian ($(no_debian 'claude --version' 2>/dev/null | head -1))"
   else
@@ -255,6 +256,8 @@ verificar() {
   if tem_debian; then
     ok "Debian"
     [[ -e $(debian_rootfs)/root/.local/bin/claude || -L $(debian_rootfs)/root/.local/bin/claude ]] && ok "Claude Code no Debian" || aviso "Debian sem Claude Code"
+    grep -qE '^[^#]*PATH=.*\.local/bin' "$(debian_rootfs)/root/.bashrc" 2>/dev/null && ok "~/.local/bin no PATH do Debian" ||
+      aviso "~/.bashrc do Debian sem ~/.local/bin no PATH: rode $0 instalar"
   else aviso "sem Debian (proot-distro)"; fi
   [[ -n $(sed -n '/./p' "$CONF_DIR/maquinas" 2>/dev/null) ]] && ok "máquinas: $(awk '!/^#/ && NF {print $3}' "$CONF_DIR/maquinas" | tr '\n' ' ')" ||
     aviso "nenhuma máquina ligada: $0 conectar usuario@pc"

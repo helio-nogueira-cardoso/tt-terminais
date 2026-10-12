@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.9.1 · 12/10/2026
+- **Atalhos de IA do celular sem "código 127":** 🚀 e 👇 no Termux terminavam com `atalho terminou com código 127` quando o `~/.bashrc` do Debian (proot) perdia a linha que põe `~/.local/bin` no PATH. Agora os atalhos, o botão do Claude e os atalhos `cl`/`clc`/`clr` do Termux levam esse PATH no próprio comando. Quem tem os atalhos personalizados em `~/.config/tt/atalhos` com o comando antigo pode trocá-lo pelo novo de `atalhos-padrao-mobile`.
+- **`~/.bashrc` preservado:** quando faltava o marcador de fim do bloco do tt, a instalação apagava tudo o que vinha depois do bloco. Agora ela reconhece o fim do bloco e recoloca o marcador (com cópia em `~/.bashrc.antes-tt`) ou, sem reconhecer, não mexe. Também mantém as permissões do arquivo e não troca um `~/.bashrc` que seja link (dotfiles) por um arquivo comum.
+- **`termux/celular.sh`:** a linha do PATH do Debian voltava a faltar sem aviso (a busca confundia o bloco do tt com ela); o `verificar` agora avisa quando ela falta.
+
 ## v1.9.0 · 12/10/2026
 - **E-mail: Esc fecha.** Na mensagem aberta, Esc volta à lista; na lista, limpa o filtro ou a busca, se houver, e senão esconde o e-mail (ele segue conectado; o `q` continua valendo). O título do popup agora diz "Esc fecha".
 - **✉ Não lidas:** botão novo no rodapé do e-mail que mostra só as não lidas da pasta aberta, em cada conta. Clicar de novo, ou Esc, volta a mostrar todas (é o mesmo que a tecla `F`).

@@ -174,7 +174,7 @@ ids() { "$TT" --atalhos-lista | cut -f2 | tr '\n' ' '; }
 [[ $(ids) == "ia-nova ia-aqui " ]] || falhou "padrão deveria ter só ia-nova e ia-aqui: $(ids)"
 m=$(PREFIX=/data/data/com.termux/files/usr "$TT" --atalhos-lista)
 [[ $(cut -f2 <<<"$m" | tr '\n' ' ') == "ia-nova ia-aqui " ]] || falhou "celular: $(cut -f2 <<<"$m")"
-grep -q "^👇"$'\t'"ia-aqui"$'\t'"@aqui proot-distro login debian .*'ia-conta abrir {retomar}'" <<<"$m" ||
+grep -q "^👇"$'\t'"ia-aqui"$'\t'"@aqui proot-distro login debian .*ia-conta abrir {retomar}'" <<<"$m" ||
   falhou "celular: ia-aqui não entra no Debian: $m"
 passou 'atalhos: dois padrões (ia-nova, ia-aqui) no PC e no celular (via proot)'
 

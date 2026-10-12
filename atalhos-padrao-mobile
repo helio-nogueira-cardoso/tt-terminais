@@ -1,10 +1,11 @@
 # Perfil mobile (Termux/Android): os agentes vivem num Debian via proot-distro, nao no shell do
-# Termux. Por isso cada atalho entra no Debian com login -- bash -lc, que carrega o PATH onde estao o
-# ia-conta, o claude e o codex (~/.local/bin). Rodar direto no Termux falha com "command not found".
+# Termux. Por isso cada atalho entra no Debian com login -- bash -lc e poe ele mesmo o ~/.local/bin
+# (onde estao o ia-conta, o claude e o codex) no PATH: o login so o poe la se o ~/.bashrc do Debian
+# tiver a linha, e ela ja sumiu uma vez (atalho terminava com codigo 127, "command not found").
 # Como root, o ia-conta abrir liga IS_SANDBOX=1 sozinho (o claude so aceita
 # --dangerously-skip-permissions como root em ambiente isolado; o proot ja e o isolamento).
 #
 # Os mesmos dois atalhos do PC: a IA com mais folga agora numa sessao nova, ou no painel atual
 # ("@aqui" fecha o que roda nele; {retomar} continua a conversa do Claude que estava ali).
-🚀	ia-nova	proot-distro login debian --shared-tmp -- bash -lc 'ia-conta abrir'	#a6e3a1
-👇	ia-aqui	@aqui proot-distro login debian --shared-tmp -- bash -lc 'ia-conta abrir {retomar}'	#89b4fa
+🚀	ia-nova	proot-distro login debian --shared-tmp -- bash -lc 'PATH="$HOME/.local/bin:$PATH" ia-conta abrir'	#a6e3a1
+👇	ia-aqui	@aqui proot-distro login debian --shared-tmp -- bash -lc 'PATH="$HOME/.local/bin:$PATH" ia-conta abrir {retomar}'	#89b4fa

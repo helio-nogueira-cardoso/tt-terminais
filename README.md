@@ -1719,7 +1719,8 @@ abrir`, veja [Contas de IA](#contas-de-ia)) já sem pedir permissões:
   conversa continua (`{retomar}` vira `--retomar ID`); Codex e Kiro abrem uma sessão nova.
 
 Um comando que começa com `@aqui ` roda no painel atual em vez de numa sessão nova. No celular os
-dois entram no Debian (`proot-distro login debian --shared-tmp -- bash -lc '…'`).
+dois entram no Debian (`proot-distro login debian --shared-tmp -- bash -lc '…'`) e põem eles mesmos o
+`~/.local/bin` de lá no PATH, sem depender do `~/.bashrc` do Debian.
 
 Cada máquina pode sobrescrever, desativar ou acrescentar atalhos em `~/.config/tt/atalhos`, no mesmo
 formato `emoji<TAB>id<TAB>comando<TAB>cor-de-fundo` (a quarta coluna é opcional, em hexadecimal,

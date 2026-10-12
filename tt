@@ -2840,12 +2840,24 @@ atualizar_bashrc() {
     { head -n $((ini - 1)) "$rc"; echo "$BASHRC_INI"; echo "$BASHRC_FIM"; tail -n +$((fim + 1)) "$rc"; } >"$tmp" &&
       cat "$tmp" >"$rc" && rm -f "$tmp"
   fi
+  # Bloco sem o marcador de fim (cortado à mão ou por outra ferramenta): sem ele, tudo o que vem
+  # depois do bloco sumia. O fim é o "fi" do exec tt --janela; sem achá-lo, o ~/.bashrc fica como está.
+  if ! grep -qxF "$BASHRC_FIM" "$rc"; then
+    fim=$(awk -v i="$BASHRC_INI" '$0 == i { dentro = 1; next }
+      dentro && /tt" --janela$/ { exe = 1 } dentro && exe && /^fi$/ { print NR; exit }' "$rc")
+    [[ -n $fim ]] || return 0
+    cp -p "$rc" "$rc.antes-tt"
+    tmp=$(mktemp "${rc}.tt.XXXXXX") || return 1
+    { head -n "$fim" "$rc"; echo "$BASHRC_FIM"; tail -n +$((fim + 1)) "$rc"; } >"$tmp" &&
+      cat "$tmp" >"$rc" && rm -f "$tmp"
+  fi
+  # cat > (e não mv): mantém permissões, dono e um ~/.bashrc que seja link.
   tmp=$(mktemp "${rc}.tt.XXXXXX") || return 1
   {
     awk -v i="$BASHRC_INI" '$0 == i { print; exit } { print }' "$rc"
     bashrc_bloco
     awk -v f="$BASHRC_FIM" '$0 == f { mostra = 1 } mostra { print }' "$rc"
-  } >"$tmp" && mv "$tmp" "$rc"
+  } >"$tmp" && cat "$tmp" >"$rc" && rm -f "$tmp"
 }
 
 configurar_bashrc() {
@@ -12065,13 +12077,15 @@ claude_local() {
 
 # Comando do Claude Code: o claude local, ou o do Debian do Termux; falha se nenhum existe.
 # Opções extras desta máquina vêm de claude_flags= e variáveis de ambiente de claude_env=
-# (ex.: IS_SANDBOX=1) no ~/.config/tt/config.
+# (ex.: IS_SANDBOX=1) no ~/.config/tt/config. No Debian, o ~/.local/bin vai no próprio comando: o
+# login do proot só o põe no PATH se o ~/.bashrc de lá tiver a linha (já sumiu uma vez: código 127).
 claude_comando() {
   local pasta=$1 a e c; shift
   a="$(conf claude_flags) $(printf '%q ' "$@")"
   e=$(conf claude_env); e=${e:+$e }
   if c=$(claude_local); then printf '%s%q %s' "$e" "$c" "$a"
-  elif debian_comando "$pasta" >/dev/null; then printf '%s -- bash -lc %q' "$(debian_comando "$pasta")" "${e}claude $a"
+  elif debian_comando "$pasta" >/dev/null; then
+    printf '%s -- bash -lc %q' "$(debian_comando "$pasta")" "PATH=\"\$HOME/.local/bin:\$PATH\" ${e}claude $a"
   else return 1; fi
 }
 

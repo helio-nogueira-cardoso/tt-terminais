@@ -1,8 +1,9 @@
 # Atalhos do celular (Termux), lidos pelo ~/.bashrc (linha "# tt-celular" de termux/celular.sh).
 # O Debian (proot-distro) enxerga a home do Termux no mesmo caminho, então a pasta atual vale lá.
 
-# dbn: shell no Debian na pasta atual (dbn <comando> executa um comando lá)
-dbn() { local c; if (($#)); then c=$(printf '%q ' "$@"); else c='exec bash -l'; fi
+# dbn: shell no Debian na pasta atual (dbn <comando> executa um comando lá). O comando leva o
+# ~/.local/bin (claude, ia-conta) no PATH mesmo que o ~/.bashrc do Debian tenha perdido a linha.
+dbn() { local c; if (($#)); then c='PATH="$HOME/.local/bin:$PATH"; '$(printf '%q ' "$@"); else c='exec bash -l'; fi
   proot-distro login "${TT_DISTRO:-debian}" --shared-tmp --work-dir "$PWD" -- bash -lc "$c"; }
 
 # cl: Claude Code na pasta atual; clc continua a última conversa; clr escolhe uma; clu atualiza.
