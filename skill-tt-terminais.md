@@ -353,7 +353,8 @@ e os instaladores da pasta do usuário ficam no `tt`.
   `aerc :comando`, socket `$XDG_RUNTIME_DIR/aerc.sock`, só com a sessão oculta rodando aerc; erro =
   linha `response:`), faz `:change-tab Nome` (global: vale com compose/terminal na frente) → `:cf
   INBOX` → `:select 0` → `:search -u` (foca a não lida mais recente; `:clear` depois desfaz, não
-  usar) → `:view` só no modo estreito → `:check-mail`; sem sessão oculta, o salto espera o aerc
+  usar) → `:check-mail` ainda na lista → `:select 0` → `:search -u` → `:view` em qualquer largura;
+  popups duplicados são bloqueados enquanto um já está aberto; sem sessão oculta, o salto espera o aerc
   subir em 2º plano e o popup abre como sempre (`botao_email`); `TT_EMAIL_SEM_POPUP=1` só nos
   testes. `--email-saltar-novo SLUG` é o salto sozinho. Nunca teclas cegas.
 - `tt --email-sync-agora [cliente]` — ⟳ Sincronizar agora (botão `sync` de EMAIL_BOTOES com o estado

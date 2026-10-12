@@ -2,7 +2,7 @@
 # Abrir pelo aviso mostra a mensagem nova: o aviso "📧 Conta: N e-mails novos" sai com a ação
 # email:SLUG; notif_abrir leva a email_ir_novo, que marca os avisos da conta como lidos e, pelo IPC
 # do aerc (nunca teclas cegas), vai à conta (:change-tab), ao INBOX (:cf), foca a não lida mais
-# recente (:select 0 + :search -u), abre a mensagem na tela estreita (:view) e confere (:check-mail);
+# recente (:select 0 + :search -u), confere (:check-mail) ainda na lista e abre a mensagem (:view);
 # fecha antes a tela do tt que estiver na frente; sem socket, sem sessão ou com erro do aerc não
 # manda nada. aerc falso que registra os comandos recebidos; sessão oculta com um "aerc" vivo.
 source "$(dirname "$0")/lib.sh"; isolar
@@ -28,6 +28,23 @@ grep -q '"\$corpo" "email:\$slug"' "$TT" || falhou 'email_novos_avisar deveria a
 for fn in email_ipc email_saltar_novo email_ir_novo email_avisos_lidos; do grep -q "^$fn()" "$TT" || falhou "função $fn ausente"; done
 passou 'rota email:SLUG no notif_abrir, aviso com a ação email:SLUG, funções do salto'
 
+# O popup não pode anexar uma segunda vez à sessão já visível nem abrir dois popups concorrentes.
+( source <(sed -n '/^email_popup_abrir()/,/^}/p' "$TT")
+  EMAIL_SESSAO=_tt-email; POPUPS=$T/popups; export POPUPS
+  tam_popup() { echo '-w 100 -h 20'; }
+  tmux() {
+    case " $* " in
+      *'#{session_attached}'*) echo "${ATTACHED:-0}" ;;
+      *'display-popup'*) echo popup >>"$POPUPS"; sleep 0.5 ;;
+    esac
+  }
+  ATTACHED=1; email_popup_abrir base true
+  [[ ! -s $POPUPS ]] || falhou 'painel já anexado não pode abrir outro popup'
+  ATTACHED=0; email_popup_abrir base true & primeiro=$!; sleep 0.1; email_popup_abrir base true; wait "$primeiro"
+  [[ $(wc -l <"$POPUPS") == 1 ]] || falhou "cliques concorrentes abriram popups duplicados: $(cat "$POPUPS")"
+) || falhou 'proteção contra popup de e-mail duplicado'
+passou 'popup do aerc é único: sessão já anexada e cliques simultâneos não criam painel em cascata'
+
 echo 'S' | tt --email-adicionar nome=Gmail endereco=g@gmail.com provedor=gmail auth=senha sync_local=1 --senha-stdin >/dev/null || falhou 'cadastro gmail'
 echo 'S' | tt --email-adicionar nome=Nada endereco=n@gmail.com provedor=gmail auth=senha --senha-stdin >/dev/null || falhou 'cadastro nada'
 
@@ -36,7 +53,7 @@ tt --email-saltar-novo gmail && falhou 'sem sessão oculta deveria falhar'
 [[ -z $(ipc) ]] || falhou "sem sessão nada deveria ir ao aerc: $(ipc)"
 passou 'sem sessão oculta: nenhum comando ao aerc'
 
-# 2) sessão oculta com aerc vivo + socket: a sequência certa, na ordem, sem :view (tela larga)
+# 2) sessão oculta com aerc vivo + socket: a sequência abre a mensagem também no modo largo
 tmux new-session -d -s _tt-email -x 150 -y 40 'exec -a aerc python3 -c "import time; time.sleep(600)"'
 tmux set -q -t =_tt-email: @ponte email; tmux set -q -t =_tt-email: @tt_email_modo largo
 sleep 0.5
@@ -44,15 +61,15 @@ tt --email-saltar-novo gmail && falhou 'sem socket deveria falhar'
 [[ -z $(ipc) ]] || falhou "sem socket nada deveria ir ao aerc: $(ipc)"
 socket_criar
 tt --email-saltar-novo gmail || falhou 'salto com sessão e socket deveria dar certo'
-[[ $(ipc | tr '\n' '|') == ':change-tab Gmail|:cf INBOX|:select 0|:search -u|:check-mail|' ]] || falhou "sequência do salto errada: $(ipc | tr '\n' '|')"
-passou 'salto: :change-tab Conta → :cf INBOX → :select 0 → :search -u → :check-mail (sem :view na tela larga)'
+[[ $(ipc | tr '\n' '|') == ':change-tab Gmail|:cf INBOX|:check-mail|:select 0|:search -u|:view|' ]] || falhou "sequência do salto errada: $(ipc | tr '\n' '|')"
+passou 'salto: :change-tab Conta → :cf INBOX → :check-mail → :select 0 → :search -u → :view'
 
-# 3) tela estreita (sem prévia): abre a mensagem (:view) depois de focar
+# 3) tela estreita também abre a mensagem; :check-mail vem antes de :view (comando só da lista)
 : >"$AERC_IPC_LOG"; tmux set -q -t =_tt-email: @tt_email_modo estreito
 tt --email-saltar-novo gmail || falhou 'salto na tela estreita'
-[[ $(ipc | tr '\n' '|') == ':change-tab Gmail|:cf INBOX|:select 0|:search -u|:view|:check-mail|' ]] || falhou "estreito deveria abrir a mensagem: $(ipc | tr '\n' '|')"
+[[ $(ipc | tr '\n' '|') == ':change-tab Gmail|:cf INBOX|:check-mail|:select 0|:search -u|:view|' ]] || falhou "estreito deveria abrir a mensagem sem erro de contexto: $(ipc | tr '\n' '|')"
 tmux set -q -t =_tt-email: @tt_email_modo largo
-passou 'tela estreita: :view depois de focar a não lida'
+passou 'tela estreita: confere na lista e só então abre a não lida'
 
 # 4) o aerc responde erro na troca de aba (conta sem aba): para ali, sem :cf nem :search
 : >"$AERC_IPC_LOG"
@@ -93,8 +110,8 @@ TT_EMAIL_SEM_POPUP=1 tt --email-ir-novo gmail base || falhou 'ir-novo sem sessã
 sleep 1.2; [[ -z $(ipc) ]] || falhou "antes do aerc subir nada deveria ir: $(ipc)"
 tmux new-session -d -s _tt-email -x 150 -y 40 'exec -a aerc python3 -c "import time; time.sleep(600)"'
 tmux set -q -t =_tt-email: @tt_email_modo largo; socket_criar
-for i in $(seq 1 20); do grep -q '^:check-mail$' "$AERC_IPC_LOG" 2>/dev/null && break; sleep 0.5; done
-[[ $(ipc | tr '\n' '|') == ':change-tab Gmail|:cf INBOX|:select 0|:search -u|:check-mail|' ]] || falhou "salto adiado errado: $(ipc | tr '\n' '|')"
+for i in $(seq 1 20); do grep -q '^:view$' "$AERC_IPC_LOG" 2>/dev/null && break; sleep 0.5; done
+[[ $(ipc | tr '\n' '|') == ':change-tab Gmail|:cf INBOX|:check-mail|:select 0|:search -u|:view|' ]] || falhou "salto adiado errado: $(ipc | tr '\n' '|')"
 passou 'sessão oculta ausente: o salto espera o aerc subir e vai sozinho'
 
 echo 'ok: abrir pelo aviso vai à conta e à mensagem nova pelo IPC do aerc, e marca o aviso como lido'

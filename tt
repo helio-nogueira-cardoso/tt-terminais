@@ -12201,16 +12201,36 @@ botao_email() {
     local pane_cmd; pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
     if [[ $pane_cmd != aerc* ]]; then
       # O aerc saiu e o shell da sessão mostra o erro: anexa o popup a ele para o erro ficar visível.
-      tmux display-popup -c "$cliente" -E "${geo[@]}" "env -u TMUX $(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
+      email_popup_abrir "$cliente" "env -u TMUX $(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
       tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
       botao_aviso "$cliente" "e-mail: o aerc não abriu. Verifique a conta em 📧 → contas (ou rode: aerc)."
       return
     fi
-    tmux display-popup -c "$cliente" -E "${geo[@]}" "env -u TMUX $(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
+    email_popup_abrir "$cliente" "env -u TMUX $(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
     return
   fi
   tmux display-popup -c "$cliente" -E "${geo[@]}" \
     "cd ${HOME@Q}; VAXIS_FORCE_UNICODE=1 $cmd || { printf '\\n[e-mail] o cliente saiu com erro (código %s). Qualquer tecla fecha.' \"\$?\"; read -rsn1 _; }"
+}
+
+# Um único popup pode anexar-se à sessão oculta do aerc por vez. Cliques repetidos enquanto o
+# painel está aberto (ou duas notificações quase simultâneas) não devem abrir popups aninhados,
+# que no tmux parecem subir em cascata e acabam fechando o cliente.
+email_popup_abrir() { # cliente comando
+  local cliente=$1 comando=$2 fd; local -a geo
+  local trava="${XDG_RUNTIME_DIR:-/tmp}/tt-email-popup.lock"
+  mkdir -p "${trava%/*}" 2>/dev/null || return 1
+  exec {fd}>"$trava" || return 1
+  flock -n "$fd" || { exec {fd}>&-; return 0; }
+  if [[ $(tmux display -p -t "=$EMAIL_SESSAO:" '#{session_attached}' 2>/dev/null) =~ ^[1-9] ]]; then
+    exec {fd}>&-
+    return 0
+  fi
+  geo=($(tam_popup "$cliente") -b rounded -S 'fg=#89b4fa' -T ' 📧 e-mail · Esc fecha ')
+  tmux display-popup -c "$cliente" -E "${geo[@]}" "$comando"
+  local rc=$?
+  exec {fd}>&-
+  return "$rc"
 }
 
 # Sessão oculta com o aerc aberto. Marcada como "ponte" do tipo email: fica fora da central, do
@@ -13238,10 +13258,14 @@ email_ipc() { # :comando [argumentos…]
 email_saltar_novo() { # nome-da-conta [espera]
   local nome=$1 espera=${2:-0.3}
   email_ipc :change-tab "$nome" || return 1
-  email_ipc :cf INBOX; sleep "$espera"
-  email_ipc :select 0; email_ipc ':search -u'
-  [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo 2>/dev/null) == estreito ]] && email_ipc :view
-  email_ipc :check-mail
+  email_ipc :cf INBOX || return 1
+  # :check-mail só vale na lista, não no leitor. Conferir antes de buscar e abrir evita o erro
+  # "comando desconhecido" depois de :view.
+  email_ipc :check-mail || return 1
+  sleep "$espera"
+  email_ipc :select 0 || return 1
+  email_ipc ':search -u' || return 1
+  email_ipc :view || return 1
   return 0
 }
 # Marca como lidos os avisos com a ação dada (<id>.lida ao lado do arquivo do aviso): abrir a

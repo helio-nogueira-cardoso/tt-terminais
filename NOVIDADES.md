@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.9.4 · 12/10/2026
+- **Painel de e-mail sem cascata:** cliques repetidos ou simultâneos não abrem popups aninhados nem anexos duplicados à sessão do aerc.
+- **Aviso abre a mensagem:** o clique agora confere a caixa ainda na lista, localiza a não lida e abre a mensagem em qualquer largura. Isso evita enviar `:check-mail` ao leitor, onde o aerc rejeitava o comando.
+
 ## v1.9.3 · 12/10/2026
 - **Temperaturas com vírgula e °C:** a previsão de 7 dias de Ribeirão Preto mostra `30,2°C/19,8°C` (antes `30.2°/19.8°`) e a máxima/mínima de hoje, `30°C/19°C`. Os campos extras de uma fonte que são número decimal seguem o `separador` dela (`pt` = vírgula); sem separador, ficam como vieram.
 
