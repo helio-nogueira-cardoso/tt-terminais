@@ -27,9 +27,10 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
   toque ou clique, foco na janela, girar o celular ou abrir o teclado passam a sessão para ele na
   hora, e o outro toma de volta assim que for usado. Quem só está olhando vê ⤢ na barra (um toque
   encaixa nele). A janela nunca fica presa num tamanho fixo.
-- **Copiar e colar iguais em todo lugar**: **Alt**+arrastar copia (também sobre o Claude Code, o Codex e
-  sessões de outra máquina), Alt+duplo clique copia a palavra, Alt+triplo a linha; sem Alt, arrastar e
-  clicar vão ao programa e nada é copiado (sem cópias por acidente). Sempre com o aviso
+- **Copiar e colar iguais em todo lugar**: segure **Ctrl** (ou **Alt**) para copiar com o mouse —
+  arrastar copia a seleção (também sobre o Claude Code, o Codex e sessões de outra máquina), duplo clique
+  a palavra, triplo a linha; sem a tecla, arrastar e clicar vão ao programa e nada é copiado (sem cópias
+  por acidente poluindo o histórico). Sempre com o aviso
   "📋 copiado (N caracteres)"; a cópia vai para a área de transferência do aparelho em uso (PC,
   Windows/WSL ou celular via mosh). O que a tela partiu em linhas — um endereço, caminho ou código
   longo quebrado na borda, com recuo ou borda na linha de baixo, como no Claude Code — volta a ser
@@ -38,7 +39,7 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
   do terminal (essa não passa pelo tt).
 - **Links clicáveis em qualquer painel**: clique num endereço (http/https) abre a mesma escolha de
   navegador do e-mail (veja "Links: escolha do navegador"), com a URL inteira mesmo quando ela está
-  quebrada em várias linhas; Alt+duplo clique copia o link inteiro; Ctrl+B u (ou ⋯ → 🔗 Links da tela)
+  quebrada em várias linhas; Ctrl ou Alt + duplo clique copia o link inteiro; Ctrl+B u (ou ⋯ → 🔗 Links da tela)
   lista os links do painel e do histórico. Vale também sobre programas que usam o mouse (Claude
   Code, aerc): fora de um link, o clique continua indo para eles.
 - **Painéis com outras sessões**: `^v` ao lado, `^o` embaixo, `^p` troca — inclusive sessões de
@@ -1764,8 +1765,8 @@ hyperlink OSC 8 sob o mouse, se o programa mandou um). Ele junta a linha clicada
 quando o que chega na borda direita continua, sem espaço, no começo da linha de baixo — seja a
 quebra do próprio terminal, seja a de um programa que recua a continuação (Claude Code) ou a desenha
 dentro de uma caixa. Um endereço curto que só termina na borda não gruda no texto da linha de baixo.
-O clique simples espera o tempo de um duplo clique antes de abrir (o Alt+duplo clique copia); Ctrl+clique
-abre na hora. No Windows Terminal, o Ctrl+clique numa linha que ele mesmo reconhece como URL é
+O clique (simples ou com Ctrl) espera o tempo de um duplo clique antes de abrir (o Ctrl/Alt + duplo clique copia, e o
+arrasto, que com Alt ou Ctrl copia, cancela a abertura). No Windows Terminal, o Ctrl+clique numa linha que ele mesmo reconhece como URL é
 tratado por ele, que só enxerga aquela linha: prefira o clique simples. Hyperlinks OSC 8 chegam
 inteiros ao terminal de fora (recurso `hyperlinks` do tmux), então nesses o Ctrl+clique do próprio
 terminal também pega a URL toda, inclusive dentro de popups.

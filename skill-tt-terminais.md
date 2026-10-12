@@ -501,7 +501,7 @@ um item muda, para a barra redesenhar.
 
 Binds de teclado (prefixo `Ctrl+B`): `s` central, `t` tarefas, `|` split horizontal, `-` split
 vertical, `c` janela nova, `r` recarrega config, `m` menu do painel, `y` histórico de cópias, `N`
-renomear sessão, `F1..F10` botões. Mouse: arrastar/duplo/triplo clique copiam; botão do meio cola;
+renomear sessão, `F1..F10` botões. Mouse: Ctrl ou Alt + arrastar/duplo/triplo clique copiam (sem modificador vão ao programa; o Ctrl+arrastar = painel flutuante do tmux 3.8 fica desligado); botão do meio cola;
 `MouseDown/Up1Status*` → `--clique`; `MouseUp3Status*` → `--clique-direito`;
 `MouseUp3Pane`/`MouseDown3Border` → `--menu-painel`.
 

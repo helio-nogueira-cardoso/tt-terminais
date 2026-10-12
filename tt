@@ -5129,7 +5129,7 @@ abrir_link() {
 LINKS_PY=$DIR_TT/links-tt.py
 [[ -f $LINKS_PY ]] || LINKS_PY=${EU%/*}/links-tt.py
 
-# tt --link-abrir ID CLIENTE PAINEL URL (do links-tt.py). Com ID, é um clique simples: espera o tempo
+# tt --link-abrir ID CLIENTE PAINEL URL (do links-tt.py). Com ID, é um clique (simples ou com Ctrl): espera o tempo
 # de um duplo clique e desiste se veio o 2º clique ou um arrasto (o tmux.conf limpa @tt_link_id).
 link_abrir() {
   local id=$1 c=$2 p=$3 u=$4 pref
@@ -5190,8 +5190,11 @@ desquebrar_copia() {
   novo=$(mktemp) || return 0
   if python3 -I "$LINKS_PY" desquebrar "$w" "$x0" <"$t" >"$novo" 2>/dev/null && [[ -s $novo ]] && ! cmp -s "$t" "$novo"; then
     mv "$novo" "$t"
+    # Troca a cópia partida pela religada como cópia NOVA: carregar com -b NOME tornaria o buffer
+    # "nomeado", e o colar do tmux (botão do meio, paste-buffer) pularia para a cópia anterior.
     b=$(tmux list-buffers -F '#{buffer_name}' 2>/dev/null); b=${b%%$'\n'*}
-    [[ -n $b ]] && tmux load-buffer -w -b "$b" "$t" 2>/dev/null
+    [[ -n $b ]] && tmux delete-buffer -b "$b" 2>/dev/null
+    tmux load-buffer -w "$t" 2>/dev/null
     [[ -n $c ]] && tmux display-message -c "$c" -d 1800 "📋 copiado ($(wc -m <"$t") caracteres) — o que a tela tinha partido em linhas voltou a ser uma coisa só"
   else
     rm -f "$novo"

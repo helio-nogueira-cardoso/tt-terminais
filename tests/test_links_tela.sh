@@ -104,6 +104,18 @@ esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "duplo clique nã
 sleep 0.6; [[ ! -s $LOG ]] || falhou "duplo clique também abriu o link: $(cat "$LOG")"
 passou "duplo clique num link copia o link inteiro (tmux e área de transferência) e não abre"
 
+# Ctrl+duplo clique faz o mesmo que o Alt (o 2º clique com Ctrl também cancela a abertura) e
+# Ctrl+triplo clique copia a linha.
+: >"$LOG"; : >"$CLIP"
+clicar 30 "$y2" 16; sleep 0.08; clicar 30 "$y2" 16
+esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "Ctrl+duplo clique não copiou o link inteiro: '$(cat "$CLIP")'"
+sleep 0.6; [[ ! -s $LOG ]] || falhou "Ctrl+duplo clique também abriu o link: $(cat "$LOG")"
+: >"$CLIP"
+clicar 3 "$ys" 16; sleep 0.08; clicar 3 "$ys" 16; sleep 0.08; clicar 3 "$ys" 16
+esperar '[[ $(cat "$CLIP" 2>/dev/null) == "texto sem link nenhum" ]]' 6 || falhou "Ctrl+triplo clique não copiou a linha: '$(cat "$CLIP")'"
+sleep 1.5 # as cópias do duplo e do triplo clique terminam em segundo plano: não podem cair no teste seguinte
+passou "Ctrl+duplo clique copia o link inteiro (sem abrir) e Ctrl+triplo clique copia a linha, como com Alt"
+
 # Arrastar do começo do link até o fim da 3ª linha: a cópia vem sem a quebra e sem o recuo.
 : >"$CLIP"; : >"$LOG"
 x0=$(( $(fora capture-pane -p -t v | sed -n "${y1}p" | python3 -c 'import sys; print(sys.stdin.read().index("https"))') + 1 ))
@@ -116,6 +128,19 @@ esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "arrasto não rel
 [[ $(tmux show-buffer) == "$U" ]] || falhou "buffer do tmux ficou com a cópia partida: '$(tmux show-buffer | cat -A | head -3)'"
 sleep 0.6; [[ ! -s $LOG ]] || falhou "arrastar a partir de um link abriu o link: $(cat "$LOG")"
 passou "arrastar sobre um link partido copia a URL inteira, sem quebra nem recuo (e não abre)"
+
+# Ctrl+arrastar copia como o Alt+arrastar; não abre o link de onde partiu nem desenha um painel
+# flutuante (o padrão do tmux 3.8 para Ctrl+arrastar é new-pane -M).
+: >"$CLIP"; : >"$LOG"; paineis=$(tmux list-panes -a | wc -l)
+apertar "$x0" "$y1" 16; sleep 0.1
+fora send -t v -l $'\e[<48;'"$((x0 + 5));$y1"$'M'; sleep 0.1
+fora send -t v -l $'\e[<48;30;'"$y2"$'M'; sleep 0.1
+fora send -t v -l $'\e[<48;'"$((3 + ${#U} - 187));$y3"$'M'; sleep 0.1
+soltar "$((3 + ${#U} - 187))" "$y3" 16
+esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "Ctrl+arrastar não copiou o link inteiro: '$(cat "$CLIP" | cat -A | head -5)'"
+sleep 0.6; [[ ! -s $LOG ]] || falhou "Ctrl+arrastar a partir de um link abriu o link: $(cat "$LOG")"
+(( $(tmux list-panes -a | wc -l) == paineis )) || falhou "Ctrl+arrastar criou painel: $(tmux list-panes -a)"
+passou "Ctrl+arrastar copia como o Alt (URL inteira), sem abrir o link nem criar painel flutuante"
 
 # Ctrl+B u: os links da tela num popup.
 fora send -t v C-b u; sleep 2
@@ -157,7 +182,7 @@ esperar 'abriu "$U"' 6 || falhou "clique no link dentro de programa com mouse n�
 grep -q $'\e\\[<0;20;'"$yl"'M' "$T/app.log" && falhou "o programa recebeu o clique que abriu o link"
 passou "programa que captura o mouse: clique fora de link chega a ele; no link, abre o link"
 
-# Ctrl+clique abre na hora (sem esperar o tempo do duplo clique).
+# Ctrl+clique abre o link (depois do tempo do duplo clique, como o clique simples: o arrasto o cancela).
 : >"$LOG"; clicar 20 "$yl" 16
 esperar 'abriu "$U"' 3 || falhou "Ctrl+clique não abriu o link: '$(cat "$LOG")'"
 passou "Ctrl+clique num link abre a URL inteira"

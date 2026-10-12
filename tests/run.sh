@@ -407,9 +407,12 @@ tmux -S "$sock" list-keys -T prefix >"$tmp/prefix-keys"
 for evento in MouseDown1Status MouseDown1StatusLeft MouseDown1StatusRight MouseUp1Status MouseUp1StatusLeft MouseUp1StatusRight; do
   rg -q " $evento " "$tmp/keys" || falha "binding tmux ausente: $evento"
 done
-for evento in MouseDrag1Pane M-MouseDrag1Pane DoubleClick1Pane M-DoubleClick1Pane TripleClick1Pane M-TripleClick1Pane MouseDown2Pane MouseUp2Pane MouseUp3Pane MouseDown3Pane MouseUp3Status MouseDown3Status MouseDown3Border; do
+for evento in MouseDrag1Pane M-MouseDrag1Pane C-MouseDrag1Pane DoubleClick1Pane M-DoubleClick1Pane TripleClick1Pane M-TripleClick1Pane MouseDown2Pane MouseUp2Pane MouseUp3Pane MouseDown3Pane MouseUp3Status MouseDown3Status MouseDown3Border; do
   rg -q " $evento " "$tmp/keys" || falha "gesto de painel/status ausente: $evento"
 done
+# O tmux 3.8 traz Ctrl+arrastar = desenhar painel flutuante (new-pane -M); no tt, Ctrl+arrastar copia.
+rg -q 'C-MouseDrag1Pane .*copy-mode -M' "$tmp/keys" || falha 'Ctrl+arrastar não copia'
+if rg -q 'new-pane -M' "$tmp/keys"; then falha 'Ctrl+arrastar ainda desenha painel flutuante (padrão do tmux 3.8)'; fi
 for tecla in F1 F2 F3 F4 F5 F6 F7 F8 F9 F10; do
   rg -q " $tecla " "$tmp/prefix-keys" || falha "atalho de teclado ausente: $tecla"
 done

@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.24 · 12/10/2026
+- **Ctrl copia com o mouse, como o Alt:** Ctrl+arrastar copia a seleção, Ctrl+duplo clique a palavra (num link, o link inteiro) e Ctrl+triplo clique a linha. O tmux 3.8 trazia de fábrica Ctrl+arrastar = desenhar um painel flutuante (a "subjanela" que aparecia onde se arrastava); o tt desliga isso. Ctrl+arrastar a partir de um link copia e não abre o link: o Ctrl+clique num link agora espera o tempo de um duplo clique antes de abrir, como o clique simples. Sem Alt ou Ctrl, arrastar continua indo ao programa, e Shift+arrastar continua sendo a seleção do próprio terminal.
+- **Botão do meio cola a cópia certa:** depois de copiar algo que a tela tinha partido em linhas (um endereço longo, por exemplo), o botão do meio colava a cópia anterior; agora cola a que você acabou de fazer, já religada.
+
 ## v1.8.23 · 12/10/2026
 - **Datas completas em português:** previsões, feriados e lançamentos exibem `DD/MM/AAAA (Dia)`.
 - **Títulos legíveis:** o primeiro caractere alfabético de cada item fica em maiúscula depois dos ícones, por exemplo `g1` → `G1` e `feriado` → `Feriado`.

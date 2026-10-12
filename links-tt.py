@@ -236,11 +236,11 @@ def clique(cliente, painel, x, y, largura, altura, ctrl, hiperlink):
     u = url_no_painel(painel, x, y, largura, altura, hiperlink)
     if not u:
         return 1
-    # Clique simples espera o tempo de um duplo clique (o duplo copia, não abre): o tmux.conf limpa
-    # @tt_link_id no 2º clique e no arrasto. Ctrl+clique abre na hora.
-    ident = "" if ctrl else str(time.time_ns())
-    if ident:
-        tmux("set", "-g", "@tt_link_id", ident)
+    # O clique espera o tempo de um duplo clique (o duplo copia, não abre): o tmux.conf limpa
+    # @tt_link_id no 2º clique e no arrasto. O Ctrl+clique também espera, porque Ctrl+arrastar
+    # copia e o arrasto que começa num link não pode abri-lo.
+    ident = str(time.time_ns())
+    tmux("set", "-g", "@tt_link_id", ident)
     soltar("--link-abrir", ident, cliente, painel, u)
     return 0
 
