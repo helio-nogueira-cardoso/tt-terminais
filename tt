@@ -3132,7 +3132,9 @@ clique_cabecalho() {
 # zsh (padrão do macOS) expande =palavra como o caminho de um comando — "tmux attach -t =sessão"
 # virava "sessão not found" e a ponte fechava na hora. Por isso o "=" inicial ganha uma barra.
 q() {
-  local a o
+  # Num locale não UTF-8 (tmux/run-shell sem LANG) o %q escreve um emoji como $'\360\237\223\260', e o sh que roda o
+  # comando mostrava esses bytes no título do popup ("\360\237\223\260 letreiro"). Com C.UTF-8 o texto passa inteiro.
+  local a o LC_ALL=C.UTF-8
   for a in "$@"; do
     printf -v o '%q' "$a"
     [[ $o == =* ]] && o="\\$o"

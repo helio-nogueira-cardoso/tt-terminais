@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.20 · 12/10/2026
+- **Título dos popups sem códigos estranhos:** a tela do letreiro (e qualquer popup com emoji no título, como 📤 enviar) mostrava `\360\237\223\260` antes do nome quando o tmux rodava sem locale UTF-8. O texto agora chega inteiro.
+
 ## v1.8.19 · 12/10/2026
 - **Avisos de agentes pelo sininho 🔔:** `tt --notificar-daqui` não pisca mais no miolo da faixa de notificações. O aviso entra no contador do 🔔 (que o mantém, de qualquer idade, até você abri-lo) e na central; ⏎ no aviso leva à sessão e ao painel do agente e `^l` marca todos como lidos (`tt --notifs-lidas`). Vale 24 h por padrão. Os demais avisos (e-mail, lembretes de tarefas) seguem piscando na faixa como antes.
 
