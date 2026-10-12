@@ -3045,6 +3045,29 @@
    },
    "exemplo": "",
    "validada": "2026-10-11"
+  },
+  "clima-rp-7dias": {
+   "conf": {
+    "descricao": "Previsão diária de 7 dias para Ribeirão Preto (Open-Meteo, sem chave)",
+    "tags": "clima",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=7&timezone=America%2FSao_Paulo",
+    "formato": "json",
+    "caminho": "daily.time[*]",
+    "itens": "7",
+    "modelo": "Ribeirão Preto {dia}: {max}°/{min}° · chuva {chuva}%",
+    "ttl": "21600",
+    "ordem": "100",
+    "rotulo": "Previsão de 7 dias · Ribeirão Preto",
+    "var.lat": "-21.1775",
+    "var.lon": "-47.81028",
+    "var.cidade": "Ribeirão Preto",
+    "campo.dia": "daily.time[*]",
+    "campo.max": "daily.temperature_2m_max[*]",
+    "campo.min": "daily.temperature_2m_min[*]",
+    "campo.chuva": "daily.precipitation_probability_max[*]"
+   },
+   "exemplo": "Ribeirão Preto 12/10/2026 (Seg): 31.2°/19.1° · chuva 10%",
+   "validada": "2026-10-12"
   }
  },
  "modelos": {

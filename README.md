@@ -958,6 +958,13 @@ Variáveis em `url`, `query`, `corpo`, `modelo`, `rotulo`, `caminho` e `clique_a
 `{ontem}` `{amanha}` `{data_br}` `{ano}` `{mes}` `{dia}` `{hora}` `{epoch}`, as suas (`var.moeda=USD` →
 `{moeda}`), os campos extras (`campo.link=.//item/link` → `{link}`) e, em `url`/`header`/`query`/`corpo`,
 `{segredo}`. No `modelo`: `{icone}` `{rotulo}` `{valor}` `{var}` `{seta}` `{pct}` `{nome}` `{hora}` `{data}`.
+Um campo extra chamado `campo.dia` formata valores ISO `AAAA-MM-DD` como `DD/MM/AAAA (Dia)` em português
+(por exemplo, `13/10/2026 (Ter)`); valores que não sejam datas ISO permanecem como vieram.
+
+O pacote inclui `letreiro-padrao.json`, que liga por padrão as fontes de fábrica ativas do perfil tt e fixa
+a previsão do tempo em **Ribeirão Preto (SP)**, inclusive a previsão diária de sete dias. As escolhas que já
+existem no perfil local prevalecem. O painel de ajustes oferece ritmos prontos e personalizados: na rolagem,
+0,1–5 segundos por coluna; em páginas, 1–60 segundos por bloco.
 
 Caminhos de extração: **json** `a.b`, `a.b[0]`, `a[-1]`, `a[*].x` (todos), `a[0:3]`, `$.a.b`,
 `['chave com ponto']` e filtros `itens[?data>={hoje}].nome`; **xml/rss/atom** XPath simples (`.//item/title`,
@@ -1176,7 +1183,7 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 | `vale3` | Vale ON em reais (Yahoo Finance, endpoint não oficial) | ⛏ VALE3 R$ 67,90 ▲0,4% |
 | `vix` | Índice de volatilidade VIX (Yahoo Finance, endpoint não oficial) | 😱 VIX 14,84 ▼3,7% |
 
-**🌤 Tempo e clima** (13)
+**🌤 Tempo e clima** (14)
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
@@ -1187,6 +1194,7 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 | `clima-por-do-sol` | Hora do pôr do sol (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌇 Ribeirão Preto põe 18:13 |
 | `clima-prob-chuva` | Probabilidade de chuva hoje (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | ☔ Ribeirão Preto 66% |
 | `clima-qualidade-ar` | Qualidade do ar (índice AQI dos EUA: até 50 boa, 100 moderada) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 😷 Ribeirão Preto AQI 96 |
+| `clima-rp-7dias` | Previsão diária para os próximos sete dias em Ribeirão Preto (Open-Meteo, sem chave; datas em formato brasileiro) | Ribeirão Preto 12/10/2026 (Seg): 31,2°/19,1° · chuva 10% |
 | `clima-sensacao` | Sensação térmica agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🥵 Ribeirão Preto 22,1°C |
 | `clima-temperatura` | Temperatura agora (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | 🌡 Ribeirão Preto 20,3°C |
 | `clima-tempo` | Condição do tempo agora (código WMO traduzido) (Open-Meteo, sem chave; mude var.lat/var.lon/var.cidade para o seu lugar) | ⛅ Ribeirão Preto: nublado |

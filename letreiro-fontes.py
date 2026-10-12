@@ -37,7 +37,7 @@ import unicodedata
 import urllib.parse
 import zlib
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_UP
 
 VERSAO_FORMATO = 1
@@ -878,6 +878,7 @@ NATIVAS = {
 # (CATALOGO) perguntam o que falta (um repositório, um par de moedas, um feed…) e criam uma fonte sua.
 ORIGINAIS = ("dolar", "frases", "noticias")          # as três que vêm ligadas de fábrica
 ARQ_CATALOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "letreiro-catalogo.json")
+ARQ_PADRAO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "letreiro-padrao.json")
 ARQ_OCULTAS = os.path.join(DIR_FONTES, ".ocultas")   # fontes de fábrica que você tirou da lista (nome por linha)
 
 
@@ -895,6 +896,17 @@ CATEGORIAS, FABRICA, MODELOS = _carregar_catalogo()
 for _n, _e in FABRICA.items():
     if _n not in NATIVAS:
         NATIVAS[_n] = {**{k: (list(v) if isinstance(v, list) else v) for k, v in _e["conf"].items()}, "ativa": "0"}
+try:
+    with open(ARQ_PADRAO, encoding="utf-8") as _f:
+        PERFIL_PADRAO = json.load(_f) if os.environ.get("TT_LETREIRO_SEM_PADRAO") != "1" and os.environ.get("TT_LETREIRO_TESTE") != "1" else {}
+except (OSError, ValueError):
+    PERFIL_PADRAO = {}
+for _n in PERFIL_PADRAO.get("ativas", []):
+    if _n in NATIVAS:
+        NATIVAS[_n]["ativa"] = "1"
+for _n, _kv in (PERFIL_PADRAO.get("sobreposicoes") or {}).items():
+    if _n in NATIVAS and isinstance(_kv, dict):
+        NATIVAS[_n].update(_kv)
 CAT_ROTULO = {c[0]: "%s %s" % (c[1], c[2]) for c in CATEGORIAS if len(c) >= 3}
 CAT_ROTULO.update({"minhas": "🧩 Minhas fontes", "outras": "📦 Outras"})
 CATALOGO = {i: (m.get("descricao", i), m["conf"], [tuple(p) for p in m.get("perguntas", [])])
@@ -2110,6 +2122,19 @@ def formatar_valor(f, bruto, cfg):
     return out, x, num
 
 
+def data_iso_pt_br(valor):
+    """Converte YYYY-MM-DD em DD/MM/YYYY (dia abreviado em pt-BR); outros valores ficam intactos."""
+    s = str(valor)
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return s
+    try:
+        d = date.fromisoformat(s)
+    except ValueError:
+        return s
+    dias = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
+    return "%02d/%02d/%04d (%s)" % (d.day, d.month, d.year, dias[d.weekday()])
+
+
 def formatar_variacao(f, p, cfg):
     """p (%) → (texto completo {var}, seta, pct) com marcas de cor quando permitido."""
     if p is None:
@@ -2236,7 +2261,11 @@ def processar(f, nome, corpo, ts, meta, cfg, res):
     for k, v in f.items():
         if k.startswith("campo."):
             try:
-                extras[k[6:]] = [limpar_texto(x) for x in extrair(fmt, corpo, aplicar_vars(v, vars_), f)]
+                nome_campo = k[6:]
+                valores = [limpar_texto(x) for x in extrair(fmt, corpo, aplicar_vars(v, vars_), f)]
+                if nome_campo == "dia":
+                    valores = [data_iso_pt_br(x) for x in valores]
+                extras[nome_campo] = valores
             except Erro as e:
                 res.avisos.append("%s: %s" % (k, e))
                 extras[k[6:]] = []

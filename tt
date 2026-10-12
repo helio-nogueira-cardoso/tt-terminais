@@ -1751,7 +1751,7 @@ ajuda() {
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
+ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
@@ -8095,7 +8095,7 @@ conf_remover() { # chave
 LETREIRO_AJUSTES=(
   "ticker_ligado|bool|1|Letreiro ligado nesta máquina"
   "ticker_rolagem|enum:continua/paginas|continua|Modo: continua (desliza) ou páginas (troca de bloco)"
-  "ticker_veloc|num||Velocidade: s por coluna (continua) ou s por página (páginas)"
+  "ticker_veloc|veloc||Velocidade: escolha um ritmo confortável para a rolagem ou troca de páginas"
   "ticker_fps|int:1:20|6|Quadros por segundo (1 a 20)"
   "ticker_separador|texto| • |Separador entre os itens"
   "ticker_ordem|enum:sequencial/aleatoria/peso|sequencial|Ordem: sequencial (campo ordem), aleatória (mistura as entradas de todas as fontes) ou por peso"
@@ -8135,8 +8135,26 @@ letreiro_ajuste() { # chave [valor] — sem valor, mostra; valor vazio ("") volt
     int:*) local lo hi; IFS=: read -r _ lo hi <<<"$t"
       [[ $v =~ ^[0-9]+$ ]] && ((v >= lo && v <= hi)) || { echo "$k: use um inteiro de $lo a $hi" >&2; return 2; } ;;
     num) [[ $v =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "$k: use um número (ex.: 0.5)" >&2; return 2; } ;;
+    veloc)
+      local modo; modo=$(conf ticker_rolagem); modo=${modo:-continua}
+      [[ $v =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "$k: use segundos por coluna/página (ex.: 0.5)" >&2; return 2; }
+      if [[ $modo == paginas ]]; then
+        awk -v n="$v" 'BEGIN { exit !(n >= 1 && n <= 60) }' || { echo "$k: em páginas, use de 1 a 60 segundos por página" >&2; return 2; }
+      else
+        awk -v n="$v" 'BEGIN { exit !(n >= 0.1 && n <= 5) }' || { echo "$k: na rolagem contínua, use de 0,1 a 5 segundos por coluna" >&2; return 2; }
+      fi ;;
   esac
   conf_gravar "$k" "$v"
+  if [[ $k == ticker_rolagem ]]; then
+    local veloc; veloc=$(conf ticker_veloc)
+    if [[ -n $veloc ]]; then
+      if [[ $v == paginas ]]; then
+        awk -v n="$veloc" 'BEGIN { exit !(n >= 1 && n <= 60) }' || { conf_remover ticker_veloc; echo 'Velocidade ajustada ao padrão das páginas (6 s), pois o valor anterior estava fora do limite.'; }
+      else
+        awk -v n="$veloc" 'BEGIN { exit !(n >= 0.1 && n <= 5) }' || { conf_remover ticker_veloc; echo 'Velocidade ajustada ao padrão contínuo (1 coluna por quadro), pois o valor anterior estava fora do limite.'; }
+      fi
+    fi
+  fi
   echo "$k = $v"
   letreiro_py compilar >/dev/null
 }
@@ -8580,18 +8598,50 @@ letreiro_catalogo_ui() {
   letreiro_pausa
 }
 letreiro_ajustes_ui() {
-  local sel l k t p r v novo
+  local sel l k t p r v novo nome
   while :; do
     sel=$(for l in "${LETREIRO_AJUSTES[@]}"; do
         IFS='|' read -r k t p r <<<"$l"; v=$(conf "$k")
-        printf '%s\t%-20s = %-14s \033[90m%s\033[0m\n' "$k" "$k" "${v:-(padrão ${p:-—})}" "$r"
+        case $k in
+          ticker_ligado) nome='🔆 Letreiro' ;; ticker_rolagem) nome='↔️ Movimento' ;; ticker_veloc) nome='🚀 Velocidade' ;;
+          ticker_fps) nome='🎞 Quadros por segundo' ;; ticker_separador) nome='· Separador' ;; ticker_ordem) nome='↕ Ordem dos itens' ;;
+          ticker_largura) nome='↔ Largura máxima' ;; ticker_pausa) nome='⏸ Pausa ao clicar' ;; ticker_cor) nome='🎨 Cores' ;;
+          ticker_economia) nome='🔋 Economia de energia' ;; ticker_bateria_min) nome='🔌 Bateria mínima' ;; ticker_ponte) nome='🌉 Exibição por ponte' ;;
+          ticker_idioma) nome='🌐 Formato dos números' ;; ticker_fuso) nome='🕒 Fuso horário' ;; *) nome=$k ;;
+        esac
+        case $k:$v in
+          ticker_rolagem:continua) v='contínua' ;; ticker_rolagem:paginas) v='por páginas' ;;
+          ticker_ordem:sequencial) v='sequencial' ;; ticker_ordem:manual) v='sequencial (manual antigo)' ;; ticker_ordem:aleatoria) v='aleatória' ;; ticker_ordem:peso) v='por peso' ;;
+          ticker_pausa:clique) v='pausa ao clicar' ;; ticker_pausa:nunca) v='não pausa' ;;
+          ticker_ponte:normal) v='normal' ;; ticker_ponte:parado) v='parado' ;;
+          ticker_idioma:pt) v='Português (1.234,56)' ;; ticker_idioma:en) v='English (1,234.56)' ;;
+          ticker_economia:auto) v='automática' ;; ticker_economia:1) v='sempre ligada' ;; ticker_economia:0) v='desligada' ;;
+        esac
+        [[ -n $v ]] || v="padrão ${p:-automático}"
+        printf '%s\t%-25s  \033[1;37m%s\033[0m  \033[90m%s\033[0m\n' "$k" "$nome" "$v" "$r"
       done | fzf --ansi --delimiter='\t' --with-nth=2 --layout=reverse --height=100% --no-sort --prompt='  ajuste › ' \
-        --header='⏎ altera · vazio volta ao padrão · esc sai' --bind='left-click:accept' | cut -f1)
+        --header='📰 Ajustes do letreiro · escolha uma opção · vazio restaura o padrão · esc sai' --bind='left-click:accept' | cut -f1)
     [[ -n $sel ]] || return 0
     l=$(letreiro_ajuste_def "$sel"); IFS='|' read -r k t p r <<<"$l"
     case $t in
       bool) [[ $(conf "$k") == 0 || ( -z $(conf "$k") && $p == 0 ) ]] && novo=1 || novo=0 ;;
       enum:*) novo=$(printf '%s\n' "${t#enum:}" | tr / '\n' | fzf --layout=reverse --height=40% --prompt="$k › ") || continue ;;
+      veloc)
+        if [[ $(conf ticker_rolagem) == paginas ]]; then
+          novo=$(printf '1\t⚡ 1 s · troca rápida\n2\t🏃 2 s · rápida\n4\t🚶 4 s · confortável\n6\t☕ 6 s · tranquila (padrão)\n10\t🌿 10 s · lenta\n15\t🌙 15 s · bem lenta\ncustom\t✎ definir outro valor (1–60 s)\n' |
+            fzf --delimiter='\t' --with-nth=2 --layout=reverse --height=45% --prompt='  ritmo das páginas › ' --header='Tempo de exibição de cada bloco') || continue
+        else
+          novo=$(printf '0.1\t⚡ 0,1 s/coluna · muito rápida\n0.25\t🏃 0,25 s/coluna · rápida\n0.5\t🚶 0,5 s/coluna · confortável\n1\t☕ 1 s/coluna · tranquila\n2\t🌿 2 s/coluna · lenta\n5\t🌙 5 s/coluna · bem lenta\ncustom\t✎ definir outro valor (0,1–5 s)\n' |
+            fzf --delimiter='\t' --with-nth=2 --layout=reverse --height=45% --prompt='  ritmo da rolagem › ' --header='Segundos por coluna · valores menores rolam mais rápido') || continue
+        fi
+        novo=${novo%%$'\t'*}
+        if [[ $novo == custom ]]; then
+          if [[ $(conf ticker_rolagem) == paginas ]]; then
+            printf 'Tempo por página, de 1 a 60 segundos.\n'; IFS= read -erp 'segundos = ' -i "$(conf "$k")" novo || continue
+          else
+            printf 'Tempo por coluna, de 0,1 a 5 segundos.\n'; IFS= read -erp 'segundos = ' -i "$(conf "$k")" novo || continue
+          fi
+        fi ;;
       *) printf '\033[2m%s\033[0m\n' "$r"; IFS= read -erp "$k = " -i "$(conf "$k")" novo || continue ;;
     esac
     letreiro_ajuste "$k" "$novo" >/dev/null || letreiro_pausa
@@ -14706,7 +14756,9 @@ escolher() {
 # para não repetir a lista em dois lugares (foi assim que o .mouse escapou e vazou um arquivo por
 # abertura). Novo sidecar de $TT_ESTADO entra só nesta linha.
 limpar_estado() { [[ -n ${TT_ESTADO:-} ]] && rm -f "$TT_ESTADO" "$TT_ESTADO".lista "$TT_ESTADO".pos "$TT_ESTADO".fresca "$TT_ESTADO".mouse; }
-sair_menu() { limpar_estado; }
+sair_menu() {
+  limpar_estado
+}
 
 # Diagnóstico de lentidão ao trocar de sessão: com o arquivo ~/.config/tt/trace presente, os
 # comandos de clique e troca gravam cada linha executada, com hora, em ~/.cache/tt-trace.log

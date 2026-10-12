@@ -1,0 +1,20 @@
+{
+ "versao": 1,
+ "descricao": "Perfil inicial do letreiro do tt-terminais",
+ "ativas": [
+  "dolar", "frases", "noticias", "bbc-brasil", "bbc-ciencia", "bbc-mundo", "bbc-tech",
+  "bitcoin", "canaltech", "cdi", "clima-max-min", "clima-rp-7dias", "clima-temperatura",
+  "clima-tempo", "conselho", "dw-brasil", "estadao", "euro", "exame", "fato-aleatorio",
+  "feriados", "g1-ciencia", "g1-economia", "g1-mundo", "g1-politica", "g1-tecnologia",
+  "guardian", "hacker-news", "hoje-na-historia", "ibge-noticias", "ibovespa", "infomoney",
+  "ipca", "ipca-12m", "ipca-15", "libra", "nyt-tech", "peso-argentino", "petr4",
+  "piada-ingles", "science-daily", "selic", "sp500", "vale3", "versiculo",
+  "wikipedia-aleatoria", "yuan", "zen-do-github"
+ ],
+ "sobreposicoes": {
+  "clima-tempo": {"var.cidade":"Ribeirão Preto", "var.lat":"-21.1775", "var.lon":"-47.81028", "escopo":"global"},
+  "clima-temperatura": {"var.cidade":"Ribeirão Preto", "var.lat":"-21.1775", "var.lon":"-47.81028", "escopo":"global"},
+  "clima-max-min": {"var.cidade":"Ribeirão Preto", "var.lat":"-21.1775", "var.lon":"-47.81028", "escopo":"global"},
+  "clima-rp-7dias": {"escopo":"global"}
+ }
+}

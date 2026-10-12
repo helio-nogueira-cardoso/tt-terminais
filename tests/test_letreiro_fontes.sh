@@ -64,6 +64,12 @@ H=https://x.example:$PS
 U=http://127.0.0.1:$PH
 export TT_LETREIRO_REMAP="https://economia.awesomeapi.com.br/json/last/USD-BRL=>$H/dolar;https://g1.globo.com/rss/g1/=>$H/rss;https://feeds.bbci.co.uk/news/world/rss.xml=>$H/rss-bbc"
 
+# O pacote oferece o perfil atual como padrão, sem tocar no perfil real do usuário.
+perfil=$(env -u TT_LETREIRO_TESTE -u TT_LETREIRO_SEM_PADRAO HOME="$T/perfil-home" XDG_CONFIG_HOME="$T/perfil-config" python3 -I "$L" listar --tsv)
+contem "$perfil" $'clima-rp-7dias\t1' 'perfil de fábrica liga a previsão de Ribeirão Preto'
+contem "$perfil" $'ibovespa\t1' 'perfil de fábrica liga fontes atualmente ativas'
+contem "$perfil" 'Ribeirão Preto' 'perfil identifica a localidade do clima'
+
 # ============================================================================================
 # 1) O contrato de hoje (v277) continua valendo: as mesmas entradas dão as mesmas linhas
 # ============================================================================================
@@ -116,12 +122,14 @@ cria j2 url="$H/lista" caminho='$.itens[-1].v' modelo='último {valor}'
 cria j3 url="$H/lista" caminho='itens[?d>={hoje}].nome' modelo='{valor}'
 cria j4 url="$H/lista" caminho='a[0:2].x' itens=5 modelo='{valor}'
 cria j5 url="$H/lista" caminho="['itens'][1]['nome']" modelo='{valor}'
-atual j1 j2 j3 j4 j5
+cria j6 url="$H/lista" caminho='itens[*].nome' itens=3 campo.dia='itens[*].d' modelo='{dia}'
+atual j1 j2 j3 j4 j5 j6
 igual "$(cache j1)" $'a\nb\nc' 'json: [*] com itens=3'
 igual "$(cache j2)" 'último 3' 'json: $.lista[-1]'
 igual "$(TT_AGORA=$(date -d 2026-06-01 +%s) py atualizar j3 --forcar >/dev/null; cache j3)" 'b' 'json: filtro [?d>={hoje}] com a data de hoje (1º ano em diante) — pega o 1º futuro'
 igual "$(cache j4)" $'zero\num' 'json: fatia [0:2] com chave sobre lista'
 igual "$(cache j5)" 'b' "json: [\"chave\"] entre colchetes"
+igual "$(cache j6)" $'01/01/2026 (Qui)\n31/12/2026 (Qui)\n01/06/2027 (Ter)' 'campo.dia: data ISO vira DD/MM/AAAA (dia da semana em português)'
 err=$(py testar --arquivo <(printf 'url=%s/lista\ncaminho=itens[0].inexistente\n' "$H") 2>&1 || true)
 contem "$err" 'nada em' 'json: caminho que não existe diz onde parou'
 cria x1 url="$H/rss" formato=rss itens=2 modelo='{valor}'
@@ -564,6 +572,15 @@ out=$(tt --letreiro-ajustes); contem "$out" ticker_fps 'ajustes listados'
 tt --letreiro-ajuste ticker_fps 8 >/dev/null || falhou 'ajuste fps'; igual "$(grep -c '^ticker_fps=8' "$XDG_CONFIG_HOME/tt/config")" 1 'ajuste gravado no config'
 tt --letreiro-ajuste ticker_fps 21 >/dev/null 2>&1 && falhou 'fps 21 deveria ser recusado'
 tt --letreiro-ajuste ticker_rolagem paginas >/dev/null && tt --letreiro-ajuste ticker_rolagem nada >/dev/null 2>&1 && falhou 'valor fora da lista deveria ser recusado'
+tt --letreiro-ajuste ticker_rolagem continua >/dev/null
+tt --letreiro-ajuste ticker_veloc 0.05 >/dev/null 2>&1 && falhou 'rolagem abaixo de 0,1 s deveria ser recusada'
+tt --letreiro-ajuste ticker_veloc 0.5 >/dev/null || falhou 'rolagem confortável aceita'
+tt --letreiro-ajuste ticker_rolagem paginas >/dev/null
+tt --letreiro-ajuste ticker_veloc 0.5 >/dev/null 2>&1 && falhou '0,5 s por página deveria ser recusado'
+tt --letreiro-ajuste ticker_veloc 8 >/dev/null || falhou '8 s por página aceita'
+tt --letreiro-ajuste ticker_veloc 61 >/dev/null 2>&1 && falhou 'mais de 60 s por página deveria ser recusado'
+tt --letreiro-ajuste ticker_rolagem continua >/dev/null
+[[ -z $(grep '^ticker_veloc=' "$XDG_CONFIG_HOME/tt/config") ]] || falhou 'trocar para rolagem contínua restaura o padrão quando a velocidade de página não cabe'
 tt --letreiro-ajuste ticker_separador ' | ' >/dev/null; igual "$(grep '^ticker_separador=' "$XDG_CONFIG_HOME/tt/config")" 'ticker_separador= | ' 'separador com espaços'
 tt --letreiro-ajuste ticker_ordem peso >/dev/null; tt --letreiro-ajuste ticker_largura 60 >/dev/null; tt --letreiro-ajuste ticker_ligado 0 >/dev/null
 tt --letreiro-ajuste inexistente 1 >/dev/null 2>&1 && falhou 'ajuste desconhecido'
@@ -701,6 +718,7 @@ PY2
 cliente=$(tmux list-clients -F '#{client_name}' | head -1); painel=$(tmux display -p -t s '#{pane_id}')
 [[ -n $cliente ]] || falhou 'sem cliente tmux para o clique'
 # o desenhista grava a geometria a cada quadro (aqui 1 por segundo) e só começa depois que o tmux o inicia: espera até 15 s
+tmux refresh-client -S -t "$cliente" # agenda explicitamente o #() após a sessão ser anexada
 for _ in $(seq 60); do ls "$TT_RT"/tt-letreiro-*.geo >/dev/null 2>&1 && break; sleep 0.25; done
 ls "$TT_RT"/tt-letreiro-*.geo >/dev/null 2>&1 || falhou 'o desenhista não deixou a geometria do slot para o clique'
 clicar() { tt --clique letreiro "$cliente" "$painel" "$HOME" "$(coluna "$a" "$1")"; sleep 0.7; }
@@ -714,6 +732,7 @@ printf 'ticker_pausa=nunca\n' >>"$XDG_CONFIG_HOME/tt/config"; clicar DELTA-LONGO
 sed -i '/^ticker_pausa=/d' "$XDG_CONFIG_HOME/tt/config"
 tt --clique letreiro "$cliente" "$painel" "$HOME" 0; sleep 0.7; [[ ! -e $TT_RT/tt-letreiro-pausa && ! -s $T/aberto.txt ]] || falhou 'clique fora do texto (coluna 0) não faz nada'
 pid=$(tmux list-clients -F '#{client_pid}' | head -1)
+tmux refresh-client -S -t "$cliente" # a leitura direta do desenhista deve usar a geometria do quadro atual
 igual "$(python3 -I "$D" clique "$pid" "$(coluna "$a" CHARLIE-LONGO)")" $'painel\ttarefas' 'a ação painel diz qual painel do tt abrir'
 passou 'clique no letreiro: url (só http/https), copiar, painel e pausa; fora do texto nada'
 # pausa de verdade: congela o quadro; o clique de novo devolve

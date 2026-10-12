@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.8.22 · 12/10/2026
+- **Letreiro pronto ao instalar:** as 48 fontes atualmente ativas viram padrão de fábrica; Ribeirão Preto é a localidade padrão, com previsão para sete dias e datas em `DD/MM/AAAA (Dia)`.
+- **Ajustes do painel:** nomes mais claros e ritmos de velocidade prontos, com limites de 0,1–5 s por coluna ou 1–60 s por página.
+
 ## v1.8.21 · 12/10/2026
 - **Letreiro sem cortes:** nenhuma entrada é mais cortada no meio. Antes, o catálogo e as notícias embutidas cortavam o título em 90 a 200 caracteres (`valor_max`/`truncar`); agora `truncar` vale `0` (não corta) e o catálogo não define corte nenhum. Quem quiser limitar uma fonte ainda pode pôr `truncar=N`.
 - **Clima de Ribeirão Preto:** as 13 fontes de clima do catálogo e o modelo "clima" trazem Ribeirão Preto como lugar padrão (antes, São Paulo). Os exemplos do catálogo foram regravados com a resposta real.

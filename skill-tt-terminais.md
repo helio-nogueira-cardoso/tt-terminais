@@ -552,7 +552,7 @@ de tarefas; só cache) e `tarefas-git.ok` (epoch da última troca boa), `tarefas
 ControlPath do ssh, transferências em andamento.
 
 ### Pacote `~/.local/share/tt/`
-`ARQUIVOS_FONTE` (lista no `tt`): `tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json gatilho-tt.sh tmux.conf
+`ARQUIVOS_FONTE` (lista no `tt`): `tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf
 tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile
 README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
 skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py` (a

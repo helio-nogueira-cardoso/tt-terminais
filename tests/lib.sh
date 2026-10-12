@@ -10,13 +10,14 @@ isolar() {
   T=$(mktemp -d)
   mkdir -p "$T/pkg" "$T/home/.config/tt" "$T/tmux" "$T/rt"
   local f
-  for f in tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
+  for f in tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
            atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim; do
     [[ -e $RAIZ/$f ]] && cp "$RAIZ/$f" "$T/pkg/"
   done
   echo "999 teste 2099-01-01" >"$T/pkg/VERSAO"
   export HOME=$T/home XDG_CONFIG_HOME=$T/home/.config TMUX_TMPDIR=$T/tmux TT_RT=$T/rt TT_DIR=$T/pkg
   export TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8  # ambiente controlavel: nao herdar TERM=dumb nem locale vazio do chamador
+  export TT_LETREIRO_SEM_PADRAO=1 # a suíte começa com o cadastro vazio; o perfil de fábrica tem teste próprio
   export TT_EMAIL_SEM_REDE=1 TT_T_ATUALIZACAO=999999 TT_ATALHOS_PADRAO=$T/pkg/atalhos-padrao
   export TT_SEM_NAVEGADORES=1 # instalar no HOME temporário não baixa Chrome/Carbonyl em segundo plano
   export TT_PEND_SEM_NAVEGADORES=1 # o catálogo de pendências não oferece Chrome/Carbonyl (os testes que querem, esvaziam a variável)
