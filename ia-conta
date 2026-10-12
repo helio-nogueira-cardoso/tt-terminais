@@ -67,6 +67,8 @@ uso() {
 Uso:
   ia-conta principal [argumentos do claude]
   ia-conta <conta> [argumentos do claude]
+  ia-conta codex [argumentos do codex]
+  ia-conta kiro [argumentos do kiro-cli chat]
   ia-conta abrir [--retomar <id-da-conversa-do-claude>] [--exceto <conta>]... [--prompt-arquivo <arq>]
   ia-conta adicionar <conta> [--email <e-mail>]
   ia-conta adicionar principal [--email <e-mail>]   # troca o login da principal (a de ~/.claude)
@@ -140,14 +142,22 @@ apagar_atalho() {
 
 # PIDs de Claude rodando na principal (sem CLAUDE_CONFIG_DIR), fora este processo. Sem /proc (macOS) não vê nada.
 principal_em_uso() {
-  local f pid arg0
+  local f pid arg0 kv cfg casa
+  # Só o read do bash (sem tr/grep por processo: eram três processos externos para cada um das centenas
+  # de processos da máquina).
   for f in /proc/[0-9]*/environ; do
     [[ -r $f ]] || continue
     pid=${f#/proc/}; pid=${pid%/environ}
     [[ $pid == "$$" || $pid == "$BASHPID" ]] && continue
-    arg0=$(tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | head -n 1)
+    arg0=""; { IFS= read -r -d '' arg0 <"/proc/$pid/cmdline"; } 2>/dev/null
     [[ ${arg0##*/} == claude ]] || continue
-    tr '\0' '\n' <"$f" 2>/dev/null | grep -q '^CLAUDE_CONFIG_DIR=' && continue
+    cfg="" casa=""
+    while IFS= read -r -d '' kv || [[ -n $kv ]]; do
+      case $kv in CLAUDE_CONFIG_DIR=*) cfg=1 ;; HOME=*) casa=${kv#HOME=} ;; esac
+    done 2>/dev/null <"$f"
+    # Um perfil (CLAUDE_CONFIG_DIR) não é a principal; nem um Claude de outro HOME, que usa outro ~/.claude
+    # (o de um teste isolado, o do proot).
+    [[ -n $cfg || ( -n $casa && $casa != "$HOME" ) ]] && continue
     printf '%s ' "$pid"
   done
   return 0
@@ -281,8 +291,18 @@ remover() {
 rodar() {
   local nome=$1 dir
   shift
-  # codex/kiro são outros provedores, não perfis do Claude (criar a pasta deixava um perfil vazio).
-  case $nome in codex | kiro) die "'$nome' não é conta do Claude; rode $( [[ $nome == kiro ]] && echo kiro-cli || echo codex) direto (ou veja: ia-conta uso $nome)" ;; esac
+  # Codex e Kiro são outros provedores: abrem a CLI deles, nunca um perfil do Claude (criar a pasta
+  # deixava um perfil vazio). IA_CONTA deixa o "ia-conta uso --eu" de dentro deles saber quem são.
+  case $nome in
+    codex)
+      command -v codex >/dev/null 2>&1 || die 'o Codex não está instalado nesta máquina'
+      # No Android (proot) o Codex não tem o pacote do servidor em segundo plano e sai com erro.
+      [[ -n ${ANDROID_ROOT:-} ]] && set -- --no-daemon "$@"
+      exec env IA_CONTA=codex codex "$@" ;;
+    kiro)
+      command -v kiro-cli >/dev/null 2>&1 || die 'o Kiro não está instalado nesta máquina'
+      exec env IA_CONTA=kiro kiro-cli chat "$@" ;;
+  esac
   # Sub-agente no modelo do agente que o chama (o padrão, ou o do /model): sem isto o Claude Code deixa o
   # agente pedir outro modelo e limita o sub-agente de busca (Explore) ao Opus. Variável já definida,
   # mesmo vazia, fica como está.
@@ -713,12 +733,10 @@ abrir() {
   case $conta in
     codex)
       [[ -n $retomar ]] && echo '(conversa do Claude não continua no Codex: sessão nova)'
-      # No Android (proot) o Codex não tem o pacote do servidor em segundo plano e sai com erro.
-      if [[ -n ${ANDROID_ROOT:-} ]]; then exec env IA_CONTA=codex codex --no-daemon --yolo ${prompt:+"$prompt"}; fi
-      exec env IA_CONTA=codex codex --yolo ${prompt:+"$prompt"} ;;
+      rodar codex --yolo ${prompt:+"$prompt"} ;;
     kiro)
       [[ -n $retomar ]] && echo '(conversa do Claude não continua no Kiro: sessão nova)'
-      exec env IA_CONTA=kiro kiro-cli chat --v3 --trust-all-tools ${prompt:+"$prompt"} ;;
+      rodar kiro --v3 --trust-all-tools ${prompt:+"$prompt"} ;;
     *)
       if [[ -n $retomar ]]; then rodar "$conta" --dangerously-skip-permissions --resume "$retomar"
       else rodar "$conta" --dangerously-skip-permissions ${prompt:+"$prompt"}; fi ;;

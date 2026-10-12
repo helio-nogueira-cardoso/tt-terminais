@@ -18,7 +18,11 @@ C="$T/home/.config/tt/tarefas"
 UI="$T/rt/tt-tarefas-ui-$(id -u)"
 run(){ env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/state" \
   TT_RT="$T/rt" TT_MACHINE=A LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH="$T/bin:$PATH" "$TT" "$@"; }
-acao(){ FZF_QUERY= run --tarefa-acao "$@"; }
+# Como o fzf: a ação pode já trazer o cabeçalho pronto (transform-header(cat ARQ)), e é ele que o painel
+# mostra (com o aviso que aparece uma vez); sem isso, o cabeçalho de agora.
+acao(){ local o a; o=$(FZF_COLUMNS=${FZF_COLUMNS:-90} FZF_QUERY= run --tarefa-acao "$@"); a=$(sed -n "s/.*transform-header(cat '\([^']*\)'.*/\1/p" <<<"$o" | head -1)
+  if [[ -n $a && -f $a ]]; then cp "$a" "$T/cab-pronto"; fi; printf '%s\n' "$o"; }
+cabecalho(){ if [[ -f $T/cab-pronto ]]; then cat "$T/cab-pronto"; rm -f "$T/cab-pronto"; else run --tarefas-cabecalho; fi; }
 sem_cor(){ sed 's/\x1b\[[0-9;]*m//g'; }
 id_de(){ awk -F'\t' -v t="$1" '$5==t{print $1; exit}' "$C"; }
 est(){ awk -F'\t' -v t="$1" '$5==t{print $2; exit}' "$C"; }
@@ -43,9 +47,9 @@ for via in "enter $m" "feita $m" "clique act:feita:$m"; do
   printf 'filtro=todas\nmodo=lista\n' >"$UI"
   r=$(acao $via); grep -q reload <<<"$r" || fail "ação ($via) deveria recarregar: $r"
   [[ $(est Viagem) == aberta ]] || fail "ação ($via) concluiu a mãe com subtarefas abertas"
-  cab=$(FZF_COLUMNS=72 run --tarefas-cabecalho | sem_cor)
+  cab=$(FZF_COLUMNS=72 cabecalho | sem_cor)
   grep -q '⚠ Para concluir, faltam 2 subtarefas: passagens, hotel' <<<"$cab" || fail "aviso ausente ($via): $cab"
-  grep -q '⚠' <<<"$(FZF_COLUMNS=72 run --tarefas-cabecalho)" && fail "aviso deveria aparecer uma vez só"
+  grep -q '⚠' <<<"$(FZF_COLUMNS=72 cabecalho)" && fail "aviso deveria aparecer uma vez só"
   grep -qx "exp=$m" "$UI" || fail "ação ($via) deveria abrir a mãe para mostrar o que falta"
 done
 grep -q "act:feita:$m	.*faltam 2 subtarefas" <<<"$(printf 'modo=menu:%s\n' "$m" >"$UI"; run --tarefas-lista | sem_cor)" ||

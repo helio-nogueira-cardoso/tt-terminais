@@ -31,7 +31,11 @@ C="$T/home/.config/tt/tarefas"
 UI="$T/rt/tt-tarefas-ui-$(id -u)"
 run(){ env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/home/.local/state" \
   TT_RT="$T/rt" TT_MACHINE=A LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH="$T/bin:$PATH" "$TT" "$@"; }
-acao(){ FZF_QUERY=${Q:-} run --tarefa-acao "$@"; }
+# Como o fzf: a ação pode já trazer o cabeçalho pronto (transform-header(cat ARQ)), e é ele que o painel
+# mostra (com o aviso que aparece uma vez); sem isso, o cabeçalho de agora.
+acao(){ local o a; o=$(FZF_COLUMNS=${FZF_COLUMNS:-90} FZF_QUERY=${Q:-} run --tarefa-acao "$@"); a=$(sed -n "s/.*transform-header(cat '\([^']*\)'.*/\1/p" <<<"$o" | head -1)
+  if [[ -n $a && -f $a ]]; then cp "$a" "$T/cab-pronto"; fi; printf '%s\n' "$o"; }
+cabecalho(){ if [[ -f $T/cab-pronto ]]; then cat "$T/cab-pronto"; rm -f "$T/cab-pronto"; else run --tarefas-cabecalho; fi; }
 sem_cor(){ sed 's/\x1b\[[0-9;]*m//g'; }
 id_de(){ awk -F'\t' -v t="$1" '$5==t{print $1; exit}' "$C"; }
 txt_de(){ awk -F'\t' -v id="$1" '$1==id{print $5; exit}' "$C"; }
@@ -134,10 +138,10 @@ echo "ok: subtarefa edita só o texto e mantém a mãe"
 esperado="execute($TT --tarefa-editar-prompt $id)+reload-sync($TT --tarefas-lista {q})+transform-header($TT --tarefas-cabecalho)"
 [[ $(acao editar "$id") == "$esperado" ]] || fail "evento editar (F2): $(acao editar "$id")"
 [[ $(acao renomear "$id") == "$esperado" ]] || fail "evento renomear (nome antigo) deveria editar"
-FZF_COLUMNS=72 run --tarefas-cabecalho >/dev/null
+FZF_COLUMNS=72 cabecalho >/dev/null
 read -r ln c1 c2 _ < <(awk '$4=="editar"' "$T/rt/tt-tarefas-mapa-$(id -u)")
 [[ -n ${ln:-} ]] || fail "mapa do cabeçalho sem o botão editar"
-cab=$(FZF_COLUMNS=72 run --tarefas-cabecalho | sem_cor); l=$(sed -n "${ln}p" <<<"$cab")
+cab=$(FZF_COLUMNS=72 cabecalho | sem_cor); l=$(sed -n "${ln}p" <<<"$cab")
 [[ ${l:$((c1 - 1)):$((c2 - c1 + 1))} == *"✎ Editar"* ]] || fail "botão ✎ Editar desalinhado no mapa: '${l:$((c1 - 1)):$((c2 - c1 + 1))}'"
 [[ $(FZF_CLICK_HEADER_LINE=$ln FZF_CLICK_HEADER_COLUMN=$((c1 + 1)) acao cabecalho "$id") == "$esperado" ]] || fail "clique no botão ✎ Editar"
 acao menu "$id" >/dev/null
@@ -154,7 +158,7 @@ echo "ok: F2, botão ✎ Editar, menu ⋯ e clique no item chamam o mesmo prompt
 run --tarefa-add-natural "Velha @hoje #x" >/dev/null; v=$(id_de Velha)
 run --tarefa-arquivar "$v" >/dev/null
 r=$(acao editar "$v"); [[ $r != *--tarefa-editar-prompt* ]] || fail "arquivada não deveria abrir o prompt"
-grep -q '⚠ Tarefa arquivada' <<<"$(FZF_COLUMNS=90 run --tarefas-cabecalho | sem_cor)" || fail "arquivada deveria avisar para restaurar"
+grep -q '⚠ Tarefa arquivada' <<<"$(FZF_COLUMNS=90 cabecalho | sem_cor)" || fail "arquivada deveria avisar para restaurar"
 run --tarefa-restaurar "$v" >/dev/null
 run --tarefa-renomear "$v" "Velha renomeada @amanha"
 [[ $(txt_de "$v") == "Velha renomeada @amanha" && $(mv_ "$v" tags) == x ]] || fail "--tarefa-renomear deveria trocar só o texto, sem ler marcadores: $(grep "$v" "$C")"

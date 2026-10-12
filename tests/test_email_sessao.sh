@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (mede tempo: roda sem outros testes disputando a máquina)
 # E-mail aberto em segundo plano: a 1ª abertura cria a sessão oculta; q só esconde (aerc segue vivo);
 # as seguintes são instantâneas; a sessão não aparece nas listas; Ctrl+q encerra de verdade.
 PATH="$(getent passwd "$(id -un)" | cut -d: -f6)/.local/bin:$PATH" command -v aerc >/dev/null || { echo "(aerc não instalado: teste pulado)"; exit 0; }

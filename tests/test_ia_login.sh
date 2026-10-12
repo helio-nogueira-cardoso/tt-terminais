@@ -28,6 +28,7 @@ exit 0
 EOF
 cat >"$B/codex" <<'EOF'
 #!/usr/bin/env bash
+[[ -n ${ECO:-} ]] && { echo "IA_CONTA=$IA_CONTA $*"; exit 0; }
 if [[ $1 == login && ${2:-} == status ]]; then [[ -s $HOME/.codex/auth.json ]]; exit; fi
 if [[ $1 == login && ${2:-} == --device-auth ]]; then
   printf 'Follow these steps to sign in with ChatGPT using device code authorization:\n'
@@ -97,10 +98,13 @@ passou 'conta já logada nunca recebe login por cima'
 mkdir -p "$R/delta"
 grep -q $'^claude\tdelta\t-\tsem login$' <(ia-login --faltas) || falhou "e-mail vazio: $(ia-login --faltas)"
 ia-login --plano >"$T/plano"; grep -qE "^teste +claude +delta +- +sem login *$" "$T/plano" || falhou "plano com e-mail vazio: $(grep delta "$T/plano" | cat -A)"
-ia-conta codex --version 2>/dev/null && falhou 'ia-conta codex rodou como perfil'
-[[ -e $R/kiro ]] && falhou 'criou pasta de perfil kiro'
-ia-conta kiro 2>/dev/null || true; [[ -e $R/kiro ]] && falhou 'ia-conta kiro criou pasta de perfil'
-passou 'e-mail vazio não desloca colunas; codex/kiro não viram perfil do Claude'
+# ia-conta codex|kiro abre a CLI do provedor (com IA_CONTA, para o "uso --eu"), nunca um perfil do Claude.
+out=$(ECO=1 ia-conta codex exec oi 2>&1); [[ $out == 'IA_CONTA=codex exec oi' ]] || falhou "ia-conta codex: $out"
+out=$(ECO=1 ANDROID_ROOT=/system ia-conta codex 2>&1); [[ $out == 'IA_CONTA=codex --no-daemon' ]] || falhou "ia-conta codex no Android: $out"
+mkdir -p "$T/kiro"; printf '#!/usr/bin/env bash\necho "IA_CONTA=$IA_CONTA $*"\n' >"$T/kiro/kiro-cli"; chmod +x "$T/kiro/kiro-cli"
+out=$(PATH=$T/kiro:$PATH ia-conta kiro --trust-all-tools 2>&1); [[ $out == 'IA_CONTA=kiro chat --trust-all-tools' ]] || falhou "ia-conta kiro: $out"
+[[ -e $R/kiro ]] && falhou 'ia-conta kiro criou pasta de perfil do Claude'
+passou 'e-mail vazio não desloca colunas; ia-conta codex/kiro abrem o provedor, sem perfil do Claude'
 
 # Antes do plano, o ia-login junta os cadastros e entrega o completo a cada máquina: uma que ficou sem
 # rede (cópia velha) não deixa a conta nova de fora do plano. ssh falso = outra máquina noutro HOME.

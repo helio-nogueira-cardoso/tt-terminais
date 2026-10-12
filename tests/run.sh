@@ -16,45 +16,91 @@ exige() { command -v "$1" >/dev/null || { printf 'falta dependência de teste: %
 tem() { rg -q -- "$2" "$1"; }
 
 suite_dir=$(cd "$(dirname "$0")" && pwd)
-# Sentinela do tmux de fora: a suíte roda com um tmux padrão só dela (TMUX_TMPDIR temporário, sem o
+# Sentinela do tmux de fora: cada teste roda com um tmux padrão só dele (TMUX_TMPDIR temporário, sem o
 # TMUX herdado), onde fica um servidor "sentinela". Um teste que fale com o tmux padrão em vez do
 # próprio (o que, fora daqui, seria o tmux de quem roda a suíte: em 10/10/2026 um display-message
 # de teste cobriu a faixa de notificações do book) aparece no registro de comandos da sentinela e
 # é reprovado. Cada teste também precisa se isolar sozinho (lib.sh ou tmux-isolado.sh): rodado
 # fora da suíte, não há sentinela.
-sentinela_dir=$(mktemp -d "${TMPDIR:-/tmp}/tt-sentinela.XXXXXX")
-export TMUX_TMPDIR=$sentinela_dir
-unset TMUX TMUX_PANE TT_CLIENTE TT_PANE
-sentinela_subir() { tmux -f /dev/null new-session -d -s sentinela 'sleep 86400' 2>/dev/null; }
-sentinela_vazou() {
-  tmux show-messages 2>/dev/null | grep ' command: ' |
-    grep -v -e ' command: show-messages' -e ' command: has-session -t =sentinela' -e ' command: new-session -d -s sentinela' || true
+#
+# Em paralelo: TT_TESTES_J testes ao mesmo tempo (padrão: o nº de CPUs, até 8; TT_TESTES_J=1 = em fila),
+# cada um com a sua sentinela. Os que medem tempo levam a marca "# tt-teste: sozinho" e rodam no fim, um
+# por vez, sem disputar a máquina. A fila começa pelos mais demorados da última rodada
+# (~/.cache/tt-testes/duracoes); a saída de cada teste sai inteira quando ele termina.
+unset TMUX TMUX_PANE TT_CLIENTE TT_PANE # (a tela gráfica de quem roda a suíte: cada teste a tira, ver sem_tela_real no lib.sh)
+res=$(mktemp -d "${TMPDIR:-/tmp}/tt-testes.XXXXXX")
+duracoes=${XDG_CACHE_HOME:-$HOME/.cache}/tt-testes/duracoes
+tempo_max=${TT_TESTE_TEMPO_MAX:-1800}
+rodar_teste() { # teste — com a sentinela própria; grava em $res o log, o status, o vazamento e a duração
+  local t=$1 nome=${1##*/} d t0
+  d=$(mktemp -d "${TMPDIR:-/tmp}/tt-sentinela.XXXXXX")
+  t0=$EPOCHREALTIME
+  (
+    set +e
+    export TMUX_TMPDIR=$d
+    tmux -f /dev/null new-session -d -s sentinela 'sleep 86400' 2>/dev/null
+    # Sentinela das notificações do sistema, também por teste: na frente do PATH, um notify-send/
+    # termux-notification que só anota. Os isoladores (lib.sh, tmux-isolado.sh) põem outro, mudo, na frente
+    # deste; se um teste ainda assim chegar aqui, mandaria o aviso à tela de quem roda a suíte (em
+    # 12/10/2026 eram 27 avisos de mentira por rodada).
+    mkdir -p "$d/bin"
+    for c in notify-send termux-notification; do
+      command -v "$c" >/dev/null 2>&1 || continue
+      printf '#!/bin/sh\necho "%s $*" >>"%s"\n' "$c" "$d/notif-vazou" >"$d/bin/$c"; chmod +x "$d/bin/$c"
+    done
+    PATH="$d/bin:$PATH" timeout -k 10 "$tempo_max" "$t" >"$res/$nome.log" 2>&1 </dev/null
+    rc=$?
+    [[ -s $d/notif-vazou ]] && echo "mandou notificação do sistema de verdade (iria para a tela de quem roda a suíte): $(head -2 "$d/notif-vazou" | paste -sd'|')" >>"$res/$nome.vaz"
+    ((rc == 124)) && printf 'FALHOU — passou de %s s (TT_TESTE_TEMPO_MAX)\n' "$tempo_max" >>"$res/$nome.log"
+    if ! tmux has-session -t =sentinela 2>/dev/null; then
+      echo 'derrubou o tmux padrão (fora da suíte seria o tmux de quem a roda)' >>"$res/$nome.vaz"
+    else
+      v=$(tmux show-messages 2>/dev/null | grep ' command: ' |
+        grep -v -e ' command: show-messages' -e ' command: has-session -t =sentinela' -e ' command: new-session -d -s sentinela')
+      [[ -z $v ]] || echo "falou com o tmux de fora (vazaria para o tmux real): $(head -3 <<<"$v" | sed 's/^[0-9:]* client-[0-9]* //' | paste -sd'|')" >>"$res/$nome.vaz"
+    fi
+    tmux kill-server 2>/dev/null
+    echo "$rc" >"$res/$nome.rc"
+  )
+  rm -rf "$d"
+  awk -v a="${t0/,/.}" -v b="${EPOCHREALTIME/,/.}" 'BEGIN { printf "%.1f\n", b - a }' >"$res/$nome.s"
+  until mkdir "$res/.saida" 2>/dev/null; do sleep 0.05; done # uma saída por vez, inteira
+  cat "$res/$nome.log"
+  rmdir "$res/.saida"
 }
-sentinela_subir
-# Sentinela das notificações do sistema: na frente do PATH da suíte, um notify-send/termux-notification que só
-# anota. Os isoladores (lib.sh, tmux-isolado.sh) põem outro, mudo, na frente deste; se um teste ainda assim
-# chegar aqui, mandaria o aviso à tela de quem roda a suíte (em 12/10/2026 eram 27 avisos de mentira por rodada).
-notif_dir=$(mktemp -d "${TMPDIR:-/tmp}/tt-sentinela-notif.XXXXXX"); notif_log=$notif_dir/vazou
-for c in notify-send termux-notification; do
-  command -v "$c" >/dev/null 2>&1 || continue
-  printf '#!/bin/sh\necho "%s $*" >>"%s"\n' "$c" "$notif_log" >"$notif_dir/$c"; chmod +x "$notif_dir/$c"
+j=${TT_TESTES_J:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)}
+[[ $j =~ ^[1-9][0-9]*$ ]] || j=2
+[[ -n ${TT_TESTES_J:-} ]] || ((j <= 8)) || j=8
+todos=("$suite_dir"/test_*.sh) juntos=() sozinhos=()
+# TT_TESTES=regex roda só os testes cujo nome casa (ex.: TT_TESTES='letreiro|listar'); as checagens estáticas rodam sempre.
+if [[ -n ${TT_TESTES:-} ]]; then
+  filtrados=(); for t in "${todos[@]}"; do [[ ${t##*/} =~ $TT_TESTES ]] && filtrados+=("$t"); done; todos=("${filtrados[@]}")
+fi
+for t in "${todos[@]}"; do
+  if grep -q '^# tt-teste: sozinho' "$t"; then sozinhos+=("$t"); else juntos+=("$t"); fi
 done
-export PATH="$notif_dir:$PATH"
-for t in "$suite_dir"/test_*.sh; do
-  if "$t"; then :; else falha "$(basename "$t")"; fi
-  if [[ -s $notif_log ]]; then
-    falha "$(basename "$t") mandou notificação do sistema de verdade (iria para a tela de quem roda a suíte): $(head -2 "$notif_log" | paste -sd'|')"
-    : >"$notif_log"
-  fi
-  v=$(sentinela_vazou)
-  if ! tmux has-session -t =sentinela 2>/dev/null; then
-    falha "$(basename "$t") derrubou o tmux padrão (fora da suíte seria o tmux de quem a roda)"; sentinela_subir
-  elif [[ -n $v ]]; then
-    falha "$(basename "$t") falou com o tmux de fora (vazaria para o tmux real): $(head -3 <<<"$v" | sed 's/^[0-9:]* client-[0-9]* //' | paste -sd'|')"
-    tmux kill-server 2>/dev/null; sentinela_subir
-  fi
+[[ -r $duracoes ]] && mapfile -t juntos < <(printf '%s\n' "${juntos[@]}" |
+  awk -F'\t' 'NR == FNR { d[$1] = $2; next } { n = $0; sub(/.*\//, "", n); print ((n in d) ? d[n] : 1e9) "\t" $0 }' "$duracoes" - |
+  sort -t$'\t' -k1,1gr | cut -f2-)
+inicio=$EPOCHREALTIME ativos=0
+for t in "${juntos[@]}"; do
+  if ((ativos >= j)); then wait -n || true; ativos=$((ativos - 1)); fi
+  rodar_teste "$t" &
+  ativos=$((ativos + 1))
 done
-tmux kill-server 2>/dev/null; rm -rf "$sentinela_dir" "$notif_dir"
+wait || true
+for t in "${sozinhos[@]}"; do rodar_teste "$t"; done
+for t in "${todos[@]}"; do
+  n=${t##*/}; rc=$(cat "$res/$n.rc" 2>/dev/null || echo 99)
+  [[ $rc == 0 ]] || falha "$n"
+  [[ ! -s $res/$n.vaz ]] || falha "$n $(cat "$res/$n.vaz")"
+done
+mkdir -p "${duracoes%/*}" && for t in "${todos[@]}"; do
+  n=${t##*/}; [[ -s $res/$n.s ]] && printf '%s\t%s\n' "$n" "$(cat "$res/$n.s")"
+done >"$duracoes.$$" && mv -f "$duracoes.$$" "$duracoes" || true
+printf 'testes de comportamento: %d em %s s (%d ao mesmo tempo; %d sozinhos no fim)\n' "${#todos[@]}" \
+  "$(awk -v a="${inicio/,/.}" -v b="${EPOCHREALTIME/,/.}" 'BEGIN { printf "%.0f", b - a }')" "$j" "${#sozinhos[@]}"
+rm -rf "$res"
 # Rodado sozinho, cada teste se isola: ou pelo isolar() do lib.sh, ou pelo tmux-isolado.sh.
 for t in "$suite_dir"/test_*.sh; do
   rg -q 'source .*/(lib|tmux-isolado)\.sh' "$t" || falha "$(basename "$t") não se isola do tmux real (source lib.sh ou tmux-isolado.sh)"
@@ -405,7 +451,8 @@ corpo_limpar=$(sed -n '/^limpar_estado()/,/^}/p' "$tt")
 for side in lista pos fresca mouse; do
   grep -Fq "\$TT_ESTADO\".$side" <<<"$corpo_limpar" || falha "menu: limpar_estado não remove sidecar .$side (vazamento)"
 done
-sed -n '/^sair_menu()/,/^}/p' "$tt" | grep -Fq 'limpar_estado' || falha 'menu: sair_menu deve delegar para limpar_estado'
+corpo_sair=$(sed -n '/^sair_menu()/,/^}/p' "$tt") # capturado antes: com pipefail, o grep -q fecharia o cano e o sed morreria com SIGPIPE
+grep -Fq 'limpar_estado' <<<"$corpo_sair" || falha 'menu: sair_menu deve delegar para limpar_estado'
 rg -q 'trap limpar_estado EXIT' "$tt" || falha 'menu: trap do --seletor deve usar limpar_estado'
 # Nenhum trap EXIT de $TT_ESTADO pode remover só o arquivo base (rm -f cru): todos delegam a
 # limpar_estado para não vazar sidecar futuro (foi assim que o .mouse escapou nos traps duplicados).

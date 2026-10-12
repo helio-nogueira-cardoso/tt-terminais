@@ -16,6 +16,7 @@ isolar() {
   done
   echo "999 teste 2099-01-01" >"$T/pkg/VERSAO"
   export HOME=$T/home XDG_CONFIG_HOME=$T/home/.config TMUX_TMPDIR=$T/tmux TT_RT=$T/rt TT_DIR=$T/pkg
+  sem_tela_real "$T/run"
   export TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8  # ambiente controlavel: nao herdar TERM=dumb nem locale vazio do chamador
   export TT_LETREIRO_SEM_PADRAO=1 # a suíte começa com o cadastro vazio; o perfil de fábrica tem teste próprio
   export TT_EMAIL_SEM_REDE=1 TT_T_ATUALIZACAO=999999 TT_ATALHOS_PADRAO=$T/pkg/atalhos-padrao
@@ -37,6 +38,18 @@ isolar() {
   export HOME_REAL
   trap limpar_isolado EXIT
   source "$RAIZ/tests/sem-notificacao-real.sh"; sem_notificacao_real "$T"
+}
+
+# A tela gráfica de quem roda a suíte fica inalcançável: o tt de um teste chamava o wl-copy/xclip de
+# verdade (escrevia na área de transferência real e, às vezes, travava no compositor) — e ele acha o
+# compositor sozinho (socket wayland-* no XDG_RUNTIME_DIR; DISPLAY vazio vira :0). Variável que existia
+# continua existindo, com valor que não leva a lugar nenhum (o caminho do código não muda); a que não
+# existia continua ausente. O teste que quer área de transferência põe um wl-copy falso no PATH.
+sem_tela_real() { # pasta-de-runtime
+  mkdir -p "$1" && chmod 700 "$1" && export XDG_RUNTIME_DIR=$1
+  [[ -n ${WAYLAND_DISPLAY:-} ]] && export WAYLAND_DISPLAY=wayland-tt-teste
+  [[ -n ${DISPLAY:-} ]] && export DISPLAY=:99999
+  return 0
 }
 
 # Faz um teste Linux/glibc executável também no Termux: mantém as ferramentas do PATH atual, mas

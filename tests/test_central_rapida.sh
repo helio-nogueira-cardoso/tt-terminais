@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (mede tempo: roda sem outros testes disputando a máquina)
 # A central abre na hora mesmo com uma máquina lenta: esta máquina e o cache das outras primeiro,
 # a lista fresca depois (sem perder o item selecionado).
 source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado

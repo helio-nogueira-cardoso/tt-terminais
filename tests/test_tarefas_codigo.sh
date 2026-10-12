@@ -111,20 +111,10 @@ tt --tarefa-log "$L" "x" --inicio 2026-10-10T15:00:00 --fim 2026-10-10T15:01:00 
 tt --tarefa-log "$L" "x" --inicio 2026-10-10T15:00Z --fim 2026-10-10T15:01Z 2>/dev/null && fail "RFC3339 sem segundos deveria falhar"
 echo "ok: registro de trabalho (identidade de sessão, intervalo RFC3339, tokens e custos USD/BRL)"
 
-# 8) o tt injeta skill + regras em TODAS as IAs (vigia/instalação via reforcar_agentes), sem tocar no resto
-mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.kiro" "$HOME/.local/share/claude-contas/trabalho"
-printf 'minhas regras\n' >"$HOME/.claude/CLAUDE.md"
+# 8) o tt injeta a skill em TODAS as IAs (vigia/instalação via reforcar_agentes); as regras: test_agentes_md.sh
+mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.kiro"
 tt --reforcar-agentes
-for f in "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.kiro/steering/tt-terminais.md" "$HOME/.local/share/claude-contas/trabalho/CLAUDE.md"; do
-  grep -q 'tt-managed:regras-tt BEGIN' "$f" && grep -q 'tt --tarefa-log' "$f" || fail "regras do tt ausentes em $f"
-done
-head -1 "$HOME/.claude/CLAUDE.md" | grep -q '^minhas regras$' || fail "o conteúdo do usuário tem de ficar intacto"
-head -1 "$HOME/.kiro/steering/tt-terminais.md" | grep -q '^---$' || fail "steering do Kiro precisa do front matter"
 for ag in .claude .codex .kiro; do cmp -s "$T/pkg/skill-tt-terminais.md" "$HOME/$ag/skills/tt-terminais/SKILL.md" || fail "skill tt-terminais ausente/desatualizada em $ag"; done
-a=$(cksum <"$HOME/.claude/CLAUDE.md"); tt --reforcar-agentes; [[ $(cksum <"$HOME/.claude/CLAUDE.md") == "$a" ]] || fail "idempotente: 2ª volta não pode mudar nada"
-# o bloco é reescrito no lugar quando o pacote muda; o resto do arquivo fica
-printf 'regra nova do pacote\n' >>"$T/pkg/agentes-regras-tt.md"; printf 'depois do bloco\n' >>"$HOME/.claude/CLAUDE.md"
-tt --reforcar-agentes
-grep -q 'regra nova do pacote' "$HOME/.claude/CLAUDE.md" && grep -q '^depois do bloco$' "$HOME/.claude/CLAUDE.md" && [[ $(grep -c 'regras-tt BEGIN' "$HOME/.claude/CLAUDE.md") == 1 ]] || fail "bloco deveria ser atualizado no lugar, sem duplicar"
+grep -q 'tt --tarefa-log' "$HOME/.claude/CLAUDE.md" || fail "regras do tt ausentes no Claude"
 rm -rf "$HOME/.kiro"; tt --reforcar-agentes; [[ -e $HOME/.kiro ]] && fail "IA que não existe não pode ser criada"
-echo "ok: skill e regras injetadas em todas as IAs, idempotente, preservando o conteúdo do usuário"
+echo "ok: skill e regras em todas as IAs que existem"

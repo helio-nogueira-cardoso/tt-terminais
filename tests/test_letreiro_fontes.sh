@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (painel/tela sob carga oscila: roda sem outros testes disputando a máquina)
 # Fontes (APIs) do letreiro: cadastro em ~/.config/tt/letreiro/NOME.conf, migração das linhas antigas
 # indicador_NOME=, atualização com TTL/janela/cota/espera, formatos (json, xml, rss/atom, csv, texto, regex),
 # GET/POST e autenticação sem vazar segredo, transformação e exibição, condições, segurança (https, SSRF,

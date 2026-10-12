@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (mede tempo: roda sem outros testes disputando a máquina)
 # Pino da central (tmux.conf instalado, cliente anexado, mouse SGR de verdade): clicar no 📍 de
 # uma linha fixa a sessão E a própria central passa a mostrar 📌 na mesma linha; clicar de novo
 # desafixa e volta a 📍. É o mesmo comportamento do pino da barra principal, agora consistente

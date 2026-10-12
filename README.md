@@ -260,6 +260,7 @@ antes, mesmo vazia, mantém a sua).
     ia-conta abrir                   # a IA com mais folga agora, interativa e sem pedir permissões
     ia-conta abrir --retomar ID      # idem, continuando a conversa ID se a escolhida for do Claude
     ia-rot --melhor                  # só diz qual seria: conta, pico e uso (sai 2 se nenhuma livre)
+    ia-conta codex                   # abre o Codex (ia-conta kiro: o chat do Kiro), com os argumentos dados
 
     ia-conta adicionar trabalho      # login uma vez; cria o atalho claude-trabalho
     ia-conta listar                  # todas as contas, com e-mail, estado e USO da janela
@@ -1564,10 +1565,14 @@ derivado dele (ex.: `kito47`). Assim você, a IA e outra pessoa falam da mesma t
   `Ctrl+S` aplica, `Q` cancela. Na Entrada também há *aprovar todas as que não têm conflito* e *recusar todas*. Estado da tarefa, concluir,
   reabrir, remover e acrescentar subtarefa viajam. Tarefa removida nunca ressuscita; código de subtarefa que já é de outra coisa vira subtarefa
   nova com código daqui. Em texto: `tt --demanda-diff ID`; `tt --demanda-aprovar [--recebida|--minha] ID` (sai 4 se houver conflito sem escolha).
-- **Reforço nas IAs:** o vigia (a cada ~5 min) e cada instalação/atualização gravam a skill `tt-terminais` e as regras acima
-  (`agentes-regras-tt.md`, bloco gerenciado) no Claude (todas as contas), Codex e Kiro de cada máquina, inclusive nos proots do celular.
-  `tt --reforcar-agentes` faz na hora. O que está fora do bloco nunca é tocado.
-- Testes: `tests/test_tarefas_codigo.sh`.
+- **Reforço nas IAs (AGENTS.md único):** as instruções globais de todas as IAs moram num arquivo só, `~/.agents/AGENTS.md`: o seu
+  texto e, num bloco gerenciado, as regras acima (`agentes-regras-tt.md`). O vigia (a cada ~5 min) e cada instalação/atualização
+  impõem isso no Claude (todas as contas), Codex e Kiro de cada máquina, inclusive nos proots do celular: o `CLAUDE.md` de cada conta
+  do Claude e o `AGENTS.md` do Codex viram link para a fonte, o Kiro recebe uma cópia gerada (`steering/agentes.md`), e o Claude passa
+  a ler o `AGENTS.md` de projeto mesmo onde há `CLAUDE.md`. Texto escrito à mão num desses arquivos vai para a fonte (cópia do
+  original em `~/.local/state/tt/agentes-backup/`), e travas abandonadas das contas do Claude são apagadas. `tt --reforcar-agentes`
+  faz na hora.
+- Testes: `tests/test_tarefas_codigo.sh`, `tests/test_agentes_md.sh`.
 
 ## Janelas flutuantes (clicar fora fecha)
 
@@ -1844,6 +1849,21 @@ Os popups de tamanho fixo (fixadas `+N ▾`, 🔔 notificações, renomear, nova
 pendências) encolhem até caber na tela: o tmux recusa popup maior que a tela, e num celular com 63
 colunas o toque não fazia nada.
 
+## Partida rápida
+
+O `tt` é um script só, de ~850 KB, e cada clique na barra, tecla num painel ou recarga do fzf chama um `tt`
+novo: ler o arquivo inteiro custava de 60 a 90 ms antes de qualquer trabalho. Como o bash lê um script
+comando a comando, um desvio no topo do arquivo evita o resto: a instalação gera `~/.local/share/tt/rapido/`
+com um núcleo (o código de topo, na mesma ordem, e cada função trocada por uma linha que carrega o corpo na
+primeira chamada) e um arquivo por função. Cada invocação lê só o núcleo (~160 KB) e as poucas funções que
+usa: em média ~100 ms a menos por invocação, com a mesma saída.
+
+O núcleo só passa a valer depois de conferido: cada corpo, lido sozinho, dá a mesma definição que o tt
+inteiro, e o núcleo carregado dá as mesmas funções e variáveis de topo. Um corpo que falte faz carregar
+todos; um `tt` editado depois da instalação, ou `TT_COMPLETO=1`, roda o arquivo inteiro; processos longos (o
+vigia) carregam tudo de uma vez, para uma instalação no meio não misturar versões. `tt --rapido` mostra o
+estado, `tt --rapido gerar` refaz e `tt --rapido remover` desliga. Teste: `tests/test_partida_rapida.sh`.
+
 ## Desenvolvimento
 
 ### Testes e AI-DLC
@@ -1855,6 +1875,13 @@ Rode `make test` (ou `tests/run.sh`) antes de publicar mudanças. A suíte usa c
 runtime temporários para testar fluxos de CLI sem tocar nas máquinas cadastradas, além de validar
 os bindings do tmux num servidor isolado. Para auditar uma instalação, use
 `TT_DIR=~/.local/share/tt tests/run.sh`.
+
+Os testes rodam em paralelo: `TT_TESTES_J` testes ao mesmo tempo (padrão: o número de CPUs, até 8;
+`TT_TESTES_J=1` roda em fila), cada um com o seu tmux sentinela, a fila começando pelos mais demorados da
+última rodada (`~/.cache/tt-testes/duracoes`). Um teste que mede tempo leva a marca `# tt-teste: sozinho` e
+roda no fim, sem disputar a máquina. `TT_TESTES='letreiro|listar'` roda só os testes cujo nome casa (as
+checagens estáticas rodam sempre); `TT_TESTE_TEMPO_MAX` (1800 s) encerra um teste preso. Nenhum teste alcança
+a tela gráfica de quem roda a suíte (`sem_tela_real` no `tests/lib.sh`): nada de área de transferência real.
 
 O projeto segue a política [`AI-DLC.md`](AI-DLC.md); o protocolo de trabalho para agentes está em
 [`AGENTS.md`](AGENTS.md), e a cobertura esperada de mouse, toque, teclado, menus e CLI está na

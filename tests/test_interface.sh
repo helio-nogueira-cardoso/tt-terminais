@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (mede tempo: roda sem outros testes disputando a máquina)
 # Interface real (tmux.conf instalado, cliente anexado): Alt+arrastar copia sobre app que captura o mouse,
 # central que fecha rápido no Esc mesmo com máquina lenta, pino 📍/📌 e ✕ das fixadas.
 source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado

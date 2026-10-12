@@ -87,6 +87,7 @@ claude_theme() {
   # Só a chave visual é alterada; links simbólicos para a configuração compartilhada são seguros.
   for perfil in "$HOME"/.local/share/claude-contas/*; do
     [[ -d $perfil ]] || continue
+    [[ ${perfil##*/} =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || continue # travas (.lock) não são perfis
     json_theme "$perfil/settings.json" theme dark || true
   done
 }

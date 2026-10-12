@@ -12,7 +12,9 @@ resultado funciona pelos canais que o elemento expõe: CLI, teclado, mouse/toque
    se isola do tmux real: pelo `isolar()` do `tests/lib.sh` ou, sem ele, com
    `source "$(dirname "$0")/tmux-isolado.sh"` logo depois do seu `trap EXIT`. O `tests/run.sh`
    reprova teste sem isso e, com uma sentinela no tmux padrão, o teste que falar com ele.
-4. Rode `tests/run.sh` após cada alteração de comportamento.
+4. Rode `tests/run.sh` após cada alteração de comportamento. Ele roda os testes em paralelo
+   (`TT_TESTES_J`, padrão nº de CPUs até 8) e `TT_TESTES=regex` roda só alguns; um teste que mede tempo
+   ou depende de tela sob carga leva a marca `# tt-teste: sozinho` e roda no fim, sem concorrência.
 5. Para mudança em interface, atualize a matriz de `tests/INTERACTIONS.md` e acrescente ao menos
    uma verificação executável que cubra a rota modificada.
 
@@ -22,6 +24,12 @@ O rótulo é `MAIOR.MENOR.PATCH` e **zera à direita quando sobe à esquerda**. 
 são os commits depois do que o mudou. Entregou funcionalidade nova? Edite o `MARCO` (MENOR; quebra de compatibilidade: MAIOR) no
 mesmo commit e dê ao título do `NOVIDADES.md` o rótulo novo (`## v1.8.0`). Correção ou ajuste: não mexa no `MARCO`. A ordem de
 atualização entre máquinas continua sendo o nº de commits; não a troque. Teste: `tests/test_versao.sh`.
+
+## Partida rápida
+
+O tt instalado roda por um núcleo gerado na instalação (`rapido/`, ver README "Partida rápida"). Toda função
+nova vai antes da linha `[[ -n ${TT_SO_CARREGAR:-} ]] && …` ("Fim das definições"); depois dela o gerador
+recusa e a instalação fica sem partida rápida (`tests/test_partida_rapida.sh` acusa).
 
 ## Contratos de interação
 

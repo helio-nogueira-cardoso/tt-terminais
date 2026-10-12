@@ -10,6 +10,13 @@
 # falhe não troque o código de saída do teste.
 unset TMUX TMUX_PANE TT_CLIENTE TT_PANE
 TMUX_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tt-teste-tmux.XXXXXX"); export TMUX_TMPDIR
+# O runtime do tt (caches, estado dos painéis, travas) também é do teste: sem isto o tt de um teste caía
+# no /run/user/UID de verdade, o de quem roda a suíte, e dois testes em paralelo disputavam os arquivos.
+[[ -n ${TT_RT:-} ]] || { TT_RT=$TMUX_TMPDIR/rt; mkdir -p "$TT_RT"; export TT_RT; }
+# Nem a tela gráfica (área de transferência) de quem roda a suíte: ver sem_tela_real no lib.sh.
+mkdir -p "$TMUX_TMPDIR/run" && chmod 700 "$TMUX_TMPDIR/run" && export XDG_RUNTIME_DIR=$TMUX_TMPDIR/run
+[[ -n ${WAYLAND_DISPLAY:-} ]] && export WAYLAND_DISPLAY=wayland-tt-teste
+[[ -n ${DISPLAY:-} ]] && export DISPLAY=:99999
 _tmux_isolado_fim() { tmux kill-server 2>/dev/null || true; rm -rf "$TMUX_TMPDIR"; }
 eval "_tmux_isolado_ant=$(trap -p EXIT | sed 's/^trap -- //; s/ EXIT$//')"
 trap "set +e; ${_tmux_isolado_ant:+$_tmux_isolado_ant;} _tmux_isolado_fim" EXIT

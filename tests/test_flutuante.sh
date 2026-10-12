@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (interface com teclas e espera de tela: roda sem outros testes disputando a máquina)
 # Painel de tarefas flutuante (tmux 3.8+, new-pane -O -C): desligado por padrão e igual a hoje (popup, só
 # na tela que clicou); ligado, abre como painel modal à direita que fecha ao clicar fora, o 📋 de novo o
 # fecha, e clicar dentro não fecha. Onde o tmux não sabe (3.5a, 3.6), ligar não quebra nada: o rótulo

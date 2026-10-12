@@ -114,6 +114,12 @@ rm -f "$D"/*; rm -rf "$T/dest" "$T/state"; mkdir -p "$T/dest"
 printf 'olá pelo pipe\n' | $E TT_SEM_CONFIRMAR=1 bash "$TT" --enviar --stdin saida.txt "A:$T/dest" >/dev/null 2>&1
 for i in $(seq 1 40); do [[ -f $T/dest/saida.txt ]] && break; sleep 0.5; done
 [[ $(cat "$T/dest/saida.txt" 2>/dev/null) == 'olá pelo pipe' ]] || fail 'stdin não chegou como saida.txt'
+# O trabalhador grava o estado final depois de o arquivo chegar: espera ele sair antes de limpar (com a
+# máquina ocupada, o .status dele aparecia depois do rm e contava como um 2º trabalho).
+for i in $(seq 1 60); do
+  vivo=0; for f in "$D"/*.pid; do [[ -f $f ]] && kill -0 "$(cat "$f" 2>/dev/null)" 2>/dev/null && vivo=1; done
+  ((vivo)) || break; sleep 0.25
+done
 rm -f "$D"/*; rm -rf "$T/dest"; mkdir -p "$T/dest"
 printf 'b' >"$T/orig/dois.txt"
 $E TT_SEM_CONFIRMAR=1 bash "$TT" --enviar "$T/orig/um.txt" "$T/orig/dois.txt" "A:$T/dest" >/dev/null 2>&1

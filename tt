@@ -41,6 +41,18 @@
 #   host-no-tailscale  -                      (não mostrar essa máquina)
 # Sem linha, usa o mesmo usuário daqui e o nome do host como rótulo.
 
+# Partida rápida (gerar_rapido): com o núcleo gerado na instalação, este desvio lê só ele (~100 KB, ~10 ms) e
+# cada função na 1ª chamada, em vez do arquivo inteiro (~850 KB, de 60 a 90 ms) a cada clique, tecla e recarga.
+# Um tt que não é o instalado (o do repositório, o de um teste) ou um núcleo mais velho que ele seguem o
+# caminho de sempre; TT_COMPLETO=1 também.
+if [[ -z ${TT_COMPLETO:-} && -z ${_TT_RAPIDO:-} ]]; then
+  _TT_RAPIDO=${TT_DIR:-$HOME/.local/share/tt}/rapido
+  if [[ -r $_TT_RAPIDO/nucleo.sh && $0 -ef ${_TT_RAPIDO%/rapido}/tt && ! ${_TT_RAPIDO%/rapido}/tt -nt $_TT_RAPIDO/nucleo.sh ]]; then
+    source "$_TT_RAPIDO/nucleo.sh"
+    exit
+  fi
+  unset _TT_RAPIDO
+fi
 set -u
 EU=$(readlink -f "$0")
 
@@ -218,7 +230,33 @@ claude_no_painel() {
       }
     }'
 }
-claude_na_sessao() { claude_no_painel "=$1:"; }
+claude_na_sessao() { claude_no_painel "$(painel_base "$1" || echo "=$1:")"; }
+
+# Painel de trabalho de uma sessão: o ativo da janela atual, mas nunca um painel FLUTUANTE. As janelas do
+# tt (e-mail, menus, tarefas, a própria central) abrem como painéis flutuantes por cima da sessão (tmux
+# 3.8 com painel_flutuante=1) e são o painel ativo dela enquanto abertas: sem isto, o nomeador lia a tela
+# do e-mail e dava à sessão o assunto de um e-mail, e o vigia via a pasta dele como "mudou de pasta".
+# Com um flutuante na frente, vale o de baixo que estava ativo antes. Sem flutuantes (tmux < 3.8, onde
+# #{pane_floating_flag} sai vazio), é o painel ativo de sempre.
+painel_base() { # sessão — imprime o id do painel (sai 1 se a sessão não existe)
+  tmux list-panes -t "=$1:" -F $'#{pane_floating_flag}\x1f#{pane_active}\x1f#{pane_last}\x1f#{pane_id}' 2>/dev/null | awk '
+    BEGIN { FS = "\037" }
+    $1 == 1 { next }
+    { r = ($2 == 1) ? 3 : ($3 == 1) ? 2 : 1; if (r > melhor) { melhor = r; p = $4 } }
+    END { if (p == "") exit 1; print p }'
+}
+# O painel de trabalho (painel_base) de TODAS as sessões numa ida só ao tmux. Imprime, por sessão,
+# "sessão␟painel␟comando␟pasta␟pid␟sobreposta␟título" (sobreposta=1: há um flutuante na frente dela).
+paineis_base() {
+  tmux list-panes -a -F $'#{session_name}\x1f#{window_active}\x1f#{pane_floating_flag}\x1f#{pane_active}\x1f#{pane_last}\x1f#{pane_id}\x1f#{pane_current_command}\x1f#{pane_current_path}\x1f#{pane_pid}\x1f#{pane_title}' 2>/dev/null | awk '
+    BEGIN { FS = OFS = "\037" }
+    !($1 in visto) { visto[$1] = 1; ordem[++n] = $1 }
+    $2 == 1 && $3 == 1 && $4 == 1 { sob[$1] = 1 }
+    $3 == 1 { next }
+    { r = ($2 == 1 && $4 == 1) ? 4 : ($2 == 1 && $5 == 1) ? 3 : ($2 == 1) ? 2 : 1
+      if (r > melhor[$1]) { melhor[$1] = r; P[$1] = $6; C[$1] = $7; D[$1] = $8; I[$1] = $9; T[$1] = $10 } }
+    END { for (i = 1; i <= n; i++) { s = ordem[i]; if (s in P) print s, P[s], C[s], D[s], I[s], (s in sob) ? 1 : 0, T[s] } }'
+}
 
 # Últimos pedidos digitados na conversa ID do Claude, o mais recente por último, um por linha e
 # curtos. Dizem do que a sessão trata agora; o título (aiTitle) é dado uma vez e não muda mais.
@@ -258,7 +296,9 @@ sugerir_nome() {
   local s=$1 revisar=${2:-} pid id status rot titulo="" pedidos="" pasta cmd tela claude nome=""
   # Infraestrutura não tem assunto a nomear: nem captura a tela nem consulta uma IA.
   [[ $s == _* ]] && return 1
-  pid=$(claude_na_sessao "$s")
+  local alvo
+  alvo=$(painel_base "$s") || alvo="=$s:" # nunca o e-mail/menu aberto por cima (ver painel_base)
+  pid=$(claude_no_painel "$alvo")
   if [[ -n $pid ]]; then
     read -r id status rot < <(claude_info "$pid")
     titulo=$(titulo_claude "${id:-x}") || titulo=""
@@ -269,11 +309,11 @@ sugerir_nome() {
     pedidos=$(pedidos_claude "${id:-x}" | tail -4) || pedidos=""
   fi
 
-  pasta=$(tmux display-message -p -t "=$s:" '#{pane_current_path}')
-  cmd=$(tmux display-message -p -t "=$s:" '#{pane_current_command}')
+  pasta=$(tmux display-message -p -t "$alvo" '#{pane_current_path}')
+  cmd=$(tmux display-message -p -t "$alvo" '#{pane_current_command}')
   # Entrada curta: com pedidos, 10 linhas de tela bastam (comparado em telas reais, o Haiku não piorou
   # e o modelo local precisa disso para responder em segundos); sem pedidos, a tela é tudo o que há.
-  tela=$(tmux capture-pane -p -J -S -80 -t "=$s:" | grep -v '^[[:space:]]*$' | tail -"$([[ -n $pedidos ]] && echo 10 || echo 25)")
+  tela=$(tmux capture-pane -p -J -S -80 -t "$alvo" | grep -v '^[[:space:]]*$' | tail -"$([[ -n $pedidos ]] && echo 10 || echo 25)")
   local texto dest rot
   texto=$(printf 'Pasta: %s\nPrograma em primeiro plano: %s\n' "$(encurtar "$pasta")" "$cmd")
   [[ -n $titulo ]] && texto+=$'\n'"Título dado no início da conversa (pode estar desatualizado): $titulo"
@@ -531,17 +571,31 @@ vigiar() {
       ultima_atualizacao=$agora
       ("$EU" --garantir-atualizacao >>"$log" 2>&1 &)
     fi
-    while IFS='|' read -r s sid atividade entrada pasta ponte; do
+    # O painel de trabalho de cada sessão (painel_base) e o Claude de cada um: uma ida ao tmux e um ps por
+    # volta (eram uma ida ao tmux e um ps por sessão). O ps guardado vale só para este laço.
+    local -A B_PASTA=() B_PID=() B_SOB=() V_CL=()
+    local bp bc bd bi bo bt ntit ndado criada
+    PS_CACHE=$(ps -eo pid=,ppid=,comm=)
+    while IFS=$'\x1f' read -r s bp bc bd bi bo bt; do B_PASTA[$s]=$bd B_PID[$s]=$bi B_SOB[$s]=$bo; done < <(paineis_base)
+    while read -r bp bi; do V_CL[$bp]=$bi; done < <(claude_por_painel "$(printf '%s\n' "${B_PID[@]}")")
+    while IFS=$'\x1f' read -r s sid atividade entrada pasta ponte ntit ndado criada; do
       # Pontes mostram uma sessão de outra máquina: o nome delas é o da ponte, nunca do vigia.
       # Sessões "_nome" são ocultas de propósito (infraestrutura): ninguém as renomeia.
       [[ -n $ponte || $s == _* ]] && continue
+      # Janela do tt aberta por cima (e-mail, menu, tarefas, central: painel flutuante): o que se lê e se faz
+      # nela não é desta sessão. Nada de nome nesta volta, e o uso feito nela não conta depois.
+      if [[ ${B_SOB[$s]:-0} == 1 ]]; then
+        V_EM[$sid]=$atividade; [[ $entrada =~ ^[0-9]+$ ]] && V_ENT[$sid]=$entrada
+        continue
+      fi
+      [[ -n ${B_PASTA[$s]+x} ]] && pasta=${B_PASTA[$s]}
       # Claude: o título da conversa dá o nome sem custo, mas só uma vez (o aiTitle não muda ao
       # longo da conversa). Depois a sessão segue as mesmas revisões das outras, logo abaixo.
-      pid=$(claude_na_sessao "$s") id=""
+      pid=${V_CL[${B_PID[$s]:-x}]:-} id=""
       if [[ -n $pid ]]; then
         read -r id st rot < <(claude_info "$pid")
         if titulo=$(titulo_claude "${id:-x}"); then
-          if [[ $titulo != "$(tmux show-options -qv -t "=$s:" @nome_titulo)" ]]; then
+          if [[ $titulo != "$ntit" ]]; then
             if nome=$(renomear "$s" "$(slug "$titulo")" auto); then
               tmux set-option -t "=$nome:" @nome_titulo "$titulo"
               V_INTER[$sid]=0 V_PED[$sid]=0 V_NOMEADO[$sid]=$agora V_EM[$sid]=$atividade
@@ -557,11 +611,11 @@ vigiar() {
       # Primeiro nome: aba com nome genérico que o tt ainda não nomeou. Não espera várias
       # interações: 1 min depois da primeira (TT_T_PRIMEIRO) a tela já mostra do que se trata.
       # A saída do próprio shell ao abrir (até 2 s depois de criada) não conta como interação.
-      if generico "$s" && [[ -z $(tmux show-options -qv -t "=$s:" @nome_dado) ]]; then
+      if generico "$s" && [[ -z $ndado ]]; then
         primeira=${V_PRIMEIRA[$sid]:-}
         if [[ -z $primeira ]]; then
           desde=${V_ESPERA[$sid]:-}
-          [[ -n $desde ]] || desde=$(($(tmux display-message -p -t "=$s:" '#{session_created}') + 2))
+          [[ -n $desde ]] || desde=$((criada + 2))
           ((atividade > desde)) || continue
           V_PRIMEIRA[$sid]=$atividade
           ((proximo = t_primeiro < proximo ? t_primeiro : proximo))
@@ -631,7 +685,8 @@ vigiar() {
       nome=$(renomear "$s" "$nome" auto) || continue
       V_INTER[$sid]=0 V_PED[$sid]=0 V_NOMEADO[$sid]=$agora
       echo "$(date '+%F %T') $s → $nome ($motivo)" >>"$log"
-    done < <(tmux list-sessions -F '#{session_name}|#{session_id}|#{window_activity}|#{session_activity}|#{pane_current_path}|#{@ponte}' 2>/dev/null)
+    done < <(tmux list-sessions -F $'#{session_name}\x1f#{session_id}\x1f#{window_activity}\x1f#{session_activity}\x1f#{pane_current_path}\x1f#{@ponte}\x1f#{@nome_titulo}\x1f#{@nome_dado}\x1f#{session_created}' 2>/dev/null)
+    unset PS_CACHE
     declare -p V_EM V_INTER V_PASTA V_PRIMEIRA V_ESPERA V_NOMEADO V_PED V_ENT V_ARQ V_TAM >"$estado_vigia.$$" 2>/dev/null && mv -f "$estado_vigia.$$" "$estado_vigia"
     # Um primeiro nome pendente encurta o sono: o nome sai ~1 min após a interação, não até 2 min.
     ((proximo < 5)) && proximo=5
@@ -700,58 +755,124 @@ idade() {
   else echo "$((s / 86400)) d"; fi
 }
 
+# Paralelismo: trabalhos em 2º plano com teto (TT_PARALELO, padrão 8). Uma ida ao tmux (ou ao ssh) passa
+# quase todo o tempo esperando: o servidor do tmux atende um pedido por vez, na fila atrás dos redesenhos
+# dos painéis (uma IA despejando a tela inteira a cada token o deixa ocupado). N idas juntas esperam a fila
+# uma vez só, em vez de N vezes. par_fim espera todos.
+par() {
+  if ((${PAR_N:-0} >= ${TT_PARALELO:-8})); then wait -n 2>/dev/null; PAR_N=$((PAR_N - 1)); fi
+  "$@" &
+  PAR_N=$((${PAR_N:-0} + 1))
+}
+par_fim() { wait; PAR_N=0; }
+
+# Todos os painéis de todas as sessões numa ida só ao tmux. Separador 0x1F (não é espaço: um campo vazio
+# não desloca as colunas no read). Campos: sessão, painel, janela.painel, comando, histórico, pid, ativo
+# (painel ativo da janela ativa), flutuante, último ativo da janela ativa, janela ativa, rótulo, nome do
+# painel, pasta e, por último, o título do painel.
+PAINEIS_FMT=$'#{session_name}\x1f#{pane_id}\x1f#{window_index}.#{pane_index}\x1f#{pane_current_command}\x1f#{history_size}\x1f#{pane_pid}\x1f#{&&:#{pane_active},#{window_active}}\x1f#{pane_floating_flag}\x1f#{&&:#{pane_last},#{window_active}}\x1f#{window_active}\x1f#{@tt_rotulo}\x1f#{@nome_painel}\x1f#{pane_current_path}\x1f#{pane_title}'
+
+# "pid-do-painel pid-do-claude" de cada painel (pids em $1, um por linha) com um Claude dentro: uma
+# passada no ps para todos (o mesmo critério de claude_no_painel, sem uma ida ao tmux por painel).
+claude_por_painel() {
+  { printf '%s\n' "$1"; echo --; if [[ -n ${PS_CACHE:-} ]]; then echo "$PS_CACHE"; else ps -eo pid=,ppid=,comm=; fi; } | awk '
+    !lista { if ($0 == "--") lista = 1; else raiz[$1] = 1; next }
+    { pai[$1] = $2; n = $3; sub(/.*\//, "", n); cmd[$1] = n }
+    END {
+      for (p in cmd) {
+        if (cmd[p] != "claude") continue
+        for (q = p; q in pai && q != 1; q = pai[q]) if (q in raiz) { if (!(q in visto)) { visto[q] = 1; print q, p } break }
+      }
+    }'
+}
+
 # Texto de busca de um painel: título da conversa do Claude, nomes e o fim da tela. Vai no fim de
 # cada linha do menu depois de muitos espaços, para a busca achar mas a lista não mostrar.
 ESPACOS=$(printf '%*s' 300 '')
-busca_painel() {
-  local p=$1 pid id st rot titulo=""
-  pid=$(claude_no_painel "$p")
-  if [[ -n $pid ]]; then
-    read -r id st rot < <(claude_info "$pid")
+# O trabalho de um painel para as listas, feito em paralelo com os outros: grava em ARQ o texto de busca
+# e, com CONTAR=1 (sessão candidata a vazia), em ARQ.v as linhas escritas na tela.
+listar_painel() { # arq painel pid-do-claude contar título nome-do-painel rótulo
+  local arq=$1 p=$2 cpid=$3 id st rot titulo=""
+  [[ $4 == 1 ]] && tmux capture-pane -p -t "$p" 2>/dev/null | grep -c '[^[:space:]]' >"$arq.v"
+  if [[ -n $cpid ]]; then
+    read -r id st rot < <(claude_info "$cpid")
     titulo=$(titulo_claude "${id:-x}")
   fi
-  printf '%s %s ' "$titulo" "$(tmux display-message -p -t "$p" '#{pane_title} #{@nome_painel} #{@tt_rotulo}')"
-  tmux capture-pane -p -J -S -150 -t "$p" 2>/dev/null | tr -s ' \t\n' ' ' | tail -c 2500 |
-    LC_ALL=C sed '1s/^[\x80-\xbf]*//' # tail -c pode cortar um caractere ao meio
+  { printf '%s %s ' "$titulo" "$5 $6 $7"
+    tmux capture-pane -p -J -S -150 -t "$p" 2>/dev/null | tr -s ' \t\n' ' ' | tail -c 2500 |
+      LC_ALL=C sed '1s/^[\x80-\xbf]*//' # tail -c pode cortar um caractere ao meio
+  } >"$arq"
+}
+# Conteúdo de um arquivo como $(<arq) o daria (sem as quebras de linha do fim), sem abrir subshell.
+ler_arquivo() { # var arq
+  local -n _v=$1
+  _v=""; [[ -r $2 ]] && { IFS= read -r -d '' _v <"$2" || true; }
+  while [[ $_v == *$'\n' ]]; do _v=${_v%$'\n'}; done
 }
 
 # Sessão "vazia": todos os painéis só no shell (nada rodando), sem histórico e com no máximo 2
-# linhas escritas na tela (o prompt).
-sessao_vazia() {
-  local p cmd hist n
-  while IFS='|' read -r p cmd hist; do
-    [[ $cmd =~ ^(bash|zsh|fish|sh|dash)$ ]] || return 1
-    ((hist < 3)) || return 1
-    n=$(tmux capture-pane -p -t "$p" 2>/dev/null | grep -c '[^[:space:]]')
-    ((n <= 2)) || return 1
-  done < <(tmux list-panes -s -t "=$1" -F '#{pane_id}|#{pane_current_command}|#{history_size}' 2>/dev/null)
+# linhas escritas na tela (o prompt). Quais das sessões dadas estão vazias, todas de uma vez: uma ida
+# ao tmux para os painéis de todas e a tela das candidatas lida em paralelo. Imprime uma por linha, na
+# ordem dada (sessão sem painel nenhum — fechou no meio da consulta — conta como vazia).
+sessoes_vazias_de() { # sessão...
+  (($#)) || return 0
+  local s p c h k n tmp
+  local -A quer=() ruim=()
+  local -a cs=() cp=()
+  for s; do quer[$s]=1; done
+  while IFS=$'\x1f' read -r s p c h fl; do
+    [[ -n ${quer[$s]:-} && -z ${ruim[$s]:-} && $fl != 1 ]] || continue # flutuante: janela do tt por cima, não conta
+    if [[ $c =~ ^(bash|zsh|fish|sh|dash)$ ]] && ((h < 3)); then cs+=("$s") cp+=("$p"); else ruim[$s]=1; fi
+  done < <(tmux list-panes -a -F $'#{session_name}\x1f#{pane_id}\x1f#{pane_current_command}\x1f#{history_size}\x1f#{pane_floating_flag}' 2>/dev/null)
+  if ((${#cp[@]})); then
+    tmp=$(mktemp -d "$RT/tt-vazias.XXXXXX") || return 0
+    for k in "${!cp[@]}"; do
+      [[ -n ${ruim[${cs[k]}]:-} ]] || par linhas_escritas "$tmp/$k" "${cp[k]}"
+    done
+    par_fim
+    for k in "${!cp[@]}"; do
+      [[ -n ${ruim[${cs[k]}]:-} ]] && continue
+      n=0; [[ -r $tmp/$k ]] && read -r n <"$tmp/$k"
+      ((n <= 2)) || ruim[${cs[k]}]=1
+    done
+    rm -rf "$tmp"
+  fi
+  for s; do [[ -n ${ruim[$s]:-} ]] || printf '%s\n' "$s"; done
 }
+linhas_escritas() { tmux capture-pane -p -t "$2" 2>/dev/null | grep -c '[^[:space:]]' >"$1"; } # arq painel
 
 # Fecha as sessões vazias desta máquina, menos a sessão EXCETO (a que está em uso). Imprime quantas.
 fechar_vazias() {
   local s ponte anexada n=0
+  local -a cand=()
   while IFS='|' read -r s ponte anexada; do
     [[ -n $ponte || $s == _* || $s == "${1:-}" ]] && continue
     # Sessão com ALGUÉM olhando nunca é fechada: matar a sessão anexada desanexa o cliente e,
     # com o tmux vindo de exec no bashrc, a janela do terminal inteira fecha ("o terminal some").
     (( anexada > 0 )) && continue
-    sessao_vazia "$s" && tmux kill-session -t "=$s" && n=$((n + 1))
+    cand+=("$s")
   done < <(tmux list-sessions -F '#{session_name}|#{@ponte}|#{session_attached}' 2>/dev/null)
+  while IFS= read -r s; do
+    [[ -n $s ]] && tmux kill-session -t "=$s" && n=$((n + 1))
+  done < <(sessoes_vazias_de "${cand[@]}")
   echo "$n"
 }
 
 # Fecha sessões vazias abandonadas. Sessões anexadas e sessões usadas como ponte são preservadas.
 fechar_vazias_expiradas() {
   local agora=$1 limite=${TT_VAZIA_LIMITE:-300} s criada anexada ponte idade n=0
+  local -a cand=()
   while IFS='|' read -r s criada anexada ponte; do
     [[ -n $s && $criada =~ ^[0-9]+$ ]] || continue
     ((anexada > 0)) && continue
     [[ -n $ponte || $s == _* ]] && continue
     idade=$((agora - criada))
     ((idade >= limite)) || continue
-    sessao_vazia "$s" || continue
-    tmux kill-session -t "=$s" && n=$((n + 1))
+    cand+=("$s")
   done < <(tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{@ponte}' 2>/dev/null)
+  while IFS= read -r s; do
+    [[ -n $s ]] && tmux kill-session -t "=$s" && n=$((n + 1))
+  done < <(sessoes_vazias_de "${cand[@]}")
   ((n)) && echo "$n"
 }
 
@@ -931,43 +1052,84 @@ listar() {
       "$sh" "solta" "$desc" "$(encurtar "$cwd")" "$ESPACOS" "$cmd" "$cwd"
   done
 
-  local ativ s anex pasta ponte l n i uso extra marca ativo pid pos cmdp pastap rot nomep
-  local -a linhas=() buscas=() vazias=()
-  tmux list-sessions -F '#{window_activity}|#{session_name}|#{session_attached}|#{pane_current_command}|#{pane_current_path}|#{@ponte}' 2>/dev/null |
-    sort -t'|' -k1,1nr | {
-    while IFS='|' read -r ativ s anex cmd pasta ponte; do
-      [[ -n $ponte || $s == _* ]] && continue # ponte (aparece na linha da outra máquina) e sessão "_nome" (oculta)
-      if sessao_vazia "$s"; then
-        # Vazias vão para um bloco à parte, no fim, apagadas.
-        ((anex > 0)) && uso='●' || uso='○'
-        vazias+=("$(printf '%s	[90m%s %-20.20s %-7s %s (%s)[0m	%s%s vazia' "$s" "$uso" "$s" "$cmd" "$(encurtar "$pasta")" "$(idade "$ativ")" "$ESPACOS" "$s")")
-        continue
-      fi
-      mapfile -t linhas < <(tmux list-panes -s -t "=$s" -F '#{pane_id}|#{window_index}.#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{@tt_rotulo}|#{@nome_painel}|#{&&:#{pane_active},#{window_active}}')
-      n=${#linhas[@]}
-      buscas=()
-      for l in "${linhas[@]}"; do buscas+=("$(busca_painel "${l%%|*}")"); done
-      ((anex > 0)) && uso=$'\033[32m●\033[0m' || uso=$'\033[90m○\033[0m'
-      ((n > 1)) && extra=" · $n painéis" || extra=""
-      nome=$s
-      ((${#nome} > 20)) && nome="${nome:0:19}…"
-      printf '%s\t%s \033[1;36m%-20s\033[0m \033[33m%-7s\033[0m %s \033[90m(%s%s)\033[0m\t%s%s %s\n' \
-        "$s" "$uso" "$nome" "$cmd" "$(encurtar "$pasta")" "$(idade "$ativ")" "$extra" "$ESPACOS" "$s" "${buscas[*]}"
-      ((n > 1)) || continue
-      for ((i = 0; i < n; i++)); do
-        IFS='|' read -r pid pos cmdp pastap rot nomep ativo <<<"${linhas[i]}"
-        ((i == n - 1)) && marca='└' || marca='├'
-        ((ativo)) && marca+='▸' || marca+=' '
-        if [[ -z $nomep ]]; then [[ -n $rot ]] && nomep="⧉ $rot" || nomep=$cmdp; fi
-        printf '%s\t  \033[90m%s%-4s\033[0m \033[36m%-15.15s\033[0m \033[33m%-7s\033[0m %s\t%s%s %s\n' \
-          "$pid" "$marca" "$pos" "$nomep" "$cmdp" "$(encurtar "$pastap")" "$ESPACOS" "$s" "${buscas[i]}"
+  # Duas idas ao tmux para tudo: as sessões (a mais recente primeiro) e TODOS os painéis. O que é de cada
+  # painel (a tela, o título da conversa) roda em paralelo (listar_painel). Antes eram 2 list-panes por
+  # sessão e 2 display-message + 1 capture por painel, em fila: com o servidor do tmux ocupado, cada ida
+  # custava até centenas de ms e a lista da central levava segundos.
+  local tmp linha ativ s anex pasta ponte p pos c h pid at fl ult wa r rot nomep pastap tit k i n uso extra marca cmdp conta busca
+  local -a SESS=() vazias=() buscas=() idx=() P_S=() P_ID=() P_POS=() P_CMD=() P_PID=() P_ROT=() P_NOME=() P_PASTA=() P_TIT=()
+  local -A VIVA=() P_DE=() RUIM=() CL=() B_R=() B_I=()
+  mapfile -t SESS < <(tmux list-sessions -F '#{window_activity}|#{session_name}|#{session_attached}|#{pane_current_command}|#{pane_current_path}|#{@ponte}' 2>/dev/null |
+    sort -t'|' -k1,1nr)
+  for linha in "${SESS[@]}"; do
+    IFS='|' read -r ativ s anex cmd pasta ponte <<<"$linha"
+    [[ -n $ponte || $s == _* ]] || VIVA[$s]=1 # ponte (aparece na linha da outra máquina) e sessão "_nome" (oculta)
+  done
+  ((${#VIVA[@]})) || return 0
+  k=0
+  while IFS=$'\x1f' read -r s p pos c h pid at fl ult wa rot nomep pastap tit; do
+    [[ -n ${VIVA[$s]:-} ]] || continue
+    [[ $fl == 1 ]] && continue # janela do tt aberta por cima (painel flutuante): não é da sessão (painel_base)
+    P_S[k]=$s P_ID[k]=$p P_POS[k]=$pos P_CMD[k]=$c P_PID[k]=$pid P_ROT[k]=$rot P_NOME[k]=$nomep P_PASTA[k]=$pastap P_TIT[k]=$tit
+    P_DE[$s]+="$k "
+    # Painel de trabalho da sessão: o ativo da janela ativa; com um flutuante na frente, o último ativo.
+    r=1; [[ $wa == 1 ]] && r=2; [[ $ult == 1 ]] && r=3; [[ $at == 1 ]] && r=4
+    ((r > ${B_R[$s]:-0})) && B_R[$s]=$r B_I[$s]=$k
+    # Candidata a vazia (sessao_vazia): todos os painéis só no shell, sem histórico.
+    [[ $c =~ ^(bash|zsh|fish|sh|dash)$ ]] && ((h < 3)) || RUIM[$s]=1
+    k=$((k + 1))
+  done < <(tmux list-panes -a -F "$PAINEIS_FMT" 2>/dev/null)
+  if ((k)); then
+    while read -r p pid; do CL[$p]=$pid; done < <(claude_por_painel "$(printf '%s\n' "${P_PID[@]}")")
+  fi
+  tmp=$(mktemp -d "$RT/tt-listar.XXXXXX") || return 0
+  for ((i = 0; i < k; i++)); do
+    conta=1; [[ -n ${RUIM[${P_S[i]}]:-} ]] && conta=0
+    par listar_painel "$tmp/$i" "${P_ID[i]}" "${CL[${P_PID[i]}]:-}" "$conta" "${P_TIT[i]}" "${P_NOME[i]}" "${P_ROT[i]}"
+  done
+  par_fim
+  for linha in "${SESS[@]}"; do
+    IFS='|' read -r ativ s anex cmd pasta ponte <<<"$linha"
+    [[ -n ${VIVA[$s]:-} ]] || continue
+    [[ -n ${B_I[$s]:-} ]] && cmd=${P_CMD[B_I[$s]]} pasta=${P_PASTA[B_I[$s]]} # o painel de trabalho, não o flutuante
+    read -r -a idx <<<"${P_DE[$s]:-}"
+    if [[ -z ${RUIM[$s]:-} ]]; then
+      for i in "${idx[@]}"; do
+        n=0; [[ -r $tmp/$i.v ]] && read -r n <"$tmp/$i.v"
+        ((n <= 2)) || { RUIM[$s]=1; break; }
       done
-    done
-    if ((${#vazias[@]})); then
-      linha_vazias "${#vazias[@]}"
-      printf '%s\n' "${vazias[@]}"
     fi
-  }
+    if [[ -z ${RUIM[$s]:-} ]]; then
+      # Vazias vão para um bloco à parte, no fim, apagadas.
+      ((anex > 0)) && uso='●' || uso='○'
+      vazias+=("$(printf '%s	[90m%s %-20.20s %-7s %s (%s)[0m	%s%s vazia' "$s" "$uso" "$s" "$cmd" "$(encurtar "$pasta")" "$(idade "$ativ")" "$ESPACOS" "$s")")
+      continue
+    fi
+    n=${#idx[@]}
+    buscas=()
+    for i in "${idx[@]}"; do ler_arquivo busca "$tmp/$i"; buscas+=("$busca"); done
+    ((anex > 0)) && uso=$'\033[32m●\033[0m' || uso=$'\033[90m○\033[0m'
+    ((n > 1)) && extra=" · $n painéis" || extra=""
+    nome=$s
+    ((${#nome} > 20)) && nome="${nome:0:19}…"
+    printf '%s\t%s \033[1;36m%-20s\033[0m \033[33m%-7s\033[0m %s \033[90m(%s%s)\033[0m\t%s%s %s\n' \
+      "$s" "$uso" "$nome" "$cmd" "$(encurtar "$pasta")" "$(idade "$ativ")" "$extra" "$ESPACOS" "$s" "${buscas[*]}"
+    ((n > 1)) || continue
+    for ((c = 0; c < n; c++)); do
+      i=${idx[c]}
+      ((c == n - 1)) && marca='└' || marca='├'
+      [[ $i == "${B_I[$s]:-}" ]] && marca+='▸' || marca+=' '
+      nomep=${P_NOME[i]} rot=${P_ROT[i]} cmdp=${P_CMD[i]}
+      if [[ -z $nomep ]]; then [[ -n $rot ]] && nomep="⧉ $rot" || nomep=$cmdp; fi
+      printf '%s\t  \033[90m%s%-4s\033[0m \033[36m%-15.15s\033[0m \033[33m%-7s\033[0m %s\t%s%s %s\n' \
+        "${P_ID[i]}" "$marca" "${P_POS[i]}" "$nomep" "$cmdp" "$(encurtar "${P_PASTA[i]}")" "$ESPACOS" "$s" "${buscas[c]}"
+    done
+  done
+  if ((${#vazias[@]})); then
+    linha_vazias "${#vazias[@]}"
+    printf '%s\n' "${vazias[@]}"
+  fi
+  rm -rf "$tmp"
 }
 
 # Prévia: a tela da sessão/painel. Com texto buscado que aparece na tela, mostra o trecho dele.
@@ -979,15 +1141,22 @@ previa() {
     *) alvo="=$k:" ;;
   esac
   [[ -n $q ]] && trecho "$k" "$q" && return
+  # A tela e, na mesma ida ao tmux, se o painel ativo é flutuante: com a central (ou outra janela do tt)
+  # aberta por cima da sessão, a prévia mostrava a própria central; aí vale o painel de baixo (painel_base).
+  local tela fl
+  tela=$(tmux capture-pane -ep -t "$alvo" \; display-message -p -t "$alvo" '#{pane_floating_flag}' 2>/dev/null)
+  fl=${tela##*$'\n'}
+  if [[ $tela == *$'\n'* ]]; then tela=${tela%$'\n'*}; else tela=""; fi
+  if [[ $fl == 1 && $alvo == =* ]] && alvo=$(painel_base "$k"); then tela=$(tmux capture-pane -ep -t "$alvo" 2>/dev/null); fi
   # Sem as linhas vazias do fim (senão o "follow" do fzf mostra só branco).
-  tmux capture-pane -ep -t "$alvo" 2>/dev/null |
+  printf '%s\n' "$tela" |
     awk '{ l[NR] = $0 } END { n = NR; while (n > 0 && l[n] ~ /^(\033\[[0-9;]*m|[[:space:]])*$/) n--; for (i = 1; i <= n; i++) print l[i] }'
 }
 
 trecho() {
   local k=$1 q=$2 p
   local paineis=$k
-  [[ $k == %* ]] || paineis=$(tmux list-panes -s -t "=$k" -F '#{pane_id}' 2>/dev/null)
+  [[ $k == %* ]] || paineis=$(tmux list-panes -s -t "=$k" -F '#{pane_floating_flag} #{pane_id}' 2>/dev/null | awk '$1 != 1 { print $NF }') # sem os flutuantes (painel_base)
   for p in $paineis; do
     tmux capture-pane -p -J -S -150 -t "$p" 2>/dev/null | python3 -c '
 import re, sys
@@ -1188,6 +1357,29 @@ atualizar_info() {
 }
 limpar_cache_maquinas() { rm -f "$RT/tt-maquinas-$UID"; }
 
+# Chama "FUNÇÃO dest rótulo ARGS..." em cada máquina acessível, todas ao mesmo tempo: o total leva o
+# tempo da mais lenta, não a soma (antes, uma por vez; cada ssh custa de 0,1 s a vários segundos, e um
+# timeout esperava inteiro). A saída de cada uma sai inteira e na ordem das máquinas, assim que ela e as
+# anteriores terminam; o stderr vem separado (um aviso do ssh nunca cai no meio dos dados).
+nas_maquinas() { # função [args...]
+  local f=$1 dest rot i=0 n tmp
+  local -a pids=()
+  shift
+  tmp=$(mktemp -d "$RT/tt-maq.XXXXXX") || return 0
+  while read -r dest rot; do
+    "$f" "$dest" "$rot" "$@" >"$tmp/$i" 2>"$tmp/$i.err" </dev/null &
+    pids+=($!) i=$((i + 1))
+  done < <(maquinas)
+  for ((n = 0; n < i; n++)); do
+    wait "${pids[n]}"
+    cat "$tmp/$n"; [[ -s $tmp/$n.err ]] && cat "$tmp/$n.err" >&2
+  done
+  rm -rf "$tmp"
+  return 0
+}
+# Um arquivo de outra máquina (para nas_maquinas): dest rótulo caminho-lá segundos.
+cat_remoto() { timeout "$4" ssh "${SSH_OPC[@]}" "$1" "cat $3 2>/dev/null" </dev/null 2>/dev/null; }
+
 # Lê ~/.config/tt/maquinas; com o Tailscale, pula as desligadas e usa o nome completo
 # (host.tailnet.ts.net: o nome curto pode coincidir com o desta máquina — por exemplo, um WSL
 # com o mesmo hostname do Windows que o hospeda).
@@ -1355,17 +1547,18 @@ diagnosticar() {
 
 # tt --saude: igual ao diagnostico de todas, mas marca em vermelho as que estao online sem auth.
 saude() {
-  local dest rot est
   echo "Saude das maquinas cadastradas:"
-  while read -r dest rot; do
-    est=$(diagnosticar_conexao "$dest")
-    case $est in
-    ok) printf '  \033[32m●\033[0m %-16s %s\n' "$rot" "$est" ;;
-    offline) printf '  \033[90m○\033[0m %-16s %s\n' "$rot" "$est" ;;
-    *) printf '  \033[31m●\033[0m %-16s %-14s %s\n' "$rot" "$est" "$(explicar_diagnostico "$est")" ;;
-    esac
-  done < <(maquinas)
+  nas_maquinas saude_em # todas diagnosticadas ao mesmo tempo, na ordem do cadastro
   saude_local
+}
+saude_em() { # dest rótulo
+  local est
+  est=$(diagnosticar_conexao "$1")
+  case $est in
+  ok) printf '  \033[32m●\033[0m %-16s %s\n' "$2" "$est" ;;
+  offline) printf '  \033[90m○\033[0m %-16s %s\n' "$2" "$est" ;;
+  *) printf '  \033[31m●\033[0m %-16s %-14s %s\n' "$2" "$est" "$(explicar_diagnostico "$est")" ;;
+  esac
 }
 
 # Saude local: units do usuario em falha + ultimas falhas registradas pelo tt-onfailure
@@ -1556,6 +1749,10 @@ ssh_porta_garantir() { # host porta
 }
 
 # tt --malha-completar: aprende o que falta, corrige o que está incoerente, apresenta-se, conserta o que não conecta.
+# A --malha-lista de uma máquina (para malha_completar): grava em PASTA/rótulo e, se respondeu, PASTA/rótulo.ok.
+malha_lista_em() { # dest rótulo pasta
+  timeout 25 ssh "${SSH_OPC[@]}" "$1" "$TT_REMOTO --malha-lista" </dev/null >"$3/$2" 2>/dev/null && : >"$3/$2.ok"
+}
 malha_completar() {
   [[ -s $CONF_MAQ ]] || return 0
   local trava="$RT/tt-malha-$UID.lock"
@@ -1563,8 +1760,14 @@ malha_completar() {
   mkdir "$trava" 2>/dev/null || return 0
   trap 'rmdir "$trava" 2>/dev/null' RETURN
   local dest rot out tipo a b c r temme ip ok cands="" alts="" falhos="" conhecidos hosts_conhecidos u novos=0 eu_rot est
+  local listas=""
+  # As listas de todas as máquinas chegam ao mesmo tempo (antes, uma por vez, até 25 s cada); o que se faz
+  # com elas continua em ordem, uma máquina depois da outra.
+  listas=$(mktemp -d "$RT/tt-malha.XXXXXX") || return 0
+  nas_maquinas malha_lista_em "$listas" >/dev/null
   while read -r dest rot; do
-    out=$(timeout 25 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --malha-lista" </dev/null 2>/dev/null) || { falhos+=$'\n'"$dest $rot"; continue; }
+    [[ -r $listas/$rot.ok ]] || { falhos+=$'\n'"$dest $rot"; continue; }
+    ler_arquivo out "$listas/$rot"
     # 1) estados primeiro: uma remoção mais nova que o meu cadastro vale já nesta volta
     while IFS=$'\t' read -r tipo a b c; do [[ $tipo == S ]] && estado_aplicar "$c" "$a" "$b"; done <<<"$out"
     conhecidos=$'\n'$(awk '!/^#/ && NF { print ($3 ? $3 : $1) }' "$CONF_MAQ")$'\n'
@@ -1595,6 +1798,7 @@ malha_completar() {
       fi
     fi
   done < <(maquinas)
+  rm -rf "$listas"
   # 3) máquinas que as outras conhecem e eu não
   while IFS=$'\t' read -r rot a b; do
     [[ -n $rot ]] || continue
@@ -1923,6 +2127,130 @@ redesenhar_todos() {
 # Instala o pacote que está na pasta deste tt (chamado como <pasta>/tt --instalar-aqui).
 # Troca a pasta de uma vez (nunca sobrescreve o arquivo de um tt que esteja rodando, como o vigia),
 # aponta ~/.local/bin/tt para ela, faz o ~/.tmux.conf carregar o tmux.conf dela e recarrega o tmux.
+# Partida rápida. O bash lê um script comando a comando, então o desvio no topo do tt evita ler as ~15 mil
+# linhas (~850 KB, de 60 a 90 ms) a cada clique, tecla e recarga do fzf. A instalação gera PASTA/rapido/:
+# nucleo.sh — o código de topo do tt, na mesma ordem, com cada função de várias linhas trocada por um stub
+# de uma linha que carrega o corpo na 1ª chamada (_tt_f); f/NOME.sh — o texto original de cada uma;
+# todas.sh — todas (rede de segurança, e a carga de uma vez dos processos longos, que assim não misturam
+# versões se uma instalação acontecer no meio). Função definida mais de uma vez fica inteira no núcleo.
+# Só passa a valer depois de conferido: cada corpo, lido sozinho, dá a mesma definição que o tt inteiro, e
+# o núcleo carregado dá as mesmas funções e as mesmas variáveis de topo (TT_SO_CARREGAR=1 para antes do
+# verbo). Qualquer diferença: nada é instalado e o tt segue inteiro, como sempre. tt --rapido mostra o estado.
+RAPIDO_LONGOS='--vigia | --transferir-fundo | --email-sync | --sessoes-ia-sync | --ticker-loop | --malha-vigia | --instalar-aqui'
+gerar_rapido() { # pasta-do-pacote (com o tt dentro) — 0 se gerou e conferiu
+  local pasta=${1%/} orig tmp ref rap cmp1 cmp2 filtro n
+  orig=$pasta/tt
+  [[ -f $orig ]] || { echo "sem $orig" >&2; return 1; }
+  tmp=$(mktemp -d "$pasta/.rapido.XXXXXX") || return 1
+  # 1) divide: núcleo + um arquivo por função (texto original) + a lista dos nomes trocados por stub
+  if ! python3 -I - "$orig" "$tmp" "$RAPIDO_LONGOS" <<'PY'; then rm -rf "$tmp"; return 1; fi
+import os, re, sys
+orig, dest, longos = sys.argv[1:4]
+linhas = open(orig, encoding="utf-8", errors="surrogateescape").read().split("\n")
+ini = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) *\{ *(#.*)?$")
+qualquer = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) *\{")
+cont = {}
+for l in linhas:
+    m = qualquer.match(l)
+    if m:
+        cont[m.group(1)] = cont.get(m.group(1), 0) + 1
+blocos, i = [], 0
+while i < len(linhas):
+    m = ini.match(linhas[i])
+    if m:
+        j = i + 1
+        while j < len(linhas) and not linhas[j].startswith("}"):
+            j += 1
+        if j >= len(linhas):
+            sys.exit("fim da função %s não achado" % m.group(1))
+        blocos.append((m.group(1), i, j))
+        i = j + 1
+        continue
+    i += 1
+stub = [n for n, a, b in blocos if cont.get(n) == 1]
+trocar = set(stub)
+guarda = "[[ -n ${TT_SO_CARREGAR:-} ]] && { return 0 2>/dev/null || exit 0; }"
+nuc = ['_tt_f() { source "$_TT_RAPIDO/f/$1.sh" 2>/dev/null || source "$_TT_RAPIDO/todas.sh" 2>/dev/null ||'
+       ' { printf "tt: partida rápida incompleta (%s): rode tt --rapido gerar (ou TT_COMPLETO=1)\\n" "$1" >&2; return 127; }; }']
+pos, achou, doc = 0, 0, {}
+for n, a, b in blocos:
+    c = a  # os comentários colados acima da função vão com ela para o corpo (o núcleo fica menor de ler)
+    while n in trocar and c > pos and linhas[c - 1].lstrip().startswith("#"):
+        c -= 1
+    nuc.extend(linhas[pos:c])
+    if n in trocar:
+        doc[n] = c
+        nuc.append('%s() { _tt_f %s || return; %s "$@"; }' % (n, n, n))
+    else:
+        nuc.extend(linhas[c:b + 1])
+    pos = b + 1
+for l in linhas[pos:]:
+    nuc.append(l)
+    if l.strip() == guarda:
+        achou += 1
+        nuc.append('case ${1:-} in %s) source "$_TT_RAPIDO/todas.sh" ;; esac # processo longo: tudo de uma vez' % longos)
+if achou != 1:
+    sys.exit("guarda TT_SO_CARREGAR achada %d vezes depois da última função" % achou)
+os.makedirs(os.path.join(dest, "f"))
+def grava(nome, texto):
+    with open(os.path.join(dest, nome), "w", encoding="utf-8", errors="surrogateescape") as f:
+        f.write(texto)
+grava("nucleo.sh", "\n".join(nuc))
+todas = []
+for n, a, b in blocos:
+    if n in trocar:
+        t = "\n".join(linhas[doc[n]:b + 1]) + "\n"
+        grava(os.path.join("f", n + ".sh"), t)
+        todas.append(t)
+grava("todas.sh", "".join(todas))
+grava("nomes", "".join(n + "\n" for n in stub))
+PY
+  # 2) referência: o tt inteiro, carregado só até antes do verbo
+  filtro='^declare -[-a-zA-Z]* (BASH[A-Z_0-9]*|EPOCH[A-Z]*|S?RANDOM|SECONDS|LINENO|_|FUNCNAME|PIPESTATUS|BASHPID|COLUMNS|LINES|HISTCMD|SHLVL|PPID|_TT_RAPIDO|TT_COMPLETO)='
+  ref=$(cd / && TT_COMPLETO=1 TT_SO_CARREGAR=1 bash -c '
+    source "$0" </dev/null >/dev/null 2>&1
+    while IFS= read -r _tt_n; do declare -f "$_tt_n"; done <"$1/nomes" >"$1/.ref-corpos"; unset _tt_n
+    declare -F | grep -vx "declare -f _tt_f" >"$1/.ref-nomes"; declare -p >"$1/.ref-vars"; echo pronto' "$orig" "$tmp" 2>/dev/null)
+  [[ $ref == pronto ]] || { echo "o tt inteiro não carregou" >&2; rm -rf "$tmp"; return 1; }
+  # 3) cada corpo, lido sozinho (só define a função: nada roda), dá a mesma definição
+  bash -c 'for f in "$0"/f/*.sh; do source "$f" || exit 1; done; while IFS= read -r n; do declare -f "$n"; done <"$0/nomes"' "$tmp" \
+    >"$tmp/.corpos" 2>/dev/null && cmp -s "$tmp/.ref-corpos" "$tmp/.corpos" ||
+    { echo "um corpo não confere com o tt inteiro: $(diff "$tmp/.ref-corpos" "$tmp/.corpos" 2>/dev/null | head -2 | tr '\n' ' ')" >&2; rm -rf "$tmp"; return 1; }
+  # 4) o núcleo carregado dá as mesmas funções e as mesmas variáveis de topo
+  rap=$(cd / && TT_SO_CARREGAR=1 _TT_RAPIDO=$tmp bash -c '
+    source "$_TT_RAPIDO/nucleo.sh" </dev/null >/dev/null 2>&1
+    declare -F | grep -vx "declare -f _tt_f" >"$_TT_RAPIDO/.rap-nomes"; declare -p >"$_TT_RAPIDO/.rap-vars"; echo pronto' "$orig" 2>/dev/null)
+  [[ $rap == pronto ]] || { echo "o núcleo não carregou" >&2; rm -rf "$tmp"; return 1; }
+  cmp -s "$tmp/.ref-nomes" "$tmp/.rap-nomes" || { echo "funções diferentes no núcleo" >&2; rm -rf "$tmp"; return 1; }
+  cmp1=$(grep -Ev "$filtro" "$tmp/.ref-vars"); cmp2=$(grep -Ev "$filtro" "$tmp/.rap-vars")
+  [[ $cmp1 == "$cmp2" ]] || { echo "variáveis de topo diferentes: $(diff <(echo "$cmp1") <(echo "$cmp2") | head -3 | tr '\n' ' ')" >&2; rm -rf "$tmp"; return 1; }
+  # 5) instala de uma vez (o núcleo fica mais novo que o tt: é o que o desvio do topo confere)
+  n=$(wc -l <"$tmp/nomes")
+  rm -f "$tmp"/.ref-* "$tmp"/.rap-* "$tmp/.corpos"
+  printf 'funcoes=%s\ngerado=%s\n' "$n" "$(date +%s)" >"$tmp/estado"
+  rm -rf "$pasta/rapido.velho"; [[ -d $pasta/rapido ]] && mv "$pasta/rapido" "$pasta/rapido.velho"
+  mv "$tmp" "$pasta/rapido" || { rm -rf "$tmp"; return 1; }
+  rm -rf "$pasta/rapido.velho"; touch "$pasta/rapido/nucleo.sh"
+  echo "partida rápida: $n funções carregadas sob demanda"
+}
+# tt --rapido [status|gerar|remover]
+rapido_cmd() {
+  local d=$DIR_TT/rapido n=0 k1 k2
+  case ${1:-status} in
+    status)
+      if [[ -r $d/nucleo.sh && ! $DIR_TT/tt -nt $d/nucleo.sh ]]; then
+        n=$(sed -n 's/^funcoes=//p' "$d/estado" 2>/dev/null)
+        k1=$(($(wc -c <"$d/nucleo.sh") / 1024)); k2=$(($(wc -c <"$DIR_TT/tt") / 1024))
+        printf '⚡ partida rápida: ligada — o tt lê um núcleo de %s KB (o arquivo inteiro tem %s KB) e %s funções na 1ª chamada%s\n' \
+          "$k1" "$k2" "${n:-?}" "$([[ -n ${TT_COMPLETO:-} ]] && echo ' (TT_COMPLETO=1: desligada neste ambiente)')"
+      else
+        echo '⚡ partida rápida: desligada (sem núcleo gerado para esta instalação; tt --rapido gerar)'
+      fi ;;
+    gerar) gerar_rapido "$DIR_TT" ;;
+    remover) rm -rf "$d" && echo '⚡ partida rápida: removida (o tt lê o arquivo inteiro; tt --rapido gerar religa)' ;;
+    *) echo 'uso: tt --rapido [status|gerar|remover]' >&2; return 2 ;;
+  esac
+}
 instalar_aqui() {
   local origem nome=${TT_NOME:-} pidf pid
   origem=${EU%/*}
@@ -1940,7 +2268,10 @@ instalar_aqui() {
     mesmo=1; local f
     for f in "${ARQUIVOS_FONTE[@]}"; do cmp -s "$origem/$f" "$DIR_TT/$f" || { mesmo=""; break; }; done
   fi
-  if [[ -n $mesmo ]]; then garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (já instalada)"; return 0; fi
+  if [[ -n $mesmo ]]; then
+    [[ -r $DIR_TT/rapido/nucleo.sh && ! $DIR_TT/tt -nt $DIR_TT/rapido/nucleo.sh ]] || gerar_rapido "$DIR_TT" >/dev/null 2>&1
+    garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (já instalada)"; return 0
+  fi
   if [[ $origem != "$DIR_TT" ]]; then
     completar_pacote "$origem"
     pacote_valido "$origem" || return 1
@@ -1948,6 +2279,7 @@ instalar_aqui() {
     rm -rf "$DIR_TT.novo" "$DIR_TT.velho"
     mkdir -p "$(dirname "$DIR_TT")"
     cp -a "$origem" "$DIR_TT.novo" || return 1
+    gerar_rapido "$DIR_TT.novo" >/dev/null 2>&1 # sem núcleo conferido, o tt novo roda inteiro (como sempre)
     [[ -d $DIR_TT ]] && migrar_dados_do_pacote "$DIR_TT" && mv "$DIR_TT" "$DIR_TT.velho"
     mv "$DIR_TT.novo" "$DIR_TT"
     rm -rf "$DIR_TT.velho"
@@ -2064,27 +2396,163 @@ instalar_ferramentas_agentes() { # casa pasta-do-pacote-vista-de-lá agente...
   return 0
 }
 
-# Regras do tt (agentes-regras-tt.md) nas instruções GLOBAIS de cada IA, num bloco gerenciado entre
-# marcadores — o que está fora do bloco nunca é tocado, o bloco só é regravado se mudou. Claude:
-# CLAUDE.md da pasta do agente (~/.claude e cada perfil de ia-conta, que não compartilham o CLAUDE.md);
-# Codex: AGENTS.md; Kiro: steering/tt-terminais.md (arquivo todo do tt). Só entra em agente que já existe.
+# AGENTS.md único: $casa/.agents/AGENTS.md é a fonte das instruções globais de TODAS as IAs — o que o
+# usuário escreve e, entre marcadores, o bloco de regras do tt (agentes-regras-tt.md). Normalizador
+# sempre reforçado (instalação e cada volta do vigia), sem exceção:
+#  - Claude (~/.claude e cada perfil do ia-conta) e Codex: CLAUDE.md / AGENTS.md são link RELATIVO para a
+#    fonte (vale também visto de dentro do proot). O Claude deduplica pelo arquivo real: o perfil, que
+#    enxerga ~/.claude/CLAUDE.md como CLAUDE.md de projeto do $HOME, não o carrega duas vezes.
+#  - Kiro: cópia gerada em steering/agentes.md (inclusion: always; steering por link é ignorado).
+#  - Texto escrito à mão num desses arquivos, fora do bloco do tt, vai para a fonte (só os parágrafos
+#    novos: nem na fonte nem no retrato dela da volta anterior, para o que o usuário apagou não voltar
+#    de uma cópia velha; cópia em ~/.local/state/tt/agentes-backup) e o link ou a cópia voltam.
+#  - Claude: AGENTS.md de projeto lido mesmo onde há CLAUDE.md (instructionFiles=claude-md-and-agents-md).
+#  - Travas do Claude (<perfil>.lock) paradas há mais de 10 min são apagadas (viva, é renovada a cada
+#    poucos segundos); só pasta com nome de perfil recebe instruções. Só entra em IA que já existe.
 # Chamado pela instalação (toda atualização) e pelo vigia (a cada volta de reforço): ver reforcar_agentes.
 instalar_regras_agentes() { # casa agente...
-  local casa=$1 ag fonte=$DIR_TT/agentes-regras-tt.md alvo
+  local casa=$1 ag p fonte=$DIR_TT/agentes-regras-tt.md canon real
   shift
   [[ -f $fonte ]] || return 0
+  canon=$casa/.agents/AGENTS.md
+  mkdir -p "$casa/.agents" 2>/dev/null || return 0
+  [[ -e $canon || -L $canon ]] || : >"$canon"
+  real=$(readlink -f "$canon") || return 0 # fonte que já é link (dotfiles): grava no destino
+  for p in "$casa/.local/share/claude-contas"/*.lock; do
+    [[ -d $p && -n $(find "$p" -maxdepth 0 -mmin +10 2>/dev/null) ]] && rm -rf "$p"
+  done
   for ag in "$@"; do
     [[ -d $ag ]] || continue
     case $ag in
-      */.kiro) mkdir -p "$ag/steering"; regras_bloco_gravar "$ag/steering/tt-terminais.md" "$fonte" $'---\ninclusion: always\n---\n' ;;
-      */.codex) regras_bloco_gravar "$ag/AGENTS.md" "$fonte" ;;
-      *) regras_bloco_gravar "$ag/CLAUDE.md" "$fonte" ;;
+      */.kiro) ;;
+      */.codex)
+        agentes_ligar "$canon" "$real" "$ag/AGENTS.md" "$casa"
+        # O override esconderia a fonte do Codex: o texto dele vai para a fonte.
+        [[ -f $ag/AGENTS.override.md ]] && agentes_absorver "$real" "$ag/AGENTS.override.md" "$casa" && rm -f "$ag/AGENTS.override.md" ;;
+      *)
+        agentes_ligar "$canon" "$real" "$ag/CLAUDE.md" "$casa"
+        agentes_claude_instrucoes "$ag/settings.json" ;;
     esac
   done
-  for alvo in "$casa/.local/share/claude-contas"/*/; do
-    [[ -d $alvo ]] && regras_bloco_gravar "${alvo%/}/CLAUDE.md" "$fonte"
+  for p in "$casa/.local/share/claude-contas"/*/; do
+    p=${p%/}
+    [[ ${p##*/} =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || continue # travas e pastas auxiliares não são perfis
+    agentes_ligar "$canon" "$real" "$p/CLAUDE.md" "$casa"
+    # Perfil sem settings.json ganharia um próprio e deixaria de compartilhar o de ~/.claude.
+    [[ -e $p/settings.json ]] && agentes_claude_instrucoes "$p/settings.json"
   done
+  regras_bloco_gravar "$real" "$fonte"
+  for ag in "$@"; do
+    [[ $ag == */.kiro && -d $ag ]] && agentes_kiro "$real" "$ag/steering" "$casa"
+  done
+  p=$casa/.local/state/tt/agentes-fonte.anterior
+  cmp -s "$real" "$p" || { mkdir -p "${p%/*}" && cp "$real" "$p"; }
   return 0
+}
+caminho_relativo() { # de-pasta para — caminhos absolutos, sem . nem ..
+  local base=${1%/} alvo=$2 sobe=
+  while [[ -n $base && $alvo != "$base"/* ]]; do base=${base%/*}; sobe+=../; done
+  printf '%s%s' "$sobe" "${alvo#"$base"/}"
+}
+agentes_ligar() { # fonte fonte-real arquivo casa — o arquivo vira link relativo para a fonte
+  local canon=$1 real=$2 arq=$3 casa=$4 dir=${3%/*} tmp
+  [[ -d $arq && ! -L $arq ]] && return 0
+  if [[ -L $arq && $(readlink -f "$arq") == "$real" ]]; then return 0; fi
+  [[ -f $arq ]] && agentes_absorver "$real" "$arq" "$casa" "$dir"
+  tmp=$arq.tt-$$
+  ln -s "$(caminho_relativo "$dir" "$canon")" "$tmp" 2>/dev/null || return 0
+  [[ -L $arq ]] && rm -f "$arq" # link para pasta: o mv entraria nela
+  mv -f "$tmp" "$arq"
+}
+# Leva para a fonte os parágrafos de fora do bloco do tt que ela ainda não tem (antes do bloco). Um
+# "@caminho" relativo (import do Claude) passa a apontar para a pasta de onde veio.
+agentes_absorver() { # fonte-real arquivo casa [pasta-dos-imports] [front-matter: 1]
+  local real=$1 arq=$2 casa=$3 base=${4:-} fm=${5:-} novos tmp bkp
+  [[ -n $base && $base == "$casa"/* ]] && base="~/${base#"$casa"/}"
+  novos=$(awk -v base="$base" -v fm="$fm" '
+    NR == 1 && fm && /^---[ \t]*$/ { emfm = 1; next }
+    emfm { if (/^---[ \t]*$/) emfm = 0; next }
+    /<!-- tt-managed:regras-tt BEGIN/ { pula = 1; next }
+    pula { if (/<!-- tt-managed:regras-tt END -->/) pula = 0; next }
+    /^<!-- tt-gerado:agentes / { next }
+    base != "" && /^@[^\/~[:space:]][^[:space:]]*$/ { sub(/^@/, "@" base "/") }
+    { print }' "$arq" | awk -v fonte="$real" -v antes="$casa/.local/state/tt/agentes-fonte.anterior" '
+    function limpa(s) { sub(/[ \t\r]+$/, "", s); return s }
+    function fecha() { if (p != "" && !(p in tem)) { out = out (out == "" ? "" : "\n\n") p; tem[p] = 1 } p = "" }
+    function conhece(arq,  l, q) {
+      while ((getline l < arq) > 0) { l = limpa(l); if (l == "") { if (q != "") tem[q] = 1; q = "" } else q = (q == "" ? l : q "\n" l) }
+      if (q != "") tem[q] = 1
+    }
+    BEGIN { conhece(fonte); conhece(antes) }
+    { l = limpa($0); if (l == "") fecha(); else p = (p == "" ? l : p "\n" l) }
+    END { fecha(); printf "%s", out }')
+  [[ -n $novos ]] || return 0
+  bkp=$casa/.local/state/tt/agentes-backup
+  mkdir -p "$bkp" && cp -L "$arq" "$bkp/$(printf '%s' "${arq#"$casa"/}" | tr / %).$(date +%Y%m%dT%H%M%S)" 2>/dev/null
+  tmp=$(mktemp "$real.XXXXXX") || return 1
+  NOVOS=$novos awk '
+    /<!-- tt-managed:regras-tt BEGIN/ && !feito { print ENVIRON["NOVOS"]; print ""; feito = 1 }
+    { print }
+    END { if (!feito) { if (NR) print ""; print ENVIRON["NOVOS"] } }' "$real" >"$tmp"
+  chmod --reference="$real" "$tmp" 2>/dev/null || chmod 644 "$tmp"
+  mv -f "$tmp" "$real"
+}
+# Kiro: steering/agentes.md é cópia gerada da fonte; a soma no cabeçalho denuncia edição feita na cópia,
+# que então vai para a fonte antes de regravar. O steering/tt-terminais.md antigo entrega o texto e sai.
+agentes_kiro() { # fonte-real pasta-steering casa
+  local real=$1 st=$2 casa=$3 arq=$2/agentes.md soma tmp
+  mkdir -p "$st" 2>/dev/null || return 0
+  if [[ -f $st/tt-terminais.md ]]; then agentes_absorver "$real" "$st/tt-terminais.md" "$casa" "" 1 && rm -f "$st/tt-terminais.md"; fi
+  if [[ -f $arq ]]; then
+    soma=$(sed -n 's/^<!-- tt-gerado:agentes .* soma:\([0-9-]*\) -->$/\1/p' "$arq" | head -n 1)
+    [[ $soma == "$(sed '1,/^<!-- tt-gerado:agentes /d' "$arq" | cksum | tr ' ' -)" ]] || agentes_absorver "$real" "$arq" "$casa" "" 1
+  fi
+  tmp=$(mktemp "$arq.XXXXXX") || return 0
+  printf -- '---\ninclusion: always\n---\n<!-- tt-gerado:agentes cópia de ~/.agents/AGENTS.md: edite lá, o tt regrava esta · soma:%s -->\n' \
+    "$(cksum <"$real" | tr ' ' -)" >"$tmp"
+  cat "$real" >>"$tmp"
+  if cmp -s "$tmp" "$arq"; then rm -f "$tmp"; else chmod 644 "$tmp"; mv -f "$tmp" "$arq"; fi
+}
+# Claude: AGENTS.md de projeto entra também onde há CLAUDE.md. Os dois nomes do plugin embutido (o antigo
+# vale até a 2.1.284). JSON inválido fica como está.
+agentes_claude_instrucoes() { # settings.json
+  local arq
+  arq=$(readlink -f "$1" 2>/dev/null) || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 - "$arq" <<'PY' 2>/dev/null || true
+import json, os, sys, tempfile
+arq = sys.argv[1]
+try:
+    with open(arq, encoding="utf-8") as f:
+        dados = json.load(f)
+except FileNotFoundError:
+    dados = {}
+if not isinstance(dados, dict):
+    sys.exit(0)
+antes = json.dumps(dados, sort_keys=True)
+pc = dados.setdefault("pluginConfigs", {})
+if not isinstance(pc, dict):
+    sys.exit(0)
+for nome in ("cc-plugin-agents-md@builtin", "agents-md@builtin"):
+    ent = pc.setdefault(nome, {})
+    if not isinstance(ent, dict):
+        ent = pc[nome] = {}
+    op = ent.setdefault("options", {})
+    if not isinstance(op, dict):
+        op = ent["options"] = {}
+    op["instructionFiles"] = "claude-md-and-agents-md"
+if json.dumps(dados, sort_keys=True) == antes:
+    sys.exit(0)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(arq), prefix=".settings.")
+with os.fdopen(fd, "w", encoding="utf-8") as f:
+    json.dump(dados, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+try:
+    os.chmod(tmp, os.stat(arq).st_mode & 0o777)
+except FileNotFoundError:
+    os.chmod(tmp, 0o600)
+os.replace(tmp, arq)
+PY
 }
 regras_bloco_gravar() { # arquivo fonte [prefixo-se-criar]
   local dest=$1 fonte=$2 pref=${3:-} ini='<!-- tt-managed:regras-tt BEGIN (o tt reescreve este bloco; edite fora dele) -->' fim='<!-- tt-managed:regras-tt END -->' tmp
@@ -2274,23 +2742,26 @@ repo_em_dia() {
 # tt --sincronizar [rótulo…]: instala a versão daqui (do repositório, se houver) nesta máquina e
 # nas cadastradas. Não rebaixa: pula quem já tem versão mais nova.
 sincronizar() {
-  local dest rot alvo n_local n_rem
+  local n_local
   local -a alvos=("$@")
   repo_em_dia || return 1
   echo "Versão a instalar: $(pacote | tar -xOf - VERSAO)"
   [[ -e $REPO_TT/.git ]] && { printf '  %-10s ' "$MAQUINA"; instalar_em . | sed 's/^[^:]*: //'; }
   n_local=$(pacote | tar -xOf - VERSAO | awk '{ print $1 + 0 }')
-  while read -r dest rot; do
-    if ((${#alvos[@]})); then
-      for alvo in "${alvos[@]}"; do [[ $alvo == "$rot" ]] && break; alvo=""; done
-      [[ -n $alvo ]] || continue
-    fi
-    printf '  %-10s ' "$rot"
-    n_rem=$(timeout 8 ssh "${SSH_OPC[@]}" "$dest" "cat ~/.local/share/tt/VERSAO 2>/dev/null || echo 0" </dev/null 2>/dev/null | awk '{ print $1 + 0 }')
-    if [[ -z $n_rem ]]; then echo "✗ sem resposta"; continue; fi
-    if ((n_rem > n_local)); then echo "· já tem versão mais nova ($n_rem), não mexi"; continue; fi
-    instalar_em "$dest" "$rot" 2>&1 | tail -1 | sed 's/^[^:]*: //'
-  done < <(maquinas)
+  # As outras máquinas recebem ao mesmo tempo; cada linha sai na ordem delas, assim que fica pronta.
+  nas_maquinas sincronizar_em
+}
+sincronizar_em() { # dest rótulo (alvos e n_local: os de sincronizar)
+  local dest=$1 rot=$2 alvo n_rem
+  if ((${#alvos[@]})); then
+    for alvo in "${alvos[@]}"; do [[ $alvo == "$rot" ]] && break; alvo=""; done
+    [[ -n $alvo ]] || return 0
+  fi
+  printf '  %-10s ' "$rot"
+  n_rem=$(timeout 8 ssh "${SSH_OPC[@]}" "$dest" "cat ~/.local/share/tt/VERSAO 2>/dev/null || echo 0" </dev/null 2>/dev/null | awk '{ print $1 + 0 }')
+  if [[ -z $n_rem ]]; then echo "✗ sem resposta"; return 0; fi
+  if ((n_rem > n_local)); then echo "· já tem versão mais nova ($n_rem), não mexi"; return 0; fi
+  instalar_em "$dest" "$rot" 2>&1 | tail -1 | sed 's/^[^:]*: //'
 }
 
 # tt --cadastrar [host [usuario [rótulo]]]: testa o acesso, instala o tt lá e cadastra as duas
@@ -2929,7 +3400,14 @@ listar_tudo_() {
     i=$((i + 1)); echo "$rot" >>"$tmp/rotulos"
     listar_remoto "$dest" "$rot" >"$tmp/$i" &
   done < <(maquinas)
-  [[ -z $filtro || $filtro == "$MAQUINA" ]] && listar | rotular . "$MAQUINA"
+  if [[ -z $filtro || $filtro == "$MAQUINA" ]]; then
+    # A lista local também fica guardada, com a assinatura de quando foi feita: a central abre na hora
+    # com ela (lista_rapida_central), enquanto esta recarga traz a de agora.
+    local c ass; c=$(cache_lista "$MAQUINA"); ass=$(assinatura_local)
+    listar | rotular . "$MAQUINA" | tee "$c.$$"
+    if [[ -s $c.$$ ]]; then printf '%s\n' "$ass" >"$c.assinatura.$$" && mv -f "$c.assinatura.$$" "$c.assinatura" && mv -f "$c.$$" "$c"
+    else rm -f "$c.$$"; fi
+  fi
   wait
   for ((n = 1; n <= i; n++)); do
     cat "$tmp/$n"
@@ -2939,6 +3417,12 @@ listar_tudo_() {
   rm -rf "$tmp"
 }
 cache_lista() { echo "$RT/tt-lista-$UID-$1"; }
+# Quais sessões e painéis existem agora (sem os flutuantes — janelas do tt por cima — nem as ocultas), numa ida
+# ao tmux: a lista local guardada só serve enquanto isto não muda.
+assinatura_local() {
+  tmux list-panes -a -F $'#{pane_floating_flag}\x1f#{session_name}\x1f#{pane_id}' 2>/dev/null |
+    awk 'BEGIN { FS = "\037" } $1 != 1 && $2 !~ /^_/ { print $2 FS $3 }'
+}
 
 # Mestre de obras (fase 1, só recomendar): `tt --listar-tudo --tsv|--para-ia [-n N]` descreve as
 # sessões DESTA máquina para um chefe IA decidir o que podar. Nunca fecha nada. Contrato fechado no
@@ -2950,7 +3434,7 @@ cache_lista() { echo "$RT/tt-lista-$UID-$1"; }
 # Sem aritmética de bytes no awk: gawk em UTF-8 conta caracteres, mawk conta bytes.
 SESSOES_IA_CAB='maquina	sessao	anexada	ocioso_s	janelas	cmd_1oplano	agente	fixada	papel	rascunho	titulo	ultima_linha'
 sessoes_ia_agentes() {
-  ps -e -o pid=,ppid=,comm= 2>/dev/null | awk -v raiz="$1" '
+  { if [[ -n ${PS_SIA:-} ]]; then echo "$PS_SIA"; else ps -e -o pid=,ppid=,comm= 2>/dev/null; fi; } | awk -v raiz="$1" '
     { pai[$1]=$2; nome[$1]=$3 }
     END { for (p in pai) { q=p; while (q in pai && q!=raiz && q>1) q=pai[q]
             if (q==raiz && p!=raiz && nome[p] ~ /^(claude|codex|kiro|kiro-cli|aerc|node|ssh|vim|nvim|python3?)$/) v[nome[p]]=1 }
@@ -2983,23 +3467,49 @@ sessoes_ia_rascunho() {
 }
 sessoes_ia_limpa() { tr '\t\r\n' '   ' | sed 's/[[:space:]]\{1,\}/ /g; s/^ //; s/ $//' | cut -c1-160; }
 sessoes_ia_linhas() {
-  local maq agora fix s at act jan marca alvo cmd ag tit papel ult ras f
+  local maq agora fix s at act jan marca cmd pid tit f papel i tmp linha bp bc bd bi bo bt
+  local -a L=() arqs=()
+  local -A PAPEIS=() B_P=() B_C=() B_I=() B_T=()
   maq=${TT_MACHINE:-$MAQUINA}; maq=${maq//_/-}
   agora=$(date +%s)
   fix=$(fixadas | awk -F'\t' -v m="$MAQUINA" '$1 == m { print $2 }')
-  while IFS=$'\t' read -r s at act jan marca; do
+  # Uma ida ao tmux para as sessões (com o painel ativo de cada uma) e outra para os papéis das janelas;
+  # as telas são lidas em paralelo (sessoes_ia_linha). Antes eram 6 idas por sessão, em fila.
+  mapfile -t L < <(tmux list-sessions -F $'#{session_name}\x1f#{session_attached}\x1f#{session_activity}\x1f#{session_windows}\x1f#{@tt_fixada}\x1f#{pane_current_command}\x1f#{pane_pid}\x1f#{pane_title}' 2>/dev/null)
+  # O painel de trabalho de cada sessão (painel_base): com o e-mail ou um menu do tt por cima, a tela, o
+  # programa e o rascunho são os da sessão, não os da janela do tt.
+  while IFS=$'\x1f' read -r s bp bc bd bi bo bt; do B_P[$s]=$bp B_C[$s]=$bc B_I[$s]=$bi B_T[$s]=$bt; done < <(paineis_base)
+  while IFS=$'\x1f' read -r s papel; do
+    [[ -n $papel ]] && PAPEIS[$s]+="$papel"$'\n'
+  done < <(tmux list-windows -a -F $'#{session_name}\x1f#{@tt_papel}' 2>/dev/null)
+  ((${#L[@]})) || return 0
+  PS_SIA=$(ps -e -o pid=,ppid=,comm= 2>/dev/null)
+  tmp=$(mktemp -d "$RT/tt-sessoes-ia.XXXXXX") || return 0
+  i=0
+  for linha in "${L[@]}"; do
+    IFS=$'\x1f' read -r s at act jan marca cmd pid tit <<<"$linha"
     [[ $s == _* ]] && continue # sessões ocultas ("_nome": e-mail aberto, infraestrutura): nunca entram na poda
-    alvo="=$s:"
-    cmd=$(tmux display-message -p -t "$alvo" '#{pane_current_command}' 2>/dev/null | sessoes_ia_limpa)
-    ag=$(sessoes_ia_agentes "$(tmux display-message -p -t "$alvo" '#{pane_pid}' 2>/dev/null)")
-    tit=$(tmux display-message -p -t "$alvo" '#{pane_title}' 2>/dev/null | sessoes_ia_limpa)
-    papel=$(tmux list-windows -t "$alvo" -F '#{@tt_papel}' 2>/dev/null | grep -v '^$' | sort -u | paste -sd, -)
-    ult=$(tmux capture-pane -p -t "$alvo" 2>/dev/null | sessoes_ia_conteudo | sessoes_ia_limpa)
-    ras=$(tmux capture-pane -p -e -t "$alvo" 2>/dev/null | sessoes_ia_rascunho)
+    [[ -n ${B_P[$s]:-} ]] && cmd=${B_C[$s]} pid=${B_I[$s]} tit=${B_T[$s]}
     f=0; [[ $marca == 1 ]] || grep -qxF -- "$s" <<<"$fix" && f=1
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$maq" "$s" "$at" "$((agora - ${act:-$agora}))" "$jan" \
-      "${cmd:--}" "${ag:--}" "$f" "${papel:--}" "${ras:--}" "${tit:--}" "${ult:--}"
-  done < <(tmux list-sessions -F '#{session_name}'$'\t''#{session_attached}'$'\t''#{session_activity}'$'\t''#{session_windows}'$'\t''#{@tt_fixada}' 2>/dev/null)
+    papel=""; [[ -n ${PAPEIS[$s]:-} ]] && papel=$(printf '%s' "${PAPEIS[$s]}" | sort -u | paste -sd, -)
+    arqs+=("$tmp/$i")
+    par sessoes_ia_linha "$tmp/$i" "$maq" "$s" "$at" "$((agora - ${act:-$agora}))" "$jan" "$f" "$papel" "$cmd" "$pid" "$tit" "${B_P[$s]:-=$s:}"
+    i=$((i + 1))
+  done
+  par_fim
+  ((${#arqs[@]})) && cat "${arqs[@]}" 2>/dev/null
+  rm -rf "$tmp"
+}
+# Uma linha do TSV do mestre de obras (roda em paralelo com as outras sessões).
+sessoes_ia_linha() { # arq máquina sessão anexada ocioso janelas fixada papel comando pid título painel
+  local alvo=${12:-=$3:} cmd ag tit ult ras
+  cmd=$(printf '%s\n' "$9" | sessoes_ia_limpa)
+  ag=$(sessoes_ia_agentes "${10}")
+  tit=$(printf '%s\n' "${11}" | sessoes_ia_limpa)
+  ult=$(tmux capture-pane -p -t "$alvo" 2>/dev/null | sessoes_ia_conteudo | sessoes_ia_limpa)
+  ras=$(tmux capture-pane -p -e -t "$alvo" 2>/dev/null | sessoes_ia_rascunho)
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$2" "$3" "$4" "$5" "$6" \
+    "${cmd:--}" "${ag:--}" "$7" "${8:--}" "${ras:--}" "${tit:--}" "${ult:--}" >"$1"
 }
 sessoes_ia() { # --tsv | --para-ia [-n N]
   local modo=$1 n=5 s
@@ -3009,10 +3519,10 @@ sessoes_ia() { # --tsv | --para-ia [-n N]
   echo "Regras: NUNCA fechar anexada>0, fixada=1, papel singleton (email etc.; 'atalho' não conta), nem agente!=- (processo vivo no pane), nem rascunho=1 (texto não enviado) sem ok do dono."
   echo "Só recomendar shell puro (bash/zsh/sh) ocioso >= 1800 s com prompt vazio. Em dúvida, manter."
   echo; echo '```tsv'; echo "$SESSOES_IA_CAB"; sessoes_ia_linhas; echo '```'; echo
-  while read -r s; do
+  while IFS=$'\x1f' read -r s p _; do
     echo "## $s (últimas $n linhas)"
-    echo '```'; tmux capture-pane -p -t "=$s:" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n "$n" | cut -c1-200; echo '```'
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+    echo '```'; tmux capture-pane -p -t "$p" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n "$n" | cut -c1-200; echo '```'
+  done < <(paineis_base) # o painel de trabalho de cada sessão, nunca a janela do tt por cima
 }
 
 # Abertura instantânea da central (lista_rapida, sem sufixo, é a do seletor): esta máquina fresca (~0,1 s) e as outras com a última lista
@@ -3023,7 +3533,14 @@ lista_rapida_central() {
    if [[ ${TT_COMX:-} == central && -z ${TT_SEM_X:-} ]]; then TT_SEM_X=1 lista_rapida_central | com_x; exit; fi
    local dest rot filtro c
    filtro=$(estado maquina); [[ $filtro == todas ]] && filtro=""
-   [[ -z $filtro || $filtro == "$MAQUINA" ]] && listar | rotular . "$MAQUINA"
+   if [[ -z $filtro || $filtro == "$MAQUINA" ]]; then
+     # A lista local guardada na última recarga, se as sessões e os painéis são os mesmos (uma ida ao tmux)
+     # e ela tem menos de 10 min: a central aparece na hora. Senão (ou na dúvida), a lista feita agora.
+     c=$(cache_lista "$MAQUINA")
+     if [[ -s $c && -s $c.assinatura && -n $(find "$c" -mmin -10 2>/dev/null) ]] &&
+       [[ $(assinatura_local) == "$(<"$c.assinatura")" ]]; then cat "$c"
+     else listar | rotular . "$MAQUINA"; fi
+   fi
    while read -r dest rot; do
      [[ -z $filtro || $filtro == "$rot" ]] || continue
      c=$(cache_lista "$rot"); [[ -s $c ]] && cat "$c"
@@ -3671,26 +4188,33 @@ ir_ponte() {
 
 # Lista curta desta máquina: só as sessões, "nome<TAB>texto", mais recentes primeiro.
 listar_leve() {
-  local ativ s anex cmd ponte uso
-  tmux list-sessions -F '#{window_activity}|#{session_name}|#{session_attached}|#{pane_current_command}|#{@ponte}' 2>/dev/null |
-    sort -t'|' -k1,1nr |
-    {
-      local -a vazias=()
-      while IFS='|' read -r ativ s anex cmd ponte; do
-        [[ -n $ponte || $s == _* ]] && continue
-        if sessao_vazia "$s"; then
-          ((anex > 0)) && uso='●' || uso='○'
-          vazias+=("$(printf '%s\t\033[90m%s %-24.24s %-7.7s %s\033[0m' "$s" "$uso" "$s" "$cmd" "$(idade "$ativ")")")
-          continue
-        fi
-        ((anex > 0)) && uso=$'\033[32m●\033[0m' || uso=$'\033[90m○\033[0m'
-        printf '%s\t%s \033[1m%-24.24s\033[0m \033[33m%-7.7s\033[0m \033[90m%s\033[0m\n' "$s" "$uso" "$s" "$cmd" "$(idade "$ativ")"
-      done
-      if ((${#vazias[@]})); then
-        linha_vazias "${#vazias[@]}" | cut -f1,2
-        printf '%s\n' "${vazias[@]}"
-      fi
-    }
+  local ativ s anex cmd ponte uso linha bp bc
+  local -a SESS=() cand=() vazias=()
+  local -A VAZIA=() B_CMD=()
+  while IFS=$'\x1f' read -r s bp bc _; do B_CMD[$s]=$bc; done < <(paineis_base) # o programa do painel de trabalho
+  mapfile -t SESS < <(tmux list-sessions -F '#{window_activity}|#{session_name}|#{session_attached}|#{pane_current_command}|#{@ponte}' 2>/dev/null |
+    sort -t'|' -k1,1nr)
+  for linha in "${SESS[@]}"; do
+    IFS='|' read -r ativ s anex cmd ponte <<<"$linha"
+    [[ -n $ponte || $s == _* ]] || cand+=("$s")
+  done
+  while IFS= read -r s; do [[ -n $s ]] && VAZIA[$s]=1; done < <(sessoes_vazias_de "${cand[@]}")
+  for linha in "${SESS[@]}"; do
+    IFS='|' read -r ativ s anex cmd ponte <<<"$linha"
+    [[ -n $ponte || $s == _* ]] && continue
+    [[ -n ${B_CMD[$s]+x} ]] && cmd=${B_CMD[$s]}
+    if [[ -n ${VAZIA[$s]:-} ]]; then
+      ((anex > 0)) && uso='●' || uso='○'
+      vazias+=("$(printf '%s\t\033[90m%s %-24.24s %-7.7s %s\033[0m' "$s" "$uso" "$s" "$cmd" "$(idade "$ativ")")")
+      continue
+    fi
+    ((anex > 0)) && uso=$'\033[32m●\033[0m' || uso=$'\033[90m○\033[0m'
+    printf '%s\t%s \033[1m%-24.24s\033[0m \033[33m%-7.7s\033[0m \033[90m%s\033[0m\n' "$s" "$uso" "$s" "$cmd" "$(idade "$ativ")"
+  done
+  if ((${#vazias[@]})); then
+    linha_vazias "${#vazias[@]}" | cut -f1,2
+    printf '%s\n' "${vazias[@]}"
+  fi
 }
 
 # Máquinas que entram no seletor, conforme o filtro da aba (rótulo ou "todas"): "destino rótulo".
@@ -5898,6 +6422,7 @@ fixada_chave() { printf '%s\t%s' "$1" "${3:-$2}" | sha256sum | cut -c1-12; }
 # A lista é a mesma em todas as máquinas: cada mudança é copiada para as cadastradas (em segundo
 # plano), e cada uma redesenha a barra. Assim as fixadas não somem ao entrar numa sessão de outra
 # máquina (a barra que aparece é a de lá).
+versao_fixadas_em() { printf '%s %s\n' "$1" "$(timeout 6 ssh "${SSH_OPC[@]}" "$1" 'cat ~/.config/tt/fixadas.v 2>/dev/null || echo 0' </dev/null 2>/dev/null)"; }
 propagar_fixadas() {
   local dest rot v
   v=$(versao_fixadas)
@@ -5952,12 +6477,11 @@ receber_fixadas() {
 # Puxa a lista mais nova entre as máquinas cadastradas (o vigia chama ao iniciar e a cada 5 min):
 # assim quem estava desligada na hora da mudança se atualiza sozinha ao voltar.
 puxar_fixadas() {
-  local dest rot v melhor_v melhor_d
+  local dest v melhor_v melhor_d
   melhor_v=$(versao_fixadas) melhor_d=""
-  while read -r dest rot; do
-    v=$(timeout 6 ssh "${SSH_OPC[@]}" "$dest" 'cat ~/.config/tt/fixadas.v 2>/dev/null || echo 0' </dev/null 2>/dev/null)
+  while read -r dest v; do
     [[ $v =~ ^[0-9]+$ ]] && ((v > melhor_v)) && { melhor_v=$v; melhor_d=$dest; }
-  done < <(maquinas)
+  done < <(nas_maquinas versao_fixadas_em)
   [[ -n $melhor_d ]] || return 0
   timeout 8 ssh "${SSH_OPC[@]}" "$melhor_d" 'cat ~/.config/tt/fixadas 2>/dev/null' </dev/null 2>/dev/null | receber_fixadas "$melhor_v"
 }
@@ -5999,12 +6523,7 @@ propagar_contas_ia() {
 }
 
 # Junta os cadastros das outras máquinas (o vigia chama ao iniciar e a cada 30 min).
-puxar_contas_ia() {
-  local dest rot
-  while read -r dest rot; do
-    timeout 6 ssh "${SSH_OPC[@]}" "$dest" 'cat ~/.config/tt/contas-ia 2>/dev/null' </dev/null 2>/dev/null
-  done < <(maquinas) | receber_contas_ia
-}
+puxar_contas_ia() { nas_maquinas cat_remoto '~/.config/tt/contas-ia' 6 | receber_contas_ia; }
 
 # --- Conversas das IAs entre as máquinas ------------------------------------------------------------
 #
@@ -6186,12 +6705,7 @@ demandas_propagar() {
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-demandas" <"$CONF_DEMANDAS" >/dev/null 2>&1 &)
   done < <(maquinas)
 }
-demandas_puxar() { # junta os cadastros das outras máquinas (o vigia chama com o das contas de IA)
-  local dest rot
-  while read -r dest rot; do
-    timeout 6 ssh "${SSH_OPC[@]}" "$dest" 'cat ~/.config/tt/demandas 2>/dev/null' </dev/null 2>/dev/null
-  done < <(maquinas) | demandas_receber
-}
+demandas_puxar() { nas_maquinas cat_remoto '~/.config/tt/demandas' 6 | demandas_receber; } # junta os cadastros das outras máquinas
 
 # Cria a tarefa PENDENTE de uma mensagem. Imprime o id; sai 1 sem criar se ela já existe (em qualquer
 # estado — aprovada, recusada ou ainda pendente) ou se a frase não tem título.
@@ -7664,12 +8178,7 @@ propagar_tarefas() {
 }
 
 # P2P: puxa de todas e funde (o vigia chama ao iniciar e a cada 5 min).
-puxar_tarefas() {
-  local dest rot
-  while read -r dest rot; do
-    timeout 6 ssh "${SSH_OPC[@]}" "$dest" 'cat ~/.config/tt/tarefas 2>/dev/null' </dev/null 2>/dev/null
-  done < <(maquinas) | receber_tarefas
-}
+puxar_tarefas() { nas_maquinas cat_remoto '~/.config/tt/tarefas' 6 | receber_tarefas; }
 
 # --- repositório git pessoal (tarefas_sync=git|ambos) ----------------------
 #
@@ -8209,12 +8718,8 @@ letreiro_propagar() {
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-letreiro" <<<"$pacote" >/dev/null 2>&1 &)
   done < <(maquinas)
 }
-letreiro_puxar() { # junta os pacotes das outras máquinas (o vigia chama junto com as demandas)
-  local dest rot
-  while read -r dest rot; do
-    timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --letreiro-pacote" </dev/null 2>/dev/null
-  done < <(maquinas) | letreiro_py receber >/dev/null 2>&1
-}
+letreiro_puxar() { nas_maquinas letreiro_pacote_em | letreiro_py receber >/dev/null 2>&1; } # junta os pacotes das outras máquinas
+letreiro_pacote_em() { timeout 8 ssh "${SSH_OPC[@]}" "$1" "$TT_REMOTO --letreiro-pacote" </dev/null 2>/dev/null; }
 
 # --- Comandos de linha (o painel usa exatamente os mesmos) ---
 letreiro_pausa() { read -rsn1 -p '(tecla continua)' _ || true; printf '\n'; }
@@ -9841,10 +10346,33 @@ tarefas_pai_de() { tarefas_meta_get "$(tarefas_meta_de "$1")" pai; }
 
 # Despachante único do painel: recebe o evento (tecla, clique ou botão) e a chave da linha em foco e
 # imprime as ações que o fzf deve executar. Lê a busca em FZF_QUERY.
+# Cada tecla do painel era três tt: a ação, a lista (reload) e o cabeçalho (transform-header), ~200 ms com a
+# partida rápida. A ação já tem o tt carregado: depois dela, gera a lista e o cabeçalho em arquivos e o fzf
+# só os lê (cat). Só quando o resultado é certo: busca vazia, e nada antes da recarga que mude o estado ou a
+# busca depois (execute de um editor ou prompt, put, change-query, transform…); senão, o comando de sempre.
 tarefa_acao() { # evento chave
+  local saida antes f
+  saida=$(tarefa_acao_ "$@")
+  if [[ $saida == *@@TT_RL@@* || $saida == *@@TT_HD@@* ]]; then
+    antes=${saida%%@@TT_[RH][LD]@@*}; antes=${antes//clear-query/} # com a busca vazia, limpá-la não muda nada
+    if [[ -z ${FZF_QUERY:-} && $antes != *@(execute|become|put\(|query|transform|reload|print|accept)* ]]; then
+      if [[ $saida == *@@TT_RL@@* ]] && f=$(mktemp "$RT/tt-menu.tarefas.XXXXXX"); then
+        tarefas_lista_fzf "" >"$f"; saida=${saida//@@TT_RL@@/"reload-sync(cat '$f'; rm -f '$f')"}
+      fi
+      if [[ $saida == *@@TT_HD@@* ]] && f=$(mktemp "$RT/tt-menu.tarefas.XXXXXX"); then
+        tarefas_cabecalho >"$f"; saida=${saida//@@TT_HD@@/"transform-header(cat '$f'; rm -f '$f')"}
+      fi
+    fi
+    saida=${saida//@@TT_RL@@/"reload-sync($EU --tarefas-lista {q})"}
+    saida=${saida//@@TT_HD@@/"transform-header($EU --tarefas-cabecalho)"}
+  fi
+  [[ -n $saida ]] && printf '%s\n' "$saida"
+  return 0
+}
+tarefa_acao_() { # evento chave (o despachante; tarefa_acao trata as recargas)
   local ev=$1 chave=${2:-} qy=${FZF_QUERY:-} modo id pai
   [[ -n ${TT_TAREFAS_LOG:-} ]] && printf '%s ev=%s chave=%s q=%s\n' "$(date +%T.%N)" "$ev" "$chave" "$qy" >>"$TT_TAREFAS_LOG"
-  local rl="reload-sync($EU --tarefas-lista {q})" hd="transform-header($EU --tarefas-cabecalho)"
+  local rl=@@TT_RL@@ hd=@@TT_HD@@
   modo=$(tarefas_ui_get modo); modo=${modo:-lista}
   id=$(tarefas_id_da_chave "$chave")
   # Teclas que também servem para digitar na busca: só agem com a busca vazia.
@@ -10922,12 +11450,32 @@ fixada_renomeada() {
 # Confere periodicamente os itens fixados. Uma máquina sem resposta é preservada (ela pode
 # estar desligada); uma sessão comprovadamente inexistente é desafixada. A marca @tt_fixado_nome
 # também permite acompanhar um rename feito diretamente pelo tmux ou por outro programa.
+# Resposta de outra máquina sobre uma fixada (para reconciliar_fixadas): grava "status<TAB>resposta".
+resolver_fixada_em() { # arq dest sessão id
+  local r st
+  r=$(timeout 6 ssh "${SSH_OPC[@]}" "$2" "$TT_REMOTO --resolver-fixada $(q "$3") $(q "$4")" </dev/null 2>/dev/null)
+  st=$?
+  printf '%s\t%s\n' "$st" "$r" >"$1"
+}
 reconciliar_fixadas() {
   [[ -f $CONF_FIX ]] || return 0
-  local tmp r s id d resposta st mudou=0 novo novo_id v0
+  local tmp r s id d resposta st mudou=0 novo novo_id v0 k dir
+  local -a FX=() DS=()
   v0=$(versao_fixadas)
   tmp=$(mktemp "$CONF_FIX.XXXXXX") || return 1
-  while IFS=$'\t' read -r r s id; do
+  dir=$(mktemp -d "$RT/tt-reconc.XXXXXX") || { rm -f "$tmp"; return 1; }
+  mapfile -t FX < <(fixadas)
+  # As outras máquinas respondem todas ao mesmo tempo (antes, uma fixada por vez): a conferência leva o
+  # tempo da mais lenta, e a janela em que a lista pode mudar no meio fica menor.
+  for k in "${!FX[@]}"; do
+    IFS=$'\t' read -r r s id <<<"${FX[k]}"
+    [[ -n $r && -n $s && $r != "$MAQUINA" ]] || continue
+    DS[k]=$(dest_de "$r")
+    [[ -n ${DS[k]} ]] && resolver_fixada_em "$dir/$k" "${DS[k]}" "$s" "$id" &
+  done
+  wait
+  for k in "${!FX[@]}"; do
+    IFS=$'\t' read -r r s id <<<"${FX[k]}"
     [[ -n $r && -n $s ]] || continue
     novo=$s
     if [[ $r == "$MAQUINA" ]]; then
@@ -10949,18 +11497,19 @@ reconciliar_fixadas() {
       # Sem sessão e sem marca correspondente: ela foi fechada.
       [[ -n $novo ]] || { mudou=1; continue; }
     else
-      d=$(dest_de "$r")
+      d=${DS[k]:-}
       # Rótulo desconhecido ou máquina inacessível não é evidência de fechamento.
       [[ -n $d ]] || { printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$tmp"; continue; }
-      resposta=$(timeout 6 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --resolver-fixada $(q "$s") $(q "$id")" </dev/null 2>/dev/null)
-      st=$?
-      ((st == 0)) || { printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$tmp"; continue; }
+      st=1 resposta=""
+      [[ -r $dir/$k ]] && { ler_arquivo resposta "$dir/$k"; st=${resposta%%$'\t'*}; resposta=${resposta#*$'\t'}; }
+      [[ $st == 0 ]] || { printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$tmp"; continue; }
       novo=${resposta%%$'\t'*}; novo_id=${resposta#*$'\t'}
       [[ -n $novo ]] || { mudou=1; continue; }
     fi
     [[ $novo == "$s" && $novo_id == "$id" ]] || mudou=1
     printf '%s\t%s\t%s\n' "$r" "$novo" "$novo_id" >>"$tmp"
-  done < <(fixadas)
+  done
+  rm -rf "$dir"
   # A conferência consulta outras máquinas e leva segundos. Se a lista mudou nesse meio-tempo
   # (fixou/desafixou aqui, ou chegou uma mais nova), esta conferência ficou velha: descarta e a
   # próxima volta do vigia confere de novo. Nunca grava por cima de uma mudança mais recente.
@@ -11211,8 +11760,18 @@ versao_barra() { printf '#[fg=#6c7086]%s ' "$(versao_humana)"; }
 # clientes (o miolo da faixa nem passa por aqui — é o letreiro-tt.py, ver barra_notifs_fmt).
 atualizar_barras() {
   tmux list-sessions >/dev/null 2>&1 || return 0
-  local nome valor
-  for nome in fixadas atalhos transf versao tarefas email data hora notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0; do
+  local nome valor fmt="" i
+  local -a nomes=(fixadas atalhos transf versao tarefas email data hora notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0) atuais=()
+  # Os valores atuais numa ida só ao tmux (eram 16 show, um por opção, e o servidor do tmux atende um
+  # pedido por vez); #{@x} devolve o valor literal, sem expandir o que está dentro. Se a leitura vier
+  # incompleta, volta ao show por opção: na dúvida, nunca regrava (cada set redesenha todos os clientes).
+  for nome in "${nomes[@]}"; do fmt+="#{@barra_$nome}"$'\x1f'; done
+  IFS=$'\x1f' read -r -a atuais <<<"$(tmux display-message -p "${fmt}fim" 2>/dev/null)"
+  if ((${#atuais[@]} != ${#nomes[@]} + 1)) || [[ ${atuais[-1]} != fim ]]; then
+    atuais=(); for nome in "${nomes[@]}"; do atuais+=("$(tmux show -gqv "@barra_$nome")"); done
+  fi
+  for i in "${!nomes[@]}"; do
+    nome=${nomes[i]}
     case $nome in
       fixadas) valor=$(barra_fixadas_fmt) ;;
       atalhos) valor=$(atalhos_barra) ;;
@@ -11244,7 +11803,7 @@ atualizar_barras() {
         if faixa_notif_ativa; then valor=""
         else valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{?#{e|<:#{client_width},60},,#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},90},,#{E:@barra_data}}#{E:@barra_hora} #[norange]#[default]}"; fi ;;
     esac
-    [[ $valor == "$(tmux show -gqv "@barra_$nome")" ]] && continue
+    [[ $valor == "${atuais[i]}" ]] && continue
     tmux set -g "@barra_$nome" "$valor"
   done
   local st; st=$(barra_status_linhas)
@@ -14935,6 +15494,9 @@ sair_menu() {
   limpar_estado
 }
 
+# Fim das definições: daqui para baixo roda o verbo. gerar_rapido carrega o tt só até aqui (TT_SO_CARREGAR=1).
+[[ -n ${TT_SO_CARREGAR:-} ]] && { return 0 2>/dev/null || exit 0; }
+
 # Diagnóstico de lentidão ao trocar de sessão: com o arquivo ~/.config/tt/trace presente, os
 # comandos de clique e troca gravam cada linha executada, com hora, em ~/.cache/tt-trace.log
 # (zera acima de 5 MB). Para ligar: touch ~/.config/tt/trace; para desligar: rm.
@@ -15403,6 +15965,7 @@ case "${1:-}" in
   --nomear-todas) nomear_todas; exit ;;
   --nomear-todas-local) nomear_todas_local; exit ;;
   --vigia) vigiar; exit ;;
+  --rapido) rapido_cmd "${2:-status}"; exit $? ;;
   --janela) exec "$TT_TMUX_BIN" new-session -s "$(proximo_nome)" ;;
   -h | --help | ajuda) ajuda; exit 0 ;;
   # Opção que não existe: antes abria a central em silêncio (um erro de digitação parecia funcionar).

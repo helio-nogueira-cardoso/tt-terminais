@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (painel/tela sob carga oscila: roda sem outros testes disputando a máquina)
 # Catálogo de fábrica do letreiro: ~150 fontes validadas na rede real, que vêm DESLIGADAS no pacote
 # (letreiro-catalogo.json) e que o painel liga, desliga, configura, tira da lista e traz de volta; mais os
 # modelos que perguntam o que falta. A suíte NÃO usa a rede: cada fonte roda contra a resposta real guardada em

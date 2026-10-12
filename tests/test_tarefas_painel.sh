@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (mede tempo: roda sem outros testes disputando a máquina)
 # Painel de tarefas: o despachante único (tarefa_acao) que teclado, mouse e botões usam; ▸/▾ em
 # toda tarefa e ☐/☑; clique abre/fecha, 2º clique rápido marca feita; criar digitando na busca;
 # menu de ações e ajuda no próprio painel; cabeçalho clicável sem botão partido nem separador

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (mede tempo: roda sem outros testes disputando a máquina)
 # Arquivo (histórico) de tarefas: arquivar as feitas (^l: arquivar/apagar/cancelar), uma tarefa
 # pelo menu, a mãe leva as subtarefas, subtarefa não vai sozinha e a feita de mãe aberta fica;
 # fora da lista, das contas e da agenda; aba Arquivo com busca; restaurar devolve como estava;
@@ -19,7 +20,11 @@ C="$T/home/.config/tt/tarefas"
 UI="$T/rt/tt-tarefas-ui-$(id -u)"
 run(){ env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/state" \
   TT_RT="$T/rt" TT_MACHINE=A LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH="$T/bin:$PATH" "$TT" "$@"; }
-acao(){ FZF_QUERY=${Q:-} run --tarefa-acao "$@"; }
+# Como o fzf: a ação pode já trazer o cabeçalho pronto (transform-header(cat ARQ)), e é ele que o painel
+# mostra (com o aviso que aparece uma vez); sem isso, o cabeçalho de agora.
+acao(){ local o a; o=$(FZF_COLUMNS=${FZF_COLUMNS:-90} FZF_QUERY=${Q:-} run --tarefa-acao "$@"); a=$(sed -n "s/.*transform-header(cat '\([^']*\)'.*/\1/p" <<<"$o" | head -1)
+  if [[ -n $a && -f $a ]]; then cp "$a" "$T/cab-pronto"; fi; printf '%s\n' "$o"; }
+cabecalho(){ if [[ -f $T/cab-pronto ]]; then cat "$T/cab-pronto"; rm -f "$T/cab-pronto"; else run --tarefas-cabecalho; fi; }
 sem_cor(){ sed 's/\x1b\[[0-9;]*m//g'; }
 id_de(){ awk -F'\t' -v t="$1" '$5==t{print $1; exit}' "$C"; }
 est(){ awk -F'\t' -v t="$1" '$5==t{print $2; exit}' "$C"; }
@@ -47,7 +52,7 @@ echo "ok: ^l arquiva as feitas (mãe com subtarefas); checklist de mãe aberta f
 # 2) fora da lista ativa, das contas, da agenda e do lembrete; aba Arquivo mostra e busca
 l=$(run --tarefas-lista | sem_cor)
 grep -q 'Projeto\|Comprar pão' <<<"$l" && fail "arquivada não pode aparecer em Todas: $l"
-c=$(FZF_COLUMNS=90 run --tarefas-cabecalho | sem_cor | sed -n 1p)
+c=$(FZF_COLUMNS=90 cabecalho | sem_cor | sed -n 1p)
 grep -q 'Arquivo 2' <<<"$c" || fail "aba Arquivo deveria contar 2: $c"
 grep -q 'Agenda' <<<"$c" && grep -q 'Agenda [0-9]' <<<"$c" && fail "tarefa arquivada não pode contar na Agenda: $c"
 filtro arquivo
@@ -65,7 +70,7 @@ grep -q "^rest:$p	.*↩ restaurar para a lista" <<<"$l" || fail "Arquivo aberto 
 grep -q "^apag:$p	.*✕ apagar de vez .*sem histórico" <<<"$l" || fail "Arquivo aberto sem ✕ apagar de vez (sem histórico)"
 grep -q '☑ etapa 1' <<<"$l" || fail "Arquivo aberto deveria mostrar a subtarefa"
 acao feita "$p" >/dev/null; [[ $(est Projeto) == arquivada ]] || fail "✓ Feita não pode mexer em tarefa arquivada"
-grep -q '⚠ Tarefa arquivada' <<<"$(FZF_COLUMNS=90 run --tarefas-cabecalho | sem_cor)" || fail "deveria avisar que está arquivada"
+grep -q '⚠ Tarefa arquivada' <<<"$(FZF_COLUMNS=90 cabecalho | sem_cor)" || fail "deveria avisar que está arquivada"
 grep -q "^act:restaurar:$p" <<<"$(printf 'modo=menu:%s\n' "$p" >"$UI"; run --tarefas-lista)" || fail "menu da arquivada sem Restaurar"
 filtro arquivo
 echo "ok: no Arquivo, ↩ restaurar e ✕ apagar de vez; o resto não mexe na arquivada"
@@ -74,7 +79,7 @@ echo "ok: no Arquivo, ↩ restaurar e ✕ apagar de vez; o resto não mexe na ar
 acao clique "rest:$p" >/dev/null
 [[ $(est Projeto) == feita && $(est 'etapa 1') == feita ]] || fail "restaurar deveria devolver mãe e sub como estavam"
 [[ $(meta Projeto) != *arq=* ]] || fail "restaurar deveria tirar arq= da meta"
-grep -q '↩ Restaurada' <<<"$(FZF_COLUMNS=90 run --tarefas-cabecalho | sem_cor)" || fail "deveria avisar que restaurou"
+grep -q '↩ Restaurada' <<<"$(FZF_COLUMNS=90 cabecalho | sem_cor)" || fail "deveria avisar que restaurou"
 echo "ok: ↩ restaurar devolve a tarefa (e as subtarefas) como estavam"
 
 # 5) menu ⋯: arquivar uma tarefa aberta; subtarefa não vai sozinha; restaurar volta aberta
@@ -83,7 +88,7 @@ acao clique "act:arquivar:$(id_de Ideia)" >/dev/null
 [[ $(est Ideia) == arquivada && $(meta Ideia) == *arq=*:a* ]] || fail "menu ⋯ ▤ Arquivar não arquivou a tarefa aberta"
 acao arquivar "$(id_de 'sub pronta')" >/dev/null
 [[ $(est 'sub pronta') == feita ]] || fail "subtarefa não pode ser arquivada sozinha"
-grep -q 'não se arquiva sozinha' <<<"$(FZF_COLUMNS=90 run --tarefas-cabecalho | sem_cor)" || fail "deveria explicar por que a subtarefa não arquiva"
+grep -q 'não se arquiva sozinha' <<<"$(FZF_COLUMNS=90 cabecalho | sem_cor)" || fail "deveria explicar por que a subtarefa não arquiva"
 grep -q "^act:arquivar:$a" <<<"$(printf 'modo=menu:%s\n' "$a" >"$UI"; run --tarefas-lista)" || fail "menu ⋯ de tarefa de topo sem ▤ Arquivar"
 filtro todas
 run --tarefa-restaurar "$(id_de Ideia)"; [[ $(est Ideia) == aberta ]] || fail "restaurar deveria voltar aberta"

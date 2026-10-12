@@ -596,7 +596,10 @@ terminal sem tmux), `TT_AI_MEMORY_DIR` (dir da memória de agentes), `TT_GIT_NAM
 
 ## Sincronização entre máquinas
 
-Protocolo comum: itera `maquinas` e roda `ssh "${SSH_OPC[@]}" dest "$TT_REMOTO --receber-*"`.
+Protocolo comum: para cada máquina de `maquinas`, `ssh "${SSH_OPC[@]}" dest "$TT_REMOTO --receber-*"`. As
+máquinas vão ao mesmo tempo: enviar (`propagar_*`) dispara em 2º plano; puxar (`puxar_*`, `demandas_puxar`,
+`letreiro_puxar`), a malha, o `--sincronizar` e o `--saude` usam `nas_maquinas FUNÇÃO` (saída na ordem das
+máquinas, o total leva o tempo da mais lenta); `reconciliar_fixadas` consulta as remotas todas de uma vez.
 `SSH_OPC` = BatchMode, ConnectTimeout 4, StrictHostKeyChecking accept-new, ControlMaster/Persist
 (socket em `~/.cache/tt-ssh-%r@%h`, 12 h), keepalive. `TT_REMOTO` força o PATH (homebrew/local) e
 chama `~/.local/bin/tt`. `dest_de ROTULO` resolve `.` (local) ou `usuario@host`.
@@ -671,9 +674,17 @@ das outras máquinas do usuário** (logar ou trocar a conta de IA de uma máquin
   reprovado, e teste sem um dos dois `source` também.
 - Notificação do sistema também nunca sai de um teste: os dois isoladores põem na frente do PATH um
   `notify-send`/`termux-notification` mudo (`tests/sem-notificacao-real.sh`; só para os comandos que existem
-  na máquina) e o `run.sh` tem uma sentinela que reprova o teste que ainda chegar ao de verdade. Teste que
+  na máquina) e o `run.sh` põe uma sentinela por teste que reprova o teste que ainda chegar ao de verdade. Teste que
   quer conferir o aviso põe o próprio stub em `$T/bin`. O `notify-send` dos AGENTES (`--notificar-daqui`)
   nunca é suprimido no uso real: vai ao 🔔 e ao sistema (regra do usuário; `test_notificar_daqui` item 9).
+- Paralelo: `TT_TESTES_J` testes ao mesmo tempo (padrão nº de CPUs, até 8; `1` = em fila), cada um com a sua
+  sentinela (`TMUX_TMPDIR` próprio); fila pelos mais demorados (`~/.cache/tt-testes/duracoes`); a saída de cada
+  teste sai inteira quando ele termina. Teste que mede tempo ou depende de tela/teclas sob carga leva
+  `# tt-teste: sozinho` (roda no fim, um por vez). `TT_TESTES=regex` filtra; `TT_TESTE_TEMPO_MAX` (1800 s).
+  `tmux-isolado.sh` também dá `TT_RT` próprio; `isolar()`/`tmux-isolado.sh` deixam a tela gráfica real
+  inalcançável (`sem_tela_real`: `XDG_RUNTIME_DIR` do teste, `WAYLAND_DISPLAY`/`DISPLAY` existentes com valor
+  morto — o tt acha o compositor sozinho e escrevia na área de transferência de verdade). Ao paralelizar, não
+  use `pkill`/`kill` por padrão amplo (ex.: `tests/run.sh`): pega a suíte dos outros.
 - `run.sh` faz: testes de comportamento, asserts estáticos (`bash -n`, Python da ponte de mouse,
   vigia exige versão publicada, etc.), tmux isolado, e o **contrato de rotas** (cada `range=user|X`
   tem `X)` em `clique()`), botões 📧/📋 (range + rota + verbo + posição), guardrails de segredo do
@@ -684,6 +695,39 @@ das outras máquinas do usuário** (logar ou trocar a conta de IA de uma máquin
 - Uma mudança só está pronta quando o mesmo resultado funciona por todos os canais do elemento:
   CLI, teclado, mouse/toque, menu e barra.
 - Mudança que acrescenta arquivo ao pacote deve entrar em `ARQUIVOS_FONTE` no `tt`.
+
+### Desempenho: o servidor do tmux é o gargalo
+O servidor do tmux é uma linha só e atende um pedido por vez, atrás dos redesenhos dos painéis: uma IA que
+redesenha a tela inteira a cada token (um Codex chegou a 134 KB/s) deixa cada ida ao tmux custando de dezenas
+a centenas de ms. Regras do código:
+- **Uma ida para todos, nunca uma por sessão/painel.** `list-sessions`/`list-panes -a`/`list-windows -a` com
+  separador 0x1F (`$'…\x1f…'`: não é espaço, campo vazio não desloca colunas no `read`; `|` quebrava rótulos).
+  Várias opções de uma vez: `display-message -p '#{@a}␟#{@b}'` (devolve o valor literal). Dois comandos na
+  mesma ida: `tmux cmd1 \; cmd2`. `PAINEIS_FMT` (listar), `paineis_base`, `atualizar_barras`.
+- **O que sobra, em paralelo:** `par`/`par_fim` (teto `TT_PARALELO`, padrão 8): N idas juntas esperam a fila
+  uma vez. Máquinas: `nas_maquinas FUNÇÃO` (todas ao mesmo tempo; saída na ordem delas, stderr à parte).
+- **Painel de trabalho:** `=sessão:` é o painel ATIVO — com uma janela do tt aberta por cima (e-mail, menus,
+  tarefas, central: painéis flutuantes do tmux 3.8 com `painel_flutuante=1`), é ela. Quem lê "a sessão"
+  (tela, pasta, programa, Claude) usa `painel_base SESSÃO` ou `paineis_base` (todas, uma ida; campo
+  `sobreposta`); flutuantes ficam fora de listas e da detecção de vazias, e o vigia não decide nome com uma
+  janela do tt por cima. `tests/test_painel_flutuante_sessao.sh` (precisa de tmux 3.8: `TT_TMUX_38`).
+
+### Partida rápida (rapido/)
+- O bash lê um script comando a comando: o desvio no topo do `tt` (antes do `set -u`) faz `source
+  $DIR_TT/rapido/nucleo.sh` e `exit` quando o `tt` executado é o instalado (`$0 -ef $DIR_TT/tt`), o núcleo
+  existe e não é mais velho que ele, e `TT_COMPLETO` está vazio. O núcleo é o código de topo do `tt` na mesma
+  ordem, com cada função de várias linhas (definida uma vez só, na coluna 0) trocada por um stub
+  `f() { _tt_f f || return; f "$@"; }`; `_tt_f` lê `rapido/f/f.sh` (o texto original, com os comentários de
+  cima) e, sem ele, `todas.sh`. Processos longos (`--vigia`, `--transferir-fundo`, `--email-sync`,
+  `--sessoes-ia-sync`, `--ticker-loop`, `--malha-vigia`, `--instalar-aqui`) carregam `todas.sh` de uma vez.
+- `gerar_rapido PASTA` (na instalação, na pasta nova antes da troca; `tt --rapido gerar`) divide e confere:
+  cada corpo lido sozinho == `declare -f` do tt inteiro carregado com `TT_SO_CARREGAR=1` (para na guarda
+  "Fim das definições"); núcleo carregado == mesmas funções (`declare -F`) e variáveis de topo (`declare -p`,
+  menos as voláteis). Qualquer diferença: não instala `rapido/`.
+- **Regras para editar o `tt`:** toda função nova vai ANTES da guarda `[[ -n ${TT_SO_CARREGAR:-} ]] && …`
+  (depois dela o gerador recusa e o tt fica sem partida rápida; `tests/test_partida_rapida.sh` acusa). Função
+  definida duas vezes fica inteira no núcleo (sem ganho). Não dependa de `BASH_SOURCE`/`LINENO` do arquivo
+  `tt`, nem de `FUNCNAME[1]` na 1ª chamada (o stub aparece na pilha).
 
 ## Requisitos
 
@@ -778,10 +822,25 @@ Cada registro vira um bloco no fim da descrição da tarefa/subtarefa, em cinza 
   `test_tarefas_identidade.sh`.
 
 ### 5. Reforço pelo vigia (como estas regras chegam às IAs)
-- `instalar_regras_agentes` grava `agentes-regras-tt.md` entre marcadores `<!-- tt-managed:regras-tt BEGIN … END -->` em
-  `CLAUDE.md` (de `~/.claude` e de cada perfil `~/.local/share/claude-contas/*`), `AGENTS.md` do Codex e
-  `steering/tt-terminais.md` do Kiro (`inclusion: always`); só em IA que já existe; só regrava se o bloco mudou; o que está fora do
-  bloco nunca é tocado. `instalar_ferramentas_agentes` também copia esta skill para `skills/tt-terminais/SKILL.md` e liga o `aidlc-tt`.
+- **AGENTS.md único:** `~/.agents/AGENTS.md` é a fonte das instruções globais de TODAS as IAs: o texto do usuário e, entre
+  marcadores `<!-- tt-managed:regras-tt BEGIN … END -->`, `agentes-regras-tt.md` (só regravado se mudou). Para mudar uma instrução
+  global sua, edite **a fonte**; nunca crie regra em `CLAUDE.md`/`AGENTS.md` de agente. `instalar_regras_agentes` é um normalizador
+  sempre imposto:
+  - `CLAUDE.md` de `~/.claude` e de cada perfil `~/.local/share/claude-contas/<perfil>` e `AGENTS.md` do Codex são **link relativo**
+    para a fonte (vale de dentro do proot). O Claude deduplica pelo arquivo real: o perfil enxerga `~/.claude/CLAUDE.md` como
+    CLAUDE.md de projeto do `$HOME` e mesmo assim lê a fonte uma vez só.
+  - Kiro: `steering/agentes.md` é cópia gerada (`inclusion: always`; o Kiro ignora steering por link), com `soma:` no cabeçalho.
+  - Texto escrito num desses arquivos fora do bloco (arquivo no lugar do link, cópia do Kiro editada, `AGENTS.override.md` do Codex,
+    o antigo `steering/tt-terminais.md`) vai para a fonte, antes do bloco: só parágrafos que não estão nela nem no retrato da volta
+    anterior (`~/.local/state/tt/agentes-fonte.anterior`, para o que foi apagado não voltar de uma cópia velha); `@caminho` relativo
+    do Claude vira `@~/pasta/caminho`; cópia do original em `~/.local/state/tt/agentes-backup/`. Depois o link/cópia volta.
+  - Claude lê o `AGENTS.md` de projeto também onde há `CLAUDE.md`: `pluginConfigs` de `cc-plugin-agents-md@builtin` e
+    `agents-md@builtin` com `instructionFiles: "claude-md-and-agents-md"` no `settings.json` (imposto; o resto do JSON fica). Sem isso,
+    nos perfis o `~/.claude/CLAUDE.md` (ancestral de todo projeto em `~`) desligava o `AGENTS.md` de projeto.
+  - Travas `<perfil>.lock` paradas há mais de 10 min são apagadas (viva, o Claude a renova a cada poucos segundos); pasta que não
+    tem nome de perfil não recebe nada. Só entra em IA que já existe.
+  `instalar_ferramentas_agentes` também copia esta skill para `skills/tt-terminais/SKILL.md` e liga o `aidlc-tt`. Teste:
+  `tests/test_agentes_md.sh`.
 - Quando roda: em **toda instalação/atualização** (`instalar_aqui`, que cada máquina faz sozinha ao ver versão nova) e **a cada ~5 min
   pelo vigia** (`reforcar_padrao` → `reforcar_agentes`), inclusive dentro dos proots do celular. `tt --reforcar-agentes` roda na hora.
 - Para mudar uma regra: edite `agentes-regras-tt.md` (ou esta skill) no repositório, rode `make test` e publique; o vigia de cada
