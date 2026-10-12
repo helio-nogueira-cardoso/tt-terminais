@@ -87,13 +87,13 @@ grep -q 'efêmero' <<<"$(quadro 140)" && falhou "aviso expirado continuou no slo
 grep -q 'Ana — Reunião' <<<"$("$TT" --notifs-ui)" || falhou 'histórico não lista o aviso'
 # a central diz o DIA, não só a hora: "Hoje", "Ontem" ou dd/mm (hoje e ontem se distinguem)
 hist=$("$TT" --notifs-ui | sed "s/\x1b\[[0-9;]*m//g")
-grep -qE '^Hoje  [0-9]{2}:[0-9]{2}  .*Ana — Reunião' <<<"$hist" || falhou "aviso novo deveria sair como 'Hoje HH:MM': $hist"
+grep -qE '^Hoje  [0-9]{2}:[0-9]{2}  (● Não lida|✓ Lida)  .*Ana — Reunião' <<<"$hist" || falhou "aviso novo deveria sair como 'Hoje HH:MM' e identificar o estado: $hist"
 nd="$HOME/.local/state/tt/notifs"
 printf '%s\t%s\t\n' "$(( $(date +%s) + 600 ))" "aviso de ontem" >"$nd/$(date -d 'yesterday 22:05' +%s)000000000"
 printf '%s\t%s\t\n' "$(( $(date +%s) + 600 ))" "aviso antigo" >"$nd/$(date -d '5 days ago 09:30' +%s)000000000"
 hist=$("$TT" --notifs-ui | sed "s/\x1b\[[0-9;]*m//g")
-grep -qE '^Ontem 22:05  aviso de ontem' <<<"$hist" || falhou "aviso de ontem deveria sair como 'Ontem 22:05': $hist"
-grep -qE '^[0-9]{2}/[0-9]{2} 09:30  aviso antigo' <<<"$hist" || falhou "aviso antigo deveria sair como dd/mm HH:MM: $hist"
+grep -qE '^Ontem 22:05  (● Não lida|✓ Lida)  aviso de ontem' <<<"$hist" || falhou "aviso de ontem deveria sair como 'Ontem 22:05' e identificar o estado: $hist"
+grep -qE '^[0-9]{2}/[0-9]{2} 09:30  (● Não lida|✓ Lida)  aviso antigo' <<<"$hist" || falhou "aviso antigo deveria sair como dd/mm HH:MM e indicar o estado: $hist"
 passou 'notificar: aparece com range, expira sozinho, histórico lista'
 
 # espelho automático: o notificador central alimenta a faixa — ponta a ponta com um lembrete real

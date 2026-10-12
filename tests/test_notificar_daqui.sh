@@ -96,11 +96,16 @@ grep -q 'set -g @barra_notifs_n #\[fg=#f9e2af,bold\]2#\[nobold\]' "$T/log" || fa
 [[ $(quadro) != *'ainda não lido'* ]] || fail "aviso velho de agente não deve voltar ao slot"
 # a central lista com o destino (↗) e sem vazar o canal para a ação
 lista=$(run --notifs-ui | sed 's/\x1b\[[0-9;]*m//g')
-grep -q 'ainda não lido  ↗' <<<"$lista" || fail "central deveria marcar o destino (↗): $lista"
+grep -q '● Não lida.*ainda não lido  ↗' <<<"$lista" || fail "central deveria destacar visualmente o aviso não lido e marcar o destino (↗): $lista"
 ! grep -q 'sino' <<<"$lista" || fail "o canal não pode vazar para o texto da central: $lista"
 grep -q 'sem destino$' <<<"$lista" || fail "aviso sem destino não deve ter ↗ nem o marcador - : $lista"
+# Estado visual com fundo próprio e rótulo, sem depender apenas de negrito.
+grep -q $'\033\[1;38;2;249;226;175;48;2;81;70;38m' <<<"$(run --notifs-ui)" || fail 'não lida deveria usar fundo âmbar de alto contraste'
 # abrir o aviso (marca .lida) tira do contador; ^l marca todos
 : >"$T/state/tt/notifs/$((agora - 3600))000000000.lida"
+lista=$(run --notifs-ui | sed 's/\x1b\[[0-9;]*m//g')
+grep -q '✓ Lida.*ainda não lido' <<<"$lista" || fail "central deveria identificar como lido após abrir: $lista"
+grep -q $'\033\[38;2;186;194;222;48;2;49;50;68m' <<<"$(run --notifs-ui)" || fail 'lida deveria usar fundo frio próprio'
 : >"$T/log"; run --barras >/dev/null 2>&1 || true
 grep -q 'set -g @barra_notifs_n #\[fg=#f9e2af,bold\]1#\[nobold\]' "$T/log" || fail "aviso aberto deveria sair do contador (sobra 1): $(grep barra_notifs_n "$T/log" | tail -2)"
 run --notifs-lidas

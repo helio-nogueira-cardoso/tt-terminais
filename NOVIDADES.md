@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.10.2 · 12/10/2026
+- **Central de notificações mais clara e prática:** fundo âmbar e “● Não lida” identificam avisos pendentes; fundo azulado e “✓ Lida” identificam os abertos. `^u` filtra as não lidas, `^a` limpa o filtro, `^d` apaga a selecionada e `^r` apaga todas as lidas. As exclusões propagam lápides pela rede para não ressuscitarem em outra máquina.
+
 ## v1.10.1 · 12/10/2026
 - **Sininho igual em todas as máquinas:** avisos e marcas de leitura se propagam por P2P; o contador mostra todos os avisos vigentes não lidos, não só os recém-chegados ou os avisos de agentes. Máquinas que ficaram offline convergem quando voltam.
 - **E-mail e central de notificações não se empilham:** uma reserva por cliente bloqueia a abertura de uma segunda central ou do e-mail sobre ela. A abertura direta do Carbonyl deixou de ser confundida com um seletor temporário; ao fechá-lo, o foco volta ao e-mail.
