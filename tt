@@ -3519,6 +3519,7 @@ aerc_binds_gravar() {
     echo 'M = :move<space>'
     echo 'Y = :copy<space>'
     echo 'F = :filter -X Seen<Enter>'
+    echo "<C-a> = :exec $HOME/.local/bin/tt --email-tudo<Enter>"
     echo '[view]'
     echo "? = :term $HOME/.local/bin/tt --email-atalhos<Enter>"
     echo "E = :save -a -f -p $HOME/.cache/tt-anexos/atual/<Enter>:term $HOME/.local/bin/tt --anexos-enviar<Enter>"
@@ -6051,6 +6052,9 @@ checar_coletar() {
   for slug in $(email_slugs); do
     E=(); email_ler "$slug" 2>/dev/null || continue
     n=$((n + 1))
+    # Os comandos (✕ Apagar, ▤ Arquivar) têm para onde mandar a mensagem?
+    IFS=$'\t' read -r st erro m < <(email_cmds_estado "$slug")
+    [[ -n $st ]] && checar_linha "email-cmd:$slug" "$st" "$erro" "$m"
     if [[ ${E[sync_local]:-} != 1 ]]; then
       checar_linha "email:$slug" aviso "conta sem espelho local: sem aviso de e-mail novo, contador do 📧 e demandas [tt]" "tt --pedir-sudo email-espelho"
       continue
@@ -6064,6 +6068,25 @@ checar_coletar() {
     esac
   done
   ((n)) || checar_linha email ok "nenhuma conta de e-mail cadastrada"
+
+  # caixa de entrada de tarefas (demandas por e-mail): o caminho é e-mail [tt] → espelho local da conta →
+  # remetente autorizado (e autenticado) → tarefa pendente na aba Entrada
+  local esp="" ign="" nesp=0 naut npend desde7 espelhadas=0
+  for slug in $(email_slugs); do E=(); email_ler "$slug" 2>/dev/null && [[ ${E[sync_local]:-} == 1 ]] && espelhadas=$((espelhadas + 1)); done
+  for f in "$ESTADO_DIR"/email-sync/*.demandas.espera; do
+    [[ -s $f ]] || continue
+    nesp=$((nesp + $(wc -l <"$f"))); esp+=$(cut -f2 "$f")$'\n'
+  done
+  esp=$(sort -u <<<"$esp" | grep . | head -3 | paste -sd, - | sed 's/,/, /g')
+  desde7=$(date -d '-7 days' +%F 2>/dev/null || echo 0000)
+  ign=$(cat "$ESTADO_DIR"/email-sync/*.demandas.log 2>/dev/null | awk -v d="$desde7" '$1 >= d && $3 == "ignorada" { print $4 " " $5 }' | tail -1)
+  naut=$(awk -F'\t' '$3 != "-"' "$CONF_DEMANDAS" 2>/dev/null | wc -l)
+  npend=$(awk -F'\t' '$2 == "pendente"' "$CONF_TAREFAS" 2>/dev/null | wc -l)
+  if ((n && !espelhadas)); then checar_linha demandas aviso "nenhuma conta com espelho local: tarefas mandadas por e-mail ([tt]) não chegam" "tt --pedir-sudo email-espelho"
+  elif ((nesp)); then checar_linha demandas aviso "$nesp e-mail(s) [tt] aguardando você autorizar o remetente: $esp" "tt --demanda-autorizar EMAIL (decisão do usuário: só remetente em quem ele confia)"
+  elif [[ -n $ign ]]; then checar_linha demandas aviso "e-mail [tt] de remetente autorizado ignorado nos últimos 7 dias: $ign" "autenticação (SPF/DKIM) do remetente falhou: autorizá-lo com segredo (tt --demanda-autorizar EMAIL - segredo XXXX) é decisão do usuário"
+  elif ((n)); then checar_linha demandas ok "caixa de entrada de tarefas pronta: $naut remetente(s) autorizado(s), $npend aguardando na aba Entrada"
+  fi
 
   # tarefas
   m=$(tarefas_sync_modo)
@@ -8022,8 +8045,10 @@ tarefa_aplicar_proposta() { # id-da-proposta [--padrao inc|cur] [--decisoes ARQ]
 # cadastrado não faz nada (custo zero). Na 1ª vez numa caixa, o que chegou há mais de 1 dia já passou.
 demandas_processar_conta() { # slug
   local slug=${1:?} md dir proc log u arq de msgid epoch auth asb dsb ssb assunto frase desc subs info tag modo seg segmsg
-  local n=0 criadas=0 ignoradas=0 id nome="" ultimo="" ext esb
-  demandas_ativas || return 0
+  local n=0 criadas=0 ignoradas=0 esperando=0 quem="" id nome="" ultimo="" ext esb
+  # Roda mesmo sem nenhum remetente autorizado: um e-mail [tt] que chega antes de a pessoa autorizar alguém
+  # fica à espera (e ela é avisada). Antes, sem cadastro nada era lido, e ao autorizar depois a primeira
+  # leitura dava como visto tudo o que tinha mais de 1 dia: a tarefa mandada por um colega se perdia calada.
   md=$(email_maildir "$slug")/INBOX; dir="$ESTADO_DIR/email-sync"; proc="$dir/$slug.demandas"; log="$dir/$slug.demandas.log"
   local espera="$dir/$slug.demandas.espera" liberar
   [[ -d $md/new || -d $md/cur ]] || return 0
@@ -8055,6 +8080,7 @@ demandas_processar_conta() { # slug
       [[ $de == - || -z $de ]] && continue
       printf '%s\t%s\n' "$u" "${de,,}" >>"$espera"
       printf '%s aguardando autorização de=%s (tt --demanda-autorizar %s)\n' "$(date '+%F %T')" "$de" "$de" >>"$log"
+      esperando=$((esperando + 1)); quem=$de
       continue
     fi
     IFS=$'\t' read -r tag modo seg <<<"$info"
@@ -8076,6 +8102,9 @@ demandas_processar_conta() { # slug
   [[ -f $espera ]] && (($(wc -l <"$espera") > 500)) && { tail -n 300 "$espera" >"$espera.c" && mv -f "$espera.c" "$espera"; }
   if ((criadas > 0)); then
     tarefas_notificar "📥 $criadas nova$( ((criadas > 1)) && echo s) demanda$( ((criadas > 1)) && echo s)" "$ultimo — aprove na aba Entrada" "demandas"
+  fi
+  if ((esperando > 0)); then
+    tarefas_notificar "📥 Tarefa por e-mail de $quem aguardando sua autorização" "só se você confia no remetente: tt --demanda-autorizar $quem (ela entra na aba Entrada)" "demandas"
   fi
   if ((ignoradas > 0)); then
     tarefas_notificar "⚠ $ignoradas e-mail$( ((ignoradas > 1)) && echo s) de remetente autorizado ignorado$( ((ignoradas > 1)) && echo s)" "sem a autenticação exigida (veja tt --demandas)" ""
@@ -13650,6 +13679,8 @@ r	⟳ Sincronizar agora (consulta as contas; útil esperando um código)	$EU --e
 c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
 n	＋ Cadastrar uma conta…	$EU --popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
 a	⌨ Atalhos do e-mail	$EU --popup -c $(q "$c") -E $(tam_popup "$c") -T ' ⌨ atalhos do e-mail ' "$EU --email-atalhos"
+L	⚡ Em lote: apagar/mover/arquivar muitas de uma vez…	$EU --popup -c $(q "$c") -E $(tam_popup "$c") -b rounded -T ' ⚡ e-mail em lote ' "cd ${HOME@Q}; $EU --email-lote --tela"
+k	🩺 Conferir os comandos do e-mail (e corrigir)	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 90 20) -b rounded -T ' 🩺 comandos do e-mail ' "$EU --email-conferir --corrigir; printf '\\n(qualquer tecla fecha)'; read -rsn1 _"
 l	🧹 Esvaziar a lixeira…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 90 22) -b rounded -T ' 🧹 lixeira ' "cd ${HOME@Q}; $EU --email-lixeira-ui"
 s	🔄 Sync local: estado das rodadas	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 20) -b rounded -T ' 🔄 sync local ' "$EU --email-sync-estado; printf '\\n(qualquer tecla fecha)'; read -rsn1 _"
 ITENS
@@ -13739,7 +13770,7 @@ Organizar	*	estrela (importante) liga / desliga
 Organizar	a  ou  botão ▤	arquivar (no Gmail: sai da Caixa de entrada e fica em Todos os e-mails)
 Organizar	M  ou  botão 📁	mover para uma pasta (Tab completa o nome)
 Organizar	Y	copiar para uma pasta
-Organizar	d  ou  botão ✕	apagar (pergunta antes; no Gmail vai para a Lixeira — na Lixeira e no Spam, apaga de vez)
+Organizar	d  ou  botão ✕	apagar (pergunta antes; vai para a lixeira da conta — na lixeira e no spam, ou em conta sem lixeira, apaga de vez e a pergunta diz)
 Organizar	D	apagar sem perguntar
 Organizar	botão 🧹	esvaziar a lixeira: escolha a conta (ou todas); pergunta antes e apaga de vez
 Responder	Rr  ou  botão ↩	responder ao remetente
@@ -13758,6 +13789,8 @@ Anexos	E	enviar os anexos para a pasta de recebidos de uma máquina do tt
 Anexos	i	imagens do e-mail (anexadas e da web): lista e abre no visualizador de imagens
 Várias	v  ou  espaço	selecionar / desmarcar (as ações valem para todas as selecionadas)
 Várias	V	selecionar a conversa inteira
+Várias	Ctrl+a  ou  botão ☑	selecionar TODAS da pasta (com busca ou filtro ativo, só as encontradas); de novo, desmarca
+Várias	botão ⚡	em lote, direto no servidor: milhares de mensagens de uma pasta (todas ou por busca) de uma vez
 Escrever	m  ou  C	mensagem nova (no vim do tt: largura certa, ortografia em português; z= corrige a palavra)
 Escrever	Tab / Ctrl+j / Ctrl+k	campo seguinte / anterior (Para, Cc, Assunto…)
 Escrever	Ctrl+S  (no editor)	salva o texto e vai para a revisão da mensagem
@@ -14472,7 +14505,7 @@ email_sessao() {
 }
 # Versão dos binds da sessão oculta: uma sessão criada com binds antigos é recriada (os botões
 # mandam F3–F10, que o aerc de antes não conhecia).
-EMAIL_BINDS_VER=4
+EMAIL_BINDS_VER=5
 email_sessao_criar() {
   local cmd=$1 modo=$2 ver=${3:-$EMAIL_BINDS_VER:0}
   # VAXIS_FORCE_UNICODE: o aerc mede emoji com seletor de variação (🕸️, ⚠️) como 2 colunas, igual ao
@@ -14511,47 +14544,60 @@ EMAIL_BOTOES=(
   'arq|▤|Arquivar|F8'
   'apagar|✕|Apagar|F9'
   'pasta|📁|Pasta|F10'
+  'tudo|☑|Tudo|'
+  'lote|⚡|Em lote|'
   'naolidas|✉|Não lidas|'
   'lixeira|🧹|Lixeira|'
   'sync|⟳|Sincronizar|'
   'contas|👤|Contas|'
   'atalhos|?|Atalhos|'
 )
-# Apagar e arquivar CERTOS no Gmail. No IMAP do Gmail as pastas são rótulos: tirar a mensagem do
-# INBOX (o que :delete faz, direto ou pelo mbsync) só a ARQUIVA — ela segue em "Todos os e-mails";
-# apagar de verdade é mandá-la para a Lixeira. Então, nas contas Gmail do tt: d/D (e o botão ✕)
-# movem para a lixeira da conta, com pergunta; a (e ▤) tira do INBOX (= arquivar no Gmail, sem
-# subir cópia nenhuma; ela já está em Todos os e-mails); e dentro da Lixeira/Spam, d/D apagam de
-# vez. Seções por conta ([messages:account=^Nome$]) e por pasta (a pasta ganha da conta). As
-# outras contas ficam com os binds de fábrica (lá :delete apaga mesmo). Lista: "nome⇥lixeira⇥spam⇥todos".
-email_contas_gmail() {
-  local s nome re mae l sp td; local -A E=()
+# Apagar e arquivar CERTOS em toda conta. Com a lixeira conhecida (a pasta que o servidor marca como
+# \Trash, gravada em pasta_lixeira), d/D (e o botão ✕) movem para ela, com pergunta; dentro da
+# lixeira e do spam, d/D apagam de vez. Conta sem lixeira conhecida: d apaga de vez, e a pergunta diz
+# isso (antes caía no padrão do aerc, que no Gmail só arquivava, sem aviso nenhum). No Gmail as pastas
+# são rótulos: tirar a mensagem do INBOX (o que :delete faz, direto ou pelo mbsync) só a ARQUIVA — ela
+# segue em "Todos os e-mails" —, então lá a (e ▤) é :delete (arquivar sem subir cópia); nas outras
+# contas a fica com o :archive de fábrica. Seções por conta ([messages:account=^Nome$]) e por pasta
+# (a pasta ganha da conta). Lista: "nome␟lixeira␟spam␟todos␟gmail(1|0)" (0x1F: um TAB entre campos vazios
+# some no read; pastas relativas à pasta-mãe).
+email_contas_lixeira() {
+  local s mae l sp td g; local -A E=()
   declare -F email_slugs >/dev/null || return 0
   for s in $(email_slugs 2>/dev/null); do
     E=(); email_ler "$s" 2>/dev/null || continue
-    [[ ${E[provedor]:-} == gmail || ${E[imap_host]:-} == imap.gmail.com ]] || continue
-    [[ -n ${E[pasta_lixeira]:-} ]] || continue
-    mae=${E[pasta_naoabre]:-}; l=${E[pasta_lixeira]}; sp=${E[pasta_spam]:-}; td=${E[pasta_todos]:-}
+    g=0; [[ ${E[provedor]:-} == gmail || ${E[imap_host]:-} == imap.gmail.com ]] && g=1
+    mae=${E[pasta_naoabre]:-}; l=${E[pasta_lixeira]:-}; sp=${E[pasta_spam]:-}; td=${E[pasta_todos]:-}
     [[ -n $mae ]] && { l=${l#"$mae"/}; sp=${sp#"$mae"/}; td=${td#"$mae"/}; }
-    printf '%s\t%s\t%s\t%s\n' "${E[nome]}" "$l" "$sp" "$td"
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "${E[nome]}" "$l" "$sp" "$td" "$g"
   done
 }
 re_escapar() { printf '%s' "$1" | sed 's/[][\\.*^$+?(){}|]/\\&/g'; }
 # As seções, com as teclas pedidas: APAGAR (pergunta), APAGAR_DIRETO e ARQUIVAR (vazia = não gera).
 # Para o binds.conf são d, D e a; para a sessão oculta, os botões ✕ (F9) e ▤ (F8).
 email_binds_contas_gerar() { # tecla_apagar tecla_apagar_direto tecla_arquivar
-  local ka=$1 kd=$2 kq=$3 nome l sp td re p ctx; local -A vistas=()
-  while IFS=$'\t' read -r nome l sp td; do
+  local ka=$1 kd=$2 kq=$3 nome l sp td g re p ctx; local -A vistas=()
+  while IFS=$'\x1f' read -r nome l sp td g; do
     [[ -n $nome ]] || continue
     re=$(re_escapar "$nome")
+    if [[ -z $l ]]; then
+      # Sem lixeira conhecida: no Gmail, apagar só arquivaria; nada é gerado e a checagem do tt
+      # (tt --email-conferir) descobre a lixeira. Nas outras, d apaga de vez, e a pergunta diz isso.
+      ((g)) && continue
+      for ctx in messages view; do
+        printf '[%s:account=^%s$]\n' "$ctx" "$re"
+        [[ -n $ka ]] && printf '%s = :choose -o y '"'"'Apagar de vez (esta conta não tem lixeira)'"'"' delete-message<Enter>\n' "$ka"
+      done
+      continue
+    fi
     for ctx in messages view; do
       printf '[%s:account=^%s$]\n' "$ctx" "$re"
       [[ -n $ka ]] && printf '%s = :choose -o y '"'"'Apagar (vai para a lixeira)'"'"' '"'"'move %s'"'"'<Enter>\n' "$ka" "$l"
       [[ -n $kd ]] && printf '%s = :move %s<Enter>\n' "$kd" "$l"
-      [[ -n $kq ]] && printf '%s = :delete<Enter>\n' "$kq" # arquivar no Gmail = tirar do INBOX (segue em Todos os e-mails)
+      ((g)) && [[ -n $kq ]] && printf '%s = :delete<Enter>\n' "$kq" # arquivar no Gmail = tirar do INBOX (segue em Todos os e-mails)
     done
-    # Na lixeira e no spam, apagar é de vez; lá e em "Todos os e-mails", arquivar não faz sentido.
-    for p in "$l" "$sp" "$td"; do
+    # Na lixeira e no spam, apagar é de vez; no Gmail, lá e em "Todos os e-mails", arquivar não faz sentido.
+    for p in "$l" "$sp" "$( ((g)) && printf '%s' "$td")"; do
       [[ -n $p && -z ${vistas[$p]:-} ]] || continue; vistas[$p]=1
       for ctx in messages view; do
         printf '[%s:folder=^%s$]\n' "$ctx" "$(re_escapar "$p")"
@@ -14559,10 +14605,10 @@ email_binds_contas_gerar() { # tecla_apagar tecla_apagar_direto tecla_arquivar
           [[ -n $ka ]] && printf '%s = :choose -o y '"'"'Apagar de vez (não volta)'"'"' delete-message<Enter>\n' "$ka"
           [[ -n $kd ]] && printf '%s = :delete<Enter>\n' "$kd"
         fi
-        [[ -n $kq ]] && printf '%s =\n' "$kq"
+        ((g)) && [[ -n $kq ]] && printf '%s =\n' "$kq"
       done
     done
-  done < <(email_contas_gmail)
+  done < <(email_contas_lixeira)
   return 0
 }
 email_binds_contas() { email_binds_contas_gerar d D a; }                    # → binds.conf
@@ -14585,7 +14631,7 @@ email_binds_botoes() { # messages|view
 # Os rótulos entram conforme a largura do popup: só os ícones cabem em qualquer tela; cada rótulo
 # aparece quando a barra inteira, com ele e com os que vêm antes na ordem abaixo, cabe. Os ícones
 # menos óbvios ganham rótulo primeiro.
-EMAIL_ROTULOS_ORDEM=(naolidas lixeira arq todos enc resp sync atalhos apagar pasta contas nova abrir)
+EMAIL_ROTULOS_ORDEM=(tudo lote naolidas lixeira arq todos enc resp sync atalhos apagar pasta contas nova abrir)
 email_barra_fmt() {
   local b acao ic rot tecla est out="" largura=0 r; local -A limite=() w=()
   for b in "${EMAIL_BOTOES[@]}"; do
@@ -14617,7 +14663,8 @@ email_botao_acao() { # ação
   tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null || return 0
   local b acao ic rot tecla=""
   case $1 in
-    contas | atalhos | lixeira) email_tela "$1"; return 0 ;;
+    contas | atalhos | lixeira | lote) email_tela "$1"; return 0 ;;
+    tudo) email_tela_fechar; email_tudo; return 0 ;;
     sync) (email_sync_agora >/dev/null 2>&1 &); return 0 ;; # consulta as contas agora, sem travar o clique
     naolidas) email_tela_fechar; email_naolidas; return 0 ;;
   esac
@@ -14631,12 +14678,13 @@ email_botao_acao() { # ação
 # janelas da própria sessão oculta, com a barra de botões visível; a tela fecha com q/Esc, com o
 # mesmo botão de novo, ou quando outro botão age (fecha e age). Abrir uma com outra aberta troca.
 # Vale de qualquer lugar: botão, tecla do aerc (? e F2 na sessão oculta) ou tt --email-tela.
-email_tela() { # atalhos|contas|lixeira
+email_tela() { # atalhos|contas|lixeira|lote
   local nome cmd tela id
   case $1 in
     atalhos) nome='⌨ atalhos'; cmd="$HOME/.local/bin/tt --email-atalhos" ;;
     contas)  nome='👤 contas';  cmd="cd ${HOME@Q}; $HOME/.local/bin/tt --email-contas-ui" ;;
     lixeira) nome='🧹 lixeira'; cmd="cd ${HOME@Q}; $HOME/.local/bin/tt --email-lixeira-ui" ;;
+    lote)    nome='⚡ em lote'; cmd="cd ${HOME@Q}; $HOME/.local/bin/tt --email-lote --tela" ;;
     *) return 0 ;;
   esac
   [[ -x $HOME/.local/bin/tt ]] || cmd=${cmd//"$HOME/.local/bin/tt"/"$EU"}
@@ -14676,6 +14724,17 @@ email_esc() {
   if email_filtro_ativo; then email_aerc_cmd :clear; return 0; fi
   local c; c=$(tmux list-clients -t "=$EMAIL_SESSAO" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
   [[ -n $c ]] && tmux detach-client -t "$c" 2>/dev/null
+  return 0
+}
+# ☑ Tudo (botão e Ctrl+a na lista): seleciona todas as mensagens da pasta aberta — com busca ou filtro
+# ativo, só as encontradas —, e então ✕, ▤, 📁 (e d, a, M) agem em todas. De novo, desmarca todas. O
+# estado fica na sessão oculta (@tt_email_tudo): o aerc não diz se há marcadas.
+email_tudo() {
+  if [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_tudo 2>/dev/null) == 1 ]]; then
+    email_aerc_cmd :unmark -a; tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_tudo 0
+  else
+    email_aerc_cmd :mark -a; tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_tudo 1
+  fi
   return 0
 }
 # ✉ Não lidas: liga/desliga o filtro do aerc na pasta aberta da conta em uso (cada aba de conta tem
@@ -16038,6 +16097,193 @@ email_listar() {
   done
   # Escritas à mão: aparecem com slug "!NOME" (abrir assume a conta no tt).
   while IFS= read -r n; do [[ -n $n ]] && printf '!%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$n" "-" manual "-" "-"; done < <(email_manuais)
+}
+
+# Os comandos de apagar/arquivar desta conta funcionam? "estado⇥resumo⇥correção" (ok|aviso|falha), sem
+# rede: lixeira conhecida, a pasta dela no espelho local (o ✕ move para lá) e a seção da conta nos binds
+# do aerc. Usado pelo tt --checar (email-cmd:CONTA) e pelo tt --email-conferir.
+email_cmds_estado() { # slug
+  local slug=$1 g=0 l md b=$HOME/.config/aerc/binds.conf; local -A E=()
+  email_ler "$slug" || return 1
+  [[ ${E[provedor]:-} == gmail || ${E[imap_host]:-} == imap.gmail.com ]] && g=1
+  l=${E[pasta_lixeira]:-}
+  if [[ -z $l ]]; then
+    if ((g)); then printf 'falha\tlixeira da conta desconhecida: no Gmail, ✕ Apagar só arquivaria\ttt --email-conferir %s --corrigir\n' "$slug"
+    else printf 'aviso\tsem lixeira conhecida: ✕ Apagar apaga de vez (pergunta antes)\ttt --email-conferir %s --corrigir (procura a lixeira no servidor)\n' "$slug"; fi
+    return 0
+  fi
+  if [[ ${E[sync_local]:-} == 1 ]]; then
+    md=$(email_maildir "$slug")
+    if [[ -d $md && ! -d $md/$l && ! -d $md/${l//.//} ]]; then
+      printf 'falha\ta lixeira (%s) não existe no espelho local: ✕ Apagar não tem para onde mover\ttt --email-conferir %s --corrigir\n' "$l" "$slug"
+      return 0
+    fi
+  fi
+  if grep -qxF "$AERC_BINDS_INI" "$b" 2>/dev/null && ! grep -qF "[messages:account=^$(re_escapar "${E[nome]}")\$]" "$b"; then
+    printf 'aviso\tos comandos de apagar/arquivar desta conta estão desatualizados no aerc\ttt --email-conferir %s --corrigir\n' "$slug"
+    return 0
+  fi
+  printf 'ok\t✕ Apagar vai para %s\t-\n' "${l##*/}"
+}
+
+# Conserta o que email_cmds_estado acusou: descobre as pastas especiais no servidor (se a lixeira é
+# desconhecida), traz as pastas para o espelho (sync completo, se a lixeira falta nele) e regera a conta
+# no aerc (binds por conta e por pasta). Rede ou login fora: diz e segue.
+email_cmds_corrigir() { # slug
+  local s=$1 l md; local -A E=()
+  email_ler "$s" || return 1
+  if [[ -z ${E[pasta_lixeira]:-} && -z ${TT_EMAIL_SEM_REDE:-} ]]; then
+    echo "  · procurando as pastas especiais de $s no servidor…"
+    email_detectar_pastas "$s" || echo "  ✗ não consegui consultar o servidor (rede ou login: tt --email-testar $s)"
+    E=(); email_ler "$s"
+  fi
+  l=${E[pasta_lixeira]:-}
+  if [[ -n $l && ${E[sync_local]:-} == 1 ]]; then
+    md=$(email_maildir "$s")
+    if [[ -d $md && ! -d $md/$l && ! -d $md/${l//.//} ]]; then
+      echo "  · trazendo as pastas de $s para o espelho (sync completo)…"
+      "$EU" --email-sync "$s" --completo >/dev/null 2>&1 || echo "  ✗ o sync completo falhou (tt --email-sync-estado)"
+    fi
+  fi
+  email_regerar "$s" >/dev/null 2>&1 || true
+  aerc_binds_gravar
+}
+
+# tt --email-conferir [CONTA…] [--corrigir]: os comandos do e-mail de cada conta (apagar, arquivar)
+# funcionam? Com --corrigir, conserta o que der. Sai 1 se alguma ficou com problema.
+email_conferir() {
+  local corr=0 a s st res cor ic ruim=0; local -a slugs=()
+  for a in "$@"; do
+    case $a in
+      --corrigir) corr=1 ;;
+      *) s=$(email_achar "$a") || { echo "Conta não encontrada: $a"; return 1; }; slugs+=("$s") ;;
+    esac
+  done
+  ((${#slugs[@]})) || mapfile -t slugs < <(email_slugs)
+  ((${#slugs[@]})) || { echo "Nenhuma conta de e-mail cadastrada."; return 0; }
+  for s in "${slugs[@]}"; do
+    IFS=$'\t' read -r st res cor < <(email_cmds_estado "$s")
+    if ((corr)) && [[ $st != ok ]]; then
+      email_cmds_corrigir "$s"
+      IFS=$'\t' read -r st res cor < <(email_cmds_estado "$s")
+    fi
+    case $st in ok) ic=✓ ;; aviso) ic=! ;; *) ic=✗ ;; esac
+    printf '%s %s: %s\n' "$ic" "$s" "$res"
+    [[ $st == ok ]] && continue
+    [[ $st == falha ]] && ruim=1
+    [[ $cor != - ]] && printf '    → %s\n' "$cor"
+  done
+  return $ruim
+}
+
+# ⚡ Em lote (botão do e-mail, tt --email-lote): milhares de mensagens de uma pasta — todas ou as de uma
+# busca — de uma vez, direto no servidor (email-tt.py lote-contar/lote-agir, em blocos de 500). Conta,
+# mostra uma amostra, pergunta a ação e confirma (de vez, ou 1000 ou mais: digitando o número). Só age
+# nas mensagens contadas: o que chegar depois da contagem fica. O espelho local acompanha depois (sync
+# completo em 2º plano). Sem terminal, precisa de tudo nos argumentos e de --sim.
+#   tt --email-lote [CONTA] [--pasta P] [--busca B] [--acao apagar|mover|arquivar|lidas|nao-lidas]
+#                   [--destino PASTA] [--de-vez] [--sim]
+EMAIL_LOTE_AJUDA='Busca (os termos se somam; Enter = todas):
+  todas · nao-lidas · lidas · com-estrela
+  de:fulano@x.com · para:… · assunto:"fatura de" · texto:palavra
+  antes:2025-01-01 · desde:2024-06-01 · maior:5m · menor:100k
+  gmail:"from:loja older_than:1y"   (só no Gmail: a busca do próprio Gmail)'
+email_lote() {
+  local conta="" pasta="" busca="" acao="" destino="" devez=0 sim=0 tela=0 tty=0 slug conf tmp saida total r rc lista desc l
+  local -A E=()
+  while (($#)); do
+    case $1 in
+      --pasta) pasta=${2:-}; shift ;; --busca) busca=${2:-}; shift ;; --acao) acao=${2:-}; shift ;;
+      --destino) destino=${2:-}; shift ;; --de-vez) devez=1 ;; --sim) sim=1 ;; --tela) tela=1 ;;
+      *) conta=$1 ;;
+    esac
+    shift
+  done
+  [[ -t 0 && -t 1 ]] && tty=1
+  email_lote_sair() { ((tela)) && read -rsn1 -p $'\n  (qualquer tecla fecha)' </dev/tty; return "${1:-0}"; }
+  command -v python3 >/dev/null || { echo "✗ precisa do python3"; email_lote_sair 1; return; }
+  if [[ -n $conta ]]; then
+    slug=$(email_achar "$conta") || { echo "Conta não encontrada: $conta"; email_lote_sair 1; return; }
+  else
+    lista=$(email_listar | awk -F'\t' '$1 !~ /^!/ { print $1 "\t" $2 " <" $3 ">" }')
+    [[ -n $lista ]] || { echo "Nenhuma conta de e-mail cadastrada."; email_lote_sair 1; return; }
+    if [[ $(wc -l <<<"$lista") == 1 ]]; then slug=$(cut -f1 <<<"$lista")
+    elif ((tty)); then
+      slug=$(fzf --delimiter='\t' --with-nth=2 --layout=reverse --height=~12 --header='⚡ Em lote · qual conta?' --prompt='❯ ' <<<"$lista" | cut -f1)
+    else echo "Qual conta? tt --email-lote CONTA --pasta P --busca B --acao A --sim"; return 2; fi
+    [[ -n $slug ]] || { email_lote_sair 1; return; }
+  fi
+  email_ler "$slug"; conf=$(email_conf_arq "$slug")
+  if [[ -z $pasta ]]; then
+    if ((tty)); then
+      printf 'Pastas de %s…\n' "${E[nome]:-$slug}"
+      lista=$(timeout 60 python3 "$EMAIL_PY" lote-pastas "$conf" 2>&1) || { echo "$lista"; email_lote_sair 1; return; }
+      pasta=$( { grep -x INBOX <<<"$lista"; grep -vx INBOX <<<"$lista"; } |
+        fzf --layout=reverse --height=~20 --header="⚡ Em lote · ${E[nome]:-$slug} · de qual pasta?" --prompt='❯ ') || { email_lote_sair 1; return; }
+    else pasta=INBOX; fi
+  fi
+  if [[ -z $busca ]] && ((tty)); then
+    printf '\n%s\n\n' "$EMAIL_LOTE_AJUDA"
+    read -rep "Busca em $pasta: " busca || { email_lote_sair 1; return; }
+  fi
+  busca=${busca:-todas}
+  tmp=$(mktemp "${RT:-/tmp}/tt-email-lote.XXXXXX") || { email_lote_sair 1; return; }
+  printf 'Contando em %s…\n' "$pasta"
+  saida=$(timeout 600 python3 "$EMAIL_PY" lote-contar "$conf" "$pasta" "$busca" --amostra 8 --salvar "$tmp" 2>&1) ||
+    { echo "$saida"; rm -f "$tmp"; email_lote_sair 1; return; }
+  total=$(sed -n 's/^total=//p' <<<"$saida"); total=${total:-0}
+  printf '\n%s mensagem(ns) em %s casam com «%s».\n' "$total" "$pasta" "$busca"
+  awk -F'\t' '$1 == "amostra" { printf "  %s  %-26.26s  %.70s\n", $2, $3, $4 }' <<<"$saida"
+  ((total > 8)) && echo "  … (as mais novas; o lote vale para as $total)"
+  ((total > 0)) || { rm -f "$tmp"; email_lote_sair 0; return; }
+  if [[ -z $acao ]]; then
+    ((tty)) || { echo "Falta --acao."; rm -f "$tmp"; return 2; }
+    acao=$(printf '%s\n' $'apagar\t🗑  Apagar (vão para a lixeira; na lixeira ou no spam, apaga de vez)' \
+      $'arquivar\t▤  Arquivar (no Gmail: saem desta pasta e ficam em Todos os e-mails)' \
+      $'mover\t📁 Mover para outra pasta…' $'lidas\t✉  Marcar como lidas' $'nao-lidas\t✉  Marcar como não lidas' \
+      $'de-vez\t✕  Apagar de vez (não volta; fora do Gmail)' |
+      fzf --delimiter='\t' --with-nth=2 --layout=reverse --height=~10 --header="⚡ $total mensagem(ns) · o que fazer?" --prompt='❯ ' | cut -f1)
+    [[ -n $acao ]] || { rm -f "$tmp"; email_lote_sair 1; return; }
+  fi
+  [[ $acao == de-vez ]] && { acao=apagar; devez=1; }
+  case $acao in apagar|mover|arquivar|lidas|nao-lidas) ;; *) echo "Ação desconhecida: $acao"; rm -f "$tmp"; email_lote_sair 2; return ;; esac
+  if [[ $acao == mover && -z $destino ]]; then
+    ((tty)) || { echo "Falta --destino."; rm -f "$tmp"; return 2; }
+    lista=$(timeout 60 python3 "$EMAIL_PY" lote-pastas "$conf" 2>/dev/null)
+    destino=$(grep -vxF -- "$pasta" <<<"$lista" | fzf --layout=reverse --height=~20 --header='📁 Mover para qual pasta?' --prompt='❯ ') || { rm -f "$tmp"; email_lote_sair 1; return; }
+  fi
+  case $acao in
+    apagar) ((devez)) && desc="Apagar DE VEZ (não volta)" || desc="Apagar (para a lixeira)" ;;
+    mover) desc="Mover para $destino" ;; arquivar) desc="Arquivar" ;; lidas) desc="Marcar como lidas" ;; *) desc="Marcar como não lidas" ;;
+  esac
+  if ((!sim)); then
+    ((tty)) || { echo "Sem terminal: confirme com --sim. Nada foi feito."; rm -f "$tmp"; return 1; }
+    if ((devez || total >= 1000)); then
+      read -rp "$desc: $total mensagem(ns) de $pasta. Para confirmar, digite $total: " r
+      [[ $r == "$total" ]] || { echo "Cancelado: nada foi feito."; rm -f "$tmp"; email_lote_sair 1; return; }
+    else
+      read -rp "$desc: $total mensagem(ns) de $pasta? [s/N] " r
+      [[ $r == [sSyY]* ]] || { echo "Cancelado: nada foi feito."; rm -f "$tmp"; email_lote_sair 1; return; }
+    fi
+  fi
+  local -a args=(lote-agir "$conf" "$tmp" "$acao"); [[ -n $destino ]] && args+=(--destino "$destino"); ((devez)) && args+=(--de-vez)
+  # O progresso vem no stderr (progresso=N/T); o resultado, no stdout (num arquivo: sem /dev/fd no proot).
+  timeout 3600 python3 "$EMAIL_PY" "${args[@]}" 2>&1 >"$tmp.out" | while IFS= read -r l; do
+    case $l in progresso=*) printf '\r  %s… %s' "$desc" "${l#progresso=}" ;; *) printf '\n%s' "$l" ;; esac
+  done
+  rc=${PIPESTATUS[0]}; echo
+  r=$(sed -n 's/^feito=//p' "$tmp.out" 2>/dev/null)
+  rm -f "$tmp" "$tmp.out"
+  if ((rc == 0)); then
+    echo "✓ $desc: ${r:-0} mensagem(ns)."
+    if [[ ${E[sync_local]:-} == 1 ]]; then
+      ("$EU" --email-sync "$slug" --completo >/dev/null 2>&1 &)
+      echo "  O espelho local acompanha em segundo plano (sync completo da conta)."
+    fi
+  else
+    echo "✗ Parou no meio: ${r:-parte} feita(s). Rode de novo para o resto (a contagem nova só pega o que sobrou)."
+  fi
+  email_lote_sair "$rc"
 }
 
 # Pergunta ao servidor as pastas especiais e regrava o bloco. Sem rede/credencial: mantém o que havia.
@@ -17472,6 +17718,9 @@ case "${1:-}" in
   --email-naolidas) email_naolidas; exit 0 ;;
   --email-lixeira) email_lixeira "${@:2}"; exit ;;
   --email-lixeira-ui) email_lixeira_ui; exit 0 ;;
+  --email-tudo) email_tudo; exit 0 ;;
+  --email-lote) shift; email_lote "$@"; exit ;;
+  --email-conferir) shift; email_conferir "$@"; exit ;;
   --email-editor) shift; email_editor "$@"; exit ;;
   --email-contatos) email_contatos "${2:-}"; exit 0 ;;
   --email-contatos-indexar) email_contatos_indexar; exit 0 ;;

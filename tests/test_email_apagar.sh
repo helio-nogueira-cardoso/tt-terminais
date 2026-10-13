@@ -2,7 +2,7 @@
 # Apagar e arquivar certos no Gmail: contas Gmail do tt ganham, no binds.conf (bloco do tt) e nos
 # binds da sessão oculta (botões ✕/▤), seções por conta — d/D movem para a lixeira da conta, a tira
 # do INBOX (= arquivar no Gmail) — e por pasta — na lixeira/spam d/D apagam de vez, e lá e em
-# "Todos os e-mails" arquivar fica sem efeito. Contas de outros provedores não ganham nada; o
+# "Todos os e-mails" arquivar fica sem efeito. Conta sem lixeira conhecida: o d avisa que apaga de vez; o
 # cadastro/remoção regera o bloco; nomes com caracteres de regex são escapados. aerc falso.
 source "$(dirname "$0")/lib.sh"; isolar
 instalar_isolado
@@ -34,7 +34,9 @@ passou 'conta Gmail: d/D → Lixeira, a → tira do INBOX; na Lixeira/Spam apaga
 
 # 2) conta de outro provedor: nada por conta; nome com caracteres de regex escapado; remoção limpa
 echo 'S' | "$TT" --email-adicionar nome=Trabalho endereco=eu@fastmail.com provedor=fastmail auth=senha --senha-stdin >/dev/null || falhou 'cadastro fastmail'
-grep -q 'account=^Trabalho\$' "$B" && falhou 'conta não-Gmail não deveria ganhar seção por conta'
+s=$(sed -n '/^\[messages:account=^Trabalho\$\]$/,/^\[/p' "$B")
+grep -q "^d = :choose -o y 'Apagar de vez (esta conta não tem lixeira)' delete-message<Enter>$" <<<"$s" || falhou "conta sem lixeira conhecida: o d avisa que apaga de vez: $s"
+grep -qE '^(D|a) = ' <<<"$s" && falhou 'conta sem lixeira: só o d ganha a pergunta clara'
 echo 'S' | "$TT" --email-adicionar 'nome=G+Mail (2.0)' endereco=dois@gmail.com "${G[@]}" --senha-stdin >/dev/null || falhou 'cadastro com regex no nome'
 grep -q '^\[messages:account=^G\\+Mail \\(2\\.0\\)\$\]$' "$B" || falhou "nome com +, ( ) e . deveria vir escapado: $(grep 'account=' "$B")"
 "$TT" --email-remover Pessoal >/dev/null || falhou 'remover'
@@ -42,7 +44,7 @@ grep -q 'account=^Pessoal\$' "$B" && falhou 'remover deveria tirar as seções d
 grep -q 'account=^G\\+Mail' "$B" || falhou 'remover uma conta não deveria tirar as da outra'
 [[ $(grep -c '^\[messages:folder=^Lixeira\$\]$' "$B") == 1 ]] || falhou 'seção da pasta Lixeira deveria aparecer uma vez só'
 [[ $(grep -c '# >>> tt (saída rápida' "$B") == 1 ]] || falhou 'bloco do tt duplicado'
-passou 'outros provedores sem seção; nome escapado; remover limpa só a conta; pastas sem repetição'
+passou 'sem lixeira o d avisa que apaga de vez; nome escapado; remover limpa só a conta; pastas sem repetição'
 
 # 3) sessão oculta: os botões ✕ (F9) e ▤ (F8) seguem a mesma regra
 tmux -f /dev/null new -d -s base -x 150 -y 40 'sleep 600'

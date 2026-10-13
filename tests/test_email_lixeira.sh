@@ -148,7 +148,7 @@ bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAI
 bo=~/.cache/tt-aerc-binds-oculto.conf
 awk '/^\[messages\]/{s="m"} /^\[view\]/{s="v"} /^<Esc> = :exec .*tt --email-esc<Enter>$/{e[s]++} /^<Esc> = :close<Enter>$/{c[s]++} END{exit !(e["m"]==1 && !e["v"] && c["v"]==1 && !c["m"])}' "$bo" ||
   falhou "Esc: na lista tt --email-esc, na mensagem :close: $(grep -n 'Esc\|^\[' "$bo")"
-[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 4:* ]] || falhou 'versão dos binds deveria subir (sessões antigas recriadas com o Esc)'
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 5:* ]] || falhou 'versão dos binds deveria subir (sessões antigas recriadas com o Esc)'
 fmt=$(tmux show -qv -t =_tt-email: 'status-format[0]')
 grep -q 'range=user|em_naolidas' <<<"$fmt" && grep -q 'range=user|em_lixeira' <<<"$fmt" || falhou "botões ✉ e 🧹 ausentes: $fmt"
 grep -q 'dica="Esc fecha"' "$TT" || falhou 'o título do popup deveria ensinar Esc'

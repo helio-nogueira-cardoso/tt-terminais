@@ -9,6 +9,12 @@
   email-tt.py pastas CONF                -> pastas especiais pelo IMAP (SPECIAL-USE: todos, enviados, lixeira…)
   email-tt.py lixeira CONF [--esvaziar]  -> pasta= e mensagens= da lixeira da conta (a pasta \\Trash do servidor);
                                             com --esvaziar, apaga todas de vez e imprime apagadas= e restam=
+  email-tt.py lote-pastas CONF           -> nome de cada pasta que dá para abrir
+  email-tt.py lote-contar CONF PASTA BUSCA [--amostra N] [--salvar ARQ]
+                                         -> total= e amostra (data, remetente, assunto) do que casa com BUSCA;
+                                            --salvar grava os UIDs exatos para o lote-agir
+  email-tt.py lote-agir CONF ARQ apagar|mover|arquivar|lidas|nao-lidas [--destino PASTA] [--de-vez]
+                                         -> age nos UIDs do ARQ, em blocos de 500 (progresso= no stderr)
   email-tt.py html                       -> filtro do aerc: HTML (stdin) → texto legível, links OSC 8 clicáveis
   email-tt.py linkify                    -> pós-filtro: texto (stdin) com [N]/References → links OSC 8 clicáveis
   email-tt.py imagens DESTINO            -> e-mail cru (stdin): salva as imagens embutidas/anexas em DESTINO e lista
@@ -762,6 +768,238 @@ def lixeira(c, esvaziar=False):
             pass
 
 
+LOTE_BLOCO = 500
+
+
+def _capacidades(m):
+    """CAPABILITY depois do login (a do cumprimento do servidor pode vir sem MOVE/UIDPLUS)."""
+    try:
+        st, d = m.capability()
+        if st == "OK" and d and d[0]:
+            t = d[0].decode() if isinstance(d[0], bytes) else str(d[0])
+            return set(t.upper().split())
+    except Exception:
+        pass
+    return {str(x).upper() for x in (getattr(m, "capabilities", ()) or ())}
+
+
+def _q(nome):
+    return '"' + nome.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def lote_criterio(busca, caps=()):
+    """Busca simples do tt → critérios do IMAP SEARCH. Termos (combinados com E):
+    todas · nao-lidas · lidas · com-estrela · de:X · para:X · assunto:X · texto:X · antes:AAAA-MM-DD ·
+    desde:AAAA-MM-DD · maior:N[k|m] · menor:N[k|m] · gmail:"busca do Gmail" (só no Gmail). Palavra solta = texto:."""
+    import re, shlex, datetime
+    meses = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+    try:
+        termos = shlex.split(busca or "")
+    except ValueError as e:
+        raise RuntimeError(f"busca mal formada: {e}")
+    crit = []
+    for t in termos:
+        k, sep, v = t.partition(":")
+        k = k.lower()
+        if not sep and k in ("todas", "tudo", "all"):
+            continue
+        if not sep and k in ("nao-lidas", "não-lidas", "naolidas"):
+            crit.append("UNSEEN"); continue
+        if not sep and k == "lidas":
+            crit.append("SEEN"); continue
+        if not sep and k in ("com-estrela", "estrela"):
+            crit.append("FLAGGED"); continue
+        if sep and k in ("de", "para", "assunto", "texto", "cc"):
+            if not v:
+                raise RuntimeError(f"faltou o valor em {t!r}")
+            crit += [{"de": "FROM", "para": "TO", "assunto": "SUBJECT", "texto": "TEXT", "cc": "CC"}[k], _q(v)]; continue
+        if sep and k in ("antes", "desde"):
+            try:
+                d = datetime.date.fromisoformat(v)
+            except ValueError:
+                raise RuntimeError(f"data inválida em {t!r} (use AAAA-MM-DD)")
+            crit += ["BEFORE" if k == "antes" else "SINCE", f"{d.day:02d}-{meses[d.month - 1]}-{d.year}"]; continue
+        if sep and k in ("maior", "menor"):
+            r = re.fullmatch(r"(\d+)([kKmM]?)", v)
+            if not r:
+                raise RuntimeError(f"tamanho inválido em {t!r} (ex.: maior:5m)")
+            n = int(r.group(1)) * {"": 1, "k": 1024, "m": 1048576}[r.group(2).lower()]
+            crit += ["LARGER" if k == "maior" else "SMALLER", str(n)]; continue
+        if sep and k == "gmail":
+            if "X-GM-EXT-1" not in caps:
+                raise RuntimeError("gmail: só vale em conta Gmail")
+            crit += ["X-GM-RAW", _q(v)]; continue
+        crit += ["TEXT", _q(t)]
+    return crit or ["ALL"]
+
+
+def _lote_abrir(m, pasta, rw):
+    todas = listar_pastas(m)
+    alvo = [p for p in todas if p[2] == pasta or p[1] == pasta]
+    if not alvo:
+        raise RuntimeError(f"a pasta {pasta!r} não existe nesta conta")
+    st, d = m.select(_q(alvo[0][1]), readonly=not rw)
+    if st != "OK":
+        raise RuntimeError(f"não consegui abrir {pasta}")
+    uv = ""
+    try:
+        _, v = m.response("UIDVALIDITY")
+        uv = (v[0].decode() if isinstance(v[0], bytes) else str(v[0])) if v and v[0] else ""
+    except Exception:
+        pass
+    return todas, alvo[0], uv
+
+
+def _lote_buscar(m, crit):
+    if any(ord(ch) > 127 for ch in " ".join(crit)):
+        try:
+            m.enable("UTF8=ACCEPT"); m._encoding = "utf-8"
+        except Exception:
+            raise RuntimeError("este servidor não aceita busca com acento; tente sem os acentos")
+    st, d = m.uid("SEARCH", *crit)
+    if st != "OK":
+        raise RuntimeError("o servidor recusou a busca")
+    return [u.decode() if isinstance(u, bytes) else str(u) for u in (d[0] or b"").split()]
+
+
+def lote_contar(c, pasta, busca, amostra=10, salvar=None):
+    """Quantas mensagens de PASTA casam com BUSCA, uma amostra das mais novas e, com salvar, os UIDs
+    exatos (o lote_agir só mexe nestes: nada que chegou depois da contagem entra)."""
+    import email, email.policy, email.utils
+    m = imap_conectar(c)
+    try:
+        caps = _capacidades(m)
+        crit = lote_criterio(busca, caps)
+        _, alvo, uv = _lote_abrir(m, pasta, False)
+        uids = _lote_buscar(m, crit)
+        print(f"pasta={alvo[2]}")
+        print(f"total={len(uids)}")
+        for u in reversed(uids[-amostra:] if amostra else []):
+            st, d = m.uid("FETCH", u, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
+            bruto = b""
+            for p in d or []:
+                if isinstance(p, tuple) and len(p) > 1:
+                    bruto = p[1]; break
+            h = email.message_from_bytes(bruto or b"", policy=email.policy.default)
+            nome, end = email.utils.parseaddr(str(h.get("From", "")))
+            try:
+                data = email.utils.parsedate_to_datetime(str(h.get("Date", ""))).strftime("%Y-%m-%d")
+            except Exception:
+                data = "?"
+            assunto = " ".join(str(h.get("Subject", "") or "").split()) or "(sem assunto)"
+            print(f"amostra\t{data}\t{nome or end or '?'}\t{assunto}")
+        if salvar:
+            with open(salvar, "w", encoding="utf-8") as f:
+                json.dump({"pasta": alvo[2], "uidvalidity": uv, "busca": busca, "uids": uids}, f)
+        return 0
+    finally:
+        try:
+            m.logout()
+        except Exception:
+            pass
+
+
+def lote_agir(c, arquivo, acao, destino=None, de_vez=False):
+    """Aplica ACAO (apagar | mover | arquivar | lidas | nao-lidas) aos UIDs contados por lote_contar, em blocos.
+    apagar: para a lixeira (\\Trash); na lixeira/spam, ou com de_vez fora do Gmail, apaga de vez.
+    arquivar: no Gmail tira da pasta (segue em Todos os e-mails); nos outros, move para \\Archive."""
+    with open(arquivo, encoding="utf-8") as f:
+        sel = json.load(f)
+    uids = [str(u) for u in sel.get("uids", [])]
+    m = imap_conectar(c)
+    try:
+        caps = _capacidades(m)
+        todas, alvo, uv = _lote_abrir(m, sel["pasta"], True)
+        if sel.get("uidvalidity") and uv and uv != sel["uidvalidity"]:
+            raise RuntimeError("a pasta mudou no servidor desde a contagem (UIDVALIDITY); conte de novo")
+        gmail = "X-GM-EXT-1" in caps
+        marca = lambda m_: next((p for p in todas if m_ in p[0]), None)
+        lixo, spam, tudo, arq = marca("\\Trash"), marca("\\Junk"), marca("\\All"), marca("\\Archive")
+        origem = alvo[1]
+        def mover(s, dest):
+            if "MOVE" in caps:
+                st, _ = m.uid("MOVE", s, _q(dest[1]))
+                if st != "OK":
+                    raise RuntimeError(f"o servidor recusou mover para {dest[2]}")
+            else:
+                st, _ = m.uid("COPY", s, _q(dest[1]))
+                if st != "OK":
+                    raise RuntimeError(f"o servidor recusou copiar para {dest[2]}")
+                tirar(s)
+        def tirar(s):
+            st, _ = m.uid("STORE", s, "+FLAGS.SILENT", "(\\Deleted)")
+            if st != "OK":
+                raise RuntimeError("o servidor recusou marcar para apagar")
+            st, _ = (m.uid("EXPUNGE", s) if "UIDPLUS" in caps else m.expunge())
+            if st != "OK":
+                raise RuntimeError("o servidor recusou apagar")
+        if acao == "apagar":
+            na_lixeira = any(p and p[1] == origem for p in (lixo, spam))
+            if na_lixeira:
+                op = tirar
+            elif de_vez:
+                if gmail:
+                    raise RuntimeError("no Gmail, apagar de vez é na Lixeira: apague para a lixeira e depois esvazie (🧹)")
+                op = tirar
+            elif lixo:
+                op = lambda s: mover(s, lixo)
+            else:
+                raise RuntimeError("esta conta não tem lixeira (pasta \\Trash); para apagar de vez, use --de-vez")
+        elif acao == "mover":
+            dest = next((p for p in todas if destino in (p[1], p[2])), None)
+            if not dest:
+                raise RuntimeError(f"a pasta de destino {destino!r} não existe nesta conta")
+            if dest[1] == origem:
+                raise RuntimeError("o destino é a própria pasta")
+            op = lambda s: mover(s, dest)
+        elif acao == "arquivar":
+            if gmail:
+                if tudo and tudo[1] == origem:
+                    raise RuntimeError("as mensagens já estão em Todos os e-mails")
+                op = tirar
+            elif arq and arq[1] != origem:
+                op = lambda s: mover(s, arq)
+            else:
+                raise RuntimeError("esta conta não tem pasta de arquivo (\\Archive); use mover")
+        elif acao in ("lidas", "nao-lidas"):
+            sinal = "+" if acao == "lidas" else "-"
+            def op(s):
+                st, _ = m.uid("STORE", s, sinal + "FLAGS.SILENT", "(\\Seen)")
+                if st != "OK":
+                    raise RuntimeError("o servidor recusou marcar")
+        else:
+            raise RuntimeError(f"ação desconhecida: {acao}")
+        feito = 0
+        for i in range(0, len(uids), LOTE_BLOCO):
+            bloco = uids[i:i + LOTE_BLOCO]
+            op(",".join(bloco))
+            feito += len(bloco)
+            print(f"progresso={feito}/{len(uids)}", file=sys.stderr, flush=True)
+        print(f"feito={feito}")
+        return 0
+    finally:
+        try:
+            m.logout()
+        except Exception:
+            pass
+
+
+def lote_listar(c):
+    """Nome legível de cada pasta que dá para abrir (para escolher origem e destino)."""
+    m = imap_conectar(c)
+    try:
+        for f, _, nome in listar_pastas(m):
+            if "\\Noselect" in f or "\\NoSelect" in f or "\\NonExistent" in f:
+                continue
+            print(nome)
+        return 0
+    finally:
+        try:
+            m.logout()
+        except Exception:
+            pass
+
+
 def decodificar_utf7(s):
     """Nomes de pasta IMAP vêm em UTF-7 modificado ("E-mails enviados" pode vir como &AOk-…)."""
     import re
@@ -1177,6 +1415,30 @@ def main(a):
     if cmd == "lixeira" and a[2:] in ([], ["--esvaziar"]):
         try:
             return lixeira(c, a[2:] == ["--esvaziar"])
+        except Exception as e:
+            print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
+    if cmd == "lote-pastas":
+        try:
+            return lote_listar(c)
+        except Exception as e:
+            print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
+    if cmd in ("lote-contar", "lote-agir"):
+        resto, opc = [], {}
+        i = 2
+        while i < len(a):
+            if a[i] in ("--amostra", "--salvar", "--destino"):
+                if i + 1 >= len(a):
+                    print(__doc__); return 2
+                opc[a[i]] = a[i + 1]; i += 2
+            elif a[i] == "--de-vez":
+                opc["--de-vez"] = True; i += 1
+            else:
+                resto.append(a[i]); i += 1
+        try:
+            if cmd == "lote-contar" and len(resto) == 2:
+                return lote_contar(c, resto[0], resto[1], int(opc.get("--amostra", 10)), opc.get("--salvar"))
+            if cmd == "lote-agir" and len(resto) == 2:
+                return lote_agir(c, resto[0], resto[1], opc.get("--destino"), bool(opc.get("--de-vez")))
         except Exception as e:
             print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
     print(__doc__); return 2

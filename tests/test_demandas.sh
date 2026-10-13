@@ -190,4 +190,18 @@ id=$(awk -F'\t' '$5 ~ /Handoff longo/ {print $1}' "$C" | head -1)
 awk -F'\t' -v i="$id" '$1 == i {print $6}' "$C" | tr '|' '\n' | sed -n 's/^desc=//p' | base64 -d | grep -q FIM-DO-HANDOFF || fail "a descrição longa foi cortada"
 echo "ok: descrição longa chega inteira"
 
+# 14) NENHUM remetente autorizado (quem acabou de instalar): o e-mail [tt] de um colega é lido mesmo assim, fica à
+#     espera e a pessoa é avisada; ao autorizar, vira demanda (antes nada era lido e a tarefa se perdia calada)
+cp "$D" "$T/demandas.antes"; : >"$D"
+eml colega1 colega@empresa.com.br pass '[tt] Tarefa do colega' 'faça isto'
+tt --demandas-processar conta
+grep -q 'aguardando autorização de=colega@empresa.com.br' "$HOME/.local/state/tt/email-sync/conta.demandas.log" || fail "sem nenhum autorizado, o e-mail [tt] deveria ficar à espera"
+grep -q 'Tarefa do colega' "$C" && fail "sem autorização não pode virar demanda"
+grep -rqs 'aguardando sua autorização' "$HOME/.local/state/tt/notifs" "$T/notifs.log" || fail "a pessoa deveria ser avisada de que há tarefa esperando autorização"
+grep -q $'^demandas\taviso\t.*colega@empresa.com.br' <<<"$(tt --checar --tsv)" || fail "o tt --checar deveria mostrar o e-mail [tt] à espera"
+tt --demanda-autorizar colega@empresa.com.br >/dev/null; tt --demandas-processar conta
+grep -q 'Tarefa do colega' "$C" || fail "autorizado, o e-mail que esperava deveria virar demanda"
+cp "$T/demandas.antes" "$D"
+echo "ok: sem nenhum remetente autorizado, o e-mail [tt] fica à espera, avisa, e entra quando autorizado"
+
 echo "TODOS OS TESTES PASSARAM"

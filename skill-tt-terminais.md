@@ -407,6 +407,22 @@ e os instaladores da pasta do usuário ficam no `tt`.
   aerc — ou desanexa o popup), `tt --email-naolidas` (botão ✉: `:filter -u` ↔ `:clear`), `tt --email-lixeira
   [CONTA…|--todas] [--sim]` (🧹: `email-tt.py lixeira CONF [--esvaziar]` conta/apaga de vez a pasta \Trash pelo IMAP;
   pergunta antes; sem terminal e sem --sim só mostra) e `tt --email-lixeira-ui` (a tela do botão 🧹 e do menu do 📧).
+- `tt --email-tudo` (botão ☑ e `Ctrl+a` na lista: `:mark -a` ↔ `:unmark -a` pelo IPC; estado em `@tt_email_tudo` da sessão
+  oculta). `tt --email-lote [CONTA] [--pasta P] [--busca B] [--acao apagar|mover|arquivar|lidas|nao-lidas] [--destino D]
+  [--de-vez] [--sim] [--tela]` (botão ⚡, menu do 📧): `email-tt.py lote-contar CONF PASTA BUSCA --salvar ARQ` (SEARCH; termos
+  `todas nao-lidas lidas com-estrela de: para: cc: assunto: texto: antes: desde: maior: menor: gmail:`; grava UIDVALIDITY e os
+  UIDs) → `lote-agir CONF ARQ AÇÃO` (só os UIDs contados, blocos de 500, `progresso=` no stderr; MOVE ou COPY+STORE+UID
+  EXPUNGE; apagar = \Trash, de vez na lixeira/spam ou com `--de-vez` fora do Gmail; arquivar = tirar da pasta no Gmail,
+  \Archive nos outros; UIDVALIDITY mudada recusa). Sem terminal exige `--sim`; de vez ou ≥ 1000 confirma digitando o número.
+- Apagar em toda conta: `email_contas_lixeira` (nome␟lixeira␟spam␟todos␟gmail) → `email_binds_contas_gerar`: com lixeira,
+  d/D/✕ movem para ela (a = `:delete` só no Gmail); na lixeira/spam apagam de vez; sem lixeira (fora do Gmail), d pergunta
+  "Apagar de vez (esta conta não tem lixeira)". `tt --email-conferir [CONTA…] [--corrigir]` (`email_cmds_estado`: lixeira
+  conhecida, pasta dela no espelho, seção da conta nos binds; `email_cmds_corrigir`: `email_detectar_pastas`, sync completo,
+  `email_regerar`); o `tt --checar` tem `email-cmd:CONTA`. Teste: `tests/test_email_lote.sh`.
+- Demandas sem nenhum remetente autorizado: `demandas_processar_conta` roda sempre (não depende de `demandas_ativas`); e-mail
+  `[tt]` de quem não está autorizado vai para `<conta>.demandas.espera` e avisa ("aguardando sua autorização"). O `tt --checar`
+  tem a linha `demandas` (sem conta espelhada, à espera, ignorado por autenticação nos últimos 7 dias, ou pronta com N
+  autorizados e M na Entrada). O agente de checagem nunca autoriza remetente.
 - Popup do e-mail: `email_sessao` cria a sessão oculta `_tt-email` e `email_sessao_botoes` liga nela
   uma linha de status própria com a barra de botões (`email_barra_fmt`, ranges `user|em_<ação>`,
   lista `EMAIL_BOTOES` = ação|ícone|rótulo|tecla); o clique chega por `MouseDown1Status → tt --clique`

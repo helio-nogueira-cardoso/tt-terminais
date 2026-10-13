@@ -29,9 +29,9 @@ bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAI
 tmux has-session -t =_tt-email 2>/dev/null || falhou 'sessão oculta não foi criada'
 [[ $(tmux show -qv -t =_tt-email: status) == on ]] || falhou 'sessão do e-mail deveria ter a linha de status (botões) ligada'
 fmt=$(tmux show -qv -t =_tt-email: 'status-format[0]')
-for a in abrir nova resp todos enc arq apagar pasta naolidas lixeira contas atalhos; do grep -q "range=user|em_$a" <<<"$fmt" || falhou "botão em_$a ausente da barra: $fmt"; done
+for a in abrir nova resp todos enc arq apagar pasta tudo lote naolidas lixeira contas atalhos; do grep -q "range=user|em_$a" <<<"$fmt" || falhou "botão em_$a ausente da barra: $fmt"; done
 lim() { grep -o "client_width},[0-9]*},, $1" <<<"$fmt" | grep -o '[0-9]*' | tail -1; }
-(( $(lim 'Não lidas') < $(lim Arquivar) && $(lim Arquivar) < $(lim Abrir) && $(lim Abrir) <= 170 && $(lim 'Não lidas') >= 60 )) ||
+(( $(lim 'Não lidas') < $(lim Arquivar) && $(lim Arquivar) < $(lim Abrir) && $(lim Abrir) <= 185 && $(lim 'Não lidas') >= 60 )) ||
   falhou "rótulos deveriam entrar conforme a largura (os menos óbvios primeiro): $(grep -o 'client_width},[0-9]*},, [^}]*' <<<"$fmt" | tr '\n' ' ')"
 passou 'barra de botões do e-mail: um range por ação; só ícones em tela estreita, rótulos entrando conforme a largura'
 
@@ -79,13 +79,13 @@ grep -q "^<F2> = :exec $HOME/.local/bin/tt --email-tela contas<Enter>$" "$bo" ||
 grep -q ':term' "$bo" && falhou 'ainda há :term nos binds da sessão oculta'
 grep -q '^q = :exec tmux detach-client<Enter>$' "$bo" || falhou 'q deveria desanexar'
 awk '/^\[messages\]/{s="m"} /^\[view\]/{s="v"} /^<F3> = :view<Enter>$/{f[s]++} /^<F9> = :choose -o y .Apagar esta mensagem. delete-message<Enter>$/{d[s]++} END{exit !(f["m"]==1 && !f["v"] && d["m"]==1 && d["v"]==1)}' "$bo" || falhou "F3 só na lista, F9 na lista e na leitura: $(grep -n '^<F\|^\[' "$bo")"
-[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 4:* ]] || falhou "sessão deveria marcar a versão dos binds (versão:soma do binds.conf): $(tmux show -qv -t =_tt-email: @tt_email_binds)"
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 5:* ]] || falhou "sessão deveria marcar a versão dos binds (versão:soma do binds.conf): $(tmux show -qv -t =_tt-email: @tt_email_binds)"
 passou 'binds da sessão oculta: ? e F2 abrem as telas do tt; F3–F10 ligados por contexto; versão marcada'
 
 # 2d) sessão oculta de antes (sem a versão dos binds) é recriada ao abrir — os botões mandam F3–F10
 tmux set -qu -t =_tt-email: @tt_email_binds
 bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao recriar'
-[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 4:* ]] || falhou 'sessão com binds antigos deveria ser recriada com a versão nova'
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == 5:* ]] || falhou 'sessão com binds antigos deveria ser recriada com a versão nova'
 # binds.conf mudou (ex.: conta Gmail cadastrada → binds por conta): a sessão também é recriada
 echo '# mudou' >>~/.config/aerc/binds.conf
 antes=$(tmux show -qv -t =_tt-email: @tt_email_binds)

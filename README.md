@@ -430,12 +430,22 @@ estreita não há prévia; o que fica 3 s na prévia é marcado como lido) e e-m
 mesmo sem `w3m` (usa `lynx` ou o conversor do próprio tt, com os links numerados no fim).
 
 **Tudo clicável.** No rodapé do popup há uma **barra de botões**: 📖 Abrir · + Nova · ↩ Responder ·
-↩↩ Todos · ↪ Encaminhar · ▤ Arquivar · ✕ Apagar · 📁 Pasta · ✉ Não lidas · 🧹 Lixeira · ⟳ Sincronizar ·
+↩↩ Todos · ↪ Encaminhar · ▤ Arquivar · ✕ Apagar · 📁 Pasta · ☑ Tudo · ⚡ Em lote · ✉ Não lidas · 🧹 Lixeira · ⟳ Sincronizar ·
 👤 Contas · ? Atalhos (em tela estreita, só os ícones; os rótulos entram conforme cabem, os dos ícones
 menos óbvios primeiro); cada botão faz o mesmo que a tecla. **Esc fecha**: na mensagem aberta, volta à
 lista; na lista, limpa o filtro ou a busca, se houver, e senão esconde o e-mail (o `q` também esconde).
 **✉ Não lidas** (ou `F`) mostra só as não lidas da pasta aberta, em cada conta; de novo, ou Esc, mostra
-todas. **🧹 Lixeira** (ou botão direito no 📧 → *Esvaziar a lixeira*, ou `tt --email-lixeira [CONTA…]
+todas. **☑ Tudo** (ou `Ctrl+a`) seleciona todas as mensagens da pasta aberta (com busca ou filtro ativo, só as
+encontradas) e então ✕, ▤ e 📁 agem em todas; de novo, desmarca. **⚡ Em lote** (ou botão direito no 📧, ou
+`tt --email-lote [CONTA] [--pasta P] [--busca B] [--acao apagar|mover|arquivar|lidas|nao-lidas] [--destino D]
+[--de-vez] [--sim]`) é para milhares: escolhe a conta, a pasta e uma busca (`todas`, `nao-lidas`, `de:…`, `assunto:…`,
+`antes:AAAA-MM-DD`, `maior:5m`, no Gmail também `gmail:"…"`), mostra quantas são e uma amostra, e age **direto no
+servidor**, em blocos de 500 e só nas que foram contadas; de vez, ou 1000 ou mais, só digitando o número. O espelho
+local acompanha depois. **Apagar sempre vai para a lixeira da conta** (a pasta que o servidor marca como lixeira), em
+qualquer provedor; na lixeira e no spam apaga de vez; numa conta sem lixeira a pergunta diz que apaga de vez.
+`tt --email-conferir [CONTA…] [--corrigir]` (e o `tt --checar`) confere se os comandos de cada conta têm para onde
+mandar a mensagem e conserta: descobre a lixeira no servidor, traz a pasta para o espelho e regera os comandos.
+**🧹 Lixeira** (ou botão direito no 📧 → *Esvaziar a lixeira*, ou `tt --email-lixeira [CONTA…]
 [--sim]`) mostra quantas mensagens há na lixeira de cada conta e, depois de você confirmar, **apaga de
 vez** as da conta escolhida (ou de todas), direto no servidor — a pasta que ele marca como lixeira,
 nunca outra; o espelho local acompanha na rodada do sync que começa em seguida. **⟳ Sincronizar** (ou `Ctrl+s`, ou

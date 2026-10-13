@@ -3,6 +3,17 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.15.0 · 13/10/2026
+- **☑ Selecionar tudo no e-mail.** Um botão novo (ou `Ctrl+a` na lista) seleciona todas as mensagens da pasta aberta; com uma busca ou o filtro de não lidas ligado, só as encontradas. Daí ✕ Apagar, ▤ Arquivar e 📁 Mover agem em todas de uma vez. De novo, desmarca.
+- **⚡ E-mail em lote, para milhares.** O botão ⚡ (ou botão direito no 📧 → Em lote, ou `tt --email-lote`) escolhe a conta, a pasta e uma busca (`todas`, `nao-lidas`, `de:loja@x.com`, `assunto:"fatura"`, `antes:2024-01-01`, `maior:5m`; no Gmail também a busca do próprio Gmail, `gmail:"older_than:1y"`), mostra quantas mensagens são e uma amostra, e apaga, arquiva, move ou marca como lidas **direto no servidor**, em blocos, com progresso.
+  - Só as mensagens contadas entram: o que chegar durante a operação fica.
+  - Apagar de vez, ou mexer em 1000 ou mais, pede que você digite o número de mensagens.
+  - O espelho local acompanha sozinho em seguida.
+- **✕ Apagar funciona em toda conta.** Antes, só o Gmail tinha o apagar ajustado. Agora toda conta com lixeira manda o apagado para ela, e dá para recuperar; na lixeira e no spam, apagar é de vez. Numa conta sem lixeira, a pergunta diz que apaga de vez.
+- **📥 Tarefa mandada por e-mail não se perde mais em quem acabou de instalar.** Se a pessoa ainda não tinha autorizado nenhum remetente, o tt dela nem lia os e-mails `[tt]`. E, quando ela autorizava alguém depois, os que tinham mais de 1 dia eram dados como vistos. Agora o e-mail fica à espera, chega um aviso no 🔔 ("Tarefa por e-mail de … aguardando sua autorização") e, ao autorizar (`tt --demanda-autorizar EMAIL`), ela entra na aba Entrada.
+- **🩺 A checagem confere a caixa de entrada de tarefas.** O `tt --checar` e o agente de cada atualização olham todo o caminho: conta com espelho local, sync em dia, e-mails `[tt]` esperando autorização e remetentes ignorados por falha de autenticação. O agente nunca autoriza um remetente sozinho: diz quem está esperando e o comando.
+- **🩺 O tt confere os comandos do e-mail.** `tt --email-conferir` (menu do 📧 → 🩺, e também a checagem que roda a cada atualização) acusa e conserta o caso em que apagar não funcionava. A lixeira da conta pode ser desconhecida (no Gmail, o ✕ só arquivava), pode faltar no espelho local, ou os comandos da conta podem estar desatualizados. Para consertar, o tt descobre a lixeira no servidor (em qualquer idioma), traz a pasta para o espelho e refaz os comandos.
+
 ## v1.14.0 · 13/10/2026
 - **🩺 Cada atualização agora se confere sozinha, e o que estiver errado é corrigido.** Quando uma máquina instala uma versão nova do tt, o vigia lança um agente de IA pelo rotador (a conta com mais folga). Ele confere o vigia, a atualização, a separação entre o pacote e a sua configuração, o espelho de cada conta de e-mail, o sync das tarefas, a malha, as regras dos agentes, as pendências, a hora e as conversas das IAs. Também testa na prática o que a versão nova trouxe e **corrige o que for desta máquina**, guardando cópia do que mexer na sua configuração. O que depende de você (login vencido, sudo com senha) vem com o comando pronto.
   - Defeito no código do tt: na máquina de desenvolvimento, o agente deixa a correção num commit pronto (sem publicar); nas outras, cria uma tarefa com o diagnóstico.

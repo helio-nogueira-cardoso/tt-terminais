@@ -29,6 +29,8 @@ repositório) e chega a todas as máquinas na próxima versão; regra só de uma
 ## 4. E-mail
 - **Conferir:** para cada conta (`tt --email-listar`), espelho local ligado (`sync_local=1`), última rodada em dia
   em `tt --email-sync-estado`, sem `.erro` nem espera longa em `~/.local/state/tt/email-sync/`.
+- **Conferir também os comandos:** `tt --email-conferir` (✕ Apagar tem para onde mandar: lixeira conhecida, presente no
+  espelho, comandos da conta no aerc). Corrigir: `tt --email-conferir CONTA --corrigir`.
 - **Corrigir:** a dica do `--email-sync-estado` diz a pendência (`tt --pedir-sudo …`); mbsyncrc antigo →
   `tt --email-mbsync-migrar`; config gerada errada → `tt --email-regerar CONTA`; depois `tt --email-sync CONTA` e
   conferir de novo. OAuth vencido ou senha recusada exige o usuário: avisar com `tt --email-autorizar CONTA` pronto.
@@ -58,7 +60,20 @@ repositório) e chega a todas as máquinas na próxima versão; regra só de uma
 - **Conferir:** `tt --sessoes-ia status` sem máquina sem troca boa há mais de 2 dias (estando ela ligada).
 - **Corrigir:** `tt --sessoes-ia agora`; ver `~/.cache/tt-sessoes-ia.log`.
 
-## 11. O que a versão trouxe
+## 11. Caixa de entrada de tarefas (tarefas por e-mail)
+- **O caminho:** alguém manda uma tarefa (`tt --tarefa-email`, assunto `[tt] … ~CÓDIGO`) → o e-mail chega ao INBOX de
+  uma conta com espelho local → o sync roda `demandas_processar_conta` → remetente autorizado (`tt --demandas`) e
+  autenticado (SPF/DKIM, ou segredo/aberto) → tarefa PENDENTE na aba Entrada (`tt --demandas-pendentes`).
+- **Conferir:** `tt --checar` (linha `demandas`); existe conta com espelho local e o sync dela está em dia; o log
+  `~/.local/state/tt/email-sync/<conta>.demandas.log` (criada, aguardando autorização, ignorada e o motivo);
+  `<conta>.demandas.espera` (e-mails `[tt]` de quem ainda não foi autorizado); o e-mail chegou mesmo ao INBOX do
+  espelho (`grep -l '^Subject: \[tt\]' ~/.cache/tt/maildir/<conta>/INBOX/{new,cur}/*`), e não ao spam.
+- **Corrigir:** espelho desligado → `tt --pedir-sudo email-espelho`; sync parado → item 4; processar de novo →
+  `tt --demandas-processar CONTA`. **Autorizar um remetente é decisão do usuário (segurança): nunca autorize sozinho.**
+  Diga no relatório quem está esperando e o comando (`tt --demanda-autorizar EMAIL`), e avise com `--notificar-daqui`.
+  Remetente ignorado por autenticação: explique o motivo do log e a opção de segredo, sem aplicá-la.
+
+## 12. O que a versão trouxe
 - **Conferir:** cada item do trecho novo do `NOVIDADES.md` funciona nesta máquina: rode o verbo citado, confira o
   arquivo ou o comportamento descrito. Item que depende de tela ou de outra máquina: confira o que der e diga o que
   não deu para provar.
