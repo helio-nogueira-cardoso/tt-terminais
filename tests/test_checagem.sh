@@ -135,6 +135,7 @@ done
 grep -rq 'f\*\*\*@exemplo.com' "$T/h" || falhou 'e-mail deveria aparecer mascarado'
 ls "$T"/h/*/LEIA-ME.md "$T"/h/*/checagens/historico.log "$T"/h/*/estado/checar.tsv "$T"/h/*/logs/tt-vigia.log >/dev/null || falhou "handoff incompleto: $(cd "$T/h" && find . -type f)"
 find "$T/h" -path '*/backup*' | grep -q . && falhou 'handoff levou backup do perfil'
+(($(wc -l <"$(ls "$T"/h/*/estado/plataforma.txt)") >= 2)) || falhou 'plataforma.txt: a plataforma e o kernel deveriam ficar em linhas separadas'
 grep -q 'LEIA-ME.md' "$T/handoff.out" || falhou 'handoff não mostrou o conteúdo'
 passou 'handoff: relatórios, estado e logs, sem segredo e com e-mail mascarado'
 

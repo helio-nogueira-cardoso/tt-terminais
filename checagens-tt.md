@@ -41,7 +41,10 @@ repositório) e chega a todas as máquinas na próxima versão; regra só de uma
 
 ## 6. Malha
 - **Conferir:** `tt --malha` sem ilha; `tt --saude` sem máquina vermelha.
-- **Corrigir:** `tt --diagnosticar MÁQUINA`; chave → `tt --reparar MÁQUINA`. Máquina desligada não é defeito.
+- **Conferir também:** linha `sshd` do `tt --checar` (esta máquina aceita conexão na 22, ou na 8022 pelo sshd do usuário
+  que o tt sobe); log em `~/.local/state/tt/sshd/garantir.log`.
+- **Corrigir:** `tt --diagnosticar MÁQUINA`; chave → `tt --reparar MÁQUINA`; porta fechada nesta máquina →
+  `tt --sshd-garantir` (sem o programa: `tt --pedir-sudo sshd`). Máquina desligada não é defeito.
 
 ## 7. Agentes
 - **Conferir:** `~/.agents/AGENTS.md` tem o bloco `tt-managed:regras-tt`; `CLAUDE.md` dos perfis e `AGENTS.md` do

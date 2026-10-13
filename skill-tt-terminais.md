@@ -458,6 +458,10 @@ F4→`dbn`, F5→`tela`, F6→`sair`, F7→`ant`, F8→`zm`, F9→`jn`, F10→`d
 - `tt --vigia` (interno) — loop em segundo plano (ver abaixo).
 - `tt --reforcar-padrao`, `tt --redesenhar`, `tt --tema-agentes`, `tt --tema-clientes`,
   `tt --memoria-agentes`, `tt --copiar-tela`.
+- `tt --guarda-aninhado CLIENTE [voltou]` (gancho `client-session-changed` do tmux.conf, só para clientes aninhados, TERM
+  `tmux*`/`screen*`): `[0]` o cliente do e-mail (último a sair da `_tt-email`) volta por `run-shell -b "/proc/#{pid}/exe
+  switch-client …"` (um switch-client direto no gancho o tmux ignora) e o tt só registra; `[1]` outra vista aninhada que
+  passou a mostrar a sessão que a contém (`alcanca`) é desanexada com aviso. Teste: `tests/test_guarda_aninhado.sh`.
 - `tt --fechar-paradas`, `tt --definir-paradas N` (0 desliga), `tt --config-paradas`,
   `tt --encerrar-duplicados`.
 
@@ -1090,3 +1094,11 @@ anuncia `nome=` explícito, aplica estados (`estado_aplicar`, o epoch mais novo 
 apresenta-se com o IP de origem que a outra vê (`meu_endereco_em`; nunca `meu_host`, que no Termux é "localhost") e tenta consertar
 as que não conectam (endereço alternativo que as outras usam; `reparar` se for chave). `malha_estado` (`tt --malha`) mostra quem
 alcança quem; `malha_vigia` avisa na barra se a ilha persistir 2 voltas. Rastros em `~/.cache/tt-malha.log`.
+
+**sshd garantido (v1.15.2):** `sshd_garantir` (vigia a cada 300 s por `--sshd-garantir --vigia`, só com outras máquinas
+cadastradas; `tt --sshd-garantir` na hora; `sshd_garantir=0` desliga): algo escutando na 22 (8022 no Termux) → nada; com
+`sudo -n`, `systemctl enable --now ssh` (ou `service ssh start` sem systemd); senão `sshd_usuario`, um sshd sem root na
+8022 (só chave, `UsePAM no`, chave de host e config em `~/.local/state/tt/sshd/`, log `garantir.log`); sem o programa,
+pendência essencial `sshd` (openssh-server). A `--malha-lista` anuncia a porta real (`sshd_porta`) e o conserto da malha,
+com `porta-fechada`, tenta a 8022 no mesmo host (`malha_provar` grava o `~/.ssh/config`). O `tt --checar` tem a linha
+`sshd`. Testes trocam as portas: `TT_SSHD_PORTA`, `TT_SSHD_PORTA_SISTEMA`, `TT_SSHD_SEM_SUDO` (`tests/test_sshd_malha.sh`).

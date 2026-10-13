@@ -1574,6 +1574,14 @@ Todas as máquinas cadastradas se conhecem e se alcançam, sem você fazer nada 
 `tt --malha` completa e mostra quem alcança quem (`ok`, `○` desligada, `✗` ilha); sai com o número de conexões quebradas.
 Rastros: `~/.cache/tt-malha.log`. Testes: `tests/test_malha.sh`.
 
+**sshd garantido (v1.15.2):** `sshd_garantir` (vigia a cada 300 s por `--sshd-garantir --vigia`, só com outras máquinas
+cadastradas; `tt --sshd-garantir` na hora; `sshd_garantir=0` desliga): algo escutando na 22 (8022 no Termux) → nada; com
+`sudo -n`, `systemctl enable --now ssh` (ou `service ssh start` sem systemd); senão `sshd_usuario`, um sshd sem root na
+8022 (só chave, `UsePAM no`, chave de host e config em `~/.local/state/tt/sshd/`, log `garantir.log`); sem o programa,
+pendência essencial `sshd` (openssh-server). A `--malha-lista` anuncia a porta real (`sshd_porta`) e o conserto da malha,
+com `porta-fechada`, tenta a 8022 no mesmo host (`malha_provar` grava o `~/.ssh/config`). O `tt --checar` tem a linha
+`sshd`. Testes trocam as portas: `TT_SSHD_PORTA`, `TT_SSHD_PORTA_SISTEMA`, `TT_SSHD_SEM_SUDO` (`tests/test_sshd_malha.sh`).
+
 ## Código e apelido das tarefas, registro de trabalho e compartilhamento
 
 Toda tarefa e subtarefa tem um **código** único (o id: 12 hex, igual em todas as máquinas) e um **apelido** curto e falável

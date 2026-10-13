@@ -581,6 +581,8 @@ vigiar() {
       ("$EU" --memoria-agentes >/dev/null 2>&1 &)
       # Versão nova instalada: um agente confere e corrige o tt nesta máquina (tt --checar-agente).
       ("$EU" --checar-auto >/dev/null 2>&1 &)
+      # Esta máquina aceita conexão da malha (sshd do sistema ou o do usuário na 8022)?
+      ("$EU" --sshd-garantir --vigia >/dev/null 2>&1 &)
     fi
     # Limpeza conservadora: somente sessões sem processo, sem histórico e desanexadas há 5 min.
     fechar_paradas "$agora"
@@ -1790,7 +1792,7 @@ estado_propagar() { # rótulo estado [epoch]
 malha_lista() {
   # EU: host, usuário, rótulo, se o rótulo é explícito (nome= no config: só então os outros podem corrigir o
   # que guardaram) e a porta do sshd (o do Termux escuta na 8022).
-  printf 'EU\t%s\t%s\t%s\t%s\t%s\n' "$(meu_host)" "$(id -un)" "$MAQUINA" "$([[ -n $(conf nome) ]] && echo 1 || echo 0)" "$([[ ${PREFIX:-} == *com.termux* ]] && echo 8022 || echo 22)"
+  printf 'EU\t%s\t%s\t%s\t%s\t%s\n' "$(meu_host)" "$(id -un)" "$MAQUINA" "$([[ -n $(conf nome) ]] && echo 1 || echo 0)" "$(p=$(sshd_porta); echo "${p:-22}")"
   awk '!/^#/ && NF && $2 != "-" && $4 != "oculta" { printf "M\t%s\t%s\t%s\n", $1, $2, ($3 ? $3 : $1) }' "$CONF_MAQ" 2>/dev/null
   awk 'NF >= 3 { printf "S\t%s\t%s\t%s\n", $2, $3, $1 }' "$CONF_EST" 2>/dev/null
   return 0 # arquivo de estados ainda inexistente não é falha: quem consulta toma status ≠ 0 por "sem conexão"
@@ -1846,6 +1848,83 @@ ssh_porta_garantir() { # host porta
   printf '\n# tt (malha): sshd de %s escuta na porta %s\nHost %s\n  Port %s\n' "$1" "$2" "$1" "$2" >>"$cfg"
   chmod 600 "$cfg"; log_malha "ssh config: porta $2 para $1"
 }
+
+# --- sshd: toda máquina da malha aceita conexão -----------------------------------------------------------
+# Sem um sshd escutando, a máquina vira ilha: as outras chegam pela tailnet e acham a porta fechada (o caso
+# de um WSL sem openssh-server rodando: nada inicia o serviço quando o Windows sobe). O tt garante sozinho,
+# sem esperar agente nenhum (vigia a cada 5 min e na instalação), por ordem:
+#   1. já há algo escutando na porta 22 (ou na 8022, no Termux): nada a fazer;
+#   2. com sudo sem senha: liga o sshd do sistema (systemctl enable --now, ou service start sem systemd);
+#   3. senão, um sshd do próprio usuário na porta 8022, sem root (só chave, sem senha), com chave de host e
+#      configuração em ~/.local/state/tt/sshd/. A malha já tenta a 8022 quando a 22 não responde e grava a
+#      porta no ~/.ssh/config de quem conecta;
+#   4. sem o programa sshd (openssh-server): pendência essencial "sshd" (o 📦 pede para instalar).
+# sshd_garantir=0 no config desliga. Só age em máquina que tem outras cadastradas (fora da malha, não abre porta).
+SSHD_PORTA_TT=${TT_SSHD_PORTA:-8022}      # testes trocam as portas (nunca a 22/8022 de verdade)
+SSHD_PORTA_SIS=${TT_SSHD_PORTA_SISTEMA:-22}
+sshd_escuta() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; } # porta
+sshd_bin() {
+  local b
+  for b in /usr/sbin/sshd /usr/local/sbin/sshd /opt/homebrew/sbin/sshd "${PREFIX:-/nonexistent}/bin/sshd" "$(command -v sshd 2>/dev/null)"; do
+    [[ -n $b && -x $b ]] && { printf '%s' "$b"; return 0; }
+  done
+  return 1
+}
+# A porta em que esta máquina atende (para anunciar à malha): 22, 8022 (Termux ou o sshd do tt) ou nada.
+sshd_porta() {
+  if [[ ${PREFIX:-} == *com.termux* ]]; then sshd_escuta 8022 && echo 8022; return; fi
+  if sshd_escuta "$SSHD_PORTA_SIS"; then echo "$SSHD_PORTA_SIS"; elif sshd_escuta "$SSHD_PORTA_TT"; then echo "$SSHD_PORTA_TT"; fi
+}
+sshd_log() { mkdir -p "$ESTADO_DIR/sshd"; printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$ESTADO_DIR/sshd/garantir.log"; }
+# O sshd do usuário na 8022: chave de host própria, só chave pública, sem PAM (não roda como root).
+sshd_usuario() {
+  local d=$ESTADO_DIR/sshd b porta=$SSHD_PORTA_TT
+  sshd_escuta "$porta" && return 0
+  b=$(sshd_bin) || return 1
+  mkdir -p "$d" && chmod 700 "$d"
+  [[ -s $d/ssh_host_ed25519_key ]] || ssh-keygen -q -t ed25519 -N '' -f "$d/ssh_host_ed25519_key" >/dev/null 2>&1 || return 1
+  cat >"$d/sshd_config" <<FIM
+# Gerado pelo tt (sshd_garantir): sshd do usuário, sem root, para a malha alcançar esta máquina.
+Port $porta
+HostKey $d/ssh_host_ed25519_key
+PidFile $d/sshd.pid
+AuthorizedKeysFile .ssh/authorized_keys
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+PermitRootLogin no
+Subsystem sftp internal-sftp
+FIM
+  "$b" -f "$d/sshd_config" -E "$d/sshd.log" 2>>"$d/sshd.log" || return 1
+  local i; for i in 1 2 3 4 5; do sshd_escuta "$porta" && return 0; sleep 0.3; done
+  return 1
+}
+# tt --sshd-garantir: imprime a porta que atende (sai 1 se nenhuma).
+sshd_garantir() {
+  local p
+  [[ $(conf sshd_garantir) == 0 ]] && return 0
+  p=$(sshd_porta); [[ -n $p ]] && { echo "$p"; return 0; }
+  if [[ ${PREFIX:-} == *com.termux* ]]; then
+    tem_cmd sshd && sshd >/dev/null 2>&1; sleep 1
+    p=$(sshd_porta); [[ -n $p ]] && { sshd_log "Termux: sshd religado"; echo "$p"; return 0; }
+    return 1
+  fi
+  if [[ -z ${TT_SSHD_SEM_SUDO:-} ]] && sshd_bin >/dev/null && sudo -n true 2>/dev/null; then
+    if tem_cmd systemctl && [[ -d /run/systemd/system ]]; then
+      sudo -n systemctl enable --now ssh >/dev/null 2>&1 || sudo -n systemctl enable --now sshd >/dev/null 2>&1
+    else
+      sudo -n service ssh start >/dev/null 2>&1 || sudo -n service sshd start >/dev/null 2>&1
+    fi
+    sleep 1
+    sshd_escuta "$SSHD_PORTA_SIS" && { sshd_log "sshd do sistema ligado (sudo sem senha)"; echo "$SSHD_PORTA_SIS"; return 0; }
+  fi
+  if sshd_usuario; then sshd_log "sshd do usuário na porta $SSHD_PORTA_TT"; echo "$SSHD_PORTA_TT"; return 0; fi
+  sshd_bin >/dev/null || sshd_log "sem o programa sshd (openssh-server): pendência sshd"
+  return 1
+}
+# Vigia: só quem está numa malha (tem outras máquinas cadastradas) precisa ser alcançável.
+sshd_vigiar() { [[ -s $CONF_MAQ ]] || return 0; sshd_garantir >/dev/null; }
 
 # tt --malha-completar: aprende o que falta, corrige o que está incoerente, apresenta-se, conserta o que não conecta.
 # A --malha-lista de uma máquina (para malha_completar): grava em PASTA/rótulo e, se respondeu, PASTA/rótulo.ok.
@@ -1919,6 +1998,10 @@ malha_completar() {
       if u=$(malha_provar "$rot" "$a" "$b"); then desregistrar "${dest#*@}"; registrar "$a" "$u" "$rot"; log_malha "religuei $rot por outro endereço: $u@$a (o cadastrado, $dest, estava $est)"; novos=$((novos + 1)); ok=1; break; fi
     done <<<"${alts#$'\n'}"
     [[ -n $ok ]] && continue
+    # sshd da 22 parado: a outra pode estar atendendo na 8022 (Termux ou o sshd do usuário que o tt sobe)
+    if [[ $est == porta-fechada ]] && u=$(malha_provar "$rot" "${dest#*@}" "${dest%@*}"); then
+      log_malha "religuei $rot pela porta $SSHD_PORTA_TT (a 22 estava fechada)"; novos=$((novos + 1)); continue
+    fi
     if [[ $est == sem-chave ]] && reparar "$rot" >/dev/null 2>&1; then log_malha "reparei a chave em $rot"; continue; fi
     log_malha "ILHA: $rot ($dest) não conecta ($est) e não consegui consertar sozinha"
   done <<<"${falhos#$'\n'}"
@@ -4297,6 +4380,37 @@ guarda_tamanho() {
   return 0
 }
 
+# Gancho client-session-changed (só para clientes aninhados: TERM tmux*/screen*, filtrado no tmux.conf). O
+# cliente do e-mail (o "attach -t =_tt-email" do popup ou do painel flutuante) nunca sai da sessão do e-mail:
+# uma tecla do tt digitada lá dentro (Ctrl+B s, F7, a lista de sessões do tmux…) agia nele, e com o painel
+# flutuante ele passava a mostrar a janela que contém o próprio painel — a tela de si mesmo dentro de si,
+# recursiva, até o tmux cair. Ele volta na hora para o e-mail. Qualquer outra vista aninhada que passou a
+# mostrar a sessão que a contém (ciclo) é desanexada.
+guarda_aninhado() { # cliente [voltou]
+  local c=${1:-} pid s cont
+  [[ -n $c ]] || return 0
+  IFS=$'\x1f' read -r pid s < <(tmux display -p -c "$c" $'#{client_pid}\x1f#{session_name}' 2>/dev/null)
+  [[ -n $pid && -n $s ]] || return 0
+  mkdir -p "$HOME/.cache"
+  if [[ ${2:-} == voltou ]]; then # o gancho do tmux já o trouxe de volta; aqui só fica o registro
+    echo "$(date '+%F %T') guarda: o cliente do e-mail $c foi para $(tmux display -p -c "$c" '#{client_last_session}' 2>/dev/null); voltou ao e-mail" >>"$HOME/.cache/tt-vigia.log"
+    return 0
+  fi
+  if tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- "attach -t =$EMAIL_SESSAO"; then
+    [[ $s == "$EMAIL_SESSAO" ]] && return 0
+    tmux switch-client -c "$c" -t "=$EMAIL_SESSAO" 2>/dev/null || tmux detach-client -t "$c" 2>/dev/null
+    echo "$(date '+%F %T') guarda: o cliente do e-mail $c foi para $s; voltou ao e-mail" >>"$HOME/.cache/tt-vigia.log"
+    return 0
+  fi
+  cont=$(contem_cliente "$c")
+  if [[ -n $cont ]] && alcanca "$s" "$cont"; then
+    tmux detach-client -t "$c" 2>/dev/null
+    echo "$(date '+%F %T') guarda: a vista aninhada $c passou a mostrar $s, que a contém ($cont); desanexada" >>"$HOME/.cache/tt-vigia.log"
+    avisar "⚠ painel fechado: ele passou a mostrar a sessão onde ele mesmo está (ciclo)"
+  fi
+  return 0
+}
+
 # Sessão-ponte local que mostra a sessão S de outra máquina (cria se não existir). Imprime o nome.
 criar_ponte() {
   local dest=$1 s=$2 cliente=${3:-} base ponte alvo nome anexada dono n=2
@@ -5417,7 +5531,7 @@ fzf_instalar() {
 # pasta do usuário e (4) quão importante é: essencial (o tt degrada sem), recurso (de uma função em uso)
 # ou opcional (conforto). O vigia só avisa de essencial e recurso; o menu administrar → 📦 mostra tudo.
 PEND_IDS=(nucleo fzf-novo tmux-antigo tmux-novo email-aerc email-sync isync-sasl email-xoauth2 email-espelho email-html email-editor email-spell
-          chrome carbonyl chrome-libs clipboard notificacoes xdg-utils termux-api pv mosh nomeador-local)
+          chrome carbonyl chrome-libs clipboard notificacoes xdg-utils termux-api pv mosh nomeador-local sshd)
 
 CHROME_TAM="~120 MB"; CARBONYL_TAM="~60 MB"
 
@@ -5558,6 +5672,13 @@ pend_avaliar() {
     mosh)
       P_NIVEL=opcional; P_ROTULO=${PEND_ROTULOS[mosh]}; P_MOTIVO="entrar nesta máquina pelo celular sem a conexão cair (mosh)"
       P_SYS=$(pend_faltam mosh) ;;
+    sshd)
+      # Máquina numa malha precisa aceitar conexão; o tt sobe o sshd sozinho (sshd_garantir), mas precisa do programa.
+      [[ -s $CONF_MAQ && ${PREFIX:-} != *com.termux* ]] || { P_APLICA=0; return 0; }
+      sshd_bin >/dev/null && return 0
+      P_NIVEL=essencial; P_ROTULO="servidor ssh (openssh-server)"
+      P_MOTIVO="sem ele as outras máquinas não alcançam esta (ilha na malha); o tt o liga sozinho depois"
+      P_SYS=sshd ;;
     nomeador-local)
       [[ $(conf nomeador) == local ]] || { P_APLICA=0; return 0; }
       P_ROTULO="nomeador local de abas"; P_TAM="1–2,5 GB"
@@ -6105,6 +6226,13 @@ checar_coletar() {
     if ((n >= 2)); then checar_linha malha falha "ilha na malha há $n voltas do vigia: alguma máquina não alcança outra" "tt --malha; tt --diagnosticar MÁQUINA; tt --reparar MÁQUINA"
     else checar_linha malha ok "sem ilha na malha"; fi
   else checar_linha malha ok "só esta máquina cadastrada"; fi
+  # sshd: sem ele esta máquina é ilha (as outras acham a porta fechada); o vigia o garante a cada 5 min
+  if [[ -s $CONF_MAQ && $(conf sshd_garantir) != 0 ]]; then
+    x=$(sshd_porta)
+    if [[ -n $x ]]; then checar_linha sshd ok "aceita conexão da malha na porta $x"
+    elif sshd_bin >/dev/null; then checar_linha sshd falha "nenhum sshd escutando: as outras máquinas não alcançam esta (ilha)" "tt --sshd-garantir (log em ~/.local/state/tt/sshd/)"
+    else checar_linha sshd falha "sem servidor ssh (openssh-server): as outras máquinas não alcançam esta" "tt --pedir-sudo sshd"; fi
+  fi
 
   # agentes: regras do tt no AGENTS.md único, CLAUDE.md como link para ele, skill instalada
   f=$HOME/.agents/AGENTS.md
@@ -6312,7 +6440,7 @@ checar_handoff() {
   done
   for f in "$ESTADO_DIR"/email-sync/*; do
     [[ -f $f ]] || continue
-    case ${f##*/} in *.vistas|*.trava) continue ;; esac
+    case ${f##*/} in *.vistas|*.trava|*.tmp|*.andamento|*.lib) continue ;; esac
     tail -n 300 "$f" >"$raiz/email-sync/${f##*/}"
   done
   _ho() { local arq=$1; shift; timeout 60 "$EU" "$@" 2>&1 | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' >"$raiz/estado/$arq"; }
@@ -6324,7 +6452,7 @@ checar_handoff() {
   _ho tarefas-sync.txt --tarefas-sync status
   _ho hora.txt --hora
   _ho sessoes-ia.txt --sessoes-ia status
-  { pacotes_lib && pk_resumo; uname -srm; } >"$raiz/estado/plataforma.txt" 2>&1
+  { pacotes_lib && pk_resumo; echo; uname -srm; } >"$raiz/estado/plataforma.txt" 2>&1
   cat >"$raiz/LEIA-ME.md" <<FIM
 # Handoff do tt · $MAQUINA · $(versao_humana) · $(date -Iseconds)
 
@@ -17563,7 +17691,8 @@ case "${1:-}" in
   --novidades-avisar) novidades_avisar; exit 0 ;;
   --checar) shift; checar "$@"; exit ;;
   --checar-agente) shift; checar_agente "$@"; exit ;;
-  --checar-auto) checar_auto; exit 0 ;;              # (interno, vigia) uma rodada por versão nova
+  --checar-auto) checar_auto; exit 0 ;;
+  --sshd-garantir) if [[ ${2:-} == --vigia ]]; then sshd_vigiar; else sshd_garantir; fi; exit ;;              # (interno, vigia) uma rodada por versão nova
   --checar-fechar) shift; checar_fechar "$@"; exit ;; # (interno) fim da rodada do agente
   --checar-ver) shift; checar_ver "$@"; exit ;;
   --checar-handoff) shift; checar_handoff "$@"; exit ;;
@@ -17881,6 +18010,7 @@ case "${1:-}" in
     a=${2:?uso: tt --fixar [máquina:]sessão}; [[ $a == *:* ]] && alternar_fixada "${a%%:*}" "${a#*:}" || alternar_fixada "$MAQUINA" "$a"; exit ;;
   --fixadas) fixadas; exit ;;
   --guarda-tamanho) guarda_tamanho; exit ;;
+  --guarda-aninhado) guarda_aninhado "${2:-}" "${3:-}"; exit 0 ;;
   --ciclo) fecha_ciclo "$2" "$3" && echo "fecha ciclo" || echo "ok, sem ciclo"; exit ;;
   --lista-seletor) exec </dev/null 2>/dev/null; lista_seletor_salva | com_x; exit ;; # sem o terminal do popup (veja listar_tudo)
   --lista-rapida) lista_rapida_salva; exit ;;

@@ -3,6 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.15.2 · 13/10/2026
+- **🔌 Nenhuma máquina vira ilha por falta de ssh.** Se nada atende na porta do ssh (o caso de um WSL, que não liga o servidor ssh quando o Windows sobe), o tt resolve sozinho, sem esperar ninguém: com `sudo` sem senha, liga o ssh do sistema; senão, sobe **um ssh do próprio usuário na porta 8022, sem root**, que só aceita chave. As outras máquinas já tentam a 8022 quando a 22 não responde e passam a usá-la sozinhas.
+  - O vigia confere a cada 5 minutos e religa se cair. Faltando o programa (openssh-server), vira pendência essencial no 📦.
+  - Só vale para máquina que tem outras cadastradas (fora da malha, nenhuma porta é aberta). `sshd_garantir=0` no config desliga; `tt --sshd-garantir` faz na hora. O `tt --checar` passa a ter a linha `sshd`.
+- **📧 O e-mail não se abre mais dentro de si até cair.** Com as janelas flutuantes, uma tecla do tt digitada dentro do e-mail (a central, a sessão anterior, as teclas de sessão do tmux) levava o e-mail à sua própria sessão, e a tela se desenhava dentro de si mesma até o tmux fechar. Agora o e-mail volta para o lugar dele na hora, e qualquer outra janela que passasse a mostrar a si mesma é fechada com um aviso.
+- **🩺 Pacote de handoff mais limpo:** a linha da plataforma não cola mais no kernel, e os arquivos temporários do sync de e-mail ficam de fora.
+
 ## v1.15.1 · 13/10/2026
 - **📈 Seta da variação não cobre mais o número.** Nas cotações do letreiro, o ▲/▼ vinha colado no percentual (`▲0,5%`), e muita fonte desenha esses triângulos de borda a borda da célula, ou até além dela: a seta ficava em cima do algarismo, às vezes por cima dele. Agora há um espaço entre os dois (`▲ 0,5%`). Variação zero passa a aparecer como `= 0,0%`: com o espaço, o `•` antigo se confundiria com o separador entre os itens. Quem usa `{seta}` e `{pct}` num modelo próprio continua montando do seu jeito.
 
