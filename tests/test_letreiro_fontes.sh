@@ -89,7 +89,7 @@ est=$(py listar --tsv | cut -f1,2,4 | tr '\t' ' ' | paste -sd,)
 contem "$est" 'btc 1 legado' 'linha antiga indicador_btc= aparece como fonte (legado) e ativa'
 contem "$est" 'frases 0 nativa' 'frases fica fora porque indicadores= não a lista'
 atual
-igual "$(cache dolar)" '💵 dólar R$ 5,123 ▲0,5%' 'dólar: mesmo texto de antes (vírgula também na variação)'
+igual "$(cache dolar)" '💵 dólar R$ 5,123 ▲ 0,5%' 'dólar: mesmo texto de antes (vírgula também na variação)'
 igual "$(cache noticias)" $'📰 Manchete A do g1\n📰 Manchete B\n🌍 World one\n🌍 World two' 'notícias: g1 e BBC, 2 manchetes de cada, na mesma ordem'
 igual "$(python3 -I -c 'import json,sys; print(" ".join(i["acao"] + ":" + i["alvo"] for i in json.load(open(sys.argv[1]))))' "$HOME/.cache/tt-ticker/noticias.itens")" \
   'url:https://exemplo.com/a url:https://exemplo.com/b bloqueado: bloqueado:' 'notícias de fábrica: o clique abre a matéria (link do item); manchete sem link não abre nada'
@@ -98,7 +98,7 @@ igual "$(cache txt)" 'ℹ primeira linha do texto' 'indicador antigo com caminho
 igual "$(cache lst)" '📋 um' 'indicador antigo com índice numérico no caminho (a.1.x)'
 igual "$(cache sec)" '🔑 zero' 'indicador antigo com header @arquivo'
 igual "$(jq_ "$(ultimo /lista)" key)" 'segredo123' 'o header com @arquivo chegou ao servidor com o valor de ~/.secrets'
-igual "$(py linha)" '💵 dólar R$ 5,123 ▲0,5% • 📰 Manchete A do g1 • 📰 Manchete B • 🌍 World one • 🌍 World two • ₿ 67890.12 • ℹ primeira linha do texto • 📋 um • 🔑 zero' 'a linha do letreiro: itens unidos por " • " na ordem de indicadores='
+igual "$(py linha)" '💵 dólar R$ 5,123 ▲ 0,5% • 📰 Manchete A do g1 • 📰 Manchete B • 🌍 World one • 🌍 World two • ₿ 67890.12 • ℹ primeira linha do texto • 📋 um • 🔑 zero' 'a linha do letreiro: itens unidos por " • " na ordem de indicadores='
 [[ -e $HOME/.config/tt/letreiro/btc.conf && -e $HOME/.config/tt/letreiro/dolar.conf ]] || falhou 'a migração deveria ter criado os arquivos (btc.conf; dolar.conf com ativa/ordem)'
 grep -q '^header=X-Api-Key: @chave' "$HOME/.config/tt/letreiro/sec.conf" || falhou 'migração sem perda: header @chave'
 grep -qE '^(valor_max|truncar)=' "$HOME/.config/tt/letreiro/btc.conf" && falhou 'a migração não deve criar corte de tamanho (o letreiro não corta entradas)'
@@ -270,20 +270,20 @@ cria v4 url="$H/valor?v=110&p=100" caminho=v var_base=p modelo='{valor} {var} {s
 cria v5 url="$H/contador" caminho=n variacao=calculada modelo='n={valor} {var}'
 cria v6 url="$(v 100 3)" caminho=v variacao=p cor=0 modelo='{valor} {var}'
 for f in v1 v2 v3 v4 v6; do atual $f; done
-igual "$(cache v1)" '100 ▼1,3%' 'variação negativa: ▼ e vírgula'
+igual "$(cache v1)" '100 ▼ 1,3%' 'variação negativa: ▼ e vírgula'
 igual "$(cache v2)" '100 +2,0%' 'setas=0: +2,0%'
-igual "$(cache v3)" '100 •0,0%' 'variação que arredonda a zero é neutra (•)'
-igual "$(cache v4)" '110 ▲10,0% ▲ 10,0%' 'var_base: (110-100)/100; {seta} e {pct}'
+igual "$(cache v3)" '100 = 0,0%' 'variação que arredonda a zero é neutra (=)'
+igual "$(cache v4)" '110 ▲ 10,0% ▲ 10,0%' 'var_base: (110-100)/100; {seta} e {pct}'
 [[ $(cru v1) == *$'\002'* && $(cru v3) == *$'\003'* && $(cru v2) == *$'\001'* ]] || falhou 'marcas de cor: baixa=\002, neutra=\003, alta=\001 no cache'
 [[ $(cru v6) != *[$'\001\002\003\004']* ]] || falhou 'cor=0 não pode pôr marcas de cor'
 atual v5; igual "$(cache v5)" 'n=1' 'variação calculada: 1ª leitura ainda sem referência'
-atual v5; igual "$(cache v5)" 'n=2 ▲100,0%' 'variação calculada: (2-1)/1'
-atual v5; igual "$(cache v5)" 'n=3 ▲50,0%' 'variação calculada: (3-2)/2'
+atual v5; igual "$(cache v5)" 'n=2 ▲ 100,0%' 'variação calculada: (2-1)/1'
+atual v5; igual "$(cache v5)" 'n=3 ▲ 50,0%' 'variação calculada: (3-2)/2'
 # o desenhista pinta: alta verde, baixa vermelha; ticker_cor=0 desliga
 q=$(roda_tmux)
-contem "$q" '#[fg=#f38ba8]▼1,3%' 'faixa: baixa vermelha'; contem "$q" '#[fg=#a6e3a1]▲10,0%' 'faixa: alta verde'
+contem "$q" '#[fg=#f38ba8]▼ 1,3%' 'faixa: baixa vermelha'; contem "$q" '#[fg=#a6e3a1]▲ 10,0%' 'faixa: alta verde'
 printf 'ticker_cor=0\n' >>"$XDG_CONFIG_HOME/tt/config"; q=$(roda_tmux)
-nao_contem "$q" '#[fg=#f38ba8]' 'ticker_cor=0 tira as cores'; contem "$q" '▼1,3%' 'e mantém o texto'
+nao_contem "$q" '#[fg=#f38ba8]' 'ticker_cor=0 tira as cores'; contem "$q" '▼ 1,3%' 'e mantém o texto'
 sed -i '/^ticker_cor=/d' "$XDG_CONFIG_HOME/tt/config"
 passou 'transformação: casas, pt/en, milhar, escala, moeda, 4 arredondamentos, traduzir; variação (campo, base, calculada), setas, cor por sinal'
 # sem dado novo: esconder, último (marcado como velho) ou erro — e uma falha de rede nunca apaga o letreiro
@@ -531,7 +531,7 @@ igual "$(norm via-cli)" "$(norm via-arquivo)" 'comando = arquivo'
 igual "$(norm via-painel)" "$(norm via-arquivo)" 'painel (rascunho) = arquivo'
 for f in via-arquivo via-cli via-painel; do atual $f; done
 igual "$(cache via-cli)" "$(cache via-arquivo)" 'mesma linha no letreiro (comando = arquivo)'; igual "$(cache via-painel)" "$(cache via-arquivo)" 'mesma linha no letreiro (painel = arquivo)'
-igual "$(cache via-cli)" '💵 dólar R$ 5,123 ▲0,5%' 'e é a linha esperada'
+igual "$(cache via-cli)" '💵 dólar R$ 5,123 ▲ 0,5%' 'e é a linha esperada'
 passou 'arquivo, comando (--letreiro-add) e painel (assistente: rascunho → salvar) produzem a mesma fonte e a mesma linha'
 # verbos
 out=$(tt --letreiro-listar); contem "$out" 'via-cli' 'listar'; contem "$(tt --letreiro-listar --tsv)" $'via-cli\t1\tok' 'listar --tsv'

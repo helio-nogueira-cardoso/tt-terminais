@@ -98,7 +98,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "🇦🇺 dólar aus. R$ 3,482 ▼0,3%",
+   "exemplo": "🇦🇺 dólar aus. R$ 3,482 ▼ 0,3%",
    "validada": "2026-10-11"
   },
   "dolar-canadense": {
@@ -116,7 +116,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "🇨🇦 dólar can. R$ 3,498 ▼0,8%",
+   "exemplo": "🇨🇦 dólar can. R$ 3,498 ▼ 0,8%",
    "validada": "2026-10-11"
   },
   "dolar-turismo": {
@@ -134,7 +134,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "🧳 dólar turismo R$ 4,953 ▼0,5%",
+   "exemplo": "🧳 dólar turismo R$ 4,953 ▼ 0,5%",
    "validada": "2026-10-11"
   },
   "euro": {
@@ -152,7 +152,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "💶 euro R$ 5,583 ▼0,8%",
+   "exemplo": "💶 euro R$ 5,583 ▼ 0,8%",
    "validada": "2026-10-11"
   },
   "euro-dolar": {
@@ -170,7 +170,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "💱 euro/dólar US$ 1,1201 ▼0,1%",
+   "exemplo": "💱 euro/dólar US$ 1,1201 ▼ 0,1%",
    "validada": "2026-10-11"
   },
   "franco-suico": {
@@ -188,7 +188,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "🇨🇭 franco suíço R$ 6,004 ▼0,5%",
+   "exemplo": "🇨🇭 franco suíço R$ 6,004 ▼ 0,5%",
    "validada": "2026-10-11"
   },
   "iene": {
@@ -206,7 +206,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "💴 iene R$ 0,0314 ▼1,0%",
+   "exemplo": "💴 iene R$ 0,0314 ▼ 1,0%",
    "validada": "2026-10-11"
   },
   "libra": {
@@ -224,7 +224,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "💷 libra R$ 6,593 ▼0,5%",
+   "exemplo": "💷 libra R$ 6,593 ▼ 0,5%",
    "validada": "2026-10-11"
   },
   "ouro-onca": {
@@ -242,7 +242,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "🥇 ouro (onça) R$ 20.917 ▲0,6%",
+   "exemplo": "🥇 ouro (onça) R$ 20.917 ▲ 0,6%",
    "validada": "2026-10-11"
   },
   "peso-argentino": {
@@ -260,7 +260,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "🇦🇷 peso arg. R$ 0,0032 ▼0,2%",
+   "exemplo": "🇦🇷 peso arg. R$ 0,0032 ▼ 0,2%",
    "validada": "2026-10-11"
   },
   "yuan": {
@@ -278,7 +278,7 @@
     "arredondar": "truncar",
     "ttl": "600"
    },
-   "exemplo": "🇨🇳 yuan R$ 0,745 ▼0,5%",
+   "exemplo": "🇨🇳 yuan R$ 0,745 ▼ 0,5%",
    "validada": "2026-10-11"
   },
   "bitcoin": {
@@ -296,7 +296,7 @@
     "arredondar": "truncar",
     "ttl": "300"
    },
-   "exemplo": "₿ bitcoin R$ 420.217 ▲0,8%",
+   "exemplo": "₿ bitcoin R$ 420.217 ▲ 0,8%",
    "validada": "2026-10-11"
   },
   "bitcoin-bloco": {
@@ -364,7 +364,7 @@
     "arredondar": "truncar",
     "ttl": "300"
    },
-   "exemplo": "🐕 dogecoin R$ 0,436 ▲0,5%",
+   "exemplo": "🐕 dogecoin R$ 0,436 ▲ 0,5%",
    "validada": "2026-10-11"
   },
   "ethereum": {
@@ -382,7 +382,7 @@
     "arredondar": "truncar",
     "ttl": "300"
    },
-   "exemplo": "Ξ ethereum R$ 12.741 ▲1,0%",
+   "exemplo": "Ξ ethereum R$ 12.741 ▲ 1,0%",
    "validada": "2026-10-11"
   },
   "ethereum-usd": {
@@ -418,7 +418,7 @@
     "arredondar": "truncar",
     "ttl": "300"
    },
-   "exemplo": "Ł litecoin R$ 323,60 ▲0,4%",
+   "exemplo": "Ł litecoin R$ 323,60 ▲ 0,4%",
    "validada": "2026-10-11"
   },
   "medo-ganancia": {
@@ -452,7 +452,7 @@
     "arredondar": "truncar",
     "ttl": "300"
    },
-   "exemplo": "◎ solana R$ 562,30 ▲1,6%",
+   "exemplo": "◎ solana R$ 562,30 ▲ 1,6%",
    "validada": "2026-10-11"
   },
   "xrp": {
@@ -470,7 +470,7 @@
     "arredondar": "truncar",
     "ttl": "300"
    },
-   "exemplo": "✕ XRP R$ 7,073 ▲0,3%",
+   "exemplo": "✕ XRP R$ 7,073 ▲ 0,3%",
    "validada": "2026-10-11"
   },
   "cdi": {
@@ -739,7 +739,7 @@
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
     "horas": "10-18"
    },
-   "exemplo": "🇺🇸 Dow Jones 51.655 ▲0,8%",
+   "exemplo": "🇺🇸 Dow Jones 51.655 ▲ 0,8%",
    "validada": "2026-10-11"
   },
   "ibovespa": {
@@ -759,7 +759,7 @@
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
     "horas": "10-18"
    },
-   "exemplo": "📊 Ibovespa 209.067 ▲1,4%",
+   "exemplo": "📊 Ibovespa 209.067 ▲ 1,4%",
    "validada": "2026-10-11"
   },
   "itub4": {
@@ -780,7 +780,7 @@
     "moeda": "R$",
     "horas": "10-18"
    },
-   "exemplo": "🏦 ITUB4 R$ 50,47 ▲2,3%",
+   "exemplo": "🏦 ITUB4 R$ 50,47 ▲ 2,3%",
    "validada": "2026-10-11"
   },
   "nasdaq": {
@@ -800,7 +800,7 @@
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
     "horas": "10-18"
    },
-   "exemplo": "🇺🇸 Nasdaq 27.366 ▲0,6%",
+   "exemplo": "🇺🇸 Nasdaq 27.366 ▲ 0,6%",
    "validada": "2026-10-11"
   },
   "nikkei": {
@@ -819,7 +819,7 @@
     "cache_max": "4320",
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1"
    },
-   "exemplo": "🇯🇵 Nikkei 69.031 •0,0%",
+   "exemplo": "🇯🇵 Nikkei 69.031 = 0,0%",
    "validada": "2026-10-11"
   },
   "ouro-futuro": {
@@ -839,7 +839,7 @@
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
     "moeda": "US$"
    },
-   "exemplo": "🥇 ouro US$ 4.216,30 •0,0%",
+   "exemplo": "🥇 ouro US$ 4.216,30 = 0,0%",
    "validada": "2026-10-11"
   },
   "petr4": {
@@ -860,7 +860,7 @@
     "moeda": "R$",
     "horas": "10-18"
    },
-   "exemplo": "🛢 PETR4 R$ 56,00 ▲0,9%",
+   "exemplo": "🛢 PETR4 R$ 56,00 ▲ 0,9%",
    "validada": "2026-10-11"
   },
   "petroleo-brent": {
@@ -880,7 +880,7 @@
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
     "moeda": "US$"
    },
-   "exemplo": "🛢 Brent US$ 104,72 •0,0%",
+   "exemplo": "🛢 Brent US$ 104,72 = 0,0%",
    "validada": "2026-10-11"
   },
   "petroleo-wti": {
@@ -900,7 +900,7 @@
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
     "moeda": "US$"
    },
-   "exemplo": "🛢 WTI US$ 91,85 •0,0%",
+   "exemplo": "🛢 WTI US$ 91,85 = 0,0%",
    "validada": "2026-10-11"
   },
   "prata-futuro": {
@@ -920,7 +920,7 @@
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
     "moeda": "US$"
    },
-   "exemplo": "🥈 prata US$ 61,05 •0,0%",
+   "exemplo": "🥈 prata US$ 61,05 = 0,0%",
    "validada": "2026-10-11"
   },
   "sp500": {
@@ -940,7 +940,7 @@
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
     "horas": "10-18"
    },
-   "exemplo": "🇺🇸 S&P 500 7.812 ▲0,6%",
+   "exemplo": "🇺🇸 S&P 500 7.812 ▲ 0,6%",
    "validada": "2026-10-11"
   },
   "vale3": {
@@ -961,7 +961,7 @@
     "moeda": "R$",
     "horas": "10-18"
    },
-   "exemplo": "⛏ VALE3 R$ 67,90 ▲0,4%",
+   "exemplo": "⛏ VALE3 R$ 67,90 ▲ 0,4%",
    "validada": "2026-10-11"
   },
   "vix": {
@@ -981,7 +981,7 @@
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) tt-letreiro/1",
     "horas": "10-18"
    },
-   "exemplo": "😱 VIX 14,84 ▼3,7%",
+   "exemplo": "😱 VIX 14,84 ▼ 3,7%",
    "validada": "2026-10-11"
   },
   "clima-chuva": {

@@ -2159,8 +2159,11 @@ def formatar_variacao(f, p, cfg):
     num = formatar_num(abs(arr), dec, idioma_sep(f, cfg), False, "normal")
     cor = f["cor"] != "0" and (cfg or {}).get("ticker_cor", "1") != "0"
     if f["setas"] != "0":
-        seta = {"alta": "▲", "baixa": "▼", "neutra": "•"}[sinal]
-        corpo = "%s%s%%" % (seta, num)
+        # Espaço depois da seta: ▲/▼ são de largura ambígua e muita fonte os desenha de borda a borda
+        # da célula (ou além, quando vêm de uma fonte de reserva), colados ou por cima do algarismo.
+        # O neutro é "=" e não "•": com o espaço, "• 0,0%" se confundiria com o separador dos itens.
+        seta = {"alta": "▲", "baixa": "▼", "neutra": "="}[sinal]
+        corpo = "%s %s%%" % (seta, num)
     else:
         seta = ""
         corpo = ("+" if sinal == "alta" else "-" if sinal == "baixa" else "") + num + "%"

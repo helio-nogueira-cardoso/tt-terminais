@@ -835,7 +835,7 @@ tempo).
 
 ### O que valia até a v277 (e continua valendo)
 
-- Três fontes nativas no código: **dólar** (AwesomeAPI, TTL 600 s; `💵 dólar R$ 5,123 ▲0,5%`), **frases**
+- Três fontes nativas no código: **dólar** (AwesomeAPI, TTL 600 s; `💵 dólar R$ 5,123 ▲ 0,5%`), **frases**
   (lista embutida de 6, uma sorteada por TTL de 600 s) e **notícias** (RSS do g1 e da BBC World, 2 manchetes
   de cada, TTL 900 s). O config só ligava/desligava por `indicadores=dolar,frases,noticias`
   (`indicadores=0` desliga tudo) e `indicador_NOME=URL ;; rótulo ;; caminho.no.json ;; ttl ;; Header: @arquivo`
@@ -850,7 +850,9 @@ tempo).
   ficam no config (sem perda); depois de migrada, vale o arquivo. Se você editar `indicadores=` depois, a
   lista nova é reaplicada. `tt --ticker-fontes` e `tt --ticker-quadro` seguem funcionando.
 - Única diferença visível: o texto sai pelo mesmo motor das demais fontes, então a variação do dólar usa a
-  vírgula do pt-BR (`▲0,5%`, antes `▲0.5%`) e uma variação que arredonda para zero fica neutra (`•0,0%`).
+  vírgula do pt-BR (`▲ 0,5%`, antes `▲0.5%`) e uma variação que arredonda para zero fica neutra (`= 0,0%`).
+  A seta vem separada do número por um espaço: ▲/▼ têm largura ambígua e muita fonte os desenha de borda a
+  borda da célula (ou além), colados ou por cima do algarismo.
 
 ### Arquivo da fonte
 
@@ -1145,33 +1147,33 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
-| `dolar-australiano` | Dólar australiano em reais | 🇦🇺 dólar aus. R$ 3,482 ▼0,3% |
-| `dolar-canadense` | Dólar canadense em reais | 🇨🇦 dólar can. R$ 3,498 ▼0,8% |
-| `dolar-turismo` | Dólar turismo em reais | 🧳 dólar turismo R$ 4,953 ▼0,5% |
-| `euro` | Euro em reais (AwesomeAPI, sem chave) | 💶 euro R$ 5,583 ▼0,8% |
-| `euro-dolar` | Euro em dólares | 💱 euro/dólar US$ 1,1201 ▼0,1% |
-| `franco-suico` | Franco suíço em reais | 🇨🇭 franco suíço R$ 6,004 ▼0,5% |
-| `iene` | Iene japonês em reais | 💴 iene R$ 0,0314 ▼1,0% |
-| `libra` | Libra esterlina em reais | 💷 libra R$ 6,593 ▼0,5% |
-| `ouro-onca` | Ouro: onça troy em reais | 🥇 ouro (onça) R$ 20.917 ▲0,6% |
-| `peso-argentino` | Peso argentino em reais | 🇦🇷 peso arg. R$ 0,0032 ▼0,2% |
-| `yuan` | Yuan chinês em reais | 🇨🇳 yuan R$ 0,745 ▼0,5% |
+| `dolar-australiano` | Dólar australiano em reais | 🇦🇺 dólar aus. R$ 3,482 ▼ 0,3% |
+| `dolar-canadense` | Dólar canadense em reais | 🇨🇦 dólar can. R$ 3,498 ▼ 0,8% |
+| `dolar-turismo` | Dólar turismo em reais | 🧳 dólar turismo R$ 4,953 ▼ 0,5% |
+| `euro` | Euro em reais (AwesomeAPI, sem chave) | 💶 euro R$ 5,583 ▼ 0,8% |
+| `euro-dolar` | Euro em dólares | 💱 euro/dólar US$ 1,1201 ▼ 0,1% |
+| `franco-suico` | Franco suíço em reais | 🇨🇭 franco suíço R$ 6,004 ▼ 0,5% |
+| `iene` | Iene japonês em reais | 💴 iene R$ 0,0314 ▼ 1,0% |
+| `libra` | Libra esterlina em reais | 💷 libra R$ 6,593 ▼ 0,5% |
+| `ouro-onca` | Ouro: onça troy em reais | 🥇 ouro (onça) R$ 20.917 ▲ 0,6% |
+| `peso-argentino` | Peso argentino em reais | 🇦🇷 peso arg. R$ 0,0032 ▼ 0,2% |
+| `yuan` | Yuan chinês em reais | 🇨🇳 yuan R$ 0,745 ▼ 0,5% |
 
 **₿ Criptomoedas** (11)
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
-| `bitcoin` | Bitcoin em reais (AwesomeAPI, sem chave) | ₿ bitcoin R$ 420.217 ▲0,8% |
+| `bitcoin` | Bitcoin em reais (AwesomeAPI, sem chave) | ₿ bitcoin R$ 420.217 ▲ 0,8% |
 | `bitcoin-bloco` | Altura do último bloco do Bitcoin (mempool.space, sem chave) | 🧱 bloco BTC 970.972 |
 | `bitcoin-taxa` | Taxa de rede do Bitcoin para confirmar logo (mempool.space, sem chave) | ⛏ taxa BTC 2 sat/vB |
 | `bitcoin-usd` | Bitcoin em dólares (Coinbase, sem chave) | ₿ BTC US$ 83.632 |
-| `dogecoin` | Dogecoin em reais | 🐕 dogecoin R$ 0,436 ▲0,5% |
-| `ethereum` | Ethereum em reais | Ξ ethereum R$ 12.741 ▲1,0% |
+| `dogecoin` | Dogecoin em reais | 🐕 dogecoin R$ 0,436 ▲ 0,5% |
+| `ethereum` | Ethereum em reais | Ξ ethereum R$ 12.741 ▲ 1,0% |
 | `ethereum-usd` | Ethereum em dólares (Coinbase, sem chave) | Ξ ETH US$ 2.533 |
-| `litecoin` | Litecoin em reais | Ł litecoin R$ 323,60 ▲0,4% |
+| `litecoin` | Litecoin em reais | Ł litecoin R$ 323,60 ▲ 0,4% |
 | `medo-ganancia` | Índice de medo e ganância das criptomoedas (alternative.me, sem chave) | 😨 medo/ganância 61 (Greed) |
-| `solana` | Solana em reais | ◎ solana R$ 562,30 ▲1,6% |
-| `xrp` | XRP em reais | ✕ XRP R$ 7,073 ▲0,3% |
+| `solana` | Solana em reais | ◎ solana R$ 562,30 ▲ 1,6% |
+| `xrp` | XRP em reais | ✕ XRP R$ 7,073 ▲ 0,3% |
 
 **🏦 Juros, inflação e economia (Banco Central)** (13)
 
@@ -1195,19 +1197,19 @@ consultas/h por rede (as fontes `*-ultimo` consultam de 6 em 6 h).
 
 | fonte | o que mostra | como aparece |
 |---|---|---|
-| `dow-jones` | Dow Jones em pontos (Yahoo Finance, endpoint não oficial) | 🇺🇸 Dow Jones 51.655 ▲0,8% |
-| `ibovespa` | Ibovespa em pontos; só atualiza no pregão (Yahoo Finance, endpoint não oficial) | 📊 Ibovespa 209.067 ▲1,4% |
-| `itub4` | Itaú Unibanco PN em reais (Yahoo Finance, endpoint não oficial) | 🏦 ITUB4 R$ 50,47 ▲2,3% |
-| `nasdaq` | Nasdaq Composite em pontos (Yahoo Finance, endpoint não oficial) | 🇺🇸 Nasdaq 27.366 ▲0,6% |
-| `nikkei` | Nikkei 225 em pontos (Yahoo Finance, endpoint não oficial) | 🇯🇵 Nikkei 69.031 •0,0% |
-| `ouro-futuro` | Ouro, futuro em dólares por onça (Yahoo Finance, endpoint não oficial) | 🥇 ouro US$ 4.216,30 •0,0% |
-| `petr4` | Petrobras PN em reais (Yahoo Finance, endpoint não oficial) | 🛢 PETR4 R$ 56,00 ▲0,9% |
-| `petroleo-brent` | Petróleo Brent, futuro em dólares (Yahoo Finance, endpoint não oficial) | 🛢 Brent US$ 104,72 •0,0% |
-| `petroleo-wti` | Petróleo WTI, futuro em dólares (Yahoo Finance, endpoint não oficial) | 🛢 WTI US$ 91,85 •0,0% |
-| `prata-futuro` | Prata, futuro em dólares por onça (Yahoo Finance, endpoint não oficial) | 🥈 prata US$ 61,05 •0,0% |
-| `sp500` | S&P 500 em pontos (Yahoo Finance, endpoint não oficial) | 🇺🇸 S&P 500 7.812 ▲0,6% |
-| `vale3` | Vale ON em reais (Yahoo Finance, endpoint não oficial) | ⛏ VALE3 R$ 67,90 ▲0,4% |
-| `vix` | Índice de volatilidade VIX (Yahoo Finance, endpoint não oficial) | 😱 VIX 14,84 ▼3,7% |
+| `dow-jones` | Dow Jones em pontos (Yahoo Finance, endpoint não oficial) | 🇺🇸 Dow Jones 51.655 ▲ 0,8% |
+| `ibovespa` | Ibovespa em pontos; só atualiza no pregão (Yahoo Finance, endpoint não oficial) | 📊 Ibovespa 209.067 ▲ 1,4% |
+| `itub4` | Itaú Unibanco PN em reais (Yahoo Finance, endpoint não oficial) | 🏦 ITUB4 R$ 50,47 ▲ 2,3% |
+| `nasdaq` | Nasdaq Composite em pontos (Yahoo Finance, endpoint não oficial) | 🇺🇸 Nasdaq 27.366 ▲ 0,6% |
+| `nikkei` | Nikkei 225 em pontos (Yahoo Finance, endpoint não oficial) | 🇯🇵 Nikkei 69.031 = 0,0% |
+| `ouro-futuro` | Ouro, futuro em dólares por onça (Yahoo Finance, endpoint não oficial) | 🥇 ouro US$ 4.216,30 = 0,0% |
+| `petr4` | Petrobras PN em reais (Yahoo Finance, endpoint não oficial) | 🛢 PETR4 R$ 56,00 ▲ 0,9% |
+| `petroleo-brent` | Petróleo Brent, futuro em dólares (Yahoo Finance, endpoint não oficial) | 🛢 Brent US$ 104,72 = 0,0% |
+| `petroleo-wti` | Petróleo WTI, futuro em dólares (Yahoo Finance, endpoint não oficial) | 🛢 WTI US$ 91,85 = 0,0% |
+| `prata-futuro` | Prata, futuro em dólares por onça (Yahoo Finance, endpoint não oficial) | 🥈 prata US$ 61,05 = 0,0% |
+| `sp500` | S&P 500 em pontos (Yahoo Finance, endpoint não oficial) | 🇺🇸 S&P 500 7.812 ▲ 0,6% |
+| `vale3` | Vale ON em reais (Yahoo Finance, endpoint não oficial) | ⛏ VALE3 R$ 67,90 ▲ 0,4% |
+| `vix` | Índice de volatilidade VIX (Yahoo Finance, endpoint não oficial) | 😱 VIX 14,84 ▼ 3,7% |
 
 **🌤 Tempo e clima** (14)
 

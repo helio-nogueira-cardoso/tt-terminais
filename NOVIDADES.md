@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.15.1 · 13/10/2026
+- **📈 Seta da variação não cobre mais o número.** Nas cotações do letreiro, o ▲/▼ vinha colado no percentual (`▲0,5%`), e muita fonte desenha esses triângulos de borda a borda da célula, ou até além dela: a seta ficava em cima do algarismo, às vezes por cima dele. Agora há um espaço entre os dois (`▲ 0,5%`). Variação zero passa a aparecer como `= 0,0%`: com o espaço, o `•` antigo se confundiria com o separador entre os itens. Quem usa `{seta}` e `{pct}` num modelo próprio continua montando do seu jeito.
+
 ## v1.15.0 · 13/10/2026
 - **☑ Selecionar tudo no e-mail.** Um botão novo (ou `Ctrl+a` na lista) seleciona todas as mensagens da pasta aberta; com uma busca ou o filtro de não lidas ligado, só as encontradas. Daí ✕ Apagar, ▤ Arquivar e 📁 Mover agem em todas de uma vez. De novo, desmarca.
 - **⚡ E-mail em lote, para milhares.** O botão ⚡ (ou botão direito no 📧 → Em lote, ou `tt --email-lote`) escolhe a conta, a pasta e uma busca (`todas`, `nao-lidas`, `de:loja@x.com`, `assunto:"fatura"`, `antes:2024-01-01`, `maior:5m`; no Gmail também a busca do próprio Gmail, `gmail:"older_than:1y"`), mostra quantas mensagens são e uma amostra, e apaga, arquiva, move ou marca como lidas **direto no servidor**, em blocos, com progresso.
