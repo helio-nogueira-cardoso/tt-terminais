@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.11.1 · 13/10/2026
+- **🔔 Central de notificações mais limpa, com rolagem e botões certeiros.** Cada linha tinha fundo colorido e o aviso selecionado quase não aparecia (só um traço fino à esquerda): a roda do mouse movia uma seleção invisível, parecendo que não rolava, e os botões agiam num aviso que você não via. Agora só a etiqueta "● Não lida"/"✓ Lida" é colorida, e **o aviso selecionado fica destacado de ponta a ponta**; a roda anda pela lista e o clique numa linha mostra qual aviso os botões vão usar.
+- **Um aviso por linha:** os longos não quebram mais em 2 ou 3 linhas; são cortados com "…", e **a prévia embaixo** mostra o aviso selecionado inteiro, quando chegou, de onde veio e o que o ⏎ faz (ex.: "abre o e-mail na mensagem nova"). O ↗ (tem destino) fica numa coluna antes do texto, sempre à vista.
+- **Botões sem demora:** cada clique redesenhava a lista abrindo ~100 processos (`date` para cada data); com 30 avisos, uma ação levava ~170 ms, e muito mais com o tmux ocupado. Agora são ~40 ms.
+
 ## v1.11.0 · 13/10/2026
 - **🔔 Central de notificações com botões de verdade.** A linha de atalhos `⟦^u Não lidas⟧ ⟦^a Todas⟧ …` saía cortada para fora da janela e parte dela não funcionava (o filtro de não lidas não filtrava). No lugar dela, o alto da central agora tem:
   - **abas de filtro clicáveis**, com a contagem: **Todas · Não lidas · Lidas** e, quando houver avisos delas, **Agentes · E-mail · Tarefas**;

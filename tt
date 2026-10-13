@@ -8779,6 +8779,15 @@ DIR_NOTIFS=$ESTADO_DIR/notifs
 # A sincronização é união: .lida nunca volta atrás e .apagada impede que um aviso removido reapareça.
 notifs_nome_valido() { [[ $1 =~ ^[0-9]{18,20}(\.(lida|apagada))?$ ]]; }
 notifs_ids() { ls -1 "$DIR_NOTIFS" 2>/dev/null | grep -E '^[0-9]{18,20}$'; }
+# Os mesmos ids, do mais novo ao mais velho, num array e sem processo (a central relê a cada clique).
+notifs_ids_em() { # VAR
+  local -n _ids=$1; local f i
+  local -a todos=()
+  _ids=()
+  for f in "$DIR_NOTIFS"/*; do f=${f##*/}; [[ $f =~ ^[0-9]{18,20}$ ]] && todos+=("$f"); done
+  # o glob vem em ordem crescente (ids de mesmo tamanho: a ordem do texto é a dos números)
+  for ((i = ${#todos[@]} - 1; i >= 0; i--)); do _ids+=("${todos[i]}"); done
+}
 notifs_mesclar_dir() { # diretório já extraído e validado
   local src=$1 f nome
   mkdir -p "$DIR_NOTIFS"
@@ -9715,19 +9724,23 @@ notifs_popup() {
   [[ -n $(do_cliente "$c" '#{window_modal_pane}' 2>/dev/null) ]] && return 0
   [[ $(tmux display -p -t "=$EMAIL_SESSAO:" '#{session_attached}' 2>/dev/null) =~ ^[1-9] ]] && return 0
   popup_exclusivo_reservar notificacoes "$c" || return 0
-  tmux display-popup -c "$c" -E $(dim_popup "$c" 92 22) -b rounded -T ' 🔔 notificações · esc fecha ' "$EU --notifs-ui $(q "$c")"
+  tmux display-popup -c "$c" -E $(dim_popup "$c" 92 26) -b rounded -T ' 🔔 notificações · esc fecha ' "$EU --notifs-ui $(q "$c")"
   local rc=$?; popup_exclusivo_liberar "$POPUP_EXCLUSIVO"; return "$rc"
 }
 # Quando um aviso nasceu, para a central: "Hoje 08:12", "Ontem 22:05" ou "08/10 22:05" (o ano só
 # aparece quando não é o corrente) — só a hora não distinguia hoje de ontem.
+notif_quando_em() { # VAR epoch — pelo printf do bash, sem processo (a central desenha dezenas por clique)
+  local -n _qd=$1; local ep=$2 dia hoje ontem agora
+  _qd=""; [[ $ep =~ ^[0-9]+$ ]] || return 0
+  printf -v agora '%(%s)T' -1
+  printf -v dia '%(%F)T' "$ep"; printf -v hoje '%(%F)T' "$agora"; printf -v ontem '%(%F)T' "$((agora - 86400))"
+  if [[ $dia == "$hoje" ]]; then printf -v _qd 'Hoje  %(%H:%M)T' "$ep"
+  elif [[ $dia == "$ontem" ]]; then printf -v _qd 'Ontem %(%H:%M)T' "$ep"
+  elif [[ ${dia:0:4} == "${hoje:0:4}" ]]; then printf -v _qd '%(%d/%m %H:%M)T' "$ep"
+  else printf -v _qd '%(%d/%m/%y %H:%M)T' "$ep"; fi
+}
 notif_quando() { # epoch
-  local ep=$1 dia hoje
-  dia=$(date -d "@$ep" +%F 2>/dev/null) || return 0
-  hoje=$(date +%F)
-  if [[ $dia == "$hoje" ]]; then printf 'Hoje  %s' "$(date -d "@$ep" +%H:%M)"
-  elif [[ $dia == "$(date -d yesterday +%F)" ]]; then printf 'Ontem %s' "$(date -d "@$ep" +%H:%M)"
-  elif [[ ${dia:0:4} == "${hoje:0:4}" ]]; then date -d "@$ep" '+%d/%m %H:%M'
-  else date -d "@$ep" '+%d/%m/%y %H:%M'; fi
+  local q; notif_quando_em q "$1"; printf '%s' "$q"
 }
 # Marca todos os avisos como lidos (^l na central): zera o contador do 🔔.
 notifs_marcar_lidas() {
@@ -9776,10 +9789,17 @@ notif_origem() { # texto ação canal
   esac
 }
 # Linhas da central, do aviso mais novo ao mais velho: "ação<TAB>id<TAB>desenho". O filtro escolhe
-# quais entram: todas (padrão), naolidas, lidas, agentes, email ou tarefas.
+# quais entram: todas (padrão), naolidas, lidas, agentes, email ou tarefas. Uma linha por aviso: só a
+# etiqueta (● Não lida / ✓ Lida) tem fundo — a linha em foco fica destacada de ponta a ponta pelo fzf —,
+# o ↗ (tem destino) numa coluna antes do texto e o texto por último, que o fzf corta com … se não couber;
+# o texto inteiro está na prévia (notifs_previa).
 notifs_render() { # [filtro]
-  local filtro=${1:-todas} f exp txt acao canal z=$'\033[0m' m status lida
-  for f in $(notifs_ids | sort -rn); do
+  local filtro=${1:-todas} f exp txt acao canal lida quando cab ida
+  local z=$'\033[0m' dim=$'\033[38;2;127;132;156m' seta=$'\033[38;2;137;180;250m↗\033[0m '
+  local chip_nova=$'\033[1;38;2;249;226;175;48;2;81;70;38m' chip_lida=$'\033[38;2;186;194;222;48;2;49;50;68m'
+  local txt_nova=$'\033[1;38;2;205;214;244m' txt_lida=$'\033[38;2;147;153;178m' ids
+  notifs_ids_em ids
+  for f in "${ids[@]}"; do
     IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$f" || continue
     [[ $acao == - ]] && acao=""
     [[ -n $txt ]] || continue
@@ -9789,18 +9809,55 @@ notifs_render() { # [filtro]
       lidas) ((lida == 1)) || continue ;;
       agentes | email | tarefas) notif_origem "$txt" "$acao" "$canal"; [[ $NOTIF_ORIGEM == "$filtro" ]] || continue ;;
     esac
-    if ((lida)); then
-      m=$'\033[38;2;186;194;222;48;2;49;50;68m'; status='✓ Lida'
-    else
-      m=$'\033[1;38;2;249;226;175;48;2;81;70;38m'; status='● Não lida'
-    fi
-    printf '%s\t%s\t%s%s  %s  %s%s%s\n' "${acao:-}" "$f" "$m" "$(notif_quando "${f:0:10}")" "$status" "$txt" "${acao:+  ↗}" "$z"
+    notif_quando_em quando "${f:0:10}"
+    if ((lida)); then cab="$chip_lida✓ Lida$z    "; txt="$txt_lida$txt"
+    else cab="$chip_nova● Não lida$z"; txt="$txt_nova$txt"; fi
+    ida="  "; [[ -n $acao ]] && ida=$seta
+    printf '%s\t%s\t%s%s%s  %s  %s%s%s\n' "$acao" "$f" "$dim" "$quando" "$z" "$cab" "$ida" "$txt" "$z"
   done
+}
+# O cartão do aviso em foco (janela de prévia da central): estado, quando, de onde, o texto inteiro e
+# o que ⏎ faz com ele.
+notifs_previa() { # id
+  local f=${1:-} exp txt acao canal quando z=$'\033[0m' dim=$'\033[38;2;127;132;156m' azul=$'\033[38;2;137;180;250m'
+  [[ $f =~ ^[0-9]{18,20}$ && -f $DIR_NOTIFS/$f ]] || return 0
+  IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$f" || true
+  [[ $acao == - ]] && acao=""
+  notif_quando_em quando "${f:0:10}"; quando=${quando//  / }
+  notif_origem "$txt" "$acao" "$canal"
+  local de
+  case $NOTIF_ORIGEM in agentes) de='agente' ;; email) de='e-mail' ;; tarefas) de='tarefas' ;; *) de='tt' ;; esac
+  if [[ -f $DIR_NOTIFS/$f.lida ]]; then printf '%s✓ Lida%s' $'\033[38;2;186;194;222m' "$z"
+  else printf '%s● Não lida%s' $'\033[1;38;2;249;226;175m' "$z"; fi
+  printf '%s · %s · %s%s\n' "$dim" "$quando" "$de" "$z"
+  printf '%s\n' "$txt"
+  local s m p dest
+  case $acao in
+    '') dest='' ;;
+    email:*) dest="abre o e-mail na mensagem nova (conta ${acao#email:})" ;;
+    email) dest='abre o e-mail' ;;
+    tarefas) dest='abre o painel de tarefas' ;;
+    demandas) dest='abre a aba Entrada das tarefas' ;;
+    calendario) dest='abre a agenda' ;;
+    tarefas-sync) dest='abre a sincronização das tarefas' ;;
+    letreiro) dest='abre o letreiro' ;;
+    novidades) dest='abre as novidades do tt' ;;
+    pendencias) dest='abre as pendências de instalação' ;;
+    sessao:*)
+      s=${acao#sessao:}
+      if [[ $s == *'|'*'|'* ]]; then m=${s%%|*}; s=${s#*|}; s=${s%%|*}; dest="vai à sessão $s ($m)"
+      else dest="vai à sessão ${s%%|*}"; fi ;;
+    cmd:*) dest='roda o comando do aviso' ;;
+    *) dest="abre: $acao" ;;
+  esac
+  if [[ -n $dest ]]; then printf '%s↗ ⏎ ou duplo clique: %s%s\n' "$azul" "$dest" "$z"
+  else printf '%sSem destino: ⏎ só marca como lida.%s\n' "$dim" "$z"; fi
 }
 # Quantos avisos há em cada aba: "todas naolidas lidas agentes email tarefas".
 notifs_contagens() {
-  local f exp txt acao canal t=0 nl=0 l=0 ag=0 em=0 ta=0
-  for f in $(notifs_ids); do
+  local f exp txt acao canal t=0 nl=0 l=0 ag=0 em=0 ta=0 ids
+  notifs_ids_em ids
+  for f in "${ids[@]}"; do
     IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$f" || continue
     [[ -n $txt ]] || continue
     [[ $acao == - ]] && acao=""
@@ -10026,13 +10083,13 @@ notifs_acao() { # evento id
       *) echo ignore; return 0 ;;
     esac
   fi
-  local lst hd out=""
-  if ((recarga)) && lst=$(mktemp "$RT/tt-menu.notifs.XXXXXX"); then
-    notifs_lista_ui >"$lst"; out="reload-sync(cat '$lst'; rm -f '$lst')"
+  # Arquivos com o pid deste processo (um mktemp a menos por arquivo); o fzf os lê antes da próxima ação.
+  local lst=$RT/tt-menu.notifs.$$.l hd=$RT/tt-menu.notifs.$$.h out=""
+  if ((recarga)) && notifs_lista_ui >"$lst"; then
+    out="reload-sync(cat '$lst'; rm -f '$lst')"
     ((primeiro)) && out+="+first"
   fi
-  if hd=$(mktemp "$RT/tt-menu.notifs.XXXXXX"); then
-    notifs_cabecalho >"$hd"
+  if notifs_cabecalho >"$hd"; then
     out+="${out:++}transform-header(cat '$hd'; rm -f '$hd')"
   fi
   printf '%s\n' "${out:-ignore}"
@@ -10043,10 +10100,13 @@ notifs_ui() {
     # Toda abertura começa em Todas, na lista.
     notifs_ui_set filtro todas; notifs_ui_set modo lista; notifs_ui_set aviso ""
     cols=$(tput cols 2>/dev/null || echo 80)
+    # Uma linha por aviso; a linha em foco destacada de ponta a ponta (--highlight-line) é o alvo dos
+    # botões; a prévia embaixo mostra o aviso inteiro e o que ⏎ faz.
     esc=$(notifs_lista_ui | TT_BARRA_FUNDO=1 fzf --ansi --delimiter=$'\t' --with-nth=3 --layout=reverse --no-sort --no-input \
-      --height=100% --info=hidden --no-separator --pointer='▌' --wrap --wrap-sign='   ' \
+      --height=100% --info=hidden --no-separator --pointer='▌' --highlight-line --scroll-off=2 --ellipsis='…' \
       --header="$(FZF_COLUMNS=$cols notifs_cabecalho)" \
-      --color='bg:#1e1e2e,fg:#cdd6f4,header:#cdd6f4,pointer:#89b4fa,fg+:#cdd6f4,bg+:#313244,gutter:#1e1e2e,info:#6c7086,border:#45475a' \
+      --color='bg:#1e1e2e,fg:#cdd6f4,header:#cdd6f4,pointer:#89b4fa,fg+:#cdd6f4,bg+:#45475a,gutter:#1e1e2e,info:#6c7086,border:#45475a,preview-bg:#181825,scrollbar:#585b70' \
+      --preview="$EU --notifs-previa {2}" --preview-window='down,5,border-top,wrap' \
       --bind="enter:transform($a enter {2})" \
       --bind="double-click:transform($a duplo {2})" \
       --bind="click-header:transform($a cabecalho {2})" \
@@ -12261,15 +12321,18 @@ reconciliar_fixadas() {
 # Largura de exibição (colunas de tela) de um texto simples, como o tmux conta: emoji e CJK valem 2.
 # Resultado em W (sem subshell: é chamada muitas vezes ao montar a faixa).
 tt_largura() {
-  local t=$1 i cp n=0 b LC_ALL=C
-  b=${#t}; LC_ALL=C.UTF-8
-  ((b == ${#t})) && { W=$b; return 0; }   # bytes = caracteres: só ASCII
-  for ((i = 0; i < ${#t}; i++)); do
-    printf -v cp '%d' "'${t:i:1}"
+  local t=$1 i cp n resto LC_ALL=C
+  # Cada caractere vale 1; só os não ASCII (poucos) são conferidos um a um, para somar 1 aos largos.
+  # Tirar os bytes ASCII no locale C é rápido e não parte caractere nenhum (byte ASCII nunca está no meio
+  # de um caractere UTF-8).
+  resto=${t//[$'\x01'-$'\x7f']/}
+  [[ -z $resto ]] && { W=${#t}; return 0; }
+  LC_ALL=C.UTF-8; n=${#t}
+  for ((i = 0; i < ${#resto}; i++)); do
+    printf -v cp '%d' "'${resto:i:1}"
     if ((cp >= 0x1100 && (cp <= 0x115f || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) ||
         (cp >= 0xf900 && cp <= 0xfaff) || (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) ||
-        (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1faff) || cp >= 0x20000))); then n=$((n + 2))
-    else n=$((n + 1)); fi
+        (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1faff) || cp >= 0x20000))); then n=$((n + 1)); fi
   done
   W=$n
 }
@@ -16405,6 +16468,7 @@ case "${1:-}" in
   --notifs-lista-ui) notifs_lista_ui; exit 0 ;;
   --notifs-cabecalho) notifs_cabecalho; exit 0 ;;
   --notifs-acao) notifs_acao "${2:-}" "${3:-}"; exit 0 ;;
+  --notifs-previa) notifs_previa "${2:-}"; exit 0 ;;
   --notifs-apagar) notifs_apagar "${2:-}"; exit $? ;;
   --notifs-apagar-lidas) notifs_apagar_lidas; exit 0 ;;
   --nomear-texto) nomear_texto; exit ;;

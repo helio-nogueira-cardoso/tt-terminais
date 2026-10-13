@@ -158,6 +158,42 @@ l=$("$TT" --notifs-lista-ui | sem_cor)
 [[ $(cut -f1,2 <<<"$l") == $'\t' && $l == *'Nenhuma notificação lida.'* ]] || falhou "lista vazia: $l"
 passou 'aba vazia orienta'
 
+# 7b) uma linha por aviso (sem --wrap), a linha em foco destacada de ponta a ponta, ↗ numa coluna antes
+#     do texto; a prévia mostra estado, quando, origem, o texto inteiro e o que ⏎ faz
+grep -q -- "--highlight-line" "$TT" || falhou 'a linha em foco deveria ser destacada de ponta a ponta (--highlight-line)'
+! sed -n '/^notifs_ui() {/,/^}/p' "$TT" | grep -q -- '--wrap' || falhou 'a central não quebra linha: um aviso, uma linha (o texto inteiro vai na prévia)'
+grep -q -- '--preview="$EU --notifs-previa {2}"' "$TT" || falhou 'a central deveria ter a prévia do aviso em foco'
+printf 'filtro=todas\nmodo=lista\n' >"$UI"
+printf '%s\t%s\t%s\t%s\n' 9999999999 '📧 Conta: um texto bem comprido que não cabe numa linha só da central e continua' 'email:conta' '' >"$ND/1791000000000000021"
+l=$("$TT" --notifs-lista-ui | sem_cor | grep 'bem comprido')
+[[ $l == *'● Não lida  ↗ 📧 Conta: um texto bem comprido'*'e continua' ]] || falhou "linha com destino: ↗ antes do texto: $l"
+p=$("$TT" --notifs-previa 1791000000000000021 | sem_cor)
+[[ $(sed -n 1p <<<"$p") == '● Não lida · 03/10 '*' · e-mail' ]] || falhou "prévia: 1ª linha com estado, quando e origem: $p"
+[[ $(sed -n 2p <<<"$p") == '📧 Conta: um texto bem comprido que não cabe numa linha só da central e continua' ]] || falhou "prévia: texto inteiro: $p"
+[[ $(sed -n 3p <<<"$p") == '↗ ⏎ ou duplo clique: abre o e-mail na mensagem nova (conta conta)' ]] || falhou "prévia: o que ⏎ faz: $p"
+[[ $("$TT" --notifs-previa 1791000000000000004 | sem_cor | tail -1) == 'Sem destino: ⏎ só marca como lida.' ]] || falhou 'prévia de aviso sem destino'
+[[ -z $("$TT" --notifs-previa '') && -z $("$TT" --notifs-previa 'x;y') ]] || falhou 'prévia sem aviso (linha vazia, id estranho) fica em branco'
+rm -f -- "${ND:?}"/1791000000000000021
+passou 'uma linha por aviso, ↗ antes do texto e a prévia com o aviso inteiro'
+
+# 7c) desempenho: um clique na central não abre date/ls/sort/grep/mktemp (com 30 avisos eram ~100
+#     processos por clique, e com o servidor do tmux ocupado isso virava um atraso grande)
+mkdir -p "$T/espias"
+for cmd in date ls sort grep mktemp; do
+  real=$(command -v "$cmd")
+  printf '#!/bin/sh\necho %s >>"%s"\nexec %s "$@"\n' "$cmd" "$T/espias.log" "$real" >"$T/espias/$cmd"; chmod +x "$T/espias/$cmd"
+done
+for i in $(seq 30 59); do aviso "17910000000000000$i" "📧 Conta $i: e-mail com um assunto bem comprido número $i para cortar" 'email:conta'; done
+printf 'filtro=todas\nmodo=lista\n' >"$UI"
+TT_SO_CARREGAR=1 PATH="$T/espias:$PATH" bash -c 'source "$1" >/dev/null 2>&1; : >"$2"
+  notifs_acao filtro:naolidas "" >/dev/null; notifs_acao lida 1791000000000000030 >/dev/null; notifs_acao proximo "" >/dev/null
+  notifs_previa 1791000000000000030 >/dev/null' _ "$TT" "$T/espias.log"
+[[ ! -s $T/espias.log ]] || falhou "a central abriu processos por clique: $(sort "$T/espias.log" | uniq -c | tr '\n' ' ')"
+[[ $(get filtro) == lidas && -f $ND/1791000000000000030.lida ]] || falhou "as ações da guarda de desempenho não rodaram: $(cat "$UI")"
+for i in $(seq 30 59); do rm -f -- "${ND:?}/17910000000000000$i" "${ND:?}/17910000000000000$i.lida"; done
+printf 'filtro=todas\nmodo=lista\n' >"$UI"
+passou 'clique na central sem date/ls/sort/grep/mktemp'
+
 # 8) cada atalho do teclado chama a mesma ação do botão (mesmo despachante)
 for par in 'enter:transform($a enter' 'double-click:transform($a duplo' 'click-header:transform($a cabecalho' \
   'space:transform($a lida' 'ctrl-d:transform($a apagar' 'del:transform($a apagar' 'ctrl-r:transform($a limpar' \
@@ -200,6 +236,14 @@ esperar_tela 'aqui e nas outras máquinas\?' || falhou "🧹 deveria perguntar: 
 fora send-keys -t nt Escape
 esperar_tela 'Ler todas' || falhou "Esc deveria voltar à barra de botões: $(tela)"
 [[ -e $ND/1791000000000000012 ]] || falhou 'Esc na pergunta apagou'
+# a roda do mouse anda pela lista (a prévia acompanha o aviso em foco)
+clicar_em 'Todas'
+esperar_tela 'Lembrete lido' || falhou "Todas deveria voltar a mostrar tudo: $(tela)"
+antes=$(tela | tail -6)
+read -r x y < <(tela | grep -nE '● Não lida|✓ Lida' | head -1 | awk -F: '{print 10, $1}')
+for _ in 1 2 3; do fora send-keys -t nt -l $'\e[<65;'"$x;$y"'M'; done
+for _ in $(seq 1 30); do [[ $(tela | tail -6) != "$antes" ]] && break; sleep 0.1; done
+[[ $(tela | tail -6) != "$antes" ]] || falhou "a roda do mouse não andou pela lista: $(tela)"
 fora send-keys -t nt q
 esperar_tela 'CENTRAL-FECHOU' || falhou "q deveria fechar a central: $(tela)"
-passou 'fzf de verdade: clique na aba, Espaço, 🧹 pergunta e Esc cancela, q fecha'
+passou 'fzf de verdade: clique na aba, Espaço, 🧹 pergunta e Esc cancela, roda do mouse, q fecha'

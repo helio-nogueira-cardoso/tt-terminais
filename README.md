@@ -777,7 +777,8 @@ A **central do 🔔** tem, no alto, abas de filtro clicáveis (**Todas · Não l
 delas, **Agentes · E-mail · Tarefas**) e uma barra de botões como a do e-mail: **↗ Abrir**, **◐ Lida/não lida**,
 **✓ Ler todas**, **✕ Apagar** e **🧹 Limpar lidas** (pergunta antes; a exclusão vale em todas as máquinas). Em
 tela estreita os botões ficam com rótulo curto e depois só com o ícone, e as abas de origem viram 🤖 📧 📋 —
-nada passa da janela. Teclado: ⏎ abre, Espaço lida/não lida, Tab/Shift+Tab trocam a aba, `^u` não lidas,
+nada passa da janela. Um aviso por linha; o selecionado fica destacado (é nele que os botões agem) e a prévia
+embaixo mostra o texto inteiro e o que o ⏎ faz. Teclado: ⏎ abre, Espaço lida/não lida, Tab/Shift+Tab trocam a aba, `^u` não lidas,
 `^a` todas, `^d`/Del apaga, `^r` limpa as lidas, `^l` lê todas, Esc/q fecham.
 Agentes de IA (e scripts) num painel do tt avisam com `tt --notificar-daqui "texto" [segundos] [--sempre]`:
 o aviso só sai se você não estiver olhando para a janela de onde ele veio (o tt vê o foco pelo tmux). Ele

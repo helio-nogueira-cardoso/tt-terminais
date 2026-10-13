@@ -92,8 +92,8 @@ nd="$HOME/.local/state/tt/notifs"
 printf '%s\t%s\t\n' "$(( $(date +%s) + 600 ))" "aviso de ontem" >"$nd/$(date -d 'yesterday 22:05' +%s)000000000"
 printf '%s\t%s\t\n' "$(( $(date +%s) + 600 ))" "aviso antigo" >"$nd/$(date -d '5 days ago 09:30' +%s)000000000"
 hist=$("$TT" --notifs-ui | sed "s/\x1b\[[0-9;]*m//g")
-grep -qE '^Ontem 22:05  (● Não lida|✓ Lida)  aviso de ontem' <<<"$hist" || falhou "aviso de ontem deveria sair como 'Ontem 22:05' e identificar o estado: $hist"
-grep -qE '^[0-9]{2}/[0-9]{2} 09:30  (● Não lida|✓ Lida)  aviso antigo' <<<"$hist" || falhou "aviso antigo deveria sair como dd/mm HH:MM e indicar o estado: $hist"
+grep -qE '^Ontem 22:05  (● Não lida|✓ Lida) +(↗ )?aviso de ontem' <<<"$hist" || falhou "aviso de ontem deveria sair como 'Ontem 22:05' e identificar o estado: $hist"
+grep -qE '^[0-9]{2}/[0-9]{2} 09:30  (● Não lida|✓ Lida) +(↗ )?aviso antigo' <<<"$hist" || falhou "aviso antigo deveria sair como dd/mm HH:MM e indicar o estado: $hist"
 passou 'notificar: aparece com range, expira sozinho, histórico lista'
 
 # espelho automático: o notificador central alimenta a faixa — ponta a ponta com um lembrete real
