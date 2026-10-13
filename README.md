@@ -1492,7 +1492,8 @@ popup do e-mail (a sessão oculta segue viva) e abre a tela pedida em seguida �
 
 `tt --novidades` (menu administrar → 📰 Novidades do tt) mostra, num popup com rolagem, o que mudou desde a
 última versão que você viu; `--todas` mostra tudo. O texto vem de `NOVIDADES.md` (uma seção por versão,
-escrita para quem usa o tt). Quando o tt atualiza, o vigia põe **um** aviso 📰 na faixa; clicar abre a
+escrita para quem usa o tt), formatado para o terminal: **negrito** e `código` com estilo, subitens com
+recuo e o texto quebrado na largura da janela (até 100 colunas). Quando o tt atualiza, o vigia põe **um** aviso 📰 na faixa; clicar abre a
 tela. Máquina recém-instalada não recebe o aviso. Quem publica uma versão acrescenta a seção dela em
 `NOVIDADES.md` no mesmo commit.
 

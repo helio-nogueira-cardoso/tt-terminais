@@ -3,6 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.12.2 · 13/10/2026
+- **📰 Clique nas notícias do letreiro volta a abrir.** Quando o tmux trocava o processo que desenha o letreiro (ao mudar o tamanho da tela, trocar de sessão, abrir uma janela do tt…), o processo antigo, ao sair, apagava o mapa que o clique usa para saber qual item está sob o mouse. Daí em diante o clique não fazia nada até a tela mudar de tamanho de novo. Agora quem sai não apaga o mapa, e o letreiro o refaz se ele sumir.
+- **As manchetes de fábrica (g1 e BBC) também abrem a matéria.** Só as fontes de notícias do catálogo tinham o link de cada item; clicar numa manchete da fonte `noticias` apenas pausava a faixa.
+- **📋 Cópias chegam ao celular pelo mosh.** O tmux mandava cada cópia ao terminal com a seleção vazia (OSC 52 `52;;…`), e o mosh descarta esse formato: copiar no PC visto pelo Termux via mosh não chegava ao Android. Agora a cópia sai com a seleção `c`, que o mosh repassa e que o Windows Terminal, o Termux e o xterm também entendem. Vale para os terminais que se conectarem depois da atualização.
+- **📰 Esta tela ficou mais legível.** **Negrito** e `código` aparecem com estilo, sem os asteriscos e as crases; subitens têm recuo; e o texto quebra na largura da janela, alinhado ao item (até 100 colunas, para a leitura não virar uma faixa).
+- **✉ `tt --demanda-autorizar`** não repete mais a etiqueta na confirmação (saía "#vendasvendas" no lugar de "#vendas").
+
 ## v1.12.1 · 13/10/2026
 - **📥 Tarefa enviada por e-mail antes de você autorizar o remetente não se perde mais.** O tt marcava como visto todo e-mail da caixa de entrada; um `[tt]` que chegava antes de o remetente estar autorizado nunca mais era lido. Agora ele fica à espera e vira demanda (aba Entrada) assim que o remetente é autorizado, aqui, pela tela de demandas ou vindo de outra máquina. O log da conta (`~/.local/state/tt/email-sync/<conta>.demandas.log`) diz "aguardando autorização de=…" com o comando para autorizar.
 - **📥 Tarefa recebida por e-mail chega inteira.** A descrição era cortada em 8 mil caracteres (400 linhas) e o texto de cada subtarefa em 200; um handoff completo chegava pela metade. Não há mais corte.

@@ -91,6 +91,8 @@ contem "$est" 'frases 0 nativa' 'frases fica fora porque indicadores= não a lis
 atual
 igual "$(cache dolar)" '💵 dólar R$ 5,123 ▲0,5%' 'dólar: mesmo texto de antes (vírgula também na variação)'
 igual "$(cache noticias)" $'📰 Manchete A do g1\n📰 Manchete B\n🌍 World one\n🌍 World two' 'notícias: g1 e BBC, 2 manchetes de cada, na mesma ordem'
+igual "$(python3 -I -c 'import json,sys; print(" ".join(i["acao"] + ":" + i["alvo"] for i in json.load(open(sys.argv[1]))))' "$HOME/.cache/tt-ticker/noticias.itens")" \
+  'url:https://exemplo.com/a url:https://exemplo.com/b bloqueado: bloqueado:' 'notícias de fábrica: o clique abre a matéria (link do item); manchete sem link não abre nada'
 igual "$(cache btc)" '₿ 67890.12' 'indicador antigo com caminho JSON'
 igual "$(cache txt)" 'ℹ primeira linha do texto' 'indicador antigo com caminho - (texto cru, 1ª linha)'
 igual "$(cache lst)" '📋 um' 'indicador antigo com índice numérico no caminho (a.1.x)'

@@ -720,14 +720,17 @@ def marca_anim(pid):
     return os.path.join(d, "tt-letreiro-%d.anim" % pid)
 
 
+def arq_geo(pid):
+    return os.path.join(RT if os.path.isdir(RT) else "/tmp", "tt-letreiro-%s.geo" % pid)
+
+
 def grava_geo(pid, geo):
-    """Geometria do slot para o clique (ver acao_clique): só quando muda."""
-    d = RT if os.path.isdir(RT) else "/tmp"
+    """Geometria do slot para o clique (ver acao_clique): só quando muda (ou quando o arquivo sumiu)."""
     try:
-        tmp = os.path.join(d, "tt-letreiro-%d.geo.%d" % (pid, os.getpid()))
+        tmp = "%s.%d" % (arq_geo(pid), os.getpid())
         with open(tmp, "w") as f:
             json.dump(geo, f)
-        os.replace(tmp, os.path.join(d, "tt-letreiro-%d.geo" % pid))
+        os.replace(tmp, arq_geo(pid))
     except OSError:
         pass
 
@@ -745,11 +748,12 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
         pass
     marca = marca_anim(pid)
     ultimo, repetir, impresso_em, ciclo, tocado = None, False, 0.0, 0, 0.0
-    geo_ant = None
+    geo_ant, trocado = None, False
     try:
         while pid_vivo(pid):
             ciclo += 1
             if ciclo % (5 * max(1, fps)) == 0 and substituido(tty, pid):
+                trocado = True
                 return 0
             cfg = ler_conf()
             if not faixa_ativa(cfg):
@@ -757,7 +761,7 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
             agora = time.time()
             cols = largura(fd, cols_tmux)
             geo = {"cols": cols, "ocupado": ocupado, "esq": esq, "fps": fps, "ponte": ponte}
-            if geo != geo_ant:
+            if geo != geo_ant or not os.path.exists(arq_geo(pid)):
                 grava_geo(pid, geo)
                 geo_ant = geo
             q, anim = _quadro(cfg, cols, ponte, agora, ocupado, fps)
@@ -790,7 +794,9 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
                 espera = 1.05 - agora % 1  # um tique por segundo, logo após a virada do segundo
             time.sleep(max(0.01 if anim and fps > 1 else 0.2, espera))
     finally:
-        for arq in (marca, os.path.join(RT if os.path.isdir(RT) else "/tmp", "tt-letreiro-%d.geo" % pid)):
+        # Substituído por um desenhista mais novo do MESMO cliente: a geometria é dele agora (mesmo
+        # arquivo); apagá-la deixaria o clique mudo até o tamanho da tela mudar.
+        for arq in (marca,) if trocado else (marca, arq_geo(pid)):
             try:
                 os.unlink(arq)
             except OSError:
@@ -818,7 +824,7 @@ def main(argv):
     if modo == "clique" and len(argv) >= 4 and argv[2].isdigit() and argv[3].lstrip("-").isdigit():
         cfg = ler_conf()
         try:
-            with open(os.path.join(RT if os.path.isdir(RT) else "/tmp", "tt-letreiro-%s.geo" % argv[2])) as f:
+            with open(arq_geo(argv[2])) as f:
                 geo = json.load(f)
         except (OSError, ValueError):
             print("nada\t")

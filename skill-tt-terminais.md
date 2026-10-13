@@ -78,6 +78,8 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   a internet (Cloudflare/Google/Apple, mediana; cache em `$RT/tt-hora`, válido por 12 h) e a hora que o tt
   usa nas tarefas e na barra; `--sincronizar` mede agora; `agora` imprime o epoch confiável. Config
   `hora_sync=0` desliga, `hora_urls=` troca os endpoints. Desvio ≥ 60 s: `@barra_hora` mostra a hora corrigida.
+- `tt --novidades [--todas]` — a tela de novidades (`NOVIDADES.md` formatado por `novidades_fmt`: negrito, código,
+  subitens, quebra na largura até 100 colunas); `tt --novidades-fmt LARGURA` (interno) formata o Markdown do stdin.
 - `tt --help` (`-h`, `ajuda`) — os verbos do dia a dia, a versão e onde está o resto. Uma opção
   desconhecida (`tt --xyz`) sai com código 2 e aponta para a ajuda (não abre a central).
 - `tt --pacote` (interno) — emite o tar do pacote no stdout.
@@ -449,7 +451,9 @@ F4→`dbn`, F5→`tela`, F6→`sair`, F7→`ant`, F8→`zm`, F9→`jn`, F10→`d
   Novo provedor = nova classe em `PROVEDORES` (descobrir, unidades, chave/rel).
 
 ### Área de transferência e contas de IA
-- `tt --copiar`/`--copiar-buffer`/`--copiado` (clipboard Wayland/X/clip.exe + OSC 52);
+- `tt --copiar`/`--copiar-buffer`/`--copiado` (clipboard Wayland/X/clip.exe + OSC 52; o `tmux.conf` fixa a
+  seleção `c` no `Ms` dos `xterm*` com `terminal-overrides[20]`: o tmux manda `52;;…` e o mosh 1.4 só repassa
+  `52;c;…` — `tests/test_copia_osc52.sh`);
   `--propagar-copia`/`--receber-copia`/`--copias` (histórico entre máquinas). `tt --copiar --tela
   LARGURA SX SY EX EY RETANGULO CLIENTE` (copy-pipe do tmux.conf, opção `@tt_copiar`) religa o que a
   tela partiu na borda (`links-tt.py desquebrar`).

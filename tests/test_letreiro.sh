@@ -49,8 +49,12 @@ sleep 1.2; python3 -I "$TT_DIR/letreiro-tt.py" fluxo /dev/null $$ 56 120 >/dev/n
 for _ in $(seq 1 16); do kill -0 "$velho" 2>/dev/null || break; sleep 0.5; done
 kill -0 "$velho" 2>/dev/null && { kill "$velho" "$novo" 2>/dev/null; falhou 'o letreiro substituído (outra largura) não saiu sozinho'; }
 kill -0 "$novo" 2>/dev/null || falhou 'o letreiro novo não deveria sair'
-kill "$novo" 2>/dev/null; wait 2>/dev/null
-passou 'tty ilegível usa a largura do tmux; processo substituído por um redimensionamento sai sozinho'
+# a geometria do clique é do cliente (mesmo arquivo para o velho e o novo): quem sai substituído não a apaga
+[[ -s $TT_RT/tt-letreiro-$$.geo ]] || falhou 'o letreiro substituído apagou a geometria do novo (o clique nos itens ficaria mudo)'
+rm -f "$TT_RT/tt-letreiro-$$.geo"; sleep 2.2
+[[ -s $TT_RT/tt-letreiro-$$.geo ]] || falhou 'geometria apagada por fora: o letreiro deveria regravá-la no quadro seguinte'
+kill "$novo" 2>/dev/null; wait "$novo" 2>/dev/null || true
+passou 'tty ilegível usa a largura do tmux; processo substituído por um redimensionamento sai sozinho sem levar a geometria do clique'
 # O gatilho imprime uma linha vazia ao nascer: sem ela o tmux mostra "<'comando' not ready>" no slot
 g=$(timeout 2 bash "$TT_DIR/gatilho-tt.sh" $$ 1 4 | head -c 1 | od -An -c | tr -d ' ') || true
 [[ $g == '\n' ]] || falhou "o gatilho deveria imprimir uma linha vazia ao nascer (veio [$g])"

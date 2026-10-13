@@ -866,6 +866,8 @@ NATIVAS = {
     "noticias": {
         "descricao": "Manchetes do g1 e da BBC World (RSS, sem chave)", "tags": "noticias",
         "formato": "rss", "modelo": "{icone} {valor}", "ttl": "900", "ordem": "30",
+        # clique abre a matéria (como as notícias do catálogo); sem isso o item só pausava a faixa
+        "clique": "url", "clique_alvo": "{link}", "campo.link": ".//item/link",
         "_sub": [
             {"url": "https://g1.globo.com/rss/g1/", "icone": "📰", "itens": "2"},
             {"url": "https://feeds.bbci.co.uk/news/world/rss.xml", "icone": "🌍", "itens": "2"},

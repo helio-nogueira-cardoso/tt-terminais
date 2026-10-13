@@ -28,7 +28,8 @@ eml() { # nome from auth assunto corpo [message-id]
 
 # 1) cadastro: valida, grava com 600, mescla por e-mail (hora mais nova vence), remove, e propaga a quem pede
 tt --demanda-autorizar 'invalido' >/dev/null 2>&1 && fail "e-mail inválido deveria ser recusado"
-tt --demanda-autorizar chefe@empresa.com.br '#Juridico' >/dev/null || fail "autorizar falhou"
+r=$(tt --demanda-autorizar chefe@empresa.com.br '#Juridico') || fail "autorizar falhou"
+[[ $r == 'autorizado: chefe@empresa.com.br (etiqueta #juridico, modo auth)' ]] || fail "confirmação do cadastro com a etiqueta repetida ou errada: [$r]"
 tt --demanda-autorizar seg@empresa.com.br prod segredo abcd1234 >/dev/null || fail "autorizar com segredo falhou"
 tt --demanda-autorizar seg2@empresa.com.br - segredo ab >/dev/null 2>&1 && fail "segredo curto demais deveria ser recusado"
 tt --demanda-autorizar livre@empresa.com.br - aberto >/dev/null || fail "autorizar aberto falhou"

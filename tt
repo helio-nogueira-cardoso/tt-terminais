@@ -5657,6 +5657,120 @@ novidades_texto() { # desde (rótulo ou nº antigo; 0 = tudo) -> seções
     mostra { print }' "${2:-$DIR_TT/NOVIDADES.md}" 2>/dev/null
 }
 
+# O Markdown do NOVIDADES.md para o terminal: **negrito** em negrito, `código` em ciano (sem as crases),
+# títulos ## e ###, itens "- " por nível (•, ◦, ▪), listas numeradas e [texto](link). Quebra as linhas na
+# largura dada (no máximo 100 colunas, para a leitura não virar uma faixa) com o recuo alinhado ao texto do
+# item; emoji e ideogramas contam 2 colunas. Lê o Markdown no stdin. Sem python3, o desenho simples de antes.
+novidades_fmt() { # [largura]
+  local w=${1:-80}
+  [[ $w =~ ^[0-9]+$ ]] || w=80
+  if ! command -v python3 >/dev/null 2>&1; then
+    sed -e 's/^## \(.*\)$/\x1b[1;33m\1\x1b[0m/' -e 's/^- /  • /'
+    return 0
+  fi
+  python3 -I -c '
+import re, sys, unicodedata
+W = max(30, min(int(sys.argv[1]), 100))
+TOK = re.compile(r"\*\*(?P<b>.+?)\*\*|`(?P<c>[^`]+)`|\[(?P<lt>[^\]]+)\]\((?P<lu>[^)\s]+)\)")
+SGR = {"b": "1", "c": "36", "u": "4", "d": "2", "t": "1;33"}
+
+def inline(s, est=()):
+    out, pos = [], 0
+    for m in TOK.finditer(s):
+        if m.start() > pos:
+            out.append((s[pos:m.start()], est))
+        if m.group("b") is not None:
+            out += inline(m.group("b"), est + ("b",))
+        elif m.group("c") is not None:
+            out.append((m.group("c"), est + ("c",)))
+        else:
+            out += inline(m.group("lt"), est + ("u",))
+            out.append((" (" + m.group("lu") + ")", est + ("d",)))
+        pos = m.end()
+    if pos < len(s):
+        out.append((s[pos:], est))
+    return out
+
+def larg(ch):
+    if ch in "‍︎️" or unicodedata.combining(ch):
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+
+def palavras(segs):
+    """[(palavra, [(texto, estilo)…]), …]: o espaço separa; o estilo vai junto de cada pedaço."""
+    ps, atual = [], []
+    for txt, est in segs:
+        for i, parte in enumerate(re.split(r"( +)", txt)):
+            if not parte:
+                continue
+            if parte.startswith(" "):
+                if atual:
+                    ps.append(atual); atual = []
+            else:
+                atual.append((parte, est))
+    if atual:
+        ps.append(atual)
+    return ps
+
+def pinta(pedacos):
+    s, ant = "", ()
+    for txt, est in pedacos:
+        if est != ant:
+            s += "\033[0m" + ("\033[" + ";".join(SGR[e] for e in est) + "m" if est else "")
+            ant = est
+        s += txt
+    return s + ("\033[0m" if ant else "")
+
+def bloco(prefixo, recuo, segs):
+    """Linhas de no máximo W colunas: a 1ª começa com o prefixo, as outras com o recuo."""
+    linhas, atual, col = [], [], len(prefixo)
+    lim = W
+    for p in palavras(segs):
+        lp = sum(larg(c) for t, _ in p for c in t)
+        if atual and col + 1 + lp > lim:
+            linhas.append(atual); atual, col = [], recuo
+        if atual:
+            # o espaço entre duas palavras do mesmo estilo (uma frase em negrito) fica no estilo delas
+            atual.append((" ", p[0][1] if atual[-1][1] == p[0][1] else ())); col += 1
+        atual += p; col += lp
+    linhas.append(atual)
+    out = []
+    for i, l in enumerate(linhas):
+        out.append((prefixo if i == 0 else " " * recuo) + pinta(l))
+    return out
+
+saida, primeira = [], True
+for ln in sys.stdin.read().splitlines():
+    ln = ln.rstrip()
+    m = re.match(r"^(#{2,3}) +(.*)$", ln)
+    if m:
+        if not primeira and saida and saida[-1] != "":
+            saida.append("")
+        titulo = m.group(2)
+        est = ("t",) if m.group(1) == "##" else ("b",)
+        saida += bloco("  ", 2, [(t, est + e) for t, e in inline(titulo)])
+        if m.group(1) == "##":
+            saida.append("  \033[2m" + "─" * min(W - 4, sum(larg(c) for c in titulo) + 2) + "\033[0m")
+        primeira = False
+        continue
+    if not ln.strip():
+        if saida and saida[-1] != "":
+            saida.append("")
+        continue
+    m = re.match(r"^( *)([-*+]|\d+[.)]) +(.*)$", ln)
+    if m:
+        nivel = len(m.group(1)) // 2
+        marca = m.group(2) if m.group(2)[0].isdigit() else "•◦▪"[min(nivel, 2)]
+        base = 2 + 2 * nivel
+        prefixo = " " * base + marca + " "
+        saida += bloco(prefixo, base + len(marca) + 1, inline(m.group(3)))
+    else:
+        saida += bloco("  ", 2, inline(ln.strip()))
+    primeira = False
+print("\n".join(saida))
+' "$w"
+}
+
 novidades_ver() { # [--todas]
   local atual desde txt; atual=$(versao_disp)
   desde=$(novidades_visto)
@@ -5670,7 +5784,8 @@ novidades_ver() { # [--todas]
   mkdir -p "$ESTADO_DIR"; echo "$atual" >"$ESTADO_DIR/novidades-visto"
   if [[ -t 1 ]] && command -v less >/dev/null 2>&1; then
     # Sem -F: com pouco texto o less saía sozinho e o popup piscava e fechava. q ou Esc fecham.
-    printf '%s\n\n(q fecha · ↑↓ rolam)\n' "$txt" | sed -e 's/^## \(.*\)$/\x1b[1;33m\1\x1b[0m/' -e 's/^- /  • /' | LESSCHARSET=utf-8 less -R -P'novidades · q fecha' 2>/dev/null ||
+    local w=""; { read -r _ w; } < <(stty size </dev/tty 2>/dev/null); [[ $w =~ ^[0-9]+$ ]] && ((w >= 20)) || w=$(tput cols 2>/dev/null)
+    { novidades_fmt "$((${w:-80} - 1))" <<<"$txt"; printf '\n  \033[2m(q fecha · ↑↓ rolam)\033[0m\n'; } | LESSCHARSET=utf-8 less -R -P'novidades · q fecha' 2>/dev/null ||
       { printf '%s\n' "$txt"; read -rsn1 -p $'\n  (qualquer tecla fecha)' </dev/tty; echo; }
   else printf '%s\n' "$txt"; fi
 }
@@ -7015,7 +7130,7 @@ demandas_autorizar() { # e-mail [etiqueta] [auth|segredo|aberto] [segredo]
     *) echo "modo inválido: $modo (auth, segredo ou aberto)" >&2; return 2 ;;
   esac
   demandas_gravar "$e" "${tag:--}" "$modo" "${seg:--}"
-  echo "autorizado: $e (etiqueta ${tag:+#$tag}${tag:-nenhuma}, modo $modo)"
+  echo "autorizado: $e (etiqueta ${tag:+#}${tag:-nenhuma}, modo $modo)"
 }
 demandas_remover() { # e-mail
   local e=${1:-}; e=${e,,}
@@ -16647,6 +16762,7 @@ case "${1:-}" in
   --pendencias) pendencias_status "${2:-}"; exit 0 ;;
   --pendencias-avisar) pendencias_avisar; exit 0 ;;
   --novidades) novidades_ver "$@"; exit 0 ;;
+  --novidades-fmt) novidades_fmt "${2:-80}"; exit 0 ;;   # (interno) Markdown do NOVIDADES.md -> terminal; lê o stdin
   --novidades-avisar) novidades_avisar; exit 0 ;;
   --email-sync-local) email_sync_local_definir "${2:?uso: tt --email-sync-local CONTA 0|1}" "${3:-1}"; exit ;;
   --anexos-enviar) anexos_enviar; exit 0 ;;

@@ -77,4 +77,16 @@ PY
 )
 [[ $res == SEGUROU_UTF8 ]] || falhou "tela de novidades em locale ASCII: $res"
 passou 'tela de novidades fica aberta e mostra UTF-8 mesmo sem locale UTF-8'
+# Formatador: **negrito** e `código` viram estilo do terminal (nada de asterisco ou crase crua), subitem
+# ganha ◦ e recuo, e nenhuma linha passa da largura pedida (a continuação alinha com o texto do item).
+fmt=$(printf '%s\n' '## v9.9.9 · 01/01/2099' \
+  '- **Negrito longo aqui.** Texto com `codigo` e mais palavras para quebrar a linha sem passar da largura.' \
+  '  - subitem **forte**' | "$TT" --novidades-fmt 40)
+limpo=$(sed 's/\x1b\[[0-9;]*m//g' <<<"$fmt")
+grep -q '[*`]' <<<"$limpo" && falhou "sobrou marcação crua: $limpo"
+grep -qF $'\e[1mNegrito longo aqui.' <<<"$fmt" && grep -qF $'\e[36mcodigo' <<<"$fmt" || falhou "negrito/código sem estilo: $(cat -v <<<"$fmt")"
+grep -q '^    ◦ subitem forte$' <<<"$limpo" && grep -q '^  • Negrito' <<<"$limpo" && grep -q '^    [a-z]' <<<"$limpo" || falhou "marcadores/recuo: $limpo"
+python3 -I -c 'import sys, unicodedata as u; sys.exit(max(sum(2 if u.east_asian_width(c) in "WF" else 1 for c in l) for l in sys.stdin.read().splitlines()) > 40)' <<<"$limpo" ||
+  falhou "linha mais larga que 40 colunas: $limpo"
+passou 'novidades: negrito e código formatados, subitens com recuo, linhas na largura da tela'
 echo "TODOS OS TESTES PASSARAM"
