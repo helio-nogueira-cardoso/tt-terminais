@@ -22,6 +22,7 @@ touch -d '2000-01-01' "$TT_DIR/tt"
 tt --sondar-atualizacao >/dev/null 2>&1
 [[ $(stat -c %Y "$TT_DIR/tt") == $(date -d 2000-01-01 +%s) ]] || falhou 'a sonda com o mesmo SHA reinstalou'
 grep -q 'em dia' <<<"$(estado)" || falhou "o estado deveria dizer em dia: $(estado)"
+grep -qx "  publicada:     $(pub)" <<<"$(estado)" || falhou "a linha da publicada deveria ter o SHA curto uma vez: $(estado)"
 passou 'sonda com o SHA igual ao instalado: nada a buscar; estado "em dia"'
 
 # 2) Publicado novo (contém o instalado): a sonda instala.

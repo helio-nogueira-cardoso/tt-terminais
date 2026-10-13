@@ -2877,7 +2877,7 @@ atualizacao_estado() {
   [[ -r $RT/tt-vigia-$UID.pid ]] && kill -0 "$(cat "$RT/tt-vigia-$UID.pid" 2>/dev/null)" 2>/dev/null && vivo="sim"
   echo "Atualização do tt nesta máquina ($MAQUINA)"
   printf '  instalada:     %s (%s, build %s)\n' "$(versao_humana)" "${h:--}" "$(versao_num)"
-  printf '  publicada:     %s\n' "${pub:+${pub:0:7}}${pub:-(ainda não consultada)}"
+  if [[ -n $pub ]]; then printf '  publicada:     %s\n' "${pub:0:7}"; else echo "  publicada:     (ainda não consultada)"; fi
   printf '  fonte:         %s%s\n' "$(url_fonte)" "${fonte:+  (fonte= do config: não é o repositório oficial)}"
   printf '  vigia ativo:   %s\n' "$vivo"
   if [[ -n $sonda ]]; then printf '  última sonda:  há %s min (a cada %s min)\n' $(( (agora - sonda) / 60 )) $(( ${TT_T_SONDA:-$([[ ${PREFIX:-} == *com.termux* ]] && echo 900 || echo 300)} / 60 ))
