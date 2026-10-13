@@ -79,7 +79,8 @@ fi
 for t in "${todos[@]}"; do
   if grep -q '^# tt-teste: sozinho' "$t"; then sozinhos+=("$t"); else juntos+=("$t"); fi
 done
-[[ -r $duracoes ]] && mapfile -t juntos < <(printf '%s\n' "${juntos[@]}" |
+# (vazio, de uma rodada interrompida, o NR == FNR do awk engolia a lista inteira e nenhum teste rodava)
+[[ -s $duracoes ]] && mapfile -t juntos < <(printf '%s\n' "${juntos[@]}" |
   awk -F'\t' 'NR == FNR { d[$1] = $2; next } { n = $0; sub(/.*\//, "", n); print ((n in d) ? d[n] : 1e9) "\t" $0 }' "$duracoes" - |
   sort -t$'\t' -k1,1gr | cut -f2-)
 inicio=$EPOCHREALTIME ativos=0

@@ -21,6 +21,8 @@ compara() {
   for v in "$@"; do
     a=$(TT_COMPLETO=1 "$TT" $v 2>&1; echo "rc=$?"); b=$("$TT" $v 2>&1; echo "rc=$?")
     a=${a/ (TT_COMPLETO=1: desligada neste ambiente)/}
+    # Idade relativa ("agora", "há 5 s") muda entre as duas chamadas sob a carga da suíte: não é diferença de código.
+    a=$(sed -E 's/(agora|há [0-9]+ (s|min|h)) +/IDADE /g' <<<"$a"); b=$(sed -E 's/(agora|há [0-9]+ (s|min|h)) +/IDADE /g' <<<"$b")
     [[ $a == "$b" ]] || falhou "$v: saída diferente com a partida rápida
 --- inteiro:
 $(head -5 <<<"$a")

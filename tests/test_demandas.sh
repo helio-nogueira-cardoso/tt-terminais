@@ -162,4 +162,31 @@ for i in $(awk -F'\t' '$2=="pendente" && $6 !~ /pai=/{print $1}' "$C"); do tt --
 printf 'filtro=entrada\nmodo=lista\n' >"$UI"; clicar tarefas cli '%0' ''
 [[ $(sed -n 's/^filtro=//p' "$UI" | tail -1) == hoje ]] || fail "sem pendentes, abrir o painel na Entrada deveria voltar para Hoje"
 echo "ok: sem pendentes o painel não abre numa Entrada vazia"
+# 12) e-mail [tt] que chega ANTES de o remetente ser autorizado: fica à espera (log diz "aguardando autorização")
+#     e vira demanda quando o remetente passa a valer, mesmo já marcado como visto; e-mail sem [tt] de quem não está
+#     autorizado não entra na espera.
+INBOX="$HOME/.cache/tt/maildir/conta/INBOX"
+eml antes1 depois@empresa.com.br pass '[tt] Chegou antes da autorização' 'linha 1'
+eml antes2 depois@empresa.com.br pass 'Conversa comum' 'sem tt'
+tt --demandas-processar conta
+grep -q "aguardando autorização de=depois@empresa.com.br" "$HOME/.local/state/tt/email-sync/conta.demandas.log" || fail "o log deveria dizer que espera a autorização"
+grep -q 'Chegou antes' "$C" && fail "não autorizado ainda não pode virar demanda"
+[[ $(grep -c depois@empresa.com.br "$HOME/.local/state/tt/email-sync/conta.demandas.espera") == 1 ]] || fail "só o e-mail [tt] entra na espera: $(cat "$HOME/.local/state/tt/email-sync/conta.demandas.espera")"
+tt --demandas-processar conta; grep -q 'Chegou antes' "$C" && fail "continua sem autorização: não pode virar demanda"
+tt --demanda-autorizar depois@empresa.com.br >/dev/null
+tt --demandas-processar conta
+grep -q 'Chegou antes da autorização' "$C" || fail "autorizado depois, o e-mail que já tinha chegado deveria virar demanda"
+[[ -s "$HOME/.local/state/tt/email-sync/conta.demandas.espera" ]] && grep -q antes1 "$HOME/.local/state/tt/email-sync/conta.demandas.espera" && fail "liberado deveria sair da espera"
+echo "ok: e-mail que chega antes da autorização vira demanda quando o remetente é autorizado"
+
+# 13) descrição longa (handoff de 10 mil+ caracteres) chega inteira
+longa=$(for i in $(seq 1 300); do echo "linha $i do handoff com texto suficiente para passar de oito mil caracteres"; done)
+eml longo chefe@empresa.com.br pass '[tt] Handoff longo' "$longa
+FIM-DO-HANDOFF"
+tt --demandas-processar conta
+id=$(awk -F'\t' '$5 ~ /Handoff longo/ {print $1}' "$C" | head -1)
+[[ -n $id ]] || fail "o handoff longo não virou demanda"
+awk -F'\t' -v i="$id" '$1 == i {print $6}' "$C" | tr '|' '\n' | sed -n 's/^desc=//p' | base64 -d | grep -q FIM-DO-HANDOFF || fail "a descrição longa foi cortada"
+echo "ok: descrição longa chega inteira"
+
 echo "TODOS OS TESTES PASSARAM"

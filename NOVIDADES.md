@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.12.1 · 13/10/2026
+- **📥 Tarefa enviada por e-mail antes de você autorizar o remetente não se perde mais.** O tt marcava como visto todo e-mail da caixa de entrada; um `[tt]` que chegava antes de o remetente estar autorizado nunca mais era lido. Agora ele fica à espera e vira demanda (aba Entrada) assim que o remetente é autorizado, aqui, pela tela de demandas ou vindo de outra máquina. O log da conta (`~/.local/state/tt/email-sync/<conta>.demandas.log`) diz "aguardando autorização de=…" com o comando para autorizar.
+- **📥 Tarefa recebida por e-mail chega inteira.** A descrição era cortada em 8 mil caracteres (400 linhas) e o texto de cada subtarefa em 200; um handoff completo chegava pela metade. Não há mais corte.
+
 ## v1.12.0 · 13/10/2026
 - **📦 Espelho local do e-mail agora é pendência obrigatória.** Toda conta de e-mail do tt sem espelho local (`sync_local`) vira uma pendência de instalação: "espelho local do e-mail (contas)". É do espelho que saem o aviso de e-mail novo, o contador do 📧 e os e-mails `[tt]` que viram tarefa (tarefas compartilhadas, demandas e atualizações); conta só IMAP não gera nada disso.
   - Aceitar instala o que falta (mbsync e, para conta Google/OAuth, o SASL e o plugin XOAUTH2 na sua pasta) e liga o espelho de cada conta; a primeira sincronização roda em segundo plano.

@@ -1092,7 +1092,7 @@ def demanda(caminho):
         corpo = ""
     subs, desc = [], []
     trailer = ""
-    linhas = corpo.replace("\r", "").split("\n")[:400]
+    linhas = corpo.replace("\r", "").split("\n")
     for i, ln in enumerate(linhas):
         if ln.rstrip() == "--":                      # assinatura ("-- " com espaço também)
             # o tt escreve aqui, depois da assinatura, a linha "tt:2 estado=… removidas=…" (protocolo v2): um tt
@@ -1111,10 +1111,10 @@ def demanda(caminho):
             # "a" = "[ ]" explícito, "f" = "[x]")
             marca = m.group(2)
             est = "-" if marca is None else ("f" if marca.lower() == "x" else "a")
-            subs.append("\t".join([(m.group(1) or "-").lower(), est, " ".join(m.group(3).split())[:200]]))
+            subs.append("\t".join([(m.group(1) or "-").lower(), est, " ".join(m.group(3).split())]))
         else:
             desc.append(ln.rstrip())
-    descricao = "\n".join(desc).strip()[:8000]
+    descricao = "\n".join(desc).strip()   # sem corte: a tarefa chega inteira (um handoff passa de 10 mil caracteres)
     # "-" no lugar de vazio: o read do Bash com IFS=TAB juntaria os campos vazios vizinhos.
     b = lambda t: base64.b64encode(t.encode("utf-8")).decode("ascii") or "-"
     # só valores conhecidos passam do rodapé (é dado não confiável): estado aberta|feita e até 30 códigos hex

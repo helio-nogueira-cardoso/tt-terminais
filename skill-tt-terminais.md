@@ -853,6 +853,8 @@ Cada registro vira um bloco no fim da descrição da tarefa/subtarefa, em cinza 
   `Ctrl+S` aplica / `Q` cancela; sem vim, pergunta no terminal), `tt --demanda-aprovar [--recebida|--minha] ID` (sai **4** se houver conflito
   sem escolha e não grava nada), `--demandas-aprovar-limpas`, `--demandas-recusar-todas`. Na Entrada: ⇄ revisar mudanças, ✓ aprovar (com
   conflito abre a revisão), aprovar todas as sem conflito, recusar todas. Aprovar grava a base nova (a versão que chegou).
+- E-mail `[tt]` de remetente ainda não autorizado vai para `<conta>.demandas.espera` (log: "aguardando autorização") e é
+  relido quando o remetente passa a valer; o leitor (`email-tt.py demanda`) não corta descrição nem subtarefas.
 - `tt --demandas-pendentes` mostra `[atualiza CÓDIGO]` nas propostas. Testes: `tests/test_tarefas_merge.sh`, `test_tarefas_enviar.sh`,
   `test_tarefas_identidade.sh`.
 

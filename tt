@@ -7364,19 +7364,39 @@ demandas_processar_conta() { # slug
   local n=0 criadas=0 ignoradas=0 id nome="" ultimo="" ext esb
   demandas_ativas || return 0
   md=$(email_maildir "$slug")/INBOX; dir="$ESTADO_DIR/email-sync"; proc="$dir/$slug.demandas"; log="$dir/$slug.demandas.log"
+  local espera="$dir/$slug.demandas.espera" liberar
   [[ -d $md/new || -d $md/cur ]] || return 0
   mkdir -p "$dir"
   [[ -f $proc ]] || find "$md/new" "$md/cur" -type f -mmin +1440 -printf '%f\n' 2>/dev/null | sed 's/:2,.*//' | sort -u >"$proc"
+  # E-mail [tt] de quem ainda não estava autorizado fica em <slug>.demandas.espera (id<TAB>remetente). Quando o
+  # remetente passa a valer (autorizado aqui, pela tela ou vindo de outra máquina), o e-mail sai da lista de
+  # vistos e é lido de novo nesta volta: antes ele ficava marcado como visto e se perdia para sempre.
+  if [[ -s $espera ]]; then
+    liberar=$(while IFS=$'\t' read -r u de; do [[ -n $u && -n $(demandas_remetente "$de") ]] && printf '%s\n' "$u"; done <"$espera")
+    if [[ -n $liberar ]]; then
+      printf '%s\n' "$liberar" >"$espera.lib"
+      grep -vxF -f "$espera.lib" "$proc" >"$proc.tmp"; mv -f "$proc.tmp" "$proc"
+      awk -F'\t' 'FILENAME == ARGV[1] { l[$1] = 1; next } !($1 in l)' "$espera.lib" "$espera" >"$espera.tmp"; mv -f "$espera.tmp" "$espera"
+      rm -f "$espera.lib"
+      printf '%s liberadas %s (remetente autorizado depois da chegada)\n' "$(date '+%F %T')" "$(wc -l <<<"$liberar")" >>"$log"
+    fi
+  fi
   while IFS=$'\t' read -r u arq; do
     [[ -n $u ]] || continue
     n=$((n + 1)); ((n <= 25)) || break
     printf '%s\n' "$u" >>"$proc"
     IFS=$'\t' read -r de msgid epoch auth asb dsb ssb esb < <(python3 -I "$EMAIL_PY" demanda "$arq" 2>/dev/null) || continue
-    info=$(demandas_remetente "$de"); [[ -n $info ]] || continue
-    IFS=$'\t' read -r tag modo seg <<<"$info"
     assunto=$(printf '%s' "$asb" | base64 -d 2>/dev/null)
     [[ $assunto =~ ^\[[Tt][Tt](:([^]]*))?\][[:space:]]*(.*)$ ]] || continue
     segmsg=${BASH_REMATCH[2]}; frase=${BASH_REMATCH[3]}
+    info=$(demandas_remetente "$de")
+    if [[ -z $info ]]; then
+      [[ $de == - || -z $de ]] && continue
+      printf '%s\t%s\n' "$u" "${de,,}" >>"$espera"
+      printf '%s aguardando autorização de=%s (tt --demanda-autorizar %s)\n' "$(date '+%F %T')" "$de" "$de" >>"$log"
+      continue
+    fi
+    IFS=$'\t' read -r tag modo seg <<<"$info"
     case $modo in
       auth) [[ $auth == pass ]] || { ignoradas=$((ignoradas + 1)); printf '%s ignorada de=%s motivo=autenticacao(%s)\n' "$(date '+%F %T')" "$de" "$auth" >>"$log"; continue; } ;;
       segredo) [[ $seg != - && $segmsg == "$seg" ]] || { ignoradas=$((ignoradas + 1)); printf '%s ignorada de=%s motivo=segredo\n' "$(date '+%F %T')" "$de" >>"$log"; continue; } ;;
@@ -7392,6 +7412,7 @@ demandas_processar_conta() { # slug
   done < <(find "$md/new" "$md/cur" -type f -printf '%f\t%p\n' 2>/dev/null |
            awk -F'\t' -v p="$proc" 'FILENAME == p { v[$1] = 1; next } { u = $1; sub(/:2,.*/, "", u); if (!(u in v)) print u "\t" $2 }' "$proc" -)
   [[ -f $log ]] && (($(wc -l <"$log") > 300)) && { tail -n 150 "$log" >"$log.c" && mv -f "$log.c" "$log"; }
+  [[ -f $espera ]] && (($(wc -l <"$espera") > 500)) && { tail -n 300 "$espera" >"$espera.c" && mv -f "$espera.c" "$espera"; }
   if ((criadas > 0)); then
     tarefas_notificar "📥 $criadas nova$( ((criadas > 1)) && echo s) demanda$( ((criadas > 1)) && echo s)" "$ultimo — aprove na aba Entrada" "demandas"
   fi
