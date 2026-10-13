@@ -1497,6 +1497,23 @@ recuo e o texto quebrado na largura da janela (até 100 colunas). Quando o tt at
 tela. Máquina recém-instalada não recebe o aviso. Quem publica uma versão acrescenta a seção dela em
 `NOVIDADES.md` no mesmo commit.
 
+## Checagem pós-atualização
+
+Cada máquina, ao instalar uma versão nova, se confere: o vigia (`--checar-auto`) lança um agente de IA pelo
+rotador (`ia-rot -p … --dangerously-skip-permissions`, a conta com mais folga) na sessão oculta `_tt-checagem`.
+O agente recebe o resultado do coletor, o trecho novo do `NOVIDADES.md` e as regras de `checagens-tt.md` (mais
+`~/.config/tt/checagens.md`, regras só desta máquina). Ele corrige o que é desta máquina, com cópia em `backup/` do que mexer no
+perfil, e testa o que a versão trouxe. Defeito no código vira commit pronto sem push, na máquina de
+desenvolvimento, ou tarefa no tt, nas outras. O relatório chega pelo 🔔. Instalação nova só marca a versão;
+`checagem_auto=0` desliga; sem conta livre, tenta de novo a cada 30 min, até 3 vezes, e fecha só com o coletor.
+
+- `tt --checar [--tsv]`: o coletor, sem IA. Uma linha por item, com estado (ok/aviso/falha) e correção; sai 1 com falha.
+- `tt --checar-agente [--de VERSÃO] [--so-coletor]`, `tt --checar-ver [RODADA]`: rodada à mão e último relatório (menu administrar → 🩺).
+- Registro centralizado em `~/.local/state/tt/checagens/`: `historico.log` e uma pasta por rodada (`relatorio.md`,
+  `coletor.tsv`, `prompt.md`, `saida.log`, `backup/`); ficam as últimas 20.
+- `tt --checar-handoff [ARQ]`: `.tar.gz` para entregar a quem mantém o tt (rodadas, fim dos logs, estado atual),
+  com senhas, tokens e chaves mascarados, e-mails como `f***@dominio` e nada de `~/.secrets`.
+
 ## Demandas por e-mail
 
 Quem você autorizar pode mandar tarefas para a sua rede do tt **por e-mail**. O e-mail cai na caixa de uma

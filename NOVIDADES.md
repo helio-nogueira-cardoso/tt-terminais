@@ -3,6 +3,15 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.14.0 · 13/10/2026
+- **🩺 Cada atualização agora se confere sozinha, e o que estiver errado é corrigido.** Quando uma máquina instala uma versão nova do tt, o vigia lança um agente de IA pelo rotador (a conta com mais folga). Ele confere o vigia, a atualização, a separação entre o pacote e a sua configuração, o espelho de cada conta de e-mail, o sync das tarefas, a malha, as regras dos agentes, as pendências, a hora e as conversas das IAs. Também testa na prática o que a versão nova trouxe e **corrige o que for desta máquina**, guardando cópia do que mexer na sua configuração. O que depende de você (login vencido, sudo com senha) vem com o comando pronto.
+  - Defeito no código do tt: na máquina de desenvolvimento, o agente deixa a correção num commit pronto (sem publicar); nas outras, cria uma tarefa com o diagnóstico.
+  - No fim chega um aviso no 🔔 com o resumo (ok, aviso, falha, corrigido); o clique abre o relatório.
+  - `checagem_auto=0` no config desliga. Sem conta de IA livre, tenta de novo em 30 min, até 3 vezes; no celular ou sem agente, fica o relatório da conferência sem IA.
+- **`tt --checar`** confere tudo isso na hora, sem IA, e diz a correção de cada item. **`tt --checar-agente`** abre uma rodada com o agente quando você quiser; **`tt --checar-ver`** mostra o último relatório. Também no menu administrar → 🩺.
+- **Tudo num lugar só:** `~/.local/state/tt/checagens/` tem o `historico.log` (uma linha por rodada) e uma pasta por rodada com o relatório, o que o agente recebeu e a saída dele (ficam as últimas 20).
+- **📦 Pacote para entregar: `tt --checar-handoff`.** Quando quem mantém o tt pedir, gere um `.tar.gz` (na pasta de recebidos) com as rodadas, o fim dos logs do tt e o estado atual. Senhas, tokens e chaves são mascarados, e-mails viram `f***@dominio`, e nada de `~/.secrets` entra. O comando lista o que foi no pacote para você conferir antes de enviar.
+
 ## v1.13.0 · 13/10/2026
 - **⟳ Versão nova chega em até 5 minutos.** O vigia agora faz uma sonda leve a cada 5 min (15 no celular): pergunta ao GitHub só qual é a versão publicada, sem baixar nada, e busca e instala apenas quando ela mudou. Antes era um download completo a cada 30 min, e uma versão nova levava até meia hora para chegar. A busca completa continua de 6 em 6 h, por segurança.
 - **Mais esperto para decidir o que é "mais novo".** O vigia compara pelo histórico: instala quando a versão publicada contém a instalada; não mexe numa máquina de desenvolvimento que está à frente; e não troca uma versão divergente de número maior (rebaixaria).

@@ -84,6 +84,17 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   a internet (Cloudflare/Google/Apple, mediana; cache em `$RT/tt-hora`, válido por 12 h) e a hora que o tt
   usa nas tarefas e na barra; `--sincronizar` mede agora; `agora` imprime o epoch confiável. Config
   `hora_sync=0` desliga, `hora_urls=` troca os endpoints. Desvio ≥ 60 s: `@barra_hora` mostra a hora corrigida.
+- `tt --checar [--tsv]` — checagem desta máquina sem IA (vigia, atualização, separação pacote × perfil × clone, e-mail,
+  tarefas, malha, agentes, pendências, hora, conversas das IAs): `id estado(ok|aviso|falha) resumo correção`; sai 1 com falha.
+  `tt --checar-agente [--de VERSÃO] [--so-coletor]` abre uma rodada: com conta livre, `ia-rot -p … --dangerously-skip-permissions`
+  na sessão oculta `_tt-checagem` com o pedido `checagem-prompt.md` (coletor + trecho do `NOVIDADES.md` + `checagens-tt.md` +
+  `~/.config/tt/checagens.md` + limites); o agente corrige o que é desta máquina e escreve `relatorio.md` (3ª linha
+  `RESUMO: ok= aviso= falha= corrigido=`); `--checar-fechar` (interno) grava `historico.log`, poda (`TT_CHECAGEM_MANTER`=20) e
+  avisa no 🔔 (ação `checagem:RODADA`). Saída 2 = sem conta livre (nada criado), 3 = sem agente, 4 = já rodando.
+  `tt --checar-ver [RODADA]`, `tt --checar-handoff [ARQ]` (tar.gz mascarado: rodadas sem `backup/`, fim dos logs, estado; nunca
+  `~/.secrets`). Vigia: `--checar-auto` a cada 300 s (versão instalada > `checagens/versao-checada`; instalação nova só marca;
+  sem conta repete a cada `TT_CHECAGEM_REPETIR`=1800 s até 3 vezes; `checagem_auto=0` desliga). `TT_IA_ROT` troca o rotador (`-` = nenhum; testes).
+  Teste: `tests/test_checagem.sh`.
 - `tt --novidades [--todas]` — a tela de novidades (`NOVIDADES.md` formatado por `novidades_fmt`: negrito, código,
   subitens, quebra na largura até 100 colunas); `tt --novidades-fmt LARGURA` (interno) formata o Markdown do stdin.
 - `tt --help` (`-h`, `ajuda`) — os verbos do dia a dia, a versão e onde está o resto. Uma opção
@@ -595,6 +606,7 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
 - Padrão visual + memória a cada 300 s: `--reforcar-padrao`, `--memoria-agentes`.
 - Atualização: sonda leve a cada `TT_T_SONDA` s (300; 900 no Termux) com `--sondar-atualizacao` e busca completa a cada `TT_T_ATUALIZACAO` s (21600) com `--garantir-atualizacao`.
 - Hora confiável a cada `TT_T_HORA` s (21600; 15 min enquanto não houver medida): `--hora --sincronizar`.
+- A cada 300 s (e ao iniciar): `--checar-auto` — versão nova instalada → um agente confere e corrige o tt (ver `tt --checar`).
 - A cada 300 s (junto de `--reforcar-padrao`): `reforcar_agentes` — skill `tt-terminais`, regras `agentes-regras-tt.md` e `aidlc-tt` em todas as IAs (também na instalação).
 - Toda volta: fecha sessões paradas, pontes ociosas, Claude duplicados, janelas vazias abandonadas.
 - Nomeação automática por sessão (título do Claude; primeiro nome; revisão por pontos).

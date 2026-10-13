@@ -16,7 +16,7 @@ sem intervenção, um aviso no 🔔 com o resumo, e `tt --checar-handoff` gerand
 
 Duas camadas:
 
-1. **Coletor determinístico** `tt --checar [--tsv] [--corrigir-simples]`: sem IA, roda as checagens fixas e
+1. **Coletor determinístico** `tt --checar [--tsv]`: sem IA, roda as checagens fixas e
    imprime uma linha por checagem: `id  estado(ok|aviso|falha)  resumo  evidência  correção-sugerida`.
    Barato, testável no `make test`, útil mesmo sem conta de IA livre.
 2. **Agente** `tt --checar-agente [--de VERSÃO]`: monta o pedido (relatório do coletor + trecho do
@@ -34,6 +34,7 @@ Duas camadas:
   vigia, até 3 tentativas (contador em `checagem-tentativas`); depois disso fecha a rodada só com o coletor.
 - Trava `$RT/tt-checagem-UID.trava` (mkdir): uma rodada por vez.
 - `checagem_auto=0` no config desliga o disparo automático; o verbo manual continua.
+- Sem conta livre, nova tentativa só depois de 30 min (`TT_CHECAGEM_REPETIR`).
 - Manual: `tt --checar-agente` a qualquer hora; item 🩺 no menu administrar (checar agora / gerar handoff /
   ver último relatório).
 

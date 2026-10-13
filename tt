@@ -19,6 +19,8 @@
 #   tt --nova [N]   cria uma sessão solta (sem entrar) e imprime o nome
 #   tt --pendencias o que o tt pode precisar instalar nesta máquina, e o que já está pronto
 #   tt --pedir-sudo instala o que falta (pergunta antes; --sim aceita tudo; ids escolhem)
+#   tt --checar     confere se o tt funciona aqui (--checar-agente: um agente confere e corrige; --checar-ver
+#                   o último relatório; --checar-handoff: pacote de logs, sem segredos, para quem mantém o tt)
 #   tt --sessoes-ia conversas do Claude/Codex/Kiro iguais em todas as máquinas (status|on|off|agora)
 #   tt --tarefas-sync [modo] [url]  como as tarefas vão às outras máquinas (p2p, git, ambos, off)
 #   tt --letreiro-listar  fontes (APIs) do letreiro da faixa: -add -editar -rm -testar -log -exportar -importar
@@ -577,6 +579,8 @@ vigiar() {
       ultima_tema=$agora
       ("$EU" --reforcar-padrao >/dev/null 2>&1) &
       ("$EU" --memoria-agentes >/dev/null 2>&1 &)
+      # Versão nova instalada: um agente confere e corrige o tt nesta máquina (tt --checar-agente).
+      ("$EU" --checar-auto >/dev/null 2>&1 &)
     fi
     # Limpeza conservadora: somente sessões sem processo, sem histórico e desanexadas há 5 min.
     fechar_paradas "$agora"
@@ -2053,13 +2057,14 @@ versao_rotulo() { if [[ ${2:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then printf 'v%s'
 
 # tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
 ajuda() {
-  sed -n '2,41p' "$EU" | sed 's/^# \{0,1\}//'
+  sed -n '2,43p' "$EU" | sed 's/^# \{0,1\}//'
   printf '\nVersão instalada: %s (%s)\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao_humana)" "$(versao)" "$DIR_TT" "$DIR_TT"
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
-  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim)
+  ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
+  checagens-tt.md checagem-prompt.md)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -5683,7 +5688,7 @@ pend_instalar() {
   done
   # O que falhou não volta a incomodar toda hora: o aviso espera uma semana (ou o menu reabre na hora).
   for id in ${ruins[@]+"${ruins[@]}"}; do sudo_recusa_gravar "$id" semana; done
-  ((${#ruins[@]})) && echo "  (Detalhes em ${PK_LOG/#$HOME/~}. Aviso desta pendência volta em 7 dias; o menu administrar → 📦 reabre na hora.)"
+  ((${#ruins[@]})) && echo "  (Detalhes em ${PK_LOG/#"$HOME"/"~"}. Aviso desta pendência volta em 7 dias; o menu administrar → 📦 reabre na hora.)"
   return $rc
 }
 
@@ -5976,6 +5981,368 @@ novidades_avisar() {
   # Máquina que acabou de ser instalada (nada visto): só marca; o aviso é para quem atualizou.
   [[ -f $ESTADO_DIR/novidades-visto ]] || { echo "$atual" >"$ESTADO_DIR/novidades-visto"; return 0; }
   notificar "📰 tt atualizado para a v$atual — veja o que há de novo (clique)" 3600 novidades
+}
+
+# --- Checagem pós-atualização (tt --checar, --checar-agente, --checar-handoff) ---------------------------
+# Cada máquina, ao instalar uma versão nova, confere se o tt funciona aqui. O coletor (tt --checar, sem
+# IA) roda as checagens de checagens-tt.md e diz o estado e a correção de cada uma. O vigia (checar_auto)
+# lança então um agente pelo rotador (tt --checar-agente → ia-rot -p, na sessão oculta _tt-checagem), que
+# investiga, CORRIGE o que é desta máquina, testa o que a versão trouxe (NOVIDADES.md) e escreve o
+# relatório. Tudo fica num lugar só, ~/.local/state/tt/checagens/ (historico.log + uma pasta por rodada),
+# e tt --checar-handoff empacota isso, sem segredos, para quem usa o tt entregar a quem o mantém.
+CHECAGEM_DIR=$ESTADO_DIR/checagens
+CHECAGEM_SESSAO=_tt-checagem
+# O que a instalação ou o próprio tt geram dentro do pacote (não são arquivos do usuário largados lá).
+CHECAGEM_GERADOS=" rapido html-tt sem-unshare vimrc-tt vimrc-tt-email w3m-keymap __pycache__ "
+
+checar_linha() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:--}"; } # id estado(ok|aviso|falha) resumo correção
+
+# Uma linha por checagem (TSV). Só lê: nada aqui corrige, e uma checagem que falha não derruba as outras.
+checar_coletar() {
+  local agora pid cpu f x n m slug st erro d desde mot
+  local -a falta=() extra=() codigo=() lst=()
+  local -A NO_PACOTE=() E=()
+  printf -v agora '%(%s)T' -1
+
+  # vigia: vivo, único e sem girar a CPU (o bug do wait sem pids o deixou horas a 100%)
+  pid=$(cat "$RT/tt-vigia-$UID.pid" 2>/dev/null)
+  if [[ -n $pid ]] && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--vigia'; then
+    cpu=$(ps -o %cpu= -p "$pid" 2>/dev/null | awk '{ printf "%d", $1 }')
+    if ((${cpu:-0} >= 50)); then checar_linha vigia aviso "vigia vivo (pid $pid) mas usando ${cpu}% de CPU em média" "ver o fim de ~/.cache/tt-vigia.log; matar o pid e deixar o tmux religar (tmux run-shell -b '~/.local/bin/tt --vigia')"
+    else checar_linha vigia ok "vigia vivo (pid $pid, ${cpu:-0}% de CPU)"; fi
+  else
+    checar_linha vigia falha "vigia parado: sem ele nada se atualiza, sincroniza nem avisa" "tmux run-shell -b '~/.local/bin/tt --vigia' (o vigia vive no servidor tmux do tt)"
+  fi
+
+  # atualização
+  n=$(atu_get falhas); x=$(atu_get publicado); f=$(versao_hash_instalado)
+  if ((${n:-0} >= 3)); then checar_linha atualizacao falha "$n falhas seguidas ao buscar a versão publicada: $(atu_get erro)" "tt --atualizacao-estado; tt --atualizar"
+  elif [[ -n $x && -n $f && $x != "$f"* && -z $(atu_get obs) ]]; then checar_linha atualizacao aviso "instalada $(versao_humana) ($f), publicada ${x:0:7}" "tt --atualizar"
+  else checar_linha atualizacao ok "$(versao_humana) instalada${x:+, publicada ${x:0:7}}"; fi
+  if [[ -f $DIR_TT/rapido/nucleo.sh ]]; then checar_linha partida-rapida ok "núcleo da partida rápida presente"
+  else checar_linha partida-rapida aviso "sem partida rápida (rapido/): cada comando do tt fica mais lento" "TT_COMPLETO=1 ~/.local/bin/tt --rapido gerar"; fi
+
+  # separação: pacote (trocado inteiro a cada instalação) × perfil (escolhas do usuário) × clone de desenvolvimento
+  for x in "${ARQUIVOS_PACOTE[@]}"; do NO_PACOTE[$x]=1; [[ -e $DIR_TT/$x ]] || falta+=("$x"); done
+  for f in "$DIR_TT"/* "$DIR_TT"/.[!.]*; do
+    [[ -e $f || -L $f ]] || continue
+    x=${f##*/}
+    [[ -n ${NO_PACOTE[$x]:-} || $CHECAGEM_GERADOS == *" $x "* || $x == .git ]] || extra+=("$x")
+  done
+  for f in "$CONF_DIR"/*; do
+    [[ -f $f ]] || continue
+    x=${f##*/}
+    case $x in tmux.conf|AI-DLC.md|*.antes-*|*.bak) continue ;; esac
+    [[ -n ${NO_PACOTE[$x]:-} || $x == *.py || $x == *.sh ]] && codigo+=("$x")
+  done
+  if ((${#falta[@]})); then checar_linha separacao falha "pacote incompleto em ${DIR_TT/#"$HOME"/"~"}: falta ${falta[*]}" "reinstalar o pacote: tt --atualizar (na máquina de desenvolvimento, tt --sincronizar)"
+  elif ((${#extra[@]})); then checar_linha separacao aviso "arquivo(s) que não são do pacote em ${DIR_TT/#"$HOME"/"~"}: ${extra[*]} (somem na próxima instalação)" "o que for escolha do usuário vai para ~/.config/tt; resto de versão antiga pode ser apagado"
+  elif ((${#codigo[@]})); then checar_linha separacao aviso "código no perfil (~/.config/tt): ${codigo[*]}" "código mora no pacote; mover para fora do perfil ou apagar a cópia antiga"
+  else checar_linha separacao ok "pacote completo e sem arquivos do usuário; perfil sem código"; fi
+  if [[ -e $REPO_TT/.git ]]; then
+    lst=()
+    while IFS= read -r x; do [[ -n $x ]] && lst+=("${x:3}"); done < <(git -C "$REPO_TT" status --porcelain --untracked-files=no -- "${ARQUIVOS_FONTE[@]}" .gitignore 2>/dev/null)
+    if ((${#lst[@]})); then checar_linha clone aviso "clone de desenvolvimento com arquivo versionado mudado e não gravado: ${lst[*]} (trava a atualização)" "tt --repo-checar (e --corrigir para o .gitignore)"
+    else checar_linha clone ok "clone de desenvolvimento ${REPO_TT/#"$HOME"/"~"} sem mudança que trave a atualização"; fi
+  fi
+
+  # e-mail: cada conta com espelho local sincronizando; conta sem espelho não gera aviso nem demanda
+  n=0
+  for slug in $(email_slugs); do
+    E=(); email_ler "$slug" 2>/dev/null || continue
+    n=$((n + 1))
+    if [[ ${E[sync_local]:-} != 1 ]]; then
+      checar_linha "email:$slug" aviso "conta sem espelho local: sem aviso de e-mail novo, contador do 📧 e demandas [tt]" "tt --pedir-sudo email-espelho"
+      continue
+    fi
+    st=$(email_sync_resumo "$slug")
+    erro=$(head -c 300 "$ESTADO_DIR/email-sync/$slug.erro" 2>/dev/null | tr '\n\t' '  ')
+    case $st in
+      ok) checar_linha "email:$slug" ok "espelho em dia" ;;
+      erro|parado) checar_linha "email:$slug" falha "sync $st${erro:+: $erro}" "tt --email-sync-estado (a dica diz a causa); tt --email-sync $slug; OAuth vencido: tt --email-autorizar $slug" ;;
+      *) checar_linha "email:$slug" aviso "sync $st" "tt --email-sync $slug" ;;
+    esac
+  done
+  ((n)) || checar_linha email ok "nenhuma conta de e-mail cadastrada"
+
+  # tarefas
+  m=$(tarefas_sync_modo)
+  if [[ $m == @(git|ambos) ]]; then
+    if [[ -f $ESTADO_DIR/tarefas-git.erro ]]; then
+      IFS=$'\t' read -r desde _ mot <"$ESTADO_DIR/tarefas-git.erro"
+      checar_linha tarefas falha "sync das tarefas por git falhando há $(( (agora - ${desde:-agora}) / 60 )) min: $mot" "tt --tarefas-sync agora"
+    elif ((agora - $(cat "$ESTADO_DIR/tarefas-git.ok" 2>/dev/null || echo 0) > 86400)); then
+      checar_linha tarefas aviso "sync das tarefas por git sem troca boa há mais de 1 dia" "tt --tarefas-sync agora"
+    else checar_linha tarefas ok "sync das tarefas ($m) em dia"; fi
+  else checar_linha tarefas ok "sync das tarefas: $m"; fi
+
+  # malha (malha_vigia conta as voltas com ilha)
+  if [[ -s $CONF_MAQ ]]; then
+    n=$(cat "$RT/tt-malha-ilha-$UID" 2>/dev/null || echo 0)
+    if ((n >= 2)); then checar_linha malha falha "ilha na malha há $n voltas do vigia: alguma máquina não alcança outra" "tt --malha; tt --diagnosticar MÁQUINA; tt --reparar MÁQUINA"
+    else checar_linha malha ok "sem ilha na malha"; fi
+  else checar_linha malha ok "só esta máquina cadastrada"; fi
+
+  # agentes: regras do tt no AGENTS.md único, CLAUDE.md como link para ele, skill instalada
+  f=$HOME/.agents/AGENTS.md
+  if ! grep -q 'tt-managed:regras-tt BEGIN' "$f" 2>/dev/null; then checar_linha agentes falha "as regras do tt não estão em ~/.agents/AGENTS.md" "tt --reforcar-agentes"
+  elif [[ -d $HOME/.claude && ! -L $HOME/.claude/CLAUDE.md ]]; then checar_linha agentes aviso "~/.claude/CLAUDE.md não é link para ~/.agents/AGENTS.md" "tt --reforcar-agentes (o texto de fora do bloco vai para a fonte)"
+  elif [[ -d $HOME/.claude && ! -f $HOME/.claude/skills/tt-terminais/SKILL.md ]]; then checar_linha agentes aviso "skill tt-terminais ausente no Claude" "tt --reforcar-agentes"
+  else checar_linha agentes ok "regras e skill do tt nos agentes"; fi
+
+  # pendências de instalação
+  lst=(); x=""
+  while IFS=$'\t' read -r f _ _ _ d; do
+    [[ -n $f ]] || continue
+    lst+=("$f"); [[ $d == essencial ]] && x=1
+  done < <(sudo_pendencias 2>/dev/null)
+  if ((${#lst[@]})); then checar_linha pendencias "$([[ -n $x ]] && echo falha || echo aviso)" "falta instalar: ${lst[*]}" "tt --pedir-sudo ${lst[*]} (sudo só se funcionar sem senha: sudo -n true)"
+  else checar_linha pendencias ok "nada essencial ou de recurso faltando"; fi
+
+  # hora
+  hora__ler
+  if ((HORA_T == 0)); then checar_linha hora aviso "sem medida do relógio contra a internet" "tt --hora --sincronizar"
+  elif ((${HORA_D#-} >= 60)); then checar_linha hora aviso "relógio da máquina desviado ${HORA_D} s (o tt compensa nas tarefas e na barra)" "acertar o relógio do sistema"
+  else checar_linha hora ok "relógio certo"; fi
+
+  # conversas das IAs entre as máquinas
+  if sessoes_ia_ativo && [[ -s $CONF_MAQ && -d $ESTADO_DIR/sessoes-ia/maquinas ]]; then
+    lst=()
+    for f in "$ESTADO_DIR"/sessoes-ia/maquinas/*; do
+      [[ -f $f ]] || continue
+      read -r x st _ <"$f"
+      [[ $st == ok && $x =~ ^[0-9]+$ ]] && ((agora - x < 172800)) && continue
+      [[ $st == pulada ]] && continue   # a outra estava fora da rede: não é defeito daqui
+      lst+=("${f##*/}")
+    done
+    if ((${#lst[@]})); then checar_linha sessoes-ia aviso "conversas das IAs sem troca boa há mais de 2 dias com: ${lst[*]}" "tt --sessoes-ia agora; log em ~/.cache/tt-sessoes-ia.log"
+    else checar_linha sessoes-ia ok "conversas das IAs trocando"; fi
+  fi
+  return 0
+}
+
+checar_contar() { awk -F'\t' '{ c[$2]++ } END { printf "ok=%d aviso=%d falha=%d", c["ok"], c["aviso"], c["falha"] }' "$@"; }
+
+# tt --checar [--tsv]: o coletor, legível. Sai 1 se alguma checagem falhou.
+checar() {
+  local tsv id st res cor ic
+  tsv=$(checar_coletar)
+  if [[ ${1:-} == --tsv ]]; then printf '%s\n' "$tsv"
+  else
+    echo "Checagem do tt em $MAQUINA ($(versao_humana))"
+    while IFS=$'\t' read -r id st res cor; do
+      case $st in ok) ic=$'\e[32m✓\e[0m' ;; aviso) ic=$'\e[33m!\e[0m' ;; *) ic=$'\e[31m✗\e[0m' ;; esac
+      printf '  %s %-16s %s\n' "$ic" "$id" "$res"
+      [[ $st != ok && $cor != - ]] && printf '      \e[90m→ %s\e[0m\n' "$cor"
+    done <<<"$tsv"
+    echo "  ($(checar_contar <<<"$tsv"))"
+  fi
+  ! grep -q $'\tfalha\t' <<<"$tsv"
+}
+
+# Coletor em Markdown (relatório sem agente).
+checar_md() { awk -F'\t' '{ i = ($2 == "ok") ? "✓" : ($2 == "aviso") ? "!" : "✗"; printf "- %s **%s**: %s\n", i, $1, $3; if ($2 != "ok" && $4 != "-") printf "  - correção: `%s`\n", $4 }' "$1"; }
+
+checar_ia_rot() {
+  local b
+  [[ ${TT_IA_ROT:-} == - ]] && return 1 # testes: "nenhum agente nesta máquina"
+  for b in "${TT_IA_ROT:-}" "$HOME/.local/bin/ia-rot" "$DIR_TT/ia-rot"; do [[ -n $b && -x $b ]] && { printf '%s' "$b"; return 0; }; done
+  return 1
+}
+
+# O pedido ao agente: o modelo do pacote (checagem-prompt.md) com os dados desta rodada.
+checar_prompt() { # pasta-da-rodada versão-anterior versão-atual
+  local rod=$1 de=$2 para=$3 t nov regras dev
+  t=$(cat "$DIR_TT/checagem-prompt.md" 2>/dev/null) || return 1
+  if [[ -n $de ]]; then nov=$(novidades_texto "$de"); else nov=$(awk '/^## v/ { c++ } c == 1' "$DIR_TT/NOVIDADES.md" 2>/dev/null); fi
+  regras=$(cat "$DIR_TT/checagens-tt.md" 2>/dev/null)
+  [[ -s $CONF_DIR/checagens.md ]] && regras+=$'\n\n## Regras só desta máquina (~/.config/tt/checagens.md)\n\n'$(cat "$CONF_DIR/checagens.md")
+  if [[ -e $REPO_TT/.git ]]; then dev="SIM: o clone de desenvolvimento do tt é $REPO_TT"
+  else dev="NÃO: esta máquina não tem o clone de desenvolvimento do tt"; fi
+  # Substituição com o valor entre aspas: no bash 5.2+, um & solto no valor viraria o texto casado.
+  t=${t//'{{MAQUINA}}'/"$MAQUINA"}; t=${t//'{{DE}}'/"${de:-(primeira checagem)}"}; t=${t//'{{PARA}}'/"$para"}
+  t=${t//'{{RODADA}}'/"$rod"}; t=${t//'{{DEV}}'/"$dev"}; t=${t//'{{TT}}'/"$HOME/.local/bin/tt"}
+  t=${t//'{{COLETOR}}'/"$(checar_md "$rod/coletor.tsv")"}
+  nov=${nov:-(sem entrada no NOVIDADES.md para esta versão)}
+  t=${t//'{{NOVIDADES}}'/"$nov"}
+  t=${t//'{{CHECAGENS}}'/"$regras"}
+  printf '%s\n' "$t"
+}
+
+# tt --checar-agente [--de VERSÃO] [--so-coletor]: abre uma rodada. Com conta de IA livre, lança o agente
+# na sessão oculta _tt-checagem (ou em 2º plano, sem tmux) e volta logo; o fim da rodada é checar_fechar.
+# Saída: 0 lançou (ou fechou só com o coletor, com --so-coletor), 2 nenhuma conta livre (nada criado),
+# 3 sem agente nesta máquina (rodada fechada só com o coletor), 4 já há uma rodando.
+checar_agente() {
+  local de="" so="" para rod ia
+  while (($#)); do case $1 in --de) de=${2:-}; shift ;; --so-coletor) so=so-coletor ;; --sem-conta) so=sem-conta ;; esac; shift; done
+  para=$(versao_disp)
+  if tmux has-session -t "=$CHECAGEM_SESSAO" 2>/dev/null; then echo "Já há uma checagem rodando (sessão $CHECAGEM_SESSAO)."; return 4; fi
+  ia=$(checar_ia_rot) || so=${so:-sem-agente}
+  if [[ -z $so ]] && ! "$ia" --melhor >/dev/null 2>&1; then echo "Nenhuma conta de IA livre agora; tente mais tarde (tt --checar mostra o coletor)."; return 2; fi
+  rod=$CHECAGEM_DIR/$para-$(date +%Y%m%d-%H%M%S)
+  mkdir -p "$rod/backup" || return 1
+  printf 'de=%s\npara=%s\nmaquina=%s\ninicio=%s\n' "$de" "$para" "$MAQUINA" "$(date -Iseconds)" >"$rod/rodada"
+  checar_coletar >"$rod/coletor.tsv"
+  if [[ -n $so ]]; then
+    checar_fechar "$rod" "$so"
+    [[ $so == sem-agente ]] && { echo "Sem agente de IA nesta máquina: relatório só com o coletor em $rod"; return 3; }
+    echo "Relatório (só o coletor) em $rod"; return 0
+  fi
+  checar_prompt "$rod" "$de" "$para" >"$rod/prompt.md" || { checar_fechar "$rod" sem-modelo; return 1; }
+  cat >"$rod/rodar.sh" <<FIM
+#!/usr/bin/env bash
+# Rodada de checagem do tt ($(date -Iseconds)): o agente lê prompt.md; a saída fica em saida.log.
+cd ~ || exit 1
+$(q "$ia") -p "\$(cat $(q "$rod/prompt.md"))" --dangerously-skip-permissions >$(q "$rod/saida.log") 2>&1
+$(q "$EU") --checar-fechar $(q "$rod") "\$?"
+FIM
+  if tmux list-sessions >/dev/null 2>&1; then
+    tmux new-session -d -s "$CHECAGEM_SESSAO" -c "$HOME" "bash $(q "$rod/rodar.sh")" || { checar_fechar "$rod" sem-sessao; return 1; }
+  else
+    setsid bash "$rod/rodar.sh" >/dev/null 2>&1 </dev/null &
+  fi
+  echo "Agente da checagem lançado (sessão $CHECAGEM_SESSAO); relatório em $rod"
+}
+
+# tt --checar-fechar PASTA MOTIVO (interno; o rodar.sh chama ao fim do agente com o código de saída dele):
+# garante o relatório, grava a linha do histórico, poda as rodadas antigas e avisa no 🔔.
+checar_fechar() {
+  local rod=$1 motivo=${2:-?} de="" para="" res nota ag="-"
+  [[ -d $rod ]] || return 1
+  de=$(sed -n 's/^de=//p' "$rod/rodada" 2>/dev/null); para=$(sed -n 's/^para=//p' "$rod/rodada" 2>/dev/null)
+  case $motivo in
+    sem-agente) nota="Sem agente de IA nesta máquina: relatório só com o coletor." ;;
+    so-coletor) nota="Rodada só com o coletor (sem agente)." ;;
+    sem-conta) nota="Nenhuma conta de IA ficou livre em 3 tentativas: relatório só com o coletor." ;;
+    0) ag=agente nota="O agente terminou sem escrever relatorio.md; a saída dele está em saida.log." ;;
+    *) ag=agente nota="O agente saiu com o código $motivo sem escrever relatorio.md; a saída dele está em saida.log." ;;
+  esac
+  if [[ ! -s $rod/relatorio.md ]]; then
+    { printf '# Checagem do tt · %s · v%s\n\n%s\n\n## Coletor\n\n' "$MAQUINA" "${para:-?}" "$nota"; checar_md "$rod/coletor.tsv"; } >"$rod/relatorio.md"
+  fi
+  [[ -s $rod/saida.log ]] && ag=agente
+  res=$(grep -m1 -o 'ok=[0-9]* aviso=[0-9]* falha=[0-9]* corrigido=[0-9]*' "$rod/relatorio.md") ||
+    res="$(checar_contar "$rod/coletor.tsv") corrigido=0"
+  mkdir -p "$CHECAGEM_DIR"
+  printf '%s\t%s\t%s→%s\t%s\t%s\t%s\n' "$(date -Iseconds)" "$MAQUINA" "${de:--}" "${para:-?}" "$ag" "$res" "${rod##*/}" >>"$CHECAGEM_DIR/historico.log"
+  checar_podar
+  notificar "🩺 checagem do tt v${para:-?} em $MAQUINA: ${res//=/ } (clique: relatório)" 86400 "checagem:${rod##*/}" sino
+}
+
+# Guarda as últimas TT_CHECAGEM_MANTER (20) rodadas.
+checar_podar() {
+  local -a ds=(); local d n
+  for d in "$CHECAGEM_DIR"/*/; do [[ -f $d/rodada ]] && ds+=("${d%/}"); done
+  n=$(( ${#ds[@]} - ${TT_CHECAGEM_MANTER:-20} ))
+  ((n > 0)) || return 0
+  ls -1dtr "${ds[@]}" | head -n "$n" | while IFS= read -r d; do rm -rf -- "$d"; done
+}
+
+# tt --checar-ver [RODADA]: o relatório (da última rodada, sem argumento).
+checar_ver() {
+  local rod=${1:-} f
+  if [[ -z $rod ]]; then rod=$(awk -F'\t' 'END { print $6 }' "$CHECAGEM_DIR/historico.log" 2>/dev/null); fi
+  [[ $rod == /* ]] || rod=$CHECAGEM_DIR/$rod
+  f=$rod/relatorio.md
+  [[ -s $f ]] || { echo "Nenhum relatório de checagem ainda (tt --checar-agente abre uma rodada)."; return 1; }
+  if [[ -t 1 ]]; then
+    { novidades_fmt "$(( $(tput cols 2>/dev/null || echo 80) - 2 ))" <"$f"; printf '\n\e[90m%s\e[0m\n' "${rod/#"$HOME"/"~"}"; } |
+      if tem_cmd less; then LESSCHARSET=utf-8 less -R; else cat; read -rsn1 -p $'\n  (qualquer tecla fecha)' </dev/tty; fi
+  else cat "$f"; fi
+}
+
+# Máscara do handoff: segredos e e-mails, em todos os arquivos de texto da pasta.
+CHECAGEM_MASCARA_PY='
+import os, re, sys
+pad = [
+  (re.compile(r"(?i)\b(refresh_token|access_token|id_token|client_secret|password|passwd|senha|secret|token|api[_-]?key|authorization)(\"?\s*[:=]\s*\"?)(?:Bearer\s+)?[^\s\"'"'"',;]+"), r"\1\2***"),
+  (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer ***"),
+  (re.compile(r"\b(sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{12,}|xox[abpr]-[A-Za-z0-9-]{8,}|ya29\.[A-Za-z0-9._-]{8,}|1//[A-Za-z0-9_-]{16,}|AKIA[A-Z0-9]{12,})"), "***"),
+  (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S), "*** chave privada ***"),
+  (re.compile(r"\b([A-Za-z0-9])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})"), r"\1***@\2"),
+]
+for raiz, _, arqs in os.walk(sys.argv[1]):
+  for a in arqs:
+    p = os.path.join(raiz, a)
+    try: t = open(p, encoding="utf-8").read()
+    except Exception: os.remove(p); continue
+    n = t
+    for r, s in pad: n = r.sub(s, n)
+    if n != t: open(p, "w", encoding="utf-8").write(n)
+'
+
+# tt --checar-handoff [ARQUIVO]: um .tar.gz com tudo o que quem mantém o tt precisa para entender esta
+# máquina (rodadas de checagem, fim dos logs, estado atual), mascarado. Nunca leva ~/.secrets, o
+# accounts.conf do aerc, os .mbsyncrc nem credencial de IA: só lê os arquivos listados aqui.
+checar_handoff() {
+  local dest=${1:-} tmp nome raiz f d
+  d=$(date +%Y%m%d-%H%M%S); nome=tt-handoff-$MAQUINA-$d
+  [[ -n $dest ]] || dest=$(pasta_recebidos)/$nome.tar.gz
+  mkdir -p "${dest%/*}" || return 1
+  tmp=$(mktemp -d) || return 1
+  raiz=$tmp/$nome; mkdir -p "$raiz/checagens" "$raiz/logs" "$raiz/estado" "$raiz/email-sync"
+  [[ -d $CHECAGEM_DIR ]] && (cd "$CHECAGEM_DIR" && tar --exclude='./*/backup' --exclude='./*/rodar.sh' -cf - .) | tar -xf - -C "$raiz/checagens"
+  for f in "$HOME/.cache/tt-vigia.log" "$HOME/.cache/tt-malha.log" "$HOME/.cache/tt-letreiro.log" "$HOME/.cache/tt/pendencias.log" \
+           "$HOME/.cache/tt-sessoes-ia.log" "$HOME/.cache/tt-troca.log" "$ESTADO_DIR/tarefas-git.erro" "$ESTADO_DIR/atualizacao"; do
+    [[ -f $f ]] && tail -n 1000 "$f" >"$raiz/logs/${f##*/}"
+  done
+  for f in "$ESTADO_DIR"/email-sync/*; do
+    [[ -f $f ]] || continue
+    case ${f##*/} in *.vistas|*.trava) continue ;; esac
+    tail -n 300 "$f" >"$raiz/email-sync/${f##*/}"
+  done
+  _ho() { local arq=$1; shift; timeout 60 "$EU" "$@" 2>&1 | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' >"$raiz/estado/$arq"; }
+  _ho versao.txt --versao
+  _ho atualizacao.txt --atualizacao-estado
+  _ho checar.tsv --checar --tsv
+  _ho pendencias.tsv --pendencias --tsv
+  _ho email-sync.txt --email-sync-estado
+  _ho tarefas-sync.txt --tarefas-sync status
+  _ho hora.txt --hora
+  _ho sessoes-ia.txt --sessoes-ia status
+  { pacotes_lib && pk_resumo; uname -srm; } >"$raiz/estado/plataforma.txt" 2>&1
+  cat >"$raiz/LEIA-ME.md" <<FIM
+# Handoff do tt · $MAQUINA · $(versao_humana) · $(date -Iseconds)
+
+- \`checagens/\`: historico.log (uma linha por rodada) e uma pasta por rodada (relatorio.md, coletor.tsv, prompt.md, saida.log).
+- \`estado/\`: o estado agora (versão, atualização, coletor, pendências, e-mail, tarefas, hora, conversas das IAs, plataforma).
+- \`logs/\`: o fim dos logs do tt (vigia, malha, letreiro, pendências, conversas das IAs, trocas, sync das tarefas).
+- \`email-sync/\`: registro e erros do espelho de cada conta de e-mail.
+
+Segredos e e-mails foram mascarados. Não há nada de ~/.secrets, do accounts.conf do aerc, dos .mbsyncrc nem credenciais de IA.
+FIM
+  python3 -I -c "$CHECAGEM_MASCARA_PY" "$raiz" || { rm -rf "$tmp"; echo "✗ não consegui mascarar o pacote; nada foi gerado."; return 1; }
+  tar -czf "$dest" -C "$tmp" "$nome" || { rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+  echo "Pacote de handoff: $dest ($(du -h "$dest" | cut -f1))"
+  tar -tzf "$dest" | sed -n "s|^$nome/||p" | grep -v '/$' | sed 's/^/  /'
+  echo "Confira o conteúdo antes de enviar (tt --enviar, anexo de e-mail ou outra via)."
+}
+
+# Vigia (a cada 5 min e ao iniciar, que acontece a cada versão nova): versão instalada mais nova que a
+# última checada → uma rodada. Máquina recém-instalada só marca. Sem conta livre, tenta de novo a cada
+# 30 min; na 3ª vez fecha só com o coletor. checagem_auto=0 desliga.
+checar_auto() {
+  [[ $(conf checagem_auto) == 0 ]] && return 0
+  local atual visto marca=$CHECAGEM_DIR/versao-checada tent=$CHECAGEM_DIR/tentativas trava=$RT/tt-checagem-$UID.trava rc n
+  atual=$(versao_disp)
+  mkdir -p "$CHECAGEM_DIR"
+  if [[ ! -s $marca ]]; then echo "$atual" >"$marca"; return 0; fi
+  visto=$(<"$marca")
+  (($(versao_chave "$atual") > $(versao_chave "$visto"))) || return 0
+  [[ -f $tent ]] && (($(idade_arquivo "$tent") < ${TT_CHECAGEM_REPETIR:-1800})) && return 0
+  [[ -d $trava ]] && (($(idade_arquivo "$trava") > 3600)) && rmdir "$trava" 2>/dev/null
+  mkdir "$trava" 2>/dev/null || return 0
+  checar_agente --de "$visto" >/dev/null 2>&1; rc=$?
+  if ((rc == 2)); then
+    n=$(( $(cat "$tent" 2>/dev/null || echo 0) + 1 ))
+    if ((n < 3)); then echo "$n" >"$tent"; rmdir "$trava"; return 0; fi
+    checar_agente --de "$visto" --sem-conta >/dev/null 2>&1
+  fi
+  rmdir "$trava" 2>/dev/null
+  ((rc == 4)) && return 0
+  rm -f "$tent"; echo "$atual" >"$marca"
 }
 
 # Chamado pelo vigia (no início e a cada 6 h): se há pendências ainda não respondidas (ou adiadas e
@@ -6934,6 +7301,9 @@ menu_admin() {
     printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'n\t  📰 Novidades do tt…\t%s\n' "$(popup_tt "$c" "📰 novidades do tt" "$EU --novidades")"
+    printf 'k\t  🩺 Checar o tt agora (agente confere e corrige)…\t%s\n' "$(popup_tt "$c" "🩺 checagem do tt" "$EU --checar; echo; $EU --checar-agente; read -rsn1 -p '(tecla fecha)'")"
+    printf 'v\t  🩺 Último relatório de checagem…\t%s\n' "$(popup_tt "$c" "🩺 checagem do tt" "$EU --checar-ver")"
+    printf 'K\t  🩺 Pacote de handoff (logs para quem mantém o tt)…\t%s\n' "$(popup_tt "$c" "🩺 handoff" "$EU --checar-handoff; read -rsn1 -p '(tecla fecha)'")"
     printf 'i\t  📦 Pendências de instalação… (reavaliar todas)\t%s\n' "$(popup_tt "$c" "📦 pendências de instalação" "TT_PEND_TODAS=1 $EU --pedir-sudo")"
     printf 'I\t  📋 Estado de tudo que o tt usa (instalado ou não)\t%s\n' "$(popup_tt "$c" "📋 o que o tt usa" "$EU --pendencias; read -rsn1 -p '  (qualquer tecla fecha)'")"
     printf 'h\t  ◌ Ocultar máquina…\t%s\n' "$(popup_tt "$c" "ocultar máquina" "$EU --ocultar-maquina; read -rsn1 -p '(tecla fecha)'")"
@@ -10020,6 +10390,7 @@ notif_abrir() { # ação cliente
     email:*) email_ir_novo "${acao#email:}" "$c" ;;   # aviso de e-mail novo: vai à conta e à mensagem (:check-mail vai dentro)
     email) botao_email "$c" ;;
     novidades) tmux display-popup -c "$c" -E $(tam_popup "$c") -T ' 📰 novidades do tt ' "$EU --novidades" ;;
+    checagem:*) tmux display-popup -c "$c" -E $(tam_popup "$c") -T ' 🩺 checagem do tt ' "$EU --checar-ver $(q "${acao#checagem:}")" ;;
     pendencias) popup_fixo -c "$c" -E $(dim_popup "$c" 92 22) -b rounded -S 'fg=#f9e2af' -T ' 📦 pendências de instalação ' "$EU --pedir-sudo" ;;
     tarefas) abrir_tarefas "$c" ;;
     demandas) tarefas_filtro_set entrada; abrir_tarefas "$c" ;;
@@ -10224,6 +10595,7 @@ notifs_previa() { # id
     tarefas-sync) dest='abre a sincronização das tarefas' ;;
     letreiro) dest='abre o letreiro' ;;
     novidades) dest='abre as novidades do tt' ;;
+    checagem:*) dest='abre o relatório da checagem do tt' ;;
     pendencias) dest='abre as pendências de instalação' ;;
     sessao:*)
       s=${acao#sessao:}
@@ -16943,6 +17315,12 @@ case "${1:-}" in
   --novidades) novidades_ver "$@"; exit 0 ;;
   --novidades-fmt) novidades_fmt "${2:-80}"; exit 0 ;;   # (interno) Markdown do NOVIDADES.md -> terminal; lê o stdin
   --novidades-avisar) novidades_avisar; exit 0 ;;
+  --checar) shift; checar "$@"; exit ;;
+  --checar-agente) shift; checar_agente "$@"; exit ;;
+  --checar-auto) checar_auto; exit 0 ;;              # (interno, vigia) uma rodada por versão nova
+  --checar-fechar) shift; checar_fechar "$@"; exit ;; # (interno) fim da rodada do agente
+  --checar-ver) shift; checar_ver "$@"; exit ;;
+  --checar-handoff) shift; checar_handoff "$@"; exit ;;
   --email-sync-local) email_sync_local_definir "${2:?uso: tt --email-sync-local CONTA 0|1}" "${3:-1}"; exit ;;
   --anexos-enviar) anexos_enviar; exit 0 ;;
   --imagens) imagens_do_email; exit 0 ;;
