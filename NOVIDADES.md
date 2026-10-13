@@ -3,6 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.13.0 · 13/10/2026
+- **⟳ Versão nova chega em até 5 minutos.** O vigia agora faz uma sonda leve a cada 5 min (15 no celular): pergunta ao GitHub só qual é a versão publicada, sem baixar nada, e busca e instala apenas quando ela mudou. Antes era um download completo a cada 30 min, e uma versão nova levava até meia hora para chegar. A busca completa continua de 6 em 6 h, por segurança.
+- **Mais esperto para decidir o que é "mais novo".** O vigia compara pelo histórico: instala quando a versão publicada contém a instalada; não mexe numa máquina de desenvolvimento que está à frente; e não troca uma versão divergente de número maior (rebaixaria).
+- **Por que não atualizou? `tt --atualizacao-estado`** mostra a versão instalada e a publicada, se o vigia está vivo, a última consulta, a fonte (avisa se o `fonte=` do config aponta para outro repositório) e, se estiver falhando, há quanto tempo e por quê (rede, git, pacote). Depois de 3 falhas seguidas chega um aviso no 🔔 com o motivo.
+- **Commits locais não travam mais a máquina de desenvolvimento.** `tt --atualizar` num clone com commits que o publicado não tem reaplica esses commits sobre a versão publicada (rebase). Se der conflito, eles ficam guardados num ramo `local/<data>` e o clone segue o publicado: nada se perde. Arquivo versionado mudado e não gravado faz recusar, com a lista.
+- **Configuração local separada do versionado.** Linhas acrescentadas só nesta máquina ao `.gitignore` do clone vão para `.git/info/exclude` (vale igual, não é versionado). `tt --repo-checar` explica o que no clone trava a atualização; `--corrigir` faz a separação.
+
 ## v1.12.2 · 13/10/2026
 - **📰 Clique nas notícias do letreiro volta a abrir.** Quando o tmux trocava o processo que desenha o letreiro (ao mudar o tamanho da tela, trocar de sessão, abrir uma janela do tt…), o processo antigo, ao sair, apagava o mapa que o clique usa para saber qual item está sob o mouse. Daí em diante o clique não fazia nada até a tela mudar de tamanho de novo. Agora quem sai não apaga o mapa, e o letreiro o refaz se ele sumir.
 - **As manchetes de fábrica (g1 e BBC) também abrem a matéria.** Só as fontes de notícias do catálogo tinham o link de cada item; clicar numa manchete da fonte `noticias` apenas pausava a faixa.

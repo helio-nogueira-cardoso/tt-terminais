@@ -133,7 +133,8 @@ tem "$tt" ': >"\$arq"' &&
   tem "$tt" 'resto\.rfind' && ok 'ponte de mouse: estado e pacotes fragmentados' ||
   falha 'ponte de mouse não protege contra coordenada velha/pacote fragmentado'
 
-tem "$tt" 't_atualizacao=\$\{TT_T_ATUALIZACAO:-1800\}' &&
+tem "$tt" 't_atualizacao=\$\{TT_T_ATUALIZACAO:-21600\} t_sonda=\$\{TT_T_SONDA:-300\}' &&
+  tem "$tt" -- '--sondar-atualizacao' &&
   tem "$tt" -- '--garantir-atualizacao' &&
   tem "$tt" 'REPO_TT=\$DIR_FONTE' &&
   tem "$tt" '\(\(n > atual\)\)' && ok 'vigia exige a versão publicada mais nova' ||

@@ -459,7 +459,7 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   faxina_vigia
-  local ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_email_sync=0 ultima_email_completo=0 ultima_notifs=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_sonda=0 ultima_email_sync=0 ultima_email_completo=0 ultima_notifs=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   ultima_email_completo=$(email_ultima_completa)
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
@@ -473,11 +473,12 @@ vigiar() {
   [[ -r $estado_vigia ]] && source "$estado_vigia" 2>/dev/null
   local t_pasta=${TT_T_PASTA:-120} t_revisao=${TT_T_REVISAO:-1800} pausa=${TT_PAUSA:-60} t_info=${TT_T_INFO:-300}
   # A atualização não bloqueia uma sessão sem rede; o vigia tenta de novo no próximo ciclo.
-  # TT_T_ATUALIZACAO=0 força uma tentativa a cada volta (útil em teste); o padrão é meia hora: cada
-  # consulta é um git fetch no GitHub (a cada 5 min eram ~290 por dia por máquina, celular inclusive),
-  # e quem publica já instala nas máquinas ligadas pelo --sincronizar; a consulta só cobre a que
-  # estava desligada na hora.
-  local t_atualizacao=${TT_T_ATUALIZACAO:-1800}
+  # Sonda leve (TT_T_SONDA, 5 min; 15 no celular): `git ls-remote` devolve só o SHA publicado, um pedido
+  # pequeno, sem baixar nada; o fetch e a instalação só acontecem quando o publicado mudou. Antes era um
+  # git fetch a cada 30 min e uma versão nova levava até meia hora para chegar às máquinas de fora.
+  # TT_T_ATUALIZACAO (6 h) é a busca completa de segurança; 0 força uma tentativa a cada volta (teste).
+  local t_atualizacao=${TT_T_ATUALIZACAO:-21600} t_sonda=${TT_T_SONDA:-300}
+  [[ -z ${TT_T_SONDA:-} && ${PREFIX:-} == *com.termux* ]] && t_sonda=900
   # Renomeação seguinte por pontos: cada pedido novo vale TT_PESO_PEDIDO (3) e cada minuto com uso
   # vale 1; ao somar TT_PONTOS_RENOMEAR (10), com ao menos um pedido novo, pergunta ao Haiku.
   local peso_pedido=${TT_PESO_PEDIDO:-3} pontos_renomear=${TT_PONTOS_RENOMEAR:-10}
@@ -585,9 +586,13 @@ vigiar() {
     [[ -z $fechadas ]] || echo "$(date '+%F %T') fechadas $fechadas sessão(ões) vazia(s) abandonada(s)" >>"$log"
     # Atualização obrigatória: cada vigia mantém esta máquina na última versão publicada.
     # O instalador preserva sessões, reinicia o vigia com o código novo e rejeita downgrade.
+    ((ultima_atualizacao == 0)) && ultima_atualizacao=$agora # ao iniciar basta a sonda
     if ((agora - ultima_atualizacao >= t_atualizacao)); then
-      ultima_atualizacao=$agora
+      ultima_atualizacao=$agora ultima_sonda=$agora
       ("$EU" --garantir-atualizacao >>"$log" 2>&1 &)
+    elif ((agora - ultima_sonda >= t_sonda)); then
+      ultima_sonda=$agora
+      ("$EU" --sondar-atualizacao >>"$log" 2>&1 &)
     fi
     # O painel de trabalho de cada sessão (painel_base) e o Claude de cada um: uma ida ao tmux e um ps por
     # volta (eram uma ida ao tmux e um ps por sessão). O ps guardado vale só para este laço.
@@ -2739,7 +2744,7 @@ instalar_em() {
 # --- Atualização pelo GitHub -----------------------------------------------
 #
 # A versão publicada fica num clone em ~/.local/share/tt-fonte (o repositório oficial, ou o de
-# "fonte=" no config). `tt --atualizar` instala de lá se for mais nova; o vigia consulta a cada 12 h
+# "fonte=" no config). `tt --atualizar` instala de lá se for mais nova; o vigia sonda a cada 5 min (git ls-remote)
 # e avisa uma vez quando sai versão nova (e o menu de máquinas oferece atualizar).
 
 URL_FONTE_PADRAO='https://github.com/helio-nogueira-cardoso/tt-terminais.git'
@@ -2781,17 +2786,108 @@ verificar_atualizacao() {
 # desenvolvimento ele pode apontar para um clone local, enquanto o vigia deve obedecer à fonte
 # publicada. Falha de rede é transitória; o próximo ciclo tentará de novo.
 garantir_atualizacao() {
-  local n atual repo_anterior
-  n=$(buscar_fonte) || return 1
+  local n atual repo_anterior pub h rel
+  command -v git >/dev/null || { atu_falha git "esta máquina não tem o git: não há como buscar a versão publicada"; return 1; }
+  n=$(buscar_fonte) || { atu_falha rede "o git fetch de $(url_fonte) falhou (sem rede, proxy ou firewall bloqueando o GitHub?)"; return 1; }
   mkdir -p "$(dirname "$CACHE_GITHUB")"
   echo "$n $(date +%s) $(rotulo_fonte)" >"$CACHE_GITHUB"
   atual=$(versao_num)
-  ((n > atual)) || return 0
+  pub=$(git -C "$DIR_FONTE" rev-parse HEAD 2>/dev/null)
+  h=$(versao_hash_instalado)
+  # Quem decide é a ancestralidade, não só o nº de commits: publicado que CONTÉM o instalado é mais novo;
+  # instalado que contém o publicado é uma máquina de desenvolvimento à frente; nenhum contém o outro é
+  # divergência (aí só a contagem maior autoriza, como sempre, e o pode_instalar barra o rebaixamento).
+  rel=$(atu_relacao "$h" "$pub")
+  case $rel in
+    igual) atu_ok "$pub:$h"; return 0 ;;
+    frente) atu_ok "$pub:$h" "esta máquina está à frente do publicado (versão de desenvolvimento)"; return 0 ;;
+    atras) ;;
+    *) ((n > atual)) || { atu_ok "$pub:$h" "a versão instalada ($h) não está no publicado e tem número maior: não rebaixei (tt --atualizar decide)"; return 0; } ;;
+  esac
   repo_anterior=$REPO_TT
   REPO_TT=$DIR_FONTE
-  instalar_em . || { REPO_TT=$repo_anterior; return 1; }
+  instalar_em . || { REPO_TT=$repo_anterior; atu_falha pacote "a instalação da versão publicada falhou (detalhes em ~/.cache/tt-vigia.log)"; return 1; }
   REPO_TT=$repo_anterior
+  atu_ok "$pub:$(versao_hash_instalado)"
   echo "$(date '+%F %T') vigia: tt atualizado de $(versao_humana) (build $atual) para $(versao_rotulo "$n" "$(rotulo_fonte)") (build $n)"
+}
+
+# --- Estado da atualização: $ESTADO_DIR/atualizacao (chave=valor) ------------------------------------
+# sonda_em/publicado (última sonda e o SHA visto), decidido (SHA já resolvido: nada a buscar de novo),
+# falhas/motivo/erro/erro_desde (falhas seguidas), obs (situação), avisado (a falha já virou aviso).
+ATU_ARQ="$ESTADO_DIR/atualizacao"
+atu_get() { awk -v k="$1" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { print v }' "$ATU_ARQ" 2>/dev/null; }
+atu_set() { # chave=valor…
+  local tmp k re=""
+  mkdir -p "$ESTADO_DIR"; tmp=$(mktemp "$ATU_ARQ.XXXXXX" 2>/dev/null) || return 0
+  for k in "$@"; do re+="${re:+|}${k%%=*}"; done
+  { [[ -f $ATU_ARQ ]] && grep -v -E "^($re)=" "$ATU_ARQ"; printf '%s\n' "$@"; } >"$tmp" && mv -f "$tmp" "$ATU_ARQ"
+}
+versao_hash_instalado() { local h=""; read -r _ h _ <"$DIR_TT/VERSAO" 2>/dev/null; printf '%s' "${h%+dev}"; }
+atu_relacao() { # hash-instalado sha-publicado (no clone da fonte) -> igual|atras|frente|divergente|desconhecida
+  local h=$1 pub=$2 full
+  [[ -n $h && -n $pub ]] || { echo desconhecida; return; }
+  full=$(git -C "$DIR_FONTE" rev-parse -q --verify "$h^{commit}" 2>/dev/null) || { echo desconhecida; return; }
+  if [[ $full == "$pub" ]]; then echo igual
+  elif git -C "$DIR_FONTE" merge-base --is-ancestor "$full" "$pub" 2>/dev/null; then echo atras
+  elif git -C "$DIR_FONTE" merge-base --is-ancestor "$pub" "$full" 2>/dev/null; then echo frente
+  else echo divergente; fi
+}
+atu_ok() { # publicado:instalado [observação]
+  local agora; printf -v agora '%(%s)T' -1
+  atu_set "decidido=${1:-}" "falhas=0" "motivo=" "erro=" "erro_desde=" "avisado=" "obs=${2:-}" "ok_em=$agora"
+}
+# Falha seguida: conta e, na 3ª, avisa uma vez (🔔) com o motivo — antes a falha ficava só no log do vigia
+# e ninguém sabia por que a máquina não atualizava.
+atu_falha() { # motivo texto
+  local agora f; printf -v agora '%(%s)T' -1
+  f=$(( $(atu_get falhas || echo 0) + 0 + 1 ))
+  atu_set "falhas=$f" "motivo=$1" "erro=$2" "erro_desde=$(v=$(atu_get erro_desde); echo "${v:-$agora}")"
+  echo "$(date '+%F %T') atualização: falhou ($1): $2" >&2
+  if ((f >= 3)) && [[ -z $(atu_get avisado) ]]; then
+    atu_set "avisado=$agora"
+    notificar "⚠ tt não consegue se atualizar: $2 — tt --atualizacao-estado" 86400 2>/dev/null || true
+  fi
+  return 1
+}
+
+# tt --sondar-atualizacao (vigia, a cada TT_T_SONDA): pergunta só o SHA publicado. Igual ao instalado, ou
+# já resolvido antes (máquina à frente, divergência que não rebaixa): nada. Mudou: busca e instala.
+atualizacao_sondar() {
+  local sha agora h
+  command -v git >/dev/null || { atu_falha git "esta máquina não tem o git: não há como buscar a versão publicada"; return 1; }
+  printf -v agora '%(%s)T' -1
+  sha=$(GIT_TERMINAL_PROMPT=0 timeout 20 git ls-remote "$(url_fonte)" HEAD 2>/dev/null | awk 'NR == 1 { print $1 }')
+  [[ -n $sha ]] || { atu_falha rede "não consegui consultar $(url_fonte) (sem rede, proxy ou firewall bloqueando o GitHub?)"; return 1; }
+  atu_set "sonda_em=$agora" "publicado=$sha"
+  h=$(versao_hash_instalado)
+  if [[ -n $h && $sha == "$h"* ]]; then atu_ok "$sha:$h"; return 0; fi
+  # Já resolvido para ESTE par publicado:instalado (à frente, divergência que não rebaixa): não busca de novo.
+  [[ "$sha:$h" == "$(atu_get decidido)" && $(atu_get falhas) == 0 ]] && return 0
+  garantir_atualizacao
+}
+
+# tt --atualizacao-estado: por que esta máquina está (ou não) na versão publicada.
+atualizacao_estado() {
+  local agora sonda pub h dec f obs vivo fonte
+  printf -v agora '%(%s)T' -1
+  sonda=$(atu_get sonda_em); pub=$(atu_get publicado); h=$(versao_hash_instalado); f=$(atu_get falhas); obs=$(atu_get obs)
+  fonte=$(conf fonte)
+  vivo="não (o vigia vive no tmux do tt: sem ele, nada se atualiza sozinho)"
+  [[ -r $RT/tt-vigia-$UID.pid ]] && kill -0 "$(cat "$RT/tt-vigia-$UID.pid" 2>/dev/null)" 2>/dev/null && vivo="sim"
+  echo "Atualização do tt nesta máquina ($MAQUINA)"
+  printf '  instalada:     %s (%s, build %s)\n' "$(versao_humana)" "${h:--}" "$(versao_num)"
+  printf '  publicada:     %s\n' "${pub:+${pub:0:7}}${pub:-(ainda não consultada)}"
+  printf '  fonte:         %s%s\n' "$(url_fonte)" "${fonte:+  (fonte= do config: não é o repositório oficial)}"
+  printf '  vigia ativo:   %s\n' "$vivo"
+  if [[ -n $sonda ]]; then printf '  última sonda:  há %s min (a cada %s min)\n' $(( (agora - sonda) / 60 )) $(( ${TT_T_SONDA:-$([[ ${PREFIX:-} == *com.termux* ]] && echo 900 || echo 300)} / 60 ))
+  else echo "  última sonda:  nunca"; fi
+  if ((${f:-0} > 0)); then
+    printf '  situação:      ✗ falhando há %s min (%s falha(s) seguida(s)) — %s\n' $(( (agora - $(atu_get erro_desde)) / 60 )) "$f" "$(atu_get erro)"
+  elif [[ -n $pub && -n $h && $pub == "$h"* ]]; then echo "  situação:      ✓ em dia"
+  elif [[ -n $obs ]]; then echo "  situação:      · $obs"
+  elif [[ -n $pub ]]; then echo "  situação:      ⟳ há versão nova; instala na próxima sonda (ou agora: tt --atualizar)"
+  else echo "  situação:      ? sem consulta ainda (tt --atualizar consulta agora)"; fi
 }
 versao_github() { awk '{ print $1 + 0 }' "$CACHE_GITHUB" 2>/dev/null || echo 0; }
 versao_github_rotulo() { versao_rotulo "$(versao_github)" "$(awk '{ print $3 }' "$CACHE_GITHUB" 2>/dev/null)"; }
@@ -2800,11 +2896,8 @@ versao_github_rotulo() { versao_rotulo "$(versao_github)" "$(awk '{ print $3 }' 
 atualizar() {
   local todas=${1:-} n
   if [[ -e $REPO_TT/.git ]]; then
-    echo "Esta máquina é a de desenvolvimento ($REPO_TT): git pull…"
-    if [[ -n $(git -C "$REPO_TT" status --porcelain -- "${ARQUIVOS_FONTE[@]}") ]]; then
-      echo "Há mudanças não gravadas no repositório; atualize à mão (git stash / commit)."; return 1
-    fi
-    git -C "$REPO_TT" pull -q --ff-only || { echo "git pull falhou."; return 1; }
+    echo "Esta máquina é a de desenvolvimento ($REPO_TT): alinhando com o publicado…"
+    repo_atualizar "$REPO_TT" || return 1
   else
     printf 'Buscando a versão publicada (%s)… ' "$(url_fonte)"
     n=$(buscar_fonte) || { echo "falhou (sem rede ou sem git?)."; return 1; }
@@ -2815,6 +2908,89 @@ atualizar() {
   fi
   if [[ -n $todas ]]; then sincronizar
   else printf '  %-10s ' "$MAQUINA"; instalar_em . | sed 's/^[^:]*: //'; fi
+}
+
+# Máquina de desenvolvimento: traz o publicado para o clone sem perder commit local. Só atrás: avança. À
+# frente: nada. Divergiu: guarda os commits num ramo local/<data>, reaplica-os sobre o publicado (rebase)
+# e, se der conflito, desiste do rebase e deixa o clone no publicado — os commits ficam no ramo. Nunca usa
+# stash (a pilha é de todos os clones e agentes) nem descarta o que não foi gravado: arquivo versionado
+# mudado e não gravado faz recusar, com a lista (tt --repo-checar explica). Antes, um `git pull --ff-only`
+# só dizia "git pull falhou" e o clone ficava preso.
+repo_atualizar() { # repositório
+  local r=$1 ref suj frente atras ramo
+  local -x GIT_TERMINAL_PROMPT=0 GIT_EDITOR=true
+  repo_local_para_exclude "$r"
+  suj=$(git -C "$r" status --porcelain --untracked-files=no 2>/dev/null)
+  if [[ -n $suj ]]; then
+    echo "  ✗ Há mudanças não gravadas em arquivos versionados:"; sed 's/^/      /' <<<"$suj"
+    echo "    Grave (commit) ou desfaça antes de atualizar; tt --repo-checar explica cada uma."
+    return 1
+  fi
+  timeout 60 git -C "$r" fetch -q origin 2>/dev/null || { echo "  ✗ git fetch falhou (sem rede?)."; return 1; }
+  ref=$(git -C "$r" rev-parse -q --verify --symbolic-full-name '@{u}' 2>/dev/null) || ref=refs/remotes/origin/main
+  read -r frente atras < <(git -C "$r" rev-list --left-right --count "HEAD...$ref" 2>/dev/null)
+  frente=${frente:-0} atras=${atras:-0}
+  if ((atras == 0)); then
+    ((frente > 0)) && echo "  · $frente commit(s) local(is) à frente do publicado; nada a trazer." || echo "  ✓ já está no publicado."
+    return 0
+  fi
+  if ((frente == 0)); then
+    git -C "$r" merge -q --ff-only "$ref" && { echo "  ✓ avançou $atras commit(s)."; return 0; }
+    echo "  ✗ não consegui avançar o clone."; return 1
+  fi
+  ramo="local/$(date +%Y%m%d-%H%M%S)"
+  git -C "$r" branch "$ramo" HEAD || { echo "  ✗ não consegui guardar os commits locais num ramo."; return 1; }
+  if git -C "$r" -c core.hooksPath=/dev/null rebase -q "$ref" >/dev/null 2>&1; then
+    git -C "$r" branch -q -D "$ramo"
+    echo "  ✓ $frente commit(s) local(is) reaplicado(s) sobre o publicado ($atras novo(s))."
+    return 0
+  fi
+  git -C "$r" rebase --abort >/dev/null 2>&1
+  git -C "$r" reset -q --hard "$ref"
+  echo "  ⚠ Os $frente commit(s) local(is) conflitam com o publicado: ficaram no ramo $ramo e o clone agora segue o publicado."
+  echo "    Para retomá-los: git -C $(q "$r") cherry-pick ..$ramo (resolvendo os conflitos)."
+  return 0
+}
+
+# Configuração só desta máquina não vai em arquivo versionado: linhas acrescentadas ao .gitignore (sem
+# remover nada) passam para .git/info/exclude, que vale igual e não é versionado, e o .gitignore volta
+# ao publicado. Era o que travava o clone de desenvolvimento (o bloco do AI-DLC no .gitignore).
+repo_local_para_exclude() { # repositório
+  local r=$1 ex add
+  git -C "$r" diff --quiet -- .gitignore 2>/dev/null && return 0
+  [[ $(git -C "$r" diff --numstat -- .gitignore | awk '{ print $2 }') == 0 ]] || return 0
+  add=$(git -C "$r" diff -U0 -- .gitignore | sed -n 's/^+\([^+].*\)$/\1/p; s/^+$//p')
+  ex=$(git -C "$r" rev-parse --git-path info/exclude 2>/dev/null) || return 0
+  [[ $ex == /* ]] || ex=$r/$ex
+  mkdir -p "${ex%/*}"; touch "$ex"
+  printf '\n# Do .gitignore local, movido pelo tt em %s\n' "$(date +%F)" >>"$ex"
+  while IFS= read -r l; do [[ -z $l ]] || grep -qxF -- "$l" "$ex" || printf '%s\n' "$l" >>"$ex"; done <<<"$add"
+  git -C "$r" checkout -q -- .gitignore && echo "  → linhas locais do .gitignore foram para ${ex#"$r"/} (não versionado)."
+}
+
+# tt --repo-checar [--corrigir]: o que neste clone é local e o que trava a atualização.
+repo_checar() {
+  local r=$REPO_TT l f arq motivo n=0 ref frente atras
+  [[ -e $r/.git ]] || { echo "Esta máquina não é a de desenvolvimento (sem repo= de um clone git)."; return 0; }
+  [[ ${1:-} == --corrigir ]] && repo_local_para_exclude "$r"
+  echo "Clone: $r"
+  ref=$(git -C "$r" rev-parse -q --verify --symbolic-full-name '@{u}' 2>/dev/null) || ref=refs/remotes/origin/main
+  read -r frente atras < <(git -C "$r" rev-list --left-right --count "HEAD...$ref" 2>/dev/null)
+  printf '  em relação a %s: %s à frente, %s atrás\n' "${ref#refs/remotes/}" "${frente:-?}" "${atras:-?}"
+  while IFS= read -r l; do
+    [[ -n $l ]] || continue
+    arq=${l:3}; n=$((n + 1))
+    motivo="trava o rebase dos commits locais (tt --atualizar)"
+    for f in "${ARQUIVOS_FONTE[@]}"; do [[ $f == "$arq" ]] && motivo="arquivo do pacote: trava a atualização e o --sincronizar"; done
+    if [[ $arq == .gitignore ]] && [[ $(git -C "$r" diff --numstat -- .gitignore | awk '{ print $2 }') == 0 ]]; then
+      motivo="só acréscimos locais: tt --repo-checar --corrigir os move para .git/info/exclude"
+    fi
+    printf '  ✗ %s — %s\n' "$arq" "$motivo"
+  done < <(git -C "$r" status --porcelain --untracked-files=no 2>/dev/null)
+  ((n)) || echo "  ✓ nenhum arquivo versionado mudado: o clone pode ser atualizado."
+  n=$(git -C "$r" status --porcelain 2>/dev/null | grep -c '^??')
+  ((n)) && echo "  · $n arquivo(s) não versionado(s) (não travam nada; tt --repo-checar não mexe neles)."
+  return 0
 }
 
 # Um clone atrasado em relação ao GitHub não pode ser a fonte: instalaria código velho por cima
@@ -16707,6 +16883,9 @@ case "${1:-}" in
   --aidlc) aidlc_bootstrap "${2:-.}"; exit $? ;;
   --verificar-atualizacao) verificar_atualizacao; exit ;;
   --garantir-atualizacao) garantir_atualizacao; exit ;;
+  --sondar-atualizacao) atualizacao_sondar; exit ;;
+  --atualizacao-estado) atualizacao_estado; exit ;;
+  --repo-checar) repo_checar "${2:-}"; exit ;;
   --cadastrar) shift; cadastrar "$@"; exit ;;
   --descadastrar) shift; descadastrar "$@"; exit ;;
   --ocultar-maquina) ocultar_maquina "${2:-}"; exit ;;

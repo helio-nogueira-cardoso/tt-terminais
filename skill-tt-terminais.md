@@ -64,6 +64,12 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   cadastradas. Recusa rodar de clone atrasado em relação ao GitHub; nunca rebaixa.
 - `tt --atualizar [--todas]` — instala a versão publicada mais nova nesta máquina (e nas cadastradas).
 - `tt --verificar-atualizacao` / `tt --garantir-atualizacao` — checa / força estar na última.
+- `tt --atualizacao-estado` — instalada × publicada, vigia vivo, última sonda, fonte e motivo das falhas (estado em
+  `~/.local/state/tt/atualizacao`; 3 falhas seguidas = aviso 🔔). `tt --sondar-atualizacao` (vigia, a cada `TT_T_SONDA`=300 s,
+  900 no Termux) = `git ls-remote`; só busca/instala quando o SHA publicado mudou; decisão por ancestralidade
+  (`atu_relacao`: igual/atras/frente/divergente). Busca completa a cada `TT_T_ATUALIZACAO`=21600 s.
+- `tt --repo-checar [--corrigir]` — no clone de desenvolvimento, o que trava a atualização; `--corrigir` move acréscimos
+  locais do `.gitignore` para `.git/info/exclude`. `tt --atualizar` lá faz rebase dos commits locais; conflito → ramo `local/<data>`.
 - `tt --versao` — versão instalada ("N hash data").
 - `tt --demanda-autorizar EMAIL [etiqueta] [auth|segredo|aberto] [segredo]` / `--demanda-remover EMAIL` /
   `--demandas` / `--demandas-pendentes` / `--demandas-processar [conta]` / `--demanda-aprovar ID` /
@@ -587,7 +593,7 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
   cota, espera após erro e modo economia, e recompila `_roda.json`); desligado com `ticker_ligado=0`.
 - E-mail (sync local) a cada `TT_EMAIL_SYNC` s (default 120; 300 ocioso; 0 desliga): `--email-sync --vigia`.
 - Padrão visual + memória a cada 300 s: `--reforcar-padrao`, `--memoria-agentes`.
-- Atualização a cada `TT_T_ATUALIZACAO` s: `--garantir-atualizacao`.
+- Atualização: sonda leve a cada `TT_T_SONDA` s (300; 900 no Termux) com `--sondar-atualizacao` e busca completa a cada `TT_T_ATUALIZACAO` s (21600) com `--garantir-atualizacao`.
 - Hora confiável a cada `TT_T_HORA` s (21600; 15 min enquanto não houver medida): `--hora --sincronizar`.
 - A cada 300 s (junto de `--reforcar-padrao`): `reforcar_agentes` — skill `tt-terminais`, regras `agentes-regras-tt.md` e `aidlc-tt` em todas as IAs (também na instalação).
 - Toda volta: fecha sessões paradas, pontes ociosas, Claude duplicados, janelas vazias abandonadas.
@@ -595,7 +601,7 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
 
 ### Variáveis de ajuste (defaults)
 `TT_T_PRIMEIRO`=60, `TT_T_RENOMEAR`=300, `TT_T_PASTA`=120, `TT_T_REVISAO`=1800, `TT_T_INFO`=300,
-`TT_T_PONTE`=1800, `TT_PAUSA`=60, `TT_T_ATUALIZACAO`=1800 (0 = toda volta), `TT_PESO_PEDIDO`=3, `TT_PONTOS_RENOMEAR`=10,
+`TT_T_PONTE`=1800, `TT_PAUSA`=60, `TT_T_ATUALIZACAO`=21600 (0 = toda volta), `TT_T_SONDA`=300, `TT_PESO_PEDIDO`=3, `TT_PONTOS_RENOMEAR`=10,
 `TT_EMAIL_SYNC`=180, `TT_FIX_VISIVEIS`=8, `TT_TAREFAS_LAPIDE_DIAS`=30. Flags: `TT_FORCAR` (pula
 proteção de downgrade), `TT_SEM_BASHRC` (instala sem mexer no `~/.bashrc`), `NOTMUX=1 bash` (abre
 terminal sem tmux), `TT_AI_MEMORY_DIR` (dir da memória de agentes), `TT_GIT_NAME`/`TT_GIT_EMAIL`
