@@ -773,10 +773,16 @@ entre `│  …  │`, com o mesmo respiro mínimo em qualquer largura
 — passam ali por alguns minutos e expiram sozinhos. O clique abre o DESTINO do aviso mais
 recente (📧 vai para o e-mail, 📋 para as tarefas); botão direito/`tt --notifs` abre o histórico,
 onde ⏎ abre o destino de cada um (↗). `tt --notificar "texto" [segundos] [email|tarefas|calendario|cmd:...]`.
+A **central do 🔔** tem, no alto, abas de filtro clicáveis (**Todas · Não lidas · Lidas** e, quando há avisos
+delas, **Agentes · E-mail · Tarefas**) e uma barra de botões como a do e-mail: **↗ Abrir**, **◐ Lida/não lida**,
+**✓ Ler todas**, **✕ Apagar** e **🧹 Limpar lidas** (pergunta antes; a exclusão vale em todas as máquinas). Em
+tela estreita os botões ficam com rótulo curto e depois só com o ícone, e as abas de origem viram 🤖 📧 📋 —
+nada passa da janela. Teclado: ⏎ abre, Espaço lida/não lida, Tab/Shift+Tab trocam a aba, `^u` não lidas,
+`^a` todas, `^d`/Del apaga, `^r` limpa as lidas, `^l` lê todas, Esc/q fecham.
 Agentes de IA (e scripts) num painel do tt avisam com `tt --notificar-daqui "texto" [segundos] [--sempre]`:
 o aviso só sai se você não estiver olhando para a janela de onde ele veio (o tt vê o foco pelo tmux). Ele
 vai para o **🔔** (o contador na barra e a central; não pisca no miolo da faixa), fica no contador até você
-abri-lo (⏎ na central leva direto àquela sessão e àquele painel) ou marcar tudo como lido (`^l`), e vale 24 h.
+abri-lo (⏎ na central leva direto àquela sessão e àquele painel) ou marcar tudo como lido (✓ Ler todas, `^l`), e vale 24 h.
 Com a faixa, a linha das fixadas fica 100% para as fixadas, e o 📧 e o relógio saem da 1ª linha.
 Sem aviso novo, o slot mostra o **🔔** (sempre visível; é a porta do histórico) e, se você ativar
 um **letreiro** (ligado de fábrica; `indicadores=` escolhe as fontes e `indicadores=0` desliga) rolando com as infos (dólar via

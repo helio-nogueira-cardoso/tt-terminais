@@ -11,7 +11,8 @@ mkdir -p "$T/falso"
 cat >"$T/falso/tmux" <<'TMUX'
 #!/usr/bin/env bash
 case ${1:-} in
-  list-clients) printf 'cel\t%s\n' "${TT_TESTE_TELA:-63 30}" ;;
+  # só o tamanho responde; o resto (ex.: #{window_modal_pane}, "já há uma janela aberta") vem vazio
+  list-clients) [[ $* == *client_width* ]] && printf 'cel\t%s\n' "${TT_TESTE_TELA:-63 30}" || printf 'cel\t\n' ;;
   display-popup) printf '%s\n' "$*" >>"$TT_TMUX_LOG" ;;
   display-message) [[ $* == *client_name* ]] && echo cel ;;
   *) exit 0 ;;
@@ -24,9 +25,9 @@ pediu() { grep -q -- "$1" "$T/popup.log" || falhou "$2: pediu '$(cat "$T/popup.l
 
 falso "63 30" --fixadas-popup cel; pediu '-w 63 -h 18' "+N das fixadas em 63 colunas deveria pedir 63x18"
 falso "200 50" --fixadas-popup cel; pediu '-w 64 -h 18' "+N das fixadas em tela grande deveria manter 64x18"
-falso "63 30" --notifs cel; pediu '-w 63 -h 18' "🔔 em 63 colunas deveria pedir 63x18"
+falso "63 30" --notifs cel; pediu '-w 63 -h 22' "🔔 em 63 colunas deveria pedir 63x22"
 falso "63 12" --notifs cel; pediu '-w 63 -h 12' "🔔 em tela baixa deveria encolher a altura"
-falso "200 50" --notifs cel; pediu '-w 86 -h 18' "🔔 em tela grande deveria manter 86x18"
+falso "200 50" --notifs cel; pediu '-w 92 -h 22' "🔔 em tela grande deveria manter 92x22"
 # Itens de menu montados de antemão (botão direito no 📋 e em "sessão ▾"): o popup do item já cabe.
 falso "63 30" --clique-direito tarefas cel %1 0
 grep -h 'nova tarefa' "$TT_RT"/tt-menu-itens.* 2>/dev/null | grep -q -- '-w 63 -h 14' || falhou "item + Nova tarefa do 📋 não cabe em 63 colunas"

@@ -29,6 +29,7 @@ export RT=$TS/rt DIR_NOTIFS=$TS/local EU=tt TT_REMOTO=tt
 SSH_OPC=()
 maquinas() { printf 'ma\tA\nmb\tB\n'; }
 atualizar_barras() { :; }
+atualizar_barras_pedir() { :; }
 source <(sed -n '/^notifs_nome_valido()/,/^barra_status_linhas()/p' "$ROOT/tt")
 source <(sed -n '/^notifs_apagar()/,/^notifs_render()/ { /^notifs_render()/d; p; }' "$ROOT/tt")
 source <(sed -n '/^barra_notifs_sino()/,/^}/p' "$ROOT/tt")

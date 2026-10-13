@@ -3,6 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.11.0 · 13/10/2026
+- **🔔 Central de notificações com botões de verdade.** A linha de atalhos `⟦^u Não lidas⟧ ⟦^a Todas⟧ …` saía cortada para fora da janela e parte dela não funcionava (o filtro de não lidas não filtrava). No lugar dela, o alto da central agora tem:
+  - **abas de filtro clicáveis**, com a contagem: **Todas · Não lidas · Lidas** e, quando houver avisos delas, **Agentes · E-mail · Tarefas**;
+  - **uma barra de botões** no estilo da do e-mail: **↗ Abrir**, **◐ Lida/não lida**, **✓ Ler todas**, **✕ Apagar** e **🧹 Limpar lidas** (este pergunta antes, no próprio alto da central, e a exclusão vale em todas as máquinas).
+- **Cabe em qualquer tela:** sem espaço, os botões ficam com rótulo curto e depois só com o ícone, e as abas de Agentes/E-mail/Tarefas viram 🤖 📧 📋. No celular de 63 colunas tudo cabe numa linha.
+- **Teclado igual aos botões:** ⏎ abre, Espaço marca lida/não lida, Tab/Shift+Tab trocam a aba, `^u` não lidas, `^a` todas, `^d`/Del apaga, `^r` limpa as lidas, `^l` lê todas, Esc/q fecham. Cada ação mostra um retorno curto no alto (ex.: "✓ 3 notificações marcadas como lidas"). Um aviso sem destino não fecha mais a central ao ser aberto: fica marcado como lido.
+
 ## v1.10.11 · 12/10/2026
 - **📦 A pendência "tmux 3.8" fecha depois de instalada.** O `tt` conferia a versão pelo tmux do PATH, que acompanha o servidor em execução (ainda o 3.6 até reiniciar); então, mesmo com o 3.8 já compilado na sua pasta, a pendência continuava aparecendo e a instalação terminava com "ainda falta". Agora ele também olha o 3.8 compilado em `~/.local/share/tt-tmux`: se está lá, a pendência some. O 3.8 vale a partir do próximo servidor tmux, como sempre.
 
