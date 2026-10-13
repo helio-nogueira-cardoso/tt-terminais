@@ -29,12 +29,27 @@ passou '--todas mostra tudo'
 # Vigia: versão nova → um aviso (ação novidades); repetido na mesma versão → nada.
 rm -rf "$ES/notifs" "$ES/novidades-avisada"; echo 1.7.0 >"$ES/novidades-visto"
 "$TT" --novidades-avisar; "$TT" --novidades-avisar
-n=$(grep -l 'novidades$' "$ES"/notifs/* 2>/dev/null | wc -l); ((n == 1)) || falhou "esperava 1 aviso, vi $n"
+n=$(grep -lE $'\tnovidades(\t|$)' "$ES"/notifs/* 2>/dev/null | wc -l || true); ((n == 1)) || falhou "esperava 1 aviso, vi $n"
 # Máquina recém-instalada (sem registro do que foi visto): não avisa.
 rm -rf "$ES/notifs" "$ES/novidades-avisada" "$ES/novidades-visto"; "$TT" --novidades-avisar
 [[ -z $(ls "$ES/notifs" 2>/dev/null) ]] || falhou 'avisou numa máquina recém-instalada'
 [[ $(cat "$ES/novidades-visto") == 1.7.2 ]] || falhou 'recém-instalada deveria marcar a versão atual'
 passou 'vigia avisa uma vez por versão nova; instalação nova não é incomodada'
+
+# O aviso leva o código da versão; se outra máquina já anunciou a versão (chegou pela sincronização) ou o
+# usuário já o apagou, esta máquina não cria um segundo.
+rm -rf "$ES/notifs" "$ES/novidades-avisada"; echo 1.7.0 >"$ES/novidades-visto"
+"$TT" --novidades-avisar
+grep -q $'\tnovidades\t-\tnovidades-v1.7.2$' "$ES"/notifs/* || falhou 'o aviso deveria levar o código novidades-v1.7.2'
+rm -rf "$ES/notifs" "$ES/novidades-avisada"; echo 1.7.0 >"$ES/novidades-visto"; mkdir -p "$ES/notifs"
+printf '%s\t%s\t%s\t%s\t%s\n' 9999999999 'anunciado pela empresa' novidades - novidades-v1.7.2 >"$ES/notifs/1000000000000000007"
+"$TT" --novidades-avisar
+n=$(ls "$ES"/notifs | grep -cE '^[0-9]{18,20}$'); ((n == 1)) || falhou "com o aviso de outra máquina, esperava 1, vi $n"
+rm -rf "$ES/notifs" "$ES/novidades-avisada"; echo 1.7.0 >"$ES/novidades-visto"; mkdir -p "$ES/notifs"
+echo 'codigo=novidades-v1.7.2' >"$ES/notifs/1000000000000000007.apagada"
+"$TT" --novidades-avisar
+n=$(ls "$ES"/notifs | grep -cE '^[0-9]{18,20}$' || true); ((n == 0)) || falhou "aviso apagado pelo usuário voltou ($n)"
+passou 'código por versão: um aviso só na rede; apagado não volta'
 
 # Estado antigo (só o nº de commits) vale como 1.6.N: não reabre o que já passou, mas mostra a série nova.
 echo 999 >"$ES/novidades-visto"; saida=$("$TT" --novidades)

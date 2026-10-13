@@ -3,6 +3,9 @@
 # outra janela (e-mail em popup/painel flutuante, pontes). Esse cliente decide se o terminal é UTF-8 pelo ambiente
 # dele (LC_ALL/LC_CTYPE/LANG); sem locale UTF-8 o tmux desenha "_". O tt agora lança todos com `tmux -u`.
 source "$(dirname "$0")/tmux-isolado.sh"
+# HOME do teste: sem ele, cada tmux novo daqui lia o ~/.tmux.conf de quem roda a suíte, cujo run-shell sobe o vigia
+# REAL (HOME de verdade, TT_RT do teste): um 2º vigia sincronizando e-mail e malha de verdade, vivo depois do teste.
+export HOME=$TMUX_TMPDIR/home; mkdir -p "$HOME"
 TT="$(cd "$(dirname "$0")/.." && pwd)/tt"
 passou() { echo "ok: $1"; }
 falhou() { echo "FALHOU — $1" >&2; exit 1; }

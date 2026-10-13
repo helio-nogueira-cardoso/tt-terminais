@@ -3,6 +3,17 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.15.6 · 13/10/2026
+- **📰 "tt atualizado" chega uma vez só, não uma por máquina.** Cada máquina que se atualizava criava o seu aviso de novidades, e quem tem 4 máquinas via 4 avisos iguais no 🔔. Agora o aviso leva um código da versão, igual em todas: a rede guarda um só, ler numa máquina vale para todas, e o aviso apagado não volta quando outra máquina se atualiza depois.
+- **🕸 Celular sem o DNS do Tailscale volta a alcançar as outras máquinas.** Quando o Android não resolve os nomes da tailnet, a malha agora religa pelo IP da tailnet, que as máquinas com Tailscale passam a anunciar. Trocar uma máquina para um IP também não apaga mais do cadastro as outras guardadas por IP.
+- **🕸 Celular sem o DNS do Tailscale reaprende a máquina que perdeu do cadastro.** A malha só tentava o nome de uma máquina nova para ele, e o nome não resolve no celular: uma máquina que saiu do cadastro dele (como a apagada pelo IP cortado, consertado no item acima) não voltava mais. Agora, se o nome não conecta, ela é aprendida pelo IP da tailnet que as outras anunciam.
+- **🕸 Máquina desligada não é ilha.** Desligada no Tailscale, ela aparece `○` em todas as linhas do `tt --malha`, inclusive na do celular, que não tem como saber disso. Antes, o aviso de ilha ficava tocando enquanto ela estivesse desligada.
+- **🕸 Sem ilha falsa quando o `tt --malha` roda junto com o vigia.** As duas rodadas usavam a mesma pasta de respostas, e uma apagava a da outra: aparecia "não respondeu ao diagnóstico" para uma máquina que estava bem, e duas voltas assim viravam o aviso de ilha.
+- **🩺 A checagem vê a volta completa do e-mail.** Se o sync das outras pastas (fora o INBOX) falhar seguidas vezes, o `tt --checar` avisa e mostra a causa. Uma pasta que sumiu do servidor e ficou no espelho fazia toda volta completa falhar sem aviso.
+- **🩺 Sem falso "atualização pendente" logo depois de atualizar.** A checagem comparava com a versão publicada vista antes da instalação.
+- **📧 E-mail aberto em outra tela não fecha por causa de pasta nova.** Desde a v1.15.5, pasta nova no espelho (uma etiqueta criada no Gmail, por exemplo) fazia o clique no 📧 de outra tela fechar o e-mail que estava aberto, inclusive uma resposta pela metade. Agora o e-mail só é reaberto quando não está aberto em nenhuma tela.
+- **🔐 O pedido do "sudo sem senha" não se diz mais "sem administrador".** O modal listava o passo também em "Baixado/compilado na sua pasta (sem administrador)", mas ele grava uma regra do sistema com o `sudo`: agora aparece só em "Configuração do sistema", com o comando exato.
+
 ## v1.15.5 · 13/10/2026
 - **🗑 Apagar funciona logo depois do conserto, sem reabrir o e-mail.** O aerc que já estava aberto não enxergava uma pasta criada depois dele (a lixeira que o 🩺 conserto acabou de trazer): o ✕ Apagar continuava com "could not move message … no such file", mesmo com o conserto dizendo ok. Agora, quando aparece pasta nova no espelho, o e-mail é reaberto sozinho na próxima vez que você clica no 📧.
 

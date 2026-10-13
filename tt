@@ -1735,7 +1735,10 @@ registrar() {
 }
 desregistrar() {
   [[ -f $CONF_MAQ ]] || return 0
-  awk -v h="$1" '{ c = $1; sub(/\..*/, "", c); hh = h; sub(/\..*/, "", hh) } !($1 == h || c == hh) || /^#/' "$CONF_MAQ" >"$CONF_MAQ.novo" &&
+  # O mesmo host com ou sem o domínio (h e h.tailnet.ts.net); um IP só ele mesmo: cortado no 1º ponto, trocar uma
+  # máquina para o IP 100.x da tailnet apagava do cadastro todas as outras guardadas por um IP 100.x.
+  awk -v h="$1" 'function curto(x) { if (x !~ /^[0-9.]+$/ && x !~ /:/) sub(/\..*/, "", x); return x }
+    { c = curto($1); hh = curto(h) } !($1 == h || c == hh) || /^#/' "$CONF_MAQ" >"$CONF_MAQ.novo" &&
     mv "$CONF_MAQ.novo" "$CONF_MAQ"
   limpar_cache_maquinas
 }
@@ -1794,6 +1797,27 @@ malha_lista() {
   # que guardaram) e a porta do sshd (o do Termux escuta na 8022).
   printf 'EU\t%s\t%s\t%s\t%s\t%s\n' "$(meu_host)" "$(id -un)" "$MAQUINA" "$([[ -n $(conf nome) ]] && echo 1 || echo 0)" "$(p=$(sshd_porta); echo "${p:-22}")"
   awk '!/^#/ && NF && $2 != "-" && $4 != "oculta" { printf "M\t%s\t%s\t%s\n", $1, $2, ($3 ? $3 : $1) }' "$CONF_MAQ" 2>/dev/null
+  # O IP da tailnet de cada uma cadastrada por nome, como endereço alternativo: quem não resolve o nome (o
+  # Termux do celular fica sem o MagicDNS quando o DNS do Android não passa pelo Tailscale) religa pelo IP
+  # (malha_completar, passos 3 e 4). Quem não a conhece tenta primeiro o nome (a 1ª linha dela), depois o IP.
+  if command -v tailscale >/dev/null; then
+    tailscale status --json 2>/dev/null | python3 -c '
+import json, sys
+try: d = json.load(sys.stdin)
+except ValueError: sys.exit()
+ips = {}
+for p in (d.get("Peer") or {}).values():
+    v4 = [i for i in p.get("TailscaleIPs") or [] if ":" not in i]
+    dns = p.get("DNSName", "").rstrip(".")
+    for nome in {dns, dns.split(".")[0], p.get("HostName", "")}:
+        if nome and v4: ips[nome.lower()] = v4[0]
+for linha in open(sys.argv[1]):
+    c = linha.split()
+    if len(c) < 2 or c[0].startswith("#") or c[1] == "-" or c[3:4] == ["oculta"]: continue
+    ip = ips.get(c[0].lower())
+    if ip and ip != c[0]: print("M\t%s\t%s\t%s" % (ip, c[1], c[2] if len(c) > 2 else c[0]))
+' "$CONF_MAQ" 2>/dev/null
+  fi
   awk 'NF >= 3 { printf "S\t%s\t%s\t%s\n", $2, $3, $1 }' "$CONF_EST" 2>/dev/null
   return 0 # arquivo de estados ainda inexistente não é falha: quem consulta toma status ≠ 0 por "sem conexão"
 }
@@ -1936,8 +1960,11 @@ malha_completar() {
   local trava="$RT/tt-malha-$UID.lock"
   if [[ -d $trava ]] && (($(date +%s) - $(stat -c %Y "$trava" 2>/dev/null || echo 0) > 600)); then rmdir "$trava" 2>/dev/null; fi
   mkdir "$trava" 2>/dev/null || return 0
+  # A armadilha RETURN é global: sem o "trap - RETURN" ela continua armada depois da volta e dispara no
+  # próximo source, já sem o $trava (local), e o set -u derruba o tt (o "tt --malha" da partida rápida
+  # morria em "trava: unbound variable" ao carregar o malha_estado).
   trap 'rmdir "$trava" 2>/dev/null; trap - RETURN' RETURN
-  local dest rot out tipo a b c r temme ip ok cands="" alts="" falhos="" conhecidos hosts_conhecidos u novos=0 eu_rot est
+  local dest rot out tipo a b c h r temme ip ok cands="" alts="" falhos="" conhecidos hosts_conhecidos u novos=0 eu_rot est
   local listas=""
   # As listas de todas as máquinas chegam ao mesmo tempo (antes, uma por vez, até 25 s cada); o que se faz
   # com elas continua em ordem, uma máquina depois da outra.
@@ -1949,7 +1976,9 @@ malha_completar() {
     # 1) estados primeiro: uma remoção mais nova que o meu cadastro vale já nesta volta
     while IFS=$'\t' read -r tipo a b c; do [[ $tipo == S ]] && estado_aplicar "$c" "$a" "$b"; done <<<"$out"
     conhecidos=$'\n'$(awk '!/^#/ && NF { print ($3 ? $3 : $1) }' "$CONF_MAQ")$'\n'
-    hosts_conhecidos=$'\n'$(awk '!/^#/ && NF { h = $1; sub(/\..*/, "", h); print h }' "$CONF_MAQ")$'\n'
+    # nome sem o domínio; IP inteiro (cortado no 1º ponto, todo IP da tailnet virava "100" e um cadastrado
+    # por IP escondia o IP alternativo de qualquer outra)
+    hosts_conhecidos=$'\n'$(awk '!/^#/ && NF { h = $1; if (h !~ /^[0-9.]+$/ && h !~ /:/) sub(/\..*/, "", h); print h }' "$CONF_MAQ")$'\n'
     eu_rot=$(awk -F'\t' '$1 == "EU" && $5 == 1 { print $4; exit }' <<<"$out") # só o explícito (nome= no config)
     # 2) coerência: o nome de uma máquina é o que ela anuncia
     if [[ -n $eu_rot && $eu_rot != "$rot" && $eu_rot != "$MAQUINA" && $conhecidos != *$'\n'"$eu_rot"$'\n'* ]]; then
@@ -1959,14 +1988,15 @@ malha_completar() {
     while IFS=$'\t' read -r tipo a b c; do
       [[ $tipo == M && -n $a && -n $c ]] || continue
       [[ $c == "$MAQUINA" ]] && { temme=1; continue; }
+      h=$a; [[ $h =~ ^[0-9.]+$ || $h == *:* ]] || h=${h%%.*}
       if [[ $conhecidos == *$'\n'"$c"$'\n'* ]]; then
         # máquina que já tenho: guarda o endereço que esta outra usa (alternativa, se o meu falhar)
-        [[ $hosts_conhecidos == *$'\n'"${a%%.*}"$'\n'* ]] || alts+=$'\n'"$c"$'\t'"$a"$'\t'"$b"
+        [[ $hosts_conhecidos == *$'\n'"$h"$'\n'* ]] || alts+=$'\n'"$c"$'\t'"$a"$'\t'"$b"
         continue
       fi
-      [[ $hosts_conhecidos == *$'\n'"${a%%.*}"$'\n'* ]] && continue
+      [[ $hosts_conhecidos == *$'\n'"$h"$'\n'* ]] && continue
       est=$(estado_de "$c"); [[ ${est%% *} == removida ]] && continue
-      [[ $cands == *$'\n'"$c"$'\t'* ]] || cands+=$'\n'"$c"$'\t'"$a"$'\t'"$b"
+      [[ $cands == *$'\n'"$c"$'\t'"$a"$'\t'* ]] || cands+=$'\n'"$c"$'\t'"$a"$'\t'"$b"
     done <<<"$out"
     if ((!temme)); then
       if ip=$(meu_endereco_em "$dest") && timeout 25 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --registrar $(q "$ip" "$(id -un)" "$MAQUINA")" </dev/null >/dev/null 2>&1; then
@@ -1977,12 +2007,15 @@ malha_completar() {
     fi
   done < <(maquinas)
   rm -rf "$listas"
-  # 3) máquinas que as outras conhecem e eu não
+  # 3) máquinas que as outras conhecem e eu não. Cada uma pode vir por mais de um endereço (o nome e o IP da
+  # tailnet que quem tem o Tailscale anuncia), na ordem das listas: vale o primeiro que conecta. Só pelo nome,
+  # o celular sem o MagicDNS nunca reaprendia uma máquina que perdeu do cadastro.
+  local aprendidas=$'\n'
   while IFS=$'\t' read -r rot a b; do
-    [[ -n $rot ]] || continue
+    [[ -n $rot && $aprendidas != *$'\n'"$rot"$'\n'* ]] || continue
     if ! tailnet_conhece "$a"; then log_malha "ignorada $rot ($a): não é par da tailnet"; continue; fi
     if ! u=$(malha_provar "$rot" "$a" "$b"); then log_malha "ILHA: aprendi $rot ($a) de outra máquina, mas daqui não conecta"; continue; fi
-    registrar "$a" "$u" "$rot"; log_malha "aprendi $rot ($u@$a)"; novos=$((novos + 1))
+    registrar "$a" "$u" "$rot"; log_malha "aprendi $rot ($u@$a)"; novos=$((novos + 1)); aprendidas+="$rot"$'\n'
     if ip=$(meu_endereco_em "$u@$a"); then
       timeout 25 ssh "${SSH_OPC[@]}" "$u@$a" "$TT_REMOTO --registrar $(q "$ip" "$(id -un)" "$MAQUINA")" </dev/null >/dev/null 2>&1 && log_malha "apresentei $MAQUINA a $rot ($ip)"
     fi
@@ -2013,8 +2046,14 @@ malha_completar() {
 # Tailscale não é ilha; falha entre duas ligadas, sim. Sai com o número de conexões quebradas.
 malha_estado() {
   local -a pids=()
-  local d="$RT/tt-malha-estado-$UID" dest rot quebrados=0 de para est expl
-  rm -rf "$d"; mkdir -p "$d"
+  local d dest rot quebrados=0 de para est expl desligadas
+  # As cadastradas que o maquinas pulou estão desligadas no Tailscale daqui. A outra ponta pode não saber (o
+  # Termux do celular não tem o tailscale) e acusava "timeout" para sempre: vista de qualquer uma, não é ilha.
+  desligadas=" $(maquinas | awk 'f == 1 { on[$2] = 1; next }
+    !/^#/ && NF && $2 != "-" && $4 != "oculta" { r = $3; if (r == "") { r = $1; sub(/\..*/, "", r) } if (!(r in on)) printf "%s ", r }' f=1 - f=2 "$CONF_MAQ" 2>/dev/null)"
+  # Pasta própria de cada rodada: o tt --malha à mão que coincidia com a volta do vigia apagava a pasta da outra
+  # (era fixa por usuário), e cada uma lia as respostas ainda vazias da outra: ilha falsa ("não respondeu").
+  [[ -d $RT ]] || mkdir -p "$RT"; d=$(mktemp -d "$RT/tt-malha-estado.XXXXXX") || return 1
   ( diagnosticar >"$d/$MAQUINA" 2>/dev/null ) & pids+=($!)
   while read -r dest rot; do
     ( timeout 120 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --diagnosticar" </dev/null >"$d/$rot" 2>/dev/null ) & pids+=($!)
@@ -2028,7 +2067,8 @@ malha_estado() {
       case $est in
       ok) printf ' %s:ok' "$para" ;;
       offline) printf ' %s:○' "$para" ;;
-      *) printf ' %s:✗(%s)' "$para" "$est"; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não alcança $para ($est)" ;;
+      *) if [[ $desligadas == *" $para "* ]]; then printf ' %s:○' "$para"; continue; fi
+        printf ' %s:✗(%s)' "$para" "$est"; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não alcança $para ($est)" ;;
       esac
     done <"$de"
     [[ -s $de ]] || { printf ' (sem resposta: não foi possível consultá-la)'; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não respondeu ao diagnóstico"; }
@@ -2874,12 +2914,12 @@ verificar_atualizacao() {
 # desenvolvimento ele pode apontar para um clone local, enquanto o vigia deve obedecer à fonte
 # publicada. Falha de rede é transitória; o próximo ciclo tentará de novo.
 garantir_atualizacao() {
-  local n atual repo_anterior pub h rel
+  local n atual antes repo_anterior pub h rel
   command -v git >/dev/null || { atu_falha git "esta máquina não tem o git: não há como buscar a versão publicada"; return 1; }
   n=$(buscar_fonte) || { atu_falha rede "o git fetch de $(url_fonte) falhou (sem rede, proxy ou firewall bloqueando o GitHub?)"; return 1; }
   mkdir -p "$(dirname "$CACHE_GITHUB")"
   echo "$n $(date +%s) $(rotulo_fonte)" >"$CACHE_GITHUB"
-  atual=$(versao_num)
+  atual=$(versao_num); antes=$(versao_humana) # o rótulo de antes: depois do instalar_em, o VERSAO já é o novo
   pub=$(git -C "$DIR_FONTE" rev-parse HEAD 2>/dev/null)
   h=$(versao_hash_instalado)
   # Quem decide é a ancestralidade, não só o nº de commits: publicado que CONTÉM o instalado é mais novo;
@@ -2897,7 +2937,7 @@ garantir_atualizacao() {
   instalar_em . || { REPO_TT=$repo_anterior; atu_falha pacote "a instalação da versão publicada falhou (detalhes em ~/.cache/tt-vigia.log)"; return 1; }
   REPO_TT=$repo_anterior
   atu_ok "$pub:$(versao_hash_instalado)"
-  echo "$(date '+%F %T') vigia: tt atualizado de $(versao_humana) (build $atual) para $(versao_rotulo "$n" "$(rotulo_fonte)") (build $n)"
+  echo "$(date '+%F %T') vigia: tt atualizado de $antes (build $atual) para $(versao_rotulo "$n" "$(rotulo_fonte)") (build $n)"
 }
 
 # --- Estado da atualização: $ESTADO_DIR/atualizacao (chave=valor) ------------------------------------
@@ -4367,7 +4407,7 @@ quebrar_ciclo_para() {
 guarda_tamanho() {
   local c term w h s n=0 trava="$RT/tt-guarda-$UID"
   mkdir "$trava" 2>/dev/null || return 0 # já tem uma rodando (vários ganchos disparam juntos)
-  trap 'rmdir "$trava" 2>/dev/null; trap - RETURN' RETURN
+  trap 'rmdir "$trava" 2>/dev/null; trap - RETURN' RETURN # desarma ao sair (ver malha_completar)
   sleep 0.2
   while read -r c term w h s; do
     [[ $term == tmux* || $term == screen* ]] || continue
@@ -5712,7 +5752,7 @@ pend_estado() { # id → na | ok | falta | manual
 }
 
 # Lista as pendências desta máquina, uma por linha: id<TAB>itens do gerenciador (ou -)<TAB>motivo<TAB>tipo
-# (sistema|usuario|misto)<TAB>nível. Sem argumentos: essencial e recurso, fora as recusadas há menos de 7
+# (sistema|usuario|misto|admin: passo de administrador que não é pacote, P_ADM)<TAB>nível. Sem argumentos: essencial e recurso, fora as recusadas há menos de 7
 # dias, as adiadas ("mais tarde", 1 dia) e as que ele pediu para nunca mais avisar. Com ids ou
 # TT_PEND_TODAS=1 (menu administrar): inclusive opcionais, SEM olhar a recusa. O que o tt não resolve
 # sozinho (P_MANUAL) só aparece em `tt --pendencias`.
@@ -5732,7 +5772,7 @@ sudo_pendencias() {
       [[ $P_NIVEL == opcional ]] && continue
       pend_recusado "$id" && continue
     fi
-    if [[ -n $P_SYS && $P_USR == 1 ]]; then tipo=misto; elif [[ -n $P_SYS ]]; then tipo=sistema; else tipo=usuario; fi
+    if [[ -n $P_SYS && $P_USR == 1 ]]; then tipo=misto; elif [[ -n $P_SYS ]]; then tipo=sistema; elif [[ $P_ADM == 1 ]]; then tipo=admin; else tipo=usuario; fi
     printf '%s\t%s\t%s\t%s\t%s\n' "$id" "${P_SYS:--}" "$P_MOTIVO" "$tipo" "$P_NIVEL"
   done
 }
@@ -5881,7 +5921,7 @@ pedir_sudo_pendencias() {
     pend_avaliar "$id"; rot=$P_ROTULO
     printf '   • \033[1m%s\033[0m — %s\n' "$rot" "$motivo"
     [[ $cmds != - ]] && sis+=($cmds)
-    [[ $tipo != sistema ]] && usu+=("$rot${P_TAM:+ ($P_TAM)}")
+    [[ $tipo == usuario || $tipo == misto ]] && usu+=("$rot${P_TAM:+ ($P_TAM)}")
     [[ $P_ADM == 1 ]] && adm+=("$P_ADM_CMD")
   done <<<"$lista"
   if ((${#sis[@]})); then
@@ -6138,7 +6178,8 @@ novidades_avisar() {
   (( $(versao_chave "$atual") > $(versao_chave "$visto") )) && [[ -n $(novidades_texto "$visto") ]] || return 0
   # Máquina que acabou de ser instalada (nada visto): só marca; o aviso é para quem atualizou.
   [[ -f $ESTADO_DIR/novidades-visto ]] || { echo "$atual" >"$ESTADO_DIR/novidades-visto"; return 0; }
-  notificar "📰 tt atualizado para a v$atual — veja o que há de novo (clique)" 3600 novidades
+  # Código por versão: cada máquina que se atualiza cria o seu aviso, e a rede guarda um só (o primeiro).
+  notificar "📰 tt atualizado para a v$atual — veja o que há de novo (clique)" 3600 novidades "" "novidades-v$atual"
 }
 
 # --- Checagem pós-atualização (tt --checar, --checar-agente, --checar-handoff) ---------------------------
@@ -6157,7 +6198,7 @@ checar_linha() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:--}"; } # id esta
 
 # Uma linha por checagem (TSV). Só lê: nada aqui corrige, e uma checagem que falha não derruba as outras.
 checar_coletar() {
-  local agora pid cpu f x n m slug st erro d desde mot
+  local agora pid cpu f x n m slug st erro d desde mot inst
   local -a falta=() extra=() codigo=() lst=()
   local -A NO_PACOTE=() E=()
   printf -v agora '%(%s)T' -1
@@ -6172,8 +6213,12 @@ checar_coletar() {
     checar_linha vigia falha "vigia parado: sem ele nada se atualiza, sincroniza nem avisa" "tmux run-shell -b '~/.local/bin/tt --vigia' (o vigia vive no servidor tmux do tt)"
   fi
 
-  # atualização
+  # atualização. O "publicado" guardado é o da última sonda: logo depois de uma instalação (o vigia novo roda
+  # esta checagem junto com a sua 1ª sonda) ele ainda é o de antes, e a máquina recém-atualizada saía "atrás".
+  # Sonda anterior ao pacote instalado não diz nada: fica sem comparar até a próxima (5 min).
   n=$(atu_get falhas); x=$(atu_get publicado); f=$(versao_hash_instalado)
+  inst=$(stat -c %Y "$DIR_TT/VERSAO" 2>/dev/null || echo 0)
+  (($(atu_get sonda_em || echo 0) + 0 >= inst)) || x=""
   if ((${n:-0} >= 3)); then checar_linha atualizacao falha "$n falhas seguidas ao buscar a versão publicada: $(atu_get erro)" "tt --atualizacao-estado; tt --atualizar"
   elif [[ -n $x && -n $f && $x != "$f"* && -z $(atu_get obs) ]]; then checar_linha atualizacao aviso "instalada $(versao_humana) ($f), publicada ${x:0:7}" "tt --atualizar"
   else checar_linha atualizacao ok "$(versao_humana) instalada${x:+, publicada ${x:0:7}}"; fi
@@ -6218,8 +6263,13 @@ checar_coletar() {
     fi
     st=$(email_sync_resumo "$slug")
     erro=$(head -c 300 "$ESTADO_DIR/email-sync/$slug.erro" 2>/dev/null | tr '\n\t' '  ')
+    # INBOX em dia não basta: a volta completa (as outras pastas) falhando seguidas vezes também é aviso
+    d=$(awk -F'\t' '$1 == "completo" { n = ($4 == 0 ? 0 : n + 1) } END { print n + 0 }' "$ESTADO_DIR/email-sync/$slug" 2>/dev/null)
+    [[ $st == ok ]] && ((${d:-0} >= 2)) && st=completo
     case $st in
       ok) checar_linha "email:$slug" ok "espelho em dia" ;;
+      completo) checar_linha "email:$slug" aviso "INBOX em dia, mas a volta completa falhou $d vezes seguidas: $(head -c 300 "$ESTADO_DIR/email-sync/$slug.erro-completo" 2>/dev/null | tr '\n\t' '  ')" \
+        "tt --email-sync $slug --completo; \"box … cannot be opened anymore\" = pasta que sumiu do servidor e ficou no espelho: mova-a de $(email_maildir "$slug")/ para fora" ;;
       erro|parado) checar_linha "email:$slug" falha "sync $st${erro:+: $erro}" "tt --email-sync-estado (a dica diz a causa); tt --email-sync $slug; OAuth vencido: tt --email-autorizar $slug" ;;
       *) checar_linha "email:$slug" aviso "sync $st" "tt --email-sync $slug" ;;
     esac
@@ -6361,13 +6411,15 @@ checar_prompt() { # pasta-da-rodada versão-anterior versão-atual
 # Saída: 0 lançou (ou fechou só com o coletor, com --so-coletor), 2 nenhuma conta livre (nada criado),
 # 3 sem agente nesta máquina (rodada fechada só com o coletor), 4 já há uma rodando.
 checar_agente() {
-  local de="" so="" para rod ia
+  local de="" so="" para rod ia n
   while (($#)); do case $1 in --de) de=${2:-}; shift ;; --so-coletor) so=so-coletor ;; --sem-conta) so=sem-conta ;; esac; shift; done
   para=$(versao_disp)
   if tmux has-session -t "=$CHECAGEM_SESSAO" 2>/dev/null; then echo "Já há uma checagem rodando (sessão $CHECAGEM_SESSAO)."; return 4; fi
   ia=$(checar_ia_rot) || so=${so:-sem-agente}
   if [[ -z $so ]] && ! "$ia" --melhor >/dev/null 2>&1; then echo "Nenhuma conta de IA livre agora; tente mais tarde (tt --checar mostra o coletor)."; return 2; fi
   rod=$CHECAGEM_DIR/$para-$(date +%Y%m%d-%H%M%S)
+  # Duas rodadas no mesmo segundo (um --checar-agente logo depois do outro) dividiam a pasta e o relatório.
+  [[ -e $rod ]] && { n=2; while [[ -e $rod-$n ]]; do n=$((n + 1)); done; rod=$rod-$n; }
   mkdir -p "$rod/backup" || return 1
   printf 'de=%s\npara=%s\nmaquina=%s\ninicio=%s\n' "$de" "$para" "$MAQUINA" "$(date -Iseconds)" >"$rod/rodada"
   checar_coletar >"$rod/coletor.tsv"
@@ -9733,13 +9785,57 @@ notifs_ids_em() { # VAR
   # o glob vem em ordem crescente (ids de mesmo tamanho: a ordem do texto é a dos números)
   for ((i = ${#todos[@]} - 1; i >= 0; i--)); do _ids+=("${todos[i]}"); done
 }
+# Código de evento (5º campo, opcional) de um arquivo de aviso; vazio se não tem.
+notifs_codigo_de() { # arquivo
+  local _e _t _a _c cod=""
+  IFS=$'\t' read -r _e _t _a _c cod _ <"$1" 2>/dev/null || true
+  [[ $cod == - ]] && cod=""
+  printf '%s' "$cod"
+}
+# Id do aviso vigente com este código (o de menor id, se houver mais de um); vazio se não há.
+notifs_id_do_codigo() { # código
+  local f nome
+  for f in "$DIR_NOTIFS"/*; do
+    nome=${f##*/}; [[ $nome =~ ^[0-9]{18,20}$ ]] || continue
+    [[ $(notifs_codigo_de "$f") == "$1" ]] && { printf '%s' "$nome"; return 0; }
+  done
+  return 1
+}
+# O usuário apagou um aviso com este código? A lápide guarda "codigo=<código>".
+notifs_codigo_apagado() { # código
+  grep -qxF "codigo=$1" "$DIR_NOTIFS"/*.apagada 2>/dev/null
+}
+notifs_codigo_conhecido() { notifs_id_do_codigo "$1" >/dev/null || notifs_codigo_apagado "$1"; }
+# Lápide de um aviso: com código, guarda-o (o mesmo evento não volta por outra máquina); sem, fica vazia.
+notifs_lapide() { # id
+  local cod=""
+  [[ -f $DIR_NOTIFS/$1 ]] && cod=$(notifs_codigo_de "$DIR_NOTIFS/$1")
+  if [[ -n $cod ]]; then printf 'codigo=%s\n' "$cod" >"$DIR_NOTIFS/$1.apagada"; else : >"$DIR_NOTIFS/$1.apagada"; fi
+}
 notifs_mesclar_dir() { # diretório já extraído e validado
-  local src=$1 f nome
+  local src=$1 f nome cod outro
   mkdir -p "$DIR_NOTIFS"
   for f in "$src"/*; do
     [[ -f $f ]] || continue
     nome=${f##*/}; notifs_nome_valido "$nome" || continue
-    [[ -e $DIR_NOTIFS/$nome ]] || cp -p "$f" "$DIR_NOTIFS/$nome"
+    [[ -e $DIR_NOTIFS/$nome ]] && continue
+    [[ -e $DIR_NOTIFS/$nome.apagada ]] && continue   # já apagado aqui: a lápide (com ou sem código) vale
+    cod=""; [[ $nome =~ ^[0-9]{18,20}$ ]] && cod=$(notifs_codigo_de "$f")
+    if [[ -n $cod ]]; then
+      # O mesmo evento criado em outra máquina: fica o de menor id (o primeiro) em toda a rede; a cópia ganha
+      # lápide vazia (some em todas) e a marca de lido passa para o que fica. Apagado pelo usuário: não volta.
+      if notifs_codigo_apagado "$cod"; then : >"$DIR_NOTIFS/$nome.apagada"; continue; fi
+      outro=$(notifs_id_do_codigo "$cod") || outro=""
+      if [[ -n $outro ]]; then
+        if (( ${#outro} < ${#nome} )) || { (( ${#outro} == ${#nome} )) && [[ $outro < $nome ]]; }; then
+          [[ -f $src/$nome.lida ]] && : >"$DIR_NOTIFS/$outro.lida"
+          : >"$DIR_NOTIFS/$nome.apagada"; continue
+        fi
+        [[ -f $DIR_NOTIFS/$outro.lida ]] && : >"$DIR_NOTIFS/$nome.lida"
+        : >"$DIR_NOTIFS/$outro.apagada"; rm -f "$DIR_NOTIFS/$outro" "$DIR_NOTIFS/$outro.lida"
+      fi
+    fi
+    cp -p "$f" "$DIR_NOTIFS/$nome"
   done
   for f in "$DIR_NOTIFS"/*.apagada; do
     [[ -f $f ]] || continue
@@ -9817,14 +9913,18 @@ faixa_notif_ativa() {
   ! tem_cmd termux-open-url
 }
 
-notificar() { # texto [segundos (padrão 300)] [ação: email|tarefas|calendario|cmd:...] [canal: sino]
+notificar() { # texto [segundos (padrão 300)] [ação: email|tarefas|calendario|cmd:...] [canal: sino] [código]
   # canal=sino (avisos de agentes): vão só para o 🔔 (contador + central), nunca piscam no miolo da faixa.
-  local txt=${1:-} dura=${2:-300} acao=${3:-} canal=${4:-}
+  # código: identidade do EVENTO, igual em todas as máquinas (ex.: novidades-v1.15.5). Aviso com o mesmo código
+  # já presente, ou apagado pelo usuário, não é recriado; na sincronização as cópias viram uma (notifs_mesclar_dir).
+  local txt=${1:-} dura=${2:-300} acao=${3:-} canal=${4:-} cod=${5:-}
   [[ -n $txt ]] || return 0
   mkdir -p "$DIR_NOTIFS"
-  # O `read` do bash junta tabs seguidos: com canal e sem ação, o campo da ação leva "-" (os leitores o tratam como vazio)
-  [[ -z $acao && -n $canal ]] && acao=-
-  printf '%s\t%s\t%s%s\n' "$(( $(date +%s) + dura ))" "${txt//$'\n'/ }" "$acao" "${canal:+$'\t'$canal}" >"$DIR_NOTIFS/$(date +%s%N)"
+  [[ -n $cod ]] && notifs_codigo_conhecido "$cod" && return 0
+  # O `read` do bash junta tabs seguidos: campo vazio no meio leva "-" (os leitores o tratam como vazio)
+  [[ -z $acao && ( -n $canal || -n $cod ) ]] && acao=-
+  [[ -z $canal && -n $cod ]] && canal=-
+  printf '%s\t%s\t%s%s%s\n' "$(( $(date +%s) + dura ))" "${txt//$'\n'/ }" "$acao" "${canal:+$'\t'$canal}" "${cod:+$'\t'$cod}" >"$DIR_NOTIFS/$(date +%s%N)"
   notifs_podar
   notifs_sincronizar_em_segundo_plano
   atualizar_barras
@@ -9842,7 +9942,7 @@ barra_notifs_avisos() {
   agora=$(date +%s)
   for f in $(notifs_ids | sort -rn | head -6); do
     [[ -f $DIR_NOTIFS/$f.lida ]] && continue
-    IFS=$'\t' read -r exp txt _a canal <"$DIR_NOTIFS/$f" || continue
+    IFS=$'\t' read -r exp txt _a canal _ <"$DIR_NOTIFS/$f" || continue
     [[ $canal == sino ]] && continue   # aviso de agente: só o contador do 🔔 (barra_notifs_sino)
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
     ns=${f:0:10}; [[ $ns =~ ^[0-9]+$ ]] || continue
@@ -9861,7 +9961,7 @@ barra_notifs_sino() {
   for f in "$DIR_NOTIFS"/*; do
     f=${f##*/}; [[ $f =~ ^[0-9]{18,20}$ ]] || continue
     [[ -f $DIR_NOTIFS/$f.lida ]] && continue
-    IFS=$'\t' read -r exp _t _a canal <"$DIR_NOTIFS/$f" || continue
+    IFS=$'\t' read -r exp _t _a canal _ <"$DIR_NOTIFS/$f" || continue
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) && n=$((n + 1))
   done
   printf '%s' "$n"
@@ -10649,7 +10749,7 @@ notifs_clique() { # cliente
   local c=$1 f exp txt acao canal agora; agora=$(date +%s)
   for f in $(notifs_ids | sort -rn | head -6); do
     [[ -f $DIR_NOTIFS/$f.lida ]] && continue
-    IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$f" || continue
+    IFS=$'\t' read -r exp txt acao canal _ <"$DIR_NOTIFS/$f" || continue
     [[ $acao == - ]] && acao=""
     [[ $canal == sino ]] && continue   # aviso de agente não está no slot: o clique do slot não o abre
     [[ $exp =~ ^[0-9]+$ ]] && ((exp > agora)) || continue
@@ -10699,7 +10799,7 @@ notifs_marcar_lidas() {
 notifs_apagar() { # ID único; lápide propagada evita ressurreição por outra máquina
   local f=${1:-}
   [[ $f =~ ^[0-9]{18,20}$ && -f $DIR_NOTIFS/$f ]] || return 1
-  : >"$DIR_NOTIFS/$f.apagada"
+  notifs_lapide "$f"
   rm -f "$DIR_NOTIFS/$f" "$DIR_NOTIFS/$f.lida"
   notifs_sincronizar_em_segundo_plano
   atualizar_barras_pedir >/dev/null 2>&1
@@ -10708,7 +10808,7 @@ notifs_apagar_lidas() {
   local f mudou=0
   for f in $(notifs_ids); do
     [[ -f $DIR_NOTIFS/$f.lida ]] || continue
-    : >"$DIR_NOTIFS/$f.apagada"
+    notifs_lapide "$f"
     rm -f "$DIR_NOTIFS/$f" "$DIR_NOTIFS/$f.lida"
     mudou=1
   done
@@ -10746,7 +10846,7 @@ notifs_render() { # [filtro]
   local txt_nova=$'\033[1;38;2;205;214;244m' txt_lida=$'\033[38;2;147;153;178m' ids
   notifs_ids_em ids
   for f in "${ids[@]}"; do
-    IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$f" || continue
+    IFS=$'\t' read -r exp txt acao canal _ <"$DIR_NOTIFS/$f" || continue
     [[ $acao == - ]] && acao=""
     [[ -n $txt ]] || continue
     lida=0; [[ -f $DIR_NOTIFS/$f.lida ]] && lida=1
@@ -10767,7 +10867,7 @@ notifs_render() { # [filtro]
 notifs_previa() { # id
   local f=${1:-} exp txt acao canal quando z=$'\033[0m' dim=$'\033[38;2;127;132;156m' azul=$'\033[38;2;137;180;250m'
   [[ $f =~ ^[0-9]{18,20}$ && -f $DIR_NOTIFS/$f ]] || return 0
-  IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$f" || true
+  IFS=$'\t' read -r exp txt acao canal _ <"$DIR_NOTIFS/$f" || true
   [[ $acao == - ]] && acao=""
   notif_quando_em quando "${f:0:10}"; quando=${quando//  / }
   notif_origem "$txt" "$acao" "$canal"
@@ -10805,7 +10905,7 @@ notifs_contagens() {
   local f exp txt acao canal t=0 nl=0 l=0 ag=0 em=0 ta=0 ids
   notifs_ids_em ids
   for f in "${ids[@]}"; do
-    IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$f" || continue
+    IFS=$'\t' read -r exp txt acao canal _ <"$DIR_NOTIFS/$f" || continue
     [[ -n $txt ]] || continue
     [[ $acao == - ]] && acao=""
     t=$((t + 1))
@@ -10991,7 +11091,7 @@ notifs_acao() { # evento id
       esc | q) echo abort; return 0 ;;
       enter | abrir | duplo)
         [[ -n $id ]] || { echo ignore; return 0; }
-        IFS=$'\t' read -r exp txt acao canal <"$DIR_NOTIFS/$id"
+        IFS=$'\t' read -r exp txt acao canal _ <"$DIR_NOTIFS/$id"
         [[ $acao == - ]] && acao=""
         # Com destino, o fzf devolve a linha e notifs_ui abre (marca lida e vai ao destino).
         [[ -n $acao ]] && { echo accept; return 0; }
@@ -14647,11 +14747,17 @@ email_sessao() {
   # Mais a soma das pastas do espelho: o aerc aberto não enxerga pasta que nasce depois (não aplica o
   # folder-map a ela e o ✕ Apagar falhava com "could not move message: rename … no such file", mesmo
   # com a lixeira já criada); pasta nova no espelho recria a sessão na próxima abertura.
-  local ver="$EMAIL_BINDS_VER:$( [[ -f $b ]] && cksum <"$b" | cut -d' ' -f1 || echo 0):$(email_pastas_soma)"
+  local base="$EMAIL_BINDS_VER:$( [[ -f $b ]] && cksum <"$b" | cut -d' ' -f1 || echo 0)" ver atual
+  ver="$base:$(email_pastas_soma)"
   if tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
     pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
+    atual=$(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_binds)
+    # Aberta em outra tela (popup anexado), pasta nova sozinha não a derruba: fecharia o e-mail lá, com uma
+    # resposta pela metade. Fica para a próxima abertura com ninguém nela.
+    [[ $atual != "$ver" && ${atual%:*} == "$base" &&
+       $(tmux display -p -t "=$EMAIL_SESSAO:" '#{session_attached}' 2>/dev/null) =~ ^[1-9] ]] && atual=$ver
     if [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo) == "$modo" && $pane_cmd == aerc* &&
-          $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_binds) == "$ver" &&
+          $atual == "$ver" &&
           $(tmux show-environment -t "=$EMAIL_SESSAO" VAXIS_FORCE_UNICODE 2>/dev/null) == VAXIS_FORCE_UNICODE=1 ]]; then email_sessao_botoes; return 0; fi
     tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
   fi
@@ -15602,9 +15708,13 @@ email_sync() { # slug [inbox|completo] [vigia]
   fi
   printf '%s\t%s\t%s\t%s\n' "$modo" "$ini" "$fim" "$st" >>"$dir/$slug"
   tail -n 200 "$dir/$slug" >"$dir/$slug.tmp" 2>/dev/null && mv "$dir/$slug.tmp" "$dir/$slug"
+  # A causa de uma volta completa ruim fica também em <slug>.erro-completo, até uma completa boa: o .erro some
+  # no próximo INBOX bom, e uma pasta que sumiu do servidor fazia toda completa falhar sem ninguém ver.
   if ((st == 0)); then rm -f "${dir:?}/${slug:?}.erro" "${dir:?}/${slug:?}.erro.tmp" "${dir:?}/${slug:?}.espera" "${dir:?}/${slug:?}.falhas"
+    [[ $modo == completo ]] && rm -f "${dir:?}/${slug:?}.erro-completo"
   else
     { ((st == 124)) && echo "tempo esgotado ($teto s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } >"$dir/$slug.erro"; rm -f "${dir:?}/${slug:?}.erro.tmp"
+    [[ $modo == completo ]] && cp -f "$dir/$slug.erro" "$dir/$slug.erro-completo"
     # Volta completa que só estourou o teto (caixa grande, 1ª vez) não é o Gmail recusando: não
     # empurra o INBOX para a espera.
     if [[ $modo != completo || $st != 124 ]]; then
@@ -15760,7 +15870,7 @@ email_saltar_novo() { # nome-da-conta [espera]
 email_avisos_lidos() { # ação (email:SLUG)
   local f exp txt acao n=""
   for f in $(notifs_ids); do
-    IFS=$'\t' read -r exp txt acao _canal <"$DIR_NOTIFS/$f" || continue
+    IFS=$'\t' read -r exp txt acao _canal _ <"$DIR_NOTIFS/$f" || continue
     [[ $acao == "$1" && ! -f $DIR_NOTIFS/$f.lida ]] && { : >"$DIR_NOTIFS/$f.lida"; n=1; }
   done
   if [[ -n $n ]]; then
@@ -16958,7 +17068,7 @@ transferencias() {
     return 0
   fi
   corta() { local t=$1 n=$2; ((${#t} > n)) && t="${t:0:n-1}…"; printf '%s' "$t"; }
-  printf '\033[?25l\033[2J'; trap 'printf "\033[?25h"' RETURN
+  printf '\033[?25l\033[2J'; trap 'printf "\033[?25h"; trap - RETURN' RETURN
   while true; do
     w=$(($(tput cols 2>/dev/null || echo 80) - 1)); linhas=$(tput lines 2>/dev/null || echo 24)
     cap=$(((linhas - 5) / 3)); ((cap < 1)) && cap=1
@@ -17789,8 +17899,8 @@ case "${1:-}" in
   --novidades-avisar) novidades_avisar; exit 0 ;;
   --checar) shift; checar "$@"; exit ;;
   --checar-agente) shift; checar_agente "$@"; exit ;;
-  --checar-auto) checar_auto; exit 0 ;;
-  --sshd-garantir) if [[ ${2:-} == --vigia ]]; then sshd_vigiar; else sshd_garantir; fi; exit ;;              # (interno, vigia) uma rodada por versão nova
+  --checar-auto) checar_auto; exit 0 ;;              # (interno, vigia) uma rodada por versão nova
+  --sshd-garantir) if [[ ${2:-} == --vigia ]]; then sshd_vigiar; else sshd_garantir; fi; exit ;; # --vigia: só na malha
   --checar-fechar) shift; checar_fechar "$@"; exit ;; # (interno) fim da rodada do agente
   --checar-ver) shift; checar_ver "$@"; exit ;;
   --checar-handoff) shift; checar_handoff "$@"; exit ;;

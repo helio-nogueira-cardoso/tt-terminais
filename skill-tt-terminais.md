@@ -150,7 +150,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --fixar [maquina:]sessao` — fixa/desafixa a sessão.
 - `tt --fixadas` — lista as fixadas; `tt --barra-fixadas` (interno) formata a faixa.
 - Internos: `--aplicar-fixadas`/`--barras` (liga a 2ª linha), `--ir-fixada`, `--mover-fixada`,
-  `--notificar TEXTO [SEGUNDOS]` (aviso na faixa de notificações, 3ª linha; expira sozinho), `--notificar-daqui TEXTO [SEGUNDOS] [--sempre]` (aviso de agente pelo 🔔: só se o usuário não estiver olhando para a janela de onde veio; abrir o aviso leva à sessão e ao painel; `--notifs-lidas` marca todos como lidos; ver "Agente avisa o usuário"), `--notifs` (a central do 🔔: abas Todas/Não lidas/Lidas/Agentes/E-mail/Tarefas e botões ↗ Abrir, ◐ Lida/não lida, ✓ Ler todas, ✕ Apagar, 🧹 Limpar lidas (confirma) no cabeçalho, com mapa de cliques; tudo passa pelo despachante `--notifs-acao EVENTO ID` (internos `--notifs-cabecalho`, `--notifs-lista-ui`, `--notifs-previa ID` = a prévia do aviso em foco; estado em `$RT/tt-notifs-ui-UID`; uma linha por aviso, a em foco destacada com `--highlight-line`; nada de processo por aviso no desenho: `notif_quando_em`, `notifs_ids_em`); teclas ⏎, Espaço, Tab/Shift+Tab, `^u`, `^a`, `^d`/Del, `^r`, `^l`, Esc/q; exclusões usam lápides sincronizadas entre máquinas; teste `tests/test_notifs_central.sh`), chave `faixa_notif=0|1`. `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
+  `--notificar TEXTO [SEGUNDOS]` (aviso na faixa de notificações, 3ª linha; expira sozinho), `--notificar-daqui TEXTO [SEGUNDOS] [--sempre]` (aviso de agente pelo 🔔: só se o usuário não estiver olhando para a janela de onde veio; abrir o aviso leva à sessão e ao painel; `--notifs-lidas` marca todos como lidos; ver "Agente avisa o usuário"), `--notifs` (a central do 🔔: abas Todas/Não lidas/Lidas/Agentes/E-mail/Tarefas e botões ↗ Abrir, ◐ Lida/não lida, ✓ Ler todas, ✕ Apagar, 🧹 Limpar lidas (confirma) no cabeçalho, com mapa de cliques; tudo passa pelo despachante `--notifs-acao EVENTO ID` (internos `--notifs-cabecalho`, `--notifs-lista-ui`, `--notifs-previa ID` = a prévia do aviso em foco; estado em `$RT/tt-notifs-ui-UID`; uma linha por aviso, a em foco destacada com `--highlight-line`; nada de processo por aviso no desenho: `notif_quando_em`, `notifs_ids_em`); teclas ⏎, Espaço, Tab/Shift+Tab, `^u`, `^a`, `^d`/Del, `^r`, `^l`, Esc/q; exclusões usam lápides sincronizadas entre máquinas; teste `tests/test_notifs_central.sh`; arquivo do aviso = `exp\ttexto\tação\tcanal[\tcódigo]`: o 5º campo, opcional, é o código do EVENTO (`notificar TEXTO SEG AÇÃO CANAL CÓDIGO`), igual em todas as máquinas: aviso com o mesmo código não é recriado, a sincronização deixa um só na rede (o de menor id; cópias ganham lápide; o lido passa) e a lápide de aviso apagado guarda `codigo=…`; usado pelo `novidades-v<versão>`; leitores do arquivo leem o 5º campo à parte (`read -r exp txt acao canal _`); teste `tests/test_notifs_sync.sh`), chave `faixa_notif=0|1`. `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
   `--resolver-fixada`. Sync: `--propagar-fixadas`, `--receber-fixadas [V]`, `--puxar-fixadas`,
   `--reconciliar-fixadas`, `--marcar-fixadas`.
 
@@ -393,7 +393,7 @@ e os instaladores da pasta do usuário ficam no `tt`.
   no botão por 6 s, e F11 (`:check-mail`, só com o aerc na frente) para as contas só IMAP.
 - `tt --email-sync [NOME] [--completo]` — espelha por mbsync as contas com `sync_local=1` (padrão só
   o INBOX; `--completo` o grupo inteiro); `tt --email-sync-estado [curto]` — última rodada por conta
-  e modo (estado em `$ESTADO_DIR/email-sync/<slug>`, erro em `<slug>.erro`; `curto` = ok|nunca|atrasado|
+  e modo (estado em `$ESTADO_DIR/email-sync/<slug>`, erro em `<slug>.erro`, o da última volta completa ruim em `<slug>.erro-completo`; `curto` = ok|nunca|atrasado|
   erro|parado por conta, para a barra — `email_sync_resumo`); `tt --email-mbsync-migrar` — regrava
   .mbsyncrc antigos (canal único, ou em canais sem `Timeout 60`) no formato de canais `<slug>-inbox`/`-pastas`/`-arquivo` + `Group <slug>` (a instalação
   chama). Pastas especiais `pasta_importantes`/`pasta_estrela` (marcas `\Important`/`\Flagged`)
@@ -444,7 +444,8 @@ e os instaladores da pasta do usuário ficam no `tt`.
   oculta (`~/.cache/tt-aerc-binds-oculto.conf`, gerados em `email_sessao`: `email_binds_botoes` por
   contexto `[messages]`/`[view]`; `?`/F2 reescritos de `:term` para `:exec tt --email-tela …`) só agem
   na lista e na leitura, então com compose/terminal na frente nada é digitado. `EMAIL_BINDS_VER`
-  marca a sessão (`@tt_email_binds`); sessão com binds antigos é recriada. A linha de status do
+  marca a sessão (`@tt_email_binds` = versão:soma do binds.conf:`email_pastas_soma`); binds antigos ou pasta nova
+  no espelho recriam a sessão, mas pasta nova não derruba sessão anexada (fica para a próxima abertura). A linha de status do
   aerc fica só com `{{.TrayInfo}}` (dicas antigas do tt migradas). Duplo clique no painel da sessão
   `_tt-email` = Enter (abre), via `if -F` no `DoubleClick1Pane` do tmux.conf.
   `configurar_aerc` também põe ícones (`icon-*`), `tab-title-account` com não lidas, datas numéricas,

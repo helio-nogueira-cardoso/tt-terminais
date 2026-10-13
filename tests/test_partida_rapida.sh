@@ -16,13 +16,19 @@ passou "instalação gera a partida rápida ($(wc -l <"$R/nomes") funções sob 
 tmux -f "$HOME/.tmux.conf" new -d -s s -x 120 -y 30 'bash --norc'; tmux new -d -s outra 'sleep 600'
 for i in 1 2 3; do "$TT" --tarefa-add "tarefa $i @amanha !alta #x" >/dev/null 2>&1; done
 "$TT" --fixar outra >/dev/null 2>&1
+par() { # as duas saídas de um verbo, inteiro (a) e rápido (b)
+  a=$(TT_COMPLETO=1 "$TT" $1 2>&1; echo "rc=$?"); b=$("$TT" $1 2>&1; echo "rc=$?")
+  a=${a/ (TT_COMPLETO=1: desligada neste ambiente)/}
+  # Idade relativa ("agora", "há 5 s") muda entre as duas chamadas sob a carga da suíte: não é diferença de código.
+  a=$(sed -E 's/(agora|há [0-9]+ (s|min|h)) +/IDADE /g' <<<"$a"); b=$(sed -E 's/(agora|há [0-9]+ (s|min|h)) +/IDADE /g' <<<"$b")
+}
 compara() {
-  local v a b
+  local v a b n
   for v in "$@"; do
-    a=$(TT_COMPLETO=1 "$TT" $v 2>&1; echo "rc=$?"); b=$("$TT" $v 2>&1; echo "rc=$?")
-    a=${a/ (TT_COMPLETO=1: desligada neste ambiente)/}
-    # Idade relativa ("agora", "há 5 s") muda entre as duas chamadas sob a carga da suíte: não é diferença de código.
-    a=$(sed -E 's/(agora|há [0-9]+ (s|min|h)) +/IDADE /g' <<<"$a"); b=$(sed -E 's/(agora|há [0-9]+ (s|min|h)) +/IDADE /g' <<<"$b")
+    # O vigia do teste busca as fontes do letreiro em segundo plano (a "noticias" leva uns 2 s): a busca que termina
+    # entre as duas chamadas muda o --letreiro-listar de "aguardando" para "ok". Diferença de código se repete a
+    # cada tentativa; a da busca passa quando ela termina.
+    for n in 1 2 3 4 5; do par "$v"; [[ $a == "$b" ]] && break; sleep 1; done
     [[ $a == "$b" ]] || falhou "$v: saída diferente com a partida rápida
 --- inteiro:
 $(head -5 <<<"$a")

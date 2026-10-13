@@ -30,15 +30,20 @@ done
 cmd="${args[*]:i}"; host=${dest#*@}
 read -r dir ip < <(awk -v h="$host" '$1 == h { print $2, $3 }' "$SIM_HOSTS")
 [[ -n ${dir:-} ]] || { echo "ssh: Could not resolve hostname $host" >&2; exit 255; }
+# nome que só ESTA máquina (a que chama) não resolve: o celular sem o MagicDNS
+grep -qxF "$host" "$HOME/naoresolve" 2>/dev/null && { echo "ssh: Could not resolve hostname $host: No address associated with hostname" >&2; exit 255; }
 [[ -e $dir/PORTA8022 && $porta != 8022 ]] && { echo "ssh: connect to host $host port 22: Connection refused" >&2; exit 255; }
 [[ -e $dir/DESLIGADA ]] && { echo "ssh: connect to host $host port 22: Connection timed out" >&2; exit 255; }
-exec env HOME="$dir/home" XDG_CONFIG_HOME="$dir/config" TT_RT="$dir/rt" SIM_HOSTS="$SIM_HOSTS" SSH_CONNECTION="${SIM_IP:-10.9.9.9} 50000 $ip 22" SIM_IP="$ip" bash -c "${cmd:-true}"
+[[ -n ${SIM_LENTO:-} && $cmd == *--diagnosticar* ]] && sleep "$SIM_LENTO"   # diagnóstico lento (a máquina de destino não herda)
+exec env SIM_LENTO= HOME="$dir/home" XDG_CONFIG_HOME="$dir/config" TT_RT="$dir/rt" SIM_HOSTS="$SIM_HOSTS" SSH_CONNECTION="${SIM_IP:-10.9.9.9} 50000 $ip 22" SIM_IP="$ip" bash -c "${cmd:-true}"
 SSH
 chmod +x "$T/bin/ssh"
 # O teste simula máquinas fora da tailnet local. Não consulte o Tailscale instalado no host que roda
 # a suíte, pois ele filtraria os nomes h1..h4 pelo estado real da rede.
+# Uma máquina com $HOME/tailscale.json responde o status por ele (os cenários 9 e 10).
 cat >"$T/bin/tailscale" <<'TAILSCALE'
 #!/usr/bin/env bash
+[[ ${1:-} == status && -f $HOME/tailscale.json ]] && { cat "$HOME/tailscale.json"; exit 0; }
 echo indisponivel
 TAILSCALE
 chmod +x "$T/bin/tailscale"
@@ -104,6 +109,48 @@ printf 'nome=m3\n' >"$T/m3/config/tt/config"
 reg 1 2 3 4; reg 2 1; reg 3 1; reg 4 1; touch "$T/m4/PORTA8022"; rm -f "$T/m2/home/.ssh/config"
 como 2 --malha-completar >/dev/null
 tem 2 4 && grep -q 'Port 8022' "$T/m2/home/.ssh/config" 2>/dev/null && ok "m4 (sshd na 8022) aprendida e a porta registrada no ssh config" || erro "porta: rotulos='$(rotulos 2)' cfg='$(cat "$T/m2/home/.ssh/config" 2>&1)'"
+
+# --- 9) o nome não resolve só nesta máquina (celular sem o MagicDNS) e as outras usam o mesmo nome: religa pelo IP
+#        da tailnet que outra anuncia; uma cadastrada por IP (m4) não esconde o IP alternativo (era cortado em "10")
+reg 1 2 3 4; reg 3 1 2 4; reg 4 1 2 3; rm -f "$T"/m*/config/tt/maquinas-estado "$T/m4/PORTA8022" "$T/m2/home/.ssh/config"
+printf '# h\nh1 u m1\nh3 u m3\n10.0.0.4 u m4\n' >"$T/m2/config/tt/maquinas"
+como 2 --registrar 10.0.0.3 u m3 >/dev/null
+grep -qE '^10\.0\.0\.4 +u +m4$' "$T/m2/config/tt/maquinas" && grep -qE '^10\.0\.0\.3 +u +m3$' "$T/m2/config/tt/maquinas" &&
+  ok "cadastrar uma pelo IP não apaga as outras guardadas por IP (era o corte no 1º ponto)" || erro "registrar por IP: $(grep -v '^#' "$T/m2/config/tt/maquinas" | tr '\n' ';')"
+printf '# h\nh1 u m1\nh3 u m3\n10.0.0.4 u m4\n' >"$T/m2/config/tt/maquinas"
+echo h3 >"$T/m2/home/naoresolve"
+echo '{"Peer": {"p3": {"HostName": "h3", "DNSName": "h3.tail.ts.net.", "Online": true, "TailscaleIPs": ["10.0.0.3", "fd7a::3"]}}}' >"$T/m1/home/tailscale.json"
+grep -q $'^M\t10.0.0.3\tu\tm3$' <<<"$(como 1 --malha-lista)" && ok "a malha-lista anuncia o IP da tailnet de quem está cadastrada por nome" || erro "sem o IP na malha-lista: $(como 1 --malha-lista | grep m3)"
+como 2 --malha-completar >/dev/null
+grep -qE '^10\.0\.0\.3 +u +m3$' "$T/m2/config/tt/maquinas" && ! grep -q '^h3 ' "$T/m2/config/tt/maquinas" && grep -q ' m4$' "$T/m2/config/tt/maquinas" &&
+  ok "m3 religada pelo IP da tailnet (o nome não resolvia só em m2)" || erro "IP alternativo: $(grep -v '^#' "$T/m2/config/tt/maquinas" | tr '\n' ';')"
+rm -f "$T/m2/home/naoresolve" "$T/m1/home/tailscale.json"
+
+# --- 11) a máquina que esta perdeu do cadastro (o s23 sem o MagicDNS perdeu a book-hl pelo corte no 1º ponto) é
+#         aprendida de novo pelo IP da tailnet que outra anuncia, já que o nome não resolve daqui
+reg 1 2 3 4; reg 3 1 2 4; reg 4 1 2 3; rm -f "$T"/m*/config/tt/maquinas-estado
+printf '# h\nh1 u m1\n10.0.0.4 u m4\n' >"$T/m2/config/tt/maquinas"
+echo h3 >"$T/m2/home/naoresolve"
+echo '{"Peer": {"p3": {"HostName": "h3", "DNSName": "h3.tail.ts.net.", "Online": true, "TailscaleIPs": ["10.0.0.3"]}}}' >"$T/m1/home/tailscale.json"
+como 2 --malha-completar >/dev/null
+grep -qE '^10\.0\.0\.3 +u +m3$' "$T/m2/config/tt/maquinas" && ! grep -q '^h3 ' "$T/m2/config/tt/maquinas" && grep -q ' m4$' "$T/m2/config/tt/maquinas" &&
+  ok "m3 que m2 não conhecia é aprendida pelo IP da tailnet (o nome não resolve em m2)" || erro "aprender pelo IP: $(grep -v '^#' "$T/m2/config/tt/maquinas" | tr '\n' ';')"
+rm -f "$T/m2/home/naoresolve" "$T/m1/home/tailscale.json"
+
+# --- 10) desligada no Tailscale de quem pergunta não é ilha, nem vista de uma que não sabe (o Termux não tem o tailscale)
+reg 1 2 3 4; reg 2 1 3 4; reg 3 1 2 4; reg 4 1 2 3; rm -f "$T"/m*/config/tt/maquinas-estado; touch "$T/m4/DESLIGADA"
+echo '{"Peer": {"p4": {"HostName": "h4", "DNSName": "h4.tail.ts.net.", "Online": false, "TailscaleIPs": ["10.0.0.4"]}}}' >"$T/m1/home/tailscale.json"
+saida=$(como 1 --malha); rc=$?
+[[ $rc == 0 && $saida == *"m4:○"* && $saida != *"m4:✗"* ]] && ok "tt --malha: m4 desligada aparece ○ nas outras linhas e não conta como ilha" || erro "desligada vista como ilha (rc=$rc): $saida"
+rm -f "$T/m4/DESLIGADA" "$T/m1/home/tailscale.json"
+
+# --- 12) duas rodadas ao mesmo tempo (a volta do vigia e um tt --malha à mão): a pasta das respostas era fixa por
+# usuário, a segunda apagava a da primeira, e as duas acusavam ilha falsa ("não respondeu ao diagnóstico")
+( SIM_LENTO=2 como 1 --malha >"$T/malha-a" ) & a=$!
+sleep 0.7; SIM_LENTO=2 como 1 --malha >"$T/malha-b"; rb=$?; wait "$a"; ra=$?
+[[ $ra == 0 && $rb == 0 ]] && ! grep -q "sem resposta" "$T/malha-a" "$T/malha-b" && grep -q "Malha completa" "$T/malha-a" &&
+  grep -q "Malha completa" "$T/malha-b" && grep -q "^m3 " "$T/malha-a" && grep -q "^m3 " "$T/malha-b" && ok "duas rodadas do tt --malha ao mesmo tempo não se atrapalham" ||
+  erro "rodadas simultâneas viram ilha (rc $ra/$rb): $(cat "$T/malha-a" "$T/malha-b")"
 
 echo
 if ((falhas == 0)); then echo "TODOS OS TESTES PASSARAM"; else echo "$falhas FALHA(S)"; fi

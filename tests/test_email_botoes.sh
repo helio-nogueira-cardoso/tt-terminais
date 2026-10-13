@@ -102,7 +102,28 @@ mkdir -p ~/.cache/tt/maildir/conta/'[Gmail]'/Lixeira/{cur,new,tmp}
 bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo"
 [[ $(tmux show -qv -t =_tt-email: @tt_email_binds) != "$antes" ]] ||
   falhou 'pasta nova no espelho deveria recriar a sessão oculta (o aerc de antes não a enxerga)'
-passou 'sessão oculta com binds antigos, binds.conf mudado ou pasta nova no espelho é recriada'
+# aberta em outra tela (popup anexado): pasta nova não a derruba (fecharia o e-mail lá, com uma resposta pela
+# metade); desanexada, a próxima abertura a recria. (Um "aerc" que o tmux vê como aerc: o falso acima é python3,
+# e sessão sem aerc é sempre recriada.)
+printf '#!/bin/bash\nexec -a aerc sleep 600\n' >"$T/bin/aerc-dorme"; chmod +x "$T/bin/aerc-dorme"
+sessao_dorme() { bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc-dorme' largo"; }
+sessao_dorme; antes=$(tmux show -qv -t =_tt-email: @tt_email_binds); pid=$(tmux display -p -t =_tt-email: '#{pane_pid}')
+[[ $(tmux display -p -t =_tt-email: '#{pane_current_command}') == aerc ]] || falhou "o aerc de teste deveria aparecer como aerc: $(tmux display -p -t =_tt-email: '#{pane_current_command}')"
+mkfifo "$T/anexo.in"   # (stdin que só espera: /dev/zero fazia o script girar; o caminho com $T deixa a limpeza matá-lo)
+script -qfc "tmux attach -t =_tt-email" "$T/anexo.log" <>"$T/anexo.in" >/dev/null 2>&1 & anexo=$!
+for ((i = 0; i < 50; i++)); do [[ $(tmux display -p -t =_tt-email: '#{session_attached}') == 1 ]] && break; sleep 0.1; done
+[[ $(tmux display -p -t =_tt-email: '#{session_attached}') == 1 ]] || falhou 'o cliente de teste não anexou à sessão do e-mail'
+mkdir -p ~/.cache/tt/maildir/conta/'Nova etiqueta'/{cur,new,tmp}
+sessao_dorme
+[[ $(tmux display -p -t =_tt-email: '#{pane_pid} #{session_attached}') == "$pid 1" ]] ||
+  falhou "aberta em outra tela, pasta nova não deveria derrubar a sessão: $(tmux display -p -t =_tt-email: '#{pane_pid} #{session_attached}') (antes $pid 1)"
+tmux detach-client -s =_tt-email 2>/dev/null; wait "$anexo" 2>/dev/null || true   # (o script pode sair com erro ao perder o cliente)
+sessao_dorme
+[[ $(tmux display -p -t =_tt-email: '#{pane_pid}') != "$pid" && $(tmux show -qv -t =_tt-email: @tt_email_binds) != "$antes" ]] ||
+  falhou 'desanexada, a próxima abertura deveria recriar a sessão com a pasta nova'
+tmux kill-session -t =_tt-email 2>/dev/null
+bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo"
+passou 'sessão oculta com binds antigos, binds.conf mudado ou pasta nova no espelho é recriada (aberta em outra tela, só depois)'
 
 # 2e) linha de status do aerc fica só com o estado; as dicas antigas do tt são migradas, valor do dono fica
 printf '[statusline]\ncolumn-right={{.TrayInfo}}  ? atalhos · F2 contas · Ctrl+r redesenha · q fecha\n' >~/.config/aerc/aerc.conf

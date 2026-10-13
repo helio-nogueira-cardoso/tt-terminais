@@ -28,11 +28,14 @@ repositório) e chega a todas as máquinas na próxima versão; regra só de uma
 
 ## 4. E-mail
 - **Conferir:** para cada conta (`tt --email-listar`), espelho local ligado (`sync_local=1`), última rodada em dia
-  em `tt --email-sync-estado`, sem `.erro` nem espera longa em `~/.local/state/tt/email-sync/`.
+  em `tt --email-sync-estado`, sem `.erro` nem espera longa em `~/.local/state/tt/email-sync/`; a volta completa (as
+  outras pastas) também em dia: `<conta>.erro-completo` guarda a causa da última ruim.
 - **Conferir também os comandos:** `tt --email-conferir` (✕ Apagar tem para onde mandar: lixeira conhecida, presente no
   espelho, comandos da conta no aerc). Corrigir: `tt --email-conferir CONTA --corrigir`.
 - **Corrigir:** a dica do `--email-sync-estado` diz a pendência (`tt --pedir-sudo …`); mbsyncrc antigo →
-  `tt --email-mbsync-migrar`; config gerada errada → `tt --email-regerar CONTA`; depois `tt --email-sync CONTA` e
+  `tt --email-mbsync-migrar`; config gerada errada → `tt --email-regerar CONTA`; "far side box X cannot be opened
+  anymore" = pasta que sumiu do servidor e ficou no espelho: confira que está vazia ou que as mensagens existem em outra
+  pasta e mova-a de `~/.cache/tt/maildir/CONTA/` para o backup da rodada; depois `tt --email-sync CONTA --completo` e
   conferir de novo. OAuth vencido ou senha recusada exige o usuário: avisar com `tt --email-autorizar CONTA` pronto.
 
 ## 5. Tarefas
@@ -44,7 +47,8 @@ repositório) e chega a todas as máquinas na próxima versão; regra só de uma
 - **Conferir também:** linha `sshd` do `tt --checar` (esta máquina aceita conexão na 22, ou na 8022 pelo sshd do usuário
   que o tt sobe); log em `~/.local/state/tt/sshd/garantir.log`.
 - **Corrigir:** `tt --diagnosticar MÁQUINA`; chave → `tt --reparar MÁQUINA`; porta fechada nesta máquina →
-  `tt --sshd-garantir` (sem o programa: `tt --pedir-sudo sshd`). Máquina desligada não é defeito.
+  `tt --sshd-garantir` (sem o programa: `tt --pedir-sudo sshd`). Máquina desligada não é defeito. Nome que não resolve
+  só numa máquina (o celular sem o MagicDNS): a malha religa pelo IP da tailnet que as outras anunciam.
 
 ## 7. Agentes
 - **Conferir:** `~/.agents/AGENTS.md` tem o bloco `tt-managed:regras-tt`; `CLAUDE.md` dos perfis e `AGENTS.md` do

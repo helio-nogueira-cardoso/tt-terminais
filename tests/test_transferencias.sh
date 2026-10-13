@@ -18,9 +18,15 @@ job(){ # id estado nome [log]
   printf '%s\n' "$2" >"$D/$1.status"; printf '%s\n' "$3" >"$D/$1.nomes"
   printf 'A\t/o\tA\t/d\n' >"$D/$1.info"; [[ -n ${4:-} ]] && printf '%s\n' "$4" >"$D/$1.log"; return 0; }
 tela(){ tmux -L $S capture-pane -p -t x; }
+# até 10 s para a condição valer (um sleep fixo estourava sob carga)
+ate(){ local i; for i in $(seq 1 40); do eval "$1" && return 0; sleep 0.25; done; return 1; }
 espera(){ local i; for i in $(seq 1 40); do tela | grep -Fq -- "$1" && return 0; sleep 0.25; done; fail "tela não mostrou: $1"; }
-abre(){ tmux -L $S kill-server 2>/dev/null || true
-  tmux -L $S -f /dev/null new-session -d -x 100 -y 24 -s x "$E bash $TT --transferencias"; }
+# kill-server seguido de new-session disputa o socket com o servidor que ainda está saindo: sob carga (a suíte
+# roda 8 testes juntos) o new-session morria em "server exited unexpectedly", também no origin/main. Tenta de novo.
+sessao(){ local i; for i in 1 2 3 4 5; do tmux -L $S kill-server 2>/dev/null || true
+  tmux -L $S -f /dev/null new-session -d -x 100 -y 24 -s x "$1" 2>/dev/null && return 0; sleep 0.3; done
+  fail "o tmux do teste não abriu a sessão"; }
+abre(){ sessao "$E bash $TT --transferencias"; }
 
 # 1) causa legível por tipo de erro
 job 100 'erro — veja o log' 'a.zip' 'tar: write error: No space left on device'
@@ -43,11 +49,11 @@ rm -f "$D"/*
 job 300 'concluída' 'feita.txt'; job 301 'erro — veja o log' 'ruim.txt' 'x'
 job 302 'transferindo 1G…' 'andando.iso'; sleep 600 & pidw=$!; printf '%s\n' "$pidw" >"$D/302.pid"
 printf '1000 400 10\n' >"$D/302.prog"
-abre; espera 'andando.iso'; tmux -L $S send-keys -t x x; sleep 1
-[[ ! -f $D/300.status && ! -f $D/301.status && -f $D/302.status ]] || fail 'x deveria limpar só as terminadas'
+abre; espera 'andando.iso'; tmux -L $S send-keys -t x x
+ate '[[ ! -f $D/300.status && ! -f $D/301.status ]]' && [[ -f $D/302.status ]] || fail 'x deveria limpar só as terminadas'
 
 # 4) cancelar abaixo de 50 % cancela direto; passando de 50 % pergunta
-tmux -L $S send-keys -t x c; sleep 1; [[ $(cat "$D/302.status") == cancelada ]] || fail 'cancelar a 40% deveria cancelar direto'
+tmux -L $S send-keys -t x c; ate '[[ $(cat "$D/302.status") == cancelada ]]' || fail 'cancelar a 40% deveria cancelar direto'
 sleep 600 & pidw=$!; printf '%s\n' "$pidw" >"$D/302.pid"
 printf 'transferindo 1G…\n' >"$D/302.status"; printf '1000 800 10\n' >"$D/302.prog"; sleep 1
 tmux -L $S send-keys -t x c; espera 'Cancelar mesmo'
@@ -108,14 +114,12 @@ espera_fim 'Conferido (sha256)'
 
 # confirmação: mostra itens/tamanho/conflito; ⏎ aceita, Esc recusa
 mkdir -p "$T/dest"; printf 'x' >"$T/dest/um.txt"
-tmux -L $S kill-server 2>/dev/null || true
-tmux -L $S -f /dev/null new-session -d -x 100 -y 24 -s x "$E bash $TT --confirmar-transferencia . $T/orig . $T/dest um.txt pasta; echo RC=\$?; sleep 30"
+sessao "$E bash $TT --confirmar-transferencia . $T/orig . $T/dest um.txt pasta; echo RC=\$?; sleep 30"
 espera 'Confirmar a transferência'
 tela | grep -Fq '2 itens' || fail 'confirmação deveria dizer 2 itens'
 tela | grep -Fq '1 já existe lá' || fail 'confirmação deveria avisar do conflito'
 tmux -L $S send-keys -t x Escape; espera 'RC=1'
-tmux -L $S kill-server 2>/dev/null || true
-tmux -L $S -f /dev/null new-session -d -x 100 -y 24 -s x "$E bash $TT --confirmar-transferencia . $T/orig . $T/dest um.txt; echo RC=\$?; sleep 30"
+sessao "$E bash $TT --confirmar-transferencia . $T/orig . $T/dest um.txt; echo RC=\$?; sleep 30"
 espera 'Confirmar a transferência'; tmux -L $S send-keys -t x Enter; espera 'RC=0'
 echo "ok — conferência, confirmação e cópia local verificada"
 
@@ -136,8 +140,7 @@ $E TT_SEM_CONFIRMAR=1 bash "$TT" --enviar "$T/orig/um.txt" "$T/orig/dois.txt" "A
 for i in $(seq 1 40); do [[ -f $T/dest/um.txt && -f $T/dest/dois.txt ]] && break; sleep 0.5; done
 [[ -f $T/dest/um.txt && -f $T/dest/dois.txt ]] || fail 'os dois arquivos não chegaram'
 [[ $(ls "$D"/*.status | wc -l) == 1 ]] || fail 'itens da mesma pasta deveriam ser um trabalho só'
-sleep 1
-grep -q 'dois.txt' "$T/state/tt/recebidos.tsv" 2>/dev/null || fail 'recebidos.tsv não registrou a chegada'
+ate "grep -q 'dois.txt' '$T/state/tt/recebidos.tsv' 2>/dev/null" || fail 'recebidos.tsv não registrou a chegada'
 echo "ok — stdin, agrupamento por pasta e registro de recebidos"
 
 # 9) cópia retomável de arquivo grande: parte guardada, retoma do byte certo, arquivo final idêntico

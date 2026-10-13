@@ -93,6 +93,15 @@ zera; MBSYNC_DORME=3 TT_EMAIL_SYNC_TETO=1 "$TT" --email-sync Local --completo >/
 grep -q 'tempo esgotado' "$E/local.erro" || falhou "o tempo esgotado da completa deveria ficar registrado: $(cat "$E/local.erro" 2>/dev/null)"
 passou 'depois de erro o vigia espera (2×, 4×… até 15 min); à mão sincroniza já; sucesso zera'
 
+# a causa de uma volta completa ruim sobrevive ao INBOX bom seguinte e some na próxima completa boa
+zera; MBSYNC_RC=1 MBSYNC_ERR='Error: channel local-pastas: far side box Velha cannot be opened anymore.' "$TT" --email-sync Local --completo >/dev/null 2>&1
+"$TT" --email-sync Local >/dev/null 2>&1
+[[ ! -e $E/local.erro ]] && grep -q 'Velha cannot be opened' "$E/local.erro-completo" 2>/dev/null ||
+  falhou "a causa da completa ruim deveria ficar em .erro-completo depois do INBOX bom: $(cat "$E/local.erro-completo" 2>&1)"
+"$TT" --email-sync Local --completo >/dev/null 2>&1
+[[ ! -e $E/local.erro-completo ]] || falhou 'a completa boa deveria apagar o .erro-completo'
+passou 'a causa da volta completa ruim fica em .erro-completo até uma completa boa'
+
 # 6) ligações do vigia: completa ao iniciar só se a última for velha; intervalo ocioso; --vigia
 corpo=$(sed -n '/^vigiar()/,/^}/p' "$TT_DIR/tt")
 grep -q 'ultima_email_completo=$(email_ultima_completa)' <<<"$corpo" || falhou 'vigia não parte da última volta completa registrada'

@@ -34,4 +34,5 @@ grep -qx "$(id -un) ALL=(ALL) NOPASSWD: ALL" "$f" || falhou "regra errada: $(cat
 grep -q '^install -m 0440 -o root -g root ' "$T/sudo.log" || falhou "a regra deveria entrar pelo sudo, com dono root e modo 0440: $(cat "$T/sudo.log")"
 grep -q $'^sudo-sem-senha\tok\t' <<<"$("$TT" --pendencias --tsv)" || falhou 'depois de ativar, a pendência deveria ficar ok'
 grep -q 'Configuração do sistema:.*NOPASSWD' <<<"$saida" || falhou "o modal deveria mostrar o comando exato: $saida"
-passou 'aceitar grava a regra pelo sudo (visudo, 0440, dono root), o modal mostra o comando e a pendência fica ok'
+! grep -q 'na sua pasta (sem administrador)' <<<"$saida" || falhou "passo de administrador listado como feito sem administrador: $saida"
+passou 'aceitar grava a regra pelo sudo (visudo, 0440, dono root), o modal mostra o comando (não como passo sem administrador) e a pendência fica ok'

@@ -48,10 +48,12 @@ git -C "$HOME/.local/share/tt-fonte" fetch -q origin 2>/dev/null
 echo "999 $D $resto" >"$TT_DIR/VERSAO"
 tt --garantir-atualizacao >/dev/null 2>&1
 [[ $(inst) == "$D" ]] || falhou 'divergente com número maior foi rebaixado'
-echo "1 $D $resto" >"$TT_DIR/VERSAO"
-tt --garantir-atualizacao >/dev/null 2>&1
+echo "1 $D 2000-01-01 0.0.1" >"$TT_DIR/VERSAO"
+saida=$(tt --garantir-atualizacao 2>&1)
 [[ $(inst) == "$(pub)" ]] || falhou "divergente com número menor deveria instalar o publicado: [$(inst)]"
-passou 'divergente: número maior não rebaixa; número menor converge para o publicado'
+# a linha do vigia.log diz de onde veio (antes ela relia o VERSAO já trocado: "de v1.15.4 (build 345) para v1.15.4")
+grep -q 'tt atualizado de v0\.0\.1 (build 1) para ' <<<"$saida" || falhou "o registro da atualização deveria trazer a versão de antes: $saida"
+passou 'divergente: número maior não rebaixa; número menor converge para o publicado (e o registro diz de qual versão veio)'
 
 # 5) Fonte inalcançável: 3 falhas seguidas viram UM aviso com o motivo; o estado mostra "falhando".
 sed -i '/^fonte=/d' "$XDG_CONFIG_HOME/tt/config"; echo "fonte=$T/nao-existe" >>"$XDG_CONFIG_HOME/tt/config"

@@ -1568,10 +1568,13 @@ Todas as máquinas cadastradas se conhecem e se alcançam, sem você fazer nada 
   Descadastrar vale em todas (`~/.config/tt/maquinas-estado`, o registro mais recente vence) e a troca de listas não a ressuscita.
 - **Inter-acessível:** só entra o que se prova (par da tailnet, o ssh entra e o nome de lá confere). A máquina se apresenta pelo
   IP que a outra vê; porta 8022 (sshd do Termux) vai para o `~/.ssh/config`; endereço que falha é trocado por outro que as demais
-  usam; chave faltando é reparada por uma máquina que já acessa o destino.
+  usam, inclusive o IP da tailnet que quem tem o Tailscale anuncia (o celular sem o MagicDNS não resolve os nomes); máquina
+  nova para esta entra pelo nome ou, se o nome não conecta daqui, por esse IP; chave faltando é reparada por uma máquina que
+  já acessa o destino.
 - **Sem fricção:** nada é perguntado. Se uma ilha persistir por 2 voltas, a barra avisa.
 
 `tt --malha` completa e mostra quem alcança quem (`ok`, `○` desligada, `✗` ilha); sai com o número de conexões quebradas.
+Desligada no Tailscale de quem pergunta é `○` em todas as linhas, mesmo na de uma máquina que não sabe disso (o Termux).
 Rastros: `~/.cache/tt-malha.log`. Testes: `tests/test_malha.sh`.
 
 **sshd garantido (v1.15.2):** `sshd_garantir` (vigia a cada 300 s por `--sshd-garantir --vigia`, só com outras máquinas

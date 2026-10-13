@@ -39,6 +39,17 @@ grep -q $'^separacao\tok\t' <<<"$saida" || falhou "pacote recém-instalado dever
 "$TT" --checar >/dev/null && falhou '--checar deveria sair 1 com falha'
 passou 'coletor: todas as checagens, vigia parado é falha e o --checar sai 1'
 
+# Logo depois de instalar, o publicado guardado é o da sonda anterior: não pode acusar a máquina de atrasada.
+inst=$(stat -c %Y "$TT_DIR/VERSAO")
+printf 'sonda_em=%s\npublicado=%s\n' $((inst - 60)) 0123456789abcdef0123456789abcdef01234567 >"$ES/atualizacao"
+l=$(grep '^atualizacao' <<<"$("$TT" --checar --tsv)")
+[[ $l == atualizacao$'\t'ok$'\t'* ]] || falhou "sonda anterior à instalação acusou atraso: $l"
+printf 'sonda_em=%s\npublicado=%s\n' $((inst + 60)) 0123456789abcdef0123456789abcdef01234567 >"$ES/atualizacao"
+l=$(grep '^atualizacao' <<<"$("$TT" --checar --tsv)")
+[[ $l == atualizacao$'\t'aviso$'\t'* ]] || falhou "sonda posterior com outro publicado deveria ser aviso: $l"
+rm -f "$ES/atualizacao"
+passou 'atualização: publicado de antes da instalação não acusa atraso; o de depois, sim'
+
 echo minha-config >"$TT_DIR/meu-arquivo"
 grep -q $'^separacao\taviso\t.*meu-arquivo' <<<"$("$TT" --checar --tsv)" || falhou 'arquivo do usuário no pacote não foi acusado'
 rm -f "$TT_DIR/meu-arquivo"; mv "$TT_DIR/sessoes-ia.py" "$T/guardado"
@@ -58,6 +69,21 @@ l=$(grep '^email:trab' <<<"$("$TT" --checar --tsv)")
 [[ $l == *$'\tfalha\t'*AUTHENTICATIONFAILED* || $l == *$'\taviso\t'* ]] || falhou "e-mail com erro não foi acusado: $l"
 rm -rf "$XDG_CONFIG_HOME/tt/email" "$ES/email-sync"
 passou 'e-mail: conta com espelho falhando aparece com a causa'
+
+# INBOX em dia e a volta completa falhando sempre (pasta que sumiu do servidor e ficou no espelho): aviso com a causa
+mkdir -p "$XDG_CONFIG_HOME/tt/email" "$ES/email-sync"
+printf 'nome=Trabalho\nendereco=x@exemplo.com\nsync_local=1\n' >"$XDG_CONFIG_HOME/tt/email/trab.conf"
+agora=$(date +%s)
+printf 'completo\t%s\t%s\t1\ninbox\t%s\t%s\t0\ncompleto\t%s\t%s\t1\ninbox\t%s\t%s\t0\n' $((agora-1900)) $((agora-1880)) $((agora-1000)) $((agora-995)) \
+  $((agora-100)) $((agora-80)) $((agora-20)) $((agora-15)) >"$ES/email-sync/trab"
+echo 'Error: channel trab-pastas: far side box Velha cannot be opened anymore.' >"$ES/email-sync/trab.erro-completo"
+l=$(grep '^email:trab' <<<"$("$TT" --checar --tsv)")
+[[ $l == *$'\taviso\t'*'2 vezes'*'Velha cannot be opened'* ]] || falhou "volta completa falhando não foi acusada: $l"
+printf 'completo\t%s\t%s\t0\n' $((agora-10)) $((agora-5)) >>"$ES/email-sync/trab"
+l=$(grep '^email:trab' <<<"$("$TT" --checar --tsv)")
+[[ $l == *$'\tok\t'* ]] || falhou "volta completa boa deveria voltar a ok: $l"
+rm -rf "$XDG_CONFIG_HOME/tt/email" "$ES/email-sync"
+passou 'e-mail: INBOX em dia com a volta completa falhando é aviso, com a causa'
 
 # --- Agente ----------------------------------------------------------------------------------------------
 cat >"$TT_DIR/NOVIDADES.md" <<'N'
