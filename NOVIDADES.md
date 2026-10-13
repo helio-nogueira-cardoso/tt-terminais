@@ -3,6 +3,15 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.15.4 · 13/10/2026
+- **🗑 Apagar funciona até em caixa gigante, e se conserta sozinho.** Com um INBOX de dezenas de milhares de mensagens, o espelho local nunca terminava a primeira volta, recomeçava a cada poucos minutos e acabava estourando a cota diária do Gmail ("OVERQUOTA"). A lixeira só vinha depois, então nunca chegava, e o ✕ Apagar não tinha para onde mandar. Agora:
+  - O espelho guarda só as últimas 5000 mensagens do INBOX (`TT_EMAIL_INBOX_MAX` muda). As outras continuam no servidor, e o ⚡ Em lote age nelas.
+  - A lixeira tem um sincronismo só dela, que roda antes de tudo. O 🩺 conserto cria a lixeira no espelho na hora (o apagar volta a funcionar mesmo sem rede ou com a cota estourada) e sincroniza só ela.
+  - Quando o Gmail responde que a cota acabou, o tt espera 2 horas antes de tentar de novo, em vez de insistir a cada poucos minutos, e o `tt --email-sync-estado` explica o que houve.
+  - Nada a fazer: ao atualizar, cada conta é regravada no formato novo e os comandos de apagar se conferem e se consertam sozinhos; depois de cada sincronização completa, de novo.
+- **⚡ Busca com acento no e-mail em lote.** `assunto:"solicitação"` dava sempre "este servidor não aceita busca com acento". Agora funciona no Gmail.
+- **🕸 `tt --malha` não cai mais** com "trava: unbound variable" antes de mostrar quem alcança quem.
+
 ## v1.15.3 · 13/10/2026
 - **🔐 "sudo sem senha" virou pendência.** Enquanto o `sudo` desta máquina pedir senha, o 📦 oferece ativá-lo. Ao aceitar, você digita a senha uma última vez e o tt grava uma regra em `/etc/sudoers.d/` (conferida pelo `visudo` antes de entrar, modo 0440). Daí em diante o tt e os agentes ligam o ssh do sistema, instalam pendências e corrigem a máquina sem pedir senha. O modal mostra o comando exato. Para desfazer: `sudo rm /etc/sudoers.d/tt-sem-senha-<seu usuário>`.
 

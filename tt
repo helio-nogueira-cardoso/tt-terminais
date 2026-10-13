@@ -1936,7 +1936,7 @@ malha_completar() {
   local trava="$RT/tt-malha-$UID.lock"
   if [[ -d $trava ]] && (($(date +%s) - $(stat -c %Y "$trava" 2>/dev/null || echo 0) > 600)); then rmdir "$trava" 2>/dev/null; fi
   mkdir "$trava" 2>/dev/null || return 0
-  trap 'rmdir "$trava" 2>/dev/null' RETURN
+  trap 'rmdir "$trava" 2>/dev/null; trap - RETURN' RETURN
   local dest rot out tipo a b c r temme ip ok cands="" alts="" falhos="" conhecidos hosts_conhecidos u novos=0 eu_rot est
   local listas=""
   # As listas de todas as máquinas chegam ao mesmo tempo (antes, uma por vez, até 25 s cada); o que se faz
@@ -4367,7 +4367,7 @@ quebrar_ciclo_para() {
 guarda_tamanho() {
   local c term w h s n=0 trava="$RT/tt-guarda-$UID"
   mkdir "$trava" 2>/dev/null || return 0 # já tem uma rodando (vários ganchos disparam juntos)
-  trap 'rmdir "$trava" 2>/dev/null' RETURN
+  trap 'rmdir "$trava" 2>/dev/null; trap - RETURN' RETURN
   sleep 0.2
   while read -r c term w h s; do
     [[ $term == tmux* || $term == screen* ]] || continue
@@ -15433,6 +15433,13 @@ email_mbsync_passcmd() {
 
 # Quantas mensagens do "Todos os e-mails" (o arquivo do Gmail) ficam no espelho local.
 EMAIL_ARQUIVO_MAX=${TT_EMAIL_ARQUIVO_MAX:-500}
+# Quantas mensagens do INBOX ficam no espelho. Sem limite, um INBOX de dezenas de milhares nunca
+# terminava a 1ª volta (teto de 240 s), recomeçava a cada poucos minutos e estourava a cota diária do
+# Gmail (OVERQUOTA); a lixeira, que vinha depois, nunca chegava e o ✕ Apagar não funcionava. O resto
+# fica no servidor (⚡ Em lote age lá).
+EMAIL_INBOX_MAX=${TT_EMAIL_INBOX_MAX:-5000}
+# Formato do .mbsyncrc gerado: a migração regrava o que tiver outra marca (ou nenhuma).
+EMAIL_MBSYNCRC_VER=2
 
 # Gera (ou remove, com "remover") o ~/.config/tt/mbsync/<slug>.mbsyncrc da conta em E. O arquivo não
 # tem segredo: a senha vem por PassCmd em tempo de execução. Três canais e um grupo:
@@ -15443,7 +15450,10 @@ EMAIL_ARQUIVO_MAX=${TT_EMAIL_ARQUIVO_MAX:-500}
 #   <slug>-arquivo  o "Todos os e-mails" (destino do arquivar), só as últimas EMAIL_ARQUIVO_MAX
 #                   mensagens no espelho (MaxMessages/ExpireUnread só podam o lado local; o servidor
 #                   segue com tudo);
-#   Group <slug>    os três: a volta completa (TT_EMAIL_SYNC_COMPLETO) e `mbsync <slug>`.
+#   <slug>-lixeira  a lixeira (destino do ✕ Apagar), num canal próprio e PRIMEIRO na volta completa:
+#                   chega ao espelho mesmo que as outras pastas demorem; o --corrigir roda só ela;
+#   Group <slug>    todos: a volta completa (TT_EMAIL_SYNC_COMPLETO) e `mbsync <slug>`.
+# O INBOX guarda no espelho só as últimas EMAIL_INBOX_MAX mensagens (o servidor segue com tudo).
 # Os nomes especiais vêm das marcas do servidor (pasta_*), então valem em qualquer idioma; sem elas
 # (conta antiga, ainda sem descobrir), fica só INBOX + pastas.
 email_mbsyncrc_gerar() {
@@ -15454,11 +15464,14 @@ email_mbsyncrc_gerar() {
   local usuario=${E[usuario]:-${E[endereco]}} maildir; maildir=$(email_maildir "$slug")
   local sslt="IMAPS"; case $seg in starttls) sslt="STARTTLS" ;; nenhuma) sslt="None" ;; esac
   local authmech=""; [[ ${E[auth]} == oauth ]] && authmech=$'AuthMechs XOAUTH2\n'
-  local todos=${E[pasta_todos]:-} fora="" p canais="$slug-inbox $slug-pastas"
-  for p in "$todos" "${E[pasta_importantes]:-}" "${E[pasta_estrela]:-}"; do [[ -n $p && $p != INBOX ]] && fora+=" \"!$p\""; done
+  local todos=${E[pasta_todos]:-} lixo=${E[pasta_lixeira]:-} fora="" p canais="$slug-inbox $slug-pastas"
+  [[ $lixo == INBOX || $lixo == "$todos" ]] && lixo=""
+  for p in "$todos" "${E[pasta_importantes]:-}" "${E[pasta_estrela]:-}" "$lixo"; do [[ -n $p && $p != INBOX ]] && fora+=" \"!$p\""; done
   [[ -n $todos && $todos != INBOX ]] && canais+=" $slug-arquivo"
+  [[ -n $lixo ]] && canais="$slug-lixeira $canais"
   mkdir -p "$maildir"
-  { printf 'IMAPAccount %s\n' "$slug"
+  { printf '# tt-mbsyncrc %s (gerado pelo tt: tt --email-regerar %s)\n' "$EMAIL_MBSYNCRC_VER" "$slug"
+    printf 'IMAPAccount %s\n' "$slug"
     printf 'Host %s\n' "$host"
     printf 'Port %s\n' "$porta"
     printf 'User %s\n' "$usuario"
@@ -15477,10 +15490,19 @@ email_mbsyncrc_gerar() {
     printf 'Inbox %s/INBOX\n' "$maildir"
     printf 'SubFolders Verbatim\n'
     printf '\n'
-    printf '# Só o INBOX: o canal rápido (o vigia roda a cada TT_EMAIL_SYNC segundos)\n'
+    if [[ -n $lixo ]]; then
+      printf '# A lixeira (destino do apagar), antes das outras: o apagar não espera a volta inteira\n'
+      printf 'Channel %s-lixeira\n' "$slug"
+      printf 'Far ":%s-remote:%s"\n' "$slug" "$lixo"
+      printf 'Near ":%s-local:%s"\n' "$slug" "$lixo"
+      printf 'Create Both\nExpunge Both\nSyncState *\n\n'
+    fi
+    printf '# Só o INBOX: o canal rápido (o vigia roda a cada TT_EMAIL_SYNC segundos). No espelho, só as\n'
+    printf '# últimas %s mensagens; o resto fica no servidor\n' "$EMAIL_INBOX_MAX"
     printf 'Channel %s-inbox\n' "$slug"
     printf 'Far :%s-remote:INBOX\n' "$slug"
     printf 'Near :%s-local:INBOX\n' "$slug"
+    printf 'MaxMessages %s\nExpireUnread yes\n' "$EMAIL_INBOX_MAX"
     printf 'Create Both\nExpunge Both\nSyncState *\n\n'
     printf '# As outras pastas, sem as pastas-rótulo (visões do que já está nas demais)\n'
     printf 'Channel %s-pastas\n' "$slug"
@@ -15512,11 +15534,18 @@ email_mbsyncrc_migrar() {
     rc=$(email_mbsyncrc "$slug"); [[ -f $rc ]] || continue
     # (rc em canais gerado antes da v202 ficou sem "Timeout 60": no padrão de 20 s o login lento
     # do Gmail estourava e a rodada falhava — era o grosso do ⚠ na barra)
-    grep -q "^Group $slug\$" "$rc" && grep -q '^Timeout ' "$rc" && continue
-    E=(); email_ler "$slug" || continue
-    [[ ${E[sync_local]:-} == 1 ]] || continue
-    email_mbsyncrc_gerar
-    [[ -z ${E[pasta_importantes]:-} && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-pastas "$slug" >/dev/null 2>&1 &)
+    # (sem a marca do formato atual: INBOX sem limite no espelho e lixeira sem canal próprio, o caso
+    # da caixa grande que nunca terminava a 1ª volta, estourava a cota do Gmail e não apagava)
+    if ! { grep -q "^Group $slug\$" "$rc" && grep -q '^Timeout ' "$rc" && grep -qx "# tt-mbsyncrc $EMAIL_MBSYNCRC_VER .*" "$rc"; }; then
+      E=(); email_ler "$slug" || continue
+      [[ ${E[sync_local]:-} == 1 ]] || continue
+      email_mbsyncrc_gerar
+      [[ -z ${E[pasta_importantes]:-} && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-pastas "$slug" >/dev/null 2>&1 &)
+    fi
+    # Os comandos do e-mail se consertam sozinhos na atualização (o que falta na rede fica para o sync).
+    [[ $(email_cmds_estado "$slug" 2>/dev/null | cut -f1) == ok ]] && continue
+    if [[ -n ${TT_EMAIL_SEM_REDE:-} ]]; then email_cmds_corrigir "$slug" >/dev/null 2>&1
+    else ("$EU" --email-conferir "$slug" --corrigir >/dev/null 2>&1 &); fi
   done
   return 0
 }
@@ -15543,6 +15572,8 @@ email_sync() { # slug [inbox|completo] [vigia]
     printf 'pulada\t%s\t%s\t0\n' "$agora" "$agora" >>"$dir/$slug"; return 0
   fi
   if [[ $modo == completo ]]; then alvo=$slug; teto=${TT_EMAIL_SYNC_TETO:-600}
+  elif [[ $modo == lixeira ]]; then alvo="$slug-lixeira"; teto=${TT_EMAIL_SYNC_TETO_INBOX:-240}
+    grep -q "^Channel $slug-lixeira\$" "$rc" || { exec 9>&-; return 0; }
   else alvo="$slug-inbox"; teto=${TT_EMAIL_SYNC_TETO_INBOX:-240}; grep -q "^Channel $slug-inbox\$" "$rc" || alvo=$slug; fi   # rc antigo: canal único
   ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
   # O plugin XOAUTH2 só entra para contas OAuth: visível a uma conta de senha (app password), o
@@ -15570,6 +15601,8 @@ email_sync() { # slug [inbox|completo] [vigia]
       k=$(( $(cat "$dir/$slug.falhas" 2>/dev/null || echo 0) + 1 )); echo "$k" >"$dir/$slug.falhas"
       base=${TT_EMAIL_SYNC:-120}; ((base > 0)) || base=120
       esp=$((base << (k < 4 ? k : 4))); ((esp > 900)) && esp=900
+      # Cota do Gmail estourada (banda ou comandos do dia): insistir só prolonga o bloqueio.
+      grep -qiE 'OVERQUOTA|bandwidth limits' "$dir/$slug.erro" && esp=${TT_EMAIL_ESPERA_COTA:-7200}
       echo $((fim + esp)) >"$dir/$slug.espera"
     fi
   fi
@@ -15579,6 +15612,14 @@ email_sync() { # slug [inbox|completo] [vigia]
   atualizar_barras 2>/dev/null
   # Volta completa boa: refaz o índice de destinatários (quem já escreveu / para quem já se escreveu).
   [[ $modo == completo && $st == 0 ]] && email_contatos_indexar
+  # Depois de uma volta completa boa, a lixeira conhecida que falta no espelho (o ✕ Apagar sem destino)
+  # se conserta sozinha. Só esse caso, que é local: o resto (lixeira desconhecida) pede o servidor e fica
+  # para a atualização ou para o 🩺.
+  if [[ $modo == completo && $st == 0 ]]; then
+    local l md; local -A E=()
+    email_ler "$slug" 2>/dev/null; l=${E[pasta_lixeira]:-}; md=$(email_maildir "$slug")
+    if [[ -n $l && -d $md && ! -d $md/$l && ! -d $md/${l//.//} ]]; then exec 9>&-; email_cmds_corrigir "$slug" >/dev/null 2>&1; fi
+  fi
   return $st
 }
 
@@ -15883,6 +15924,10 @@ email_sync_estado() { # [curto]
 # Erro do mbsync que uma pendência de instalação resolve: diz qual (só as que de fato estão pendentes).
 email_erro_dica() { # arquivo-do-erro
   local f=$1 ids="" pend
+  if grep -qiE 'OVERQUOTA|bandwidth limits' "$f"; then
+    printf '    \033[33m→ o Gmail limitou a conta por hoje (cota de banda/comandos): o tt espera 2 h antes de tentar de novo.\n      O INBOX do espelho guarda só as últimas %s; para limpar no servidor: tt --email-lote\033[0m\n' "$EMAIL_INBOX_MAX"
+    return 0
+  fi
   if grep -qiE 'built without LibSASL|only AuthMech LOGIN' "$f"; then ids="isync-sasl email-xoauth2"
   elif grep -qiE 'SASL mechanism.*not available|selected:.*XOAUTH2' "$f"; then ids="email-xoauth2"
   elif grep -qiE 'mbsync.*(not found|não encontrado)|command not found' "$f"; then ids="email-sync"; fi
@@ -16305,12 +16350,19 @@ email_cmds_corrigir() { # slug
   if [[ -n $l && ${E[sync_local]:-} == 1 ]]; then
     md=$(email_maildir "$s")
     if [[ -d $md && ! -d $md/$l && ! -d $md/${l//.//} ]]; then
-      echo "  · trazendo as pastas de $s para o espelho (sync completo)…"
-      "$EU" --email-sync "$s" --completo >/dev/null 2>&1 || echo "  ✗ o sync completo falhou (tt --email-sync-estado)"
+      # A pasta nasce já no espelho (o ✕ Apagar passa a ter para onde mover, mesmo sem rede ou com a
+      # cota do Gmail estourada) e o canal só da lixeira a sincroniza: não espera o INBOX nem as
+      # outras pastas, que numa caixa grande podiam nunca terminar.
+      echo "  · criando a lixeira ($l) no espelho de $s…"
+      mkdir -p "$md/$l/cur" "$md/$l/new" "$md/$l/tmp"
     fi
   fi
   email_regerar "$s" >/dev/null 2>&1 || true
   aerc_binds_gravar
+  if [[ -n $l && ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]]; then
+    echo "  · sincronizando a lixeira de $s…"
+    email_sync "$s" lixeira || echo "  ✗ o sync da lixeira falhou agora; o vigia tenta de novo (tt --email-sync-estado)"
+  fi
 }
 
 # tt --email-conferir [CONTA…] [--corrigir]: os comandos do e-mail de cada conta (apagar, arquivar)

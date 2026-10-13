@@ -18,18 +18,21 @@ erros = []
 def ok(cond, msg):
     if not cond: erros.append(msg)
 class Falso:
-    caps = "IMAP4rev1 MOVE UIDPLUS X-GM-EXT-1"
+    caps = "IMAP4rev1 MOVE UIDPLUS X-GM-EXT-1 ENABLE UTF8=ACCEPT"
     pastas = ['(\\HasNoChildren) "/" "INBOX"', '(\\HasNoChildren \\Trash) "/" "[Gmail]/Lixeira"',
               '(\\HasNoChildren \\All) "/" "[Gmail]/Todos os e-mails"', '(\\HasNoChildren) "/" "Recibos"', '(\\Noselect \\HasChildren) "/" "[Gmail]"']
     uids = list(range(1, 1201)); uv = b"77"; log = []
-    def __init__(self, *a, **k): self._encoding = "ascii"
+    def __init__(self, *a, **k): self._encoding = "ascii"; self.capabilities = ("IMAP4REV1",)  # cumprimento: sem ENABLE (Gmail)
     def login(self, u, s): pass
     def capability(self): return "OK", [Falso.caps.encode()]
     def list(self): return "OK", [p.encode() for p in Falso.pastas]
     def select(self, caixa, readonly=False):
-        Falso.log.append(f"select {caixa} {'ro' if readonly else 'rw'}"); return "OK", [b"1200"]
+        self.state = "SELECTED"; Falso.log.append(f"select {caixa} {'ro' if readonly else 'rw'}"); return "OK", [b"1200"]
     def response(self, k): return k, [Falso.uv]
-    def enable(self, c): Falso.log.append(f"enable {c}")
+    def enable(self, c):  # como no imaplib: ENABLE só no estado AUTH (antes do SELECT)
+        if getattr(self, "state", "AUTH") != "AUTH": raise et.imaplib.IMAP4.error(f"command ENABLE illegal in state {self.state}")
+        if "ENABLE" not in self.capabilities: raise et.imaplib.IMAP4.error("Server does not support ENABLE")
+        Falso.log.append(f"enable {c}")
     def uid(self, cmd, *args):
         Falso.log.append(f"{cmd} " + " ".join(str(a) for a in args))
         if cmd == "SEARCH": return "OK", [" ".join(map(str, Falso.uids)).encode()]
@@ -61,6 +64,11 @@ out, err, exc = rodar(et.lote_contar, c, "INBOX", "todas", 3, sel)
 ok(exc is None and "total=1200" in out and out.count("amostra\t2024-10-01\tAna\tOferta") == 3, f"contar: {out} {err} {exc}")
 ok(json.load(open(sel))["uids"][:2] == ["1", "2"] and json.load(open(sel))["uidvalidity"] == "77", "UIDs e UIDVALIDITY salvos")
 ok(all(not l.startswith(("STORE", "MOVE", "COPY")) for l in Falso.log) and "select \"INBOX\" ro" in Falso.log, f"contar só lê: {Falso.log}")
+# busca com acento: o UTF8=ACCEPT é ligado antes do SELECT (depois dele o imaplib recusa o ENABLE) e com as
+# capacidades de depois do login (o cumprimento do Gmail não anuncia ENABLE)
+out, err, exc = rodar(et.lote_contar, c, "INBOX", 'assunto:"edição"', 0, None)
+ok(exc is None and "total=1200" in out, f"busca com acento: {exc}")
+ok("enable UTF8=ACCEPT" in Falso.log and Falso.log.index("enable UTF8=ACCEPT") < Falso.log.index('select "INBOX" ro'), f"ENABLE antes do SELECT: {Falso.log}")
 
 # apagar no Gmail: MOVE para a lixeira em blocos de 500, só os UIDs contados
 Falso.uids = list(range(1, 5000))  # chegaram mais depois da contagem: não entram

@@ -850,12 +850,18 @@ def _lote_abrir(m, pasta, rw):
     return todas, alvo[0], uv
 
 
-def _lote_buscar(m, crit):
+def _lote_utf8(m, crit):
+    """Busca com acento pede UTF8=ACCEPT. O ENABLE só vale antes do SELECT (no estado AUTH), e o imaplib o
+    confere contra as capacidades do cumprimento: o Gmail só anuncia ENABLE depois do login."""
     if any(ord(ch) > 127 for ch in " ".join(crit)):
         try:
+            m.capabilities = tuple(set(getattr(m, "capabilities", ()) or ()) | _capacidades(m))
             m.enable("UTF8=ACCEPT"); m._encoding = "utf-8"
         except Exception:
             raise RuntimeError("este servidor não aceita busca com acento; tente sem os acentos")
+
+
+def _lote_buscar(m, crit):
     st, d = m.uid("SEARCH", *crit)
     if st != "OK":
         raise RuntimeError("o servidor recusou a busca")
@@ -870,6 +876,7 @@ def lote_contar(c, pasta, busca, amostra=10, salvar=None):
     try:
         caps = _capacidades(m)
         crit = lote_criterio(busca, caps)
+        _lote_utf8(m, crit)
         _, alvo, uv = _lote_abrir(m, pasta, False)
         uids = _lote_buscar(m, crit)
         print(f"pasta={alvo[2]}")

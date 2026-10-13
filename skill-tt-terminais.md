@@ -422,8 +422,13 @@ e os instaladores da pasta do usuário ficam no `tt`.
 - Apagar em toda conta: `email_contas_lixeira` (nome␟lixeira␟spam␟todos␟gmail) → `email_binds_contas_gerar`: com lixeira,
   d/D/✕ movem para ela (a = `:delete` só no Gmail); na lixeira/spam apagam de vez; sem lixeira (fora do Gmail), d pergunta
   "Apagar de vez (esta conta não tem lixeira)". `tt --email-conferir [CONTA…] [--corrigir]` (`email_cmds_estado`: lixeira
-  conhecida, pasta dela no espelho, seção da conta nos binds; `email_cmds_corrigir`: `email_detectar_pastas`, sync completo,
-  `email_regerar`); o `tt --checar` tem `email-cmd:CONTA`. Teste: `tests/test_email_lote.sh`.
+  conhecida, pasta dela no espelho, seção da conta nos binds; `email_cmds_corrigir`: `email_detectar_pastas`, cria a pasta da
+  lixeira no maildir, `email_regerar` e `email_sync CONTA lixeira`, só o canal dela); o `tt --checar` tem `email-cmd:CONTA`.
+  Autoconserto: `email_mbsyncrc_migrar` (instalação) regrava rc sem a marca `# tt-mbsyncrc 2` e conserta os comandos; o
+  `email_sync` completo bom confere e conserta de novo. Testes: `tests/test_email_lote.sh`, `tests/test_email_espelho_grande.sh`.
+- Caixa grande: o canal `<slug>-inbox` tem `MaxMessages EMAIL_INBOX_MAX` (5000, `TT_EMAIL_INBOX_MAX`) + `ExpireUnread yes` (só
+  poda o espelho); `<slug>-lixeira` (pasta_lixeira) é canal próprio, fora do `Patterns` das pastas e primeiro no `Group`.
+  Erro `OVERQUOTA`/`bandwidth limits` do Gmail: `<slug>.espera` de `TT_EMAIL_ESPERA_COTA` (7200 s) e dica no `--email-sync-estado`.
 - Demandas sem nenhum remetente autorizado: `demandas_processar_conta` roda sempre (não depende de `demandas_ativas`); e-mail
   `[tt]` de quem não está autorizado vai para `<conta>.demandas.espera` e avisa ("aguardando sua autorização"). O `tt --checar`
   tem a linha `demandas` (sem conta espelhada, à espera, ignorado por autenticação nos últimos 7 dias, ou pronta com N
