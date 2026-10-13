@@ -91,7 +91,18 @@ echo '# mudou' >>~/.config/aerc/binds.conf
 antes=$(tmux show -qv -t =_tt-email: @tt_email_binds)
 bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao após mudança'
 [[ $(tmux show -qv -t =_tt-email: @tt_email_binds) != "$antes" ]] || falhou 'binds.conf mudado deveria recriar a sessão (soma nova)'
-passou 'sessão oculta com binds antigos ou binds.conf mudado é recriada'
+# pasta nova no espelho (a lixeira criada pelo conserto): o aerc aberto antes não a enxergava e o ✕ Apagar
+# dava "could not move message: rename … no such file"; a sessão é recriada
+mkdir -p ~/.cache/tt/maildir/conta/INBOX/cur
+bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao com espelho'
+antes=$(tmux show -qv -t =_tt-email: @tt_email_binds)
+bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo"
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) == "$antes" ]] || falhou 'sem pasta nova, a versão da sessão deveria ficar a mesma'
+mkdir -p ~/.cache/tt/maildir/conta/'[Gmail]'/Lixeira/{cur,new,tmp}
+bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo"
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) != "$antes" ]] ||
+  falhou 'pasta nova no espelho deveria recriar a sessão oculta (o aerc de antes não a enxerga)'
+passou 'sessão oculta com binds antigos, binds.conf mudado ou pasta nova no espelho é recriada'
 
 # 2e) linha de status do aerc fica só com o estado; as dicas antigas do tt são migradas, valor do dono fica
 printf '[statusline]\ncolumn-right={{.TrayInfo}}  ? atalhos · F2 contas · Ctrl+r redesenha · q fecha\n' >~/.config/aerc/aerc.conf

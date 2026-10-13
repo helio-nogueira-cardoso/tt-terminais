@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.15.5 · 13/10/2026
+- **🗑 Apagar funciona logo depois do conserto, sem reabrir o e-mail.** O aerc que já estava aberto não enxergava uma pasta criada depois dele (a lixeira que o 🩺 conserto acabou de trazer): o ✕ Apagar continuava com "could not move message … no such file", mesmo com o conserto dizendo ok. Agora, quando aparece pasta nova no espelho, o e-mail é reaberto sozinho na próxima vez que você clica no 📧.
+
 ## v1.15.4 · 13/10/2026
 - **🗑 Apagar funciona até em caixa gigante, e se conserta sozinho.** Com um INBOX de dezenas de milhares de mensagens, o espelho local nunca terminava a primeira volta, recomeçava a cada poucos minutos e acabava estourando a cota diária do Gmail ("OVERQUOTA"). A lixeira só vinha depois, então nunca chegava, e o ✕ Apagar não tinha para onde mandar. Agora:
   - O espelho guarda só as últimas 5000 mensagens do INBOX (`TT_EMAIL_INBOX_MAX` muda). As outras continuam no servidor, e o ⚡ Em lote age nelas.

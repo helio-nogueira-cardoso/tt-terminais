@@ -14644,7 +14644,10 @@ email_sessao() {
   local cmd=$1 modo=$2 b="$HOME/.config/aerc/binds.conf" bo="$HOME/.cache/tt-aerc-binds-oculto.conf" pane_cmd
   # Versão dos binds da sessão: a do tt + a soma do binds.conf (um cadastro de conta Gmail muda os
   # binds por conta; a sessão de antes, com o aerc de antes, é recriada na próxima abertura).
-  local ver="$EMAIL_BINDS_VER:$( [[ -f $b ]] && cksum <"$b" | cut -d' ' -f1 || echo 0)"
+  # Mais a soma das pastas do espelho: o aerc aberto não enxerga pasta que nasce depois (não aplica o
+  # folder-map a ela e o ✕ Apagar falhava com "could not move message: rename … no such file", mesmo
+  # com a lixeira já criada); pasta nova no espelho recria a sessão na próxima abertura.
+  local ver="$EMAIL_BINDS_VER:$( [[ -f $b ]] && cksum <"$b" | cut -d' ' -f1 || echo 0):$(email_pastas_soma)"
   if tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
     pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
     if [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo) == "$modo" && $pane_cmd == aerc* &&
@@ -14666,6 +14669,13 @@ email_sessao() {
   email_sessao_criar "$cmd" "$modo" "$ver" || return 1
   email_sessao_botoes
   return 0
+}
+# Soma da lista de pastas do espelho local (as pastas de maildir: as que têm cur/). Não entra em cur/,
+# new/ nem tmp/ (um INBOX de 90 mil mensagens não pesa).
+email_pastas_soma() {
+  local base=${EMAIL_MAILDIR_BASE:-$HOME/.cache/tt/maildir}
+  [[ -d $base ]] || { echo 0; return 0; }
+  find "$base" -mindepth 2 -maxdepth 5 -type d \( -name cur -print -o -name new -o -name tmp \) -prune 2>/dev/null | LC_ALL=C sort | cksum | cut -d' ' -f1
 }
 # Versão dos binds da sessão oculta: uma sessão criada com binds antigos é recriada (os botões
 # mandam F3–F10, que o aerc de antes não conhecia).
