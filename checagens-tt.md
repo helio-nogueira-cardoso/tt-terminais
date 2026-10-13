@@ -54,6 +54,7 @@ repositório) e chega a todas as máquinas na próxima versão; regra só de uma
 ## 8. Pendências de instalação
 - **Conferir:** `tt --pendencias --tsv` sem item essencial ou de recurso faltando.
 - **Corrigir:** `tt --pedir-sudo --sim ID…` só se `sudo -n true` funciona; senão, registrar e avisar o usuário.
+  A pendência `sudo-sem-senha` é decisão do usuário (ele digita a senha no modal): nunca tente ativá-la por outro caminho.
 
 ## 9. Hora
 - **Conferir:** `tt --hora` com desvio abaixo de 60 s.

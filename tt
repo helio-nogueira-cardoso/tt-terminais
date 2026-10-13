@@ -5531,7 +5531,7 @@ fzf_instalar() {
 # pasta do usuário e (4) quão importante é: essencial (o tt degrada sem), recurso (de uma função em uso)
 # ou opcional (conforto). O vigia só avisa de essencial e recurso; o menu administrar → 📦 mostra tudo.
 PEND_IDS=(nucleo fzf-novo tmux-antigo tmux-novo email-aerc email-sync isync-sasl email-xoauth2 email-espelho email-html email-editor email-spell
-          chrome carbonyl chrome-libs clipboard notificacoes xdg-utils termux-api pv mosh nomeador-local sshd)
+          chrome carbonyl chrome-libs clipboard notificacoes xdg-utils termux-api pv mosh nomeador-local sshd sudo-sem-senha)
 
 CHROME_TAM="~120 MB"; CARBONYL_TAM="~60 MB"
 
@@ -5548,7 +5548,7 @@ declare -A PEND_ROTULOS=(
 pend_avaliar() {
   pacotes_lib || return 1
   local id=$1 v vc cli
-  P_APLICA=1; P_NIVEL=recurso; P_SYS=""; P_USR=0; P_MANUAL=""; P_ROTULO=${PEND_ROTULOS[$id]:-$id}; P_MOTIVO=""; P_TAM=""; P_FALTAM=""
+  P_APLICA=1; P_NIVEL=recurso; P_SYS=""; P_USR=0; P_ADM=0; P_ADM_CMD=""; P_MANUAL=""; P_ROTULO=${PEND_ROTULOS[$id]:-$id}; P_MOTIVO=""; P_TAM=""; P_FALTAM=""
   case $id in
     nucleo)
       P_NIVEL=essencial; P_ROTULO="ferramentas básicas"
@@ -5672,6 +5672,16 @@ pend_avaliar() {
     mosh)
       P_NIVEL=opcional; P_ROTULO=${PEND_ROTULOS[mosh]}; P_MOTIVO="entrar nesta máquina pelo celular sem a conexão cair (mosh)"
       P_SYS=$(pend_faltam mosh) ;;
+    sudo-sem-senha)
+      [[ -n ${TT_PEND_SEM_SUDO_SEM_SENHA:-} ]] && { P_APLICA=0; return 0; } # testes
+      # Passo de administrador que não é pacote (P_ADM): uma regra em /etc/sudoers.d/ deixa o sudo deste usuário sem
+      # senha. Com ela, o tt e os agentes ligam o ssh, instalam pendências e corrigem a máquina sozinhos.
+      [[ ${PREFIX:-} == *com.termux* || $(id -u) == 0 ]] && { P_APLICA=0; return 0; }
+      [[ -n ${TT_SUDO_BIN:-} ]] || tem_cmd sudo || { P_APLICA=0; return 0; }
+      "${TT_SUDO_BIN:-sudo}" -n true 2>/dev/null && return 0
+      P_NIVEL=recurso; P_ROTULO="sudo sem senha"
+      P_MOTIVO="o tt e os agentes ligam o ssh, instalam pendências e corrigem esta máquina sozinhos, sem pedir a senha"
+      P_ADM=1; P_ADM_CMD="sudo install -m 0440 <regra> $(sudoers_arquivo)   (regra: $(id -un) ALL=(ALL) NOPASSWD: ALL, conferida pelo visudo)" ;;
     sshd)
       # Máquina numa malha precisa aceitar conexão; o tt sobe o sshd sozinho (sshd_garantir), mas precisa do programa.
       [[ -s $CONF_MAQ && ${PREFIX:-} != *com.termux* ]] || { P_APLICA=0; return 0; }
@@ -5698,7 +5708,7 @@ pend_estado() { # id → na | ok | falta | manual
   pend_avaliar "$1" || { echo na; return; }
   ((P_APLICA)) || { echo na; return; }
   [[ -n $P_MANUAL ]] && { echo manual; return; }
-  [[ -n $P_SYS || $P_USR == 1 ]] && echo falta || echo ok
+  [[ -n $P_SYS || $P_USR == 1 || $P_ADM == 1 ]] && echo falta || echo ok
 }
 
 # Lista as pendências desta máquina, uma por linha: id<TAB>itens do gerenciador (ou -)<TAB>motivo<TAB>tipo
@@ -5717,7 +5727,7 @@ sudo_pendencias() {
     pend_avaliar "$id" || continue
     ((P_APLICA)) || continue
     [[ -n $P_MANUAL ]] && continue
-    [[ -n $P_SYS || $P_USR == 1 ]] || continue
+    [[ -n $P_SYS || $P_USR == 1 || $P_ADM == 1 ]] || continue
     if ((${#so[@]} == 0)) && [[ -z ${TT_PEND_TODAS:-} ]]; then
       [[ $P_NIVEL == opcional ]] && continue
       pend_recusado "$id" && continue
@@ -5777,6 +5787,13 @@ pend_instalar() {
       fi
     fi
   fi
+  # 1b) passos de administrador que não são pacote (P_ADM): o sudo pede a senha aqui, no terminal do modal
+  for id in "${ids[@]}"; do
+    pend_avaliar "$id" || continue
+    ((P_APLICA)) && [[ $P_ADM == 1 ]] || continue
+    echo "  → $P_ROTULO"
+    case $id in sudo-sem-senha) sudo_sem_senha_ativar || rc=1 ;; esac
+  done
   # 2) passos sem administrador (o pré-requisito pode ter acabado de chegar)
   for id in "${ids[@]}"; do
     pend_avaliar "$id" || continue
@@ -5803,7 +5820,7 @@ pend_instalar() {
   for id in "${ids[@]}"; do
     pend_avaliar "$id" || continue
     nome=$P_ROTULO
-    if ! ((P_APLICA)) || { [[ -z $P_SYS && $P_USR != 1 ]]; }; then printf '  \033[32m✓\033[0m %s\n' "$nome"
+    if ! ((P_APLICA)) || { [[ -z $P_SYS && $P_USR != 1 && $P_ADM != 1 ]]; }; then printf '  \033[32m✓\033[0m %s\n' "$nome"
     else
       printf '  \033[31m✗\033[0m %s — ainda falta\n' "$nome"; ruins+=("$id"); rc=1
     fi
@@ -5812,6 +5829,23 @@ pend_instalar() {
   for id in ${ruins[@]+"${ruins[@]}"}; do sudo_recusa_gravar "$id" semana; done
   ((${#ruins[@]})) && echo "  (Detalhes em ${PK_LOG/#"$HOME"/"~"}. Aviso desta pendência volta em 7 dias; o menu administrar → 📦 reabre na hora.)"
   return $rc
+}
+
+# Pendência "sudo sem senha": a regra fica num arquivo próprio em /etc/sudoers.d/ (o nome não pode ter ponto, ou o
+# sudo o ignora), conferida pelo visudo antes de entrar (uma regra quebrada travaria o sudo de vez) e com modo 0440.
+# Desfazer: sudo rm o arquivo. TT_SUDOERS_DIR e TT_SUDO_BIN só para os testes.
+sudoers_arquivo() { local u; u=$(id -un); printf '%s/tt-sem-senha-%s' "${TT_SUDOERS_DIR:-/etc/sudoers.d}" "${u//[^A-Za-z0-9_-]/_}"; }
+sudo_sem_senha_ativar() {
+  local s=${TT_SUDO_BIN:-sudo} u tmp f
+  u=$(id -un); f=$(sudoers_arquivo)
+  tmp=$(mktemp) || return 1
+  printf '# Gerado pelo tt (pendência "sudo sem senha"): %s usa o sudo sem senha. Desfazer: sudo rm %s\n%s ALL=(ALL) NOPASSWD: ALL\n' "$u" "$f" "$u" >"$tmp"
+  chmod 0440 "$tmp"
+  if ! "$s" visudo -cf "$tmp" >/dev/null 2>&1; then echo "  ✗ o visudo recusou a regra; nada foi gravado."; rm -f "$tmp"; return 1; fi
+  if ! "$s" install -m 0440 -o root -g root "$tmp" "$f"; then echo "  ✗ não consegui gravar $f (senha errada?)."; rm -f "$tmp"; return 1; fi
+  rm -f "$tmp"
+  if "$s" -n true 2>/dev/null; then echo "  ✓ sudo sem senha ativo (regra em $f)"; pk_log "sudo sem senha: regra gravada em $f"; return 0; fi
+  echo "  ✗ a regra foi gravada em $f, mas o sudo ainda pede senha (o /etc/sudoers inclui /etc/sudoers.d?)."; return 1
 }
 
 # tt --pedir-sudo [--sim] [id…]: o modal. Mostra as pendências (o quê, por quê, o comando exato) e oferece
@@ -5824,7 +5858,7 @@ pedir_sudo_pendencias() {
   local tty=${TT_TTY:-/dev/tty} fd r ger priv lista id cmds motivo tipo nivel rot
   # --sim roda também sem terminal (ssh sem -t, agente de IA): a leitura vem do vazio; o sudo, se pedir senha, falha com clareza.
   if ((sim)) && ! ( : </dev/tty ) 2>/dev/null && [[ -z ${TT_TTY:-} ]]; then tty=/dev/null; fi
-  local -a escolhidos=() adiados=() nuncas=() sis=() usu=()
+  local -a escolhidos=() adiados=() nuncas=() sis=() usu=() adm=()
   lista=$(sudo_pendencias "$@")
   if [[ -z $lista ]]; then
     echo "Nada pendente de instalação."
@@ -5848,6 +5882,7 @@ pedir_sudo_pendencias() {
     printf '   • \033[1m%s\033[0m — %s\n' "$rot" "$motivo"
     [[ $cmds != - ]] && sis+=($cmds)
     [[ $tipo != sistema ]] && usu+=("$rot${P_TAM:+ ($P_TAM)}")
+    [[ $P_ADM == 1 ]] && adm+=("$P_ADM_CMD")
   done <<<"$lista"
   if ((${#sis[@]})); then
     pend_resolver "${ger:-apt-get}" "${sis[@]}"
@@ -5857,6 +5892,7 @@ pedir_sudo_pendencias() {
       [[ $priv == indisponivel ]] && printf '  \033[33m⚠ sem sudo/doas/su e você não é administrador: o comando acima terá de ser rodado por quem pode.\033[0m\n'
     else printf '\n  \033[33m⚠ Não achei um gerenciador de pacotes; instale à mão: %s\033[0m\n' "${sis[*]}"; fi
   fi
+  ((${#adm[@]})) && printf '\n  Configuração do sistema:  \033[36m%s\033[0m\n' "${adm[@]}"
   ((${#usu[@]})) && { printf '  Baixado/compilado na sua pasta (sem administrador):  '; printf '%s; ' "${usu[@]}" | sed 's/; $//'; echo; }
   [[ $priv == sudo || $priv == doas || $priv == su ]] && printf '\n  A senha é pedida pelo próprio %s, aqui; o tt não a vê nem a guarda.\n' "$priv"
   for id in $(cut -f1 <<<"$lista"); do
@@ -5925,7 +5961,7 @@ pendencias_status() {
     pend_avaliar "$id"
     if ! ((P_APLICA)); then est=na
     elif [[ -n $P_MANUAL ]]; then est=manual
-    elif [[ -n $P_SYS || $P_USR == 1 ]]; then est=falta
+    elif [[ -n $P_SYS || $P_USR == 1 || $P_ADM == 1 ]]; then est=falta
     else est=ok; fi
     if ((tsv)); then printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$est" "$P_NIVEL" "$P_ROTULO" "${P_MANUAL:-${P_SYS:--}}"; continue; fi
     case $est in

@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.15.3 · 13/10/2026
+- **🔐 "sudo sem senha" virou pendência.** Enquanto o `sudo` desta máquina pedir senha, o 📦 oferece ativá-lo. Ao aceitar, você digita a senha uma última vez e o tt grava uma regra em `/etc/sudoers.d/` (conferida pelo `visudo` antes de entrar, modo 0440). Daí em diante o tt e os agentes ligam o ssh do sistema, instalam pendências e corrigem a máquina sem pedir senha. O modal mostra o comando exato. Para desfazer: `sudo rm /etc/sudoers.d/tt-sem-senha-<seu usuário>`.
+
 ## v1.15.2 · 13/10/2026
 - **🔌 Nenhuma máquina vira ilha por falta de ssh.** Se nada atende na porta do ssh (o caso de um WSL, que não liga o servidor ssh quando o Windows sobe), o tt resolve sozinho, sem esperar ninguém: com `sudo` sem senha, liga o ssh do sistema; senão, sobe **um ssh do próprio usuário na porta 8022, sem root**, que só aceita chave. As outras máquinas já tentam a 8022 quando a 22 não responde e passam a usá-la sozinhas.
   - O vigia confere a cada 5 minutos e religa se cair. Faltando o programa (openssh-server), vira pendência essencial no 📦.

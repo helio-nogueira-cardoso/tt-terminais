@@ -300,6 +300,11 @@ e os instaladores da pasta do usuário ficam no `tt`.
   exato e oferece [i] instalar [s] selecionar [m] mais tarde (1 dia) [n] nunca. Com ids, ignora recusas e
   níveis; `--sim` aceita tudo sem terminal. `TT_PEND_TODAS=1` (menu administrar → 📦) inclui opcionais e recusadas.
   `--pendencias-avisar` (vigia, a cada 6 h): UM aviso de essencial/recurso (dura 6 h, repete após 12 h).
+- `sudo-sem-senha` (recurso; só enquanto `sudo -n true` falha; fora do Termux e do root): passo de administrador que não é
+  pacote (`P_ADM=1`, `P_ADM_CMD` = o texto que o modal mostra em "Configuração do sistema"); `pend_instalar` roda
+  `sudo_sem_senha_ativar`: regra `USUÁRIO ALL=(ALL) NOPASSWD: ALL` em `$(sudoers_arquivo)` (`/etc/sudoers.d/tt-sem-senha-USUÁRIO`,
+  sem ponto no nome), conferida por `sudo visudo -cf`, gravada por `sudo install -m 0440 -o root -g root`. Testes:
+  `TT_SUDO_BIN`, `TT_SUDOERS_DIR`; o `tests/lib.sh` esconde o item (`TT_PEND_SEM_SUDO_SEM_SENHA=1`); `tests/test_sudo_sem_senha.sh`.
 - Itens (`PEND_IDS`): `nucleo` `fzf-novo` `tmux-antigo` (manual) `email-aerc` `email-sync` `isync-sasl` `email-xoauth2` `email-espelho`
   `email-html` `email-editor` `email-spell` `chrome` `carbonyl` `chrome-libs` `clipboard` `notificacoes` `xdg-utils`
   `termux-api` `pv` `mosh` `nomeador-local`. `pend_avaliar ID` preenche `P_APLICA P_NIVEL P_SYS P_USR P_MANUAL
