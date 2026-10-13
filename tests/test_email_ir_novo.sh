@@ -93,7 +93,8 @@ N=$HOME/.local/state/tt/notifs
 tt --notificar '📧 Gmail: 1 e-mail novo · Ana — Oi' 600 email:gmail; sleep 0.01
 tt --notificar '📧 Nada: 1 e-mail novo · Bob — Olá' 600 email:nada; sleep 0.01
 tt --notificar '📋 hoje · pagar' 600 tarefas
-[[ $(ls -1 "$N" | wc -l) == 3 ]] || falhou "deveriam existir 3 avisos: $(ls "$N")"
+# (o aviso 📦 de pendências do vigia de teste, como o espelho local das contas fictícias, não conta)
+[[ $(grep -L $'\tpendencias$' "$N"/* | wc -l) == 3 ]] || falhou "deveriam existir 3 avisos: $(ls "$N")"
 TT_EMAIL_SEM_POPUP=1 tt --email-ir-novo gmail base || falhou 'email_ir_novo falhou'
 [[ $(tmux list-windows -t =_tt-email | wc -l) == 1 ]] || falhou 'a tela do tt na frente deveria ter sido fechada'
 grep -q '^:change-tab Gmail$' "$AERC_IPC_LOG" && grep -q '^:search -u$' "$AERC_IPC_LOG" || falhou "ir-novo deveria saltar: $(ipc | tr '\n' '|')"

@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.12.0 · 13/10/2026
+- **📦 Espelho local do e-mail agora é pendência obrigatória.** Toda conta de e-mail do tt sem espelho local (`sync_local`) vira uma pendência de instalação: "espelho local do e-mail (contas)". É do espelho que saem o aviso de e-mail novo, o contador do 📧 e os e-mails `[tt]` que viram tarefa (tarefas compartilhadas, demandas e atualizações); conta só IMAP não gera nada disso.
+  - Aceitar instala o que falta (mbsync e, para conta Google/OAuth, o SASL e o plugin XOAUTH2 na sua pasta) e liga o espelho de cada conta; a primeira sincronização roda em segundo plano.
+  - Dá para adiar, mas não para recusar de vez: "não instalar" vale como "mais tarde" e o tt pergunta de novo no dia seguinte (o 📦 do vigia avisa).
+- **📧 "check-mail: no command specified" corrigido.** Numa conta com espelho local o aerc lê do disco, e o F11, o ⟳ e o abrir pelo aviso de e-mail novo mandavam `:check-mail` sem que a conta tivesse o comando que traz o INBOX. Agora toda conta espelhada tem `check-mail-cmd` (o `tt --email-sync` da conta, com até 120 s), e a atualização conserta sozinha as contas que já estavam espelhadas.
+
 ## v1.11.1 · 13/10/2026
 - **🔔 Central de notificações mais limpa, com rolagem e botões certeiros.** Cada linha tinha fundo colorido e o aviso selecionado quase não aparecia (só um traço fino à esquerda): a roda do mouse movia uma seleção invisível, parecendo que não rolava, e os botões agiam num aviso que você não via. Agora só a etiqueta "● Não lida"/"✓ Lida" é colorida, e **o aviso selecionado fica destacado de ponta a ponta**; a roda anda pela lista e o clique numa linha mostra qual aviso os botões vão usar.
 - **Um aviso por linha:** os longos não quebram mais em 2 ou 3 linhas; são cortados com "…", e **a prévia embaixo** mostra o aviso selecionado inteiro, quando chegou, de onde veio e o que o ⏎ faz (ex.: "abre o e-mail na mensagem nova"). O ↗ (tem destino) fica numa coluna antes do texto, sempre à vista.

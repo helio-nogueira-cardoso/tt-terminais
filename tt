@@ -3289,6 +3289,20 @@ UI
   aerc_binds_gravar || return 1
   # .mbsyncrc antigos (canal único) passam ao formato de canais + grupo.
   email_mbsyncrc_migrar 2>/dev/null || true
+  email_checkmail_migrar 2>/dev/null || true
+}
+# Contas espelhadas gravadas antes do check-mail-cmd: regrava o bloco (o :check-mail do aerc dava
+# "no command specified" no F11, no ⟳ e ao abrir pelo aviso).
+email_checkmail_migrar() {
+  local slug; local -A E=()
+  [[ -f $AERC_CONTAS ]] || return 0
+  for slug in $(email_slugs); do
+    E=(); email_ler "$slug" || continue
+    [[ ${E[sync_local]:-} == 1 ]] || continue
+    awk -v a="# >>> tt e-mail: $slug >>>" -v z="# <<< tt e-mail: $slug <<<" '$0 == a { d = 1 } d && /^check-mail-cmd/ { ok = 1 } $0 == z { d = 0 } END { exit !ok }' "$AERC_CONTAS" && continue
+    email_regerar "$slug"
+  done
+  return 0
 }
 # binds.conf: bloco do tt entre marcadores. q/Q saem na hora (o título do popup diz "q fecha") e
 # ações comuns ganham teclas fáceis, na lista e na leitura da mensagem. No fim, os binds por conta
@@ -4827,7 +4841,8 @@ pend_faltam() { local c; for c in "$@"; do falta_cmd "$c" && printf '%s ' "$c"; 
 sudo_recusa_nunca() { [[ $(cat "$(sudo_recusa_arq "$1")" 2>/dev/null) == nunca ]]; }
 sudo_recusa_gravar() { # id nunca|tarde|semana
   mkdir -p "$ESTADO_DIR"
-  case $2 in
+  local modo=$2; pend_sempre "$1" && modo=tarde   # sem "nunca" nem semana: volta a perguntar amanhã
+  case $modo in
     nunca) echo nunca ;;
     tarde) echo $(( $(date +%s) - 604800 + 86400 )) ;;
     *) date +%s ;;
@@ -4841,7 +4856,7 @@ sudo_recusa_arq() {
 }
 pend_recusado() { # id → 0 se o usuário recusou ou adiou (não perguntar agora)
   local id=$1 v agora; agora=$(date +%s)
-  sudo_recusa_nunca "$id" && return 0
+  if sudo_recusa_nunca "$id"; then pend_sempre "$id" || return 0; v=0; fi
   v=$(cat "$(sudo_recusa_arq "$id")" 2>/dev/null || echo 0); [[ $v =~ ^[0-9]+$ ]] || v=0
   (( agora - v < 604800 )) && return 0
   case $id in   # a pendência "navegadores" de antes valia para os dois
@@ -4854,6 +4869,40 @@ pend_recusado() { # id → 0 se o usuário recusou ou adiou (não perguntar agor
 }
 
 tem_conta_email() { compgen -G "$EMAIL_DIR/*.conf" >/dev/null 2>&1; }
+
+# Pendências que não aceitam "nunca": a pessoa pode adiar, mas o tt volta a perguntar no dia seguinte. O espelho
+# local do e-mail é uma delas: sem ele os e-mails [tt] (tarefas compartilhadas, demandas, atualizações) não viram
+# tarefa, porque as demandas só são lidas do INBOX espelhado.
+PEND_SEMPRE=" email-espelho "
+pend_sempre() { [[ $PEND_SEMPRE == *" $1 "* ]]; }
+
+# Contas com entrada IMAP e sync_local desligado, uma por linha (o slug); com "oauth", só as de login OAuth.
+email_sem_espelho() { # [oauth]
+  local slug; local -A E=()
+  for slug in $(email_slugs 2>/dev/null); do
+    E=(); email_ler "$slug" 2>/dev/null || continue
+    [[ -n ${E[imap_host]:-} && ${E[sync_local]:-} != 1 ]] || continue
+    [[ ${1:-} == oauth && ${E[auth]:-} != oauth ]] && continue
+    printf '%s\n' "$slug"
+  done
+}
+
+# Passo da pendência email-espelho: prepara o mbsync com SASL e o plugin XOAUTH2 (se alguma conta é OAuth) e
+# liga o sync local em cada conta que ainda não tem. A primeira sincronização de cada uma vai em 2º plano.
+email_espelho_ligar() {
+  local slug rc=0; local -a contas
+  mapfile -t contas < <(email_sem_espelho)
+  ((${#contas[@]})) || return 0
+  if [[ -n $(email_sem_espelho oauth) ]]; then
+    mbsync_tem_sasl || isync_sasl_construir || rc=1
+    xoauth2_presente || xoauth2_construir || rc=1
+  fi
+  for slug in "${contas[@]}"; do
+    echo "  → espelho local: $slug"
+    email_sync_local_definir "$slug" 1 || rc=1
+  done
+  return $rc
+}
 
 # 1.2 < 1.10: compara versões numéricas pontuadas. Versão vazia (não deu para ler) nunca é "velha".
 versao_de() { "$@" 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)+' | head -1; }
@@ -5185,7 +5234,7 @@ fzf_instalar() {
 # aqui, (2) o que falta do gerenciador de pacotes (administrador), (3) se há passo que só baixa/compila na
 # pasta do usuário e (4) quão importante é: essencial (o tt degrada sem), recurso (de uma função em uso)
 # ou opcional (conforto). O vigia só avisa de essencial e recurso; o menu administrar → 📦 mostra tudo.
-PEND_IDS=(nucleo fzf-novo tmux-antigo tmux-novo email-aerc email-sync isync-sasl email-xoauth2 email-html email-editor email-spell
+PEND_IDS=(nucleo fzf-novo tmux-antigo tmux-novo email-aerc email-sync isync-sasl email-xoauth2 email-espelho email-html email-editor email-spell
           chrome carbonyl chrome-libs clipboard notificacoes xdg-utils termux-api pv mosh nomeador-local)
 
 CHROME_TAM="~120 MB"; CARBONYL_TAM="~60 MB"
@@ -5195,7 +5244,7 @@ CHROME_TAM="~120 MB"; CARBONYL_TAM="~60 MB"
 # resolve sozinho), P_ROTULO, P_MOTIVO e P_TAM.
 declare -A PEND_ROTULOS=(
   [nucleo]="ferramentas básicas" [fzf-novo]="fzf atual" [tmux-antigo]="tmux atual" [tmux-novo]="tmux 3.8 (painel flutuante)" [email-aerc]="aerc (cliente de e-mail)"
-  [email-sync]="mbsync (isync)" [isync-sasl]="isync com SASL" [email-xoauth2]="plugin XOAUTH2 do SASL" [email-html]="w3m"
+  [email-sync]="mbsync (isync)" [email-espelho]="espelho local do e-mail" [isync-sasl]="isync com SASL" [email-xoauth2]="plugin XOAUTH2 do SASL" [email-html]="w3m"
   [email-editor]="vim" [email-spell]="dicionário de português do vim" [chrome]="Google Chrome interno"
   [carbonyl]="Carbonyl (navegador no terminal)" [chrome-libs]="bibliotecas do Chrome e do Carbonyl"
   [clipboard]="área de transferência (wl-clipboard/xclip)" [notificacoes]="notificações da área de trabalho (notify-send)"
@@ -5257,6 +5306,20 @@ pend_avaliar() {
       P_MOTIVO="contas de e-mail com login OAuth (Google) só sincronizam com o plugin XOAUTH2 do SASL; o tt o compila (4 arquivos C, ~1 s) na sua pasta, sem tocar no sistema"
       xoauth2_presente && return 0
       P_USR=1; xoauth2_deps_faltam && P_SYS="xoauth2-build $(pend_faltam curl)"; P_SYS=${P_SYS% } ;;
+    email-espelho)
+      # Toda conta IMAP com espelho local: é dele que saem as demandas e tarefas recebidas por e-mail. Não aceita
+      # "nunca" (PEND_SEMPRE); o mbsync e, para contas OAuth, o SASL/XOAUTH2 entram como pré-requisitos.
+      v=$(email_sem_espelho | paste -sd, - | sed 's/,/, /g')
+      [[ -n $v ]] || { P_APLICA=0; return 0; }
+      P_ROTULO="espelho local do e-mail ($v)"
+      P_MOTIVO="sem ele os e-mails [tt] (tarefas e atualizações enviadas por e-mail) não chegam ao painel de tarefas, e o e-mail não abre offline"
+      P_USR=1
+      if ! mbsync_presente; then P_SYS=mbsync
+      elif [[ -n $(email_sem_espelho oauth) ]]; then
+        mbsync_tem_sasl || ! isync_deps_faltam || P_SYS=isync-build
+        xoauth2_presente || ! xoauth2_deps_faltam || P_SYS="${P_SYS:+$P_SYS }xoauth2-build $(pend_faltam curl)"
+        P_SYS=${P_SYS% }
+      fi ;;
     email-html)
       tem_conta_email || { P_APLICA=0; return 0; }
       P_ROTULO="w3m"; P_MOTIVO="mostrar e-mails em HTML bem (tabelas, cores, links)"
@@ -5369,6 +5432,7 @@ pend_usuario_instalar() {
     email-xoauth2) xoauth2_construir ;;
     isync-sasl) isync_sasl_construir ;;
     email-spell) email_vim_spell_garantir ;;
+    email-espelho) email_espelho_ligar ;;
     fzf-novo) fzf_instalar ;;
     tmux-novo) tmux_construir ;;
     nomeador-local) python3 -I "$DIR_TT/nomeador-local.py" instalar auto ;;
@@ -5492,6 +5556,9 @@ pedir_sudo_pendencias() {
   fi
   ((${#usu[@]})) && { printf '  Baixado/compilado na sua pasta (sem administrador):  '; printf '%s; ' "${usu[@]}" | sed 's/; $//'; echo; }
   [[ $priv == sudo || $priv == doas || $priv == su ]] && printf '\n  A senha é pedida pelo próprio %s, aqui; o tt não a vê nem a guarda.\n' "$priv"
+  for id in $(cut -f1 <<<"$lista"); do
+    pend_sempre "$id" && printf '  \033[33m⚠ %s não pode ser recusado de vez: "não" vale como "mais tarde" e pergunto de novo amanhã.\033[0m\n' "$(pend_rotulo "$id")"
+  done
   echo
   if ((sim)); then r=i
   else read -r -n1 -u "$fd" -p '  [i] Instalar agora   [s] Selecionar   [m] Mais tarde   [n] Não instalar (e não avisar mais)  ' r || r=m; echo; fi
@@ -5509,6 +5576,9 @@ pedir_sudo_pendencias() {
     n|N|r|R) mapfile -t nuncas <<<"$(cut -f1 <<<"$lista")" ;;
     *) mapfile -t adiados <<<"$(cut -f1 <<<"$lista")" ;;   # Enter, Esc, qualquer outra: mais tarde
   esac
+  local -a nuncas_ok=()   # as obrigatórias (PEND_SEMPRE) saem do "nunca" e viram "mais tarde"
+  for id in ${nuncas[@]+"${nuncas[@]}"}; do if pend_sempre "$id"; then adiados+=("$id"); else nuncas_ok+=("$id"); fi; done
+  nuncas=(${nuncas_ok[@]+"${nuncas_ok[@]}"})
   for id in ${adiados[@]+"${adiados[@]}"}; do sudo_recusa_gravar "$id" tarde; done
   for id in ${nuncas[@]+"${nuncas[@]}"}; do sudo_recusa_gravar "$id" nunca; done
   for id in $(printf '%s\n' ${escolhidos[@]+"${escolhidos[@]}"} | cut -f1); do rm -f "$(sudo_recusa_arq "$id")"; done
@@ -14336,6 +14406,12 @@ email_bloco() {
   printf 'source            = %s\n' "$(email_url imap)"
   # Entrada por maildir (sync_local) não autentica: o mbsync é quem fala IMAP. Só o envio usa a credencial.
   [[ ${E[sync_local]:-} == 1 ]] || printf 'source-cred-cmd   = %s\n' "$cmd"
+  # Com maildir, o :check-mail do aerc (F11, ⟳, abrir pelo aviso) só funciona com um comando que traga o
+  # INBOX: sem ele o aerc responde "check-mail: no command specified". O mbsync pode passar dos 10 s padrão.
+  if [[ ${E[sync_local]:-} == 1 ]]; then
+    printf 'check-mail-cmd    = %s --email-sync %s\n' "$HOME/.local/bin/tt" "${E[_slug]}"
+    printf 'check-mail-timeout = 120s\n'
+  fi
   printf 'outgoing          = %s\n' "$(email_url smtp)"
   printf 'outgoing-cred-cmd = %s\n' "$cmd"
   if [[ -n ${E[nome_exibicao]:-} ]]; then printf 'from              = %s <%s>\n' "${E[nome_exibicao]}" "${E[endereco]}"
@@ -14373,6 +14449,7 @@ email_bloco() {
         archive) [[ -n ${E[pasta_todos]:-} ]] && continue ;;
         postpone) [[ -n ${E[pasta_rascunhos]:-} ]] && continue ;;
         folder-map|folders-exclude) [[ -n $mae ]] && continue ;;
+        check-mail-cmd|check-mail-timeout) [[ ${E[sync_local]:-} == 1 ]] && continue ;;
       esac
     fi
     printf '%s\n' "${E[extra_$i]}"

@@ -281,7 +281,7 @@ e os instaladores da pasta do usuário ficam no `tt`.
   exato e oferece [i] instalar [s] selecionar [m] mais tarde (1 dia) [n] nunca. Com ids, ignora recusas e
   níveis; `--sim` aceita tudo sem terminal. `TT_PEND_TODAS=1` (menu administrar → 📦) inclui opcionais e recusadas.
   `--pendencias-avisar` (vigia, a cada 6 h): UM aviso de essencial/recurso (dura 6 h, repete após 12 h).
-- Itens (`PEND_IDS`): `nucleo` `fzf-novo` `tmux-antigo` (manual) `email-aerc` `email-sync` `isync-sasl` `email-xoauth2`
+- Itens (`PEND_IDS`): `nucleo` `fzf-novo` `tmux-antigo` (manual) `email-aerc` `email-sync` `isync-sasl` `email-xoauth2` `email-espelho`
   `email-html` `email-editor` `email-spell` `chrome` `carbonyl` `chrome-libs` `clipboard` `notificacoes` `xdg-utils`
   `termux-api` `pv` `mosh` `nomeador-local`. `pend_avaliar ID` preenche `P_APLICA P_NIVEL P_SYS P_USR P_MANUAL
   P_ROTULO P_MOTIVO P_TAM` (P_SYS = o que o gerenciador instala; P_USR=1 = há passo sem administrador). Nível:
@@ -304,6 +304,9 @@ e os instaladores da pasta do usuário ficam no `tt`.
   gerenciador de mentira), `TT_FINGE_CHROME_LIBS[_ARQ]`, `TT_FINGE_FZF_VERSAO`, `TT_FINGE_TMUX_VERSAO`,
   `TT_PEND_SEM_NAVEGADORES` (esconde Chrome/Carbonyl do catálogo; o `tests/lib.sh` o define),
   `TT_FZF_URL/SHA256`, `TT_ISYNC_URL/SHA256`, `TT_XOAUTH2_URL/SHA256`, `TT_CARBONYL_URL/SHA256`, `TT_CHROME_INDICE/BASE`.
+- `email-espelho` (PEND_SEMPRE, sem "nunca": recusa vira "mais tarde", volta em 1 dia): conta IMAP sem `sync_local=1`;
+  aceitar roda `email_espelho_ligar` (SASL/XOAUTH2 se OAuth + `email_sync_local_definir CONTA 1`). Aviso de e-mail novo,
+  contador do 📧 e demandas `[tt]` só leem o espelho.
 - Erros do sync de e-mail que uma pendência resolve (`email_erro_dica`): "built without LibSASL" →
   `isync-sasl email-xoauth2`; "SASL mechanism(s) not available" → `email-xoauth2`.
 
