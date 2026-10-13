@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.15.7 · 13/10/2026
+- **📎 Anexos abrem e são salvos na máquina onde você está.** Vendo pela ponte o e-mail de outra máquina (por exemplo, o do PC pelo notebook ou pelo celular), o anexo abria e era salvo na máquina do e-mail, longe da sua tela. Agora segue a mesma regra dos links:
+  - **O** (abrir) leva o arquivo para a máquina da tela e abre nela, no programa padrão (PDF, planilha, áudio, vídeo, imagem; a tecla **i** das imagens também). Se ela não responder, abre na máquina do e-mail, como antes.
+  - **S** (salvar) manda o anexo para a pasta de recebidos da máquina da tela. Usando o e-mail na própria máquina, pergunta a pasta, começando pela de recebidos, e não sobrescreve: um arquivo repetido chega como "nome (2)".
+  - **E** (enviar) abre o seletor de máquina já com a da tela em primeiro, marcada "(onde você está)".
+
 ## v1.15.6 · 13/10/2026
 - **📰 "tt atualizado" chega uma vez só, não uma por máquina.** Cada máquina que se atualizava criava o seu aviso de novidades, e quem tem 4 máquinas via 4 avisos iguais no 🔔. Agora o aviso leva um código da versão, igual em todas: a rede guarda um só, ler numa máquina vale para todas, e o aviso apagado não volta quando outra máquina se atualiza depois.
 - **🕸 Celular sem o DNS do Tailscale volta a alcançar as outras máquinas.** Quando o Android não resolve os nomes da tailnet, a malha agora religa pelo IP da tailnet, que as máquinas com Tailscale passam a anunciar. Trocar uma máquina para um IP também não apaga mais do cadastro as outras guardadas por IP.

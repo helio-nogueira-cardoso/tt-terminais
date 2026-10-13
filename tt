@@ -3575,6 +3575,11 @@ UI
   aerc_definir "$conf" openers 'x-scheme-handler/http*' "$HOME/.local/bin/tt --abrir-link {}" $f_op
   aerc_definir "$conf" openers 'x-scheme-handler/https*' "$HOME/.local/bin/tt --abrir-link {}" $f_op
   aerc_definir "$conf" openers 'image/*' "$HOME/.local/bin/tt --abrir-imagem {}" $f_op
+  # Anexos (O no e-mail): abrem na máquina da TELA (ponte ou popup de uma), não na da sessão: tt --abrir-anexo.
+  # Tipos explícitos: um "*" casaria também os x-scheme-handler dos links (vale o primeiro opener que casa).
+  local tp; for tp in 'application/*' 'text/*' 'audio/*' 'video/*'; do
+    aerc_definir "$conf" openers "$tp" "$HOME/.local/bin/tt --abrir-anexo {}"
+  done
 
   # Escrever bem: o editor padronizado do tt (vim com largura 72 em format=flowed, ortografia em
   # português e inglês), avisos de assunto vazio e de anexo esquecido, destinatários completados a
@@ -3646,6 +3651,9 @@ aerc_binds_gravar() {
     echo '[view]'
     echo "? = :term $HOME/.local/bin/tt --email-atalhos<Enter>"
     echo "E = :save -a -f -p $HOME/.cache/tt-anexos/atual/<Enter>:term $HOME/.local/bin/tt --anexos-enviar<Enter>"
+    # S: o anexo escolhido vai para a máquina da TELA (vendo pela ponte, a de onde você está), na pasta de recebidos dela;
+    # vendo desta máquina, pergunta a pasta daqui (Tab completa).
+    echo "S = :save -f -p $HOME/.cache/tt-anexos/salvar/<Enter>:term $HOME/.local/bin/tt --anexo-salvar<Enter>"
     echo "i = :pipe -m $HOME/.local/bin/tt --imagens<Enter>"
     echo 'q = :close<Enter>'
     echo "<C-s> = :exec $HOME/.local/bin/tt --email-sync-agora<Enter>"
@@ -13957,15 +13965,99 @@ ITENS
 # mensagem crua para tt --imagens: lista as imagens anexadas/embutidas (cid:) e as da web (<img>) e
 # abre as escolhidas no visualizador do sistema. Imagens da web só são baixadas se escolhidas
 # (nada de pixel de rastreamento ao abrir o e-mail). Tab marca várias.
-abrir_imagem() {
-  local f=${1:-}
+abrir_imagem() { abrir_anexo "$@"; }
+
+# Abre um arquivo NESTA máquina, no programa padrão: xdg-open (com a tela gráfica achada mesmo vindo de
+# ssh ou do vigia), o Windows no WSL, termux-open no celular, open no macOS.
+abrir_arquivo_local() {
+  local f=${1:-} d w x
   [[ -f $f ]] || return 1
-  if command -v xdg-open >/dev/null; then setsid xdg-open "$f" >/dev/null 2>&1 </dev/null && return 0; fi
+  if command -v xdg-open >/dev/null; then
+    { read -r d; read -r w; read -r x; } < <(tela_grafica)
+    DISPLAY=$d WAYLAND_DISPLAY=$w XDG_RUNTIME_DIR=$x setsid xdg-open "$f" >/dev/null 2>&1 </dev/null && return 0
+  fi
   if command -v wslpath >/dev/null && [[ -x /mnt/c/Windows/System32/cmd.exe ]]; then
     (cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c start "" "$(wslpath -w "$f")" >/dev/null 2>&1) && return 0
   fi
   if command -v termux-open >/dev/null; then termux-open "$f" >/dev/null 2>&1 && return 0; fi
-  echo "Sem visualizador de imagens; arquivo em $f"; read -rsn1 -t 5
+  if [[ $(uname -s 2>/dev/null) == Darwin ]] && command -v open >/dev/null; then open "$f" >/dev/null 2>&1 && return 0; fi
+  echo "Não há programa para abrir; arquivo em $f"; read -rsn1 -t 5
+}
+
+# Máquina da TELA de quem pediu, como destino ssh (vazio = esta): o cliente do tmux em uso veio por uma ponte
+# (TT_PONTE) ou é o do popup do e-mail aberto dentro de uma (TT_ORIGEM). Mesma regra dos links (abrir_na_tela).
+dest_da_tela() {
+  local c om d
+  c=${TT_LINK_CLIENTE:-}; [[ -n $c || -z ${TMUX:-} ]] || c=$(cliente_externo 2>/dev/null)
+  om=$(maquina_da_tela "$c"); [[ -n $om ]] || return 0
+  d=$(dest_de "$om"); [[ -n $d && $d != . ]] && printf '%s\t%s\t%s\n' "$d" "$om" "$c"
+  return 0
+}
+
+# Anexo (ou imagem) do e-mail: abre na máquina da TELA, não na da sessão. Vendo pelo book-hl o e-mail do PC, o PDF
+# abre no book-hl. O arquivo segue por ssh (o aerc apaga o temporário assim que o abridor sai: a cópia vai antes) e a
+# de lá o guarda em ~/.cache/tt-anexos/abertos e abre no programa padrão dela. Sem resposta (ou versão sem
+# --abrir-recebido): abre aqui, como antes, e avisa.
+abrir_anexo() {
+  local f=${1:-} t d om c nome
+  [[ -f $f ]] || return 1
+  if [[ -z ${TT_ABRIR_AQUI:-} ]]; then
+    t=$(dest_da_tela)
+    if [[ -n $t ]]; then
+      IFS=$'\t' read -r d om c <<<"$t"; nome=${f##*/}
+      [[ -n $c ]] && tmux display-message -c "$c" -d 2500 "📎 abrindo $nome em $om" 2>/dev/null
+      timeout 120 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --abrir-recebido $(q "$nome")" <"$f" >/dev/null 2>&1 && return 0
+      [[ -n $c ]] && tmux display-message -c "$c" -d 5000 "📎 $om não respondeu: abri $nome nesta máquina" 2>/dev/null
+    fi
+  fi
+  abrir_arquivo_local "$f"
+}
+
+# Lado de lá do abrir_anexo: o conteúdo vem pela entrada padrão; guarda com o nome (sem barras) numa pasta
+# própria de ~/.cache/tt-anexos/abertos (as de mais de 1 dia somem) e abre aqui.
+abrir_recebido() {
+  local nome=${1:-anexo} base="$HOME/.cache/tt-anexos/abertos" dir
+  nome=${nome//\//_}; [[ -n $nome && $nome != . && $nome != .. ]] || nome=anexo
+  mkdir -p "$base" && find "$base" -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} + 2>/dev/null
+  dir=$(mktemp -d "$base/$(date +%Y%m%d-%H%M%S)-XXXX") || return 1
+  cat >"$dir/$nome" || return 1
+  TT_ABRIR_AQUI=1 abrir_arquivo_local "$dir/$nome" </dev/null
+}
+
+# S no e-mail: o anexo escolhido (o aerc o salvou em ~/.cache/tt-anexos/salvar) vai para a máquina da TELA, na pasta
+# de recebidos dela (cópia em segundo plano, a barra mostra). Vendo desta máquina: pergunta a pasta (Tab completa),
+# começando pela de recebidos daqui. Nada é sobrescrito: repetido vira "nome (2)".
+anexo_salvar() {
+  local base="$HOME/.cache/tt-anexos" lote t d om c ddst destino n alvo i
+  local -a nomes=()
+  [[ -d $base/salvar && -n $(ls -A "$base/salvar" 2>/dev/null) ]] || { echo "Nada para salvar: escolha o anexo com Ctrl+j / Ctrl+k e aperte S."; read -rsn1 -t 4; return 0; }
+  lote=$(mktemp -d "$base/$(date +%Y%m%d-%H%M%S)-salvar-XXXX") || return 1
+  mv "$base/salvar/"* "$base/salvar/".[!.]* "$lote/" 2>/dev/null; rmdir "$base/salvar" 2>/dev/null
+  mapfile -t nomes < <(cd "$lote" && ls -1A)
+  ((${#nomes[@]})) || { rm -rf "$lote"; return 0; }
+  t=$(dest_da_tela)
+  if [[ -n $t ]]; then
+    IFS=$'\t' read -r d om c <<<"$t"
+    if ddst=$(timeout 20 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --pasta-recebidos" </dev/null 2>/dev/null) && [[ -n $ddst ]]; then
+      echo "📎 salvando ${nomes[*]} em $om ($ddst)"
+      transferir . "$(encurtar "$lote")" "$d" "$ddst" "${nomes[@]}"
+      return 0
+    fi
+    echo "$om não respondeu: salvo nesta máquina."
+  fi
+  destino=$(expandir "$(pasta_recebidos)")
+  if [[ -t 0 ]]; then read -r -e -p "Salvar em: " -i "$destino/" destino || { rm -rf "$lote"; return 0; }
+  else IFS= read -r destino || true; [[ -n $destino ]] || destino=$(expandir "$(pasta_recebidos)"); fi
+  destino=$(expandir "${destino%/}"); mkdir -p "$destino" || { echo "Não consegui criar $destino"; read -rsn1 -t 4; return 1; }
+  for n in "${nomes[@]}"; do
+    alvo="$destino/$n"; i=2
+    while [[ -e $alvo ]]; do
+      if [[ $n == ?*.* ]]; then alvo="$destino/${n%.*} ($i).${n##*.}"; else alvo="$destino/$n ($i)"; fi
+      i=$((i + 1))
+    done
+    mv "$lote/$n" "$alvo" && echo "✔ $alvo"
+  done
+  rm -rf "$lote"; sleep 1
 }
 
 imagens_do_email() {
@@ -14010,7 +14102,8 @@ anexos_enviar() {
     --border-label=' 📎 anexos para enviar (Tab marca/desmarca · ⏎ segue) ' --prompt='❯ ' --pointer='▶' --marker='✔' \
     --preview 'f={}; printf "%s\n%s\n" "$(du -h "$f" | cut -f1)" "$(file -b "$f" 2>/dev/null)"' --preview-window=down,3) || { rm -rf "$lote"; return 0; }
   mapfile -t nomes <<<"$escolha"; ((${#nomes[@]})) || { rm -rf "$lote"; return 0; }
-  dst=$(escolher_maquina "📤 enviar ${#nomes[@]} anexo(s) para") || { rm -rf "$lote"; return 0; }
+  local tela; tela=$(dest_da_tela); tela=${tela%%$'\t'*}
+  dst=$(escolher_maquina "📤 enviar ${#nomes[@]} anexo(s) para" "" "$tela") || { rm -rf "$lote"; return 0; }
   [[ -n $dst ]] || { rm -rf "$lote"; return 0; }
   ddst=$(rodar "$dst" --pasta-recebidos)
   transferir . "$(encurtar "$lote")" "$dst" "$ddst" "${nomes[@]}"
@@ -14047,9 +14140,9 @@ Encontrar	F  ou  botão ✉	só as não lidas da pasta aberta (de novo, ou Esc, 
 Encontrar	Esc	limpar a busca e o filtro
 Anexos	(na mensagem aberta)	a lista de partes e anexos aparece embaixo
 Anexos	Ctrl+j / Ctrl+k	escolher o anexo seguinte / anterior
-Anexos	O	abrir o anexo escolhido
-Anexos	S	salvar o anexo escolhido (Tab completa a pasta)
-Anexos	E	enviar os anexos para a pasta de recebidos de uma máquina do tt
+Anexos	O	abrir o anexo escolhido (na máquina onde você está, mesmo vendo o e-mail de outra pela ponte)
+Anexos	S	salvar o anexo escolhido (na máquina onde você está: pela ponte, na pasta de recebidos dela; aqui, pergunta a pasta)
+Anexos	E	enviar os anexos para a pasta de recebidos de uma máquina do tt (a primeira da lista é a onde você está)
 Anexos	i	imagens do e-mail (anexadas e da web): lista e abre no visualizador de imagens
 Várias	v  ou  espaço	selecionar / desmarcar (as ações valem para todas as selecionadas)
 Várias	V	selecionar a conversa inteira
@@ -14485,10 +14578,11 @@ escolher_destino() {
   [[ -n $escolha ]] && echo "$escolha"
 }
 
-escolher_maquina() {
-  local titulo=$1 exceto=${2:-}
-  { [[ $exceto != . ]] && printf '.\t\033[1m%s\033[0m \033[90m(esta)\033[0m\n' "$MAQUINA"
-    maquinas | awk -v x="$exceto" '$1 != x { printf "%s\t\033[1m%s\033[0m\n", $1, $2 }'; } |
+escolher_maquina() { # título [exceto] [preferida: destino que vem primeiro, "(onde você está)"]
+  local titulo=$1 exceto=${2:-} pref=${3:-}
+  { [[ -n $pref && $pref != . && $pref != "$exceto" ]] && maquinas | awk -v p="$pref" '$1 == p { printf "%s\t\033[1m%s\033[0m \033[90m(onde você está)\033[0m\n", $1, $2; exit }'
+    [[ $exceto != . ]] && printf '.\t\033[1m%s\033[0m \033[90m(esta)\033[0m\n' "$MAQUINA"
+    maquinas | awk -v x="$exceto" -v p="$pref" '$1 != x && $1 != p { printf "%s\t\033[1m%s\033[0m\n", $1, $2 }'; } |
     fzf --ansi --delimiter='\t' --with-nth=2 --layout=reverse --no-sort --height=~12 \
       --border=rounded --border-label=" $titulo " --prompt='❯ ' --pointer='▶' \
       --color='bg:#282a36,fg:#f8f8f2,border:#bd93f9,label:#bd93f9:bold,pointer:#ff79c6,fg+:#f8f8f2,bg+:#44475a' --bind='left-click:accept' | cut -f1
@@ -17908,6 +18002,9 @@ case "${1:-}" in
   --anexos-enviar) anexos_enviar; exit 0 ;;
   --imagens) imagens_do_email; exit 0 ;;
   --abrir-imagem) abrir_imagem "${2:-}"; exit 0 ;;
+  --abrir-anexo) abrir_anexo "${2:-}"; exit 0 ;;
+  --abrir-recebido) abrir_recebido "${2:-}"; exit ;;
+  --anexo-salvar) anexo_salvar; exit 0 ;;
   --tarefas)
     # Abre o painel de tarefas: slide-over no tmux, ou lista texto fora dele.
     c=${2:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}

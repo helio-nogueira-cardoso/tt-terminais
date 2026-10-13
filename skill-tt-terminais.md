@@ -287,6 +287,14 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   `--destinos`, `--definir-recebidos`, `--anexos-enviar` (anexos do aerc → recebidos de uma máquina).
   `--imagens` (tecla `i` do aerc: lista as imagens do e-mail cru em stdin e abre as escolhidas; as da
   web só são baixadas sob demanda, via `email-tt.py baixar-imagem`) e `--abrir-imagem ARQ` (opener `image/*`).
+  Anexos seguem a MÁQUINA DA TELA (a de onde se está; ponte = `TT_PONTE`, popup do e-mail aberto de uma ponte = `TT_ORIGEM`;
+  `dest_da_tela`, a mesma regra dos links): `--abrir-anexo ARQ` (opener de `application/*`, `text/*`, `audio/*`, `video/*`;
+  `--abrir-imagem` passa por ele) manda o arquivo por ssh para `--abrir-recebido NOME` de lá (guarda em
+  `~/.cache/tt-anexos/abertos` e abre no programa padrão, `abrir_arquivo_local`); sem resposta, abre aqui. A tecla `S`
+  do aerc salva o anexo escolhido em `~/.cache/tt-anexos/salvar` e chama `--anexo-salvar`: pela ponte, vai para a pasta
+  de recebidos da máquina da tela (`transferir`); aqui, pergunta a pasta (sem sobrescrever: "nome (2)"). No `E`, o
+  seletor de máquina começa pela da tela (`escolher_maquina TÍTULO [exceto] [preferida]`). Teste
+  `tests/test_anexos_maquina_da_tela.sh`.
   `--email-adicionar provedor=gmail auth=oauth` sem client_id usa o app OAuth embutido do tt (EMAIL_GMAIL_ID; segredo montado em partes, gravado por conta em ~/.secrets). `--email-sync-local CONTA 0|1` (liga/desliga o espelho mbsync pós-cadastro; botão 🔄 em F2).
   Pendências de instalação: ver a seção "Pendências de instalação" abaixo (`--pendencias`, `--pedir-sudo`).
 
