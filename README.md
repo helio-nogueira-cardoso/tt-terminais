@@ -675,6 +675,14 @@ concluem — o painel avisa o que falta (linha ⚠ no topo) e abre a tarefa. Con
 já feita reabre a tarefa. Numa tarefa que repete, concluir avança o prazo e **reabre as subtarefas**
 (o checklist volta no próximo ciclo).
 
+**Desfazer uma conclusão.** Uma tarefa que repete não fica marcada: concluir avança o prazo. Por isso
+o painel avisa no topo (`✓ Ciclo feito · próximo: 14/11 · ^z desfaz`) e a linha mostra **✓ ciclo
+feito** por 24 h. Concluiu um ciclo a mais? `Ctrl+Z`, **↶ Desfazer a última conclusão** no menu da
+tarefa ou `tt --tarefa-desfazer ID` voltam o prazo um ciclo e devolvem a feitas as subtarefas que
+aquele ciclo reabriu (as criadas depois ficam abertas). Dá para voltar até 3 ciclos. O cartão da
+tarefa (`^/`) mostra quantos ciclos já foram feitos. Numa tarefa que não repete, desfazer reabre a
+tarefa feita.
+
 **Arquivo (histórico).** Em vez de só apagar, as tarefas feitas podem ser **arquivadas**: saem da
 lista, da agenda e das contas, mas ficam guardadas. `Ctrl+L` (ou, no botão direito do 📋, *Arquivar ou
 apagar as tarefas feitas…*) pergunta o que fazer com as feitas: **▤ Arquivar** (o padrão, ⏎) guarda

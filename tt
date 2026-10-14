@@ -8718,11 +8718,11 @@ tarefas_meta_get() { # meta chave
   local meta=$1 chave=$2 par IFS='|'
   for par in $meta; do [[ $par == "$chave="* ]] && { printf '%s' "${par#*=}"; return 0; }; done
 }
-tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|hora|prio|rep|tags|pai|ord|arq|de|upd|scod|sest|colide|iest|rem|v2|base)
+tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|hora|prio|rep|ant|antsub|ciclos|feito|tags|pai|ord|arq|de|upd|scod|sest|colide|iest|rem|v2|base)
   local meta=$1 chave=$2 valor=$3 k out="" par; local -A M=(); local IFS='|'
   for par in $meta; do [[ $par == *=* ]] && M[${par%%=*}]=${par#*=}; done
   M[$chave]=$valor
-  for k in desc prazo hora prio rep tags pai ord arq de upd scod sest colide iest rem v2 base; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
+  for k in desc prazo hora prio rep ant antsub ciclos feito tags pai ord arq de upd scod sest colide iest rem v2 base; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
   printf '%s' "$out"
 }
 tarefas_b64()   { printf '%s' "$1" | base64 | tr -d '\n'; }
@@ -9040,21 +9040,63 @@ tarefas_subs_abertas() { tarefas_filhas "$1" | awk -F'\t' '$2=="aberta"{print $3
 # Conclui ID. Uma mãe só conclui com TODAS as subtarefas feitas: senão não muda nada, imprime as
 # que faltam e devolve 2. Concluir a última subtarefa não conclui a mãe (isso fica com você).
 # Recorrente (rep + prazo): em vez de fechar, o prazo avança (mantendo a hora) e as subtarefas
-# reabrem — o checklist volta no próximo ciclo.
+# reabrem — o checklist volta no próximo ciclo. Para dar para desfazer, a meta guarda os prazos
+# anteriores (ant, até 3), as subtarefas reabertas neste ciclo (antsub), o total de ciclos feitos
+# (ciclos) e quando foi o último (feito).
+TAREFAS_DESFAZER_MAX=3
 tarefa_concluir() {
-  local id=$1 falta rep prazo prox f
+  local id=$1 falta rep prazo prox f m ant subs="" n
   falta=$(tarefas_subs_abertas "$id")
   [[ -n $falta ]] && { printf '%s\n' "$falta"; return 2; }
   rep=$(tarefa_get_rep "$id"); prazo=$(tarefa_get_prazo "$id")
   if [[ -n $rep && -n $prazo ]]; then
     prox=$(tarefas_proximo_prazo "$prazo" "$rep")
     if [[ -n $prox ]]; then
-      tarefa_set_prazo "$id" "$prox" "$(tarefas_meta_get "$(tarefas_meta_de "$id")" hora)"
-      while IFS=$'\t' read -r f _; do tarefa_estado "$f" aberta; done < <(tarefas_filhas "$id" | awk -F'\t' '$2=="feita"')
+      m=$(tarefas_meta_de "$id")
+      ant=$(tarefas_meta_get "$m" ant); ant=${ant:+$ant,}$prazo
+      n=$(tr ',' '\n' <<<"$ant" | grep -c .)
+      ((n > TAREFAS_DESFAZER_MAX)) && ant=$(cut -d, -f$((n - TAREFAS_DESFAZER_MAX + 1))- <<<"$ant")
+      subs=$(tarefas_filhas "$id" | awk -F'\t' '$2=="feita"{printf "%s%s", (n++ ? "," : ""), $1}')
+      n=$(tarefas_meta_get "$m" ciclos)
+      m=$(tarefas_meta_set "$m" prazo "$prox")
+      m=$(tarefas_meta_set "$m" ant "$ant")
+      m=$(tarefas_meta_set "$m" antsub "$subs")
+      m=$(tarefas_meta_set "$m" ciclos "$(( ${n:-0} + 1 ))")
+      m=$(tarefas_meta_set "$m" feito "$(date +%s)")
+      tarefa_set_meta "$id" "$m"
+      for f in ${subs//,/ }; do tarefa_estado "$f" aberta; done
       return 0
     fi
   fi
   tarefa_estado "$id" feita
+}
+
+# Desfaz a última conclusão. Recorrente com histórico: o prazo volta um ciclo, o contador desce e
+# as subtarefas que aquele ciclo reabriu voltam a feitas (as criadas depois ficam como estão).
+# Sem histórico, uma tarefa feita reabre. Imprime o que fez; devolve 1 se não havia o que desfazer.
+tarefa_desfazer() { # id
+  local id=$1 m ant volta n subs f
+  m=$(tarefas_meta_de "$id"); ant=$(tarefas_meta_get "$m" ant)
+  if [[ -n $ant ]]; then
+    volta=${ant##*,}; [[ $ant == *,* ]] && ant=${ant%,*} || ant=""
+    subs=$(tarefas_meta_get "$m" antsub); n=$(tarefas_meta_get "$m" ciclos)
+    m=$(tarefas_meta_set "$m" prazo "$volta")
+    m=$(tarefas_meta_set "$m" ant "$ant")
+    m=$(tarefas_meta_set "$m" antsub "")
+    m=$(tarefas_meta_set "$m" ciclos "$( ((${n:-0} > 1)) && echo $((n - 1)))")
+    m=$(tarefas_meta_set "$m" feito "")
+    tarefa_set_meta "$id" "$m"
+    for f in ${subs//,/ }; do
+      [[ $(tarefas_pai_de "$f") == "$id" && $(tarefas_estado_de "$f") == aberta ]] && tarefa_estado "$f" feita
+    done
+    printf '↶ Ciclo desfeito: o prazo volta para %s\n' "$(tarefas_prazo_texto "$volta" "$(tarefas_meta_get "$m" hora)")"
+    return 0
+  fi
+  if [[ $(tarefas_estado_de "$id") == feita ]]; then
+    tarefa_alternar "$id"; printf '↺ Reaberta (marcada como não feita)\n'; return 0
+  fi
+  echo "nada a desfazer: a tarefa não foi concluída (ou os ciclos guardados já foram desfeitos)" >&2
+  return 1
 }
 
 # Alterna aberta<->feita (concluir segue tarefa_concluir; devolve 2 se faltam subtarefas). Reabrir
@@ -11666,6 +11708,7 @@ tarefas_ui() {
     --bind="ctrl-d:transform($a prazo {1})" \
     --bind="ctrl-p:transform($a prio {1})" \
     --bind="ctrl-r:transform($a rep {1})" \
+    --bind="ctrl-z:transform($a desfazer {1})" \
     --bind="ctrl-k:transform($a cima {1})" \
     --bind="alt-up:transform($a cima {1})" \
     --bind="ctrl-j:transform($a baixo {1})" \
@@ -11865,6 +11908,8 @@ tarefas_lista_fzf() { # [busca]
       if (!AGENDA || venc) { r = rotulo_prazo(prazo, est, hora); if (r != "") ex = ex "  " r }
       r = mv(meta, "rep")
       if (r != "") ex = ex "  " TEAL "↻ " (r == "d" ? "diária" : (r == "w" ? "semanal" : "mensal")) Z
+      k = mv(meta, "feito")   # ciclo concluído há menos de 24 h: o prazo mudou, mas mostra que deu certo
+      if (r != "" && k != "" && NOW - k < 86400) ex = ex "  " VERDE "✓ ciclo feito" Z " " DIM "^z desfaz" Z
       if (nfil > 0) ex = ex "  " progresso(NFE[id] + 0, nfil)
       if (tagtxt != "") ex = ex "  " LILAS tagtxt Z
       if (TDESC[i] != "") ex = ex "  " SUB "≡" Z      # tem descrição (a visão própria mostra)
@@ -12044,6 +12089,8 @@ tarefas_ajuda_linhas() {
   printf '\t   concluir a última não conclui a tarefa: você decide. Reabrir ou criar\n'
   printf '\t   uma subtarefa reabre a tarefa. Numa tarefa que repete, concluir\n'
   printf '\t   avança o prazo e reabre as subtarefas (o checklist volta).\n'
+  printf '\t   Concluiu um ciclo a mais? %s^z%s (ou %s↶ Desfazer%s no menu) volta o\n' "$y" "$z" "$y" "$z"
+  printf '\t   prazo e o checklist um ciclo por vez, até 3; numa tarefa feita, reabre.\n'
   printf '\t\n\t %sARQUIVO (HISTÓRICO)%s\n' "$a" "$z"
   printf '\t   %s^l%s pergunta o que fazer com as feitas: %s▤ Arquivar%s (⏎) guarda no\n' "$y" "$z" "$y" "$z"
   printf '\t   histórico; %s✕ Apagar de vez%s some sem histórico. Uma tarefa sozinha:\n' "$y" "$z"
@@ -12078,6 +12125,7 @@ tarefas_ajuda_linhas() {
   printf '\t   %s⏎%s feita/aberta   %s→ ␣%s abre   %s←%s fecha   %sTab%s próxima aba\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^n%s nova   %s^s%s subtarefa   %s^e%s descrição   %s^d%s prazo   %sF2%s editar\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^p%s prioridade   %s^r%s repetir   %s^k ^j%s sobe/desce   %s^x%s apaga\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
+  printf '\t   %s^z%s desfaz a última conclusão (volta um ciclo de uma tarefa que repete)\n' "$y" "$z"
   printf '\t   %s^t%s calendário   %s^o%s mais ações   %s^l%s arquiva/apaga as feitas   %s^/%s descrição\n' "$y" "$z" "$y" "$z" "$y" "$z" "$y" "$z"
   printf '\t   %s^g%s implementa com a melhor IA (a tarefa e as subtarefas, numa sessão nova)\n' "$y" "$z"
   printf '\t   %s?%s ajuda   %sesc%s volta/fecha\n' "$y" "$z" "$y" "$z"
@@ -12119,6 +12167,8 @@ tarefas_menu_linhas() { # id
     return 0
   fi
   local nfalta; nfalta=$(tarefas_subs_abertas "$id" | grep -c . || true)
+  local ant; ant=$(tarefas_meta_get "$m" ant)
+  [[ -n $ant ]] && _op desfazer "$a↶ Desfazer a última conclusão" "^z · o prazo volta para $(tarefas_prazo_texto "${ant##*,}" "$(tarefas_meta_get "$m" hora)")"
   if [[ $est == feita ]]; then _op feita "$t↺ Reabrir (marcar como não feita)" '⏎'
   elif ((nfalta > 0)); then _op feita "$d☑ Marcar como feita" "falta$( ((nfalta > 1)) && echo m) $nfalta subtarefa$( ((nfalta > 1)) && echo s)"
   else _op feita "$g☑ Marcar como feita" '⏎ ou duplo clique'; fi
@@ -12273,8 +12323,15 @@ tarefa_acao_() { # evento chave (o despachante; tarefa_acao trata as recargas)
   # Marca/desmarca. Mãe com subtarefa aberta não conclui: avisa no cabeçalho e abre a mãe para
   # mostrar o que falta.
   _marcar() {
-    local falta n
-    falta=$(tarefa_alternar "$1") && { echo "$rl+$hd"; return; }
+    local falta n c0 m
+    c0=$(tarefas_meta_get "$(tarefas_meta_de "$1")" ciclos)
+    if falta=$(tarefa_alternar "$1"); then
+      m=$(tarefas_meta_de "$1")
+      # Recorrente: a tarefa não fica marcada (o prazo avança), então o cabeçalho diz o que aconteceu.
+      [[ $(tarefas_meta_get "$m" ciclos) != "$c0" ]] &&
+        tarefas_ui_set aviso "✓ Ciclo feito · próximo: $(tarefas_prazo_texto "$(tarefas_meta_get "$m" prazo)" "$(tarefas_meta_get "$m" hora)") · ^z desfaz"
+      echo "$rl+$hd"; return
+    fi
     if [[ -n $falta ]]; then
       n=$(grep -c . <<<"$falta")
       tarefas_ui_set aviso "⚠ Para concluir, falta$( ((n > 1)) && echo m) $n subtarefa$( ((n > 1)) && echo s): $(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' <<<"$falta")"
@@ -12375,6 +12432,11 @@ tarefa_acao_() { # evento chave (o despachante; tarefa_acao trata as recargas)
     editar|renomear) echo "execute($EU --tarefa-editar-prompt $id)+$rl+$hd" ;;
     prio) [[ -n $pai ]] && id=$pai; tarefa_prio_ciclar "$id"; echo "$rl" ;;
     rep) [[ -n $pai ]] && id=$pai; tarefa_rep_ciclar "$id"; echo "$rl" ;;
+    desfazer)
+      [[ -n $pai && -z $(tarefas_meta_get "$(tarefas_meta_de "$id")" ant) && $(tarefas_estado_de "$id") != feita ]] && id=$pai
+      if r=$(tarefa_desfazer "$id" 2>&1); then tarefas_ui_set aviso "$r"
+      else tarefas_ui_set aviso "⚠ Nada a desfazer nesta tarefa"; fi
+      echo "$rl+$hd" ;;
     cima|baixo) tarefa_mover "$id" "$ev"; echo "$rl" ;;
     apagar) echo "execute($EU --tarefa-remover-prompt $id)+$rl+$hd" ;;
     ia) # abre a sessão da IA e fecha o painel (senão ele ficaria por cima da sessão nova)
@@ -12461,6 +12523,8 @@ tarefa_preview() { # chave
   [[ -n $prazo ]] && info+=("$s◷ $(tarefas_prazo_texto "$prazo" "$(tarefas_meta_get "$m" hora)")$z")
   case $(tarefas_meta_get "$m" prio) in 1) info+=("$verm● alta$z") ;; 2) info+=("$amar● média$z") ;; esac
   case $(tarefas_meta_get "$m" rep) in d) info+=("$teal↻ diária$z") ;; w) info+=("$teal↻ semanal$z") ;; m) info+=("$teal↻ mensal$z") ;; esac
+  local nc; nc=$(tarefas_meta_get "$m" ciclos)
+  [[ -n $nc ]] && info+=("$verde✓ $nc ciclo$( ((nc > 1)) && echo s) feito$( ((nc > 1)) && echo s)$z")
   local tgs; tgs=$(tarefas_meta_get "$m" tags); [[ -n $tgs ]] && info+=("$lil#${tgs//,/ #}$z")
   ((${#info[@]})) && { local IFS=$'\x1f'; printf '%s\n' "${info[*]}" | sed $'s/\x1f/   /g'; }
   printf '%s⌗ %s · %s%s\n' "$d" "$(tarefa_slug "$id")" "$id" "$z"
@@ -18393,14 +18457,14 @@ esac
 # Verbos de tarefa que recebem um ID aceitam também o apelido (kito47), um prefixo do código (4+ hex) e
 # MÃE.N (kito47.2). Os internos da UI mandam o código inteiro e passam direto.
 case "${1:-}" in
-  --tarefa-ok | --tarefa-abrir | --tarefa-rm | --tarefa-arquivar | --tarefa-restaurar | --tarefa-editar | --tarefa-frase | --tarefa-renomear | --tarefa-sub-add | --tarefa-desc | --tarefa-implementar | --tarefa-ia-prompt | --tarefa-email | --tarefa-codigo | --tarefa-log | --tarefa-historico)
+  --tarefa-ok | --tarefa-desfazer | --tarefa-abrir | --tarefa-rm | --tarefa-arquivar | --tarefa-restaurar | --tarefa-editar | --tarefa-frase | --tarefa-renomear | --tarefa-sub-add | --tarefa-desc | --tarefa-implementar | --tarefa-ia-prompt | --tarefa-email | --tarefa-codigo | --tarefa-log | --tarefa-historico)
     if [[ -n ${2:-} ]]; then
       _arg=$2; _id=$(tarefas_resolver "$2"); _rc=$?
       if ((_rc == 0)); then
         # Verbo que ALTERA, chamado por apelido/posição/prefixo: diz em qual item vai agir (stderr), para quem
         # chamou conferir. Pelo código inteiro não há o que conferir, então fica quieto.
         case $1 in
-          --tarefa-ok | --tarefa-abrir | --tarefa-rm | --tarefa-arquivar | --tarefa-restaurar | --tarefa-editar | --tarefa-renomear | --tarefa-sub-add | --tarefa-desc | --tarefa-log)
+          --tarefa-ok | --tarefa-desfazer | --tarefa-abrir | --tarefa-rm | --tarefa-arquivar | --tarefa-restaurar | --tarefa-editar | --tarefa-renomear | --tarefa-sub-add | --tarefa-desc | --tarefa-log)
             [[ ${_arg,,} == "$_id" ]] || tarefas_eco_alvo "$_id" "$_arg" ;;
         esac
         set -- "$1" "$_id" "${@:3}"
@@ -18630,6 +18694,10 @@ case "${1:-}" in
     if falta=$(tarefa_concluir "$2"); then exit 0; fi
     [[ -n $falta ]] && { printf 'Não concluída: faltam as subtarefas:\n%s\n' "$(sed 's/^/  ☐ /' <<<"$falta")" >&2; }
     exit 1 ;;
+  --tarefa-desfazer)
+    # Desfaz a última conclusão: numa recorrente, volta um ciclo (prazo e checklist); senão, reabre.
+    [[ -n ${2:-} ]] || { echo 'uso: tt --tarefa-desfazer ID'; exit 1; }
+    tarefa_desfazer "$2"; exit ;;
   --tarefa-abrir) tarefa_estado "${2:?uso: tt --tarefa-abrir ID}" aberta; exit ;;
   --tarefa-rm) tarefa_remover "${2:?uso: tt --tarefa-rm ID}"; exit ;;
   --tarefa-limpar) tarefa_limpar_feitas; exit ;;

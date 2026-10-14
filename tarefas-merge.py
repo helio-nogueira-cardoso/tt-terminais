@@ -31,7 +31,7 @@ import secrets
 import sys
 import time
 
-META_ORDEM = ["desc", "prazo", "hora", "prio", "rep", "tags", "pai", "ord", "arq", "de", "upd", "scod", "sest",
+META_ORDEM = ["desc", "prazo", "hora", "prio", "rep", "ant", "antsub", "ciclos", "feito", "tags", "pai", "ord", "arq", "de", "upd", "scod", "sest",
               "colide", "iest", "rem", "v2", "base"]
 CAMPOS = [("texto", "Título"), ("prazo", "Prazo"), ("prio", "Prioridade"), ("rep", "Repetição"),
           ("tags", "Etiquetas"), ("desc", "Descrição"), ("estado", "Situação")]

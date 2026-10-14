@@ -157,7 +157,8 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 ### Tarefas (gerenciador simples)
 - `tt --tarefas [cliente]` — abre o painel: slide-over ancorado à direita (no tmux) ou lista texto
   (fora dele). Também `Ctrl+B t`.
-- `tt --tarefa-add "texto"` — adiciona; `tt --tarefa-ok ID` conclui; `tt --tarefa-abrir ID` reabre;
+- `tt --tarefa-add "texto"` — adiciona; `tt --tarefa-ok ID` conclui; `tt --tarefa-desfazer ID` desfaz a última
+  conclusão (recorrente: volta um ciclo; senão reabre; sai 1 se não há o que desfazer); `tt --tarefa-abrir ID` reabre;
   `tt --tarefa-rm ID` remove (lápide); `tt --tarefa-limpar` remove as feitas de vez;
   `tt --tarefas-arquivar-feitas`, `tt --tarefa-arquivar ID` (só de topo; leva as subtarefas),
   `tt --tarefa-restaurar ID`, `tt --tarefas-arquivadas` (histórico em texto).
@@ -184,7 +185,11 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - Conclusão (`tarefa_concluir`): mãe só conclui com todas as subtarefas feitas (senão imprime as
   que faltam e devolve 2; no painel vira a linha ⚠ `aviso=` do cabeçalho, mostrada uma vez; o
   `--tarefa-ok` sai 1 com a lista). A última subtarefa não conclui a mãe. Reabrir/criar subtarefa
-  numa mãe feita reabre a mãe. Recorrente: avança o prazo (com `hora`) e reabre as subtarefas.
+  numa mãe feita reabre a mãe. Recorrente: avança o prazo (com `hora`) e reabre as subtarefas, e grava na
+  meta `ant` (prazos anteriores, vírgula, até `TAREFAS_DESFAZER_MAX`=3), `antsub` (subtarefas reabertas neste
+  ciclo), `ciclos` (total feito) e `feito` (epoch do último). `tarefa_desfazer` (`--tarefa-desfazer`, `^z`,
+  menu ↶) desempilha um prazo, devolve `antsub` a feitas e desconta o ciclo; sem `ant`, reabre uma feita.
+  A linha mostra `✓ ciclo feito` enquanto `feito` tiver menos de 24 h.
   `tarefa_limpar_feitas` só remove feitas de topo (cascata leva as subtarefas delas).
 - Arquivo: estado `arquivada` no mesmo arquivo `tarefas`, meta `arq=EPOCH:a|f` (quando + estado de
   antes), via `tarefas_arquivo_mudar arquivar|restaurar --feitas|ID…` (uma passada de awk; mãe leva

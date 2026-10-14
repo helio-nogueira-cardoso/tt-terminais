@@ -3,6 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.16.2 · 14/10/2026
+- **↶ Desfazer a conclusão de uma tarefa que repete.** Concluir uma tarefa recorrente não a deixa marcada: o prazo avança para o próximo ciclo. Era fácil clicar de novo achando que não tinha pegado, e não havia volta. Agora:
+  - ao concluir, o topo do painel avisa `✓ Ciclo feito · próximo: 14/11 · ^z desfaz`, e a linha mostra **✓ ciclo feito** por 24 h;
+  - `Ctrl+Z`, **↶ Desfazer a última conclusão** no menu da tarefa (com a data para onde o prazo volta) ou `tt --tarefa-desfazer ID` voltam um ciclo por vez, até 3, e devolvem a feitas as subtarefas que aquele ciclo reabriu;
+  - o cartão da tarefa (`^/`) mostra quantos ciclos já foram feitos;
+  - numa tarefa que não repete, desfazer reabre a tarefa feita.
+
 ## v1.16.0 · 14/10/2026
 - **🖱 Roda do mouse nos chips da barra.** Sobre o chip azul da máquina, a roda troca de máquina: para baixo a seguinte, para cima a anterior, na ordem do cabeçalho da central, dando a volta. Você cai na primeira sessão da lista de lá (a de uso mais recente) e, se não houver nenhuma, uma nova é criada. Máquina que não responde em uns 3 s é pulada com aviso, e por 1 minuto a roda nem tenta de novo. Sobre o chip da sessão, a roda passa pelas sessões desta máquina, na ordem do `Ctrl+B (` e `)`, sem pontes nem sessões ocultas. Uma rolagem longa anda um passo por vez. Vendo outra máquina pela ponte, a troca acontece na máquina da tela, na ordem dela. No resto da barra, a roda faz o de sempre (janela anterior/seguinte).
 - **☰ Menu no botão direito dos atalhos.** O clique no atalho continua igual. O botão direito agora pode abrir um menu com outros jeitos de rodar o mesmo atalho, configurável na 5ª coluna do atalho (também pelo ✏ editor de atalhos), com opções fixas (`Rótulo=comando`) ou dinâmicas:
