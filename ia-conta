@@ -69,7 +69,8 @@ Uso:
   ia-conta <conta> [argumentos do claude]
   ia-conta codex [argumentos do codex]
   ia-conta kiro [argumentos do kiro-cli chat]
-  ia-conta abrir [--retomar <id-da-conversa-do-claude>] [--exceto <conta>]... [--prompt-arquivo <arq>]
+  ia-conta abrir [--retomar <id-da-conversa-do-claude>] [--exceto <conta>]... [--prompt-arquivo <arq>] [--conta <conta>]
+  ia-conta abrir --listar-contas
   ia-conta adicionar <conta> [--email <e-mail>]
   ia-conta adicionar principal [--email <e-mail>]   # troca o login da principal (a de ~/.claude)
   ia-conta entrar <conta>
@@ -95,7 +96,10 @@ abrir escolhe, entre todas as contas da rotação (Claude, Codex e Kiro), a com 
 neste momento (ia-rot --melhor) e a abre interativa no modo sem confirmações do provedor:
 claude --dangerously-skip-permissions, codex --yolo (no Android, também --no-daemon),
 kiro-cli chat --v3 --trust-all-tools. --retomar continua a conversa do Claude dada quando a escolhida também é do Claude (as conversas
-são compartilhadas entre as contas); se for Codex ou Kiro, abre uma sessão nova.
+são compartilhadas entre as contas); se for Codex ou Kiro, abre uma sessão nova. --conta abre a conta dada
+(principal, um perfil, codex ou kiro) em vez da escolhida pelo rotador; --listar-contas imprime as contas que
+dá para abrir aqui, "conta<TAB>provedor<TAB>rótulo<TAB>uso", só de caches (é o menu do botão direito dos
+atalhos 🚀 e 👇 do tt).
 
 "principal" usa a credencial que já estava em ~/.claude. Os demais perfis têm
 credenciais separadas, mas compartilham sessões, histórico e memórias locais.
@@ -706,28 +710,72 @@ claude_status_email() {
   return 1
 }
 
-# A IA com mais folga agora (ia-rot --melhor), interativa e sem pedir permissões.
+# Contas que dá para abrir aqui, uma por par (provedor, e-mail), para o menu do botão direito dos atalhos do tt
+# ("ia-conta abrir --listar-contas"): "conta<TAB>provedor<TAB>rótulo<TAB>uso". Só caches, sem rede nem CLI (o menu
+# abre na hora): e-mail da pasta, apelido do cadastro e o último uso conhecido. Perfil do Claude sem credencial fica
+# de fora; a principal, quando tem o e-mail de um perfil (é a mesma conta: vale o nome do perfil, como no listar).
+opcoes() {
+  local c p email nome rot texto fonte args=()
+  local -a contas=() ordem=()
+  local -A U=() visto=() saida=()
+  mapfile -t contas <<<"$(contas_rotacao)"
+  if [[ -f $USO_PY ]]; then
+    for c in "${contas[@]}"; do args+=("$c=$(alvo_uso "$c")"); done
+    while IFS=$'\t' read -r c _ _ texto fonte _; do
+      [[ -n $c && $fonte != desconhecido ]] && U[$c]=${texto#-}
+    done <<<"$(python3 -I "$USO_PY" --so-cache "${args[@]}" 2>/dev/null)"
+  fi
+  for c in "${contas[@]}"; do [[ $c == principal ]] || ordem+=("$c"); done
+  [[ ${contas[0]:-} == principal ]] && ordem+=(principal)
+  for c in "${ordem[@]}"; do
+    case $c in principal | codex | kiro) ;; *) [[ -s $(perfil "$c")/.credentials.json ]] || continue ;; esac
+    p=$(provedor_de "$c"); email=$(email_local "$c")
+    if [[ -n $email ]]; then
+      [[ -n ${visto[$p:$email]:-} ]] && continue
+      visto[$p:$email]=1
+      nome=$(cadastro_nome "$p" "$email")
+    else nome=""; fi
+    [[ -z $nome || $nome == - ]] && nome=$c
+    rot="$p · $nome"; [[ $nome != "$c" && $c != principal && $c != "$p" ]] && rot+=" ($c)"
+    saida[$c]="$c"$'\t'"$p"$'\t'"$rot"$'\t'"${U[$c]:-}"
+  done
+  for c in "${contas[@]}"; do [[ -n ${saida[$c]:-} ]] && printf '%s\n' "${saida[$c]}"; done
+  return 0
+}
+
+# A IA com mais folga agora (ia-rot --melhor), interativa e sem pedir permissões. --conta abre uma conta
+# escolhida (o menu do botão direito dos atalhos), sem passar pelo rotador.
 abrir() {
-  local retomar="" rot linha conta pico texto c prompt=""
+  local retomar="" rot linha conta pico texto c prompt="" escolhida=""
   local -a exceto=() claude_contas=()
   while (($#)); do
     case $1 in
       --retomar) retomar=${2:-}; shift ;;
       --exceto) exceto+=(--exceto "${2:-}"); shift ;;
       --prompt-arquivo) [[ -r ${2:-} ]] || die "abrir: não consigo ler '${2:-}'"; prompt=$(<"$2"); shift ;;
+      --conta) escolhida=${2:-}; shift ;;
+      --listar-contas) opcoes; return 0 ;;
       *) die "abrir: opção desconhecida '$1' (veja: ia-conta ajuda)" ;;
     esac
     shift
   done
-  rot=$AQUI/ia-rot
-  [[ -x $rot ]] || rot=$(command -v ia-rot 2>/dev/null) || die 'não achei o ia-rot'
-  # Token vencido deixa o uso desconhecido (e a conta, para trás): o próprio Claude renova antes.
-  while read -r c; do case $c in codex | kiro) ;; *) claude_contas+=("$c") ;; esac; done <<<"$(contas_rotacao)"
-  renovar_tokens "${claude_contas[@]}"
-  linha=$("$rot" --melhor "${exceto[@]}") || exit 2
-  IFS=$'\t' read -r conta pico texto <<<"$linha"
-  printf '%s' "$conta" >"$ATUAL_ROT" 2>/dev/null || true
-  printf '→ %s (%s)\n' "$conta" "$texto"
+  if [[ -n $escolhida ]]; then
+    grep -qxF -- "$escolhida" <<<"$(contas_rotacao)" || die "abrir: não há a conta '$escolhida' nesta máquina (veja: ia-conta listar)"
+    conta=$escolhida
+    case $conta in codex | kiro) ;; *) renovar_tokens "$conta" ;; esac
+    printf '%s' "$conta" >"$ATUAL_ROT" 2>/dev/null || true
+    printf '→ %s (escolhida no menu)\n' "$conta"
+  else
+    rot=$AQUI/ia-rot
+    [[ -x $rot ]] || rot=$(command -v ia-rot 2>/dev/null) || die 'não achei o ia-rot'
+    # Token vencido deixa o uso desconhecido (e a conta, para trás): o próprio Claude renova antes.
+    while read -r c; do case $c in codex | kiro) ;; *) claude_contas+=("$c") ;; esac; done <<<"$(contas_rotacao)"
+    renovar_tokens "${claude_contas[@]}"
+    linha=$("$rot" --melhor "${exceto[@]}") || exit 2
+    IFS=$'\t' read -r conta pico texto <<<"$linha"
+    printf '%s' "$conta" >"$ATUAL_ROT" 2>/dev/null || true
+    printf '→ %s (%s)\n' "$conta" "$texto"
+  fi
   # Como root (Debian do proot no celular) o Claude só aceita pular permissões em ambiente isolado.
   [[ $EUID == 0 ]] && export IS_SANDBOX=1
   case $conta in

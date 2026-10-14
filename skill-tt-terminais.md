@@ -273,7 +273,23 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
 ### Atalhos de barra
 - `tt --editar-atalhos` — edita os atalhos locais. `--atalhos-barra`/`--atalhos-lista` (internos)
   formatam/listam a partir de `atalhos-padrao` + `~/.config/tt/atalhos` (override por ID; emoji `-`
-  desativa).
+  desativa). Linha: `emoji⇥id⇥comando⇥cor⇥menu` (cor vazia com menu sai `-` na lista: `read` com IFS=tab junta
+  tabs). Padrões: 🚀 `ia-nova` (`ia-conta abrir {conta}`), 👇 `ia-aqui` (`@aqui ia-conta abrir {retomar} {conta}`),
+  ⏩ `ia-seguir` (`@seguir ia-conta abrir {prompt}`); no celular, os mesmos dentro de `proot-distro login …`.
+- Menu do botão direito (5ª coluna, itens separados por ` ;; `): `@contas` (o próprio comando com `{conta}` →
+  `--listar-contas` dá `conta⇥provedor⇥rótulo⇥uso`; cada item roda com `--conta NOME`; lista guardada em
+  `$RT/tt-atalho-contas-UID-<cksum>`), `@maquinas` (o atalho de mesmo ID roda numa sessão nova da máquina:
+  `tt --atalho-sessao ID PASTA` lá, depois `ir_para`), `Rótulo=comando`, `-`. Internos: `tt --atalho-menu-itens ID
+  CLIENTE PAINEL` (itens no formato do `menu_popup`), `tt --atalho-rodar ID CLIENTE PAINEL [conta=N|maquina=R|opcao=K]`.
+  Sem a 5ª coluna, o botão direito só mostra o comando (`atalho_info`).
+- ⏩ / `@seguir CMD` (`seguir_ia`): `agente_no_painel` (claude/codex/kiro-cli entre os descendentes do painel) →
+  `conversa_do_painel` (Claude: `claude_info`; Codex/Kiro: `sessoes-ia.py achar`) → nesta máquina `seguir_abrir` respawna
+  o painel com `tt --conversa-ia ID --de ORIGEM --salvar` + CMD (`{prompt}` = `--prompt-arquivo
+  ~/.cache/tt/seguir/ID-data.md`); noutra, `ssh … tt --seguir-abrir ORIGEM PROVEDOR ID PASTA` abre uma sessão nova lá
+  (com o `@seguir` do perfil de lá) e imprime o nome, o painel daqui é respawnado com um recado e a tela vai por `ir_para`.
+- `tt --conversa-ia CÓDIGO [--de MÁQUINA] [--salvar]` — a conversa (Claude, Codex ou Kiro) em Markdown, para outra
+  IA seguir o trabalho; `--salvar` grava em `~/.cache/tt/conversas/CÓDIGO.md`. Se você recebeu um pedido da ⏩,
+  é com isto que se relê a conversa original.
 
 ### Arquivos entre máquinas
 - `tt --enviar [arquivo... [destino[:pasta]]]` — navega e envia; `tt --trazer [maquina:caminho [pasta]]`
@@ -505,6 +521,10 @@ F4→`dbn`, F5→`tela`, F6→`sair`, F7→`ant`, F8→`zm`, F9→`jn`, F10→`d
   divergiu → a de mtime maior, a perdedora em `$ESTADO_DIR/sessoes-ia/conflitos/<prov>/<data>/`.
   `TT_SESSOES_EXCLUIR` (= `sessoes_ia_excluir=` do config) são globs sobre `provedor/chave`.
   Novo provedor = nova classe em `PROVEDORES` (descobrir, unidades, chave/rel).
+- `sessoes-ia.py achar --provedor P --pid PID [--pids …] [--tela ARQ]` (a conversa de um agente em execução: Claude
+  `sessions/<pid>.json`, Kiro `<uuid>.lock` com o pid, Codex a da mesma pasta mexida desde o início do processo,
+  desempatada pelas linhas da tela) e `sessoes-ia.py exportar CÓDIGO [--max-resultado N]` (Markdown; base do
+  `tt --conversa-ia`). Procuram em todas as pastas do agente (home e cada proot).
 
 ### Área de transferência e contas de IA
 - `tt --copiar`/`--copiar-buffer`/`--copiado` (clipboard Wayland/X/clip.exe + OSC 52; o `tmux.conf` fixa a
@@ -549,7 +569,7 @@ Ranges e destino:
 | `fx<chave>` | faixa de fixadas | `ir_fixada` | `menu_fixada` |
 | `fxx<chave>` | faixa de fixadas (✕) | `desafixar_item` | `desafixar_item` |
 | `fixmais` | chip `+N ▾` da faixa de fixadas | `fixadas_popup` | — |
-| `at<N>` | atalhos | `atalho_executar` | `atalho_info` (tooltip, sem executar) |
+| `at<N>` | atalhos | `atalho_executar` | `atalho_menu` (menu da 5ª coluna; sem ela, `atalho_info`: tooltip, sem executar) |
 | `transferencias` | status-right (⇅ N) | popup `--transferencias` | — |
 | `copias` | `Ctrl+B y` | popup `--copias` | — |
 
@@ -570,7 +590,11 @@ um item muda, para a barra redesenhar.
 Binds de teclado (prefixo `Ctrl+B`): `s` central, `t` tarefas, `|` split horizontal, `-` split
 vertical, `c` janela nova, `r` recarrega config, `m` menu do painel, `y` histórico de cópias, `N`
 renomear sessão, `F1..F10` botões. Mouse: Ctrl ou Alt + arrastar/duplo/triplo clique copiam (sem modificador vão ao programa; o Ctrl+arrastar = painel flutuante do tmux 3.8 fica desligado); botão do meio cola;
-`MouseDown/Up1Status*` → `--clique`; `MouseUp3Status*` → `--clique-direito`;
+`MouseDown/Up1Status*` → `--clique`; `MouseUp3Status*` → `--clique-direito`; `WheelUp/DownStatus` em `maquina`/`sessao` →
+`tt --rolar RANGE ±1 CLIENTE` (`rolar_sessao`: ordem do tmux, sem pontes/ocultas; `rolar_maquina_cliente`: ordem de
+`rotulos`, 1ª sessão do `--listar-leve` de lá, pula quem não responde em `TT_T_ROLAR` s e lembra 60 s; de uma ponte,
+pede à máquina da tela `tt --rolar-ponte PONTE RÓTULO ±1`; um passo por vez, `TT_ROLAR_FOLGA` ms entre eles), no
+resto da barra `previous-window`/`next-window`;
 `MouseUp3Pane`/`MouseDown3Border` → `--menu-painel`.
 
 Popup de tamanho fixo passa por `dim_popup CLIENTE L A` (encolhe até a tela do cliente: o tmux

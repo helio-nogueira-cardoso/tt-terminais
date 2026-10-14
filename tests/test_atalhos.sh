@@ -3,13 +3,15 @@
 source "$(dirname "$0")/lib.sh"; isolar
 ids() { "$TT" --atalhos-lista | cut -f2 | tr '\n' ' '; }
 
-[[ $(ids) == "ia-nova ia-aqui " ]] || falhou "padrão do PC deveria ter 2 atalhos: $(ids)"
-"$TT" --atalhos-lista | grep -q $'\tia-conta abrir\t' || falhou 'ia-nova do PC não abre a melhor IA'
-passou 'PC: 2 atalhos padrão (melhor IA numa sessão nova ou no painel atual)'
+[[ $(ids) == "ia-nova ia-aqui ia-seguir " ]] || falhou "padrão do PC deveria ter 3 atalhos: $(ids)"
+"$TT" --atalhos-lista | grep -q $'\tia-conta abrir {conta}\t' || falhou 'ia-nova do PC não abre a melhor IA'
+"$TT" --atalhos-lista | grep -q $'\tia-seguir\t@seguir ia-conta abrir {prompt}\t#f9e2af\t@maquinas$' || falhou 'ia-seguir do PC sem @seguir/{prompt}/@maquinas'
+passou 'PC: 3 atalhos padrão (melhor IA numa sessão nova, no painel atual, e a ⏩ que passa a conversa adiante)'
 
 m=$(PREFIX=/data/data/com.termux/files/usr "$TT" --atalhos-lista)
 grep -q 'proot-distro login debian' <<<"$m" || falhou 'celular: atalhos não entram no Debian (proot)'
-grep -q "bash -lc '.*ia-conta abrir'" <<<"$m" || falhou 'celular: ia-nova sem ia-conta abrir no Debian'
+grep -q "bash -lc '.*ia-conta abrir {conta}'" <<<"$m" || falhou 'celular: ia-nova sem ia-conta abrir no Debian'
+grep -q "^⏩"$'\t'"ia-seguir"$'\t'"@seguir proot-distro login debian .*ia-conta abrir {prompt}'"$'\t' <<<"$m" || falhou 'celular: ⏩ sem @seguir no Debian'
 passou 'celular: perfil mobile (ia-conta abrir no Debian via proot)'
 
 # O atalho acha o ia-conta mesmo que o login do Debian não ponha ~/.local/bin no PATH (o ~/.bashrc
@@ -20,7 +22,7 @@ printf '#!/bin/sh\necho "ia-conta $*"\n' >"$deb/.local/bin/ia-conta"; chmod +x "
 printf '#!/usr/bin/env bash\nwhile (($#)) && [[ $1 != -- ]]; do shift; done; shift\nexec env -i HOME="$DEB" PATH=/usr/bin:/bin "$@"\n' >"$T/fb/proot-distro"
 chmod +x "$T/fb/proot-distro"
 for id in ia-nova ia-aqui; do
-  cmd=$(awk -F'\t' -v id="$id" '$2 == id { print $3 }' <<<"$m"); cmd=${cmd#@aqui }; cmd=${cmd//\{retomar\}/}
+  cmd=$(awk -F'\t' -v id="$id" '$2 == id { print $3 }' <<<"$m"); cmd=${cmd#@aqui }; cmd=${cmd//\{retomar\}/}; cmd=${cmd//\{conta\}/}
   out=$(DEB=$deb PATH=$T/fb:$PATH bash -c "$cmd" 2>&1) || falhou "celular: $id falhou sem ~/.local/bin no login do Debian: $out"
   [[ $out == 'ia-conta abrir' ]] || falhou "celular: $id rodou outra coisa: $out"
 done
@@ -28,7 +30,7 @@ passou 'celular: atalhos acham o ia-conta mesmo sem ~/.local/bin no PATH do logi
 
 c=$XDG_CONFIG_HOME/tt/atalhos
 printf '🔧\tia-aqui\tcodex --yolo\t#f38ba8\n-\tia-nova\t\t\n⚡\tmeu\thtop\t#a6e3a1\n' >"$c"
-[[ $(ids) == "ia-aqui meu " ]] || falhou "personalização: $(ids)"
+[[ $(ids) == "ia-aqui ia-seguir meu " ]] || falhou "personalização: $(ids)"
 "$TT" --atalhos-lista | grep -q $'^🔧\tia-aqui\tcodex --yolo' || falhou 'troca de um padrão pelo mesmo ID'
 passou 'local: troca padrão pelo ID, "-" desativa, ID novo acrescenta no fim'
 

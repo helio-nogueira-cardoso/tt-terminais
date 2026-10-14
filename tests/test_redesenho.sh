@@ -20,7 +20,14 @@ case \$1 in set|set-option|source-file) echo "\$*" >>"$T/escritas" ;; esac
 exec $(command -v tmux) "\$@"
 SH
 chmod +x "$T/shim/tmux"
-tmux -f "$T/pkg/tmux.conf" new -d -s a -x 100 -y 30 'sleep 900' 2>/dev/null; tmux new -d -s b 'bash --norc'; sleep 2
+# O tmux.conf carrega o tema de ~/.local/share/tt: o pacote do teste fica lá (link), como numa máquina instalada, mas
+# sem o tt em ~/.local/bin, para o tmux.conf não subir um vigia por conta própria (o do fim é o do teste).
+mkdir -p "$HOME/.local/share"; ln -s "$T/pkg" "$HOME/.local/share/tt"
+tmux -f "$T/pkg/tmux.conf" new -d -s a -x 100 -y 30 'sleep 900' 2>"$T/tmux-erros"; tmux new -d -s b 'bash --norc'; sleep 2
+[[ ! -s $T/tmux-erros ]] || falhou "tmux.conf com erro: $(cat "$T/tmux-erros")"
+[[ $(tmux show -gv status-interval) == 15 ]] || falhou 'o tmux.conf não carregou o tema'
+[[ -z $(pgrep -f "$T/.*--vigia") ]] || falhou 'o tmux.conf subiu um vigia sem o tt instalado'
+
 "$TT" --reforcar-padrao
 : >"$T/escritas"; PATH=$T/shim:$PATH "$TT" --reforcar-padrao
 [[ ! -s $T/escritas ]] || falhou "reforçar o padrão sem desvio gravou: $(head -c 200 "$T/escritas")"

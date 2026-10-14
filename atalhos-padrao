@@ -1,7 +1,13 @@
-# emoji<TAB>id<TAB>comando<TAB>cor-de-fundo (a cor é opcional; comandos shell são intencionais)
-# Dois atalhos: a IA com mais folga de uso agora (ia-conta abrir escolhe entre Claude, Codex e Kiro e
-# já abre sem pedir permissões) numa sessão nova, ou no lugar do que roda no painel atual.
+# emoji<TAB>id<TAB>comando<TAB>cor-de-fundo<TAB>menu (cor e menu são opcionais; comandos shell são intencionais)
+# Três atalhos: a IA com mais folga de uso agora (ia-conta abrir escolhe entre Claude, Codex e Kiro e
+# já abre sem pedir permissões) numa sessão nova, ou no lugar do que roda no painel atual; e a ⏩, que
+# passa a conversa de IA do painel para outra IA (pelo rotador), aqui ou noutra máquina.
 # "@aqui" troca o painel atual (fecha o agente que estiver nele); {retomar} continua a conversa do
 # Claude que estava ali quando a próxima conta também é do Claude.
-🚀	ia-nova	ia-conta abrir	#a6e3a1
-👇	ia-aqui	@aqui ia-conta abrir {retomar}	#89b4fa
+# "@seguir CMD" acha a conversa de IA do painel e o código dela, encerra o agente e abre CMD com {prompt}
+# (--prompt-arquivo com o pedido para ler a conversa inteira e seguir o trabalho).
+# Menu (botão direito), itens separados por " ;; ": @contas (uma opção por conta de IA desta máquina: o
+# comando roda com {conta} = --conta NOME), @maquinas (o mesmo atalho noutra máquina), Rótulo=comando, -.
+🚀	ia-nova	ia-conta abrir {conta}	#a6e3a1	@contas
+👇	ia-aqui	@aqui ia-conta abrir {retomar} {conta}	#89b4fa	@contas
+⏩	ia-seguir	@seguir ia-conta abrir {prompt}	#f9e2af	@maquinas

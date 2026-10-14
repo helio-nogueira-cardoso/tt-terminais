@@ -137,8 +137,10 @@ echo 'ok: modal único de pendências'
 # sinal que chega ao modal fica registrado em pendencias.log.
 limpar; echo "curl" >"$FALTAS"; : >"$SUDOLOG"; rm -f "$HOME/.cache/tt/pendencias.log" "$SUDOLOG.inicio"
 export B FALTAS TT
-APTDORME=2 setsid bash -c 'PATH="$B:$PATH" TT_TTY=/dev/null TT_FINGE_FALTA_ARQ="$FALTAS" "$TT" --pedir-sudo --sim nucleo >/dev/null 2>&1 &
-  for _ in $(seq 1 100); do [ -s "$SUDOLOG.inicio" ] && break; sleep 0.1; done; kill -HUP 0; wait' 2>/dev/null || true
+# (no subshell calado: o "Hangup" do HUP proposital é avisado pelo shell que espera o filho, não pelo filho; o
+# "|| true" lá dentro impede o bash de trocar o subshell pelo próprio comando, o que levaria o aviso para fora)
+(APTDORME=2 setsid bash -c 'PATH="$B:$PATH" TT_TTY=/dev/null TT_FINGE_FALTA_ARQ="$FALTAS" "$TT" --pedir-sudo --sim nucleo >/dev/null 2>&1 &
+  for _ in $(seq 1 100); do [ -s "$SUDOLOG.inicio" ] && break; sleep 0.1; done; kill -HUP 0; wait' || true) 2>/dev/null
 for _ in $(seq 1 40); do grep -q 'instalação terminou' "$HOME/.cache/tt/pendencias.log" 2>/dev/null && break; sleep 0.2; done
 ign=$(cat "$SUDOLOG.inicio" 2>/dev/null)
 [[ -n $ign ]] && (( (16#$ign & 1) == 1 )) || falhou "o apt começou sem ignorar o SIGHUP (SigIgn=$ign): fechar o terminal o mataria pela metade"

@@ -313,6 +313,18 @@ for v in --calendario-agenda --tarefa-desc-editor --tarefa-renomear-prompt --tar
   rg -Fq -- "$v)" "$tt" || falha "tarefas: verbo $v ausente"
 done
 rg -q 'range=user\|relogio' "$tt" || falha 'tarefas: relógio sem range clicável (nas opções do tt)'
+# "<arquivo 2>/dev/null" não cala o "No such file": o bash aplica os redirecionamentos da esquerda para a direita, e a
+# entrada falha antes de o stderr ir para /dev/null. A ordem certa é "2>/dev/null <arquivo".
+if rg -n '<"?\$[A-Za-z_{][^ ]*"? 2>/dev/null' "$tt" | grep -v '<<<' >/dev/null; then
+  falha "redirecionamento de entrada antes do 2>/dev/null (o erro de arquivo ausente vaza): $(rg -n '<"?\$[A-Za-z_{][^ ]*"? 2>/dev/null' "$tt" | grep -v '<<<' | head -3 | cut -c1-80)"
+fi
+# fzf com ação própria no clique: dois toques em menos de 0,5 s chegam como left-click, left-click e double-click, cujo
+# padrão é aceitar a linha (fechava a central no 2º toque rápido no pino ou no ✕). Todo left-click:transform tem o
+# double-click tratado junto (ignore, ou a ação de duplo clique da tela).
+while IFS=: read -r n _; do
+  sed -n "$((n > 4 ? n - 4 : 1)),$((n + 4))p" "$tt" | grep -Fq 'double-click:' ||
+    falha "tt:$n: fzf com left-click:transform sem double-click tratado (o 2º toque rápido aceitaria a linha)"
+done < <(grep -n -- 'left-click:transform(' "$tt")
 # painel mais clicável e com abas de filtro: left-click alterna, double-click expande, click-header troca filtro
 corpo_ui=$(sed -n '/^tarefas_ui()/,/^}/p' "$tt")
 # toda tecla, clique e botão passa pelo mesmo despachante (tarefa_acao): mesma ação por qualquer canal

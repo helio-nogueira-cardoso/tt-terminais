@@ -11,6 +11,10 @@ Só stdlib (roda no Termux). O tt cuida do ssh; este utilitário faz a parte de 
   empacotar               lê chaves "p<TAB>k" no stdin e escreve um tar.gz no stdout.
   aplicar                 lê o tar.gz no stdin e mescla aqui; imprime o resumo "chave=valor".
   estado                  quantas conversas há aqui, por provedor.
+  achar --provedor P --pid PID [--pids …] [--cwd D] [--tela ARQ]
+                          "provedor<TAB>código" da conversa que o agente PID (claude, codex, kiro) está usando.
+  exportar CÓDIGO [--max-resultado N]
+                          a conversa em Markdown, para outra IA continuar (a ⏩ do tt; tt --conversa-ia).
 
 Forma canônica: o caminho da home (e a pasta do Codex) dentro dos campos "cwd" vira um marcador, e a
 pasta do projeto do Claude (o cwd codificado) também; quem recebe põe a home dele. Assim a conversa
@@ -20,6 +24,7 @@ Mescla (quem recebe decide): falta aqui → grava; igual → nada; transcrição
 fica a mais longa; divergiu (continuada nas duas máquinas) → fica a mais nova e a outra vai para
 ~/.local/state/tt/sessoes-ia/conflitos (nada se perde); conversa em uso aqui → espera a próxima volta.
 """
+import calendar
 import hashlib
 import io
 import json
@@ -694,11 +699,409 @@ def cmd_estado():
         print("%s\t%d\t%s" % (nome, n, p.base))
 
 
+# --- achar e exportar uma conversa (a ⏩ do tt passa a conversa adiante para outra IA) ---------------
+
+def todas(ponto):
+    """Todas as pastas .claude/.codex/.kiro desta máquina: a da home e a de cada proot (no Termux, os agentes
+    rodam dentro do proot; a home do Termux pode ter uma quase vazia ao lado)."""
+    cands = [os.path.join(HOME, ponto)] + [os.path.join(r, "root", ponto) for r in raizes_proot()]
+    if ponto == ".codex" and os.environ.get("CODEX_HOME"):
+        cands.insert(0, os.environ["CODEX_HOME"])
+    return [d for d in cands if os.path.isdir(d)]
+
+
+def sem_raiz_proot(caminho):
+    """Caminho como o agente o vê: o /proc de fora mostra o de dentro do proot com a raiz dele na frente."""
+    for r in raizes_proot():
+        if caminho == r or caminho.startswith(r + "/"):
+            return caminho[len(r):] or "/"
+    return caminho
+
+
+def inicio_processo(pid):
+    """Hora (epoch) em que o processo começou, pelo /proc; None sem /proc."""
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            campos = f.read().rsplit(")", 1)[1].split()
+        with open("/proc/stat") as f:
+            btime = next(int(l.split()[1]) for l in f if l.startswith("btime"))
+        return btime + int(campos[19]) / os.sysconf("SC_CLK_TCK")
+    except (OSError, ValueError, IndexError, StopIteration):
+        return None
+
+
+def linhas_tela(arq):
+    """Linhas marcantes da tela do painel (para desempatar entre conversas da mesma pasta)."""
+    try:
+        with open(arq, encoding="utf-8", errors="replace") as f:
+            t = f.read()
+    except OSError:
+        return []
+    out = []
+    for l in t.splitlines():
+        l = re.sub(r"[\s─━═│╭╮╰╯▐▛▜▌▝▘⏺●✻·›❯>]+", " ", l).strip()
+        if len(l) >= 16:
+            out.append(l[:60])
+    return out[-40:]
+
+
+def pontos(caminho, tela):
+    if not tela:
+        return 0
+    try:
+        with open(caminho, "rb") as f:
+            f.seek(0, 2)
+            n = f.tell()
+            f.seek(max(0, n - 400000))
+            t = f.read().decode("utf-8", "replace")
+    except OSError:
+        return 0
+    t = re.sub(r"\\n|\\t|\s+", " ", t)
+    return sum(1 for l in tela if l in t)
+
+
+def cwd_codex(arq):
+    try:
+        with open(arq, encoding="utf-8", errors="replace") as f:
+            for _ in range(20):
+                l = f.readline()
+                if not l:
+                    break
+                try:
+                    d = json.loads(l)
+                except ValueError:
+                    continue
+                p = d.get("payload") or {}
+                if d.get("type") in ("session_meta", "turn_context") and isinstance(p, dict) and p.get("cwd"):
+                    c = str(p["cwd"])
+                    return c[7:] if c.startswith("file://") else c
+    except OSError:
+        pass
+    return None
+
+
+def cmd_achar(a):
+    """achar --provedor codex|kiro|claude --pid PID [--pids P,P…] [--cwd D] [--tela ARQ]: o código da conversa que o
+    agente PID (aberto num painel) está usando. Kiro: o <uuid>.lock dele leva o pid. Claude: sessions/<pid>.json.
+    Codex (e o resto): a conversa da mesma pasta mexida desde que o agente começou; se houver mais de uma, a que tem
+    mais linhas da tela do painel."""
+    op = {}
+    i = 0
+    while i < len(a):
+        if a[i].startswith("--") and i + 1 < len(a):
+            op[a[i][2:]] = a[i + 1]
+            i += 2
+        else:
+            i += 1
+    prov = op.get("provedor", "")
+    try:
+        pid = int(op.get("pid", "0"))
+    except ValueError:
+        pid = 0
+    pids = {int(x) for x in (op.get("pids", "") + "," + str(pid)).split(",") if x.strip().isdigit()}
+    cwd = op.get("cwd") or ""
+    if not cwd and pid:
+        try:
+            cwd = os.readlink("/proc/%d/cwd" % pid)
+        except OSError:
+            cwd = ""
+    cwd = sem_raiz_proot(cwd.rstrip("/")) if cwd else ""
+    desde = (inicio_processo(pid) or 0) - 5 if pid else 0
+    tela = linhas_tela(op["tela"]) if op.get("tela") else []
+    cands = []  # (id, caminho, cwd, mtime)
+    if prov == "claude":
+        for d in todas(".claude"):
+            for p in pids:
+                try:
+                    with open(os.path.join(d, "sessions", "%d.json" % p), encoding="utf-8") as f:
+                        i = json.load(f).get("sessionId")
+                except (OSError, ValueError, AttributeError):
+                    continue
+                if i:
+                    print("claude\t%s" % i)
+                    return 0
+        for d in todas(".claude"):
+            pasta = os.path.join(d, "projects", enc_claude(cwd)) if cwd else None
+            if pasta and os.path.isdir(pasta):
+                for fn in os.listdir(pasta):
+                    if fn.endswith(".jsonl"):
+                        c = os.path.join(pasta, fn)
+                        cands.append((fn[:-6], c, cwd, os.path.getmtime(c)))
+    elif prov == "kiro":
+        for d in todas(".kiro"):
+            b = os.path.join(d, "sessions", "cli")
+            if not os.path.isdir(b):
+                continue
+            for fn in os.listdir(b):
+                c = os.path.join(b, fn)
+                if fn.endswith(".lock"):
+                    try:
+                        with open(c, encoding="utf-8") as f:
+                            if int(json.load(f).get("pid") or 0) in pids:
+                                print("kiro\t%s" % fn[:-5])
+                                return 0
+                    except (OSError, ValueError, AttributeError):
+                        pass
+                elif fn.endswith(".json"):
+                    try:
+                        with open(c, encoding="utf-8") as f:
+                            kc = str(json.load(f).get("cwd") or "")
+                    except (OSError, ValueError, AttributeError):
+                        continue
+                    j = c[:-5] + ".jsonl"
+                    cands.append((fn[:-5], j if os.path.exists(j) else c, kc, os.path.getmtime(j if os.path.exists(j) else c)))
+    elif prov == "codex":
+        for d in todas(".codex"):
+            for dp, _, fns in os.walk(os.path.join(d, "sessions")):
+                for fn in fns:
+                    m = Codex.RE_ID.search(fn)
+                    if not (m and fn.startswith("rollout-")):
+                        continue
+                    c = os.path.join(dp, fn)
+                    mt = os.path.getmtime(c)
+                    if mt >= desde:
+                        cands.append((m.group(1), c, cwd_codex(c) or "", mt))
+    cands = [x for x in cands if x[3] >= desde]
+    if cwd:
+        mesma = [x for x in cands if x[2].rstrip("/") == cwd]
+        cands = mesma or cands
+    if not cands:
+        return 1
+    cands.sort(key=lambda x: (pontos(x[1], tela), x[3]), reverse=True)
+    print("%s\t%s" % (prov, cands[0][0]))
+    return 0
+
+
+def achar_conversa(i):
+    """(provedor, arquivo) da conversa de código I nesta máquina, ou (None, None)."""
+    for d in todas(".claude"):
+        base = os.path.join(d, "projects")
+        if os.path.isdir(base):
+            for pasta in os.listdir(base):
+                c = os.path.join(base, pasta, i + ".jsonl")
+                if os.path.isfile(c):
+                    return "claude", c
+    for d in todas(".kiro"):
+        c = os.path.join(d, "sessions", "cli", i + ".jsonl")
+        if os.path.isfile(c):
+            return "kiro", c
+    for d in todas(".codex"):
+        for dp, _, fns in os.walk(os.path.join(d, "sessions")):
+            for fn in fns:
+                if fn.startswith("rollout-") and fn.endswith("-" + i + ".jsonl"):
+                    return "codex", os.path.join(dp, fn)
+    return None, None
+
+
+def cortar(t, n):
+    t = t if isinstance(t, str) else json.dumps(t, ensure_ascii=False)
+    t = t.strip()
+    return t if len(t) <= n else t[:n] + " … [+%d caracteres]" % (len(t) - n)
+
+
+def hora_local(ts):
+    try:
+        if isinstance(ts, (int, float)):
+            return time.strftime("%d/%m %H:%M", time.localtime(ts))
+        return time.strftime("%d/%m %H:%M", time.localtime(calendar.timegm(time.strptime(str(ts)[:19], "%Y-%m-%dT%H:%M:%S"))))
+    except (ValueError, OverflowError):
+        return ""
+
+
+class Texto:
+    """Monta a conversa em Markdown: um cabeçalho a cada troca de quem fala; ferramentas como itens."""
+
+    def __init__(self, n):
+        self.n, self.quem, self.out, self.msgs, self.solto = n, None, [], 0, False
+
+    def fala(self, quem, texto, ts=None):
+        texto = (texto or "").strip()
+        if not texto:
+            return
+        if quem != self.quem or quem == "usuário":
+            h = {"usuário": "👤 Usuário", "ia": "🤖 IA", "resumo": "📋 Resumo do que veio antes (compactação)"}[quem]
+            self.out.append("\n### %s%s\n" % (h, " · " + hora_local(ts) if ts and hora_local(ts) else ""))
+            self.quem = quem
+            self.msgs += 1
+        elif self.solto:
+            self.out.append("\n")
+        self.solto = False
+        self.out.append(texto + "\n")
+
+    def ferramenta(self, nome, args):
+        if self.quem != "ia":
+            self.fala("ia", "(ferramentas)")
+        self.out.append("- 🔧 **%s** `%s`\n" % (nome, cortar(args, 600).replace("`", "'").replace("\n", " ⏎ ")))
+        self.solto = True
+
+    def resultado(self, t):
+        t = cortar(t, self.n)
+        if t:
+            self.out.append("  ↳ " + t.replace("\n", "\n    ") + "\n")
+
+
+def blocos(c):
+    """Texto de um content que pode ser string, lista de blocos {type,text} ou {kind,data}."""
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        partes = []
+        for b in c:
+            if isinstance(b, dict):
+                if b.get("type") in ("text", "input_text", "output_text"):
+                    partes.append(b.get("text") or "")
+                elif b.get("kind") in ("text", "json"):
+                    d = b.get("data")
+                    partes.append(d if isinstance(d, str) else json.dumps(d, ensure_ascii=False))
+            elif isinstance(b, str):
+                partes.append(b)
+        return "\n".join(p for p in partes if p)
+    if isinstance(c, dict):
+        return c.get("output") or c.get("text") or json.dumps(c, ensure_ascii=False)
+    return ""
+
+
+INJETADO = ("<environment_context>", "# AGENTS.md instructions", "<user_instructions>", "<permissions instructions>")
+
+
+def exportar_claude(arq, t):
+    meta = {}
+    for l in open(arq, encoding="utf-8", errors="replace"):
+        try:
+            d = json.loads(l)
+        except ValueError:
+            continue
+        if not meta and d.get("cwd"):
+            meta = {"cwd": d.get("cwd"), "inicio": d.get("timestamp")}
+        if d.get("isSidechain") or d.get("isMeta"):
+            continue
+        m = d.get("message") or {}
+        ts = d.get("timestamp")
+        if d.get("type") == "user":
+            if d.get("isCompactSummary"):
+                t.fala("resumo", blocos(m.get("content")), ts)
+                continue
+            c = m.get("content")
+            if isinstance(c, str):
+                t.fala("usuário", c, ts)
+                continue
+            for b in c or []:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "tool_result":
+                    t.resultado(blocos(b.get("content")))
+                elif b.get("type") == "text":
+                    t.fala("usuário", b.get("text"), ts)
+        elif d.get("type") == "assistant":
+            for b in m.get("content") or []:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "text":
+                    t.fala("ia", b.get("text"), ts)
+                elif b.get("type") == "tool_use":
+                    t.ferramenta(b.get("name") or "?", b.get("input") or {})
+    return meta
+
+
+def exportar_codex(arq, t):
+    meta = {}
+    for l in open(arq, encoding="utf-8", errors="replace"):
+        try:
+            d = json.loads(l)
+        except ValueError:
+            continue
+        p = d.get("payload") or {}
+        if not isinstance(p, dict):
+            continue
+        ts = d.get("timestamp")
+        if d.get("type") == "session_meta" and not meta:
+            meta = {"cwd": p.get("cwd"), "inicio": p.get("timestamp") or ts}
+        if d.get("type") != "response_item":
+            continue
+        tp = p.get("type")
+        if tp == "message":
+            txt = blocos(p.get("content"))
+            if p.get("role") == "user":
+                if not txt.lstrip().startswith(INJETADO):
+                    t.fala("usuário", txt, ts)
+            elif p.get("role") == "assistant":
+                t.fala("ia", txt, ts)
+        elif tp in ("function_call", "custom_tool_call"):
+            t.ferramenta(p.get("name") or "?", p.get("arguments") or p.get("input") or "")
+        elif tp == "local_shell_call":
+            t.ferramenta("shell", (p.get("action") or {}).get("command") or "")
+        elif tp in ("function_call_output", "custom_tool_call_output", "local_shell_call_output"):
+            t.resultado(blocos(p.get("output")))
+    return meta
+
+
+def exportar_kiro(arq, t):
+    meta = {}
+    try:
+        with open(arq[:-6] + ".json", encoding="utf-8") as f:
+            j = json.load(f)
+        meta = {"cwd": j.get("cwd"), "inicio": j.get("created_at")}
+    except (OSError, ValueError):
+        pass
+    for l in open(arq, encoding="utf-8", errors="replace"):
+        try:
+            d = json.loads(l)
+        except ValueError:
+            continue
+        dados = d.get("data") or {}
+        ts = (dados.get("meta") or {}).get("timestamp") if isinstance(dados.get("meta"), dict) else None
+        for it in dados.get("content") or []:
+            if not isinstance(it, dict):
+                continue
+            k, v = it.get("kind"), it.get("data")
+            if d.get("kind") == "Prompt" and k == "text":
+                t.fala("usuário", v, ts)
+            elif d.get("kind") == "AssistantMessage" and k == "text":
+                t.fala("ia", v, ts)
+            elif k == "toolUse" and isinstance(v, dict):
+                t.ferramenta(v.get("name") or "?", v.get("input") or "")
+            elif k == "toolResult" and isinstance(v, dict):
+                t.resultado(blocos(v.get("content")))
+    return meta
+
+
+def cmd_exportar(a):
+    """exportar CÓDIGO [--max-resultado N]: a conversa inteira em Markdown (falas completas; o que cada ferramenta
+    devolveu, cortado em N caracteres), para outra IA continuar o trabalho."""
+    if not a:
+        print("uso: sessoes-ia.py exportar CÓDIGO [--max-resultado N]", file=sys.stderr)
+        return 2
+    i = a[0].strip()
+    n = int(a[a.index("--max-resultado") + 1]) if "--max-resultado" in a[1:-1] else 1500
+    if not re.match(r"^[0-9A-Za-z][0-9A-Za-z_-]{6,}$", i):
+        print("código inválido: %s" % i, file=sys.stderr)
+        return 2
+    prov, arq = achar_conversa(i)
+    if not arq:
+        print("conversa %s não encontrada nesta máquina" % i, file=sys.stderr)
+        return 1
+    t = Texto(n)
+    meta = {"claude": exportar_claude, "codex": exportar_codex, "kiro": exportar_kiro}[prov](arq, t)
+    st = os.stat(arq)
+    print("# Conversa %s · %s" % (prov, i))
+    print()
+    print("- pasta: %s" % sem_raiz_proot(str(meta.get("cwd") or "?")))
+    print("- começou: %s · última atividade: %s" % (hora_local(meta.get("inicio")) or "?", hora_local(st.st_mtime)))
+    print("- arquivo: %s (%d KB)" % (arq, st.st_size // 1024))
+    print("- falas: %d · o que as ferramentas devolveram vai cortado em %d caracteres" % (t.msgs, n))
+    sys.stdout.write("".join(t.out))
+    return 0
+
+
 def main(a):
     if not a:
         print(__doc__.strip())
         return 2
     c = a[0]
+    if c == "achar":
+        return cmd_achar(a[1:])
+    if c == "exportar":
+        return cmd_exportar(a[1:])
     if c == "inventario":
         cmd_inventario()
     elif c == "pedir" and len(a) >= 2:
@@ -714,7 +1117,7 @@ def main(a):
     elif c == "estado":
         cmd_estado()
     else:
-        print("uso: sessoes-ia.py inventario|pedir ARQ [--enviar]|empacotar|aplicar|estado", file=sys.stderr)
+        print("uso: sessoes-ia.py inventario|pedir ARQ [--enviar]|empacotar|aplicar|estado|achar …|exportar CÓDIGO", file=sys.stderr)
         return 2
     return 0
 

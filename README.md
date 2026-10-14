@@ -22,7 +22,9 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
 - **Barra clicável**: `máquina ▾` (máquinas, versões, cadastro), `sessão ▾` (seletor rápido com
   rolagem), ☰ central, ┃/━ dividir, ⋯ menu do painel (enviar/trazer arquivos, acompanhar transferências), 📧 e-mail (abre o cliente de
   terminal numa subjanela, como a central; `aerc` por padrão, configurável), ⤢ caber nesta tela (quando duas
-  telas de tamanhos diferentes usam a mesma sessão). Botão direito também abre os menus.
+  telas de tamanhos diferentes usam a mesma sessão). Botão direito também abre os menus. A **roda do
+  mouse** sobre `máquina ▾` troca de máquina (vai à primeira sessão da lista de lá; máquina que não
+  responde é pulada) e sobre `sessão ▾` troca de sessão nesta máquina (veja [Roda nos chips](#roda-nos-chips)).
 - **Uma sessão, vários aparelhos**: a janela tem o tamanho do aparelho que você está usando: tecla,
   toque ou clique, foco na janela, girar o celular ou abrir o teclado passam a sessão para ele na
   hora, e o outro toma de volta assim que for usado. Quem só está olhando vê ⤢ na barra (um toque
@@ -259,6 +261,8 @@ antes, mesmo vazia, mantém a sua).
 
     ia-conta abrir                   # a IA com mais folga agora, interativa e sem pedir permissões
     ia-conta abrir --retomar ID      # idem, continuando a conversa ID se a escolhida for do Claude
+    ia-conta abrir --conta NOME      # abre a conta dada (principal, um perfil, codex, kiro), sem o rotador
+    ia-conta abrir --listar-contas   # as contas que dá para abrir aqui, com o uso conhecido (o menu dos atalhos)
     ia-rot --melhor                  # só diz qual seria: conta, pico e uso (sai 2 se nenhuma livre)
     ia-conta codex                   # abre o Codex (ia-conta kiro: o chat do Kiro), com os argumentos dados
 
@@ -1763,34 +1767,91 @@ O `CL` e o `DBN` usam o `claude` local; no Termux, o do Debian (`proot-distro`).
 ## Atalhos de comandos
 
 A barra também mostra um emoji por comando em `atalhos-padrao`, versionado junto com o tt. O padrão
-são dois botões, iguais no PC e no celular, que abrem a IA com mais folga de uso **agora** (`ia-conta
-abrir`, veja [Contas de IA](#contas-de-ia)) já sem pedir permissões:
+são três botões, iguais no PC e no celular:
 
-- 🚀 **ia-nova** abre numa sessão nova e muda para ela;
-- 👇 **ia-aqui** troca o que roda no painel atual (fecha o agente que estiver nele, ou parte do
+- 🚀 **ia-nova** abre a IA com mais folga de uso **agora** (`ia-conta abrir`, veja [Contas de IA](#contas-de-ia)),
+  já sem pedir permissões, numa sessão nova e muda para ela;
+- 👇 **ia-aqui** faz o mesmo no lugar do que roda no painel atual (fecha o agente que estiver nele, ou parte do
   shell), na mesma pasta. Se ali havia uma conversa do Claude e a escolhida também é do Claude, a
-  conversa continua (`{retomar}` vira `--retomar ID`); Codex e Kiro abrem uma sessão nova.
+  conversa continua (`{retomar}` vira `--retomar ID`); Codex e Kiro abrem uma sessão nova;
+- ⏩ **ia-seguir** passa a conversa de IA do painel (Claude, Codex ou Kiro) para outra IA, escolhida pelo
+  rotador (em geral porque a conta da atual está ficando sem créditos): acha a conversa e o código dela,
+  encerra o agente e abre a nova IA ali mesmo, com um pedido para ler a conversa inteira e seguir o trabalho
+  de onde parou. Veja [Seguir a conversa com outra IA](#seguir-a-conversa-com-outra-ia).
 
-Um comando que começa com `@aqui ` roda no painel atual em vez de numa sessão nova. No celular os
-dois entram no Debian (`proot-distro login debian --shared-tmp -- bash -lc '…'`) e põem eles mesmos o
-`~/.local/bin` de lá no PATH, sem depender do `~/.bashrc` do Debian.
+Um comando que começa com `@aqui ` roda no painel atual em vez de numa sessão nova; um que começa com
+`@seguir ` é o da ⏩ (o resto do comando abre a nova IA, com `{prompt}` no lugar do arquivo do pedido). No
+celular os três entram no Debian (`proot-distro login debian --shared-tmp -- bash -lc '…'`) e põem eles
+mesmos o `~/.local/bin` de lá no PATH, sem depender do `~/.bashrc` do Debian. O que é próprio do celular
+fica no comando do perfil (`atalhos-padrao-mobile`), não no tt: o menu de contas e a ⏩ usam o próprio comando
+do atalho e por isso funcionam lá do mesmo jeito.
 
 Cada máquina pode sobrescrever, desativar ou acrescentar atalhos em `~/.config/tt/atalhos`, no mesmo
-formato `emoji<TAB>id<TAB>comando<TAB>cor-de-fundo` (a quarta coluna é opcional, em hexadecimal,
-como `#cba6f7`). A segunda coluna é o ID estável: uma linha local com o mesmo ID substitui a padrão; emoji
+formato `emoji<TAB>id<TAB>comando<TAB>cor-de-fundo<TAB>menu` (a cor, em hexadecimal como `#cba6f7`, e o
+menu são opcionais). A segunda coluna é o ID estável: uma linha local com o mesmo ID substitui a padrão; emoji
 `-` desativa; um ID novo acrescenta:
 
     👾	kiro-v3	kiro-cli chat --v3
     -	codex
     🧪	meu-teste	ssh servidor
 
+### Menu do botão direito
+
+O clique num atalho faz sempre a mesma coisa. Com a 5ª coluna preenchida, o **botão direito** abre um menu
+com outros jeitos de rodar o mesmo atalho (sem ela, o botão direito só mostra o comando, como antes). Os
+itens vão separados por ` ;; ` e podem ser fixos ou dinâmicos:
+
+| Item | O que vira no menu |
+| --- | --- |
+| `@contas` | uma opção por conta de IA desta máquina, com o uso de cada uma; o comando roda com `{conta}` = `--conta NOME` (sem o rotador). As contas saem do próprio comando, com `{conta}` = `--listar-contas`, então valem as do ambiente em que o atalho roda (no celular, as do Debian) |
+| `@maquinas` | uma opção por máquina do tt: o atalho de mesmo ID roda numa sessão nova da máquina escolhida (com o perfil de atalhos dela) e a tela vai para lá; na ⏩, a conversa segue lá |
+| `Rótulo=comando` | opção fixa (o comando segue as regras do atalho: `@aqui`, `{retomar}`, `{conta}`) |
+| `-` | separador |
+
+Clicado direto (ou pelo primeiro item do menu), `{conta}` some e o rotador escolhe. Os padrões: 🚀 e 👇 com
+`@contas`, ⏩ com `@maquinas`. A lista de contas fica guardada (o menu abre na hora) e se renova em segundo
+plano a cada 2 min de uso.
+
 Para editar sem abrir
-o arquivo: menu ⋯ do painel → **✏ Atalhos da barra** (⏎ edita emoji, comando e cor; ^n novo; ^x
+o arquivo: menu ⋯ do painel → **✏ Atalhos da barra** (⏎ edita emoji, comando, menu e cor; ^n novo; ^x
 exclui ou desativa um padrão; ^r volta ao padrão). O arquivo continua editável à mão. Os botões “lado” e “baixo” ficam disponíveis no menu de
 painel, mas não ocupam mais a barra.
 
-As contas não ganham mais um botão cada: os dois atalhos escolhem entre todas. O arquivo versionado
-pode ser alterado no repositório para que novos atalhos padrão cheguem a todas as máquinas.
+As contas não ganham mais um botão cada: os atalhos escolhem entre todas, e o menu do botão direito deixa
+escolher uma. O arquivo versionado pode ser alterado no repositório para que novos atalhos padrão cheguem a
+todas as máquinas.
+
+### Seguir a conversa com outra IA
+
+A ⏩ acha a conversa do agente que roda no painel: a do Claude pelo registro do processo, a do Kiro pela trava
+que ele grava com o pid, a do Codex pela pasta e pela hora (a conversa daquela pasta mexida depois que o agente
+começou; havendo mais de uma, a que tem mais linhas da tela do painel). Painel sem agente não muda nada.
+
+- **Nesta máquina** (o clique): a conversa vai em Markdown para `~/.cache/tt/conversas/CÓDIGO.md`, o pedido para
+  `~/.cache/tt/seguir/`, e a nova IA abre no mesmo painel e na mesma pasta, já com os dois.
+- **Noutra máquina** (botão direito → ⏩ Seguir em …): a máquina escolhida abre a nova IA numa sessão nova, com o
+  ⏩ do perfil dela, buscando antes a conversa na de origem pela rede do tt; só depois que ela abriu o agente
+  daqui fecha (o painel fica num shell dizendo onde a conversa seguiu) e a tela vai para lá. O pedido diz qual é
+  a máquina de origem e como entrar nela (`ssh`), porque os arquivos do trabalho continuam lá.
+
+`tt --conversa-ia CÓDIGO [--de MÁQUINA] [--salvar]` imprime (ou salva) qualquer conversa do Claude, do Codex ou do
+Kiro desta máquina ou de outra: as falas inteiras, cada ferramenta com os argumentos e o que ela devolveu cortado em
+1500 caracteres, sem os pensamentos nem as mensagens internas do agente.
+
+### Roda nos chips
+
+A roda do mouse (ou o arrasto, no celular) sobre os dois primeiros chips da barra:
+
+- `máquina ▾`: vai à máquina seguinte (para baixo) ou anterior (para cima), na ordem do cabeçalho da central
+  (esta primeiro, depois as cadastradas e ligadas), dando a volta, na primeira sessão da lista de lá (a de uso
+  mais recente); sem nenhuma, cria uma. Máquina que não responde em ~3 s é pulada com aviso, e por 1 min a
+  roda nem tenta de novo. Vendo outra máquina por ponte, quem troca é a máquina da tela, na ordem dela.
+- `sessão ▾`: a sessão seguinte ou anterior desta máquina, na ordem do `Ctrl+B (`/`)` (por nome), sem pontes
+  nem sessões ocultas, dando a volta.
+
+Uma rolagem longa manda vários eventos: a roda anda um passo por vez (o resto da rajada cai). No resto da
+barra, a roda continua com o padrão do tmux (janela anterior/seguinte). `TT_T_ROLAR` (s) muda a espera por
+uma máquina e `TT_ROLAR_FOLGA` (ms), a folga entre passos.
 
 ## Atalhos da central
 

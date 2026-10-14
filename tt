@@ -22,6 +22,7 @@
 #   tt --checar     confere se o tt funciona aqui (--checar-agente: um agente confere e corrige; --checar-ver
 #                   o último relatório; --checar-handoff: pacote de logs, sem segredos, para quem mantém o tt)
 #   tt --sessoes-ia conversas do Claude/Codex/Kiro iguais em todas as máquinas (status|on|off|agora)
+#   tt --conversa-ia C  a conversa de IA de código C em Markdown, para outra IA seguir (--de MÁQUINA, --salvar)
 #   tt --tarefas-sync [modo] [url]  como as tarefas vão às outras máquinas (p2p, git, ambos, off)
 #   tt --letreiro-listar  fontes (APIs) do letreiro da faixa: -add -editar -rm -testar -log -exportar -importar
 #                   -catalogo -ajustes; painel: menu ⋯ → 📰 Letreiro (README: "Letreiro: fontes")
@@ -2144,7 +2145,7 @@ versao() { cat "$DIR_TT/VERSAO" 2>/dev/null || echo "0 ? ?"; }
 # O número sai sem processo quando o 1º campo é inteiro (o caso de sempre); o resto segue pelo awk, como antes.
 versao_num() {
   local v=""
-  if { read -r v _ && ! read -r _; } <"$DIR_TT/VERSAO" 2>/dev/null && [[ $v =~ ^([0-9]+)(\+.*)?$ ]]; then
+  if { read -r v _ && ! read -r _; } 2>/dev/null <"$DIR_TT/VERSAO" && [[ $v =~ ^([0-9]+)(\+.*)?$ ]]; then
     echo $((10#${BASH_REMATCH[1]})); return 0 # uma linha só, "323 …" ou "323+dev …"
   fi
   versao | awk '{ print $1 + 0 }'
@@ -2180,7 +2181,7 @@ versao_rotulo() { if [[ ${2:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then printf 'v%s'
 
 # tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
 ajuda() {
-  sed -n '2,43p' "$EU" | sed 's/^# \{0,1\}//'
+  sed -n '2,45p' "$EU" | sed 's/^# \{0,1\}//'
   printf '\nVersão instalada: %s (%s)\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao_humana)" "$(versao)" "$DIR_TT" "$DIR_TT"
 }
 
@@ -2951,7 +2952,7 @@ atu_set() { # chave=valor…
   for k in "$@"; do re+="${re:+|}${k%%=*}"; done
   { [[ -f $ATU_ARQ ]] && grep -v -E "^($re)=" "$ATU_ARQ"; printf '%s\n' "$@"; } >"$tmp" && mv -f "$tmp" "$ATU_ARQ"
 }
-versao_hash_instalado() { local h=""; read -r _ h _ <"$DIR_TT/VERSAO" 2>/dev/null; printf '%s' "${h%+dev}"; }
+versao_hash_instalado() { local h=""; read -r _ h _ 2>/dev/null <"$DIR_TT/VERSAO"; printf '%s' "${h%+dev}"; }
 atu_relacao() { # hash-instalado sha-publicado (no clone da fonte) -> igual|atras|frente|divergente|desconhecida
   local h=$1 pub=$2 full
   [[ -n $h && -n $pub ]] || { echo desconhecida; return; }
@@ -4833,6 +4834,7 @@ seletor() {
     --bind="start:reload($EU --lista-seletor)" \
     --bind="load:transform($EU --pos-atual)" \
     --bind="left-click:transform($EU --clique-linha {1} {2})" \
+    --bind='double-click:ignore' \
     --bind="ctrl-x:execute-silent($EU --fechar {1} {2})+reload($EU --lista-seletor)" \
     --bind="tab:transform($EU --clique-seletor proxima)" \
     --bind="ctrl-f:execute-silent($EU --alternar-fixada {1} {2})+reload($EU --lista-seletor)" \
@@ -5270,7 +5272,7 @@ lib_presente() {
 # Chrome carrega depois, e fontes (sem nenhuma, a tela do navegador sai em quadradinhos). Imprime
 # nomes de arquivo (libnss3.so…) e o lógico fonts-liberation; o pk_pacote_lib traduz por distro.
 chrome_libs_faltando() {
-  [[ -n ${TT_FINGE_CHROME_LIBS_ARQ:-} ]] && { tr '\n' ' ' <"$TT_FINGE_CHROME_LIBS_ARQ" 2>/dev/null | sed 's/ *$//'; return 0; }
+  [[ -n ${TT_FINGE_CHROME_LIBS_ARQ:-} ]] && { tr '\n' ' ' 2>/dev/null <"$TT_FINGE_CHROME_LIBS_ARQ" | sed 's/ *$//'; return 0; }
   [[ -n ${TT_FINGE_CHROME_LIBS:-} ]] && { echo "$TT_FINGE_CHROME_LIBS"; return 0; }
   local alvo so out=""
   for alvo in "$(bin_chromium)" "$(bin_carbonyl)"; do
@@ -6668,7 +6670,7 @@ popup_exclusivo_reservar() { # tipo cliente; imprime o caminho da reserva em POP
   dir="$RT/tt-popup-exclusivo-$UID-$chave"
   mkdir -p "$RT"
   if ! mkdir "$dir" 2>/dev/null; then
-    read -r velho _ <"$dir/dono" 2>/dev/null || velho=
+    read -r velho _ 2>/dev/null <"$dir/dono" || velho=
     if [[ $velho =~ ^[0-9]+$ ]] && kill -0 "$velho" 2>/dev/null; then return 1; fi
     rm -rf "$dir"
     mkdir "$dir" 2>/dev/null || return 1
@@ -7379,7 +7381,7 @@ ITENS
 #
 # Lista com cor, emoji, comando e origem (padrão do tt, personalizado nesta máquina, desativado).
 # ⏎ edita, ^n cria, ^x exclui (um padrão fica desativado), ^r volta ao padrão, Esc fecha. Grava em
-# ~/.config/tt/atalhos (mesmo formato: emoji⇥id⇥comando⇥cor) e redesenha a barra de todos na hora.
+# ~/.config/tt/atalhos (mesmo formato: emoji⇥id⇥comando⇥cor⇥menu) e redesenha a barra de todos na hora.
 CORES_ATALHO=$'#cba6f7\tmalva\n#fab387\tpêssego\n#f38ba8\tvermelho\n#eba0ac\tsalmão\n#f9e2af\tamarelo\n#a6e3a1\tverde\n#94e2d5\tturquesa\n#89dceb\tcéu\n#89b4fa\tazul\n#b4befe\tlavanda\n#f5c2e7\trosa\n#9399b2\tcinza'
 
 amostra_cor() { # "#rrggbb" → bloco de cor (truecolor)
@@ -7389,10 +7391,10 @@ amostra_cor() { # "#rrggbb" → bloco de cor (truecolor)
 }
 
 linhas_editor_atalhos() {
-  local emoji id cmd cor origem base loc padrao
+  local emoji id cmd cor menu origem base loc padrao
   base=$(atalhos_base)
   printf '+\t\033[32m＋ Novo atalho…\033[0m\n'
-  while IFS=$'\t' read -r emoji id cmd cor; do
+  while IFS=$'\t' read -r emoji id cmd cor menu; do
     [[ -n $id ]] || continue
     loc=$(awk -F '\t' -v id="$id" '$2 == id { print; exit }' "$CONF_ATALHOS" 2>/dev/null)
     padrao=$(awk -F '\t' -v id="$id" '$2 == id { print; exit }' <<<"$base")
@@ -7405,34 +7407,38 @@ linhas_editor_atalhos() {
     else
       origem=$'\033[36mseu\033[0m'
     fi
-    printf '%s\t%s %s  %-28.28s  %s\n' "$id" "$(amostra_cor "$cor")" "$emoji" "$cmd" "$origem"
+    printf '%s\t%s %s  %-28.28s  %s%s\n' "$id" "$(amostra_cor "$cor")" "$emoji" "$cmd" "$origem" "${menu:+  \033[90m☰ menu\033[0m}"
   done < <(atalhos_lista)
   # Padrões desativados aqui (emoji "-") continuam na lista, apagados, para poder voltar.
   while IFS=$'\t' read -r emoji id _; do
     [[ $emoji == - && -n $id ]] || continue
-    IFS=$'\t' read -r emoji _ cmd cor < <(grep "^[^	]*	$id	" <<<"$base" | head -1)
+    IFS=$'\t' read -r emoji _ cmd cor _ < <(grep "^[^	]*	$id	" <<<"$base" | head -1)
     [[ -n $cmd ]] && printf '%s\t\033[90m    %s  %-28.28s  desativado (^r reativa)\033[0m\n' "$id" "$emoji" "$cmd"
-  done <"$CONF_ATALHOS" 2>/dev/null
+  done 2>/dev/null <"$CONF_ATALHOS"
 }
 
-gravar_atalho() { # id emoji comando cor — substitui a linha do id (ou acrescenta)
+gravar_atalho() { # id emoji comando cor [menu] — substitui a linha do id (ou acrescenta)
   local id=$1 tmp
   mkdir -p "$CONF_DIR"; touch "$CONF_ATALHOS"
   tmp=$(mktemp "$CONF_ATALHOS.XXXXXX") || return 1
   awk -F'\t' -v id="$id" '$2 != id' "$CONF_ATALHOS" >"$tmp"
-  [[ -n ${2:-} ]] && printf '%s\t%s\t%s\t%s\n' "$2" "$id" "${3:-}" "${4:-}" >>"$tmp"
+  [[ -n ${2:-} ]] && printf '%s\t%s\t%s\t%s%s\n' "$2" "$id" "${3:-}" "${4:-}" "${5:+$'\t'$5}" >>"$tmp"
   mv "$tmp" "$CONF_ATALHOS"
 }
 
 form_atalho() { # id (vazio = novo)
-  local id=${1:-} emoji="" cmd="" cor='#cba6f7' l e c k
-  if [[ -n $id ]]; then IFS=$'\t' read -r emoji _ cmd cor < <(atalhos_lista | awk -F'\t' -v id="$id" '$2 == id' | head -1); fi
-  [[ -n $cor ]] || cor='#cba6f7'
+  local id=${1:-} emoji="" cmd="" cor='#cba6f7' menu="" l e c k m
+  if [[ -n $id ]]; then IFS=$'\t' read -r emoji _ cmd cor menu < <(atalhos_lista | awk -F'\t' -v id="$id" '$2 == id' | head -1); fi
+  [[ $cor =~ ^#[[:xdigit:]]{6}$ ]] || cor='#cba6f7'
   clear
   printf '\033[1m%s\033[0m\n\n' "$([[ -n $id ]] && echo "Editar atalho" || echo "Novo atalho")"
   printf 'Emoji ou até 3 letras do botão (ex.: 🦀, ⚡, git):\n'; read -r -e -i "$emoji" -p '› ' e || return 0
   printf '\nComando (roda numa sessão nova, na pasta do painel; ex.: claude --resume, htop):\n'; read -r -e -i "$cmd" -p '› ' c || return 0
   [[ -n $e && -n $c ]] || { printf '\nEmoji e comando são obrigatórios — nada mudou.\n'; sleep 1.5; return 0; }
+  printf '\nMenu do botão direito (opcional; vazio = o botão direito só mostra o comando). Itens separados por " ;; ":\n'
+  printf '  @contas (uma opção por conta de IA; o comando precisa de {conta}) · @maquinas (rodar noutra máquina)\n'
+  printf '  Rótulo=comando (opção fixa) · - (separador)\n'
+  read -r -e -i "$menu" -p '› ' m || return 0
   k=$(while IFS=$'\t' read -r h n; do printf '%s\t%s %s%s\n' "$h" "$(amostra_cor "$h")" "$n" "$([[ $h == "$cor" ]] && echo '  ✓ atual')"; done <<<"$CORES_ATALHO" |
     fzf --ansi --layout=reverse --delimiter=$'\t' --with-nth=2 --no-input --header="Cor do botão  (⏎ escolhe · Esc mantém a atual)" | cut -f1)
   cor=${k:-$cor}
@@ -7440,7 +7446,7 @@ form_atalho() { # id (vazio = novo)
     id=$(slug "${c%% *}"); [[ -n $id ]] || id=atalho
     l=$id; n=2; while atalhos_lista | awk -F'\t' -v id="$l" '$2 == id { f = 1 } END { exit !f }'; do l="$id-$n"; n=$((n + 1)); done; id=$l
   fi
-  gravar_atalho "$id" "$e" "$c" "$cor"
+  gravar_atalho "$id" "$e" "$c" "$cor" "$m"
   redesenhar_todos
 }
 
@@ -13929,7 +13935,7 @@ clique_direito() {
     fxx*) desafixar_item "$2" "${faixa#fxx}" ;;
     fixprev | fixnext | fixmais) fixadas_popup "$2" ;;
     fx*) menu_fixada "$2" "$faixa" ;;
-    at[0-9]*) atalho_info "$2" "${faixa#at}" ;;
+    at[0-9]*) atalho_menu "$2" "${faixa#at}" "$3" ;;
     maquina) menu_admin "$2" "$3" ;;
     sessao) menu_sessao "$2" "$3" ;;
     email) menu_email "$2" ;;
@@ -14179,13 +14185,189 @@ AT
 }
 
 
-# O tmux não possui evento de movimento/hover. O botão direito funciona como tooltip explícito,
-# mostrando o comando completo sem executar nada; o clique normal continua abrindo a sessão.
+# O tmux não possui evento de movimento/hover. Num atalho sem menu (5ª coluna vazia), o botão direito funciona
+# como tooltip explícito, mostrando o comando completo sem executar nada; o clique normal continua abrindo a sessão.
 atalho_info() {
   local cliente=$1 i=$2 emoji id cmd cor
-  IFS=$'\t' read -r emoji id cmd cor < <(atalhos_lista | sed -n "${i}p")
+  IFS=$'\t' read -r emoji id cmd cor _ < <(atalhos_lista | sed -n "${i}p")
   [[ -n $cmd ]] || return 0
   tmux display-message -c "$cliente" "$emoji  $id: $cmd"
+}
+
+# --- Menu do botão direito dos atalhos ------------------------------------------------
+#
+# A 5ª coluna do atalho (opcional) dá a ele um menu no botão direito, com outros jeitos de rodar o mesmo atalho;
+# o clique normal não muda. Itens separados por " ;; ":
+#   @contas         uma opção por conta de IA desta máquina: o comando roda com {conta} → "--conta NOME". As contas
+#                   saem do próprio comando, com {conta} → "--listar-contas" (o ia-conta abrir lista as dele e sai):
+#                   assim valem as do ambiente em que o atalho roda, o que o perfil de atalhos da máquina define
+#                   (o do celular entra no proot), sem o tt saber de nenhum.
+#   @maquinas       uma opção por máquina do tt: o atalho de mesmo ID roda na máquina escolhida, numa sessão nova de
+#                   lá (com o perfil de atalhos dela), e a tela vai para ela. No @seguir, a conversa vai para lá.
+#   Rótulo=comando  opção fixa (o comando segue as regras do atalho: @aqui, {retomar}, {conta}…)
+#   -               separador
+# Clicado direto (ou no item do topo do menu), {conta} e {maquina} somem: o rotador escolhe; a máquina é esta.
+ATALHO_SEP=' ;; '
+
+atalho_por_id() { atalhos_lista | awk -F'\t' -v id="$1" '$2 == id { print; exit }'; }
+
+# Tira as marcas que o tt preenche ({conta}, {maquina}, {prompt}; com 2º arg, também {retomar}).
+sem_marcas() { # comando [tudo]
+  local s=$1
+  s=${s//\{conta\}/}; s=${s//\{maquina\}/}; s=${s//\{prompt\}/}
+  [[ -n ${2:-} ]] && s=${s//\{retomar\}/}
+  printf '%s' "$s"
+}
+
+# Contas do @contas: "conta<TAB>provedor<TAB>rótulo<TAB>uso", do próprio comando do atalho com {conta} →
+# --listar-contas, no mesmo ambiente dele (bash -lc, como o atalho). Guardadas por comando: o menu abre na hora com
+# a última lista (até um dia) e ela se renova em segundo plano depois de 2 min; sem lista guardada, espera até 15 s
+# (entrar no proot do celular leva alguns segundos).
+atalho_contas() { # comando
+  local cmd f
+  [[ $1 == *'{conta}'* ]] || return 0
+  cmd=${1#@aqui }; cmd=$(sem_marcas "${cmd//\{conta\}/--listar-contas}" tudo)
+  f=$RT/tt-atalho-contas-$UID-$(cksum <<<"$cmd" | cut -d' ' -f1)
+  if [[ -s $f && -n $(find "$f" -mmin -1440 2>/dev/null) ]]; then
+    cat "$f"
+    [[ -z $(find "$f" -mmin -2 2>/dev/null) ]] && (atalho_contas_gerar "$cmd" "$f" &) >/dev/null 2>&1
+    return 0
+  fi
+  atalho_contas_gerar "$cmd" "$f"
+  cat "$f" 2>/dev/null
+  return 0
+}
+atalho_contas_gerar() { # comando arquivo
+  local t=$2.$BASHPID # (o nome fica fora do cano: dentro dele o $BASHPID é o do subshell)
+  timeout 15 bash -lc "$1" </dev/null 2>/dev/null | awk -F'\t' 'NF >= 3 && $1 ~ /^[A-Za-z0-9][A-Za-z0-9_-]*$/' >"$t"
+  if [[ -s $t ]]; then mv -f "$t" "$2"; else rm -f "$t"; fi
+}
+
+# Itens do menu do atalho ID (no formato do menu_popup). tt --atalho-menu-itens ID CLIENTE PAINEL.
+atalho_menu_itens() { # id cliente painel
+  local id=$1 c=$2 p=$3 emoji cmd cor menu item rot r d conta prov uso k=0 nfixa=0 seguir="" tecla
+  local teclas=123456789abcdefghijklmnopqrstuvwxyz rodar
+  IFS=$'\t' read -r emoji _ cmd cor menu < <(atalho_por_id "$id")
+  [[ -n $cmd ]] || return 0
+  [[ $cmd == @seguir* ]] && seguir=1
+  rodar="$EU --atalho-rodar $(q "$id" "$c" "$p")"
+  if [[ -n $seguir ]]; then rot="$emoji Seguir com outra IA aqui mesmo (o clique)"
+  elif [[ $cmd == *'{conta}'* ]]; then rot="$emoji A de mais folga agora, pelo rotador (o clique)"
+  else rot="$emoji Como no clique"; fi
+  printf '0\t%s\t%s\n' "$rot" "$rodar"
+  while [[ -n $menu ]]; do
+    item=${menu%%"$ATALHO_SEP"*}
+    [[ $item == "$menu" ]] && menu="" || menu=${menu#*"$ATALHO_SEP"}
+    item=${item#"${item%%[![:space:]]*}"}; item=${item%"${item##*[![:space:]]}"}
+    case $item in
+      '') ;;
+      -) printf -- '-\t\t\n' ;;
+      @contas)
+        printf -- '-\t\t\n'
+        while IFS=$'\t' read -r conta prov rot uso; do
+          [[ -n $conta ]] || continue
+          [[ $uso == - ]] && uso=""
+          tecla=${teclas:k:1} k=$((k + 1))
+          printf '%s\t🤖 %s%s\t%s %s\n' "$tecla" "$rot" "${uso:+  ·  $uso}" "$rodar" "$(q "conta=$conta")"
+        done < <(atalho_contas "$cmd")
+        ;;
+      @maquinas)
+        printf -- '-\t\t\n'
+        while read -r d r; do
+          [[ $r == "$MAQUINA" ]] && continue
+          tecla=${teclas:k:1} k=$((k + 1))
+          if [[ -n $seguir ]]; then rot="$emoji Seguir em $r"; else rot="🖥 Em $r (sessão nova lá)"; fi
+          printf '%s\t%s\t%s %s\n' "$tecla" "$rot" "$rodar" "$(q "maquina=$r")"
+        done < <(maquinas)
+        ;;
+      *=*)
+        nfixa=$((nfixa + 1)) tecla=${teclas:k:1} k=$((k + 1))
+        printf '%s\t%s\t%s %s\n' "$tecla" "${item%%=*}" "$rodar" "$(q "opcao=$nfixa")"
+        ;;
+    esac
+  done
+  printf -- '-\t\t\n'
+  printf ' \tℹ %s\t\n' "${cmd:0:70}"
+  printf 'e\t✏ Editar os atalhos…\t%s\n' "$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")"
+}
+
+# Botão direito num atalho: o menu dele, ou (sem a 5ª coluna) o comando, como antes.
+atalho_menu() { # cliente índice painel
+  local c=$1 i=$2 p=${3:-} emoji id cmd cor menu
+  IFS=$'\t' read -r emoji id cmd cor menu < <(atalhos_lista | sed -n "${i}p")
+  [[ -n $cmd ]] || return 0
+  [[ -n $menu ]] || { atalho_info "$c" "$i"; return 0; }
+  [[ -n $p ]] || p=$(do_cliente "$c" '#{pane_id}')
+  atalho_menu_itens "$id" "$c" "$p" | menu_popup "$c" "$emoji $id"
+}
+
+# Roda o atalho ID como no clique ou com a escolha de um item do menu: conta=NOME, maquina=RÓTULO, opcao=N (a N-ésima
+# opção fixa). tt --atalho-rodar ID CLIENTE PAINEL [ESCOLHA].
+atalho_rodar() { # id cliente painel [escolha]
+  local id=$1 c=$2 p=${3:-} esc=${4:-} emoji cmd cor menu pasta item n=0 v
+  IFS=$'\t' read -r emoji _ cmd cor menu < <(atalho_por_id "$id")
+  [[ -n $cmd ]] || { botao_aviso "$c" "atalho $id: não existe (mais) nesta máquina"; return 0; }
+  [[ -n $p ]] || p=$(do_cliente "$c" '#{pane_id}')
+  pasta=$(tmux display-message -p -t "$p" '#{pane_current_path}' 2>/dev/null); [[ -n $pasta ]] || pasta=$HOME
+  v=${esc#*=}
+  case $esc in
+    conta=*)
+      [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || return 0
+      cmd=${cmd//\{conta\}/--conta $v} ;;
+    maquina=*)
+      if [[ $v != "$MAQUINA" ]]; then atalho_na_maquina "$id" "$c" "$p" "$v" "$cmd" "$pasta"; return 0; fi ;;
+    opcao=*)
+      [[ $v =~ ^[0-9]+$ ]] || return 0
+      while [[ -n $menu ]]; do
+        item=${menu%%"$ATALHO_SEP"*}
+        [[ $item == "$menu" ]] && menu="" || menu=${menu#*"$ATALHO_SEP"}
+        [[ $item == *=* ]] || continue
+        n=$((n + 1)); ((n == v)) && { cmd=${item#*=}; break; }
+      done
+      ((n == v)) || return 0 ;;
+  esac
+  atalho_comando "$c" "$p" "$pasta" "$cmd" "$id"
+}
+
+# Pasta como as outras máquinas a entendem: "~/…" se está na home desta (as homes mudam de máquina para máquina).
+pasta_portavel() {
+  case $1 in
+    "$HOME") echo '~' ;;
+    "$HOME"/*) echo "~/${1#"$HOME"/}" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# @maquinas: o atalho de mesmo ID roda na máquina R, numa sessão nova de lá (com o perfil de atalhos dela), e a
+# tela vai para ela. O @seguir passa a conversa deste painel para lá.
+atalho_na_maquina() { # id cliente painel rótulo comando pasta
+  local id=$1 c=$2 p=$3 r=$4 cmd=$5 pasta=$6 d s
+  if [[ $cmd == @seguir* ]]; then seguir_ia "$c" "$p" "$r"; return 0; fi
+  d=$(dest_de "$r")
+  [[ -n $d && $d != . ]] || { botao_aviso "$c" "⚠ $r: máquina não cadastrada ou desligada"; return 0; }
+  tmux display-message -c "$c" -d 2000 "⟳ abrindo o atalho $id em $r…" 2>/dev/null
+  s=$(timeout 20 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --atalho-sessao $(q "$id" "$(pasta_portavel "$pasta")")" </dev/null 2>/dev/null)
+  [[ $s =~ ^[^[:space:]]+$ ]] || { botao_aviso "$c" "⚠ $r não abriu o atalho $id (sem resposta, ou o tt de lá não tem esse atalho)"; return 0; }
+  _remota_confirmada=$d TT_CLIENTE=$c ir_para "$d" "$s"
+}
+
+# Sessão nova desta máquina rodando o comando de um atalho; imprime o nome.
+atalho_nova_sessao() { # pasta comando id
+  local nome
+  nome=$(proximo_nome atalho)
+  tmux new-session -d -s "$nome" -c "$1" "$(script_atalho "$(sem_marcas "$2" tudo)")" || return 1
+  tmux set-option -w -t "=$nome:" @tt_papel atalho
+  tmux set-option -w -t "=$nome:" @tt_atalho "$3"
+  printf '%s\n' "$nome"
+}
+
+# O atalho ID numa sessão nova desta máquina (o @maquinas pedido de outra); imprime o nome da sessão.
+atalho_sessao() { # id [pasta]
+  local id=$1 pasta emoji cmd cor
+  IFS=$'\t' read -r emoji _ cmd cor _ < <(atalho_por_id "$id")
+  [[ -n $cmd && $cmd != @seguir* ]] || return 1
+  pasta=$(expandir "${2:-$HOME}"); [[ -d $pasta ]] || pasta=$HOME
+  atalho_nova_sessao "$pasta" "${cmd#@aqui }" "$id"
 }
 
 # Clique num botão da barra de baixo: RANGE CLIENTE PAINEL PASTA [X-DO-MOUSE].
@@ -14207,13 +14389,19 @@ atalhos_lista() {
   e_mobile && localf=/dev/null
   [[ -f $localf ]] || localf=/dev/null
   # Padrões na ordem do pacote (trocados pela versão local do mesmo id; emoji "-" some), depois os
-  # atalhos só locais, na ordem do arquivo.
+  # atalhos só locais, na ordem do arquivo. Cor vazia com menu depois sai "-": quem lê com IFS=tab juntaria os
+  # dois tabs e o menu cairia no lugar da cor.
   awk -F '\t' -v b="$base" '
+    function linha(l,   f, n, k) {
+      n = split(l, f, "\t")
+      if (n >= 5 && f[4] == "") { f[4] = "-"; l = f[1]; for (k = 2; k <= n; k++) l = l "\t" f[k] }
+      return l
+    }
     FILENAME == b { if ($2 != "" && !($2 in base)) { base[$2] = $0; ob[++nb] = $2 }; next }
     $2 != "" { if (!($2 in loc)) ol[++nl] = $2; loc[$2] = $0; em[$2] = $1 }
     END {
-      for (i = 1; i <= nb; i++) { id = ob[i]; if (id in loc) { if (em[id] != "-") print loc[id] } else print base[id] }
-      for (i = 1; i <= nl; i++) { id = ol[i]; if (!(id in base) && em[id] != "-") print loc[id] }
+      for (i = 1; i <= nb; i++) { id = ob[i]; if (id in loc) { if (em[id] != "-") print linha(loc[id]) } else print linha(base[id]) }
+      for (i = 1; i <= nl; i++) { id = ol[i]; if (!(id in base) && em[id] != "-") print linha(loc[id]) }
     }
   ' "$base" "$localf"
   rm -f "$base"
@@ -14221,7 +14409,7 @@ atalhos_lista() {
 
 atalhos_barra() {
   local emoji id cmd cor i=0
-  while IFS=$'\t' read -r emoji id cmd cor; do
+  while IFS=$'\t' read -r emoji id cmd cor _; do
     [[ -n $emoji && -n $cmd ]] || continue
     [[ $cor =~ ^#[[:xdigit:]]{6}$ ]] || cor='#cba6f7'
     i=$((i + 1))
@@ -14265,17 +14453,348 @@ atalho_aqui() {
 }
 
 atalho_executar() {
-  local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd cor nome
-  IFS=$'\t' read -r emoji id cmd cor < <(atalhos_lista | sed -n "${i}p")
+  local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd cor
+  IFS=$'\t' read -r emoji id cmd cor _ < <(atalhos_lista | sed -n "${i}p")
   [[ -n $cmd ]] || { tmux display-message -c "$cliente" "atalho indisponível" 2>/dev/null || true; return 0; }
-  if [[ $cmd == '@aqui '* ]]; then atalho_aqui "$cliente" "$pane" "$pasta" "${cmd#@aqui }" "$id"; return; fi
-  nome=$(proximo_nome atalho)
-  tmux new-session -d -s "$nome" -c "$pasta" "$(script_atalho "$cmd")" || {
-    botao_aviso "$cliente" "atalho: não consegui abrir a sessão"; return
+  atalho_comando "$cliente" "$pane" "$pasta" "$cmd" "$id"
+}
+
+# O comando de um atalho, pelo clique ou pelo menu: "@seguir …" passa a conversa do painel adiante (nesta máquina),
+# "@aqui …" troca o que roda no painel, o resto abre numa sessão nova e a tela vai para ela.
+atalho_comando() { # cliente painel pasta comando id
+  local cliente=$1 pane=$2 pasta=$3 cmd=$4 id=$5 nome
+  case $cmd in
+    @seguir | '@seguir '*) seguir_ia "$cliente" "$pane" ""; return 0 ;;
+    '@aqui '*) atalho_aqui "$cliente" "$pane" "$pasta" "$(sem_marcas "${cmd#@aqui }")" "$id"; return 0 ;;
+  esac
+  nome=$(atalho_nova_sessao "$pasta" "$cmd" "$id") || {
+    botao_aviso "$cliente" "atalho: não consegui abrir a sessão"; return 0
   }
-  tmux set-option -w -t "=$nome:" @tt_papel atalho
-  tmux set-option -w -t "=$nome:" @tt_atalho "$id"
   tmux switch-client -c "$cliente" -t "=$nome" # (a troca de sessão já redesenha o cliente)
+}
+
+# --- ⏩ Seguir a conversa com outra IA ------------------------------------------------
+#
+# O atalho "@seguir CMD" acha a conversa de IA do painel (Claude, Codex ou Kiro) e o código dela, encerra o agente e
+# abre outra IA com CMD (o padrão é "ia-conta abrir {prompt}": o rotador escolhe a conta de mais folga), pedindo que
+# leia a conversa inteira e siga o trabalho de onde parou; {prompt} vira "--prompt-arquivo ARQ". Nesta máquina, a
+# nova IA abre no mesmo painel. Em outra (menu @maquinas), numa sessão nova de lá, com o @seguir DELA (o perfil de
+# atalhos de cada máquina sabe abrir a IA ali), e a tela vai para lá; o agente daqui só fecha depois que a de lá
+# abriu. A conversa vai em Markdown (tt --conversa-ia CÓDIGO --de MÁQUINA, pela rede do tt) para
+# ~/.cache/tt/conversas/CÓDIGO.md na máquina da nova IA antes de ela começar.
+
+# "provedor pid pids" do agente de IA que roda no painel (o mais perto da raiz do painel) e todos os processos do
+# painel (separados por vírgula); nada se não houver agente.
+agente_no_painel() { # painel
+  local raiz
+  raiz=$(tmux display-message -p -t "$1" '#{pane_pid}' 2>/dev/null)
+  [[ $raiz =~ ^[0-9]+$ ]] || return 1
+  { if [[ -n ${PS_CACHE:-} ]]; then echo "$PS_CACHE"; else ps -eo pid=,ppid=,comm=; fi; } | awk -v raiz="$raiz" '
+    { pai[$1] = $2; n = $3; sub(/.*\//, "", n); cmd[$1] = n } # no Termux, um binário fora do PATH aparece com o caminho
+    END {
+      for (p in cmd) {
+        d = 0
+        for (q = p; q in pai && q != 1 && q != raiz; q = pai[q]) d++
+        if (q != raiz) continue
+        todos = todos (todos == "" ? "" : ",") p
+        n = cmd[p]
+        if (n == "claude") prov = "claude"; else if (n ~ /^codex/) prov = "codex"; else if (n ~ /^kiro-cli/ || n == "kiro") prov = "kiro"; else continue
+        if (melhor == "" || d < dm) { melhor = prov " " p; dm = d }
+      }
+      if (melhor == "") exit 1
+      print melhor, raiz "," todos
+    }'
+}
+
+# "provedor pid código" da conversa do agente no painel P. O Claude registra o código pelo pid; o Kiro e o Codex
+# são achados pelo sessoes-ia.py (trava do Kiro com o pid; conversa do Codex na mesma pasta, mexida desde que o
+# agente começou, desempatada pela tela do painel).
+conversa_do_painel() { # painel
+  local p=$1 prov pid pids id="" tela
+  read -r prov pid pids < <(agente_no_painel "$p") || return 1
+  [[ -n $pid ]] || return 1
+  [[ $prov == claude ]] && id=$(claude_info "$pid" 2>/dev/null | awk '{ print $1 }')
+  if [[ -z $id ]]; then
+    tela=$(mktemp "$RT/tt-tela.XXXXXX") || return 1
+    tmux capture-pane -p -t "$p" -S -60 >"$tela" 2>/dev/null
+    id=$(python3 -I "$DIR_TT/sessoes-ia.py" achar --provedor "$prov" --pid "$pid" --pids "$pids" --tela "$tela" 2>/dev/null | cut -f2)
+    rm -f "$tela"
+  fi
+  [[ $id =~ ^[0-9A-Za-z][0-9A-Za-z_-]{6,}$ ]] || return 1
+  printf '%s %s %s\n' "$prov" "$pid" "$id"
+}
+
+# A conversa de código ID em Markdown, desta máquina ou de --de MÁQUINA (pela rede do tt). --salvar grava em
+# ~/.cache/tt/conversas/ID.md e diz onde. tt --conversa-ia ID [--de MÁQUINA] [--salvar].
+conversa_ia() { # id [--de máquina] [--salvar]
+  local id=${1:-} de="" salvar="" d f
+  shift || true
+  while (($#)); do
+    case $1 in --de) de=${2:-}; shift ;; --salvar) salvar=1 ;; *) echo "tt: --conversa-ia: opção desconhecida $1" >&2; return 2 ;; esac
+    shift
+  done
+  [[ $id =~ ^[0-9A-Za-z][0-9A-Za-z_-]{6,}$ ]] || { echo "uso: tt --conversa-ia CÓDIGO [--de MÁQUINA] [--salvar]" >&2; return 2; }
+  [[ $de == "$MAQUINA" ]] && de=""
+  if [[ -n $salvar ]]; then
+    mkdir -p "$HOME/.cache/tt/conversas"; f=$HOME/.cache/tt/conversas/$id.md
+    printf '⟳ buscando a conversa %s%s…\n' "$id" "${de:+ em $de}"
+    if conversa_ia "$id" ${de:+--de "$de"} >"$f.$$" && [[ -s $f.$$ ]]; then
+      mv -f "$f.$$" "$f"; printf '✓ %s (%d KB)\n' "$f" $(($(wc -c <"$f") / 1024)); return 0
+    fi
+    rm -f "$f.$$"; echo "⚠ não consegui a conversa $id${de:+ de $de}" >&2; return 1
+  fi
+  if [[ -z $de ]]; then python3 -I "$DIR_TT/sessoes-ia.py" exportar "$id"; return; fi
+  d=$(dest_de "$de")
+  [[ -n $d ]] || { echo "tt: $de não está cadastrada ou está desligada" >&2; return 1; }
+  ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --conversa-ia $(q "$id")" </dev/null
+}
+
+# Comando do @seguir desta máquina, sem o "@seguir " (o do perfil, mesmo desativado na barra).
+seguir_cmd() {
+  local emoji id cmd
+  while IFS=$'\t' read -r emoji id cmd _; do
+    [[ $cmd == '@seguir '* ]] && { printf '%s\n' "${cmd#@seguir }"; return 0; }
+  done < <(atalhos_lista; atalhos_base)
+  return 1
+}
+
+# O pedido para a nova IA.
+seguir_pedido() { # origem provedor código pasta-lá pasta-aqui arquivo-da-conversa
+  local o=$1 prov=$2 id=$3 la=$4 aqui=$5 conv=$6 d n=3
+  cat <<EOF
+Você vai continuar o trabalho de outra IA. A conversa dela foi encerrada para seguir aqui com você (o tt-terminais
+passou a conversa adiante, em geral porque a conta dela estava ficando sem créditos).
+
+- Conversa: $prov, código $id
+- Máquina de origem: $o · pasta lá: $la
+- Você está em: $MAQUINA · pasta aqui: $aqui
+
+1. Antes de qualquer outra coisa, leia a conversa inteira: $conv (Markdown; leia todo o arquivo, em partes se ele
+   for grande). Se ele não existir ou parecer incompleto, gere de novo com: tt --conversa-ia $id --de $o --salvar
+2. Siga de forma integral o trabalho que ela estava fazendo, como se fosse ela: os mesmos objetivos, as decisões já
+   tomadas e as instruções do usuário que continuam valendo. Não refaça o que já foi feito: confira o estado real
+   (arquivos, git, testes, processos) e retome do ponto em que ela parou.
+EOF
+  if [[ $o != "$MAQUINA" ]]; then
+    d=$(dest_de "$o")
+    printf '%s. Os arquivos do trabalho estão na máquina %s. Para lê-los ou mudá-los, entre nela pela rede do tt: ssh %s\n' "$n" "$o" "${d:-<veja ~/.config/tt/maquinas>}"
+    printf '   (as máquinas do tt estão em ~/.config/tt/maquinas; tt --help mostra o resto).\n'
+    n=$((n + 1))
+  fi
+  printf '%s. Comece dizendo, em poucas linhas, o que estava sendo feito e qual é o próximo passo; depois continue.\n' "$n"
+}
+
+# Abre a nova IA desta máquina para seguir a conversa (a ⏩): escreve o pedido, monta o comando com o @seguir daqui e
+# abre numa sessão nova (imprime o nome) ou, com PAINEL, no lugar do que roda nele. tt --seguir-abrir ORIGEM
+# PROVEDOR CÓDIGO PASTA (pasta de lá; "~/…" quando está na home de lá).
+seguir_abrir() { # origem provedor código pasta [painel pasta-do-painel]
+  local o=$1 prov=$2 id=$3 la=$4 p=${5:-} cmd arq conv aqui script nome
+  cmd=$(seguir_cmd) || { echo "tt: nenhum atalho @seguir nesta máquina" >&2; return 1; }
+  [[ $cmd == *'{prompt}'* ]] || { echo "tt: o atalho @seguir daqui não tem {prompt} no comando" >&2; return 1; }
+  [[ $id =~ ^[0-9A-Za-z][0-9A-Za-z_-]{6,}$ ]] || return 1
+  aqui=$(expandir "$la"); [[ -d $aqui ]] || aqui=$HOME
+  [[ $la == '~'* && $o != "$MAQUINA" ]] && la="$la (na home de $o)"
+  mkdir -p "$HOME/.cache/tt/seguir" || return 1
+  conv=$HOME/.cache/tt/conversas/$id.md
+  arq=$HOME/.cache/tt/seguir/$id-$(date +%Y%m%d-%H%M%S).md
+  seguir_pedido "$o" "$prov" "$id" "$la" "$aqui" "$conv" >"$arq" || return 1
+  # A conversa vem antes da IA (do próprio Termux/PC, fora do ambiente do agente): a IA já começa com ela no disco.
+  script="$(q "$EU") --conversa-ia $(q "$id") --de $(q "$o") --salvar"$'\n'"$(sem_marcas "${cmd//\{prompt\}/--prompt-arquivo $(q "$arq")}" tudo)"
+  if [[ -n $p ]]; then
+    tmux respawn-pane -k -t "$p" -c "${6:-$aqui}" "$(script_atalho "$script")" || return 1
+    tmux set-option -w -t "$p" @tt_atalho ia-seguir 2>/dev/null || true
+    return 0
+  fi
+  nome=$(proximo_nome atalho)
+  tmux new-session -d -s "$nome" -c "$aqui" "$(script_atalho "$script")" || return 1
+  tmux set-option -w -t "=$nome:" @tt_papel atalho
+  tmux set-option -w -t "=$nome:" @tt_atalho ia-seguir
+  printf '%s\n' "$nome"
+}
+
+# A ⏩: a conversa de IA do painel segue com outra IA, nesta máquina (no mesmo painel) ou na de rótulo R.
+seguir_ia() { # cliente painel [rótulo-destino]
+  local c=$1 p=${2:-} r=${3:-} sessao prov pid id pasta la d s
+  [[ -n $r ]] || r=$MAQUINA
+  [[ -n $p ]] || p=$(do_cliente "$c" '#{pane_id}')
+  [[ -n $p ]] || { botao_aviso "$c" "⏩ nenhum painel ativo"; return 0; }
+  sessao=$(tmux display-message -p -t "$p" '#{session_name}' 2>/dev/null)
+  if [[ -n $(tmux show-options -qv -t "=$sessao:" @ponte 2>/dev/null) ]]; then
+    botao_aviso "$c" "este painel é de outra máquina: use o ⏩ da barra de lá"; return 0
+  fi
+  if ! read -r prov pid id < <(conversa_do_painel "$p") || [[ -z $id ]]; then
+    botao_aviso "$c" "⏩ não achei uma conversa de IA (Claude, Codex ou Kiro) neste painel"; return 0
+  fi
+  pasta=$(tmux display-message -p -t "$p" '#{pane_current_path}' 2>/dev/null); [[ -n $pasta ]] || pasta=$HOME
+  # A pasta do agente como ele a vê (o /proc mostra a de dentro de um proot com a raiz dele na frente).
+  la=$(readlink "/proc/$pid/cwd" 2>/dev/null || echo "$pasta")
+  la=$(sed -E 's#^.*/proot-distro/(containers/[^/]+/rootfs|installed-rootfs/[^/]+)(/|$)#/#' <<<"$la")
+  if [[ $r == "$MAQUINA" ]]; then
+    seguir_abrir "$MAQUINA" "$prov" "$id" "$la" "$p" "$pasta" || { botao_aviso "$c" "⚠ ⏩ não consegui abrir a nova IA (veja o atalho @seguir)"; return 0; }
+    botao_aviso "$c" "⏩ a conversa $prov ${id:0:8} segue com outra IA neste painel"
+    return 0
+  fi
+  d=$(dest_de "$r")
+  [[ -n $d && $d != . ]] || { botao_aviso "$c" "⚠ $r: máquina não cadastrada ou desligada"; return 0; }
+  tmux display-message -c "$c" -d 3000 "⏩ passando a conversa para $r…" 2>/dev/null
+  s=$(timeout 30 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --seguir-abrir $(q "$MAQUINA" "$prov" "$id" "$(pasta_portavel "$la")")" </dev/null 2>/dev/null)
+  if [[ ! $s =~ ^[^[:space:]]+$ ]]; then
+    botao_aviso "$c" "⚠ $r não abriu a nova IA; a conversa continua aqui"; return 0
+  fi
+  # Lá já abriu: o agente daqui fecha (o painel fica num shell, com o recado de onde a conversa seguiu).
+  tmux respawn-pane -k -t "$p" -c "$pasta" "$(script_atalho "printf '%s\n' $(q "⏩ esta conversa ($prov $id) seguiu em $r, na sessão $s")")" 2>/dev/null
+  _remota_confirmada=$d TT_CLIENTE=$c ir_para "$d" "$s"
+}
+
+# --- Rolagem nos chips da barra ---------------------------------------------------------
+#
+# A roda do mouse em "máquina ▾" troca de máquina e em "sessão ▾", de sessão (no resto da barra, o padrão do tmux:
+# janela anterior/seguinte). Para baixo = a seguinte, para cima = a anterior, dando a volta.
+
+# Rolagem em rajada: cada dente da roda (e cada passo do arrasto no celular) é um evento, e uma rolagem longa manda
+# vários. Um passo por vez por tela: enquanto um anda, os outros eventos caem; depois dele, MS ms de folga
+# (TT_ROLAR_FOLGA muda a folga, em ms, das duas rodas).
+rolar_vez() { # chave ms → 0 = este evento leva o passo (rolar_fim fecha a marca)
+  local -; set -C
+  local f=$RT/tt-rolar-$UID-${1//[^A-Za-z0-9_-]/_} ms=$2 agora fim="" dono="" desde=""
+  agora=${EPOCHREALTIME/[.,]/}
+  { read -r fim <"$f.fim"; } 2>/dev/null
+  [[ $fim =~ ^[0-9]+$ ]] && ((agora >= fim && agora - fim < ms * 1000)) && return 1
+  if ! { printf '%s %s\n' "$BASHPID" "$agora" >"$f"; } 2>/dev/null; then
+    { read -r dono desde <"$f"; } 2>/dev/null
+    # Dono vivo há menos de 30 s: o passo dele ainda anda. Morto (ou preso): a marca é tomada.
+    [[ $dono =~ ^[0-9]+$ && $desde =~ ^[0-9]+$ ]] && ((agora - desde < 30000000)) && kill -0 "$dono" 2>/dev/null && return 1
+    rm -f "$f"
+    { printf '%s %s\n' "$BASHPID" "$agora" >"$f"; } 2>/dev/null || return 1
+  fi
+  return 0
+}
+rolar_fim() {
+  local f=$RT/tt-rolar-$UID-${1//[^A-Za-z0-9_-]/_}
+  printf '%s\n' "${EPOCHREALTIME/[.,]/}" >|"$f.fim"
+  rm -f "$f"
+}
+
+# Sessões desta máquina na ordem da roda: a do tmux (a do Ctrl+B ( e ), por nome), sem pontes (são de outra
+# máquina) nem ocultas (_nome). Ordem fixa de propósito: pela atividade, como na lista, a sessão em que se chega
+# redesenha, sobe para o topo e a roda ficava indo e voltando entre duas.
+sessoes_roda() {
+  tmux list-sessions -F $'#{session_name}\x1f#{@ponte}' 2>/dev/null | awk -F'\037' '$2 == "" && $1 !~ /^_/ { print $1 }'
+}
+
+# Leva o cliente C desta máquina à sessão S da máquina de rótulo R (desta, direto; de outra, por ponte), como o
+# ir_ponte, mas pelo cliente. Não depende de rodar dentro do tmux: o pedido pode vir por ssh, da barra de outra máquina.
+levar_cliente() { # cliente rótulo sessão
+  local c=$1 r=$2 s=$3 alvo dest
+  if [[ $r == "$MAQUINA" ]]; then alvo=$s
+  else
+    dest=$(dest_de "$r"); [[ -n $dest ]] || return 1
+    alvo=$(criar_ponte "$dest" "$s" "$c") || return 1
+  fi
+  fecha_ciclo "$alvo" "$(contem_cliente "$c")" && return 1
+  tmux switch-client -c "$c" -t "=$alvo"
+}
+
+# A primeira sessão da lista desta máquina (a do seletor: a de atividade mais recente, as vazias por último).
+primeira_sessao() { listar_leve | awk -F'\t' '$1 != "" && $1 !~ /^!/ { print $1; exit }'; }
+
+rolar_sessao() { # cliente ±1
+  local c=$1 dir=$2 atual alvo i=-1 k n
+  local -a L=()
+  rolar_vez "s-$c" "${TT_ROLAR_FOLGA:-150}" || return 0
+  atual=$(do_cliente "$c" '#{session_name}')
+  mapfile -t L < <(sessoes_roda)
+  n=${#L[@]}
+  for k in "${!L[@]}"; do [[ ${L[k]} == "$atual" ]] && { i=$k; break; }; done
+  if ((n == 0)) || ((n == 1 && i == 0)); then
+    botao_aviso "$c" "só há esta sessão em $MAQUINA"; rolar_fim "s-$c"; return 0
+  fi
+  if ((i < 0)); then ((dir > 0)) && alvo=${L[0]} || alvo=${L[n - 1]}
+  else alvo=${L[(i + dir + n) % n]}; fi
+  levar_cliente "$c" "$MAQUINA" "$alvo"
+  rolar_fim "s-$c"
+}
+
+# Máquina que não respondeu à roda há menos de 1 min: a próxima rolagem nem tenta (sem ficar esperando a cada passo).
+rolar_falhou() { # rótulo [marcar]
+  local f=$RT/tt-rolar-falha-$UID-${1//[^A-Za-z0-9_-]/_} t="" agora
+  printf -v agora '%(%s)T' -1
+  if [[ -n ${2:-} ]]; then printf '%s\n' "$agora" >"$f"; return 0; fi
+  { read -r t <"$f"; } 2>/dev/null
+  [[ $t =~ ^[0-9]+$ ]] && ((agora - t < ${TT_T_ROLAR_FALHA:-60}))
+}
+
+# Leva o cliente C (desta máquina) à máquina antes ou depois da ATUAL, na ordem do cabeçalho da central (esta
+# primeiro, depois as cadastradas e ligadas), para a primeira sessão da lista de lá (ou uma nova, se não houver
+# nenhuma). Máquina que não responde em ~3 s é pulada, com aviso, e segue para a próxima, até dar a volta.
+rolar_maquina_cliente() { # cliente rótulo-atual ±1
+  local c=$1 atual=$2 dir=$3 i=0 j k n r d s saida pulei=""
+  local -a R=() D=()
+  rolar_vez "m-$c" "${TT_ROLAR_FOLGA:-400}" || return 0
+  R=("$MAQUINA"); D=(.)
+  while read -r d r; do [[ -n $r ]] && R+=("$r") D+=("$d"); done < <(maquinas)
+  n=${#R[@]}
+  for k in "${!R[@]}"; do [[ ${R[k]} == "$atual" ]] && { i=$k; break; }; done
+  for ((k = 1; k < n; k++)); do
+    j=$(((i + dir * k) % n)); ((j < 0)) && j=$((j + n))
+    r=${R[j]} d=${D[j]}
+    [[ $r == "$atual" ]] && continue
+    if [[ $d == . ]]; then
+      s=$(primeira_sessao)
+      [[ -n $s ]] || s=$("$EU" --nova 2>/dev/null)
+      [[ -n $s ]] || continue
+      levar_cliente "$c" "$MAQUINA" "$s"
+      rolar_fim "m-$c"; return 0
+    fi
+    if rolar_falhou "$r"; then pulei+=" $r"; continue; fi
+    tmux display-message -c "$c" -d 1500 "⟳ $r…${pulei:+ (pulei:$pulei, sem resposta)}" 2>/dev/null
+    if ! saida=$(timeout "${TT_T_ROLAR:-3}" ssh -o ConnectTimeout=2 "${SSH_OPC[@]}" "$d" "$TT_REMOTO --listar-leve" </dev/null 2>/dev/null); then
+      rolar_falhou "$r" marcar; pulei+=" $r"; continue
+    fi
+    s=$(awk -F'\t' '$1 != "" && $1 !~ /^!/ { print $1; exit }' <<<"$saida")
+    if [[ -z $s ]]; then
+      s=$(timeout 5 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --nova" </dev/null 2>/dev/null)
+      [[ $s =~ ^[^[:space:]]+$ ]] || { rolar_falhou "$r" marcar; pulei+=" $r"; continue; }
+    fi
+    levar_cliente "$c" "$r" "$s"
+    [[ -n $pulei ]] && botao_aviso "$c" "⚠ sem resposta, pulei:$pulei"
+    rolar_fim "m-$c"; return 0
+  done
+  if ((n < 2)); then botao_aviso "$c" "só há esta máquina no tt"
+  else botao_aviso "$c" "⚠ nenhuma outra máquina respondeu${pulei:+ (pulei:$pulei)}"; fi
+  rolar_fim "m-$c"
+}
+
+# Na máquina de origem (a da tela): o aparelho que está na PONTE vai para a máquina antes/depois de ATUAL.
+# tt --rolar-ponte PONTE RÓTULO-ATUAL ±1 (pedido pela barra da outra máquina).
+rolar_ponte() { # ponte rótulo-atual ±1
+  local c
+  c=$(tmux list-clients -t "=$1" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
+  [[ -n $c ]] || return 1
+  rolar_maquina_cliente "$c" "$2" "$3"
+}
+
+# Roda do mouse num chip da barra: tt --rolar RANGE ±1 CLIENTE (do tmux.conf).
+rolar() { # range ±1 cliente
+  local faixa=${1#user|} dir=$2 c=$3 origem om op d
+  [[ $dir == -1 || $dir == +1 || $dir == 1 ]] || return 0
+  dir=$((dir))
+  [[ -n $c ]] || return 0
+  case $faixa in
+    sessao) rolar_sessao "$c" "$dir" ;;
+    maquina)
+      # Vendo esta máquina de outra (ponte): quem troca a tela é a máquina de lá, na ordem das máquinas dela.
+      origem=$(origem_ponte "$c")
+      om=${origem%%|*} op=${origem#*|}
+      if [[ -z $origem || -z $op ]]; then rolar_maquina_cliente "$c" "$MAQUINA" "$dir"; return 0; fi
+      rolar_vez "m-$c" "${TT_ROLAR_FOLGA:-400}" || return 0
+      d=$(dest_de "$om")
+      if [[ -z $d ]] || ! timeout 30 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --rolar-ponte $(q "$op" "$MAQUINA" "$dir")" </dev/null >/dev/null 2>&1; then
+        botao_aviso "$c" "⚠ não consegui falar com $om (a máquina desta tela) para trocar de máquina"
+      fi
+      rolar_fim "m-$c" ;;
+  esac
+  return 0
 }
 
 clique() {
@@ -14285,7 +14804,7 @@ clique() {
   local faixa=${1#user|}
   local marca="$RT/tt-clique-$UID" agora anterior cliente_anterior faixa_anterior
   agora=${EPOCHREALTIME/[.,]/}000 # ns (com a precisão de µs), como o date +%s%N, sem processo
-  if read -r anterior cliente_anterior faixa_anterior <"$marca" 2>/dev/null &&
+  if read -r anterior cliente_anterior faixa_anterior 2>/dev/null <"$marca" &&
      [[ $cliente_anterior == "$2" && $faixa_anterior == "$faixa" ]] &&
      ((agora - anterior < 500000000)); then
     return 0
@@ -15999,7 +16518,7 @@ email_sync_manual() { # slug
   [[ -f $rc ]] || return 0
   if [[ -e $lock ]] && ! flock -n -w 0 "$lock" true 2>/dev/null; then
     if ! flock -w 20 "$lock" true 2>/dev/null; then
-      read -r m _ <"$ESTADO_DIR/email-sync/$slug.andamento" 2>/dev/null
+      read -r m _ 2>/dev/null <"$ESTADO_DIR/email-sync/$slug.andamento"
       if [[ ${m:-} == completo ]]; then
         # (a marca diz à rodada derrubada que ela foi interrompida de propósito, não que falhou)
         touch "$ESTADO_DIR/email-sync/$slug.interrompida" 2>/dev/null
@@ -17759,7 +18278,10 @@ for linha in sys.stdin:
 }
 
 # Clique numa linha (MODO: seletor | central). No ✕: 1º toque pede confirmação, 2º fecha.
-# Fora dele: abre (e esquece uma confirmação pendente).
+# Fora dele: abre (e esquece uma confirmação pendente). Dois toques no mesmo ponto em menos de 0,5 s chegam do
+# fzf como left-click, left-click e, ao soltar o 2º, double-click, cujo padrão é aceitar a linha: o 2º toque rápido
+# no pino (fixar e desafixar) ou no ✕ (confirmar) fechava a central e entrava na sessão. Os dois toques já são os
+# dois left-click; quem usa este clique liga double-click:ignore.
 clique_linha() {
   local dest=$1 chave=$2 g w ini xc yc lista
   [[ $TT_COMX == central ]] && lista="$EU --listar-tudo" || lista="$EU --lista-seletor"
@@ -17827,6 +18349,7 @@ escolher() {
     --bind="ctrl-f:transform($EU --clique-cabecalho máquina),ctrl-e:transform($EU --clique-cabecalho busca)" \
     --bind="click-header:transform($EU --clique-cabecalho \"\$FZF_CLICK_HEADER_WORD\")" \
     --bind="left-click:transform($EU --clique-linha {1} {2})" \
+    --bind='double-click:ignore' \
     --track --bind="load:transform($EU --atualizar-uma-vez)" < <(lista_rapida_central)
 }
 
@@ -17861,7 +18384,7 @@ fi
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --notifs-sync | --notifs-receber | --clique | --popup | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela | --chrome-falhou)
+  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --notifs-sync | --notifs-receber | --clique | --rolar | --atalho-rodar | --seguir | --popup | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela | --chrome-falhou)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -18208,6 +18731,14 @@ case "${1:-}" in
   --menu-admin) menu_admin "$2" "${3:-}"; exit ;;
   --menu-sessao) menu_sessao "$2" "${3:-}"; exit ;;
   --clique-direito) clique_direito "$2" "$3" "$4" "${5:-0}"; exit ;;
+  --rolar) rolar "${2:-}" "${3:-}" "${4:-}"; exit 0 ;;
+  --rolar-ponte) rolar_ponte "${2:-}" "${3:-}" "${4:-}"; exit ;;
+  --atalho-menu-itens) atalho_menu_itens "${2:-}" "${3:-}" "${4:-}"; exit 0 ;;
+  --atalho-rodar) atalho_rodar "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit 0 ;;
+  --atalho-sessao) atalho_sessao "${2:-}" "${3:-}"; exit ;;
+  --seguir-abrir) seguir_abrir "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit ;;
+  --seguir) seguir_ia "${2:-}" "${3:-}" "${4:-}"; exit 0 ;;
+  --conversa-ia) shift; conversa_ia "$@"; exit ;;
   --nova-e-ir) nova_e_ir "$2"; exit ;;
   --atualizar-info) atualizar_info; exit ;;
   --menu-popup-ui) menu_popup_ui "$2"; exit ;;

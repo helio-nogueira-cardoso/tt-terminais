@@ -84,10 +84,16 @@ printf '[filters]\ntext/html=! html\n' > "$conf"; before=$(cat "$conf"); aerc_re
 
 # Funções REAIS do tt (as cópias acima são antigas): filtro w3m sem extbrowser (Enter num link dava
 # "Can't load" com a URL cortada) migra para abrir o link no navegador; idempotente depois.
-eval "$(sed -n '/^aerc_filtro_html() {/,/^}/p;/^aerc_reparar_se_preciso() {/,/^}/p' "$raiz/tt")"
+# O aerc_filtro_html usa o aerc_html_tt_garantir (filtro html do aerc tolerante a unshare quebrado): vem junto, com
+# o filtro "html" do aerc falso, para não depender do que a máquina do teste tem instalado.
+eval "$(sed -n '/^aerc_html_tt_garantir() {/,/^}/p;/^aerc_filtro_html() {/,/^}/p;/^aerc_reparar_se_preciso() {/,/^}/p' "$raiz/tt")"
+printf '#!/bin/sh\nexit 0\n' >"$TH/aerc-html"; chmod +x "$TH/aerc-html"; export TT_AERC_FILTRO_HTML=$TH/aerc-html
 mk w3m
 printf '[filters]\ntext/html=! html | colorize | python3 /x/email-tt.py linkify\n' > "$conf"; aerc_reparar_se_preciso
 f=$(filtro_atual)
+[[ $f == "! $DIR_TT/html-tt "* && -x $DIR_TT/html-tt && -x $DIR_TT/sem-unshare/unshare ]] &&
+  grep -qF "exec $TH/aerc-html" "$DIR_TT/html-tt" &&
+  ok "filtro w3m usa o html-tt (o do aerc, tolerante a unshare quebrado)" || erro "filtro sem o html-tt: $f"
 [[ $f != *'|'* ]] && ok "filtro w3m sem pipe: w3m fica interativo (caixas) em vez de dump" || erro "filtro w3m ainda tem pipe: $f"
 [[ $f == *"extbrowser='"*"--abrir-link %s'"* && $f == *keymap_file=* ]] && ok "filtro w3m antigo migrado p/ abrir link no navegador" || erro "filtro nao migrou: $f"
 grep -q 'C-m EXTERN_LINK' "$DIR_TT/w3m-keymap" 2>/dev/null && ok "keymap do w3m: Enter abre o link no navegador" || erro "keymap do w3m ausente"

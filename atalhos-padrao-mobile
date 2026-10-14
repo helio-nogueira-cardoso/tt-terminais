@@ -5,7 +5,11 @@
 # Como root, o ia-conta abrir liga IS_SANDBOX=1 sozinho (o claude so aceita
 # --dangerously-skip-permissions como root em ambiente isolado; o proot ja e o isolamento).
 #
-# Os mesmos dois atalhos do PC: a IA com mais folga agora numa sessao nova, ou no painel atual
-# ("@aqui" fecha o que roda nele; {retomar} continua a conversa do Claude que estava ali).
-🚀	ia-nova	proot-distro login debian --shared-tmp -- bash -lc 'PATH="$HOME/.local/bin:$PATH" ia-conta abrir'	#a6e3a1
-👇	ia-aqui	@aqui proot-distro login debian --shared-tmp -- bash -lc 'PATH="$HOME/.local/bin:$PATH" ia-conta abrir {retomar}'	#89b4fa
+# Os mesmos tres atalhos do PC: a IA com mais folga agora numa sessao nova, ou no painel atual
+# ("@aqui" fecha o que roda nele; {retomar} continua a conversa do Claude que estava ali), e a ⏩
+# (@seguir: a conversa do painel segue com outra IA). O menu @contas lista as contas pelo proprio
+# comando ({conta} = --listar-contas), entao sai a lista do Debian; o arquivo do {prompt} fica na
+# home do Termux, que o proot ve no mesmo caminho.
+🚀	ia-nova	proot-distro login debian --shared-tmp -- bash -lc 'PATH="$HOME/.local/bin:$PATH" ia-conta abrir {conta}'	#a6e3a1	@contas
+👇	ia-aqui	@aqui proot-distro login debian --shared-tmp -- bash -lc 'PATH="$HOME/.local/bin:$PATH" ia-conta abrir {retomar} {conta}'	#89b4fa	@contas
+⏩	ia-seguir	@seguir proot-distro login debian --shared-tmp -- bash -lc 'PATH="$HOME/.local/bin:$PATH" ia-conta abrir {prompt}'	#f9e2af	@maquinas

@@ -32,7 +32,9 @@ passou 'gerador rejeita falha, limite e texto livre; aceita nome válido'
 sed -n '/^sugerir_nome() {/,/^}/p; /^validar_nome_sugerido() {/,/^}/p; /^sem_acento() {/,/^}/p; /^limpar() {/,/^}/p; /^slug() {/,/^}/p' "$TT" >"$T/funcoes.sh"
 (
   source "$T/funcoes.sh"
-  claude_na_sessao() { :; }
+  painel_base() { return 1; }  # (o sugerir_nome cai em "=sessão:")
+  claude_no_painel() { :; }    # sem Claude no painel: vai à tela
+  modo_nomeador() { echo "${MODO:-auto}"; }
   encurtar() { echo "$1"; }
   tmux() { case "$*" in *pane_current_path*) echo /projeto ;; *pane_current_command*) echo bash ;; *) echo 'trabalho na tela' ;; esac; }
   nomear_texto() { cat >/dev/null; return 1; }
@@ -43,8 +45,14 @@ sed -n '/^sugerir_nome() {/,/^}/p; /^validar_nome_sugerido() {/,/^}/p; /^sem_ace
   if resultado=$(sugerir_nome sessao revisar); then falhou "aceitou erro remoto: $resultado"; fi
   ssh() { cat >/dev/null; echo corrigir-terminal; }
   [[ $(sugerir_nome sessao revisar) == corrigir-terminal ]] || falhou 'recusou nome remoto válido'
+  # Nos modos local e nenhum, a tela não sai desta máquina: nenhuma outra é consultada.
+  for MODO in local nenhum; do
+    ssh() { cat >/dev/null; echo "$MODO" >>"$T/ssh-nomear"; echo corrigir-terminal; }
+    [[ $(sugerir_nome sessao revisar) != corrigir-terminal ]] || falhou "modo $MODO pediu o nome a outra máquina"
+  done
+  [[ ! -s $T/ssh-nomear ]] || falhou "modo local/nenhum mandou a tela por ssh: $(cat "$T/ssh-nomear")"
 )
-passou 'sugestão remota também valida a resposta antes do slug'
+passou 'sugestão remota também valida a resposta antes do slug; local/nenhum não mandam a tela para fora'
 
 # O rotator recebe o prompt inteiro como argumento para repeti-lo em todas as contas.
 cat >"$HOME/.local/bin/claude-rot" <<'EOF'

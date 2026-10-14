@@ -8,6 +8,7 @@
 source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado
 echo copia_entre_maquinas=0 >>"$XDG_CONFIG_HOME/tt/config"
 tmux -f "$HOME/.tmux.conf" new -d -s minha -x 120 -y 30 'bash --norc' 2>/dev/null
+tmux new -d -s outra 'bash --norc'
 anexar v 120 32 minha; sleep 4
 c=$(tmux list-clients -F '#{client_name}' | head -1)
 
@@ -24,6 +25,8 @@ if i >= 0:
 ' "$2"
 }
 tocar() { fora send -t v -l $'\e[<0;'"$1;$2"$'M'; sleep 0.3; fora send -t v -l $'\e[<0;'"$1;$2"$'m'; }
+# Dois toques no mesmo ponto em menos de 0,5 s: o fzf entrega o 2º como double-click.
+tocar_duplo() { local i; for i in 1 2; do fora send -t v -l $'\e[<0;'"$1;$2"$'M'; fora send -t v -l $'\e[<0;'"$1;$2"$'m'; sleep 0.1; done; }
 esperar() { local i; for ((i = 0; i < $2 * 2; i++)); do eval "$1" && return 0; sleep 0.5; done; return 1; }
 fixada() { grep -q $'\tminha\t' "$XDG_CONFIG_HOME/tt/fixadas" 2>/dev/null; }
 # A linha de 'minha' na central mostra o emoji ALVO (📍 ou 📌).
@@ -50,3 +53,21 @@ esperar '! fixada' 8 || falhou 'segundo clique no pino da central não desafixou
 esperar 'pino_e 📍' 8 || falhou "central não voltou 📌 para 📍 depois de desafixar: $(tela | sed -n "$(linha_minha)p")"
 tmux has-session -t =minha 2>/dev/null || falhou 'clique no pino fechou a sessão em vez de só desafixar'
 passou 'pino da central desafixa e volta a 📍, sem fechar a sessão'
+
+# Toque duplo rápido no pino: são dois toques (fixa e desafixa) e a central continua aberta. O 2º chegava ao fzf
+# como double-click, cujo padrão é aceitar a linha: a central fechava e entrava na sessão.
+ln=$(linha_minha); col=$(coluna "$ln" '📍')
+tocar_duplo "$col" "$ln"; sleep 1.5
+[[ -n $(linha_minha) ]] || falhou "toque duplo no pino fechou a central: $(tela | grep -v '^$' | head -3)"
+esperar '! fixada && pino_e 📍' 8 || falhou "toque duplo no pino deveria fixar e desafixar: $(tela | sed -n "$(linha_minha)p")"
+passou 'toque duplo rápido no pino: fixa e desafixa, sem fechar a central'
+
+# Toque duplo rápido no ✕: o 1º pede confirmação, o 2º confirma e fecha a sessão; a central continua aberta.
+linha_outra() { tela | grep -n ' outra ' | head -1 | cut -d: -f1; }
+ln=$(linha_outra); [[ -n $ln ]] || falhou "sessão outra fora da central: $(tela | sed -n '1,12p')"
+col=$(coluna "$ln" '✕'); [[ -n $col ]] || falhou "✕ não encontrado: $(tela | sed -n "${ln}p")"
+tocar_duplo "$col" "$ln"
+esperar '! tmux has-session -t =outra 2>/dev/null' 8 || falhou "toque duplo no ✕ não fechou a sessão: $(tela | sed -n "${ln}p")"
+sleep 0.5; [[ -n $(linha_minha) ]] || falhou 'toque duplo no ✕ fechou a central'
+tmux has-session -t =minha 2>/dev/null || falhou 'toque duplo no ✕ fechou outra sessão'
+passou 'toque duplo rápido no ✕: confirma e fecha a sessão, sem fechar a central'

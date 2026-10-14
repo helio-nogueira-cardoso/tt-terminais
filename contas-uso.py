@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Percentual de uso da janela de cada conta de IA (usado pelo claude-conta e pelo claude-rot).
 
-Uso: contas-uso.py [--ttl SEGUNDOS] [--modelos] CONTA=ALVO ...
+Uso: contas-uso.py [--ttl SEGUNDOS] [--so-cache] [--modelos] CONTA=ALVO ...
+  --so-cache não consulta nada: o último valor conhecido de cada conta (ou desconhecido).
   ALVO é a pasta da credencial do Claude (a principal é ~/.claude), ou "codex" / "kiro".
 
 Uma linha TSV por conta, na ordem pedida:
@@ -197,10 +198,12 @@ def linha(conta, janelas, fonte, email, modelos=()):
 
 
 def main(args):
-    ttl, com_modelos = 0, False
-    while args[:1] in (["--ttl"], ["--modelos"]):
+    ttl, com_modelos, so_cache = 0, False, False
+    while args[:1] in (["--ttl"], ["--modelos"], ["--so-cache"]):
         if args[0] == "--ttl":
             ttl, args = float(args[1]), args[2:]
+        elif args[0] == "--so-cache":
+            so_cache, args = True, args[1:]
         else:
             com_modelos, args = True, args[1:]
     pedidos = [a.split("=", 1) for a in args if "=" in a]
@@ -214,17 +217,23 @@ def main(args):
         c = cache.get(conta) or {}
         # Janela que já virou desde a última consulta recomeça do zero.
         virou = lambda js: [j if not j[2] or j[2] > AGORA else (j[0], 0, None) for j in js if j[0] != "limite" or j[2] > AGORA]
-        if ttl and c.get("alvo") == alvo and AGORA - c.get("quando", 0) < ttl:
-            return conta, alvo, c.get("janelas") or [], "cache", c.get("email", ""), False, virou(c.get("modelos") or [])
-        try:
-            janelas, email, *resto = consultar(alvo)
-            return conta, alvo, janelas, "ao-vivo", email, True, (resto or [[]])[0]
-        except Exception:  # sem rede, token vencido, resposta nova: cai para o cache
+        def do_cache():
             if c.get("alvo") != alvo or not c.get("janelas"):
                 return conta, alvo, [], "desconhecido", c.get("email", ""), False, []
             janelas = virou(c["janelas"])
             fonte = "cache" if any(j[2] for j in janelas) else "reiniciou"
             return conta, alvo, janelas, fonte, c.get("email", ""), False, virou(c.get("modelos") or [])
+
+        if ttl and c.get("alvo") == alvo and AGORA - c.get("quando", 0) < ttl:
+            return conta, alvo, c.get("janelas") or [], "cache", c.get("email", ""), False, virou(c.get("modelos") or [])
+        # --so-cache: sem consulta nenhuma (menus, que precisam abrir na hora); vale o último valor conhecido.
+        if so_cache:
+            return do_cache()
+        try:
+            janelas, email, *resto = consultar(alvo)
+            return conta, alvo, janelas, "ao-vivo", email, True, (resto or [[]])[0]
+        except Exception:  # sem rede, token vencido, resposta nova: cai para o cache
+            return do_cache()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         resultados = list(ex.map(um, pedidos))
