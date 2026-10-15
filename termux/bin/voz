@@ -312,6 +312,7 @@ daemon() {
       t=$(<"$f"); rm -f "$f"
       [[ -n $t ]] || continue
       if [[ ${f##*/} == tg-* ]]; then CANAL=telegram; else CANAL=; fi
+      printf '%s ouvi%s: %s\n' "$(date +%T)" "${CANAL:+ (telegram)}" "$t"
       comando "$t"; CANAL=
     done
     sleep 1

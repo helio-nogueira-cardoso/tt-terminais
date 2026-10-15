@@ -70,9 +70,12 @@ if (global('TTVOZ_CONVERSA') == '1' && !(typeof ouvir !== 'undefined' && String(
   var r, t = '', ini = Date.now();
   if (carro || global('SCREEN') == 'off') t = '__sem_microfone__';
   else {
-    try { r = getVoice('Terminal', 'free', 15); } catch (e) {}
+    var erro = '';
+    try { r = getVoice('Terminal', 'free', 15); } catch (e) { erro = String(e); }
     if (r !== undefined && r !== null) t = (typeof r === 'object' && r.length) ? String(r[0]) : String(r).split(',')[0];
     t = t.replace(/^\s+|\s+$/g, '');
+    writeFile('/sdcard/Tasker/voz/escuta.txt', new Date().toISOString() + ' ' + (Date.now() - ini) + 'ms tipo=' + typeof r +
+      ' valor=' + String(r) + (erro ? ' erro=' + erro : '') + '\n', true);  // diagnóstico: o que o reconhecimento devolveu
     if (!t && Date.now() - ini < 4000) t = '__sem_microfone__';
   }
   if (t == '__sem_microfone__' || !t || /^(encerrar|sair|tchau|fim|terminar|desligar)[.!]?$/i.test(t)) {
