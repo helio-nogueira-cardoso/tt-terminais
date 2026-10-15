@@ -84,7 +84,7 @@ if (global('TTVOZ_CONVERSA') == '1' && !(typeof ouvir !== 'undefined' && String(
 aa = Task(24, 'tt voz: Android Auto')
 aa.setvar('%ntitle', '%evtprm2')
 aa.js(r"""var t = (typeof ntitle !== 'undefined' && String(ntitle).indexOf('%') !== 0) ? String(ntitle) : '';
-if (/conectad|connected/i.test(t)) {
+if (/conect|connect/i.test(t)) {  // "Conectando ao Android Auto" e "O Android Auto está conectado"; o voz evita repetir
   createDir('/sdcard/Tasker/voz/in', true, false);
   writeFile('/sdcard/Tasker/voz/in/' + Date.now() + '.txt', '__android_auto__', false);
 }""")

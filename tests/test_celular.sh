@@ -55,6 +55,11 @@ assert all(p.findtext("mid0") in ids for p in r.iter("Profile"))' "$RAIZ/termux/
 cp "$RAIZ/termux/tasker/tt-voz.prj.xml" "$T/voz-antes.xml"; python3 -I "$RAIZ/termux/tasker/gerar-voz.py" >/dev/null
 cmp -s "$T/voz-antes.xml" "$RAIZ/termux/tasker/tt-voz.prj.xml" || falhou 'tt-voz.prj.xml não bate com gerar-voz.py (rode o gerador)'
 grep -q 'tt.VOZ_FALAR' "$RAIZ/termux/bin/voz" && grep -q 'tt.VOZ_FALAR' "$RAIZ/termux/tasker/tt-voz.prj.xml" || falhou 'intent do voz não bate com o perfil do Tasker'
+# a 1ª notificação do Android Auto é "Conectando ao Android Auto…": o perfil precisa aceitá-la (as seguintes chegam com ele ocupado)
+python3 -c 'import re, sys, html
+x = html.unescape(open(sys.argv[1]).read()); m = re.search(r"if \(/([^/]+)/i\.test\(t\)\)", x)
+assert m and all(re.search(m.group(1), t, re.I) for t in ("Conectando ao Android Auto", "O Android Auto está conectado")), m' \
+  "$RAIZ/termux/tasker/tt-voz.prj.xml" || falhou 'perfil do Android Auto não aceita "Conectando ao Android Auto"'
 mkdir -p "$T/semcron"; printf '#!/usr/bin/env bash\nexit 0\n' >"$T/semcron/crontab"; chmod +x "$T/semcron/crontab"  # crontab vazio
 saida=$(PATH="$T/semcron:$PATH" CELULAR_SIMULAR=1 PREFIX=/data/data/com.termux/files/usr bash "$C" voz 2>&1 </dev/null) || falhou "voz simulado: $saida"
 grep -q 'voz --garantir' <<<"$saida" && grep -q 'tt-voz.prj.xml' <<<"$saida" && grep -q 'seção 15' <<<"$saida" || falhou "voz simulado incompleto: $saida"

@@ -847,8 +847,9 @@ gerado por `termux/tasker/gerar-voz.py`.
 **Canal do carro (Telegram):** crie um bot no @BotFather (`/newbot`), rode `voz --telegram TOKEN`, abra o link que ele
 mostra e toque em Começar; depois `voz --reiniciar`. O token e o seu chat ficam em `~/.secrets/tt-voz/telegram` (600)
 e só mensagens desse chat são aceitas. `voz --contato "NOME DO BOT"` faz as instruções faladas usarem o nome dele.
-Quando o Android Auto conecta, a notificação "O Android Auto está conectado" dispara o perfil `tt voz: Android Auto`
-e o bot manda "pronto" (no máximo uma vez a cada 30 min): é essa mensagem que você responde no carro.
+Quando o Android Auto conecta, a notificação dele ("Conectando ao Android Auto…", depois "… está conectado") dispara o
+perfil `tt voz: Android Auto` e o bot manda "pronto" (no máximo uma vez a cada 30 min): é essa mensagem que você responde
+no carro. O perfil precisa aceitar já a primeira notificação: as seguintes chegam com ele ocupado e o Tasker as descarta.
 
 **Abrir a conversa no celular:** rode a tarefa `Terminal` do Tasker (▶, atalho ou widget) ou `voz --abrir` no Termux.
 Sem voz, `voz "frase"` no Termux faz o mesmo (`VOZ_MUDO=1` só imprime).
