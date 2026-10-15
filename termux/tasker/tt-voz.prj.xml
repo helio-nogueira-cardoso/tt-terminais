@@ -1,0 +1,28 @@
+<TaskerData sr="" dvi="1" tv="6.6.20"><Profile sr="prof31" ve="2"><cdate>1791030000000</cdate><edate>1791030000000</edate><flags>8</flags><id>31</id><mid0>22</mid0><nme>tt voz: falar</nme><Event sr="con0" ve="2"><code>599</code><pri>0</pri><Str sr="arg0" ve="3">tt.VOZ_FALAR</Str><Str sr="arg1" ve="3"/><Str sr="arg2" ve="3"/><Str sr="arg3" ve="3"/><Str sr="arg4" ve="3"/></Event></Profile><Profile sr="prof32" ve="2"><cdate>1791030000000</cdate><edate>1791030000000</edate><flags>8</flags><id>32</id><mid0>21</mid0><nme>tt voz: abrir</nme><Event sr="con0" ve="2"><code>599</code><pri>0</pri><Str sr="arg0" ve="3">tt.VOZ_ABRIR</Str><Str sr="arg1" ve="3"/><Str sr="arg2" ve="3"/><Str sr="arg3" ve="3"/><Str sr="arg4" ve="3"/></Event></Profile><Profile sr="prof34" ve="2"><cdate>1791030000000</cdate><edate>1791030000000</edate><flags>8</flags><id>34</id><mid0>24</mid0><nme>tt voz: Android Auto</nme><Event sr="con0" ve="2"><code>461</code><pri>0</pri><App sr="arg0"><appClass/><appPkg>com.google.android.projection.gearhead</appPkg><label>Android Auto</label></App><Str sr="arg1" ve="3"/><Str sr="arg2" ve="3"/><Str sr="arg3" ve="3"/><Str sr="arg4" ve="3"/><Str sr="arg5" ve="3"/><Str sr="arg6" ve="3"/><Int sr="arg7" val="0"/></Event></Profile><Project sr="proj0" ve="2"><cdate>1791030000000</cdate><name>tt-voz</name><pids>31,32,34</pids><tids>21,22,24</tids></Project><Task sr="task21"><cdate>1791030000000</cdate><edate>1791030000000</edate><id>21</id><nme>Terminal</nme><pri>100</pri><Action sr="act0" ve="7"><code>129</code><Str sr="arg0" ve="3">var t=(typeof par1!=='undefined'&amp;&amp;String(par1).indexOf('%')!==0)?String(par1):'';
+t=t.replace(/^\s+|\s+$/g,'');
+setGlobal('TTVOZ_CONVERSA', t ? '0' : '1');
+createDir('/sdcard/Tasker/voz/in', true, false);
+writeFile('/sdcard/Tasker/voz/in/'+Date.now()+'.txt', t||'terminal', false);</Str><Str sr="arg1" ve="3"/><Int sr="arg2" val="1"/><Int sr="arg3" val="30"/></Action></Task><Task sr="task22"><cdate>1791030000000</cdate><edate>1791030000000</edate><id>22</id><nme>tt voz: falar</nme><pri>100</pri><Action sr="act0" ve="7"><code>129</code><Str sr="arg0" ve="3">var fala=''; try{ fala=String(readFile('/sdcard/Tasker/voz/fala.txt')||''); }catch(e){}
+fala=fala.replace(/\s+/g,' ').replace(/^\s+|\s+$/g,'');
+if(!fala) fala='Sem resposta.';</Str><Str sr="arg1" ve="3"/><Int sr="arg2" val="1"/><Int sr="arg3" val="30"/></Action><Action sr="act1" ve="7"><code>559</code><se>false</se><Str sr="arg0" ve="3">%fala</Str><Str sr="arg1" ve="3">default:default</Str><Int sr="arg2" val="3"/><Int sr="arg3" val="5"/><Int sr="arg4" val="5"/><Int sr="arg5" val="1"/><Int sr="arg6" val="0"/><Int sr="arg7" val="0"/></Action><Action sr="act2" ve="7"><code>129</code><Str sr="arg0" ve="3">writeFile('/sdcard/Tasker/voz/falando', '0', false);
+if (global('TTVOZ_CONVERSA') == '1' &amp;&amp; !(typeof ouvir !== 'undefined' &amp;&amp; String(ouvir) == '0')) {
+  var carro = false;
+  try { String(readFile('/sdcard/Tasker/voz/carro.txt') || '').split(/[\s,]+/).forEach(function (v) {
+    v = v.replace(/^%/, ''); if (/^[A-Z][A-Za-z0-9_]+$/.test(v) &amp;&amp; global(v) == '1') carro = true; }); } catch (e) {}
+  var r, t = '', ini = Date.now();
+  if (carro || global('SCREEN') == 'off') t = '__sem_microfone__';
+  else {
+    try { r = getVoice('Terminal', 'free', 15); } catch (e) {}
+    if (r !== undefined &amp;&amp; r !== null) t = (typeof r === 'object' &amp;&amp; r.length) ? String(r[0]) : String(r).split(',')[0];
+    t = t.replace(/^\s+|\s+$/g, '');
+    if (!t &amp;&amp; Date.now() - ini &lt; 4000) t = '__sem_microfone__';
+  }
+  if (t == '__sem_microfone__' || !t || /^(encerrar|sair|tchau|fim|terminar|desligar)[.!]?$/i.test(t)) {
+    setGlobal('TTVOZ_CONVERSA', '0'); if (t != '__sem_microfone__') t = 'encerrar';
+  }
+  writeFile('/sdcard/Tasker/voz/in/' + Date.now() + '.txt', t, false);
+}</Str><Str sr="arg1" ve="3"/><Int sr="arg2" val="1"/><Int sr="arg3" val="45"/></Action></Task><Task sr="task24"><cdate>1791030000000</cdate><edate>1791030000000</edate><id>24</id><nme>tt voz: Android Auto</nme><pri>100</pri><Action sr="act0" ve="7"><code>547</code><Str sr="arg0" ve="3">%ntitle</Str><Str sr="arg1" ve="3">%evtprm2</Str><Int sr="arg2" val="0"/><Int sr="arg3" val="0"/><Int sr="arg4" val="0"/><Int sr="arg5" val="3"/><Int sr="arg6" val="1"/></Action><Action sr="act1" ve="7"><code>129</code><Str sr="arg0" ve="3">var t = (typeof ntitle !== 'undefined' &amp;&amp; String(ntitle).indexOf('%') !== 0) ? String(ntitle) : '';
+if (/conectad|connected/i.test(t)) {
+  createDir('/sdcard/Tasker/voz/in', true, false);
+  writeFile('/sdcard/Tasker/voz/in/' + Date.now() + '.txt', '__android_auto__', false);
+}</Str><Str sr="arg1" ve="3"/><Int sr="arg2" val="1"/><Int sr="arg3" val="30"/></Action></Task></TaskerData>

@@ -817,3 +817,77 @@ Primeira vez num celular ou numa conta: rode antes com `ENSAIO=1`.
 - Trocar a conta principal derruba o login que estava lá: a máquina perde a credencial antiga (por exemplo, a
   conta que era a principal só existia ali). O plano do `ia-login` mostra "trocar (hoje: outro@…)" antes de agir;
   avise o dono do que ficará sem login (`ia-conta listar` acusa o que falta).
+
+## 15. Voz (opcional): falar com o tt pelo celular e pelo carro
+
+Recurso **desligado por padrão**: só existe para quem roda `termux/celular.sh voz`. Quem não usa não vê nada
+novo (o `voz` é um arquivo parado em `~/.local/bin`, o projeto `tt-voz` do Tasker só é importado a pedido e o
+daemon só sobe depois da ativação). Você fala, a frase vai para o tt (máquinas, sessões, agentes), e a resposta
+volta falada. A conversa vai e volta até você dizer "encerrar".
+
+Dois canais, escolhidos sozinhos:
+
+| Situação | Você fala com | A resposta vem por |
+|---|---|---|
+| celular desbloqueado, fora do carro | o microfone do celular (o Tasker ouve depois de cada resposta) | o "Dizer" do Tasker |
+| Android Auto, ou celular bloqueado | um bot seu do Telegram: o Android Auto lê cada mensagem dele e você responde falando | o bot |
+
+    Tasker (Terminal / ouvir) ─┐                         ┌─► Tasker "Dizer" (intent tt.VOZ_FALAR + fala.txt)
+                               ├─► /sdcard/Tasker/voz/in ─► `voz --daemon` (Termux) ─► tt / ssh / tmux
+    bot do Telegram ───────────┘   (tg-ID.txt)           └─► bot do Telegram (o que chegou por ele)
+
+Por que arquivo e não chamada direta: o Termux da loja não aceita `RUN_COMMAND`, então o Tasker não consegue
+executar comandos nele (seção 6); o contrário (Termux → Tasker, por intent) funciona e é o que fala a resposta.
+
+**Ativar:** `termux/celular.sh voz` (liga o utilitário, copia `tt-voz.prj.xml` para `/sdcard/Tasker/projects`, cria o
+marcador `~/.config/tt-voz/ativo`, põe `voz --garantir` no cron e, com o Shizuku, dá ao Tasker a permissão de microfone);
+depois importe o projeto no Tasker, uma vez. `termux/celular.sh voz desativar` desfaz o daemon e o cron. O projeto é
+gerado por `termux/tasker/gerar-voz.py`.
+
+**Canal do carro (Telegram):** crie um bot no @BotFather (`/newbot`), rode `voz --telegram TOKEN`, abra o link que ele
+mostra e toque em Começar; depois `voz --reiniciar`. O token e o seu chat ficam em `~/.secrets/tt-voz/telegram` (600)
+e só mensagens desse chat são aceitas. `voz --contato "NOME DO BOT"` faz as instruções faladas usarem o nome dele.
+Quando o Android Auto conecta, a notificação "O Android Auto está conectado" dispara o perfil `tt voz: Android Auto`
+e o bot manda "pronto" (no máximo uma vez a cada 30 min): é essa mensagem que você responde no carro.
+
+**Abrir a conversa no celular:** rode a tarefa `Terminal` do Tasker (▶, atalho ou widget) ou `voz --abrir` no Termux.
+Sem voz, `voz "frase"` no Termux faz o mesmo (`VOZ_MUDO=1` só imprime).
+
+**Carro sem Android Auto ou detecção extra:** `voz --carro "CarMode"` lista globais do Tasker que valem 1 no carro (as do
+seu perfil de carro). Com uma delas em 1, ou com a tela apagada, o Tasker não abre o microfone e o `voz` explica como
+seguir (pelo Telegram, se ligado).
+
+| Você diz | O que acontece |
+|---|---|
+| `ajuda` · `ajuda TEMA` | como usar, em poucas frases; temas: `maquinas`, `sessoes`, `agente`, `conversa`, `comandos` (a lista toda) |
+| `maquinas` | lista as máquinas do `tt --maquinas` e a atual |
+| `status` | resume o `tt --saude` (quem está ok, quem está fora do ar) |
+| `ir para NOME` | passa a falar com aquela máquina (busca aproximada; `celular`/`aqui` = este aparelho) |
+| `sessoes` / `abas` | lê as sessões da máquina atual (as `_ocultas` ficam fora) |
+| `aba NOME` · `proxima` · `anterior` | escolhe a sessão-alvo (todas as palavras ditas precisam estar no nome) |
+| `nova sessao` | cria uma sessão com `ia-conta abrir` na máquina atual e já a libera para voz |
+| `tarefas` · `contas` | lê as primeiras tarefas do `tt` · o uso das contas de IA (`ia-conta uso`) |
+| `repetir` · `onde` | repete a última fala (ou confere de novo um agente que demorou) · diz máquina e sessão atuais |
+| `enter` · `cancelar` | só a tecla Enter ou Escape na sessão-alvo (confirmações do agente) |
+| `permitir sessao` · `bloquear sessao` | libera ou tira a sessão-alvo do texto livre |
+| `encerrar` (ou silêncio) | fecha a conversa |
+| qualquer outra frase | é digitada na sessão-alvo ("Enviado para…") e, quando o agente termina, as 2 ou 3 primeiras frases da resposta voltam (o texto completo fica em `~/.local/state/tt-voz/completa.txt`) |
+
+**Segurança.** Texto livre só vai para sessões listadas em `~/.config/tt-voz/permitidas` (linhas `maquina:sessao`):
+uma frase mal entendida não pode cair num agente de permissões amplas. A resposta falada nunca inclui código
+(vira "bloco de código omitido") nem links. O bot só obedece ao chat registrado. O texto vindo de agentes, tarefas ou
+e-mails é dado, não instrução.
+
+**Armadilhas.**
+- O `tt` não roda dentro do proot (`/dev/fd`): o `voz` é do Termux nativo, e a linha do cron precisa ir para o crontab
+  do Termux (gravada de dentro do proot, ela vai para o usuário `root`, que o crond do Termux não lê).
+- `am broadcast` só funciona no contexto do app Termux (cron, sshd, sessões); chamado de dentro do proot dá
+  `InvocationTargetException`.
+- Sem o app Termux:API não há `termux-tts-speak`; a voz sai pelo "Dizer" do Tasker (fluxo de mídia, vai para o carro).
+- O Tasker precisa da permissão de microfone; sem ela o "Obter voz" falha na hora. Com o celular bloqueado ele também
+  falha (o reconhecimento do Google abre uma tela, que não aparece sobre o bloqueio): por isso o canal do Telegram.
+- O gatilho do Google Assistente para o Tasker ("run terminal in Tasker") só funciona em inglês dos EUA, e o Gemini não
+  repassa frases ao Tasker; mensagem para o próprio número sai como RCS (não vira SMS nem notificação).
+- Os JavaScriptlets do Tasker rodam um por vez: enquanto ele ouve, outra tarefa com JavaScript espera.
+- Agente que ainda trabalha depois de ~2,5 min: o `voz` avisa e você pede `repetir` mais tarde.
+- Em teste: `tests/test_voz.sh` (Tasker, Telegram, tt e ssh falsos).

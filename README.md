@@ -1942,6 +1942,7 @@ Ele clona o repositório em `~/tt-terminais` e roda `termux/celular.sh` de lá. 
     termux/celular.sh conectar eu@meu-pc  chaves dos dois lados, porta 8022 no ~/.ssh/config do PC e cadastro no tt
     termux/celular.sh android             ajustes do Android (processos fantasmas, bateria) via adb ou Shizuku
     termux/celular.sh adb                 adb do próprio aparelho, Shizuku e Tasker (voltam sozinhos depois do reboot)
+    termux/celular.sh voz                 opcional: conversar com o tt pela voz, no celular e no carro (guia na skill celular-android, seção 15)
     termux/celular.sh --nome cel --chaves-github USUARIO --sem-claude   opções da instalação
 
 Tudo é idempotente: depois de um `git pull`, rodar de novo aplica só o que mudou (a versão do perfil

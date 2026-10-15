@@ -12,6 +12,9 @@
 #   termux/celular.sh android            ajustes do Android que o Termux sozinho não faz (adb/Shizuku)
 #   termux/celular.sh adb                passo a passo: adb do próprio aparelho, Shizuku e Tasker, para o
 #                                        Shizuku voltar sozinho depois do reboot (ver termux/ANDROID-ADB.md)
+#   termux/celular.sh voz                OPCIONAL: conversar com o tt pela voz (Tasker; no carro, um bot do Telegram):
+#                                        liga o utilitário `voz`, leva o projeto tt-voz ao Tasker e põe o daemon no cron
+#   termux/celular.sh voz desativar      desliga o daemon e tira a linha do cron (o resto fica)
 #
 # Tudo é idempotente: rodar de novo depois de um `git pull` aplica só o que mudou. Arquivos do
 # usuário que seriam trocados ganham cópia *.antes-celular. CELULAR_SIMULAR=1 só mostra os comandos.
@@ -422,6 +425,46 @@ TXT
   echo "  Shizuku e reabre o adb local. Não precisa tocar em nada. Log: ~/.local/state/tt/shizuku.log"
 }
 
+# --- voz (opcional): Tasker ou Telegram -> `voz` -> tt (skill celular-android, seção 15) ------------
+voz_guiado() {
+  local cron marcador=${XDG_CONFIG_HOME:-$HOME/.config}/tt-voz/ativo
+  cron=$(crontab -l 2>/dev/null)
+  if [[ ${1:-} == desativar ]]; then
+    titulo "voz: desativando"
+    faz rm -f "$marcador"
+    if grep -q 'voz --garantir' <<<"$cron"; then
+      if [[ -n $SIMULAR ]]; then faz "crontab: remove a linha do voz --garantir"
+      else grep -v 'voz --garantir' <<<"$cron" | crontab -; fi
+    fi
+    [[ -s $HOME/.local/state/tt-voz/daemon.pid ]] && faz kill "$(cat "$HOME/.local/state/tt-voz/daemon.pid")" 2>/dev/null
+    ok "voz desativado (o projeto tt-voz continua no Tasker: apague-o por lá se quiser)"
+    return 0
+  fi
+  titulo "voz (opcional): conversar com o tt pela voz"
+  ligar_utilitarios
+  faz mkdir -p /sdcard/Tasker/projects "$(dirname "$marcador")"
+  faz cp "$RAIZ/termux/tasker/tt-voz.prj.xml" /sdcard/Tasker/projects/
+  faz touch "$marcador"
+  if ! grep -q 'voz --garantir' <<<"$cron"; then
+    if [[ -n $SIMULAR ]]; then faz "crontab: */2 * * * * \$HOME/.local/bin/voz --garantir"
+    else { [[ -n $cron ]] && echo "$cron"; echo "*/2 * * * * PATH=$HOME/.local/bin:\$PATH $HOME/.local/bin/voz --garantir"; } | crontab -; fi
+  fi
+  command -v sv-enable >/dev/null && faz sv-enable crond >/dev/null 2>&1
+  ok "voz no cron (sobe o daemon sozinho; desfazer: termux/celular.sh voz desativar)"
+  if [[ -z $SIMULAR ]] && command -v tt-rish >/dev/null && tt-rish --ok; then
+    tt-rish -c 'pm grant net.dinglisch.android.taskerm android.permission.RECORD_AUDIO' >/dev/null 2>&1 &&
+      ok "microfone liberado para o Tasker (ele ouve você depois de cada resposta)"
+  else
+    echo "  Dê ao Tasker a permissão de Microfone (Configurações → Apps → Tasker → Permissões)."
+  fi
+  echo "  Falta, uma vez só:"
+  echo "   1. No Tasker: segure o nome de um projeto (abas de baixo) → Importar projeto → tt-voz → ✓."
+  echo "   2. Teste sem voz, aqui no Termux:  voz maquinas   (depois: voz --abrir, e diga \"ajuda\")"
+  echo "   3. Para o carro (Android Auto): crie um bot no @BotFather e rode  voz --telegram TOKEN"
+  echo "      Quando o carro conecta, o bot manda \"pronto\" e você responde falando. Detalhes: skill celular-android, seção 15."
+  echo "  Por segurança, texto livre só vai a sessões liberadas: na sessão-alvo, diga \"permitir sessao\"."
+}
+
 case ${1:-instalar} in
   instalar) shift 2>/dev/null; instalar "$@" ;;
   --*) instalar "$@" ;;
@@ -429,6 +472,7 @@ case ${1:-instalar} in
   conectar) conectar "${2:-}" ;;
   android) android ;;
   adb) adb_guiado ;;
-  -h|--ajuda|ajuda) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
+  voz) voz_guiado "${2:-}" ;;
+  -h|--ajuda|ajuda) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "comando desconhecido: $1 (veja $0 --ajuda)"; exit 2 ;;
 esac

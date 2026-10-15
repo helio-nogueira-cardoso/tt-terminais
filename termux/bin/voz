@@ -1,0 +1,348 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# voz — OPCIONAL: controla o tt-terminais por frases curtas (voz via Tasker, ou digitando no Termux).
+#   voz "maquinas" | "status" | "ir para notebook" | "sessoes" | "aba claude" | "proxima" | "tarefas" | "contas" | "repetir"
+#   voz "qualquer outra frase"   vai, como texto, para a sessão-alvo (só se estiver liberada: "permitir sessao")
+#   voz "terminal" / "encerrar"  abre / fecha a conversa (o Tasker ouve de novo depois de cada resposta)
+#   VOZ_MUDO=1 voz ...           não fala, só imprime (teste no Termux)
+#   voz --daemon                 lê /sdcard/Tasker/voz/in/*.txt (o Tasker grava ali) e responde falando
+#   voz --garantir               sobe o daemon se não estiver de pé (cron; só age depois de `celular.sh voz`)
+#   voz --abrir                  abre a conversa pelo Tasker (o mesmo que rodar a tarefa Terminal)
+#   voz --telegram TOKEN | -     liga um bot do Telegram (token do @BotFather) como canal: é o caminho no Android Auto,
+#                                que lê as respostas do bot e deixa você responder falando. "-" desliga
+#   voz --contato "NOME"         nome do bot dito nas instruções (padrão: Terminal)
+#   voz --carro "GLOBAL..."      globais do Tasker que valem 1 no carro (ex.: a do seu perfil de carro); nelas o
+#                                celular não abre o microfone e a conversa segue pelo Telegram. "-" desliga
+# Nada roda sozinho: sem `termux/celular.sh voz` este utilitário é só um arquivo parado em ~/.local/bin.
+# Estado: ~/.local/state/tt-voz (alvo, última resposta). Sessões liberadas para texto livre: ~/.config/tt-voz/permitidas
+# (linhas "maquina:sessao"). Fala: grava /sdcard/Tasker/voz/fala.txt e manda o intent tt.VOZ_FALAR (perfil do projeto
+# tt-voz do Tasker); sem Tasker, usa termux-tts-speak se existir. O arquivo voz/falando ("1" enquanto o Tasker diz a
+# fala anterior) evita atropelar uma fala com a seguinte. Com o Telegram ligado, o que chega pelo bot é respondido pelo bot.
+set -u
+export PATH="$HOME/.local/bin:$PATH"
+ST=$HOME/.local/state/tt-voz; CF=$HOME/.config/tt-voz; SD=${VOZ_SDCARD:-/sdcard}
+mkdir -p "$ST" "$CF"; touch "$CF/permitidas"
+SSHO=(-o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=5)
+TG=${VOZ_TELEGRAM:-$HOME/.secrets/tt-voz/telegram}; TG_API=${VOZ_TG_API:-https://api.telegram.org}; CANAL=
+
+norm() { printf '%s' "$*" | tr 'A-Z' 'a-z' | sed 'y/áàâãäéèêëíìîïóòôõöúùûüç/aaaaaeeeeiiiiooooouuuuc/; s/[^a-z0-9 ]/ /g; s/  */ /g; s/^ //; s/ $//'; }
+semcor() { sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g'; }
+
+falar() { # imprime e (salvo VOZ_MUDO) manda o Tasker dizer; VOZ_AVISO=1: o Tasker não volta a ouvir e "repetir" não o repete
+  local t=$* d=$SD/Tasker/voz
+  [[ -z ${VOZ_AVISO:-} ]] && printf '%s\n' "$t" > "$ST/ultima.txt"
+  printf '%s\n' "$t"
+  [[ -n ${VOZ_MUDO:-} ]] && return 0
+  [[ $CANAL == telegram ]] && { tg_enviar "$t"; return 0; }
+  if [[ -d $SD/Tasker ]] && mkdir -p "$d" 2>/dev/null; then
+    while [[ $(cat "$d/falando" 2>/dev/null) == 1 ]] &&
+      (( $(date +%s) - $(stat -c %Y "$d/falando" 2>/dev/null || echo 0) < ${VOZ_ESPERA_FALA:-40} )); do sleep 1; done
+    if printf '%s' "$t" > "$d/fala.txt" 2>/dev/null; then
+      printf 1 > "$d/falando"
+      am broadcast -a tt.VOZ_FALAR ${VOZ_AVISO:+--es ouvir 0} >/dev/null 2>&1
+      return 0
+    fi
+  fi
+  command -v termux-tts-speak >/dev/null && termux-tts-speak "$t" >/dev/null 2>&1
+  return 0
+}
+aviso() { VOZ_AVISO=1 falar "$@"; }
+
+# ---------- Telegram (opcional): canal do Android Auto ----------
+tg_val() { sed -n "s/^$1=//p" "$TG" 2>/dev/null | head -n 1; }
+tg_ok() { [[ -n $(tg_val TOKEN) && -n $(tg_val CHAT) ]]; }
+tg_enviar() { # tg_enviar TEXTO: manda ao seu chat com o bot
+  local tok chat; tok=$(tg_val TOKEN); chat=$(tg_val CHAT); [[ -n $tok && -n $chat ]] || return 1
+  curl -s -m 20 -o /dev/null "$TG_API/bot$tok/sendMessage" --data-urlencode "chat_id=$chat" --data-urlencode "text=$1"
+}
+# lê a resposta do getUpdates: mensagens do seu chat (de até 10 min atrás) viram PASTA/tg-ID.txt; imprime o próximo offset
+TG_PY='import json, os, sys, time
+chat, pasta, off = sys.argv[1], sys.argv[2], int(sys.argv[3])
+d = json.load(sys.stdin)
+for u in d.get("result", []):
+    off = max(off, u["update_id"] + 1)
+    m = u.get("message") or {}
+    t = (m.get("text") or "").strip()
+    if not t or str(m.get("chat", {}).get("id")) != chat or time.time() - m.get("date", 0) > 600:
+        continue
+    if t.startswith("/"):
+        c = t.split()[0].split("@")[0]
+        t = {"/start": "terminal", "/ajuda": "ajuda", "/help": "ajuda"}.get(c, t[1:])
+    with open(os.path.join(pasta, "tg-%d.txt" % u["update_id"]), "w") as f:
+        f.write(t)
+print(off)'
+tg_vigiar() { # filho do daemon: long polling do bot
+  local tok chat off r n
+  tok=$(tg_val TOKEN); chat=$(tg_val CHAT); off=$(cat "$ST/tg_offset" 2>/dev/null || echo 0)
+  while :; do
+    r=$(curl -s -m 70 "$TG_API/bot$tok/getUpdates?timeout=${VOZ_TG_ESPERA:-50}&offset=$off") &&
+      n=$(python3 -I -c "$TG_PY" "$chat" "$SD/Tasker/voz/in" "$off" <<<"$r" 2>/dev/null) && [[ -n $n ]] ||
+      { sleep "${VOZ_TG_PAUSA:-5}"; continue; }
+    off=$n; printf '%s\n' "$off" > "$ST/tg_offset"
+  done
+}
+tg_ligar() { # tg_ligar TOKEN: confere o token, espera o seu /start (3 min) e grava TOKEN e CHAT
+  local tok=$1 me r i chat
+  me=$(curl -s -m 20 "$TG_API/bot$tok/getMe" | python3 -I -c 'import json, sys
+d = json.load(sys.stdin); print(d["result"]["username"] if d.get("ok") else "")' 2>/dev/null)
+  [[ -n $me ]] || { echo "o Telegram recusou o token" >&2; return 1; }
+  mkdir -p "${TG%/*}"; chmod 700 "${TG%/*}"; ( umask 077; printf 'TOKEN=%s\n' "$tok" > "$TG" )
+  echo "bot @$me. No seu Telegram, abra https://t.me/$me e toque em Começar (espero 3 min)."
+  for ((i = 0; i < ${VOZ_TG_LIGAR:-36}; i++)); do
+    r=$(curl -s -m 10 "$TG_API/bot$tok/getUpdates?timeout=0")
+    chat=$(python3 -I -c 'import json, sys
+for u in json.load(sys.stdin).get("result", []):
+    c = (u.get("message") or {}).get("chat", {})
+    if c.get("type") == "private": print(c["id"], c.get("first_name", "")); break' <<<"$r" 2>/dev/null)
+    [[ -n $chat ]] && break; sleep 5
+  done
+  [[ -n $chat ]] || { echo "ninguém tocou em Começar; rode de novo" >&2; return 1; }
+  printf 'CHAT=%s\n' "${chat%% *}" >> "$TG"
+  CANAL=telegram falar "Conectado ao terminal. Diga ajuda para saber como usar." >/dev/null
+  echo "ligado ao chat de ${chat#* }. Reinicie o daemon: voz --reiniciar"
+}
+
+# ---------- máquinas ----------
+local_rotulo() {
+  local f=$ST/local; [[ -s $f ]] || tt --listar-tudo --para-ia 2>/dev/null | sed -n '1s/.*— \([^ ]*\) —.*/\1/p' > "$f"
+  cat "$f"
+}
+maquinas() { tt --maquinas 2>/dev/null | awk '{print $2}'; local_rotulo; }
+destino() { local r=$1; [[ $r == "$(local_rotulo)" ]] && { echo local; return; }; tt --maquinas 2>/dev/null | awk -v l="$r" '$2==l{print $1}'; }
+em() { # em ROTULO comando...  (roda lá, local ou por ssh)
+  local d; d=$(destino "$1"); shift
+  if [[ $d == local || -z $d ]]; then bash -c "$*"; else
+    timeout 40 ssh "${SSHO[@]}" "$d" "PATH=\"\$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:\$PATH\"; $*"; fi
+}
+achar() { # achar "termo" lista... -> melhor item (todas as palavras do termo contidas, senão a 1ª que contém)
+  local termo=$1 it n w ok; shift
+  for it in "$@"; do n=$(norm "$it"); ok=1
+    for w in $termo; do [[ $n == *"$w"* ]] || { ok=0; break; }; done
+    ((ok)) && { printf '%s' "$it"; return 0; }
+  done; return 1
+}
+sessoes() { em "$1" "tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -v '^_'"; }
+
+alvo_m() { cat "$ST/alvo_m" 2>/dev/null || local_rotulo; }
+alvo_s() { cat "$ST/alvo_s" 2>/dev/null; }
+liberada() { grep -qxF "$(alvo_m):$(alvo_s)" "$CF/permitidas"; }
+
+resumo() { # texto da tela -> 2-3 frases faláveis
+  semcor | sed 's/[─│╭╮╰╯┌┐└┘├┤▐▌█▀▄]//g; s/`//g; s/\*\*//g; s/^[#>•●⏺⎿ -]*//' |
+    awk 'BEGIN{c=0} /^```/{c=!c; if(c) print "bloco de código omitido."; next} !c' |
+    sed 's#https\?://[^ ]*#link#g' | tr '\n' ' ' | sed 's/  */ /g' |
+    awk '{ s=$0; if (length(s)>420) { s=substr(s,1,420); sub(/[^.!?]*$/,"",s); if (s=="") s=substr($0,1,420) } print s }'
+}
+
+esperar_resposta() { # espera o agente terminar; devolve a tela final em $TELA
+  local sess=$1 m=$2 ant="" igual=0 ocup i
+  for i in $(seq 1 "${VOZ_ESPERA:-75}"); do
+    sleep 2
+    TELA=$(em "$m" "tmux capture-pane -p -J -S -200 -t '=$sess:'" 2>/dev/null)
+    ocup=0; grep -qiE 'esc to interrupt|ctrl\+c to interrupt|working \(|thinking' <<<"$TELA" && ocup=1
+    if [[ $TELA == "$ant" ]]; then igual=$((igual+1)); else igual=0; ant=$TELA; fi
+    ((ocup == 0 && igual >= 1)) && return 0
+    ((ocup == 1)) && igual=0
+  done
+  return 1
+}
+
+extrair() { # tela -> texto da última resposta do agente
+  local t; t=$(semcor <<<"$1")
+  local bloco; bloco=$(awk '
+    /^[●⏺] / { if ($0 ~ /^[●⏺] [A-Z][A-Za-z_]*\(/) { skip=1; next } skip=0; buf=$0; ativo=1; next }
+    /^[─━]{5,}|^[❯>] / { if (ativo) { ult=buf; ativo=0 } next }
+    ativo && !skip { buf = buf "\n" $0 }
+    END { if (ativo) ult=buf; print ult }' <<<"$t")
+  [[ -n $bloco ]] || bloco=$(grep -v -E '^\s*$|^[─━]|bypass permissions|esc to|shift\+tab' <<<"$t" | tail -n 12)
+  printf '%s' "$bloco"
+}
+
+aguardar() { # aguardar SESSAO MAQUINA: fala a resposta; se o agente demora, marca pendente ("repetir" confere de novo)
+  local s=$1 m=$2 resp
+  if esperar_resposta "$s" "$m"; then
+    rm -f "$ST/pendente"
+    extrair "$TELA" > "$ST/completa.txt"
+    resp=$(resumo < "$ST/completa.txt")
+    falar "${resp:-O agente terminou, sem texto novo.}"
+  else
+    printf '%s:%s\n' "$m" "$s" > "$ST/pendente"
+    falar "O agente ainda está trabalhando. Diga repetir daqui a pouco."
+  fi
+}
+
+enviar() { # enviar TEXTO -> alvo
+  local m s txt=$1
+  m=$(alvo_m); s=$(alvo_s)
+  [[ -n $s ]] || { falar "Nenhuma sessão escolhida em $m. Diga: sessões."; return; }
+  liberada || { falar "A sessão $s em $m não está liberada para voz. Diga: permitir sessão."; return; }
+  em "$m" "tmux has-session -t '=$s' 2>/dev/null" || { falar "A sessão $s não existe mais em $m."; return; }
+  em "$m" "tmux send-keys -t '=$s:' -l -- $(printf '%q' "$txt"); sleep 0.4; tmux send-keys -t '=$s:' Enter"
+  aviso "Enviado para $s."
+  aguardar "$s" "$m"
+}
+
+escolher_sessao() {
+  local nome=$1 m lista s
+  m=$(alvo_m); mapfile -t lista < <(sessoes "$m")
+  s=$(achar "$nome" "${lista[@]}") || { falar "Não achei sessão $nome em $m."; return; }
+  printf '%s' "$s" > "$ST/alvo_s"
+  if liberada; then falar "Sessão $s, em $m."; else falar "Sessão $s, em $m. Não liberada para voz."; fi
+}
+
+ajuda() { # ajuda [tema]: explicação curta e falável, um tema por vez
+  case " $(norm "$*") " in
+    *maquina*|*computador*|*status*)
+      falar "Diga máquinas para ouvir a lista, e status para saber quais estão ligadas. Para trocar, diga ir para e o nome, por exemplo, ir para notebook. Este celular é ir para celular." ;;
+    *sess*|*aba*)
+      falar "Diga sessões para ouvir as abas da máquina atual. Para escolher, diga aba e uma palavra do nome, por exemplo, aba claude. Próxima e anterior andam pela lista. Onde diz a máquina e a sessão escolhidas. Nova sessão cria uma aba com agente." ;;
+    *agente*|*claude*|*codex*|" ia "*|*" ia "*|*permit*|*mandar*)
+      falar "Escolha a sessão e, só na primeira vez, diga permitir sessão. Depois, toda frase que não for comando vai para o agente, e eu leio o começo da resposta. Se ele demorar, diga repetir daqui a pouco. Enter confirma o que ele perguntar, cancelar interrompe, e bloquear sessão tira a permissão." ;;
+    *conversa*|*ouvir*|*encerr*|*repet*|*sair*)
+      falar "Depois de cada resposta eu volto a ouvir. Espere eu terminar de falar antes de responder. Repetir lê de novo a última resposta. Para sair, diga encerrar ou fique em silêncio." ;;
+    *comando*|*lista*|*tudo*)
+      falar "Comandos: máquinas, status, ir para, sessões, aba, próxima, anterior, onde, nova sessão, permitir sessão, bloquear sessão, enter, cancelar, tarefas, contas, repetir, ajuda e encerrar. Qualquer outra frase vai para o agente da sessão escolhida." ;;
+    *)
+      falar "Terminal por voz. Fale um comando por vez, depois que eu terminar de falar. O caminho é: escolher a máquina, escolher a sessão e falar com o agente. Para detalhes, diga ajuda e um tema: máquinas, sessões, agente, conversa ou comandos." ;;
+  esac
+}
+
+contato() { cat "$CF/contato" 2>/dev/null || echo Terminal; }
+
+diagnostico() { # em segundo plano: tela, bloqueio e Android Auto como o sistema os vê (para ajustar a detecção do carro)
+  command -v tt-rish >/dev/null || return 0
+  ( r=$(timeout 30 tt-rish -c 'dumpsys window | grep -m1 -o "isKeyguardShowing=[a-z]*"; dumpsys power | grep -m1 -o "mWakefulness=[A-Za-z]*"; dumpsys uimode | grep -m1 -o "mCarModeEnabled=[a-z]*"; dumpsys activity services com.google.android.projection.gearhead | grep -o "gearhead/[A-Za-z0-9_.]*" | sort -u | head -5' 2>/dev/null)
+    printf '%s %s\n' "$(date '+%F %T')" "$(tr '\n' ' ' <<<"$r")" >> "$ST/aparelho.log" ) </dev/null >/dev/null 2>&1 &
+}
+
+ciclo() { # +1 / -1
+  local m lista s i n=0 cur; m=$(alvo_m); cur=$(alvo_s); mapfile -t lista < <(sessoes "$m")
+  ((${#lista[@]})) || { falar "Sem sessões em $m."; return; }
+  for i in "${!lista[@]}"; do [[ ${lista[i]} == "$cur" ]] && n=$i; done
+  n=$(( (n + $1 + ${#lista[@]}) % ${#lista[@]} ))
+  printf '%s' "${lista[n]}" > "$ST/alvo_s"
+  if liberada; then falar "Sessão ${lista[n]}."; else falar "Sessão ${lista[n]}. Não liberada para voz."; fi
+}
+
+comando() {
+  local raw=$* n m r lista
+  n=$(norm "$raw")
+  n=${n#terminal }; n=${n#diga }; n=${n#escreva }
+  case $n in
+    ""|ajuda|ajuda\ *|comandos|como\ funciona|como\ usar)
+      ajuda "${n#ajuda}" ;;
+    terminal|ola|oi|inicio|comecar)
+      if [[ -n $(alvo_s) ]]; then r="sessão $(alvo_s)"; liberada || r+=", não liberada"; else r="nenhuma sessão escolhida"; fi
+      rm -f "$ST/dica"; falar "Terminal. Máquina $(alvo_m), $r. Pode falar."
+      diagnostico ;;
+    encerrar|sair|tchau|fim|terminar|desligar|ate\ mais)
+      aviso "Terminal encerrado." ;;
+    sem\ microfone)  # o Tasker não pôde ouvir: tela apagada, celular bloqueado ou carro (Android Auto); avisa uma vez
+      if [[ ! -e $ST/dica ]]; then
+        if tg_ok; then aviso "Para continuar, responda pelo Telegram, na conversa do $(contato)."; CANAL=telegram falar "Pode responder aqui."
+        else aviso "Não consigo ouvir com o celular bloqueado. Desbloqueie e abra o terminal de novo."; fi
+      fi
+      touch "$ST/dica"; diagnostico ;;
+    android\ auto)  # o Tasker viu a notificação "Android Auto está conectado": o bot avisa (uma vez a cada 30 min)
+      diagnostico
+      if tg_ok && (( $(date +%s) - $(stat -c %Y "$ST/aa" 2>/dev/null || echo 0) > ${VOZ_AA_INTERVALO:-1800} )); then
+        touch "$ST/aa"; CANAL=telegram falar "$(contato) pronto. Para usar, responda esta mensagem falando. Diga ajuda para saber como."
+      fi ;;
+    maquinas|computadores)
+      mapfile -t lista < <(maquinas); falar "Máquinas: $(IFS=,; echo "${lista[*]}" | sed 's/,/, /g'). Atual: $(alvo_m)." ;;
+    status|saude|estado)
+      r=$(tt --saude 2>&1 | semcor | awk '/●/{ st=($3=="ok")?"ok":"fora do ar"; printf "%s %s. ", $2, st }')
+      falar "${r:-Não consegui ler a saúde das máquinas.}" ;;
+    ir\ para\ *|ir\ pra\ *|trocar\ para\ *|trocar\ pra\ *|mudar\ para\ *|maquina\ *)
+      r=${n#ir para }; r=${r#ir pra }; r=${r#trocar para }; r=${r#trocar pra }; r=${r#mudar para }; r=${r#maquina }; r=${r#a }; r=${r#o }
+      [[ $r == celular || $r == aqui || $r == telefone ]] && r=$(local_rotulo)
+      mapfile -t lista < <(maquinas)
+      m=$(achar "$r" "${lista[@]}") || { falar "Não achei a máquina $r."; return; }
+      printf '%s' "$m" > "$ST/alvo_m"; rm -f "$ST/alvo_s"
+      mapfile -t lista < <(sessoes "$m")
+      falar "Agora em $m. ${#lista[@]} sessões. Diga: sessões, ou aba e o nome." ;;
+    sessoes|abas|janelas|listar\ sessoes)
+      m=$(alvo_m); mapfile -t lista < <(sessoes "$m")
+      ((${#lista[@]})) || { falar "Sem sessões em $m."; return; }
+      falar "Em $m: $(printf '%s, ' "${lista[@]:0:8}" | sed 's/[_-]/ /g; s/, $//')." ;;
+    aba\ *|sessao\ *|abrir\ *)
+      r=${n#aba }; r=${r#sessao }; r=${r#abrir }; escolher_sessao "$r" ;;
+    proxima|proxima\ aba|seguinte) ciclo 1 ;;
+    anterior|aba\ anterior|voltar) ciclo -1 ;;
+    nova\ sessao*|nova\ aba*)
+      m=$(alvo_m); r="voz-$(date +%H%M)"
+      em "$m" "tmux new-session -d -s $r -c ~ 'ia-conta abrir; exec bash'" || { falar "Não consegui criar a sessão em $m."; return; }
+      printf '%s' "$r" > "$ST/alvo_s"; printf '%s:%s\n' "$m" "$r" >> "$CF/permitidas"
+      falar "Sessão $r criada em $m e liberada para voz." ;;
+    tarefas|minhas\ tarefas)
+      r=$(tt --tarefas-lista 2>/dev/null | semcor | awk -F'\t' '{print $2}' | sed -E 's/^[ ▸☐☑●]+//; s/^[a-z]+[0-9]+ //; s/  [0-9a-f]{12}.*$//' | sed -n '1,5p' | tr '\n' ';')
+      falar "${r:-Sem tarefas abertas.}" ;;
+    contas|rodizio|uso|limite)
+      r=$(ia-conta uso 2>&1 | semcor | head -n 6 | tr '\n' ' ')
+      falar "${r:-Não consegui ler o uso das contas.}" ;;
+    repetir|repete|de\ novo|ler|resposta|e\ ai)
+      if [[ -s $ST/pendente ]]; then r=$(<"$ST/pendente"); aguardar "${r#*:}" "${r%%:*}"
+      else falar "$(cat "$ST/ultima.txt" 2>/dev/null || echo Nada para repetir)"; fi ;;
+    permitir\ sessao|liberar\ sessao)
+      liberada || printf '%s:%s\n' "$(alvo_m)" "$(alvo_s)" >> "$CF/permitidas"
+      falar "Sessão $(alvo_s) liberada para voz." ;;
+    bloquear\ sessao)
+      grep -vxF "$(alvo_m):$(alvo_s)" "$CF/permitidas" > "$CF/p.tmp"; mv "$CF/p.tmp" "$CF/permitidas"
+      falar "Sessão bloqueada para voz." ;;
+    enter|confirmar|confirma)
+      liberada && em "$(alvo_m)" "tmux send-keys -t '=$(alvo_s):' Enter" && falar "Enter enviado." || falar "Sessão não liberada." ;;
+    cancelar|escape)
+      liberada && em "$(alvo_m)" "tmux send-keys -t '=$(alvo_s):' Escape" && falar "Cancelado." || falar "Sessão não liberada." ;;
+    onde|alvo|atual)
+      if [[ -n $(alvo_s) ]]; then falar "Máquina $(alvo_m), sessão $(alvo_s)."; else falar "Máquina $(alvo_m), nenhuma sessão escolhida."; fi ;;
+    *) enviar "$raw" ;;
+  esac
+}
+
+daemon() {
+  local d=$SD/Tasker/voz/in lk=$ST/daemon.pid f t tgp=
+  mkdir -p "$d"
+  if [[ -s $lk ]] && kill -0 "$(cat "$lk")" 2>/dev/null && [[ $(cat "$lk") != $$ ]]; then echo "voz-daemon já roda ($(cat "$lk"))"; exit 0; fi
+  echo $$ > "$lk"; echo "voz-daemon $$ vigiando $d$(tg_ok && echo ' e o Telegram')"
+  trap '[[ -n $tgp ]] && kill "$tgp" 2>/dev/null; [[ $(cat "$lk" 2>/dev/null) == $$ ]] && rm -f "$lk"' EXIT
+  trap 'exit 0' TERM INT
+  while :; do
+    if tg_ok && { [[ -z $tgp ]] || ! kill -0 "$tgp" 2>/dev/null; }; then tg_vigiar & tgp=$!; fi
+    for f in "$d"/*.txt; do
+      [[ -e $f ]] || continue
+      t=$(<"$f"); rm -f "$f"
+      [[ -n $t ]] || continue
+      if [[ ${f##*/} == tg-* ]]; then CANAL=telegram; else CANAL=; fi
+      comando "$t"; CANAL=
+    done
+    sleep 1
+  done
+}
+
+garantir() { # cron: só quando o usuário ativou (celular.sh voz cria o marcador)
+  [[ -e $CF/ativo ]] || exit 0
+  [[ -s $ST/daemon.pid ]] && kill -0 "$(cat "$ST/daemon.pid")" 2>/dev/null && exit 0
+  setsid nohup "$0" --daemon >>"$ST/daemon.log" 2>&1 </dev/null &
+}
+
+case ${1:-} in
+  --daemon) daemon ;;
+  --garantir) garantir ;;
+  --falar) shift; falar "$*" ;;
+  --contato) shift; [[ -n ${1:-} ]] || { echo "uso: voz --contato \"NOME\"" >&2; exit 2; }
+    printf '%s\n' "$*" > "$CF/contato"; echo "contato: $*" ;;
+  --carro)
+    mkdir -p "$SD/Tasker/voz"
+    if [[ ${2:--} == - ]]; then rm -f "$SD/Tasker/voz/carro.txt"; echo "sem detecção de carro"
+    else shift; printf '%s\n' "$*" > "$SD/Tasker/voz/carro.txt"; echo "no carro quando valer 1: $*"; fi ;;
+  --abrir) am broadcast -a tt.VOZ_ABRIR >/dev/null 2>&1 && echo "conversa aberta: espere \"Pode falar\"" ;;
+  --telegram)
+    case ${2:-} in
+      -) rm -f "$TG"; echo "Telegram desligado (voz --reiniciar)" ;;
+      *:*) tg_ligar "$2" ;;
+      *) echo "uso: voz --telegram TOKEN_DO_BOTFATHER | -" >&2; exit 2 ;;
+    esac ;;
+  --reiniciar)
+    [[ -s $ST/daemon.pid ]] && kill "$(cat "$ST/daemon.pid")" 2>/dev/null; rm -f "$ST/daemon.pid"; sleep 1
+    [[ -e $CF/ativo ]] && { garantir; sleep 1; echo "daemon: $(cat "$ST/daemon.pid" 2>/dev/null)"; } ;;
+  *) comando "$*" ;;
+esac

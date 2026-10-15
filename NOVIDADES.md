@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.17.0 · 15/10/2026
+- **🎙 Falar com o tt pela voz, no celular e no carro (opcional, só no celular).** `termux/celular.sh voz` liga uma
+  conversa por voz com o tt: listar máquinas, ver o status, trocar de máquina e de sessão, ler tarefas e o uso das contas
+  de IA, e conversar com um agente indo e voltando. Fora do carro, o celular ouve pelo microfone e responde falando; no
+  Android Auto, um bot seu do Telegram manda "pronto" quando o carro conecta, e você responde falando na tela do carro.
+  Diga "ajuda" para saber como usar. Texto livre só vai a sessões que você liberou. Quem não ativa não vê nenhuma
+  mudança. Guia: skill `celular-android`, seção 15.
+
 ## v1.16.2 · 14/10/2026
 - **↶ Desfazer a conclusão de uma tarefa que repete.** Concluir uma tarefa recorrente não a deixa marcada: o prazo avança para o próximo ciclo. Era fácil clicar de novo achando que não tinha pegado, e não havia volta. Agora:
   - ao concluir, o topo do painel avisa `✓ Ciclo feito · próximo: 14/11 · ^z desfaz`, e a linha mostra **✓ ciclo feito** por 24 h;
