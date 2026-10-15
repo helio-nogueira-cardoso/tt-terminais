@@ -24,7 +24,7 @@ ipc() { cat "$AERC_IPC_LOG" 2>/dev/null; }
 socket_criar() { python3 -I -c 'import socket, sys; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$XDG_RUNTIME_DIR/aerc.sock"; }
 
 grep -q 'email:\*) email_ir_novo' "$TT" || falhou 'notif_abrir sem a rota email:SLUG → email_ir_novo'
-grep -q '"\$corpo" "email:\$slug"' "$TT" || falhou 'email_novos_avisar deveria avisar com a ação email:SLUG'
+grep -q '"\$t · \$corpo_rede" 600 "email:\$slug"' "$TT" || falhou 'email_novos_avisar deveria avisar com a ação email:SLUG'
 for fn in email_ipc email_saltar_novo email_ir_novo email_avisos_lidos; do grep -q "^$fn()" "$TT" || falhou "função $fn ausente"; done
 passou 'rota email:SLUG no notif_abrir, aviso com a ação email:SLUG, funções do salto'
 

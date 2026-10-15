@@ -52,6 +52,29 @@ grep -q '📧 Local: 4 e-mails novos|' <<<"$(notifs)" || falhou "4 novos: títul
 grep -q 'Pessoa 1 — Assunto 1 · Pessoa 2 — Assunto 2 · Pessoa 3 — Assunto 3 · e mais 1' <<<"$(notifs)" || falhou "4 novos: corpo errado: $(notifs)"
 passou 'vários de uma vez: até 3 remetentes/assuntos e "e mais N"'
 
+# 3b) o aviso do 🔔 é da rede, de lote: leva a chave de cada mensagem (do Message-ID, igual em toda máquina que
+# espelha a conta). Outra máquina já avisou X (o aviso chegou pela sincronização): chegando X aqui, o 🔔 não
+# ganha outro, mas a notificação do sistema deste aparelho sai; chegando X2 (também já avisado) e Y, o 🔔
+# ganha um aviso só com Y.
+N=$HOME/.local/state/tt/notifs
+chave() { python3 -I -c 'import hashlib, sys; print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:12])' "$1@x"; }
+lotes() { local f n=0; for f in "$N"/*; do [[ ${f##*/} =~ ^[0-9]{18,20}$ ]] && grep -q $'\temail-local#' "$f" && n=$((n + 1)); done; echo "$n"; }
+grep -qr $'\temail-local#'"$(chave 2000.d.host)"'$' "$N" || falhou "o aviso do 🔔 deveria levar o código de lote com a chave da mensagem: $(cat "$N"/* 2>/dev/null)"
+antes=$(lotes)
+kx=$(chave 6001.h.host)
+printf '%s\t%s\t%s\t%s\t%s\n' 9999999999 '📧 Local: 1 e-mail novo · Outra — Assunto X' email:local - "email-local#$kx" >"$N/1000000000000000001"
+msg 6001.h.host 'Outra <o@x.com>' 'Assunto X'
+: >"$T/notif.log"; "$TT" --email-sync Local >/dev/null 2>&1
+grep -q '📧 Local: 1 e-mail novo|Outra — Assunto X' <<<"$(notifs)" || falhou "a notificação do sistema deste aparelho deveria sair mesmo já avisado na rede: $(notifs)"
+(( $(lotes) == antes + 1 )) || falhou "e-mail já avisado por outra máquina não deveria ganhar outro aviso no 🔔 ($(lotes), antes $antes + o da outra)"
+printf '%s\t%s\t%s\t%s\t%s\n' 9999999999 '📧 Local: 1 e-mail novo · Outra — X2' email:local - "email-local#$(chave 6002.i.host)" >"$N/1000000000000000002"
+msg 6002.i.host 'Outra <o@x.com>' 'Assunto X2'; msg 6003.j.host 'Nova <n@x.com>' 'Assunto Y'
+: >"$T/notif.log"; "$TT" --email-sync Local >/dev/null 2>&1
+grep -q '📧 Local: 2 e-mails novos|Outra — Assunto X2 · Nova — Assunto Y' <<<"$(notifs)" || falhou "o sistema deste aparelho deveria avisar os 2: $(notifs)"
+(( $(lotes) == antes + 3 )) || falhou "deveria haver um aviso novo no 🔔 (só com Y): $(lotes)"
+grep -rl $'\temail-local#'"$(chave 6003.j.host)"'$' "$N" | xargs grep -q '📧 Local: 1 e-mail novo · Nova — Assunto Y' || falhou "o aviso novo do 🔔 deveria trazer só Y: $(grep -r 'Assunto Y' "$N")"
+passou 'aviso de e-mail é de lote: o 🔔 só leva o que a rede não avisou; a notificação do aparelho sai sempre'
+
 # 4) e-mail que chega já lido (ex.: lido no celular) não é "novo"; email_aviso=0 desliga
 printf 'From: a@x.com\nSubject: ja lido\n\n.\n' >"$MD/cur/4000.f.host:2,S"
 : >"$T/notif.log"; "$TT" --email-sync Local >/dev/null 2>&1

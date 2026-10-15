@@ -50,6 +50,19 @@ run --tarefas-lembrete
 [[ $(notifs) == 2 ]] || fail "dedupe falhou: repetiu a notificação ($(notifs) no total)"
 echo "ok: não repete a notificação no mesmo dia (dedupe por id|dia)"
 
+# 2b) a tarefa e o prazo são os mesmos em todas as máquinas, e todas lembram na mesma hora: o aviso do 🔔 leva o
+# código lembrete-<id>|<dia>, e outra máquina (aqui: o mesmo 🔔, sem o registro local do que já lembrou) não
+# cria outro; a notificação do sistema do aparelho dela sai.
+N="$T/state/tt/notifs"
+idh=$(awk -F'\t' '$5=="De hoje"{print $1}' "$C")
+nl(){ grep -l $'\tlembrete-'"$idh"'|' "$N"/[0-9]* 2>/dev/null | grep -cE '/[0-9]{18,20}$'; }
+[[ $(nl) == 1 ]] || fail "o lembrete deveria estar no 🔔 uma vez, com o código lembrete-$idh|<dia> ($(nl)): $(cat "$N"/[0-9]* 2>/dev/null)"
+antes=$(notifs); rm -f "$AVISADOS"
+run --tarefas-lembrete
+[[ $(nl) == 1 ]] || fail "outra máquina não deveria criar outro lembrete no 🔔 ($(nl))"
+(( $(notifs) == antes + 2 )) || fail "a notificação do sistema do aparelho deveria sair ($(notifs), antes $antes)"
+echo "ok: lembrete com código de evento: um só no 🔔 da rede, notificação do sistema em cada aparelho"
+
 # 3) TT_TAREFAS_LEMBRETE=0 desliga
 : > "$T/notifs.log"; rm -f "$AVISADOS"
 env HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_STATE_HOME="$T/state" \

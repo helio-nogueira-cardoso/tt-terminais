@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.18.4 · 16/10/2026
+- **🔔 E-mail novo, lembrete de tarefa e demanda por e-mail chegam uma vez só.** Cada máquina que espelha uma conta
+  percebia o mesmo e-mail e criava o seu aviso, e o 🔔 mostrava um por máquina (três "📧 1 e-mail novo" iguais). O
+  mesmo acontecia com os lembretes 📋 e as demandas 📥. Agora cada aviso leva a identidade do evento (no e-mail, a de
+  cada mensagem): a máquina que chega depois só avisa o que nenhuma outra avisou, e cópias criadas ao mesmo tempo
+  viram uma na sincronização. A notificação do sistema (a do celular, a da área de trabalho) continua saindo em
+  cada aparelho.
+
 ## v1.18.0 · 16/10/2026
 - **🧠 Voz com cérebro (opcional).** `voz --cerebro "pc local"` faz um Claude rápido entender frases soltas ("como anda o
   claude da empresa?", "abre um codex no pc", "lê as três últimas respostas") e agir no tt; comandos curtos continuam

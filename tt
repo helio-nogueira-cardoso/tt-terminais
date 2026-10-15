@@ -8275,7 +8275,7 @@ tarefa_aplicar_proposta() { # id-da-proposta [--padrao inc|cur] [--decisoes ARQ]
 # cadastrado não faz nada (custo zero). Na 1ª vez numa caixa, o que chegou há mais de 1 dia já passou.
 demandas_processar_conta() { # slug
   local slug=${1:?} md dir proc log u arq de msgid epoch auth asb dsb ssb assunto frase desc subs info tag modo seg segmsg
-  local n=0 criadas=0 ignoradas=0 esperando=0 quem="" id nome="" ultimo="" ext esb
+  local n=0 criadas=0 ignoradas=0 esperando=0 quem="" id nome="" ultimo="" ext esb k k_criadas="" k_esperando="" k_ignoradas=""
   # Roda mesmo sem nenhum remetente autorizado: um e-mail [tt] que chega antes de a pessoa autorizar alguém
   # fica à espera (e ela é avisada). Antes, sem cadastro nada era lido, e ao autorizar depois a primeira
   # leitura dava como visto tudo o que tinha mais de 1 dia: a tarefa mandada por um colega se perdia calada.
@@ -8305,18 +8305,20 @@ demandas_processar_conta() { # slug
     assunto=$(printf '%s' "$asb" | base64 -d 2>/dev/null)
     [[ $assunto =~ ^\[[Tt][Tt](:([^]]*))?\][[:space:]]*(.*)$ ]] || continue
     segmsg=${BASH_REMATCH[2]}; frase=${BASH_REMATCH[3]}
+    # chave da mensagem para o aviso de lote (igual em toda máquina que espelha a caixa: é a do demanda_criar)
+    k=$(printf 'demanda\0%s' "$msgid" | sha256sum | cut -c1-12)
     info=$(demandas_remetente "$de")
     if [[ -z $info ]]; then
       [[ $de == - || -z $de ]] && continue
       printf '%s\t%s\n' "$u" "${de,,}" >>"$espera"
       printf '%s aguardando autorização de=%s (tt --demanda-autorizar %s)\n' "$(date '+%F %T')" "$de" "$de" >>"$log"
-      esperando=$((esperando + 1)); quem=$de
+      esperando=$((esperando + 1)); quem=$de; k_esperando+="${k_esperando:+,}$k"
       continue
     fi
     IFS=$'\t' read -r tag modo seg <<<"$info"
     case $modo in
-      auth) [[ $auth == pass ]] || { ignoradas=$((ignoradas + 1)); printf '%s ignorada de=%s motivo=autenticacao(%s)\n' "$(date '+%F %T')" "$de" "$auth" >>"$log"; continue; } ;;
-      segredo) [[ $seg != - && $segmsg == "$seg" ]] || { ignoradas=$((ignoradas + 1)); printf '%s ignorada de=%s motivo=segredo\n' "$(date '+%F %T')" "$de" >>"$log"; continue; } ;;
+      auth) [[ $auth == pass ]] || { ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=autenticacao(%s)\n' "$(date '+%F %T')" "$de" "$auth" >>"$log"; continue; } ;;
+      segredo) [[ $seg != - && $segmsg == "$seg" ]] || { ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=segredo\n' "$(date '+%F %T')" "$de" >>"$log"; continue; } ;;
       aberto) ;;
       *) continue ;;
     esac
@@ -8324,20 +8326,22 @@ demandas_processar_conta() { # slug
     desc=$(printf '%s' "$dsb" | base64 -d 2>/dev/null); subs=$(printf '%s' "$ssb" | base64 -d 2>/dev/null)
     ext=$(printf '%s' "$esb" | base64 -d 2>/dev/null)
     id=$(demanda_criar "$de" "$msgid" "$epoch" "$tag" "$frase" "$desc" "$subs" "$ext") || continue
-    criadas=$((criadas + 1)); ultimo="$de — $frase"
+    criadas=$((criadas + 1)); ultimo="$de — $frase"; k_criadas+="${k_criadas:+,}$k"
     printf '%s criada id=%s de=%s\n' "$(date '+%F %T')" "$id" "$de" >>"$log"
   done < <(find "$md/new" "$md/cur" -type f -printf '%f\t%p\n' 2>/dev/null |
            awk -F'\t' -v p="$proc" 'FILENAME == p { v[$1] = 1; next } { u = $1; sub(/:2,.*/, "", u); if (!(u in v)) print u "\t" $2 }' "$proc" -)
   [[ -f $log ]] && (($(wc -l <"$log") > 300)) && { tail -n 150 "$log" >"$log.c" && mv -f "$log.c" "$log"; }
   [[ -f $espera ]] && (($(wc -l <"$espera") > 500)) && { tail -n 300 "$espera" >"$espera.c" && mv -f "$espera.c" "$espera"; }
+  # Toda máquina que espelha a caixa lê o mesmo e-mail: os avisos são de lote (código com a chave de cada
+  # mensagem), um só no 🔔 da rede.
   if ((criadas > 0)); then
-    tarefas_notificar "📥 $criadas nova$( ((criadas > 1)) && echo s) demanda$( ((criadas > 1)) && echo s)" "$ultimo — aprove na aba Entrada" "demandas"
+    tarefas_notificar "📥 $criadas nova$( ((criadas > 1)) && echo s) demanda$( ((criadas > 1)) && echo s)" "$ultimo — aprove na aba Entrada" "demandas" "" "" "demandas-$slug#$k_criadas"
   fi
   if ((esperando > 0)); then
-    tarefas_notificar "📥 Tarefa por e-mail de $quem aguardando sua autorização" "só se você confia no remetente: tt --demanda-autorizar $quem (ela entra na aba Entrada)" "demandas"
+    tarefas_notificar "📥 Tarefa por e-mail de $quem aguardando sua autorização" "só se você confia no remetente: tt --demanda-autorizar $quem (ela entra na aba Entrada)" "demandas" "" "" "demandas-espera-$slug#$k_esperando"
   fi
   if ((ignoradas > 0)); then
-    tarefas_notificar "⚠ $ignoradas e-mail$( ((ignoradas > 1)) && echo s) de remetente autorizado ignorado$( ((ignoradas > 1)) && echo s)" "sem a autenticação exigida (veja tt --demandas)" ""
+    tarefas_notificar "⚠ $ignoradas e-mail$( ((ignoradas > 1)) && echo s) de remetente autorizado ignorado$( ((ignoradas > 1)) && echo s)" "sem a autenticação exigida (veja tt --demandas)" "" "" "" "demandas-ignoradas-$slug#$k_ignoradas"
   fi
   return 0
 }
@@ -9868,6 +9872,52 @@ notifs_lapide() { # id
   [[ -f $DIR_NOTIFS/$1 ]] && cod=$(notifs_codigo_de "$DIR_NOTIFS/$1")
   if [[ -n $cod ]]; then printf 'codigo=%s\n' "$cod" >"$DIR_NOTIFS/$1.apagada"; else : >"$DIR_NOTIFS/$1.apagada"; fi
 }
+# Código de LOTE: "BASE#item,item,…" (ex.: email-gmail#<chave>,<chave>). Toda máquina que espelha uma conta vê
+# os mesmos e-mails, mas não na mesma hora nem no mesmo número (uma viu 1, a outra, mais tarde, 2): o aviso de
+# lote leva só os itens que a rede ainda não avisou, e na sincronização some o que não traz item novo
+# (notifs_lotes_normalizar). Item já avisado = está num aviso vigente ou numa lápide com código.
+notifs_itens_conhecidos() { # base → os itens já avisados, um por linha
+  local f nome _e _t _a _c cod
+  for f in "$DIR_NOTIFS"/*; do
+    nome=${f##*/}; [[ $nome =~ ^[0-9]{18,20}$ ]] || continue
+    cod=""; IFS=$'\t' read -r _e _t _a _c cod _ 2>/dev/null <"$f" || true
+    if [[ $cod == "$1#"* ]]; then printf '%s\n' "${cod#*#}"; fi
+  done | tr ',' '\n'
+  { cat "$DIR_NOTIFS"/*.apagada 2>/dev/null || true; } | awk -v p="codigo=$1#" 'index($0, p) == 1 { print substr($0, length(p) + 1) }' | tr ',' '\n'
+  return 0
+}
+# Por base, do aviso mais velho ao mais novo: some o que não traz item novo (todos já num mais velho que ficou
+# ou num apagado). A ordem é a dos ids, então toda máquina chega ao mesmo resultado, venham os avisos na ordem
+# que vierem. Se o que some já tinha sido lido, os mais velhos que ele cobria por inteiro ficam lidos também.
+notifs_lotes_normalizar() {
+  local nome cod base i k novo _e _t _a _c
+  local -a L=() M=()
+  local -A visto=() ficou=()
+  while IFS= read -r cod; do
+    base=${cod%%#*}; IFS=, read -ra L <<<"${cod#*#}"
+    for i in "${L[@]}"; do visto[$base#$i]=1; done
+  done < <({ cat "$DIR_NOTIFS"/*.apagada 2>/dev/null || true; } | sed -n 's/^codigo=\([^#]*#.*\)/\1/p')
+  for nome in $(notifs_ids | sort -n); do
+    cod=""; IFS=$'\t' read -r _e _t _a _c cod _ 2>/dev/null <"$DIR_NOTIFS/$nome" || true
+    [[ $cod == ?*#?* ]] || continue
+    base=${cod%%#*}; IFS=, read -ra L <<<"${cod#*#}"; novo=0
+    for i in "${L[@]}"; do [[ -n ${visto[$base#$i]:-} ]] || { novo=1; break; }; done
+    if ((novo)); then
+      for i in "${L[@]}"; do visto[$base#$i]=1; done
+      ficou[$nome]=$cod; continue
+    fi
+    if [[ -f $DIR_NOTIFS/$nome.lida ]]; then
+      for k in "${!ficou[@]}"; do
+        [[ ${ficou[$k]%%#*} == "$base" ]] || continue
+        IFS=, read -ra M <<<"${ficou[$k]#*#}"; novo=0
+        for i in "${M[@]}"; do [[ ,${cod#*#}, == *",$i,"* ]] || { novo=1; break; }; done
+        ((novo)) || : >"$DIR_NOTIFS/$k.lida"
+      done
+    fi
+    : >"$DIR_NOTIFS/$nome.apagada"; rm -f "$DIR_NOTIFS/$nome" "$DIR_NOTIFS/$nome.lida"
+  done
+  return 0
+}
 notifs_mesclar_dir() { # diretório já extraído e validado
   local src=$1 f nome cod outro
   mkdir -p "$DIR_NOTIFS"
@@ -9898,12 +9948,15 @@ notifs_mesclar_dir() { # diretório já extraído e validado
     nome=${f##*/}; nome=${nome%.apagada}
     rm -f "$DIR_NOTIFS/$nome" "$DIR_NOTIFS/$nome.lida"
   done
+  notifs_lotes_normalizar
 }
+# Só os 30 mais novos ficam. A lápide do que sai guarda o código (notifs_lapide): uma máquina que volta depois
+# de um tempo fora não recria o evento nem avisa de novo os e-mails que ele já cobria.
 notifs_podar() {
   local f
   while IFS= read -r f; do
     [[ -n $f ]] || continue
-    : >"$DIR_NOTIFS/$f.apagada"
+    notifs_lapide "$f"
     rm -f "$DIR_NOTIFS/$f" "$DIR_NOTIFS/$f.lida"
   done < <(notifs_ids | sort | head -n -30)
 }
@@ -11233,11 +11286,17 @@ notifs_ui() {
   return 0
 }
 
-tarefas_notificar() { # titulo corpo [ação para o clique na faixa] [canal: sino] [segundos (padrão 600)]
-  local t=$1 c=$2 cl ok=1 canal=${4:-}
+tarefas_notificar() { # titulo corpo [ação para o clique na faixa] [canal: sino] [segundos (padrão 600)] [código]
+  local t=$1 c=$2 canal=${4:-}
   # canal sino = só o 🔔 (contador e central), sem piscar no slot; sem a faixa não há 🔔: segue o caminho antigo
   faixa_notif_ativa || canal=""
-  notificar "$t · $c" "${5:-600}" "${3:-}" "$canal"
+  notificar "$t · $c" "${5:-600}" "${3:-}" "$canal" "${6:-}"
+  notificar_aparelho "$t" "$c"
+}
+# A notificação do sistema (e, sem a faixa, a tela dos terminais abertos) é DESTE aparelho: cada máquina que
+# percebe o evento mostra a sua, mesmo quando o aviso do 🔔 (um só na rede, pelo código) já veio de outra.
+notificar_aparelho() { # titulo corpo
+  local t=$1 c=$2 cl ok=1
   # Com a faixa ligada o aviso JÁ aparece nela: o display-message por cima da 1ª linha vira
   # redundância que cobre a barra — só entra quando a faixa está desligada.
   if faixa_notif_ativa; then
@@ -11263,7 +11322,9 @@ tarefas_lembrete() {
   # Sem horário: uma vez por dia enquanto vence hoje ou está atrasada (id|AAAAMMDD).
   while IFS=$'\t' read -r chave quando txt; do
     grep -qxF "$chave" "$arq" && continue
-    tarefas_notificar "📋 $quando" "$txt" tarefas && printf '%s\n' "$chave" >>"$arq"
+    # A tarefa (e o prazo) são os mesmos em todas as máquinas, e todas lembram na mesma hora: o código faz do
+    # lembrete um aviso só no 🔔 da rede.
+    tarefas_notificar "📋 $quando" "$txt" tarefas "" "" "lembrete-$chave" && printf '%s\n' "$chave" >>"$arq"
   done < <(LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v ANT="$ant" "$TAREFAS_AWK"'
     NF >= 5 && valida($1, $2) && $2 == "aberta" && mv($6, "pai") == "" && !($1 in v) {
       v[$1] = 1; p = mv($6, "prazo"); if (p == "") next
@@ -16426,8 +16487,11 @@ email_sync() { # slug [inbox|completo] [vigia]
 # email-sync/<slug>.vistas. Assim funciona com o aerc aberto (que move new/ → cur/ na hora) ou
 # fechado. Na primeira rodada só memoriza (senão avisaria a caixa inteira). Até 3 remetentes e
 # assuntos; o resto vira "e mais N". email_aviso=0 no ~/.config/tt/config desliga.
+# Toda máquina que espelha a conta percebe o mesmo e-mail: o aviso do 🔔 (da rede) é de lote, com a chave de
+# cada mensagem (do Message-ID, igual em todas), e leva só as que nenhuma máquina avisou ainda; a notificação
+# do sistema continua sendo de cada aparelho, com tudo o que chegou nele.
 email_novos_avisar() { # slug
-  local slug=${1:?} md dir vistas novas u arq n=0 corpo="" de assunto nome
+  local slug=${1:?} md dir vistas novas chave de assunto nome n=0 m=0 corpo="" corpo_rede="" itens="" t
   [[ $(conf email_aviso) == 0 ]] && return 0
   md=$(email_maildir "$slug")/INBOX; dir="$ESTADO_DIR/email-sync"; vistas="$dir/$slug.vistas"
   [[ -d $md/new || -d $md/cur ]] || return 0
@@ -16438,17 +16502,29 @@ email_novos_avisar() { # slug
   novas=$(comm -13 <(sort -u "$vistas") <(find "$md/new" "$md/cur" -type f \( -path '*/new/*' -o ! -name '*:2,*S*' \) -printf '%f\n' 2>/dev/null | sed 's/:2,.*//' | sort -u))
   printf '%s\n' "$todas" >"$vistas.tmp" && mv "$vistas.tmp" "$vistas"
   [[ -n $novas ]] || return 0
-  while IFS= read -r u; do
-    [[ -n $u ]] || continue
-    n=$((n + 1)); ((n <= 3)) || continue
-    arq=$(find "$md/new" "$md/cur" -type f -name "$u*" 2>/dev/null | head -1)
-    IFS=$'\t' read -r de assunto < <(python3 -I "$EMAIL_PY" cabecalho "$arq" 2>/dev/null)
-    corpo+="${corpo:+ · }${de:-?} — ${assunto:-(sem assunto)}"
-  done <<<"$novas"
+  local -a arqs=(); local -A K=()
+  # o arquivo de cada nova, na ordem delas (a de chegada)
+  mapfile -t arqs < <(awk -F'\t' 'NR == FNR { u = $1; sub(/:2,.*/, "", u); if (!(u in p)) p[u] = $2; next } $0 in p { print p[$0] }' \
+    <(find "$md/new" "$md/cur" -type f -printf '%f\t%p\n' 2>/dev/null) <(printf '%s\n' "$novas"))
+  ((${#arqs[@]})) || return 0
+  while IFS= read -r chave; do [[ -n $chave ]] && K[$chave]=1; done < <(notifs_itens_conhecidos "email-$slug")
+  while IFS=$'\t' read -r chave de assunto; do
+    [[ -n $chave ]] || continue
+    n=$((n + 1)); ((n <= 3)) && corpo+="${corpo:+ · }${de:-?} — ${assunto:-(sem assunto)}"
+    [[ -n ${K[$chave]:-} ]] && continue
+    K[$chave]=1; m=$((m + 1)); itens+="${itens:+,}$chave"
+    ((m <= 3)) && corpo_rede+="${corpo_rede:+ · }${de:-?} — ${assunto:-(sem assunto)}"
+  done < <(python3 -I "$EMAIL_PY" cabecalhos "${arqs[@]}" 2>/dev/null)
+  ((n > 0)) || return 0
   ((n > 3)) && corpo+=" · e mais $((n - 3))"
+  ((m > 3)) && corpo_rede+=" · e mais $((m - 3))"
   local -A E=(); email_ler "$slug" 2>/dev/null; nome=${E[nome]:-$slug}
   # ação email:SLUG: o clique no aviso vai à conta e à mensagem nova (email_ir_novo)
-  tarefas_notificar "📧 $nome: $n e-mail$( ((n > 1)) && echo s) novo$( ((n > 1)) && echo s)" "$corpo" "email:$slug"
+  if ((m > 0)); then
+    t="📧 $nome: $m e-mail$( ((m > 1)) && echo s) novo$( ((m > 1)) && echo s)"
+    notificar "$t · $corpo_rede" 600 "email:$slug" "" "email-$slug#$itens"
+  fi
+  notificar_aparelho "📧 $nome: $n e-mail$( ((n > 1)) && echo s) novo$( ((n > 1)) && echo s)" "$corpo"
   return 0
 }
 

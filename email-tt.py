@@ -1376,6 +1376,30 @@ def demanda(caminho):
     return 0
 
 
+def cabecalhos(arquivos):
+    """Uma linha "chave<TAB>remetente<TAB>assunto" por arquivo de maildir, na ordem dada, para o aviso de
+    e-mail novo. A chave é a identidade da MENSAGEM, igual em todas as máquinas que espelham a conta (o nome
+    do arquivo não é: cada mbsync cria o seu): 12 hex do sha1 do Message-ID ou, sem ele, de remetente, data
+    e assunto. Só lê os cabeçalhos."""
+    import email.parser, email.policy, email.utils, hashlib
+    p = email.parser.BytesHeaderParser(policy=email.policy.default)
+    for arq in arquivos:
+        try:
+            with open(arq, "rb") as f:
+                msg = p.parse(f)
+            de = str(msg.get("From", "") or "")
+            assunto = " ".join(str(msg.get("Subject", "") or "").split())
+            mid = str(msg.get("Message-ID", "") or "").strip().strip("<>")
+            base = mid or "\0".join([de, str(msg.get("Date", "") or ""), assunto])
+        except Exception:
+            de, assunto, base = "", "", arq
+        nome, end = email.utils.parseaddr(de)
+        nome = " ".join(nome.split())
+        chave = hashlib.sha1(base.encode("utf-8", "replace")).hexdigest()[:12]
+        print(f"{chave}\t{nome or end or '?'}\t{assunto or '(sem assunto)'}")
+    return 0
+
+
 def main(a):
     if a[:1] == ["contatos-indexar"] and len(a) >= 2:
         return contatos_indexar(a[1:])
@@ -1390,15 +1414,8 @@ def main(a):
         return baixar_imagem(a[1], a[2])
     if a[:1] == ["demanda"] and len(a) == 2:
         return demanda(a[1])
-    if a[:1] == ["cabecalho"] and len(a) == 2:
-        # "remetente<TAB>assunto" de um arquivo de maildir, já decodificados (RFC 2047); para o aviso
-        # de e-mail novo. Nunca lê o corpo.
-        import email, email.policy, email.utils
-        with open(a[1], "rb") as f:
-            msg = email.message_from_binary_file(f, policy=email.policy.default)
-        nome, end = email.utils.parseaddr(str(msg.get("From", "")))
-        assunto = " ".join(str(msg.get("Subject", "") or "").split()) or "(sem assunto)"
-        print(f"{nome or end or '?'}\t{assunto}"); return 0
+    if a[:1] == ["cabecalhos"]:
+        return cabecalhos(a[1:])
     if len(a) < 2:
         print(__doc__); return 2
     cmd, arg = a[0], a[1]

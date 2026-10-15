@@ -802,6 +802,11 @@ tela estreita os botões ficam com rótulo curto e depois só com o ícone, e as
 nada passa da janela. Um aviso por linha; o selecionado fica destacado (é nele que os botões agem) e a prévia
 embaixo mostra o texto inteiro e o que o ⏎ faz. Teclado: ⏎ abre, Espaço lida/não lida, Tab/Shift+Tab trocam a aba, `^u` não lidas,
 `^a` todas, `^d`/Del apaga, `^r` limpa as lidas, `^l` lê todas, Esc/q fecham.
+O 🔔 é um só em todas as máquinas, e o mesmo evento aparece nele uma vez, mesmo quando cada máquina o percebe
+sozinha: o e-mail que chega numa conta espelhada em três máquinas, o lembrete de uma tarefa, a demanda por
+e-mail, o "tt atualizado". Cada aviso leva a identidade do evento (no e-mail, a de cada mensagem); a máquina que
+chega depois não cria outro, e cópias criadas ao mesmo tempo viram uma na sincronização. A notificação do
+sistema (a do celular, a da área de trabalho) continua saindo em cada aparelho.
 Agentes de IA (e scripts) num painel do tt avisam com `tt --notificar-daqui "texto" [segundos] [--sempre]`:
 o aviso só sai se você não estiver olhando para a janela de onde ele veio (o tt vê o foco pelo tmux). Ele
 vai para o **🔔** (o contador na barra e a central; não pisca no miolo da faixa), fica no contador até você

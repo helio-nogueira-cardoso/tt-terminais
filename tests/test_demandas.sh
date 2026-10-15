@@ -80,6 +80,9 @@ id=$(topo | grep $'\tRevisar contrato\t' | cut -f1)
 t1=$(topo | grep $'\tRevisar contrato\t' | cut -f4); [[ $t1 == 1791565200 ]] || fail "o horário da demanda deveria ser o da mensagem (veio $t1)"
 grep -q 'ignorada de=chefe@empresa.com.br motivo=autenticacao(fail)' "$HOME/.local/state/tt/email-sync/conta.demandas.log" || fail "a recusa por autenticação deveria ficar no log"
 grep -q 'NOTIF:.*demanda' "$T/notifs.log" || fail "deveria avisar da nova demanda"
+# toda máquina que espelha a caixa lê o mesmo e-mail: o aviso do 🔔 é de lote (uma chave por mensagem), um só na rede
+grep -rqE $'\tdemandas-conta#[0-9a-f]{12}(,[0-9a-f]{12}){2}$' "$HOME/.local/state/tt/notifs" || fail "o aviso das 3 demandas no 🔔 deveria levar o código de lote: $(cat "$HOME"/.local/state/tt/notifs/[0-9]* 2>/dev/null)"
+grep -rqE $'\tdemandas-ignoradas-conta#[0-9a-f]{12}' "$HOME/.local/state/tt/notifs" || fail "o aviso das ignoradas no 🔔 deveria levar o código de lote"
 echo "ok: só vira demanda o que é de remetente autorizado, com [tt], autenticado (ou segredo/aberto); e-mail antigo não"
 
 # 4) idempotente: de novo (mesmo com a lista de vistos apagada) não duplica nem ressuscita
@@ -198,6 +201,7 @@ tt --demandas-processar conta
 grep -q 'aguardando autorização de=colega@empresa.com.br' "$HOME/.local/state/tt/email-sync/conta.demandas.log" || fail "sem nenhum autorizado, o e-mail [tt] deveria ficar à espera"
 grep -q 'Tarefa do colega' "$C" && fail "sem autorização não pode virar demanda"
 grep -rqs 'aguardando sua autorização' "$HOME/.local/state/tt/notifs" "$T/notifs.log" || fail "a pessoa deveria ser avisada de que há tarefa esperando autorização"
+grep -rqE $'\tdemandas-espera-conta#[0-9a-f]{12}$' "$HOME/.local/state/tt/notifs" || fail "o aviso da espera no 🔔 deveria levar o código de lote"
 grep -q $'^demandas\taviso\t.*colega@empresa.com.br' <<<"$(tt --checar --tsv)" || fail "o tt --checar deveria mostrar o e-mail [tt] à espera"
 tt --demanda-autorizar colega@empresa.com.br >/dev/null; tt --demandas-processar conta
 grep -q 'Tarefa do colega' "$C" || fail "autorizado, o e-mail que esperava deveria virar demanda"
