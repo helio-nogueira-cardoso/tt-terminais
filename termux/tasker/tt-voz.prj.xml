@@ -5,6 +5,7 @@ createDir('/sdcard/Tasker/voz/in', true, false);
 writeFile('/sdcard/Tasker/voz/in/'+Date.now()+'.txt', t||'terminal', false);</Str><Str sr="arg1" ve="3"/><Int sr="arg2" val="1"/><Int sr="arg3" val="30"/></Action></Task><Task sr="task22"><cdate>1791030000000</cdate><edate>1791030000000</edate><id>22</id><nme>tt voz: falar</nme><pri>100</pri><Action sr="act0" ve="7"><code>129</code><Str sr="arg0" ve="3">var fala=''; try{ fala=String(readFile('/sdcard/Tasker/voz/fala.txt')||''); }catch(e){}
 fala=fala.replace(/\s+/g,' ').replace(/^\s+|\s+$/g,'');
 if(!fala) fala='Sem resposta.';</Str><Str sr="arg1" ve="3"/><Int sr="arg2" val="1"/><Int sr="arg3" val="30"/></Action><Action sr="act1" ve="7"><code>559</code><se>false</se><Str sr="arg0" ve="3">%fala</Str><Str sr="arg1" ve="3">default:default</Str><Int sr="arg2" val="3"/><Int sr="arg3" val="5"/><Int sr="arg4" val="5"/><Int sr="arg5" val="1"/><Int sr="arg6" val="0"/><Int sr="arg7" val="0"/></Action><Action sr="act2" ve="7"><code>129</code><Str sr="arg0" ve="3">writeFile('/sdcard/Tasker/voz/falando', '0', false);
+if (typeof fim !== 'undefined' &amp;&amp; String(fim) == '1') setGlobal('TTVOZ_CONVERSA', '0');  // o voz encerrou a conversa
 if (global('TTVOZ_CONVERSA') == '1' &amp;&amp; !(typeof ouvir !== 'undefined' &amp;&amp; String(ouvir) == '0')) {
   var carro = false;
   try { String(readFile('/sdcard/Tasker/voz/carro.txt') || '').split(/[\s,]+/).forEach(function (v) {
@@ -15,18 +16,16 @@ if (global('TTVOZ_CONVERSA') == '1' &amp;&amp; !(typeof ouvir !== 'undefined' &a
     var erro = '', antes = String(global('VOICE') || ''), limpo = false;
     try { setGlobal('VOICE', ''); limpo = !global('VOICE'); } catch (e) {}
     try { r = getVoice('Terminal', 'free', 15); } catch (e) { erro = String(e); }
-    if (r !== undefined &amp;&amp; r !== null) t = (typeof r === 'object' &amp;&amp; r.length) ? String(r[0]) : String(r).split(',')[0];
-    // no Tasker 6.6 o getVoice() devolve '' mesmo quando reconheceu; o texto fica em %VOICE
+    if (r !== undefined &amp;&amp; r !== null) t = (typeof r === 'object' &amp;&amp; r.length) ? Array.prototype.join.call(r, '\n') : String(r);
+    // no Tasker 6.6 o getVoice() devolve '' mesmo quando reconheceu; o texto fica em %VOICE (hipóteses separadas por vírgula)
     var v = String(global('VOICE') || '');
-    if (!t.replace(/\s/g, '') &amp;&amp; v &amp;&amp; v.indexOf('%') !== 0 &amp;&amp; (limpo || v != antes)) t = v.split(',')[0];
-    t = t.replace(/^\s+|\s+$/g, '');
+    if (!t.replace(/\s/g, '') &amp;&amp; v &amp;&amp; v.indexOf('%') !== 0 &amp;&amp; (limpo || v != antes)) t = v;
+    t = t.split(/\s*[,\n]\s*/).join('\n').replace(/^\s+|\s+$/g, '');  // todas as hipóteses, uma por linha: o voz escolhe
     writeFile('/sdcard/Tasker/voz/escuta.txt', new Date().toISOString() + ' ' + (Date.now() - ini) + 'ms tipo=' + typeof r +
-      ' valor=' + String(r) + ' VOICE=' + v + ' limpo=' + limpo + (erro ? ' erro=' + erro : '') + '\n', true);  // diagnóstico: o que o reconhecimento devolveu
-    if (!t &amp;&amp; Date.now() - ini &lt; 4000) t = '__sem_microfone__';
+      ' valor=' + String(r) + ' VOICE=' + v + ' limpo=' + limpo + (erro ? ' erro=' + erro : '') + '\n', true);  // diagnóstico
+    if (!t) t = '__silencio__';  // o voz pede de novo na 1ª vez e encerra na 2ª
   }
-  if (t == '__sem_microfone__' || !t || /^(encerrar|sair|tchau|fim|terminar|desligar)[.!]?$/i.test(t)) {
-    setGlobal('TTVOZ_CONVERSA', '0'); if (t != '__sem_microfone__') t = 'encerrar';
-  }
+  if (t == '__sem_microfone__' || /^(encerrar|sair|tchau|fim|terminar|desligar)[.!]?(\n|$)/i.test(t)) setGlobal('TTVOZ_CONVERSA', '0');
   writeFile('/sdcard/Tasker/voz/in/' + Date.now() + '.txt', t, false);
 }</Str><Str sr="arg1" ve="3"/><Int sr="arg2" val="1"/><Int sr="arg3" val="45"/></Action></Task><Task sr="task24"><cdate>1791030000000</cdate><edate>1791030000000</edate><id>24</id><nme>tt voz: Android Auto</nme><pri>100</pri><Action sr="act0" ve="7"><code>547</code><Str sr="arg0" ve="3">%ntitle</Str><Str sr="arg1" ve="3">%evtprm2</Str><Int sr="arg2" val="0"/><Int sr="arg3" val="0"/><Int sr="arg4" val="0"/><Int sr="arg5" val="3"/><Int sr="arg6" val="1"/></Action><Action sr="act1" ve="7"><code>129</code><Str sr="arg0" ve="3">var t = (typeof ntitle !== 'undefined' &amp;&amp; String(ntitle).indexOf('%') !== 0) ? String(ntitle) : '';
 if (/conect|connect/i.test(t)) {  // "Conectando ao Android Auto" e "O Android Auto está conectado"; o voz evita repetir

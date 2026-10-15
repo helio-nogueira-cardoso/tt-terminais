@@ -6,7 +6,8 @@ Duas peças, sem nenhuma ação sobre o aparelho além de ler/gravar arquivos em
                    terminal with status in Tasker"), manda só aquela frase. Grava em /sdcard/Tasker/voz/in/ para o
                    `voz --daemon` do Termux.
   tt voz: falar    perfil do intent tt.VOZ_FALAR (mandado pelo `voz`): lê fala.txt, diz com o "Dizer" do Tasker e, em
-                   conversa, ouve a próxima frase (getVoice) e a grava em in/. Silêncio ou "encerrar" fecham a conversa.
+                   conversa, ouve a próxima frase (getVoice, todas as hipóteses) e a grava em in/. "encerrar" fecha a
+                   conversa; silêncio vira __silencio__ (o voz pede de novo e, no 2º, encerra mandando fim=1).
                    Extra ouvir=0 (avisos como "Enviado"): só fala. Zera voz/falando quando termina de dizer.
                    Não usa o microfone do celular com a tela apagada, no carro (alguma global de
                    /sdcard/Tasker/voz/carro.txt vale 1, ex. a do seu perfil de Android Auto) ou se a escuta falha
@@ -63,6 +64,7 @@ fala=fala.replace(/\s+/g,' ').replace(/^\s+|\s+$/g,'');
 if(!fala) fala='Sem resposta.';""")
 falar.say('%fala')
 falar.js(r"""writeFile('/sdcard/Tasker/voz/falando', '0', false);
+if (typeof fim !== 'undefined' && String(fim) == '1') setGlobal('TTVOZ_CONVERSA', '0');  // o voz encerrou a conversa
 if (global('TTVOZ_CONVERSA') == '1' && !(typeof ouvir !== 'undefined' && String(ouvir) == '0')) {
   var carro = false;
   try { String(readFile('/sdcard/Tasker/voz/carro.txt') || '').split(/[\s,]+/).forEach(function (v) {
@@ -73,18 +75,16 @@ if (global('TTVOZ_CONVERSA') == '1' && !(typeof ouvir !== 'undefined' && String(
     var erro = '', antes = String(global('VOICE') || ''), limpo = false;
     try { setGlobal('VOICE', ''); limpo = !global('VOICE'); } catch (e) {}
     try { r = getVoice('Terminal', 'free', 15); } catch (e) { erro = String(e); }
-    if (r !== undefined && r !== null) t = (typeof r === 'object' && r.length) ? String(r[0]) : String(r).split(',')[0];
-    // no Tasker 6.6 o getVoice() devolve '' mesmo quando reconheceu; o texto fica em %VOICE
+    if (r !== undefined && r !== null) t = (typeof r === 'object' && r.length) ? Array.prototype.join.call(r, '\n') : String(r);
+    // no Tasker 6.6 o getVoice() devolve '' mesmo quando reconheceu; o texto fica em %VOICE (hipóteses separadas por vírgula)
     var v = String(global('VOICE') || '');
-    if (!t.replace(/\s/g, '') && v && v.indexOf('%') !== 0 && (limpo || v != antes)) t = v.split(',')[0];
-    t = t.replace(/^\s+|\s+$/g, '');
+    if (!t.replace(/\s/g, '') && v && v.indexOf('%') !== 0 && (limpo || v != antes)) t = v;
+    t = t.split(/\s*[,\n]\s*/).join('\n').replace(/^\s+|\s+$/g, '');  // todas as hipóteses, uma por linha: o voz escolhe
     writeFile('/sdcard/Tasker/voz/escuta.txt', new Date().toISOString() + ' ' + (Date.now() - ini) + 'ms tipo=' + typeof r +
-      ' valor=' + String(r) + ' VOICE=' + v + ' limpo=' + limpo + (erro ? ' erro=' + erro : '') + '\n', true);  // diagnóstico: o que o reconhecimento devolveu
-    if (!t && Date.now() - ini < 4000) t = '__sem_microfone__';
+      ' valor=' + String(r) + ' VOICE=' + v + ' limpo=' + limpo + (erro ? ' erro=' + erro : '') + '\n', true);  // diagnóstico
+    if (!t) t = '__silencio__';  // o voz pede de novo na 1ª vez e encerra na 2ª
   }
-  if (t == '__sem_microfone__' || !t || /^(encerrar|sair|tchau|fim|terminar|desligar)[.!]?$/i.test(t)) {
-    setGlobal('TTVOZ_CONVERSA', '0'); if (t != '__sem_microfone__') t = 'encerrar';
-  }
+  if (t == '__sem_microfone__' || /^(encerrar|sair|tchau|fim|terminar|desligar)[.!]?(\n|$)/i.test(t)) setGlobal('TTVOZ_CONVERSA', '0');
   writeFile('/sdcard/Tasker/voz/in/' + Date.now() + '.txt', t, false);
 }""", timeout=45)
 

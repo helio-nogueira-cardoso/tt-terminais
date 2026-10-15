@@ -19,6 +19,8 @@
 # fala anterior) evita atropelar uma fala com a seguinte. Com o Telegram ligado, o que chega pelo bot é respondido pelo bot.
 set -u
 export PATH="$HOME/.local/bin:$PATH"
+# o tmux do Termux mora em $PREFIX/var/run (como no tt); sem isto o daemon do cron não acha as sessões daqui
+[[ -z ${TMUX_TMPDIR:-} && -d ${PREFIX:-/x}/var/run ]] && export TMUX_TMPDIR=$PREFIX/var/run
 ST=$HOME/.local/state/tt-voz; CF=$HOME/.config/tt-voz; SD=${VOZ_SDCARD:-/sdcard}
 mkdir -p "$ST" "$CF"; touch "$CF/permitidas"
 SSHO=(-o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=5)
@@ -38,7 +40,7 @@ falar() { # imprime e (salvo VOZ_MUDO) manda o Tasker dizer; VOZ_AVISO=1: o Task
       (( $(date +%s) - $(stat -c %Y "$d/falando" 2>/dev/null || echo 0) < ${VOZ_ESPERA_FALA:-40} )); do sleep 1; done
     if printf '%s' "$t" > "$d/fala.txt" 2>/dev/null; then
       printf 1 > "$d/falando"
-      am broadcast -a tt.VOZ_FALAR ${VOZ_AVISO:+--es ouvir 0} >/dev/null 2>&1
+      am broadcast -a tt.VOZ_FALAR ${VOZ_AVISO:+--es ouvir 0} ${VOZ_FIM:+--es fim 1} >/dev/null 2>&1
       return 0
     fi
   fi
@@ -46,6 +48,7 @@ falar() { # imprime e (salvo VOZ_MUDO) manda o Tasker dizer; VOZ_AVISO=1: o Task
   return 0
 }
 aviso() { VOZ_AVISO=1 falar "$@"; }
+fim() { VOZ_AVISO=1 VOZ_FIM=1 falar "$@"; }  # fala e encerra a conversa (o Tasker não ouve mais)
 
 # ---------- Telegram (opcional): canal do Android Auto ----------
 tg_val() { sed -n "s/^$1=//p" "$TG" 2>/dev/null | head -n 1; }
@@ -111,7 +114,7 @@ destino() { local r=$1; [[ $r == "$(local_rotulo)" ]] && { echo local; return; }
 em() { # em ROTULO comando...  (roda lá, local ou por ssh)
   local d; d=$(destino "$1"); shift
   if [[ $d == local || -z $d ]]; then bash -c "$*"; else
-    timeout 40 ssh "${SSHO[@]}" "$d" "PATH=\"\$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:\$PATH\"; $*"; fi
+    timeout 40 ssh "${SSHO[@]}" "$d" "PATH=\"\$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:\$PATH\"; TMUX_TMPDIR=\"\${TMUX_TMPDIR:-\$([ -d \"\${PREFIX:-/x}/var/run\" ] && echo \"\$PREFIX/var/run\")}\"; export TMUX_TMPDIR; $*"; fi
 }
 achar() { # achar "termo" lista... -> melhor item (todas as palavras do termo contidas, senão a 1ª que contém)
   local termo=$1 it n w ok; shift
@@ -173,7 +176,7 @@ aguardar() { # aguardar SESSAO MAQUINA: fala a resposta; se o agente demora, mar
 enviar() { # enviar TEXTO -> alvo
   local m s txt=$1
   m=$(alvo_m); s=$(alvo_s)
-  [[ -n $s ]] || { falar "Nenhuma sessão escolhida em $m. Diga: sessões."; return; }
+  [[ -n $s ]] || { falar "Não entendi. Para falar com um agente, escolha uma sessão: diga sessões. Ou diga ajuda."; return; }
   liberada || { falar "A sessão $s em $m não está liberada para voz. Diga: permitir sessão."; return; }
   em "$m" "tmux has-session -t '=$s' 2>/dev/null" || { falar "A sessão $s não existe mais em $m."; return; }
   em "$m" "tmux send-keys -t '=$s:' -l -- $(printf '%q' "$txt"); sleep 0.4; tmux send-keys -t '=$s:' Enter"
@@ -181,24 +184,108 @@ enviar() { # enviar TEXTO -> alvo
   aguardar "$s" "$m"
 }
 
-escolher_sessao() {
-  local nome=$1 m lista s
-  m=$(alvo_m); mapfile -t lista < <(sessoes "$m")
-  s=$(achar "$nome" "${lista[@]}") || { falar "Não achei sessão $nome em $m."; return; }
-  printf '%s' "$s" > "$ST/alvo_s"
-  if liberada; then falar "Sessão $s, em $m."; else falar "Sessão $s, em $m. Não liberada para voz."; fi
+falavel() { sed 's/[_-]/ /g' <<<"$1"; }  # nome de sessão dito em voz alta
+
+listar_sessoes() { # listar_sessoes MAQUINA [PREFIXO]: lê numeradas e guarda a lista para "2", "dois", "segunda"
+  local m=$1 pre=${2:-} lista i txt=""
+  mapfile -t lista < <(sessoes "$m")
+  ((${#lista[@]})) || { rm -f "$ST/lista"; falar "${pre}Sem sessões em $m."; return; }
+  { echo "$m"; printf '%s\n' "${lista[@]}"; } > "$ST/lista"
+  for i in "${!lista[@]}"; do ((i < 8)) && txt+="$((i + 1)), $(falavel "${lista[i]}"). "; done
+  ((${#lista[@]} > 8)) && txt+="E mais $((${#lista[@]} - 8)). "
+  falar "${pre}Em $m: $txt Diga o número ou o nome."
 }
+
+pergunta() { [[ -s $ST/pergunta && $(( $(date +%s) - $(stat -c %Y "$ST/pergunta") )) -lt 300 ]] && cat "$ST/pergunta"; }
+
+escolhida() { # escolhida SESSAO: grava o alvo e diz como seguir
+  local s=$1 m; m=$(alvo_m); printf '%s' "$s" > "$ST/alvo_s"
+  if liberada; then rm -f "$ST/pergunta"; falar "Sessão $(falavel "$s"), em $m. Pode falar com ela."
+  else echo liberar > "$ST/pergunta"; falar "Sessão $(falavel "$s"), em $m. Ainda não está liberada para voz. Diga sim para liberar."; fi
+}
+
+escolher_sessao() {
+  local nome=$1 m lista s n
+  m=$(alvo_m)
+  if n=$(numero "$nome") && [[ -s $ST/lista && $(head -n 1 "$ST/lista") == "$m" ]]; then
+    s=$(sed -n "$((n + 1))p" "$ST/lista"); [[ -n $s ]] || { falar "Não há sessão $n. Diga sessões para ouvir a lista."; return; }
+    escolhida "$s"; return
+  fi
+  mapfile -t lista < <(sessoes "$m")
+  s=$(achar "$nome" "${lista[@]}") || { falar "Não achei a sessão $nome em $m. Diga sessões para ouvir a lista."; return; }
+  escolhida "$s"
+}
+
+numero() { # "2", "dois", "segunda", "numero 2" -> 2 (a 1ª palavra que for número)
+  local w
+  for w in $*; do
+    case $w in
+      [0-9]|[0-9][0-9]) echo $((10#$w)); return 0 ;;
+      um|uma|primeira|primeiro) echo 1; return 0 ;; dois|duas|segunda|segundo) echo 2; return 0 ;;
+      tres|terceira|terceiro) echo 3; return 0 ;; quatro|quarta|quarto) echo 4; return 0 ;;
+      cinco|quinta|quinto) echo 5; return 0 ;; seis|sexta|sexto) echo 6; return 0 ;;
+      sete|setima|setimo) echo 7; return 0 ;; oito|oitava|oitavo) echo 8; return 0 ;;
+      nove|nona|nono) echo 9; return 0 ;; dez|decima|decimo) echo 10; return 0 ;;
+    esac
+  done
+  return 1
+}
+
+maquina_citada() { # imprime a máquina que a frase cita (rótulo inteiro, palavra por palavra), ou nada
+  local n=" $1 " m mn
+  [[ $n == *" celular "* || $n == *" telefone "* || $n == *" aqui "* ]] && { local_rotulo; return; }
+  while read -r m; do
+    [[ -n $m ]] || continue; mn=$(norm "$m")
+    [[ $n == *" $mn "* ]] && { echo "$m"; return; }
+  done < <(maquinas)
+}
+
+reescrever() { # frase normalizada -> o vocabulário de comando(); deixa a conversa solta ("empresa", "sessões do dell", "2", "sim")
+  local n=$1 m p
+  n=$(sed -E 's/^(por favor|ok|entao|e|agora) //; s/ por favor$//
+    s/^(me )?(diga|fala|mostra|mostre|mostrar|lista|liste|listar|ver|veja|quero ver|quais sao|quais|qual)( as| os| a| o)? //
+    s/^(vai|va|vamos|entra|entrar|entre|muda|troca) (para|pra|no|na|em) /ir para /' <<<"$n")
+  p=$(pergunta)
+  if [[ $p == liberar ]]; then
+    case $n in sim|pode|libera|liberar|claro|isso|ok|quero|sim\ pode|pode\ liberar) echo "permitir sessao"; return ;;
+      nao|agora\ nao|deixa|deixa\ pra\ la) echo "nao"; return ;; esac
+  fi
+  case $n in maquina|computador|maquinas\ ligadas) echo maquinas; return ;; sessao|aba|janela) echo sessoes; return ;; esac
+  # "2", "dois", "numero dois", "a segunda" com uma lista recente
+  if [[ -s $ST/lista ]] && [[ $n =~ ^((a|o|numero|aba|sessao) )*[a-z0-9]+$ ]] && numero "$n" >/dev/null &&
+    [[ $(wc -w <<<"$n") -le 3 ]]; then echo "aba $n"; return; fi
+  m=$(maquina_citada "$n")
+  if [[ -n $m ]]; then
+    case " $n " in
+      *" sess"*|*" aba"*|*" janela"*) echo "sessoes em $m"; return ;;
+    esac
+    case $n in "$(norm "$m")"|"o $(norm "$m")"|"a $(norm "$m")"|celular|aqui|telefone) echo "ir para $m"; return ;; esac
+  fi
+  echo "$n"
+}
+
+CONHECIDOS='^(ajuda.*|comandos|como funciona|como usar|terminal|ola|oi|inicio|comecar|encerrar|sair|tchau|fim|terminar|desligar|ate mais|maquinas|computadores|status|saude|estado|ir para .+|ir pra .+|trocar para .+|mudar para .+|sessoes|abas|janelas|listar sessoes|sessoes em .+|aba .+|sessao .+|abrir .+|proxima|proxima aba|seguinte|anterior|aba anterior|voltar|nova sessao.*|nova aba.*|tarefas|minhas tarefas|contas|rodizio|uso|limite|repetir|repete|de novo|ler|resposta|e ai|permitir sessao|liberar sessao|bloquear sessao|enter|confirmar|confirma|cancelar|escape|onde|alvo|atual|nao)$'
+entender() { # entender "HIPÓTESE1\nHIPÓTESE2...": a 1ª que vira comando; senão a 1ª, como texto livre
+  local l n
+  while IFS= read -r l; do
+    [[ -n $l ]] || continue
+    n=$(reescrever "$(tirar_prefixo "$(norm "$l")")")
+    [[ $n =~ $CONHECIDOS ]] && { printf '%s\n' "$l"; return; }
+  done <<<"$1"
+  head -n 1 <<<"$1"
+}
+tirar_prefixo() { local n=$1; n=${n#terminal }; n=${n#diga }; n=${n#escreva }; printf '%s' "$n"; }
 
 ajuda() { # ajuda [tema]: explicação curta e falável, um tema por vez
   case " $(norm "$*") " in
     *maquina*|*computador*|*status*)
-      falar "Diga máquinas para ouvir a lista, e status para saber quais estão ligadas. Para trocar, diga ir para e o nome, por exemplo, ir para notebook. Este celular é ir para celular." ;;
+      falar "Diga máquinas para ouvir a lista, e status para saber quais estão ligadas. Para trocar, diga só o nome da máquina, por exemplo, notebook. Eu já leio as sessões dela. Este celular é celular." ;;
     *sess*|*aba*)
-      falar "Diga sessões para ouvir as abas da máquina atual. Para escolher, diga aba e uma palavra do nome, por exemplo, aba claude. Próxima e anterior andam pela lista. Onde diz a máquina e a sessão escolhidas. Nova sessão cria uma aba com agente." ;;
+      falar "Diga sessões, ou sessões e a máquina, para ouvir as abas numeradas. Para escolher, diga o número, ou aba e uma palavra do nome, por exemplo, aba claude. Próxima e anterior andam pela lista. Onde diz a máquina e a sessão escolhidas. Nova sessão cria uma aba com agente." ;;
     *agente*|*claude*|*codex*|" ia "*|*" ia "*|*permit*|*mandar*)
-      falar "Escolha a sessão e, só na primeira vez, diga permitir sessão. Depois, toda frase que não for comando vai para o agente, e eu leio o começo da resposta. Se ele demorar, diga repetir daqui a pouco. Enter confirma o que ele perguntar, cancelar interrompe, e bloquear sessão tira a permissão." ;;
+      falar "Escolha a sessão e, só na primeira vez, diga sim para liberar. Depois, toda frase que não for comando vai para o agente, e eu leio o começo da resposta. Se ele demorar, diga repetir daqui a pouco. Enter confirma o que ele perguntar, cancelar interrompe, e bloquear sessão tira a permissão." ;;
     *conversa*|*ouvir*|*encerr*|*repet*|*sair*)
-      falar "Depois de cada resposta eu volto a ouvir. Espere eu terminar de falar antes de responder. Repetir lê de novo a última resposta. Para sair, diga encerrar ou fique em silêncio." ;;
+      falar "Depois de cada resposta eu volto a ouvir. Espere eu terminar de falar antes de responder. Repetir lê de novo a última resposta. Para sair, diga encerrar, ou fique em silêncio duas vezes." ;;
     *comando*|*lista*|*tudo*)
       falar "Comandos: máquinas, status, ir para, sessões, aba, próxima, anterior, onde, nova sessão, permitir sessão, bloquear sessão, enter, cancelar, tarefas, contas, repetir, ajuda e encerrar. Qualquer outra frase vai para o agente da sessão escolhida." ;;
     *)
@@ -225,9 +312,16 @@ ciclo() { # +1 / -1
 
 comando() {
   local raw=$* n m r lista
-  n=$(norm "$raw")
-  n=${n#terminal }; n=${n#diga }; n=${n#escreva }
+  [[ $raw == *$'\n'* ]] && raw=$(entender "$raw")
+  n=$(reescrever "$(tirar_prefixo "$(norm "$raw")")")
+  [[ $n == silencio ]] || rm -f "$ST/silencio"
   case $n in
+    silencio)  # o Tasker não ouviu nada: na 1ª vez pede de novo, na 2ª encerra
+      if [[ -e $ST/silencio ]]; then rm -f "$ST/silencio"; fim "Não ouvi. Terminal encerrado."
+      else touch "$ST/silencio"; falar "Não ouvi. Pode falar."; fi ;;
+    nao) rm -f "$ST/pergunta"; falar "Tudo bem. Pode falar." ;;
+    sessoes\ em\ *)
+      m=${n#sessoes em }; printf '%s' "$m" > "$ST/alvo_m"; rm -f "$ST/alvo_s"; listar_sessoes "$m" ;;
     ""|ajuda|ajuda\ *|comandos|como\ funciona|como\ usar)
       ajuda "${n#ajuda}" ;;
     terminal|ola|oi|inicio|comecar)
@@ -235,7 +329,7 @@ comando() {
       rm -f "$ST/dica"; falar "Terminal. Máquina $(alvo_m), $r. Pode falar."
       diagnostico ;;
     encerrar|sair|tchau|fim|terminar|desligar|ate\ mais)
-      aviso "Terminal encerrado." ;;
+      fim "Terminal encerrado." ;;
     sem\ microfone)  # o Tasker não pôde ouvir: tela apagada, celular bloqueado ou carro (Android Auto); avisa uma vez
       if [[ ! -e $ST/dica ]]; then
         if tg_ok; then aviso "Para continuar, responda pelo Telegram, na conversa do $(contato)."; CANAL=telegram falar "Pode responder aqui."
@@ -258,12 +352,9 @@ comando() {
       mapfile -t lista < <(maquinas)
       m=$(achar "$r" "${lista[@]}") || { falar "Não achei a máquina $r."; return; }
       printf '%s' "$m" > "$ST/alvo_m"; rm -f "$ST/alvo_s"
-      mapfile -t lista < <(sessoes "$m")
-      falar "Agora em $m. ${#lista[@]} sessões. Diga: sessões, ou aba e o nome." ;;
+      listar_sessoes "$m" "Agora em $m. " ;;
     sessoes|abas|janelas|listar\ sessoes)
-      m=$(alvo_m); mapfile -t lista < <(sessoes "$m")
-      ((${#lista[@]})) || { falar "Sem sessões em $m."; return; }
-      falar "Em $m: $(printf '%s, ' "${lista[@]:0:8}" | sed 's/[_-]/ /g; s/, $//')." ;;
+      listar_sessoes "$(alvo_m)" ;;
     aba\ *|sessao\ *|abrir\ *)
       r=${n#aba }; r=${r#sessao }; r=${r#abrir }; escolher_sessao "$r" ;;
     proxima|proxima\ aba|seguinte) ciclo 1 ;;
@@ -283,8 +374,10 @@ comando() {
       if [[ -s $ST/pendente ]]; then r=$(<"$ST/pendente"); aguardar "${r#*:}" "${r%%:*}"
       else falar "$(cat "$ST/ultima.txt" 2>/dev/null || echo Nada para repetir)"; fi ;;
     permitir\ sessao|liberar\ sessao)
+      rm -f "$ST/pergunta"
+      [[ -n $(alvo_s) ]] || { falar "Escolha uma sessão primeiro. Diga sessões."; return; }
       liberada || printf '%s:%s\n' "$(alvo_m)" "$(alvo_s)" >> "$CF/permitidas"
-      falar "Sessão $(alvo_s) liberada para voz." ;;
+      falar "Sessão $(falavel "$(alvo_s)") liberada. Pode falar com ela." ;;
     bloquear\ sessao)
       grep -vxF "$(alvo_m):$(alvo_s)" "$CF/permitidas" > "$CF/p.tmp"; mv "$CF/p.tmp" "$CF/permitidas"
       falar "Sessão bloqueada para voz." ;;

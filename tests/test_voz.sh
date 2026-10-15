@@ -63,7 +63,7 @@ saida=$(v sessoes); [[ $saida == *agente* && $saida != *oculta* ]] || falhou "se
 v "ir para marte" | grep -q 'Não achei' || falhou 'máquina inexistente não foi recusada'
 passou 'voz: trocar de máquina e listar sessões (ocultas fora)'
 
-saida=$(v "aba agente"); [[ $saida == *"Não liberada"* ]] || falhou "aba: $saida"
+saida=$(v "aba agente"); [[ $saida == *"não está liberada"* && $saida == *"Diga sim"* ]] || falhou "aba: $saida"
 saida=$(v "oi mundo"); [[ $saida == *"não está liberada"* ]] || falhou "texto livre sem liberação: $saida"
 tmux capture-pane -p -t '=agente-teste:' | grep -q 'oi mundo' && falhou 'enviou texto a sessão não liberada'
 passou 'voz: sessão não liberada não recebe texto'
@@ -77,13 +77,33 @@ saida=$(v repetir); [[ $saida == *'Entendi: devagar'* ]] || falhou "repetir depo
 v bloquear sessao >/dev/null; v "qualquer coisa" | grep -q 'não está liberada' || falhou 'bloquear sessão'
 passou 'voz: texto vai à sessão liberada e a resposta volta resumida'
 
+# frases soltas: nome da máquina, "sessões do X", número da lista, "sim" para liberar, várias hipóteses, singular
+saida=$(v "dell"); [[ $saida == *"Agora em dell"* && $saida == *"1, agente teste"* ]] || falhou "máquina pelo nome: $saida"
+saida=$(v "quais as sessões do dell"); [[ $saida == *"Em dell: 1, agente teste"* ]] || falhou "sessões do dell: $saida"
+saida=$(v "um"); [[ $saida == *"Sessão agente teste, em dell"* && $saida == *"Diga sim"* ]] || falhou "escolher pelo número: $saida"
+saida=$(v "sim"); [[ $saida == *"liberada"* ]] && grep -qx 'dell:agente-teste' "$HOME/.config/tt-voz/permitidas" || falhou "sim libera: $saida"
+saida=$(v "segunda"); [[ $saida == *"Não há sessão 2"* ]] || falhou "número fora da lista: $saida"
+saida=$(v $'blablabla\nmaquinas'); [[ $saida == *"Máquinas:"* ]] || falhou "hipótese que é comando: $saida"
+saida=$(v "máquina"); [[ $saida == *"Máquinas:"* ]] || falhou "singular: $saida"
+saida=$(v "vai para o dell"); [[ $saida == *"Agora em dell"* ]] || falhou "vai para o dell: $saida"
+v "aba agente" >/dev/null  # trocar de máquina limpa a sessão; os testes seguintes contam com ela
+passou 'voz: frases soltas (nome da máquina, sessões do X, número, sim, hipóteses do reconhecimento)'
+
+# silêncio: na 1ª vez pede de novo (ouve), na 2ª encerra avisando o Tasker (fim=1)
+: >"$T/am.log"; saida=$(VOZ_MUDO= bash "$V" __silencio__); [[ $saida == *"Não ouvi. Pode falar"* ]] || falhou "silêncio 1: $saida"
+grep -q 'ouvir' "$T/am.log" && falhou '1º silêncio não deveria parar de ouvir'
+: >"$T/am.log"; saida=$(VOZ_MUDO= bash "$V" __silencio__); [[ $saida == *"Terminal encerrado"* ]] || falhou "silêncio 2: $saida"
+grep -q -- '--es fim 1' "$T/am.log" || falhou "2º silêncio não encerrou no Tasker: $(cat "$T/am.log")"
+v __silencio__ >/dev/null; v status >/dev/null; [[ -e $HOME/.local/state/tt-voz/silencio ]] && falhou 'frase ouvida não zerou o silêncio'
+passou 'voz: silêncio pede de novo e só encerra na segunda vez'
+
 v tarefas | grep -q 'Pagar o boleto' || falhou 'tarefas'
 v contas | grep -q 'principal' || falhou 'contas'
 v "" | grep -q 'diga ajuda e um tema' || falhou 'ajuda geral'
 v ajuda | grep -q 'diga ajuda e um tema' || falhou 'ajuda'
 v "ajuda sessões" | grep -q 'aba e uma palavra do nome' || falhou 'ajuda sessões'
-v "ajuda com o agente" | grep -q 'permitir sessão' || falhou 'ajuda agente'
-v "ajuda maquinas" | grep -q 'ir para notebook' || falhou 'ajuda máquinas'
+v "ajuda com o agente" | grep -q 'sim para liberar' || falhou 'ajuda agente'
+v "ajuda maquinas" | grep -q 'por exemplo, notebook' || falhou 'ajuda máquinas'
 v "ajuda conversa" | grep -q 'volto a ouvir' || falhou 'ajuda conversa'
 v comandos | grep -q 'bloquear sessão' || falhou 'comandos'
 saida=$(v terminal); [[ $saida == *"Máquina dell, sessão agente-teste"* && $saida == *"Pode falar"* ]] || falhou "abrir conversa: $saida"
@@ -91,7 +111,7 @@ v encerrar | grep -q 'Terminal encerrado' || falhou 'encerrar'
 passou 'voz: tarefas, contas, ajuda, abrir e encerrar a conversa'
 
 # fala: grava o texto e avisa o Tasker (intent tt.VOZ_FALAR); com VOZ_MUDO não faz nada
-bash "$V" --falar "olá carro" >/dev/null
+: >"$T/am.log"; bash "$V" --falar "olá carro" >/dev/null
 [[ $(<"$T/sd/Tasker/voz/fala.txt") == "olá carro" ]] && grep -q 'tt.VOZ_FALAR' "$T/am.log" || falhou 'fala não chegou ao Tasker'
 grep -q 'ouvir' "$T/am.log" && falhou 'fala comum não deveria levar ouvir=0'
 [[ $(<"$T/sd/Tasker/voz/falando") == 1 ]] || falhou 'falando não marcado'

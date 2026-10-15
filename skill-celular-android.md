@@ -863,16 +863,20 @@ seguir (pelo Telegram, se ligado).
 | `ajuda` · `ajuda TEMA` | como usar, em poucas frases; temas: `maquinas`, `sessoes`, `agente`, `conversa`, `comandos` (a lista toda) |
 | `maquinas` | lista as máquinas do `tt --maquinas` e a atual |
 | `status` | resume o `tt --saude` (quem está ok, quem está fora do ar) |
-| `ir para NOME` | passa a falar com aquela máquina (busca aproximada; `celular`/`aqui` = este aparelho) |
-| `sessoes` / `abas` | lê as sessões da máquina atual (as `_ocultas` ficam fora) |
-| `aba NOME` · `proxima` · `anterior` | escolhe a sessão-alvo (todas as palavras ditas precisam estar no nome) |
+| `NOME` da máquina · `ir para NOME` · `vai para o NOME` | passa àquela máquina e já lê as sessões dela, numeradas (`celular`/`aqui` = este aparelho) |
+| `sessoes` · `sessoes do NOME` · `quais as abas da NOME` | lê as sessões numeradas (as `_ocultas` ficam fora) |
+| o número (`2`, `dois`, `segunda`) · `aba NOME` · `proxima` · `anterior` | escolhe a sessão-alvo (no nome, todas as palavras ditas precisam estar nele) |
 | `nova sessao` | cria uma sessão com `ia-conta abrir` na máquina atual e já a libera para voz |
 | `tarefas` · `contas` | lê as primeiras tarefas do `tt` · o uso das contas de IA (`ia-conta uso`) |
 | `repetir` · `onde` | repete a última fala (ou confere de novo um agente que demorou) · diz máquina e sessão atuais |
 | `enter` · `cancelar` | só a tecla Enter ou Escape na sessão-alvo (confirmações do agente) |
-| `permitir sessao` · `bloquear sessao` | libera ou tira a sessão-alvo do texto livre |
-| `encerrar` (ou silêncio) | fecha a conversa |
+| `sim` (quando ele pergunta) · `permitir sessao` · `bloquear sessao` | libera ou tira a sessão-alvo do texto livre |
+| `encerrar` (ou dois silêncios seguidos) | fecha a conversa; no 1º silêncio ele diz "Não ouvi" e ouve de novo |
 | qualquer outra frase | é digitada na sessão-alvo ("Enviado para…") e, quando o agente termina, as 2 ou 3 primeiras frases da resposta voltam (o texto completo fica em `~/.local/state/tt-voz/completa.txt`) |
+
+O reconhecimento do Google devolve várias hipóteses; o `voz` usa a primeira que vira comando ("abrir exceção" → "abrir
+sessão") e, se nenhuma vira, manda a primeira como texto livre. Frases com enchimento ("por favor", "me diga", "quais
+as", "mostra") e o singular ("máquina", "sessão") também valem.
 
 **Segurança.** Texto livre só vai para sessões listadas em `~/.config/tt-voz/permitidas` (linhas `maquina:sessao`):
 uma frase mal entendida não pode cair num agente de permissões amplas. A resposta falada nunca inclui código
