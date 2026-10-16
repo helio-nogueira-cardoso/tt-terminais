@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.27.4 · 16/10/2026
+- **🔒 E-mail OAuth e uso das contas de IA em redes com inspeção de TLS.** O Python 3.13+ rejeita, no modo estrito de X.509, a CA de
+  inspeção de redes corporativas (Netskope e afins) que o sistema já confia mas que não declara `keyUsage`: a renovação do token do
+  Gmail OAuth e a consulta de uso das contas falhavam com "CA cert does not include key usage extension". O `email-tt.py` e o
+  `contas-uso.py` passam a usar um contexto TLS sem só esse critério estrito; a cadeia, o nome do servidor e a data seguem verificados.
+
 ## v1.27.3 · 16/10/2026
 - **🍎 Janelas soltas no macOS e testes isolados.** O tt acha as janelas de terminal soltas (fora do tmux) também no macOS e passou a
   ter `TT_SEM_SOLTOS=1`, que os testes ligam para que as janelas abertas na máquina de quem roda a suíte não apareçam nas listagens

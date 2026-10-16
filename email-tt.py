@@ -31,6 +31,16 @@ programa nunca imprime senha nem refresh token (só o access token, quando pedid
 import base64, imaplib, json, os, smtplib, socket, ssl, subprocess, sys, time
 import urllib.parse, urllib.request, xml.etree.ElementTree as ET
 
+
+def contexto_ssl():
+    """Contexto TLS padrão, sem o modo ESTRITO de X.509 do Python 3.13+: uma CA de inspeção corporativa (Netskope e afins), que o
+    sistema já confia mas não declara keyUsage, reprovava com "CA cert does not include key usage extension". A cadeia, o
+    nome do servidor e a data continuam verificados."""
+    c = ssl.create_default_context()
+    c.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+    return c
+
+
 SEGREDOS = os.path.expanduser("~/.secrets")
 TIMEOUT = 15
 # Espera pelo resto de uma tecla especial depois do ESC (seta, clique), a mesma das telas do tt (TT_ESC_SEQ).
@@ -159,7 +169,7 @@ def ispdb(dominio):
     """Linhas chave=valor da base do Thunderbird (ISPDB) para o domínio, ou None se ela não o conhece."""
     base = os.environ.get("TT_EMAIL_ISPDB", "https://autoconfig.thunderbird.net/v1.1/")
     try:
-        with urllib.request.urlopen(base + urllib.parse.quote(dominio), timeout=TIMEOUT) as r:
+        with urllib.request.urlopen(base + urllib.parse.quote(dominio), timeout=TIMEOUT, context=contexto_ssl()) as r:
             raiz = ET.fromstring(r.read())
     except Exception:
         return None
@@ -216,7 +226,7 @@ def post(url, dados):
     req = urllib.request.Request(url, data=urllib.parse.urlencode(dados).encode(), method="POST")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=contexto_ssl()) as r:
             return json.loads(r.read())
     except urllib.error.HTTPError as e:
         try:
@@ -613,7 +623,7 @@ def xoauth2(usuario, token):
 
 def testar_imap(c, tipo, segredo):
     host, porta, seg = c["imap_host"], int(c.get("imap_porta") or 993), c.get("imap_seg", "tls")
-    ctx = ssl.create_default_context()
+    ctx = contexto_ssl()
     m = imaplib.IMAP4_SSL(host, porta, ssl_context=ctx, timeout=TIMEOUT) if seg == "tls" else imaplib.IMAP4(host, porta, timeout=TIMEOUT)
     try:
         if seg == "starttls":
@@ -635,7 +645,7 @@ def testar_imap(c, tipo, segredo):
 
 def testar_smtp(c, tipo, segredo):
     host, porta, seg = c["smtp_host"], int(c.get("smtp_porta") or 587), c.get("smtp_seg", "starttls")
-    ctx = ssl.create_default_context()
+    ctx = contexto_ssl()
     s = smtplib.SMTP_SSL(host, porta, context=ctx, timeout=TIMEOUT) if seg == "tls" else smtplib.SMTP(host, porta, timeout=TIMEOUT)
     try:
         s.ehlo()
@@ -674,7 +684,7 @@ def imap_conectar(c):
     """Conexão IMAP já autenticada (senha, comando ou OAuth2), como nos testes de conta."""
     tipo, segredo = credencial(c)
     host, porta, seg = c["imap_host"], int(c.get("imap_porta") or 993), c.get("imap_seg", "tls")
-    ctx = ssl.create_default_context()
+    ctx = contexto_ssl()
     m = imaplib.IMAP4_SSL(host, porta, ssl_context=ctx, timeout=TIMEOUT) if seg == "tls" else imaplib.IMAP4(host, porta, timeout=TIMEOUT)
     try:
         if seg == "starttls":
@@ -1202,7 +1212,7 @@ def baixar_imagem(url, arquivo):
         print("✗ só http/https", file=sys.stderr); return 1
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (tt)"})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=contexto_ssl()) as r:
             if not (r.headers.get_content_type() or "").startswith("image/"):
                 print(f"✗ não é imagem ({r.headers.get_content_type()})", file=sys.stderr); return 1
             dados = r.read(20 * 1024 * 1024 + 1)

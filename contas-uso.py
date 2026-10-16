@@ -23,6 +23,15 @@ vencido não é renovado (a renovação troca o refresh token e derrubaria a ses
 vale o último valor do cache, e ele é descartado quando a janela já reiniciou.
 """
 import base64
+import ssl
+
+
+def _contexto_ssl():
+    """TLS padrão sem o modo estrito de X.509 do Python 3.13+ (CA corporativa de inspeção sem keyUsage); cadeia e nome seguem verificados."""
+    c = ssl.create_default_context()
+    c.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+    return c
+
 import concurrent.futures
 import datetime
 import json
@@ -51,7 +60,7 @@ def epoch(iso):
 
 def pedir(url, cabecalhos):
     req = urllib.request.Request(url, headers={"User-Agent": "tt-contas-uso", **cabecalhos})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+    with urllib.request.urlopen(req, context=_contexto_ssl(), timeout=TIMEOUT) as r:
         return json.load(r)
 
 
