@@ -5,6 +5,15 @@
 set -euo pipefail
 RAIZ=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
+# exec_como NOME CMD [ARGS…] — imprime um comando "exec …" que roda CMD aparecendo como NOME para o tmux e o ps.
+# Linux: `exec -a` (o tmux lê o argv[0]). macOS: o tmux lê o nome do executável, então roda uma cópia do binário com o nome.
+exec_como() {
+  local nome=$1 cmd=$2; shift 2
+  if [[ $(uname -s) != Darwin ]]; then printf 'exec -a %q %q' "$nome" "$cmd"; (($#)) && printf ' %q' "$@"; return; fi
+  mkdir -p "$T/nomes/$nome"; [[ -x $T/nomes/$nome/$nome ]] || cp "$(command -v "$cmd")" "$T/nomes/$nome/$nome"
+  printf 'exec %q' "$T/nomes/$nome/$nome"; (($#)) && printf ' %q' "$@"; return 0
+}
+
 isolar() {
   local home_real=${HOME_REAL:-${HOME:-}}
   T=$(mktemp -d)
@@ -15,6 +24,62 @@ isolar() {
     [[ -e $RAIZ/$f ]] && cp "$RAIZ/$f" "$T/pkg/"
   done
   echo "999 teste 2099-01-01" >"$T/pkg/VERSAO"
+  # PATH enxuto dos testes que isolam o ambiente (PATH="$T/bin:$TT_PATH_BASE"). No Linux é /usr/bin:/bin; no macOS essas
+  # pastas só têm as ferramentas BSD e o bash 3.2, então entram também o bash e o python3 de agora e os gnubin do PATH
+  # (sem o resto do Homebrew: um aerc ou tmux "ausente" continua ausente).
+  if [[ -z ${TT_PATH_BASE:-} ]]; then
+    TT_PATH_BASE=/usr/bin:/bin
+    if [[ $(uname -s) == Darwin ]]; then
+      mkdir -p "$T/basebin"
+      for c in bash python3 tmux fzf rg; do ln -sf "$(command -v "$c")" "$T/basebin/$c" 2>/dev/null || true; done
+      # script(1): os testes usam a sintaxe do util-linux (-qfc "cmd" arquivo), que aceita stdin que não é terminal
+      # (FIFO, arquivo); o do BSD exige tty. Este adaptador faz o mesmo com pty: roda cmd num pty novo, copia o
+      # stdin para ele e a saída dele para o stdout e para o arquivo.
+      cat >"$T/basebin/script" <<'SHIM'
+#!/usr/bin/env python3
+import fcntl, os, pty, select, struct, sys, termios
+a = sys.argv[1:]; cmd = None; arq = []
+while a:
+    x = a.pop(0)
+    if x == "-T": a.pop(0)
+    elif x.startswith("-") and x.endswith("c") and x != "-": cmd = a.pop(0)
+    elif x.startswith("-"): pass
+    else: arq.append(x)
+log = open(arq[0], "wb", buffering=0) if arq and arq[0] != "/dev/null" else None
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp("/bin/bash", ["bash", "-c", cmd] if cmd else ["bash"])
+try:
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(os.environ.get("LINES", 24)), int(os.environ.get("COLUMNS", 80)), 0, 0))
+except OSError: pass
+ent = sys.stdin.fileno(); vivo_ent = True
+while True:
+    fds = [fd] + ([ent] if vivo_ent else [])
+    try: r, _, _ = select.select(fds, [], [], 0.2)
+    except OSError: break
+    if fd in r:
+        try: d = os.read(fd, 65536)
+        except OSError: break
+        if not d: break
+        if log: log.write(d)
+        try: os.write(1, d)
+        except OSError: pass
+    if vivo_ent and ent in r:
+        try: d = os.read(ent, 65536)
+        except OSError: d = b""
+        if not d: vivo_ent = False
+        else: os.write(fd, d)
+try: _, st = os.waitpid(pid, 0)
+except ChildProcessError: st = 0
+sys.exit(os.waitstatus_to_exitcode(st))
+SHIM
+      chmod +x "$T/basebin/script"
+      export PATH="$T/basebin:$PATH"
+      TT_PATH_BASE="$T/basebin:$(tr ':' '\n' <<<"$PATH" | grep -F gnubin | paste -sd: -):/usr/bin:/bin"
+      TT_PATH_BASE=${TT_PATH_BASE//::/:}
+    fi
+  fi
+  export TT_PATH_BASE
   export HOME=$T/home XDG_CONFIG_HOME=$T/home/.config TMUX_TMPDIR=$T/tmux TT_RT=$T/rt TT_DIR=$T/pkg
   sem_tela_real "$T/run"
   export TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8  # ambiente controlavel: nao herdar TERM=dumb nem locale vazio do chamador

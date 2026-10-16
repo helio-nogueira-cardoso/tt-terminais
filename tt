@@ -1325,6 +1325,37 @@ DIR_BIN_TT=$HOME/.local/share/tt-bin
 # binário do próprio servidor, que sempre conversa com ele: se o PATH acha outro arquivo, o tt chama o do
 # servidor (função tmux para o bash do tt; TT_TMUX_BIN para exec, ssh, popups e os auxiliares em python).
 # Sem /proc (macOS) ou fora do tmux fica o do PATH. Caminho comum (mesmo arquivo): zero subprocessos.
+# flock: o macOS não tem (no Linux é do util-linux). Sem ele o tt usa este, em Python: aceita -n, -w SEGUNDOS, -x/-s/-u,
+# e o alvo é um número (fd já aberto pelo bash: o Python o herda e a trava fica no mesmo "open file description", então
+# continua valendo depois que ele sai) ou um arquivo, com ou sem comando depois.
+if ! command -v flock >/dev/null 2>&1; then
+  flock() {
+    python3 -I - "$@" <<'PYFLOCK'
+import fcntl, os, subprocess, sys, time
+a = sys.argv[1:]; nb = False; espera = None
+while a and a[0].startswith("-") and a[0] != "-":
+    o = a.pop(0)
+    if o in ("-n", "--nb", "--nonblock"): nb = True
+    elif o in ("-w", "--wait", "--timeout"): espera = float(a.pop(0))
+    elif o in ("-x", "-e", "--exclusive", "-s", "--shared", "-u", "--unlock", "-o", "--close", "-E"): 
+        if o == "-E": a.pop(0)
+    else: pass
+if not a: sys.exit(64)
+alvo = a.pop(0)
+if alvo.isdigit(): fd = int(alvo)
+else:
+    try: fd = os.open(alvo, os.O_RDONLY | os.O_CREAT, 0o644)
+    except OSError: sys.exit(1)
+limite = time.monotonic() + (espera or 0)
+while True:
+    try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); break
+    except OSError:
+        if nb and espera is None or (espera is not None and time.monotonic() >= limite): sys.exit(1)
+        time.sleep(0.05)
+if a: sys.exit(subprocess.call(a))
+PYFLOCK
+  }
+fi
 TT_TMUX_BIN=tmux
 tmux_alinhar() {
   local pid=${TMUX:-} p d bin IFS=:

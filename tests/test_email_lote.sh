@@ -167,7 +167,7 @@ passou 'conferir: Gmail sem lixeira e lixeira fora do espelho são acusados (tam
 mkdir -p "$T/rt-x" "$T/bin"; export XDG_RUNTIME_DIR=$T/rt-x AERC_IPC_LOG=$T/ipc.log
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"$AERC_IPC_LOG"\n' >"$T/bin/aerc"; chmod +x "$T/bin/aerc"; export PATH=$T/bin:$PATH
 python3 -I -c 'import socket, sys; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$XDG_RUNTIME_DIR/aerc.sock"
-tmux new-session -d -s _tt-email -x 120 -y 20 "exec -a aerc sleep 600"
+tmux new-session -d -s _tt-email -x 120 -y 20 "$(exec_como aerc sleep 600)"
 : >"$AERC_IPC_LOG"; "$TT" --email-tudo; "$TT" --email-tudo
 [[ $(cat "$AERC_IPC_LOG") == $':mark -a\n:unmark -a' ]] || falhou "☑ deveria marcar e depois desmarcar: $(cat "$AERC_IPC_LOG")"
 fn=$(TT_COMPLETO=1 bash -c 'TT_SO_CARREGAR=1 source "$1" >/dev/null 2>&1; declare -p EMAIL_BOTOES; declare -f email_botao_acao email_tela menu_email' _ "$TT_DIR/tt")

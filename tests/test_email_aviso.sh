@@ -6,7 +6,7 @@
 # quando o sync de alguma conta falha de forma persistente (âmbar ⏳ se só atrasou). Isola HOME/XDG; mbsync e notify-send são stubs.
 source "$(dirname "$0")/lib.sh"; isolar
 mkdir -p "$T/bin"; printf '#!/bin/sh\nexit 0\n' >"$T/bin/aerc"; chmod +x "$T/bin/aerc"
-export PATH="$T/bin:/usr/bin:/bin"
+export PATH="$T/bin:$TT_PATH_BASE"
 # notify-send é chamado como "notify-send -a tt TÍTULO CORPO": guarda "TÍTULO|CORPO"
 printf '#!/bin/sh\nshift 2; printf "%%s|%%s\\n" "$1" "$2" >>"%s/notif.log"\n' "$T" >"$T/bin/notify-send"; chmod +x "$T/bin/notify-send"
 # mbsync falso: "entrega" no INBOX do espelho os arquivos que estiverem em $T/chegando (um por rodada)

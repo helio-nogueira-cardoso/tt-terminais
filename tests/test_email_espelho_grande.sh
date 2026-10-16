@@ -14,7 +14,7 @@ echo "\$@" >>"$T/mbsync.calls"
 exit \${MBSYNC_RC:-0}
 MB
 chmod +x "$T/bin"/*
-export PATH="$T/bin:/usr/bin:/bin" TT_EMAIL_SEM_REDE=1
+export PATH="$T/bin:$TT_PATH_BASE" TT_EMAIL_SEM_REDE=1
 echo 'SENHA' | "$TT" --email-adicionar nome=Felipe endereco=f@gmail.com provedor=gmail auth=senha sync_local=1 --senha-stdin >/dev/null || falhou 'cadastro'
 CONF=$HOME/.config/tt/email/felipe.conf RC=$HOME/.config/tt/mbsync/felipe.mbsyncrc E=$HOME/.local/state/tt/email-sync
 MD=$HOME/.cache/tt/maildir/felipe

@@ -8,7 +8,7 @@ set +e  # este teste conta clientes com grep -c (retorna 1 quando zero); nao que
 
 tmux -f /dev/null new -d -s B -x 120 -y 30 'sleep 600'
 # cliente aninhado (TERM tmux*) anexado a B, como uma ponte/vista dentro de um painel
-fora new -d -s aninhado -x 100 -y 24 "env -u TMUX TMUX_TMPDIR=$TMUX_TMPDIR TERM=tmux-256color tmux attach -t =B"
+fora new -d -s aninhado -x 100 -y 24 "env -u TMUX TMUX_TMPDIR=$TMUX_TMPDIR TERM=tmux-256color tmux attach -t '=B'"
 sleep 1
 
 antes=$(tmux list-clients -t "=B" -F '#{client_termname}' 2>/dev/null | grep -c '^tmux')

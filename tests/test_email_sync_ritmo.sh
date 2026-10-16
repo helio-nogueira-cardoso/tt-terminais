@@ -15,7 +15,7 @@ echo "\$@" >>"$T/mbsync.calls"
 exit \${MBSYNC_RC:-0}
 MB
 chmod +x "$T/bin"/*
-export PATH="$T/bin:/usr/bin:/bin"
+export PATH="$T/bin:$TT_PATH_BASE"
 echo 'SENHA' | "$TT" --email-adicionar nome=Local endereco=eu@gmail.com provedor=gmail auth=senha sync_local=1 --senha-stdin >/dev/null || falhou 'cadastro'
 E=$HOME/.local/state/tt/email-sync; RC=$HOME/.config/tt/mbsync/local.mbsyncrc
 curto() { "$TT" --email-sync-estado curto | awk -F'\t' '$1 == "local" { print $2 }'; }

@@ -105,7 +105,7 @@ bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAI
 # aberta em outra tela (popup anexado): pasta nova não a derruba (fecharia o e-mail lá, com uma resposta pela
 # metade); desanexada, a próxima abertura a recria. (Um "aerc" que o tmux vê como aerc: o falso acima é python3,
 # e sessão sem aerc é sempre recriada.)
-printf '#!/bin/bash\nexec -a aerc sleep 600\n' >"$T/bin/aerc-dorme"; chmod +x "$T/bin/aerc-dorme"
+printf '#!/bin/bash\n%s\n' "$(exec_como aerc sleep 600)" >"$T/bin/aerc-dorme"; chmod +x "$T/bin/aerc-dorme"
 sessao_dorme() { bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc-dorme' largo"; }
 sessao_dorme; antes=$(tmux show -qv -t =_tt-email: @tt_email_binds); pid=$(tmux display -p -t =_tt-email: '#{pane_pid}')
 [[ $(tmux display -p -t =_tt-email: '#{pane_current_command}') == aerc ]] || falhou "o aerc de teste deveria aparecer como aerc: $(tmux display -p -t =_tt-email: '#{pane_current_command}')"

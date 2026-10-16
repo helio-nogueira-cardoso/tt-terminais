@@ -9,7 +9,7 @@ instalar_isolado
 # aerc falso que fica vivo: ignora os argumentos (-C conf -B binds) e dorme com argv[0] = "aerc" —
 # é o que o tmux mostra em pane_current_command, e o botão 📧 confere que o aerc continua aberto.
 mkdir -p "$T/bin"
-printf '#!/usr/bin/env bash\nexec -a aerc python3 -c "import time; time.sleep(600)"\n' >"$T/bin/aerc"; chmod +x "$T/bin/aerc"; export PATH=$T/bin:$PATH
+printf '#!/usr/bin/env bash\n%s\n' "$(exec_como aerc sleep 600)" >"$T/bin/aerc"; chmod +x "$T/bin/aerc"; export PATH=$T/bin:$PATH
 B=$HOME/.config/aerc/binds.conf
 G=(provedor=gmail auth=senha 'pasta_naoabre=[Gmail]' 'pasta_lixeira=[Gmail]/Lixeira' 'pasta_spam=[Gmail]/Spam' 'pasta_todos=[Gmail]/Todos os e-mails')
 sec() { sed -n "/^\[$1\]\$/,/^\[/p" "$B" | sed '1d;$d'; } # linhas de uma seção (o nome é regex literal aqui)

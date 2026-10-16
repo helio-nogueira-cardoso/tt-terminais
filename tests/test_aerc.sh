@@ -7,7 +7,7 @@ mkdir -p "$T/bin" "$HOME/.config/aerc"; printf '#!/bin/sh\nexit 0\n' >"$T/bin/ae
 C=$HOME/.config/aerc/aerc.conf; B=$HOME/.config/aerc/binds.conf
 printf '[ui]\n#mouse-enabled=false\nsidebar-width=30\n\n[filters]\ntext/plain=colorize\ntext/html=! html\n' >"$C"
 printf '[messages]\nj = :next<Enter>\n\n[terminal]\n<C-p> = :prev-tab<Enter>\n' >"$B"
-roda() { PATH="$T/bin:/usr/bin:/bin" bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { :; }; configurar_aerc"; }
+roda() { PATH="$T/bin:$TT_PATH_BASE" bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { :; }; configurar_aerc"; }
 roda; roda
 v() { awk -v S="$1" -v K="$2" '/^\[.*\]/ { s = $0; gsub(/^\[|\].*$/, "", s); next } s == S && index($0, K "=") == 1 { sub(/^[^=]*=/, ""); print }' "$C"; }
 [[ $(v ui styleset-name) == tt-catppuccin && -s $HOME/.config/aerc/stylesets/tt-catppuccin ]] || falhou 'tema Catppuccin não aplicado'
@@ -21,8 +21,8 @@ grep -q '^dirlist-right={{if .Unread}}' "$C" || falhou 'contagem de não lidas n
 passou 'visual: tema Catppuccin, pastas em árvore com não lidas, fios, cache de cabeçalhos; escolhas do dono preservadas; idempotente'
 
 h=$(v filters text/html)
-if PATH="$T/bin:/usr/bin:/bin" command -v w3m >/dev/null; then [[ ( $h == '! html'*extbrowser* || $h == '! '*html-tt*extbrowser* ) && $h != *'|'* ]] || falhou "com w3m deveria ser '! html(-tt) -o extbrowser…' sem pipe, para o w3m ficar interativo (está: $h)"
-elif PATH="$T/bin:/usr/bin:/bin" command -v lynx >/dev/null; then [[ $h == lynx*linkify* ]] || falhou "sem w3m deveria usar lynx + linkify (está: $h)"
+if PATH="$T/bin:$TT_PATH_BASE" command -v w3m >/dev/null; then [[ ( $h == '! html'*extbrowser* || $h == '! '*html-tt*extbrowser* ) && $h != *'|'* ]] || falhou "com w3m deveria ser '! html(-tt) -o extbrowser…' sem pipe, para o w3m ficar interativo (está: $h)"
+elif PATH="$T/bin:$TT_PATH_BASE" command -v lynx >/dev/null; then [[ $h == lynx*linkify* ]] || falhou "sem w3m deveria usar lynx + linkify (está: $h)"
 else [[ $h == *email-tt.py\ html*linkify* ]] || falhou "sem w3m/lynx deveria usar o conversor do tt + linkify (está: $h)"; fi
 r=$(printf '<p>Oi <a href="https://x.y/z">link</a></p>' | python3 "$TT_DIR/email-tt.py" html)
 [[ $r == *"Oi link [1]"* && $r == *"[1] https://x.y/z"* ]] || falhou "conversor de HTML do tt: $r"
@@ -57,9 +57,9 @@ fi
 
 # email= com caminho completo para o aerc (como no Dell) também recebe a configuração.
 rm -rf "$HOME/.config/aerc"; mkdir -p "$HOME/.config/aerc"
-PATH="$T/bin:/usr/bin:/bin" bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { [[ \$1 == email ]] && echo /opt/x/bin/aerc; }; configurar_aerc"
+PATH="$T/bin:$TT_PATH_BASE" bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { [[ \$1 == email ]] && echo /opt/x/bin/aerc; }; configurar_aerc"
 grep -q '^styleset-name=tt-catppuccin' "$HOME/.config/aerc/aerc.conf" || falhou 'email=/caminho/aerc não recebeu a configuração'
-PATH="$T/bin:/usr/bin:/bin" bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { [[ \$1 == email ]] && echo neomutt; }; rm -f '$HOME/.config/aerc/aerc.conf'; configurar_aerc"
+PATH="$T/bin:$TT_PATH_BASE" bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { [[ \$1 == email ]] && echo neomutt; }; rm -f '$HOME/.config/aerc/aerc.conf'; configurar_aerc"
 [[ -e $HOME/.config/aerc/aerc.conf ]] && falhou 'configurou o aerc com outro cliente escolhido (neomutt)'
 passou 'email= com caminho do aerc configura; outro cliente escolhido não é tocado'
 
@@ -67,7 +67,7 @@ passou 'email= com caminho do aerc configura; outro cliente escolhido não é to
 # HTML é a versão preferida quando o e-mail tem as duas.
 rm -rf "$HOME/.config/aerc"; mkdir -p "$HOME/.config/aerc" "$T/aercpad"
 printf '[messages]\n<Enter> = :view<Enter>\nj = :next<Enter>\n' >"$T/aercpad/binds.conf"
-PATH="$T/bin:/usr/bin:/bin" PREFIX="$T/aercpad/.." bash -c "mkdir -p '$T/share/aerc'; cp '$T/aercpad/binds.conf' '$T/share/aerc/'; PREFIX='$T'; source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { :; }; configurar_aerc"
+PATH="$T/bin:$TT_PATH_BASE" PREFIX="$T/aercpad/.." bash -c "mkdir -p '$T/share/aerc'; cp '$T/aercpad/binds.conf' '$T/share/aerc/'; PREFIX='$T'; source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { :; }; configurar_aerc"
 grep -q '^<Enter> = :view' "$HOME/.config/aerc/binds.conf" || falhou 'binds.conf novo sem os atalhos padrão do aerc'
 grep -q '^u = :read -t' "$HOME/.config/aerc/binds.conf" || falhou 'binds.conf novo sem os atalhos do tt'
 grep -q '^alternatives=text/html,text/plain$' "$HOME/.config/aerc/aerc.conf" || falhou 'HTML não é o preferido'

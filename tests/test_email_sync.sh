@@ -14,7 +14,7 @@ RC() { echo "$HOME/.config/tt/mbsync/$1.mbsyncrc"; }
 MD() { echo "$HOME/.cache/tt/maildir/$1"; }
 
 # --- Sem mbsync instalado: sync_local=1 é recusado -----------------------------------------------
-export PATH="$T/bin:/usr/bin:/bin"
+export PATH="$T/bin:$TT_PATH_BASE"
 # TT_MBSYNC aponta para um executável inexistente: simula a máquina sem mbsync mesmo onde ele está
 # em /usr/bin (o Dell tem; só tirar do PATH não bastava).
 echo 'SENHA_X' | TT_MBSYNC=/nonexistent/mbsync "$TT" --email-adicionar nome=SemMbsync endereco=a@x.com provedor=gmail auth=senha sync_local=1 --senha-stdin >/dev/null 2>&1 \

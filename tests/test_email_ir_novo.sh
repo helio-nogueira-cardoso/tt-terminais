@@ -61,7 +61,7 @@ tt --email-saltar-novo gmail && falhou 'sem sessão oculta deveria falhar'
 passou 'sem sessão oculta: nenhum comando ao aerc'
 
 # 2) sessão oculta com aerc vivo + socket: a sequência abre a mensagem também no modo largo
-tmux new-session -d -s _tt-email -x 150 -y 40 'exec -a aerc python3 -c "import time; time.sleep(600)"'
+tmux new-session -d -s _tt-email -x 150 -y 40 "$(exec_como aerc sleep 600)"
 tmux set -q -t =_tt-email: @ponte email; tmux set -q -t =_tt-email: @tt_email_modo largo
 sleep 0.5
 tt --email-saltar-novo gmail && falhou 'sem socket deveria falhar'
@@ -116,7 +116,7 @@ passou 'conta desconhecida: sem salto, sem erro'
 tmux kill-session -t _tt-email; rm -f "$XDG_RUNTIME_DIR/aerc.sock"; : >"$AERC_IPC_LOG"
 TT_EMAIL_SEM_POPUP=1 tt --email-ir-novo gmail base || falhou 'ir-novo sem sessão'
 sleep 1.2; [[ -z $(ipc) ]] || falhou "antes do aerc subir nada deveria ir: $(ipc)"
-tmux new-session -d -s _tt-email -x 150 -y 40 'exec -a aerc python3 -c "import time; time.sleep(600)"'
+tmux new-session -d -s _tt-email -x 150 -y 40 "$(exec_como aerc sleep 600)"
 tmux set -q -t =_tt-email: @tt_email_modo largo; socket_criar
 for i in $(seq 1 20); do grep -q '^:view$' "$AERC_IPC_LOG" 2>/dev/null && break; sleep 0.5; done
 [[ $(ipc | tr '\n' '|') == ':change-tab Gmail|:cf INBOX|:check-mail|:select 0|:search -u|:view|' ]] || falhou "salto adiado errado: $(ipc | tr '\n' '|')"

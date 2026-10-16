@@ -38,7 +38,7 @@ kill "$srv" 2>/dev/null || true; wait "$srv" 2>/dev/null || true
 
 # Provisionamento: tecla i na leitura e opener image/*.
 mkdir -p "$T/bin" "$HOME/.config/aerc"; printf '#!/bin/sh\nexit 0\n' >"$T/bin/aerc"; chmod +x "$T/bin/aerc"
-for _ in 1 2; do PATH="$T/bin:/usr/bin:/bin" bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { :; }; configurar_aerc"; done
+for _ in 1 2; do PATH="$T/bin:$TT_PATH_BASE" bash -c "source <(sed -n '/^AERC_BINDS_INI=/,/^remover_aerc() {/p' '$TT' | sed '\$d'); DIR_TT='$TT_DIR'; conf() { :; }; configurar_aerc"; done
 B=$HOME/.config/aerc/binds.conf; C=$HOME/.config/aerc/aerc.conf
 [[ $(grep -c '^i = :pipe -m .*tt --imagens<Enter>$' "$B") == 1 ]] || falhou 'tecla i ausente ou duplicada'
 awk '/^\[view\]/{v=1;next} /^\[/{v=0} v&&/^i = :pipe/{ok=1} END{exit !ok}' "$B" || falhou 'tecla i fora da seção [view]'
@@ -49,8 +49,8 @@ passou 'aerc: tecla i na leitura e opener image/*, idempotentes'
 printf '#!/bin/sh\necho "$1" >"%s/aberto"\n' "$T" >"$T/bin/xdg-open"; chmod +x "$T/bin/xdg-open"
 printf '#!/bin/sh\ncat >/dev/null; sed -n 1p "%s/lista"\n' "$T" >"$T/bin/fzf"; chmod +x "$T/bin/fzf"
 printf 'arq\t%s/out/01-logo.png\t📎 logo.png\n' "$T" >"$T/lista"
-PATH="$T/bin:/usr/bin:/bin" HOME=$HOME bash "$TT" --imagens <"$T/msg.eml" >/dev/null 2>&1 </dev/null || true
-PATH="$T/bin:/usr/bin:/bin" bash "$TT" --abrir-imagem "$T/out/01-logo.png"; sleep 0.5
+PATH="$T/bin:$TT_PATH_BASE" HOME=$HOME bash "$TT" --imagens <"$T/msg.eml" >/dev/null 2>&1 </dev/null || true
+PATH="$T/bin:$TT_PATH_BASE" bash "$TT" --abrir-imagem "$T/out/01-logo.png"; sleep 0.5
 [[ $(cat "$T/aberto" 2>/dev/null) == "$T/out/01-logo.png" ]] || falhou 'abrir-imagem não chamou o visualizador com o arquivo'
-PATH="$T/bin:/usr/bin:/bin" bash "$TT" --abrir-imagem "$T/nao-existe"; [[ $? != 0 ]] || true
+PATH="$T/bin:$TT_PATH_BASE" bash "$TT" --abrir-imagem "$T/nao-existe"; [[ $? != 0 ]] || true
 passou 'abrir-imagem chama o visualizador do sistema'

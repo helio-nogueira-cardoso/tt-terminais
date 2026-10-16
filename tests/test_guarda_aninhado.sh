@@ -16,7 +16,7 @@ tmux new -d -s outra -x 100 -y 25 'sleep 600'
 # (o painel nasce primeiro e só então recebe o attach: nascendo já com ele, o cliente começa minúsculo e a guarda
 # de tamanho o desliga antes do teste)
 pe=$(tmux split-window -d -P -F '#{pane_id}' -t =trabalho: 'sleep 600'); sleep 0.3
-tmux respawn-pane -k -t "$pe" "env -u TMUX $T_TMUX -u attach -t =_tt-email"
+tmux respawn-pane -k -t "$pe" "env -u TMUX $T_TMUX -u attach -t '=_tt-email'"
 cli_de() { tmux list-clients -F '#{client_name} #{session_name} #{client_termname}' | awk -v s="$1" '$2 == s { print $1; exit }'; }
 for i in $(seq 1 30); do c=$(cli_de _tt-email); [[ -n $c ]] && break; sleep 0.2; done
 [[ -n $c ]] || falhou 'o cliente aninhado do e-mail não anexou'
@@ -35,7 +35,7 @@ passou 'o cliente do e-mail que sai da sessão dele volta na hora (sem a tela de
 
 # Vista aninhada comum (painel que mostra "outra") levada à sessão que a contém: ciclo, desanexada.
 po=$(tmux split-window -d -P -F '#{pane_id}' -t =trabalho: 'sleep 600'); sleep 0.3
-tmux respawn-pane -k -t "$po" "env -u TMUX $T_TMUX -u attach -t =outra"
+tmux respawn-pane -k -t "$po" "env -u TMUX $T_TMUX -u attach -t '=outra'"
 for i in $(seq 1 30); do v=$(cli_de outra); [[ -n $v ]] && break; sleep 0.2; done
 [[ -n $v ]] || falhou 'a vista aninhada comum não anexou'
 tmux switch-client -c "$v" -t =trabalho

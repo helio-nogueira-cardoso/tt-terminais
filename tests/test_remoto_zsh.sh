@@ -19,7 +19,7 @@ chmod +x "$HOME/.local/bin/tmux" "$HOME/.local/bin/tt"
 
 for s in 'sessao' 'com espaço' "aspas'simples" '=igual' 'a=b'; do
   saida=$(eval "$(cmd_ver eu@mac "$s" ponte-1)" 2>&1) || true
-  [[ $saida == "[attach][-t][=$s]"$'\n'"TT_PONTE=aqui|ponte-1" ]] || falhou "ponte para '$s' no zsh: $saida"
+  [[ $saida == "[-u][attach][-t][=$s]"$'\n'"TT_PONTE=aqui|ponte-1" ]] || falhou "ponte para '$s' no zsh: $saida"
 done
 passou 'zsh remoto: ponte acha o tmux e recebe "=sessão" intacto'
 
