@@ -153,7 +153,8 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --fixadas` — lista as fixadas; `tt --barra-fixadas` (interno) formata a faixa.
 - Internos: `--aplicar-fixadas`/`--barras` (liga a 2ª linha), `--ir-fixada`, `--mover-fixada`,
   `--notificar TEXTO [SEGUNDOS]` (aviso na faixa de notificações, 3ª linha; expira sozinho), `--notificar-daqui TEXTO [SEGUNDOS] [--sempre]` (aviso de agente pelo 🔔: só se o usuário não estiver olhando para a janela de onde veio; abrir o aviso leva à sessão e ao painel; `--notifs-lidas` marca todos como lidos; ver "Agente avisa o usuário"), `--notifs` (a central do 🔔: abas Todas/Não lidas/Lidas/Agentes/E-mail/Tarefas e botões ↗ Abrir, ◐ Lida/não lida, ✓ Ler todas, ✕ Apagar, 🧹 Limpar lidas (confirma) no cabeçalho, com mapa de cliques; tudo passa pelo despachante `--notifs-acao EVENTO ID` (internos `--notifs-cabecalho`, `--notifs-lista-ui`, `--notifs-previa ID` = a prévia do aviso em foco; estado em `$RT/tt-notifs-ui-UID`; uma linha por aviso, a em foco destacada com `--highlight-line`; nada de processo por aviso no desenho: `notif_quando_em`, `notifs_ids_em`); teclas ⏎, Espaço, Tab/Shift+Tab, `^u`, `^a`, `^d`/Del, `^r`, `^l`, Esc/q; exclusões usam lápides sincronizadas entre máquinas; teste `tests/test_notifs_central.sh`; arquivo do aviso = `exp\ttexto\tação\tcanal[\tcódigo]`: o 5º campo, opcional, é o código do EVENTO (`notificar TEXTO SEG AÇÃO CANAL CÓDIGO`), igual em todas as máquinas: aviso com o mesmo código não é recriado, a sincronização deixa um só na rede (o de menor id; cópias ganham lápide; o lido passa) e a lápide de aviso apagado guarda `codigo=…`; usado pelo `novidades-v<versão>` e pelo lembrete de tarefa `lembrete-<id>|<dia ou prazo>`; código de LOTE `BASE#item,item,…` para o evento que cada máquina percebe sozinha, em hora e número diferentes (e-mail novo: `email-<slug>#<chave>,…`, chave = 12 hex do sha1 do Message-ID, de `email-tt.py cabecalhos`; demandas: `demandas-<slug>#`, `demandas-espera-<slug>#`, `demandas-ignoradas-<slug>#`): o aviso leva só os itens que a rede ainda não avisou (`notifs_itens_conhecidos BASE`, vigentes + lápides com código) e, depois de cada junção, `notifs_lotes_normalizar` apaga, do mais velho ao mais novo, o que não traz item novo (o lido de quem some passa aos mais velhos que ele cobria inteiros); a poda guarda o código na lápide; a notificação do SISTEMA (`notificar_aparelho`) continua sendo de cada aparelho que percebe o evento; leitores do arquivo leem o 5º campo à parte (`read -r exp txt acao canal _`); teste `tests/test_notifs_sync.sh`), chave `faixa_notif=0|1`. `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
-  `--resolver-fixada`. Sync: `--propagar-fixadas`, `--receber-fixadas [V]`, `--puxar-fixadas`,
+  `--resolver-fixada`, `--fixadas-girar cima|baixo [cliente]` (a roda no chip), `--fixadas-agrupar [cliente]`
+  (botão direito no chip, `^g` no popup). Sync: `--propagar-fixadas`, `--receber-fixadas [V]`, `--puxar-fixadas`,
   `--reconciliar-fixadas`, `--marcar-fixadas`.
 
 ### Tarefas (gerenciador simples)
@@ -692,7 +693,7 @@ Ranges e destino:
 | `letreiro` | 3ª linha, miolo (texto do letreiro; desenhado pelo `letreiro-tt.py`) | `letreiro_clique` (ação do item sob o mouse ou pausa) | — |
 | `fx<chave>` | faixa de fixadas | `ir_fixada` | `menu_fixada` |
 | `fxx<chave>` | faixa de fixadas (✕) | `desafixar_item` | `desafixar_item` |
-| `fixmais` | chip `+N ▾` da faixa de fixadas | `fixadas_popup` | — |
+| `fixmais` | chip `+N ▾` da faixa de fixadas | `fixadas_popup` | `fixadas_agrupar` (as de uma máquina lado a lado); a roda: `tt --rolar fixmais ±1` → `fixadas_girar` |
 | `at<N>` | atalhos | `atalho_executar` | `atalho_menu` (menu da 5ª coluna; sem ela, `atalho_info`: tooltip, sem executar) |
 | `transferencias` | status-right (⇅ N) | popup `--transferencias` | — |
 | `copias` | `Ctrl+B y` | popup `--copias` | — |
@@ -709,7 +710,12 @@ estouro, o último lugar é `#{?#{==:#{session_name},…}}`: a sessão em uso de
 desempate de iguais; máquina remota = selo `fixadas_selos` (letra estável sobre todas as cadastradas,
 cor pela ordem do cadastro), também em `fixadas_ui_lista` e `menu_maquinas`. `TT_FIX_LARGURA` força
 uma largura (testes), `TT_FIX_VISIVEIS` é teto de itens; o carimbo `#{?,hash,}` muda a cadeia quando
-um item muda, para a barra redesenhar.
+um item muda, para a barra redesenhar. `@fx_mapa` ("LIM:VISÍVEIS …" na ordem das versões; vale a 1ª que cabe) diz,
+por cliente (`fixadas_visiveis`), quantos itens vêm antes do chip: a roda no chip (`WheelUp/DownStatus` com range
+`fixmais` → `tt --rolar fixmais ∓1` → `fixadas_girar CLIENTE cima|baixo`, um passo por vez com `rolar_vez`) gira, para
+cima, as escondidas com a última visível (`mover_fixada VIS N`) e, para baixo, todas (`mover_fixada 1 N`). Botão
+direito no chip e `^g` no popup = `fixadas_agrupar` (`tt --fixadas-agrupar`: as de uma máquina lado a lado, máquinas
+na ordem da 1ª aparição, estável; sem mudança não grava nem propaga).
 
 Binds de teclado (prefixo `Ctrl+B`): `s` central, `t` tarefas, `|` split horizontal, `-` split
 vertical, `c` janela nova, `r` recarrega config, `m` menu do painel, `y` histórico de cópias, `N`

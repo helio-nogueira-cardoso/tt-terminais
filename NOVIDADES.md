@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.26.0 · 16/10/2026
+- **📌 A roda no chip `+N ▾` das fixadas:** para cima, as abas escondidas giram junto com a última visível ao lado do
+  chip (a próxima escondida aparece); para baixo, todas as abas giram uma casa.
+- **📌 Botão direito no chip:** agrupa as fixadas por máquina, com as sessões de uma mesma máquina lado a lado (as
+  máquinas na ordem em que aparecem; dentro de cada uma, a ordem de antes). No popup das fixadas, `^g`.
+
 ## v1.25.0 · 16/10/2026
 - **🎤 Escolher a sessão já a libera.** Acabou o "diga sim para liberar": escolheu (pelo número, pelo nome, pelo
   cérebro, ou abrindo uma nova), pode falar com ela. "Bloquear sessão" a solta.

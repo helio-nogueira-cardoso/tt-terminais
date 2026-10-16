@@ -1439,8 +1439,13 @@ redimensionar redesenha na hora. Quando falta espaço, nada rola: os rótulos **
 dois nomes nunca ficam iguais —, depois o ✕ sai (desafixe pelo popup ou pelo botão direito). Há um
 **piso de legibilidade**: os nomes não encolhem abaixo de 16 colunas; quando nem assim tudo cabe, os
 excedentes viram um chip **`+N ▾`** (que abre o mesmo popup, com os nomes inteiros e a máquina por
-extenso) e os visíveis continuam confortáveis — a sessão em uso de cada janela nunca some da faixa. No popup: `⏎` vai para a sessão, `^x` desafixa e `^k`/`^j`
-(ou alt-↑/↓) **reordenam ao vivo** — o item acompanha o cursor e, ao fechar, a barra e as outras
+extenso) e os visíveis continuam confortáveis — a sessão em uso de cada janela nunca some da faixa. A **roda do
+mouse** em cima do chip gira as fixadas: para cima, as escondidas no chip giram junto com a última visível ao lado
+dele (a próxima escondida aparece; a que estava ali vai para o fim do chip); para baixo, todas giram uma casa (a
+primeira vai para o fim). O **botão direito** no chip agrupa as fixadas por máquina: as de uma mesma máquina ficam
+lado a lado, as máquinas na ordem em que aparecem e, dentro de cada uma, a ordem de antes (no popup, `^g`; na linha
+de comando, `tt --fixadas-agrupar`; a roda, `tt --fixadas-girar cima|baixo`). No popup: `⏎` vai para a sessão, `^x`
+desafixa e `^k`/`^j` (ou alt-↑/↓) **reordenam ao vivo** — o item acompanha o cursor e, ao fechar, a barra e as outras
 máquinas recebem a ordem nova. Para fixar a sessão em uso: o pino ao lado do nome dela na barra (📍 = não fixada, um
 clique fixa; 📌 = fixada, um clique desafixa). Também: menu da sessão (botão direito em
 "sessão ▾") → "📌 Fixar na barra", `^f` no seletor, ou `tt --fixar [máquina:]sessão`. A lista é a mesma em todas as máquinas (cada mudança é copiada

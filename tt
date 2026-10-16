@@ -13718,7 +13718,7 @@ barra_fixadas_fmt() {
   }
   local teto=$total
   [[ ${TT_FIX_VISIVEIS:-} =~ ^[0-9]+$ ]] && ((TT_FIX_VISIVEIS > 0 && TT_FIX_VISIVEIS < total)) && teto=$TT_FIX_VISIVEIS
-  local -a REF=() LIM=()        # versões da faixa (referências às opções) e a largura mínima de cada
+  local -a REF=() LIM=() VIS=() # versões da faixa (referências às opções), a largura mínima e os itens antes do chip
   local e cap cx k=0 i w ant="" chave vis refs; local -A WKI=() KCAP=()   # largura por (estágio, item); estágio por cap sem ✕
   for e in "28 1" "20 1" "16 1" "16 0" "12 0" "8 0" "6 0"; do
     read -r cap cx <<<"$e"
@@ -13728,7 +13728,7 @@ barra_fixadas_fmt() {
     # Versão com todos os itens só nos estágios confortáveis (cap ≥ 16, o piso).
     if ((teto == total && cap >= 16)) && [[ $chave != "$ant" ]]; then
       refs=""; for ((i = 1; i <= total; i++)); do refs+="#{E:@fx${k}_$i}"; done
-      _fx_opt "@fxs$k" "$refs"; REF+=("#{E:@fxs$k}"); LIM+=($((w + dir)))
+      _fx_opt "@fxs$k" "$refs"; REF+=("#{E:@fxs$k}"); LIM+=($((w + dir))); VIS+=("$total")
     fi
     ant=$chave; k=$((k + 1))
   done
@@ -13745,11 +13745,14 @@ barra_fixadas_fmt() {
       slot="#{?#{==:#{session_name},${nome[i]}},#{E:@fx${k}_$i},$slot}"
     done
     _fx_opt "@fxo${k}_$vis" "$refs$slot#[range=user|fixmais]#[bg=#44475a]#[fg=#bd93f9]#[bold] +$oculto ▾ #[norange]#[default]"
-    REF+=("#{E:@fxo${k}_$vis}"); LIM+=($((w + walt + ${#oculto} + 5 + dir)))
+    REF+=("#{E:@fxo${k}_$vis}"); LIM+=($((w + walt + ${#oculto} + 5 + dir))); VIS+=("$vis")
   }
   # Primeiro com os visíveis no piso (16); só depois, um item só, cada vez menor.
   for ((vis = teto == total ? total - 1 : teto; vis >= 1; vis--)); do _fx_estouro "${KCAP[16]}" "$vis"; done
   for cap in 12 8 6; do _fx_estouro "${KCAP[$cap]}" 1; done
+  # "largura:visíveis …" na ordem das versões (vale a 1ª que cabe; senão a última): a roda do chip lê por cliente
+  local mapa=""; for i in "${!REF[@]}"; do mapa+="${LIM[i]}:${VIS[i]} "; done
+  _fx_opt "@fx_mapa" "$mapa"
   # Só regrava as opções @fx… quando o conteúdo mudou: um source-file igual ao que está no servidor
   # redesenhava a tela inteira de todos os clientes a cada atualizar_barras (vigia por minuto,
   # tarefas/fixadas recebidas…). O carimbo (cksum do cfg) fica em @fx_carimbo, gravado no MESMO
@@ -14013,6 +14016,57 @@ mover_fixada() {
   propagar_fixadas
 }
 
+# Quantas fixadas a faixa deste cliente mostra antes do chip "+N ▾" (todas, se não há chip): pela largura dele e o
+# mapa @fx_mapa que a faixa grava ("largura:visíveis …", a 1ª versão que cabe vale, como no formato da barra).
+fixadas_visiveis() { # cliente
+  local c=$1 w mapa par lim vis ult=""
+  if [[ ${TT_FIX_LARGURA:-} =~ ^[0-9]+$ ]]; then w=$TT_FIX_LARGURA; else w=$(do_cliente "$c" '#{client_width}'); fi
+  mapa=$(tmux show -gqv @fx_mapa 2>/dev/null)
+  for par in $mapa; do
+    lim=${par%%:*} vis=${par#*:}; ult=$vis
+    [[ $w =~ ^[0-9]+$ ]] && ((w >= lim)) && { echo "$vis"; return 0; }
+  done
+  [[ -n $ult ]] && echo "$ult" || grep -vc '^\s*$' "$CONF_FIX" 2>/dev/null || echo 0
+}
+
+# A roda do mouse no chip "+N ▾": para cima, as do chip giram com a última visível ao lado dele (a 1ª escondida
+# aparece, a que estava visível vai para o fim do chip); para baixo, todas giram uma casa (a 1ª vai para o fim).
+fixadas_girar() { # cliente cima|baixo
+  local c=$1 modo=$2 n vis
+  n=$(grep -vc '^\s*$' "$CONF_FIX" 2>/dev/null) || n=0
+  ((n >= 2)) || return 0
+  if [[ $modo == cima ]]; then
+    vis=$(fixadas_visiveis "$c")
+    [[ $vis =~ ^[0-9]+$ ]] && ((vis >= 1 && vis < n)) || return 0  # sem chip: nada no chip para girar
+    mover_fixada "$vis" "$n"
+  else
+    mover_fixada 1 "$n"
+  fi
+}
+
+# Botão direito no chip "+N ▾" (e ^g no popup das fixadas): as sessões de uma mesma máquina ficam lado a lado, as
+# máquinas na ordem em que aparecem pela 1ª vez e, dentro de cada uma, a ordem de antes (só muda o necessário).
+fixadas_agrupar() { # [cliente]
+  local c=${1:-} antes depois
+  travar_fixadas || return 0
+  antes=$(fixadas)
+  depois=$(awk -F'\t' 'NF { if (!($1 in ord)) { ord[$1] = ++k; maq[k] = $1 } n[$1]++; l[$1, n[$1]] = $0 }
+    END { for (i = 1; i <= k; i++) for (j = 1; j <= n[maq[i]]; j++) print l[maq[i], j] }' <<<"$antes")
+  if [[ -n $depois && $depois != "$antes" ]]; then
+    printf '%s\n' "$depois" >"$CONF_FIX.novo" && mv "$CONF_FIX.novo" "$CONF_FIX"
+    marcar_fixadas
+  fi
+  destravar_fixadas
+  if [[ $depois == "$antes" ]]; then
+    [[ -n $c ]] && botao_aviso "$c" "📌 as fixadas já estão agrupadas por máquina"
+    return 0
+  fi
+  aplicar_fixadas
+  propagar_fixadas
+  [[ -n $c ]] && botao_aviso "$c" "📌 fixadas agrupadas por máquina"
+  return 0
+}
+
 # Popup com TODAS as fixadas (abre pelo chip "+N ▾", pelo menu do botão direito, ou
 # tt --fixadas-popup): ⏎/clique vai para a sessão, ^x desafixa, ^k/^j (ou alt-↑/↓) REORDENA ao
 # vivo — o item acompanha o cursor e a barra e as outras máquinas recebem a ordem nova ao fechar.
@@ -14042,12 +14096,13 @@ fixadas_ui() {
   while :; do
     [[ -n $(fixadas) ]] || { echo "Nenhuma sessão fixada."; read -rsn1 -t 2; return 0; }
     esc=$(fixadas_ui_lista | fzf --ansi --delimiter=$'\t' --with-nth=2 --layout=reverse --no-sort --no-input \
-      --header=$'⏎ vai · ^k/^j reordena · ^x desafixa · Esc fecha' \
+      --header=$'⏎ vai · ^k/^j reordena · ^g agrupa por máquina · ^x desafixa · Esc fecha' \
       --pointer='▶' --bind "ctrl-k:execute-silent($EU --mover-fixada-rel {n} -1)+reload($EU --fixadas-ui-lista)+up" \
       --bind "alt-up:execute-silent($EU --mover-fixada-rel {n} -1)+reload($EU --fixadas-ui-lista)+up" \
       --bind "ctrl-j:execute-silent($EU --mover-fixada-rel {n} 1)+reload($EU --fixadas-ui-lista)+down" \
       --bind "alt-down:execute-silent($EU --mover-fixada-rel {n} 1)+reload($EU --fixadas-ui-lista)+down" \
       --bind "ctrl-x:execute-silent($EU --desafixar-n {n})+reload($EU --fixadas-ui-lista)" \
+      --bind "ctrl-g:execute-silent($EU --fixadas-agrupar)+reload($EU --fixadas-ui-lista)" \
       --bind 'q:abort') || { atualizar_barras; return 0; }
     [[ -n $esc ]] || continue
     atualizar_barras
@@ -14080,7 +14135,8 @@ clique_direito() {
   local faixa=${1#user|}
   case $faixa in
     fxx*) desafixar_item "$2" "${faixa#fxx}" ;;
-    fixprev | fixnext | fixmais) fixadas_popup "$2" ;;
+    fixmais) fixadas_agrupar "$2" ;;
+    fixprev | fixnext) fixadas_popup "$2" ;;
     fx*) menu_fixada "$2" "$faixa" ;;
     at[0-9]*) atalho_menu "$2" "${faixa#at}" "$3" ;;
     maquina) menu_admin "$2" "$3" ;;
@@ -14974,6 +15030,10 @@ rolar() { # range ±1 cliente
   [[ -n $c ]] || return 0
   case $faixa in
     sessao) rolar_sessao "$c" "$dir" ;;
+    fixmais)  # a roda no chip "+N ▾": para cima gira as do chip com a última visível; para baixo, todas
+      rolar_vez "fx-$c" "${TT_ROLAR_FOLGA:-400}" || return 0
+      fixadas_girar "$c" "$( ((dir < 0)) && echo cima || echo baixo)"
+      rolar_fim "fx-$c" ;;
     maquina)
       # Vendo esta máquina de outra (ponte): quem troca a tela é a máquina de lá, na ordem das máquinas dela.
       origem=$(origem_ponte "$c")
@@ -19060,6 +19120,8 @@ case "${1:-}" in
   --puxar-letreiro) letreiro_puxar; exit 0 ;;
   --mover-fixada) mover_fixada "$2" "$3"; exit ;;
   --mover-fixada-rel) mover_fixada_rel "$2" "$3"; exit ;;
+  --fixadas-girar) fixadas_girar "${3:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}" "${2:-cima}"; exit 0 ;;
+  --fixadas-agrupar) fixadas_agrupar "${2:-}"; exit 0 ;;
   --desafixar-n) desafixar_n "$2"; exit ;;
   --fixadas-popup) fixadas_popup "${2:-}"; exit ;;
   --fixadas-ui) fixadas_ui "${2:-}"; exit ;;

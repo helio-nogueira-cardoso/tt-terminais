@@ -4,6 +4,8 @@
 #  - sem scroll: os rótulos encolhem por estágios até caberem na largura (TT_FIX_LARGURA);
 #  - quando nem encolhido cabe, os excedentes viram o chip "+N ▾" (abre o popup de todas);
 #  - a sessão em uso, se fixada e escondida, toma o último lugar visível;
+#  - a roda no chip gira (para cima: as escondidas com a última visível; para baixo: todas); o botão direito no chip
+#    agrupa por máquina;
 #  - o popup reordena pelo índice ({n} do fzf): --mover-fixada-rel e --desafixar-n.
 source "$(dirname "$0")/lib.sh"; isolar
 tt() { "$TT" "$@"; }
@@ -80,6 +82,36 @@ faixa=$(TT_FIX_LARGURA=50 render)
 grep -q 's10' <<<"$(desenho "$faixa" s10)" || falha 'sessão em uso (s10) não ficou visível no estouro'
 grep -q ' s10 ' <<<"$(desenho "$faixa" s1)" && falha 'para quem está em s1, o s10 escondido não deveria tomar o lugar'
 passou 'estouro: a sessão em uso nunca some da faixa'
+
+# --- Roda no chip "+N ▾": para cima gira as do chip com a última visível; para baixo, todas -----------------
+cli=$(tmux list-clients -F '#{client_name}' | head -1)
+faixa=$(TT_FIX_LARGURA=50 render); n=$(nitens "$faixa")
+[[ $(tmux show -gqv @fx_mapa) == *":$n "* ]] || falha "o mapa largura:visíveis não tem a versão de $n itens: $(tmux show -gqv @fx_mapa)"
+antes=$(cut -f2 "$XDG_CONFIG_HOME/tt/fixadas" | tr '\n' ' ')
+esperado=$(cut -f2 "$XDG_CONFIG_HOME/tt/fixadas" | awk -v v="$n" 'NR != v { print } NR == v { u = $0 } END { print u }' | tr '\n' ' ')
+TT_FIX_LARGURA=50 TT_ROLAR_FOLGA=0 "$TT" --rolar fixmais -1 "$cli"
+[[ $(cut -f2 "$XDG_CONFIG_HOME/tt/fixadas" | tr '\n' ' ') == "$esperado" ]] || falha "roda para cima no chip ($n visíveis): esperava $esperado"
+TT_FIX_LARGURA=50 TT_ROLAR_FOLGA=0 "$TT" --rolar fixmais +1 "$cli"
+esperado=$(awk '{ $0 = $0 } { for (i = 2; i <= NF; i++) printf "%s ", $i; printf "%s ", $1 }' <<<"$esperado")
+[[ $(cut -f2 "$XDG_CONFIG_HOME/tt/fixadas" | tr '\n' ' ') == "$esperado" ]] || falha "roda para baixo no chip: esperava $esperado"
+TT_FIX_LARGURA=300 "$TT" --fixadas-girar cima "$cli"  # tudo cabe (sem chip): nada a girar para cima
+[[ $(cut -f2 "$XDG_CONFIG_HOME/tt/fixadas" | tr '\n' ' ') == "$esperado" ]] || falha 'sem chip, a roda para cima não deveria mexer'
+grep -q 'WheelUpStatus if -F .*mouse_status_range},fixmais}' "$RAIZ/tmux.conf" && grep -q 'WheelDownStatus if -F .*mouse_status_range},fixmais}' "$RAIZ/tmux.conf" ||
+  falha 'tmux.conf: a roda no chip não chama o tt --rolar'
+: >"$XDG_CONFIG_HOME/tt/fixadas"; for k in 1 2 3 4 5 6 7 8 9 10; do tt --fixar "s$k" >/dev/null; done
+passou 'roda no chip: para cima gira as escondidas com a última visível do cliente; para baixo gira todas'
+
+# --- Botão direito no chip (e ^g no popup): as sessões de uma mesma máquina lado a lado, o resto na ordem de antes
+cp "$XDG_CONFIG_HOME/tt/fixadas" "$T/fixadas.10"
+printf 'teste\ts1\ta1\noutra\tx1\tb1\nteste\ts2\ta2\nterceira\ty1\tc1\noutra\tx2\tb2\nteste\ts3\ta3\n' >"$XDG_CONFIG_HOME/tt/fixadas"
+"$TT" --clique-direito 'user|fixmais' "$cli" '' 0
+[[ $(lista) == "teste:s1 teste:s2 teste:s3 outra:x1 outra:x2 terceira:y1 " ]] || falha 'agrupar por máquina (botão direito no chip)'
+v1=$(cat "$XDG_CONFIG_HOME/tt/fixadas.v" 2>/dev/null); "$TT" --fixadas-agrupar
+[[ $(lista) == "teste:s1 teste:s2 teste:s3 outra:x1 outra:x2 terceira:y1 " && $(cat "$XDG_CONFIG_HOME/tt/fixadas.v" 2>/dev/null) == "$v1" ]] ||
+  falha 'agrupar de novo não deveria mexer (nem marcar versão nova)'
+grep -q 'ctrl-g:execute-silent($EU --fixadas-agrupar)' "$RAIZ/tt" || falha 'o popup das fixadas não agrupa pelo ^g'
+cp "$T/fixadas.10" "$XDG_CONFIG_HOME/tt/fixadas"
+passou 'agrupar por máquina: botão direito no chip e ^g no popup (estável; sem mudança, nada é gravado)'
 
 # --- Popup: reordenar e desafixar pelo índice ---------------------------------------------------
 "$TT" --mover-fixada-rel 0 1   # s1 (índice 0) desce um
