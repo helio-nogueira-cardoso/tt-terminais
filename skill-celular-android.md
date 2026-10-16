@@ -861,7 +861,7 @@ no carro. O perfil precisa aceitar já a primeira notificação: as seguintes ch
 Sem voz, `voz "frase"` no Termux faz o mesmo (`VOZ_MUDO=1` só imprime).
 
 **Cérebro (opcional):** `voz --cerebro "pc local"` liga uma camada de IA: o que não é comando curto e exato vai a um
-Claude rápido (`ia-rot -p --model haiku`, pelo rodízio de contas), primeiro na máquina `pc` por ssh e, se ela não
+Claude (`ia-rot -p --model sonnet`, pelo rodízio de contas; `voz --cerebro-modelo haiku` volta ao mais rápido), primeiro na máquina `pc` por ssh e, se ela não
 responder, no próprio celular (`local` = o Claude do proot onde o tt instalou as contas de IA). Ele recebe a frase (todas as hipóteses do
 reconhecimento), o contexto (máquinas, a última lista de sessões, a sessão escolhida, contas, pergunta pendente e as
 últimas falas, em `~/.local/state/tt-voz/historico`) e devolve um JSON `{"fala": …, "acoes": […]}` que o `voz` executa,

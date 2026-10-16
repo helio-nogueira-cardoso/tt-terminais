@@ -4,8 +4,10 @@
 #   voz --conversa [--digitar]   a janela do 🎤 (a da barra do tt): ouvir, entender, agir e falar; --digitar só teclado
 #   voz --audio | --audio-teste  o que esta máquina usa para gravar, transcrever e falar | grava, transcreve e repete
 #   voz --instalar-audio         venv com faster-whisper e Piper (voz pt-BR) em ~/.local/share/tt-voz
-#   voz --transcrever "LUGARES"  onde transcrever: local e/ou rótulos de máquina do tt (padrão: local e as do cérebro)
-#   voz --fala MOTOR             auto|piper|say|windows|spd|espeak|nenhum      voz --modelo NOME  (Whisper; padrão small)
+#   voz --transcrever "LUGARES"  onde transcrever: local e/ou rótulos de máquina (padrão: todas; fica a de menor custo)
+#   voz --medir                  mede cada jeito de transcrever nesta máquina (modelo × CPU/GPU): tempo e erro
+#   voz --fala MOTOR             auto|piper|say|windows|spd|espeak|nenhum      voz --modelo NOME  (Whisper; padrão: o medido)
+#   voz --microfone "NOME, OUTRO" o microfone preferido (parte do nome); padrão: o headset, depois USB, webcam, embutido
 #   voz "maquinas" | "status" | "ir para notebook" | "sessoes" | "aba claude" | "proxima" | "tarefas" | "contas" | "repetir"
 #   voz "qualquer outra frase"   vai, como texto, para a sessão-alvo (só se estiver liberada: "permitir sessao")
 #   voz "terminal" / "encerrar"  abre / fecha a conversa (o Tasker ouve de novo depois de cada resposta)
@@ -18,7 +20,8 @@
 #   voz --contato "NOME"         nome do bot dito nas instruções (padrão: Terminal)
 #   voz --carro "GLOBAL..."      globais do Tasker que valem 1 no carro (ex.: a do seu perfil de carro); nelas o
 #                                celular não abre o microfone e a conversa segue pelo Telegram. "-" desliga
-#   voz --cerebro "LUGARES" | -  liga o cérebro: o que não é comando simples vai a um Claude rápido (ia-rot, Haiku), que
+#   voz --cerebro-modelo M       o Claude do cérebro: sonnet (padrão: entende melhor o ambíguo), haiku ou opus
+#   voz --cerebro "LUGARES" | -  liga o cérebro: o que não é comando simples vai a um Claude (ia-rot, Sonnet), que
 #                                entende a frase solta e escolhe as ações; LUGARES em ordem: rótulos de máquina do tt (por
 #                                ssh) e/ou "local" (no celular, o Claude do Debian/proot). Sem resposta: as regras de sempre
 # No celular nada roda sozinho: sem `termux/celular.sh voz` o daemon não sobe. O áudio do computador é o voz-audio.py.
@@ -354,14 +357,19 @@ cerebro_lugares() { # onde o cérebro roda: VOZ_CEREBRO_CMD (testes), ~/.config/
   [[ -n ${VOZ_CEREBRO_CMD:-} ]] && { echo cmd; return; }
   if [[ -f $CF/cerebro ]]; then sed '/^-$/d' "$CF/cerebro"; else printf '%s\n' ${VOZ_CEREBRO_PADRAO:-}; fi
 }
+# O modelo do cérebro. Medido em 16/10/2026 com frases reais: o Sonnet acertou as ambíguas que o Haiku errava
+# (escolher a sessão citada e pedir para liberar; perguntar qual sessão; não agir sobre uma frase mal transcrita) e
+# custou ~1 s a mais por volta (quase todo o tempo é a partida do Claude, não o modelo).
+cerebro_modelo() { local m; m=$(cat "$CF/cerebro-modelo" 2>/dev/null); m=${VOZ_CEREBRO_MODELO:-${m:-sonnet}}
+  [[ $m =~ ^[a-z0-9.-]+$ ]] || m=sonnet; printf '%s' "$m"; }
 cerebro_chamar() { # prompt no stdin -> resposta do modelo; tenta cada lugar, na ordem
-  local p lugar d; p=$(cat)
+  local p lugar d mod; p=$(cat); mod=$(cerebro_modelo)
   for lugar in $(cerebro_lugares); do
     case $lugar in
       cmd) timeout "${VOZ_CEREBRO_TEMPO:-45}" bash -c "$VOZ_CEREBRO_CMD" <<<"$p" 2>/dev/null && return 0 ;;
-      local) timeout 45 bash -c "$(ia_em "$(local_rotulo)" 'ia-rot -p --model haiku')" <<<"$p" 2>/dev/null && return 0 ;;
+      local) timeout 60 bash -c "$(ia_em "$(local_rotulo)" "ia-rot -p --model $mod")" <<<"$p" 2>/dev/null && return 0 ;;
       *) d=$(destino "$lugar"); [[ -n $d && $d != local ]] || continue
-        timeout 30 ssh "${SSHO[@]}" "$d" 'PATH="$HOME/.local/bin:$PATH"; ia-rot -p --model haiku' <<<"$p" 2>/dev/null && return 0 ;;
+        timeout 45 ssh "${SSHO[@]}" "$d" "PATH=\"\$HOME/.local/bin:\$PATH\"; ia-rot -p --model $mod" <<<"$p" 2>/dev/null && return 0 ;;
     esac
   done
   return 1
@@ -787,16 +795,15 @@ dica() { # palavras que ajudam o reconhecimento: máquinas, sessões da última 
   [[ -n $(alvo_s) ]] && printf ', %s' "$(falavel "$(alvo_s)")"
   echo
 }
-transcrever_lugares() { # local primeiro; depois a que deu certo da última vez, as do cérebro e as outras máquinas
+transcrever_lugares() { # candidatas: esta e todas as máquinas do tt (a janela mede e fica com a de menor custo)
   [[ -s $CF/transcrever ]] && { cat "$CF/transcrever"; return; }
-  { echo local; cat "${XDG_CACHE_HOME:-$HOME/.cache}/tt-voz/transcrever-ok" 2>/dev/null
-    cerebro_lugares | tr ' ' '\n' | grep -vx 'local\|cmd'; tt --maquinas 2>/dev/null | awk '{print $2}'
-  } | awk 'NF && !visto[$0]++' | tr '\n' ' '
+  { echo local; tt --maquinas 2>/dev/null | awk '{print $2}'; } | awk 'NF && !visto[$0]++' | tr '\n' ' '
 }
 audio_env() { # a configuração do áudio para o voz-audio.py
   export VOZ="$AQUI/voz" VOZ_TRANSCREVER="${VOZ_TRANSCREVER:-$(transcrever_lugares)}"
   [[ -z ${VOZ_FALA:-} && -s $CF/fala ]] && export VOZ_FALA=$(<"$CF/fala")
   [[ -z ${VOZ_MODELO:-} && -s $CF/modelo ]] && export VOZ_MODELO=$(<"$CF/modelo")
+  [[ -z ${VOZ_MICROFONE:-} && -s $CF/microfone ]] && export VOZ_MICROFONE=$(<"$CF/microfone")
   # sem configuração, a janela usa o Claude desta máquina como cérebro (se ela tem o rodízio de contas)
   if [[ ! -f $CF/cerebro ]] && { command -v ia-rot >/dev/null || [[ -n $(proot_ia) ]]; }; then export VOZ_CEREBRO_PADRAO=local; fi
   return 0
@@ -830,10 +837,19 @@ case ${1:-} in
   --dica) dica ;;
   --destino) destino "${2:-}" ;;
   --motor) exec python3 "$AUDIO" motor ;;  # o motor de transcrição desta máquina, para a janela de outra (por ssh)
-  --audio) precisa_python && { audio_env; python3 "$AUDIO" diagnostico; echo "cérebro: $(cerebro_lugares | tr '\n' ' ')"; } ;;
+  --motor-info) exec python3 "$AUDIO" capacidade ;;  # o que esta máquina oferece (a janela de outra pergunta antes)
+  --medir) precisa_python && python3 "$AUDIO" medir; pausa_janela ;;
+  --audio) precisa_python && { audio_env; python3 "$AUDIO" diagnostico; echo "cérebro: $(cerebro_lugares | tr '\n' ' ')($(cerebro_modelo))"; } ;;
   --audio-teste) precisa_python && { audio_env; python3 "$AUDIO" teste; }; pausa_janela ;;
   --instalar-audio) precisa_python && python3 "$AUDIO" instalar; pausa_janela ;;
-  --transcrever|--fala|--modelo)
+  --cerebro-modelo)
+    case ${2:-} in
+      "") echo "cérebro: $(cerebro_modelo)" ;;
+      padrao|padrão) rm -f "$CF/cerebro-modelo"; echo "cérebro: $(cerebro_modelo) (padrão)" ;;
+      *) [[ $2 =~ ^[a-z0-9.-]+$ ]] || { echo "uso: voz --cerebro-modelo sonnet|haiku|opus" >&2; exit 2; }
+        printf '%s\n' "$2" > "$CF/cerebro-modelo"; echo "cérebro: $2" ;;
+    esac ;;
+  --transcrever|--fala|--modelo|--microfone)
     k=${1#--}; shift
     case ${1:-} in
       "") echo "$k: $(cat "$CF/$k" 2>/dev/null || echo padrão)" ;;

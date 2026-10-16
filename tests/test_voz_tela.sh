@@ -46,14 +46,19 @@ grep -q 'microfone do computador' "$T/pedido.txt" || falhou 'o pedido ao cérebr
 passou 'voz --turno: falas, fim e o cérebro chegam à janela pelo VOZ_TELA_FD; status só com as máquinas'
 
 # --- cérebro padrão da janela: o Claude desta máquina (ia-rot), sem configuração; "-" desliga
-printf '#!/usr/bin/env bash\ncat >/dev/null; echo %q\n' '{"fala": "Do cérebro local.", "acoes": []}' >"$B/ia-rot"; chmod +x "$B/ia-rot"
+printf '#!/usr/bin/env bash\necho "$*" >>%q; cat >/dev/null; echo %q\n' "$T/ia-rot.log" '{"fala": "Do cérebro local.", "acoes": []}' >"$B/ia-rot"; chmod +x "$B/ia-rot"
 [[ $(VOZ_CEREBRO_PADRAO=local bash "$V" --turno "uma frase solta qualquer") == *'Do cérebro local.'* ]] || falhou 'VOZ_CEREBRO_PADRAO=local não usou o ia-rot'
-r=$(bash "$V" --audio 2>/dev/null | tail -1); [[ $r == 'cérebro: local ' ]] || falhou "voz --audio (cérebro padrão com ia-rot): '$r'"
+r=$(bash "$V" --audio 2>/dev/null | tail -1); [[ $r == 'cérebro: local (sonnet)' ]] || falhou "voz --audio (cérebro padrão com ia-rot): '$r'"
+[[ $(tail -1 "$T/ia-rot.log") == '-p --model sonnet' ]] || falhou "o cérebro deveria ser o Sonnet: $(cat "$T/ia-rot.log")"
+bash "$V" --cerebro-modelo haiku >/dev/null; VOZ_CEREBRO_PADRAO=local bash "$V" --turno "outra frase solta" >/dev/null
+[[ $(tail -1 "$T/ia-rot.log") == '-p --model haiku' ]] || falhou "voz --cerebro-modelo haiku não trocou: $(tail -1 "$T/ia-rot.log")"
+bash "$V" --cerebro-modelo 'x;y' >/dev/null 2>&1 && falhou 'modelo com caracteres estranhos aceito'
+bash "$V" --cerebro-modelo padrao >/dev/null
 bash "$V" --cerebro - >/dev/null
 [[ $(VOZ_CEREBRO_PADRAO=local bash "$V" --turno "uma frase solta qualquer") != *'Do cérebro local.'* ]] || falhou '--cerebro - não desligou o padrão'
-r=$(bash "$V" --audio 2>/dev/null | tail -1); [[ $r == 'cérebro: ' ]] || falhou "voz --audio com o cérebro desligado: '$r'"
+r=$(bash "$V" --audio 2>/dev/null | tail -1); [[ $r == 'cérebro: (sonnet)' ]] || falhou "voz --audio com o cérebro desligado: '$r'"
 rm -f "$HOME/.config/tt-voz/cerebro" "$B/ia-rot"
-passou 'cérebro: na janela, sem configuração, o Claude desta máquina; voz --cerebro - desliga'
+passou 'cérebro: na janela, sem configuração, o Sonnet desta máquina; voz --cerebro-modelo troca; voz --cerebro - desliga'
 
 # --- voz-audio.py: escolha do gravador e da voz por sistema
 py() { python3 - "$A" "$@"; }
@@ -76,16 +81,65 @@ case " $* " in
   *) echo 'arecord: main:850: audio open error: Host is down' >&2; exit 1 ;;
 esac
 FIM
+printf '#!/bin/sh\nexit 0\n' >"$F/pactl"  # sem fontes do PulseAudio
 chmod +x "$F"/*
 r=$(PATH="$F:$PATH" VOZ_SISTEMA=Linux VOZ_PROVA_S=0.6 py <<EOF
 $CARREGA
-g = m.Gravador(); print(g.escolher(), g.nome)
-g = m.Gravador(); print(g.escolher(), g.nome)
+g = m.Gravador(); print(g.escolher(), g.nome); g.fechar()
 EOF
 )
-[[ $r == $'True arecord hw:1,0 (Mic (*))\nTrue arecord hw:1,0 (Mic (*))' ]] ||
+[[ $r == 'True arecord hw:1,0 (Mic (*))' ]] ||
   falhou "gravador: o servidor de som mudo e o sem sinal ficam de fora, o microfone direto vale: '$r'"
-passou 'gravador: pula o que não entrega som e o que só dá silêncio; acha o microfone direto pelo ALSA e lembra dele'
+# fontes do PulseAudio: o conector de fone vazio ("not available") e os monitores saem; o filtro virtual só com sinal
+cat >"$F/pactl" <<'FIM'
+#!/bin/sh
+case "$*" in
+  get-default-source) echo alsa_input.dmic ;;
+  "list sources") cat <<'L'
+Source #1
+	Name: effect_output.eq
+	Description: Headset EQ Mic
+	Monitor of Sink: n/a
+	Properties:
+		node.virtual = "true"
+Source #2
+	Name: alsa_output.hdmi.monitor
+	Description: Monitor of HDMI
+	Monitor of Sink: alsa_output.hdmi
+Source #3
+	Name: alsa_input.headset
+	Description: Headset Mono Microphone
+	Monitor of Sink: n/a
+	Ports:
+		[In] Headset: Headset Mono Microphone (type: Headset, priority: 300, not available)
+	Active Port: [In] Headset
+Source #4
+	Name: alsa_input.dmic
+	Description: Digital Microphone
+	Monitor of Sink: n/a
+	Ports:
+		[In] Mic1: Digital Microphone (type: Mic, priority: 100, availability unknown)
+	Active Port: [In] Mic1
+Source #5
+	Name: bluez_input.fone
+	Description: Fone JBL Bluetooth
+	Monitor of Sink: n/a
+L
+  ;;
+esac
+FIM
+chmod +x "$F/pactl"
+r=$(PATH="$F:$PATH" VOZ_SISTEMA=Linux py <<EOF
+$CARREGA
+for c in m.candidatos_gravador()[:4]: print(c.nome, c.nota, c.padrao, c.cmd[1] if c.cmd[0] == "parecord" else "")
+EOF
+)
+[[ $r == "Fone JBL Bluetooth 300 False --device=bluez_input.fone
+Digital Microphone -100 True --device=alsa_input.dmic
+Headset EQ Mic (filtro) -100 False --device=effect_output.eq
+parecord (fonte padrão) -150 False --raw" ]] || falhou "fontes do PulseAudio: '$r'"
+printf '#!/bin/sh\nexit 0\n' >"$F/pactl"
+passou 'microfones: o fone primeiro, o embutido depois, o genérico por último; conector vazio, monitor e filtro sem sinal ficam de fora'
 
 cat >"$F/say" <<'FIM'
 #!/bin/sh
@@ -103,7 +157,7 @@ FIM
 chmod +x "$F"/*
 r=$(PATH="$F:$PATH" VOZ_SISTEMA=Darwin SAY_LOG=$T/say.log py <<EOF
 $CARREGA
-print(m.candidatos_gravador()[0][1][:3])
+print(m.candidatos_gravador()[0].cmd[:3])
 f = m.Falador(); print(f.qual, f.det); f.falar("Olá do Mac")
 EOF
 )
@@ -115,7 +169,7 @@ passou 'macOS: grava pelo sox (dispositivo padrão) e fala pelo say com a voz pt
 r=$(PATH="$F:$PATH" VOZ_SISTEMA=WSL VOZ_WSLG=$T/sock PS_LOG=$T/ps.log env -u PULSE_SERVER python3 - "$A" <<EOF
 $CARREGA
 import os
-c = m.candidatos_gravador(); print(c[0][0], os.environ.get("PULSE_SERVER"))
+c = m.candidatos_gravador(); print(c[0].cmd[0], os.environ.get("PULSE_SERVER"))
 f = m.Falador(); print(f.qual); f.falar("Ação concluída")
 EOF
 )
@@ -123,6 +177,30 @@ EOF
 b64=$(grep -o "FromBase64String('[^']*')" "$T/ps.log" | sed "s/.*('//; s/')//")
 [[ $(printf '%s' "$b64" | base64 -d) == 'Ação concluída' ]] || falhou "texto para o Windows (UTF-8 em base64): $(cat "$T/ps.log")"
 grep -q "pt-BR" "$T/ps.log" || falhou 'a voz do Windows deveria preferir a pt-BR'
+# WSL com o PowerShell: os microfones do Windows, gravados direto (o headset, mesmo não sendo o padrão); n troca e lembra
+cat >"$F/ps-falso" <<'FIM'
+#!/bin/sh
+case "$*" in
+  *" listar") printf '0\tpadrao,comunicacao\tMicrophone (HD Pro Webcam C920)\tMicrophone (Intel USB Audio)\r\n1\t\tMicrophone (BlackShark V2 Pro P\tMicrophone (BlackShark V2 Pro PS 2.4)\r\n2\t\tStereo Mix (Realtek)\tStereo Mix (Realtek(R) Audio)\r\n' ;;
+  *" gravar "*) echo "${*##* }" >>"$MIC_LOG"; head -c 64000 /dev/urandom; sleep 5 ;;
+esac
+FIM
+chmod +x "$F/ps-falso"
+r=$(PATH="$F:$PATH" VOZ_SISTEMA=WSL VOZ_WSLG=$T/sock VOZ_POWERSHELL="$F/ps-falso" MIC_LOG=$T/mic.log VOZ_PROVA_S=0.6 py <<EOF
+$CARREGA
+print([c.nome for c in m.candidatos_gravador()][:3])
+g = m.Gravador(); print(g.escolher(), g.nome)
+print(g.proximo()); g.fechar()
+g = m.Gravador(); print(g.escolher(), g.nome); g.fechar()
+EOF
+)
+[[ $r == "['BlackShark V2 Pro PS 2.4 (Windows)', 'parecord (o padrão do Windows: Intel USB Audio)', 'Intel USB Audio (Windows)']
+True BlackShark V2 Pro PS 2.4 (Windows)
+Intel USB Audio (Windows)
+True Intel USB Audio (Windows)" ]] || falhou "WSL: microfones do Windows: '$r'"
+[[ $(head -1 "$T/mic.log") == 1 ]] || falhou "WSL: gravou do microfone errado: $(cat "$T/mic.log")"
+rm -f "$HOME/.cache/tt-voz/microfone"
+passou 'WSL: grava direto do headset do Windows (sem mudar o padrão); stereo mix fica de fora; n passa ao seguinte e lembra'
 passou 'WSL: grava pelo PulseAudio do WSLg (PULSE_SERVER) e fala com a voz pt-BR do Windows (acentos intactos)'
 
 printf '#!/bin/sh\necho "$*" >>"$SPD_LOG"\n' >"$F/spd-say"; chmod +x "$F/spd-say"
@@ -134,13 +212,171 @@ EOF
 [[ $r == spd && $(<"$T/spd.log") == '-w -l pt-BR -r 15 oi' ]] || falhou "Linux sem Piper: spd-say em pt-BR: '$r' $(cat "$T/spd.log" 2>/dev/null)"
 passou 'Linux sem o Piper instalado: fala pelo spd-say em pt-BR'
 
+# --- escolha do motor: cada máquina mede (modelo × CPU/GPU), a janela fica com o menor custo entre todas
+export VOZ_GPUS="" HF_HUB_CACHE=$T/hf
+mkdir -p "$HF_HUB_CACHE"
+modelo_em_cache() { local d=$HF_HUB_CACHE/models--$1/snapshots/x; mkdir -p "$d"; : >"$d/model.bin"; }
+modelo_em_cache Systran--faster-whisper-small; modelo_em_cache Systran--faster-whisper-base
+modelo_em_cache mobiuslabsgmbh--faster-whisper-large-v3-turbo
+# um venv com o "faster-whisper" (só a pasta: python_com olha a pasta num venv)
+VE=$T/venv; python3 -m venv --without-pip "$VE" 2>/dev/null || { mkdir -p "$VE/bin"; ln -sf "$(command -v python3)" "$VE/bin/python"; printf 'home = %s\n' "$(dirname "$(command -v python3)")" >"$VE/pyvenv.cfg"; }
+SPV=$("$VE/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])'); mkdir -p "$SPV/faster_whisper" "$SPV/ctranslate2-4.8.3.dist-info"
+export VOZ_PYTHON=$VE/bin/python
+r=$(VOZ_GPUS="NVIDIA Teste, 2048" py <<EOF
+$CARREGA
+print(round(m.erro_palavras("Libera a sessão dois e pergunta que horas são lá.", "libera sessão 2 e pergunta que horas sao la"), 3))
+print(m.combinacoes(m.gpus_nvidia(), m.modelos_em_cache(), 8, 8000))
+print(m.combinacoes([], ["small"], 16, 8000), m.combinacoes(["Fraca, 512"], ["small", "large-v3-turbo"], 4, 2000))
+py = m.python_com("faster_whisper"); print(py == "$VE/bin/python")
+m.gravar_json(m.MEDICOES, {"assinatura": m.assinatura(py), "carga": 0.5, "nucleos": 8, "resultados": [
+  {"modelo": "base", "dispositivo": "cpu", "precisao": "int8", "tempo": 0.8, "erro": 0.15},
+  {"modelo": "small", "dispositivo": "cpu", "precisao": "int8", "tempo": 2.6, "erro": 0.11},
+  {"modelo": "small", "dispositivo": "cuda", "precisao": "int8", "tempo": 0.9, "erro": 0.18},
+  {"modelo": "large-v3-turbo", "dispositivo": "cuda", "precisao": "int8", "tempo": 3.3, "erro": 0.08}]})
+e = m.escolha_local(py); print(e["modelo"], e["dispositivo"], e["fonte"])
+import os
+os.environ["VOZ_MODELO"] = "large-v3-turbo"; e = m.escolha_local(py); print(e["modelo"], e["dispositivo"]); del os.environ["VOZ_MODELO"]
+m.gpu_falhou(py, "libcublas.so.12 não encontrada"); e = m.escolha_local(py); print(e["modelo"], e["dispositivo"])
+EOF
+)
+[[ $r == "0.1
+[('base', 'cpu'), ('small', 'cpu'), ('small', 'cuda'), ('large-v3-turbo', 'cuda')]
+[('small', 'cpu')] [('small', 'cpu'), ('small', 'cuda')]
+True
+small cuda medido
+large-v3-turbo cuda
+base cpu" ]] || falhou "medições: erro por palavra, combinações por hardware, escolha pelo custo, modelo pedido e GPU que falhou: '$r'"
+r=$(VOZ_GPUS="NVIDIA Outra, 4096" py <<EOF
+$CARREGA
+e = m.escolha_local(m.python_com("faster_whisper")); print(e["modelo"], e["dispositivo"], e["fonte"])
+EOF
+)
+[[ $r == 'small cpu estimado' ]] || falhou "outra GPU (assinatura mudou): as medições velhas não valem: '$r'"
+passou 'escolha da máquina: erro por palavra, o que medir por hardware, menor custo (tempo e erro), GPU que falhou fica de fora'
+
+# GPU que falha no primeiro uso cai na CPU e marca a medição
+r=$(VOZ_GPUS="NVIDIA Teste, 2048" py <<EOF
+$CARREGA
+py = m.python_com("faster_whisper")
+med = m.ler_json(m.MEDICOES); med.pop("gpu_falhou", None); med["assinatura"] = m.assinatura(py); m.gravar_json(m.MEDICOES, med)
+class M(m.Motor):
+    def _novo_modelo(self, nome, disp, prec):
+        self.disp = disp; return object()
+    def _aquecer(self):
+        if self.disp == "cuda": raise RuntimeError("Library libcublas.so.12 is not found")
+import sys; sys.executable = py
+x = M(); e = x.carregar_stt(); print(e["modelo"], e["dispositivo"], e["fonte"])
+print(m.ler_json(m.MEDICOES).get("gpu_falhou", "")[:30])
+EOF
+)
+[[ $r == $'small cpu a GPU falhou\nLibrary libcublas.so.12 is not' ]] || falhou "motor: GPU sem biblioteca deveria cair na CPU e marcar: '$r'"
+passou 'motor: a GPU que falha no primeiro uso cai na CPU, e a escolha da máquina deixa a GPU de fora'
+
+# medir: injeta o modelo e a voz; grava tempo e erro de cada combinação e a assinatura
+r=$(VOZ_GPUS="" py <<EOF
+$CARREGA
+import itertools, time
+class Falso:
+    def __init__(self, nome): self.nome = nome
+def fabrica(nome, disp, prec):
+    if nome == "base": raise RuntimeError("sem memória")
+    return Falso(nome)
+orig = m.Motor._transcrever
+def transcrever(self, audio, dica=""):
+    return audio if self.modelo.nome == "small" else "texto errado"
+m.Motor._transcrever = transcrever
+import sys; sys.executable = m.python_com("faster_whisper")  # o medir roda no Python do venv
+med = m.medir(fabrica=fabrica, sintetizar=lambda f: f, saida=lambda *a: None)
+print([(r["modelo"], r["dispositivo"], r["erro"]) for r in med["resultados"]], med["assinatura"] == m.assinatura(m.python_com("faster_whisper")))
+EOF
+)
+[[ $r == "[('small', 'cpu', 0.0)] True" ]] || falhou "medir: '$r'"
+passou 'medir: cada combinação com tempo e erro (a que falha fica de fora); a assinatura invalida quando o hardware muda'
+
+# escolher entre máquinas: ssh falso responde a capacidade de cada uma; fora do ar fica de fora (e é lembrada)
+ln -sf "$V" "$B/voz"
+cat >"$B/tt" <<'FIM'
+#!/usr/bin/env bash
+case $1 in
+  --maquinas) printf 'u@h1 dell\nu@h2 book\nu@h3 velha\nu@h4 desligada\n' ;;
+  --listar-tudo) printf '# mestre de obras — mesa — 20260101T000000Z\n' ;;
+esac
+FIM
+cat >"$B/ssh" <<'FIM'
+#!/usr/bin/env bash
+# ssh falso: o destino escolhe a resposta; o comando roda aqui (o motor com a transcrição fixa "frase do DESTINO")
+while [[ $1 == -* ]]; do [[ $1 == -o ]] && shift; shift; done; d=$1; shift
+echo "$d $*" >>"$SSH_LOG"
+case $d in u@h4) echo 'ssh: connect to host h4: No route to host' >&2; exit 255 ;; u@h3) exit 127 ;; esac
+if [[ $* == *--motor-info* ]]; then cat "$CAPS/$d.json"; exit 0; fi
+VOZ_MOTOR_FALSO="frase do $d" VOZ_PYTHON=${VOZ_PYTHON_LA:-$VOZ_PYTHON} exec bash -c "$*"
+FIM
+chmod +x "$B/tt" "$B/ssh"
+export CAPS=$T/caps SSH_LOG=$T/ssh.log; mkdir -p "$CAPS"
+printf '%s' '{"whisper": true, "nucleos": 8, "carga": 0.5, "escolha": {"modelo": "small", "dispositivo": "cuda", "precisao": "int8", "tempo": 0.9, "erro": 0.18, "fonte": "medido", "carga_medida": 0.5}, "s": 0.02}' >"$CAPS/u@h1.json"
+printf '%s' '{"whisper": true, "nucleos": 8, "carga": 0.5, "escolha": {"modelo": "small", "dispositivo": "cpu", "precisao": "int8", "tempo": 2.5, "erro": 0.11, "fonte": "medido", "carga_medida": 0.5}, "s": 0.02}' >"$CAPS/u@h2.json"
+rm -f "$HOME/.cache/tt-voz/sondas.json" "$HOME/.cache/tt-voz/desempenho.json"
+mv "$VOZ_PYTHON" "$VOZ_PYTHON.x"; export VOZ_PYTHON_LA=$VOZ_PYTHON.x  # esta máquina sem faster-whisper; as outras com
+ESC() { VOZ="$V" VOZ_TRANSCREVER="local dell book velha desligada" python3 "$A" escolher; }
+r=$(ESC 2>&1 || true)
+[[ $(head -2 <<<"$r" | cut -f2 | tr '\n' ' ') == 'dell book ' ]] || falhou "ranking: a GPU do dell antes da CPU do book: $r"
+grep -q '✗ local: sem faster-whisper' <<<"$r" && grep -q '✗ velha: sem o motor de voz' <<<"$r" && grep -q '✗ desligada: ' <<<"$r" ||
+  falhou "ranking: os que não transcrevem: $r"
+: >"$SSH_LOG"; r=$(ESC 2>&1 || true)
+grep -q 'u@h4' "$SSH_LOG" && falhou 'a máquina fora do ar foi sondada de novo antes de 10 min'
+grep -q 'u@h3' "$SSH_LOG" || falhou 'a máquina sem o motor (mas ligada) ficou de fora como se estivesse desligada'
+grep -q '✗ desligada: fora do ar' <<<"$r" || falhou "a fora do ar deveria aparecer como fora do ar: $r"
+passou 'escolher: pergunta a todas, a de menor custo primeiro; a desligada fica de fora por 10 min, a sem motor não'
+
+# a janela transcreve no escolhido (o motor de lá, pelo ssh), mede, e troca quando ele fica lento
+r=$(VOZ="$V" VOZ_TRANSCREVER="dell book" python3 - "$A" <<EOF
+$CARREGA
+t = m.Transcritor(); print(t.preparar(), t.onde, "|", t.desc)
+pcm = b"\0\0" * 8000
+print(t.texto(pcm))
+h = m.ler_json(m.DESEMPENHO); print(sorted(h), h["dell|falso|cpu"]["n"])
+h["dell|falso|cpu"] = {"s": 9.0, "n": 5}; m.gravar_json(m.DESEMPENHO, h)
+t.texto(pcm)          # o dell ficou lento: o book carrega em paralelo
+import time
+for i in range(100):
+    if t.proximo: break
+    time.sleep(0.1)
+print(t.texto(pcm), "|", t.desc)
+t.fechar()
+EOF
+)
+[[ $r == "True dell | dell · falso na CPU (de 2)
+frase do u@h1
+['dell|falso|cpu'] 1
+frase do u@h2 | book · falso na CPU (trocou: o anterior ficou lento)" ]] || falhou "transcrever no escolhido e trocar: '$r'"
+mv "$VOZ_PYTHON.x" "$VOZ_PYTHON"; unset VOZ_PYTHON_LA
+passou 'janela: transcreve no motor da máquina escolhida, mede cada frase e troca para a seguinte quando ela fica lenta'
+unset VOZ_GPUS VOZ_PYTHON
+cat >"$B/tt" <<'FIM'
+#!/usr/bin/env bash
+case $1 in
+  --maquinas) printf 'u@h1 dell\nu@h2 book\n' ;;
+  --saude) printf 'Saude das maquinas cadastradas:\n  \033[32m●\033[0m dell             ok\n  \033[31m●\033[0m book             timeout\n  ● units locais     0 em falha\n' ;;
+  --listar-tudo) printf '# mestre de obras — mesa — 20260101T000000Z\n' ;;
+esac
+FIM
+rm -f "$B/ssh" "$B/voz"
+
 # --- gravar até o silêncio: fala detectada pelo nível, silêncio, e o Espaço que encerra
 python3 -c 'import math, struct, sys
 sys.stdout.buffer.write(b"\0\0" * 4000 + b"".join(struct.pack("<h", int(6000 * math.sin(i * 0.17))) for i in range(16000)))' >"$T/tom.raw"
-GRAV="cat '$T/tom.raw'; while :; do head -c 3200 /dev/zero || exit 0; sleep 0.1; done"
+# o microfone falso fica aberto (como o de verdade) e "fala" a frase quando aparece o arquivo $T/falar
+GRAV="while :; do if [ -e '$T/falar' ]; then rm -f '$T/falar'; cat '$T/tom.raw'; fi; head -c 3200 /dev/zero || exit 0; sleep 0.1; done"
+falar_quando_ouvir() { # SESSÃO: espera a janela ouvir ("○ fale") e "fala" no microfone falso
+  local i; for i in $(seq 100); do tmux capture-pane -p -J -t "=$1:" 2>/dev/null | grep -qF '○ fale' && break; sleep 0.2; done
+  touch "$T/falar"
+}
 r=$(VOZ_GRAVADOR="$GRAV" VOZ_PAUSA=0.6 py <<EOF
 $CARREGA
-g = m.Gravador(); g.escolher(); pcm, motivo = g.frase(); print(motivo, round(len(pcm) / 2 / 16000, 1))
+import threading, time
+g = m.Gravador(); g.escolher(); time.sleep(0.5)
+threading.Timer(0.3, lambda: open("$T/falar", "w").close()).start()
+pcm, motivo = g.frase(); print(motivo, round(len(pcm) / 2 / 16000, 1)); g.fechar()
 EOF
 )
 read -r mot dur <<<"$r"
@@ -171,6 +407,7 @@ tmux new-session -d -s conversa -x 100 -y 30 -e VOZ_GRAVADOR="$GRAV" -e VOZ_STT_
   -e VOZ_ESPERA_FALA_S=60 -e VOZ_TTS_CMD="cat >>'$J/falas'; echo >>'$J/falas'" -e J="$J" -e PATH="$PATH" \
   "bash '$V' --conversa; echo SAIU=\$? >'$J/saiu'; sleep 60"
 espera_tela() { local i; for i in $(seq 100); do tmux capture-pane -p -J -t '=conversa:' 2>/dev/null | grep -qF "$1" && return 0; sleep 0.2; done; return 1; }
+falar_quando_ouvir conversa
 espera_tela 'Atual: mesa' || falhou "a frase falada não virou resposta: $(tmux capture-pane -p -J -t '=conversa:')"
 tela=$(tmux capture-pane -p -J -t '=conversa:')
 grep -q 'você: máquinas' <<<"$tela" && grep -q 'tt: Terminal. Máquina mesa, nenhuma sessão escolhida. Pode falar.' <<<"$tela" ||
@@ -195,6 +432,7 @@ passou 'janela: ouve, mostra e fala a resposta; t digita uma frase; volta a ouvi
 echo 0 >"$J/n"; printf 'encerrar\n' >"$J/frases"; rm -f "$J/saiu"; tmux kill-session -t '=conversa' 2>/dev/null || true
 tmux new-session -d -s conversa2 -x 100 -y 30 -e VOZ_GRAVADOR="$GRAV" -e VOZ_STT_CMD="$J/stt" -e VOZ_PAUSA=0.5 \
   -e VOZ_TTS_CMD="cat >/dev/null" -e J="$J" -e PATH="$PATH" "bash '$V' --conversa; echo SAIU=\$? >'$J/saiu'; sleep 60"
+falar_quando_ouvir conversa2
 for i in $(seq 100); do [[ -s $J/saiu ]] && break; sleep 0.2; done
 [[ $(cat "$J/saiu" 2>/dev/null) == SAIU=0 ]] || falhou "encerrar não fechou a janela: $(tmux capture-pane -p -J -t '=conversa2:')"
 tmux kill-session -t '=conversa2' 2>/dev/null || true

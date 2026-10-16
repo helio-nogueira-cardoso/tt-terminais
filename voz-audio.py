@@ -23,6 +23,7 @@ recebem o WAV / o texto no stdin), VOZ_LIMIAR, VOZ_PAUSA, VOZ_ESPERA_FALA_S, VOZ
 """
 import array
 import base64
+import glob
 import io
 import json
 import math
@@ -39,6 +40,7 @@ import tempfile
 import textwrap
 import threading
 import time
+import unicodedata
 import wave
 
 TAXA = 16000
@@ -94,48 +96,216 @@ def powershell():
 
 
 # ---------------------------------------------------------------- gravar
+# ---------------------------------------------------------------- microfones
+# A escolha pelo tipo: headset (e microfone dedicado) > USB/Bluetooth > webcam > o embutido; "monitor" e "stereo mix"
+# não são microfone. VOZ_MICROFONE (voz --microfone "nome, outro") e o escolhido com a tecla n vêm antes de tudo.
+HEADSET = ("headset", "headphone", "fone", "blackshark", "razer", "hyperx", "steelseries", "arctis", "corsair", "jabra",
+           "plantronics", "airpods", "buds", "bose", "logitech g", "astro", "sennheiser", "epos", "rode", "shure", "yeti",
+           "fifine", "maono", "audio-technica")
+EXTERNO = ("usb", "bluetooth", "bluez", "wireless", "sem fio")
+WEBCAM = ("webcam", "c920", "c922", "c930", "brio", "camera", "câmera")
+EMBUTIDO = ("array", "digital microphone", "dmic", "built-in", "interno", "internal", "macbook", "jack", "analog",
+            "line in", "entrada de linha", "realtek")
+NAO_MIC = ("monitor", "stereo mix", "mixagem", "loopback", "what u hear", "o que voce ouve")
+MEMO_MIC = os.path.join(CACHE, "microfone")
+
+
+def preferencias():
+    """O microfone escolhido com a tecla n (lembrado) e os de VOZ_MICROFONE, nessa ordem."""
+    out = []
+    try:
+        with open(MEMO_MIC, encoding="utf-8") as f:
+            out.append(f.read().strip().lower())
+    except OSError:
+        pass
+    out += [x.strip().lower() for x in re.split(r"[,;]", os.environ.get("VOZ_MICROFONE", "")) if x.strip()]
+    return [x for x in out if x]
+
+
+def nota_microfone(nome):
+    """Quanto o microfone parece bom para conversar (None: não é microfone)."""
+    n = nome.lower()
+    if any(x in n for x in NAO_MIC):
+        return None
+    nota = 0
+    for i, p in enumerate(preferencias()):
+        if p in n:
+            nota = max(nota, 1000 - 10 * i)
+    if any(x in n for x in HEADSET):
+        nota += 300
+    elif any(x in n for x in EXTERNO) and not any(x in n for x in WEBCAM):
+        nota += 120
+    if any(x in n for x in WEBCAM):
+        nota += 60
+    if any(x in n for x in EMBUTIDO):
+        nota -= 100
+    return nota
+
+
+class Mic:
+    """Um jeito de gravar: nome para mostrar, comando (PCM s16le mono 16 kHz no stdout), nota e se é o padrão."""
+
+    def __init__(self, nome, cmd, nota=0, padrao=False, generico=False, partida=1.5):
+        self.nome, self.cmd, self.nota, self.padrao, self.generico, self.partida = nome, cmd, nota, padrao, generico, partida
+
+
+def ps1_microfone():
+    p = os.environ.get("VOZ_MIC_PS1") or os.path.join(os.path.dirname(EU), "voz-microfone.ps1")
+    return p if os.path.exists(p) else None
+
+
+def caminho_windows(p):
+    try:
+        return subprocess.run(["wslpath", "-w", p], capture_output=True, text=True, timeout=5).stdout.strip() or p
+    except (OSError, subprocess.SubprocessError):
+        return p
+
+
+def mics_windows():
+    """No WSL: os microfones do Windows (voz-microfone.ps1), gravados direto, sem mudar o padrão (o das chamadas)."""
+    ps, ps1 = os.environ.get("VOZ_POWERSHELL") or powershell(), ps1_microfone()
+    if not ps or not ps1:
+        return []
+    base = [ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", caminho_windows(ps1)]
+    try:
+        r = subprocess.run(base + ["listar"], capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    out = []
+    for l in r.stdout.decode("utf-8", "replace").splitlines():
+        partes = l.rstrip("\r").split("\t")
+        if len(partes) < 3 or not partes[0].isdigit():
+            continue
+        nome = partes[3] if len(partes) > 3 and partes[3] else partes[2]
+        nome = re.sub(r"^(Microphone|Microfone|Mic) \((.+)\)$", r"\2", nome)  # "Microphone (BlackShark…)" → "BlackShark…"
+        nota = nota_microfone(nome)
+        if nota is not None:
+            out.append(Mic(nome + " (Windows)", base + ["gravar", partes[0]], nota, "padrao" in partes[1], partida=6.0))
+    return out
+
+
+def fontes_pulse():
+    """(nome, descrição, padrão?, virtual?) das fontes do PulseAudio/PipeWire: sem os monitores de saída e sem as de
+    porta "not available" (o microfone do fone que não está plugado). Virtual = filtro (um equalizador do EasyEffects),
+    que só vale se tiver sinal."""
+    if not shutil.which("pactl"):
+        return []
+    env = dict(os.environ, LC_ALL="C")
+    try:
+        txt = subprocess.run(["pactl", "list", "sources"], capture_output=True, text=True, timeout=5, env=env).stdout
+        padrao = subprocess.run(["pactl", "get-default-source"], capture_output=True, text=True, timeout=5,
+                                env=env).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    out = []
+    for bloco in re.split(r"\n(?=Source #)", txt):
+        nome = re.search(r"^\s*Name: (.+)$", bloco, re.M)
+        desc = re.search(r"^\s*Description: (.+)$", bloco, re.M)
+        if not nome or nome.group(1).endswith(".monitor") or re.search(r"^\s*Monitor of Sink: (?!n/a)", bloco, re.M):
+            continue
+        porta = re.search(r"^\s*Active Port: (.+)$", bloco, re.M)
+        if porta:
+            linha = next((l for l in bloco.splitlines() if l.strip().startswith(porta.group(1).strip() + ":")), "")
+            if re.search(r"not available\)\s*$", linha):
+                continue
+        virtual = bool(re.search(r'node\.virtual = "true"', bloco))
+        out.append((nome.group(1).strip(), (desc.group(1) if desc else nome.group(1)).strip(), nome.group(1) == padrao, virtual))
+    return out
+
+
+def mics_mac():
+    """macOS: as entradas do Core Audio (system_profiler), gravadas pelo sox ou pelo ffmpeg pelo nome."""
+    try:
+        d = json.loads(subprocess.run(["system_profiler", "SPAudioDataType", "-json"], capture_output=True, text=True,
+                                      timeout=20).stdout or "{}")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    out = []
+    t = str(TAXA)
+    for grupo in d.get("SPAudioDataType", []):
+        for it in grupo.get("_items", []):
+            if not it.get("coreaudio_device_input"):
+                continue
+            nome = it.get("_name", "")
+            nota = nota_microfone(nome)
+            if nota is None:
+                continue
+            if shutil.which("sox"):
+                cmd = ["sox", "-q", "-t", "coreaudio", nome, "-t", "raw", "-b", "16", "-e", "signed-integer", "-c", "1", "-r", t, "-"]
+            elif shutil.which("ffmpeg"):
+                cmd = ["ffmpeg", "-loglevel", "quiet", "-nostdin", "-f", "avfoundation", "-i", ":" + nome, "-ac", "1",
+                       "-ar", t, "-f", "s16le", "-"]
+            else:
+                continue
+            out.append(Mic(nome, cmd, nota, it.get("coreaudio_default_audio_input_device") == "spaudio_yes"))
+    return out
+
+
 def candidatos_gravador():
-    """Comandos que soltam PCM s16le mono 16 kHz no stdout, do mais comum ao último recurso."""
+    """Os jeitos de gravar desta máquina, do melhor microfone ao último recurso."""
     c = os.environ.get("VOZ_GRAVADOR")
     if c:
-        return [("VOZ_GRAVADOR", ["sh", "-c", c])]
+        return [Mic("VOZ_GRAVADOR", ["sh", "-c", c], 1000)]
     w = shutil.which
     t = str(TAXA)
     sox = ["-q", "-d", "-t", "raw", "-b", "16", "-e", "signed-integer", "-c", "1", "-r", t, "-"]
     ff = ["-loglevel", "quiet", "-nostdin"]
     out = []
     if eh_mac():
+        out += mics_mac()
         if w("sox"):
-            out.append(("sox", ["sox"] + sox))
+            out.append(Mic("sox (entrada padrão)", ["sox"] + sox, -150, generico=True))
         if w("rec"):
-            out.append(("rec", ["rec"] + sox))
+            out.append(Mic("rec (entrada padrão)", ["rec"] + sox, -150, generico=True))
         if w("ffmpeg"):
-            out.append(("ffmpeg", ["ffmpeg"] + ff + ["-f", "avfoundation", "-i", ":0", "-ac", "1", "-ar", t,
-                                                    "-f", "s16le", "-"]))
-        return out
+            out.append(Mic("ffmpeg (entrada padrão)", ["ffmpeg"] + ff + ["-f", "avfoundation", "-i", ":0", "-ac", "1",
+                                                                          "-ar", t, "-f", "s16le", "-"], -150, generico=True))
+        return ordenar_mics(out)
     ambiente_audio()
-    if w("parecord"):
-        out.append(("parecord", ["parecord", "--raw", "--format=s16le", "--rate=" + t, "--channels=1",
-                                 "--latency-msec=60"]))
+    pa = ["--raw", "--format=s16le", "--rate=" + t, "--channels=1", "--latency-msec=60"]
+    if eh_wsl():
+        win = mics_windows()
+        out += win
+        if w("parecord"):  # o WSLg grava o padrão do Windows: o mesmo microfone, sem esperar o PowerShell
+            p = next((m for m in win if m.padrao), None)
+            out.append(Mic("parecord (o padrão do Windows%s)" % (": " + p.nome.replace(" (Windows)", "") if p else ""),
+                           ["parecord"] + pa, (p.nota + 5) if p else -150, generico=not p))
+    elif w("parecord"):
+        for nome, desc, padrao, virtual in fontes_pulse():
+            nota = nota_microfone(desc + " " + nome)
+            if nota is not None:
+                out.append(Mic(desc + (" (filtro)" if virtual else ""), ["parecord", "--device=" + nome] + pa,
+                               nota - 400 if virtual else nota, padrao, generico=virtual))
+    if w("parecord") and not eh_wsl():
+        out.append(Mic("parecord (fonte padrão)", ["parecord"] + pa, -150, generico=True))
     if w("pw-record"):
-        out.append(("pw-record", ["pw-record", "--raw", "--rate", t, "--channels", "1", "--format", "s16", "-"]))
+        out.append(Mic("pw-record (fonte padrão)", ["pw-record", "--raw", "--rate", t, "--channels", "1", "--format", "s16", "-"],
+                       -150, generico=True))
     if w("arecord"):
-        out.append(("arecord", ["arecord", "-q", "-t", "raw", "-f", "S16_LE", "-r", t, "-c", "1"]))
+        out.append(Mic("arecord", ["arecord", "-q", "-t", "raw", "-f", "S16_LE", "-r", t, "-c", "1"], -160, generico=True))
         # o servidor de som pode ter perdido a placa (só "Dummy Output"): o microfone direto pelo ALSA ainda grava
         try:
             lista = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=5).stdout
         except (OSError, subprocess.SubprocessError):
             lista = ""
         for m in re.finditer(r"^card (\d+):.*?device (\d+): ([^\n]*)", lista, re.M):
-            out.append(("arecord hw:%s,%s (%s)" % (m.group(1), m.group(2), m.group(3).split("[")[0].strip()),
-                        ["arecord", "-q", "-D", "plughw:%s,%s" % (m.group(1), m.group(2)), "-t", "raw",
-                         "-f", "S16_LE", "-r", t, "-c", "1"]))
+            nome = m.group(3).split("[")[0].strip()
+            nota = nota_microfone(nome)
+            if nota is not None:
+                out.append(Mic("arecord hw:%s,%s (%s)" % (m.group(1), m.group(2), nome),
+                               ["arecord", "-q", "-D", "plughw:%s,%s" % (m.group(1), m.group(2)), "-t", "raw",
+                                "-f", "S16_LE", "-r", t, "-c", "1"], min(nota, 0) - 170, generico=True))
     if w("sox"):
-        out.append(("sox", ["sox"] + sox))
+        out.append(Mic("sox (entrada padrão)", ["sox"] + sox, -180, generico=True))
     if w("ffmpeg"):
-        out.append(("ffmpeg", ["ffmpeg"] + ff + ["-f", "pulse", "-i", "default", "-ac", "1", "-ar", t,
-                                                "-f", "s16le", "-"]))
-    return out
+        out.append(Mic("ffmpeg (pulse)", ["ffmpeg"] + ff + ["-f", "pulse", "-i", "default", "-ac", "1", "-ar", t,
+                                                           "-f", "s16le", "-"], -190, generico=True))
+    return ordenar_mics(out)
+
+
+def ordenar_mics(ms):
+    """Pela nota; no empate, o padrão do sistema; depois a ordem de chegada."""
+    return [m for _, m in sorted(enumerate(ms), key=lambda im: (-im[1].nota, not im[1].padrao, im[0]))]
 
 
 def ler_exato(fd, n, ate):
@@ -165,85 +335,176 @@ def rms(pcm):
     return math.sqrt(sum(x * x for x in a) / len(a))
 
 
+class Fluxo:
+    """Um gravador aberto durante a conversa: uma thread lê o áudio e guarda os últimos 10 s; frase() consome do
+    momento em que começa (o que tocou enquanto o tt falava fica para trás). O microfone do Windows leva ~1,5 s para
+    abrir; assim isso acontece uma vez só."""
+
+    def __init__(self, mic):
+        import collections
+        self.mic = mic
+        self.err = tempfile.TemporaryFile()
+        self.p = subprocess.Popen(mic.cmd, stdout=subprocess.PIPE, stderr=self.err, stdin=subprocess.DEVNULL)
+        self.fila = collections.deque(maxlen=int(10 * TAXA / QUADRO))
+        self.cond = threading.Condition()
+        self.vivo = True
+        threading.Thread(target=self._ler, daemon=True).start()
+
+    def _ler(self):
+        fd, tam, resto = self.p.stdout.fileno(), QUADRO * 2, b""
+        while True:
+            try:
+                b = os.read(fd, 8192)
+            except OSError:
+                b = b""
+            if not b:
+                break
+            resto += b
+            with self.cond:
+                while len(resto) >= tam:
+                    self.fila.append(resto[:tam])
+                    resto = resto[tam:]
+                self.cond.notify_all()
+        with self.cond:
+            self.vivo = False
+            self.cond.notify_all()
+
+    def limpar(self):
+        with self.cond:
+            self.fila.clear()
+
+    def quadro(self, espera=2.0):
+        """O próximo quadro de 30 ms, ou None (o gravador parou ou não mandou nada a tempo)."""
+        fim = time.time() + espera
+        with self.cond:
+            while not self.fila and self.vivo:
+                resta = fim - time.time()
+                if resta <= 0:
+                    return None
+                self.cond.wait(resta)
+            return self.fila.popleft() if self.fila else None
+
+    def erro(self):
+        try:
+            self.err.seek(0)
+            linhas = self.err.read().decode("utf-8", "replace").strip().splitlines()
+            return linhas[-1][:150] if linhas else "não entregou áudio"
+        except (OSError, ValueError):
+            return "não entregou áudio"
+
+    def fechar(self):
+        parar_processo(self.p)
+        try:
+            self.err.close()
+        except OSError:
+            pass
+
+
 class Gravador:
-    """Acha um gravador que entrega som de verdade e grava frases, com o fim pelo silêncio."""
+    """Escolhe o microfone (o de melhor nota que entrega áudio; os genéricos precisam de sinal) e grava frases, com
+    o fim pelo silêncio. proximo() passa ao microfone seguinte (a tecla n da janela) e lembra a escolha."""
 
     def __init__(self):
         self.nome = None
-        self.cmd = None
         self.motivo = ""
+        self.cands = []
+        self.atual = -1
+        self.fluxo = None
 
-    def escolher(self):
-        memo = os.path.join(CACHE, "gravador")
-        cands = candidatos_gravador()
-        if os.environ.get("VOZ_GRAVADOR"):  # escolhido à mão: sem prova (que gastaria o começo da gravação)
-            self.nome, self.cmd = cands[0]
-            return True
-        if not cands:
+    @property
+    def cmd(self):
+        return self.fluxo.mic.cmd if self.fluxo else None
+
+    def escolher(self, de=0):
+        if not self.cands:
+            self.cands = candidatos_gravador()
+        if not self.cands:
             self.motivo = "sem programa para gravar (" + ("brew install sox" if eh_mac() else
                                                            "instale pulseaudio-utils, alsa-utils ou sox") + ")"
             return False
-        try:
-            with open(memo) as f:
-                antes = f.read().strip()
-            cands.sort(key=lambda c: c[0] != antes)
-        except OSError:
-            pass
-        # o primeiro que entrega som com sinal; uma entrada sem microfone (a analógica sem fone) só dá um chiado baixo
+        if self.cands[0].nome == "VOZ_GRAVADOR":  # escolhido à mão: sem prova
+            return self._usar(0, Fluxo(self.cands[0]), lembrar=False)
         erros, mudos = [], []
         sinal = float(os.environ.get("VOZ_SINAL_MIN", "20"))
-        for nome, cmd in cands:
-            ok, erro, nv = self._prova(cmd)
-            if ok and nv >= sinal:
-                return self._usar(nome, cmd, memo)
+        ordem = list(range(de, len(self.cands))) + list(range(0, de))
+        for i in ordem:
+            m = self.cands[i]
+            f = Fluxo(m)
+            ok, nv = self._prova(f, m)
+            if ok and (nv >= sinal or not m.generico):
+                return self._usar(i, f, lembrar=False)
             if ok:
-                mudos.append((nv, nome, cmd))
-            else:
-                erros.append("%s: %s" % (nome, erro))
+                mudos.append((nv, i, f))
+                continue
+            erros.append("%s: %s" % (m.nome, f.erro()))
+            f.fechar()
         if mudos:
-            nv, nome, cmd = max(mudos, key=lambda m: m[0])
-            return self._usar(nome, cmd, memo)
-        self.motivo = "nenhum gravador entregou som (" + "; ".join(erros)[:300] + ")"
+            nv, i, f = max(mudos, key=lambda x: x[0])
+            for _, _, outro in mudos:
+                if outro is not f:
+                    outro.fechar()
+            return self._usar(i, f, lembrar=False)
+        self.motivo = "nenhum microfone entregou som (" + "; ".join(erros)[:300] + ")"
         return False
 
-    def _usar(self, nome, cmd, memo):
-        self.nome, self.cmd = nome, cmd
-        try:
-            os.makedirs(CACHE, exist_ok=True)
-            with open(memo, "w") as f:
-                f.write(nome + "\n")
-        except OSError:
-            pass
+    def _usar(self, i, fluxo, lembrar):
+        if self.fluxo and self.fluxo is not fluxo:
+            self.fluxo.fechar()
+        self.atual, self.fluxo, self.nome = i, fluxo, self.cands[i].nome
+        if lembrar:  # a escolha da tecla n vale enquanto esse microfone existir
+            try:
+                os.makedirs(CACHE, exist_ok=True)
+                with open(MEMO_MIC, "w", encoding="utf-8") as f:
+                    f.write(re.sub(r" \((Windows|o padrão.*)\)$", "", self.nome).lower() + "\n")
+            except OSError:
+                pass
         return True
 
     @staticmethod
-    def _prova(cmd):
-        """(entregou som?, erro, nível): lê 0,4 s (ou espera até VOZ_PROVA_S pelo primeiro áudio)."""
-        try:
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
-        except OSError as e:
-            return False, str(e), 0.0
-        try:
-            b = ler_exato(p.stdout.fileno(), 12800, time.time() + float(os.environ.get("VOZ_PROVA_S", "1.5")))
-        finally:
-            parar_processo(p)
-        if len(b) >= 3200:
-            return True, "", rms(b[1600:])
-        err = (p.stderr.read() or b"").decode("utf-8", "replace").strip().splitlines()
-        return False, (err[-1] if err else "não entregou áudio"), 0.0
+    def _prova(f, m):
+        """(entregou áudio?, nível): espera o primeiro áudio (o do Windows demora) e mede ~0,4 s."""
+        partida = float(os.environ.get("VOZ_PROVA_S", m.partida))
+        q = f.quadro(partida)
+        if q is None:
+            return False, 0.0
+        b = [q]
+        for _ in range(13):
+            q = f.quadro(1.0)
+            if q is None:
+                break
+            b.append(q)
+        return len(b) >= 4, rms(b"".join(b[2:]))
+
+    def proximo(self):
+        """O microfone seguinte que entrega áudio (a tecla n); lembra a escolha. None se não há outro."""
+        if len(self.cands) < 2:
+            return None
+        for k in range(1, len(self.cands)):
+            i = (self.atual + k) % len(self.cands)
+            f = Fluxo(self.cands[i])
+            ok, _ = self._prova(f, self.cands[i])
+            if ok:
+                self._usar(i, f, lembrar=True)
+                return self.nome
+            f.fechar()
+        return None
+
+    def fechar(self):
+        if self.fluxo:
+            self.fluxo.fechar()
+            self.fluxo = None
 
     def frase(self, nivel=None, parar=None, espera=None, maximo=20.0, pausa=None):
         """Grava até o silêncio depois da fala. Devolve (pcm, motivo): motivo = fala | silencio | parado | erro."""
         espera = float(os.environ.get("VOZ_ESPERA_FALA_S", espera or 8.0))
         pausa = float(os.environ.get("VOZ_PAUSA", pausa or 1.1))
         minimo = float(os.environ.get("VOZ_LIMIAR", "350"))
-        try:
-            p = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                 stdin=subprocess.DEVNULL)
-        except OSError:
-            return b"", "erro"
-        fd = p.stdout.fileno()
-        tam = QUADRO * 2
+        if not self.fluxo or not self.fluxo.vivo:
+            if self.fluxo:
+                self.fluxo.fechar()
+            if self.atual < 0 or not self.escolher(self.atual):
+                return b"", "erro"
+        self.fluxo.limpar()
         antes, fala = [], []
         piso = None
         acima = abaixo = 0
@@ -251,40 +512,37 @@ class Gravador:
         inicio = time.time()
         comeco_fala = 0.0
         motivo = "silencio"
-        try:
-            while True:
-                q = ler_exato(fd, tam, time.time() + 2.0)
-                if len(q) < tam:
-                    motivo = "erro" if not falando else "fala"
+        while True:
+            q = self.fluxo.quadro(2.0)
+            if q is None:
+                motivo = "erro" if not falando else "fala"
+                break
+            r = rms(q)
+            piso = r if piso is None else (min(piso * 1.03, r) if not falando else piso)
+            limiar = max(piso * 2.6, minimo)
+            if nivel:
+                nivel(min(1.0, r / (limiar * 2.0)), falando)
+            if parar is not None and parar.is_set():
+                motivo = "fala" if falando else "parado"
+                break
+            if not falando:
+                antes.append(q)
+                antes = antes[-12:]
+                acima = acima + 1 if r > limiar else 0
+                if acima >= 3:
+                    falando, comeco_fala = True, time.time()
+                    fala = list(antes)
+                elif time.time() - inicio > espera:
                     break
-                r = rms(q)
-                piso = r if piso is None else (min(piso * 1.03, r) if not falando else piso)
-                limiar = max(piso * 2.6, minimo)
-                if nivel:
-                    nivel(min(1.0, r / (limiar * 2.0)), falando)
-                if parar is not None and parar.is_set():
-                    motivo = "fala" if falando else "parado"
+            else:
+                fala.append(q)
+                abaixo = abaixo + 1 if r < limiar * 0.8 else 0
+                if abaixo * QUADRO / TAXA >= pausa:
+                    motivo = "fala"
                     break
-                if not falando:
-                    antes.append(q)
-                    antes = antes[-12:]
-                    acima = acima + 1 if r > limiar else 0
-                    if acima >= 3:
-                        falando, comeco_fala = True, time.time()
-                        fala = list(antes)
-                    elif time.time() - inicio > espera:
-                        break
-                else:
-                    fala.append(q)
-                    abaixo = abaixo + 1 if r < limiar * 0.8 else 0
-                    if abaixo * QUADRO / TAXA >= pausa:
-                        motivo = "fala"
-                        break
-                    if time.time() - comeco_fala > maximo:
-                        motivo = "fala"
-                        break
-        finally:
-            parar_processo(p)
+                if time.time() - comeco_fala > maximo:
+                    motivo = "fala"
+                    break
         if motivo == "fala":
             return b"".join(fala), motivo
         return b"", motivo
@@ -315,26 +573,59 @@ def wav_de(pcm):
 
 # ---------------------------------------------------------------- motor (faster-whisper e Piper deste Python)
 class Motor:
-    """faster-whisper e Piper carregados uma vez (no processo que tem os pacotes)."""
+    """faster-whisper e Piper carregados uma vez (no processo que tem os pacotes). O modelo e o dispositivo são a
+    escolha desta máquina (escolha_local: o que ela mediu, ou a estimativa pelo hardware); a GPU que falhar cai na CPU."""
 
     def __init__(self):
         self.modelo = None
         self.piper = None
+        self.escolha = None
+        self.falso = os.environ.get("VOZ_MOTOR_FALSO")  # testes: transcrição fixa, sem modelo
 
-    def stt(self, wav, dica=""):
-        if self.modelo is None:
-            from faster_whisper import WhisperModel
-            self.modelo = WhisperModel(os.environ.get("VOZ_MODELO", "small"),
-                                       device=os.environ.get("VOZ_DISPOSITIVO", "cpu"),
-                                       compute_type=os.environ.get("VOZ_PRECISAO", "int8"))
-        with wave.open(io.BytesIO(wav)) as w:
-            pcm = w.readframes(w.getnframes())
-        import numpy
-        audio = numpy.frombuffer(pcm, dtype=numpy.int16).astype(numpy.float32) / 32768.0
+    def _novo_modelo(self, nome, dispositivo, precisao):
+        from faster_whisper import WhisperModel
+        return WhisperModel(nome, device=dispositivo, compute_type=precisao)
+
+    def _transcrever(self, audio, dica=""):
         segs, _ = self.modelo.transcribe(audio, language=os.environ.get("VOZ_IDIOMA", "pt"), beam_size=5,
                                          vad_filter=False, condition_on_previous_text=False,
                                          without_timestamps=True, initial_prompt=dica or None)
         return " ".join(s.text.strip() for s in segs).strip()
+
+    def _aquecer(self):  # a primeira transcrição: carrega de vez e faz a GPU sem biblioteca falhar já
+        self._transcrever(silencio(0.5))
+
+    def carregar_stt(self):
+        if self.modelo is not None or self.falso is not None:
+            if self.escolha is None:
+                self.escolha = {"modelo": "falso", "dispositivo": "cpu", "precisao": "-", "fonte": "teste"}
+            return self.escolha
+        e = escolha_local(sys.executable)
+        tentativas = [e]
+        if e["dispositivo"] != "cpu":  # a GPU só falha no primeiro uso (biblioteca CUDA, memória): aí vale a CPU
+            tentativas.append(dict(e, dispositivo="cpu", precisao="int8", tempo=None, fonte="a GPU falhou"))
+        erro = None
+        for t in tentativas:
+            try:
+                self.modelo = self._novo_modelo(t["modelo"], t["dispositivo"], t["precisao"])
+                self._aquecer()
+                self.escolha = t
+                if t is not e:
+                    gpu_falhou(sys.executable, str(erro))
+                return t
+            except Exception as ex:  # o próximo jeito, ou o erro para o cliente
+                self.modelo, erro = None, ex
+        raise erro
+
+    def stt(self, wav, dica=""):
+        if self.falso is not None:
+            return self.falso
+        self.carregar_stt()
+        with wave.open(io.BytesIO(wav)) as w:
+            pcm = w.readframes(w.getnframes())
+        import numpy
+        audio = numpy.frombuffer(pcm, dtype=numpy.int16).astype(numpy.float32) / 32768.0
+        return self._transcrever(audio, dica)
 
     def tts(self, texto, saida):
         if self.piper is None:
@@ -349,8 +640,14 @@ def arquivo_voz_piper():
     return os.path.join(VOZES, VOZ_PIPER + ".onnx")
 
 
+def silencio(segundos):
+    import numpy
+    return numpy.zeros(int(TAXA * segundos), dtype=numpy.float32)
+
+
 def servidor():
     """Laço do motor: lê pedidos no stdin (binário) e responde uma linha JSON por pedido."""
+    com_libs_cuda()
     m = Motor()
     ent, sai = sys.stdin.buffer, sys.stdout
     sai.write(json.dumps({"pronto": True}) + "\n")
@@ -368,11 +665,12 @@ def servidor():
             elif p.get("op") == "tts":
                 r = {"saida": m.tts(p["texto"], p["saida"]), "s": round(time.time() - t0, 2)}
             elif p.get("op") == "carregar":
+                r = {"ok": True}
                 if p.get("stt"):
-                    m.stt(wav_de(b"\0\0" * (TAXA // 2)))
+                    r["escolha"] = m.carregar_stt()
                 if p.get("tts") and os.path.exists(arquivo_voz_piper()):
                     m.tts("ok", os.path.join(tempfile.gettempdir(), "tt-voz-carregar-%d.wav" % os.getpid()))
-                r = {"ok": True, "s": round(time.time() - t0, 2)}
+                r["s"] = round(time.time() - t0, 2)
             else:
                 r = {"erro": "pedido desconhecido"}
         except Exception as e:  # o cliente decide o que fazer; o laço segue
@@ -391,14 +689,460 @@ def pythons():
     return out
 
 
+def site_packages(py):
+    """As site-packages de um Python de venv (<venv>/bin/python → <venv>/lib/python3.X/site-packages)."""
+    return sorted(glob.glob(os.path.join(os.path.dirname(os.path.dirname(py)), "lib", "python3*", "site-packages")))
+
+
 def python_com(modulo):
+    """O primeiro Python que tem o módulo. Num venv basta olhar a pasta (rápido: a janela pergunta a cada abertura)."""
     for p in pythons():
+        sps = site_packages(p)
+        if sps and os.path.exists(os.path.join(os.path.dirname(os.path.dirname(p)), "pyvenv.cfg")):
+            if any(os.path.isdir(os.path.join(sp, modulo)) for sp in sps):
+                return p
+            continue
+        if p == sys.executable:
+            import importlib.util
+            if importlib.util.find_spec(modulo):
+                return p
+            continue
         try:
             if subprocess.run([p, "-c", "import " + modulo], capture_output=True, timeout=30).returncode == 0:
                 return p
         except (OSError, subprocess.SubprocessError):
             pass
     return None
+
+
+# ---------------------------------------------------------------- escolha do motor: modelo, dispositivo e máquina
+# Cada máquina mede as combinações que tem (voz-audio.py medir: frases de referência ditas pelo Piper, transcritas por
+# cada modelo na CPU e na GPU) e guarda o tempo e o erro. A janela pergunta a todas as máquinas ao mesmo tempo
+# (capacidade), soma a carga de agora e a rede, e fica com o menor custo = tempo + PESO_ERRO × erro; o tempo de verdade
+# de cada frase (desempenho.json) corrige a estimativa da próxima vez, e uma troca no meio da conversa se piorar.
+MEDICOES = os.path.join(DADOS, "medicoes.json")
+DESEMPENHO = os.path.join(CACHE, "desempenho.json")
+SONDAS = os.path.join(CACHE, "sondas.json")
+REPOS = {"tiny": "Systran/faster-whisper-tiny", "base": "Systran/faster-whisper-base",
+         "small": "Systran/faster-whisper-small", "medium": "Systran/faster-whisper-medium",
+         "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo"}
+# por modelo: tempo relativo ao small na CPU, MB em disco (float16; em int8 ocupa a metade) e erro típico em pt-BR
+PERFIL = {"tiny": (0.3, 75, 0.45), "base": (0.45, 145, 0.35), "small": (1.0, 484, 0.2),
+          "medium": (2.6, 1528, 0.15), "large-v3-turbo": (2.0, 1618, 0.12)}
+PESO_ERRO = float(os.environ.get("VOZ_PESO_ERRO", "4"))  # errar 1 palavra em 4 custa como esperar 1 s a mais
+FRASES_TESTE = ["Troca essa sessão para o Codex e me avisa quando estiver pronto.",
+                "Quais tarefas eu tenho para hoje?",
+                "Libera a sessão dois e pergunta ao Claude que horas são lá.",
+                "Abre uma sessão nova no notebook com o Kiro."]
+DICA_TESTE = "tt, Terminal, Claude, Codex, Kiro, sessão, sessões, máquinas, liberar, encerrar, tarefas, contas, notebook"
+NUMEROS = {"0": "zero", "1": "um", "2": "dois", "3": "tres", "4": "quatro", "5": "cinco", "6": "seis", "7": "sete",
+           "8": "oito", "9": "nove", "10": "dez"}
+
+
+def ler_json(arq, padrao=None):
+    try:
+        with open(arq, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return padrao
+
+
+def gravar_json(arq, dados):
+    try:
+        os.makedirs(os.path.dirname(arq), exist_ok=True)
+        tmp = "%s.%d" % (arq, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(dados, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, arq)
+    except OSError:
+        pass
+
+
+def hf_hub():
+    return os.environ.get("HF_HUB_CACHE") or os.path.join(
+        os.environ.get("HF_HOME") or os.path.join(CASA, ".cache", "huggingface"), "hub")
+
+
+def modelos_em_cache():
+    """Os modelos do Whisper já baixados (o model.bin inteiro no cache do Hugging Face)."""
+    out = []
+    for nome, repo in REPOS.items():
+        snaps = os.path.join(hf_hub(), "models--" + repo.replace("/", "--"), "snapshots")
+        try:
+            if any(os.path.exists(os.path.join(snaps, s, "model.bin")) for s in os.listdir(snaps)):
+                out.append(nome)
+        except OSError:
+            pass
+    return out
+
+
+def gpus_nvidia():
+    """GPUs NVIDIA com driver ("nome, MB"). O macOS não tem CUDA (o ctranslate2 usa só a CPU lá)."""
+    teste = os.environ.get("VOZ_GPUS")
+    if teste is not None:
+        return [g.strip() for g in teste.split(";") if g.strip()]
+    if eh_mac() or os.environ.get("VOZ_SEM_GPU"):
+        return []
+    smi = shutil.which("nvidia-smi") or next((p for p in ("/usr/lib/wsl/lib/nvidia-smi",) if os.path.exists(p)), None)
+    if not smi:
+        return []
+    try:
+        r = subprocess.run([smi, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [l.strip() for l in r.stdout.splitlines() if l.strip()] if r.returncode == 0 else []
+
+
+def vram_mb(gpus):
+    try:
+        return max(int(g.rsplit(",", 1)[1]) for g in gpus)
+    except (ValueError, IndexError):
+        return 0
+
+
+def pacotes(py):
+    """Versões dos pacotes do motor no venv (pelas pastas dist-info, sem importar nada)."""
+    out = {}
+    for sp in site_packages(py) if py else []:
+        for d in glob.glob(os.path.join(sp, "*.dist-info")):
+            nome, _, ver = os.path.basename(d)[:-10].rpartition("-")
+            nome = nome.lower().replace("_", "-")
+            if nome in ("faster-whisper", "ctranslate2", "nvidia-cublas-cu12", "nvidia-cudnn-cu12"):
+                out[nome] = ver
+    return out
+
+
+def assinatura(py):
+    """O que, se mudar, invalida as medições: pacotes, modelos baixados e GPUs."""
+    return json.dumps({"pacotes": pacotes(py), "modelos": modelos_em_cache(), "gpus": gpus_nvidia()}, sort_keys=True)
+
+
+def libs_cuda_dirs():
+    out = []
+    for sp in [p for p in sys.path if p.endswith("site-packages")]:
+        for sub in ("nvidia/cublas/lib", "nvidia/cudnn/lib", "nvidia/cuda_nvrtc/lib"):
+            d = os.path.join(sp, sub)
+            if os.path.isdir(d):
+                out.append(d)
+    return out
+
+
+def com_libs_cuda():
+    """As bibliotecas CUDA do pip (nvidia-cublas-cu12, nvidia-cudnn-cu12) só valem no LD_LIBRARY_PATH de partida:
+    se faltam lá, o processo recomeça com elas (os fds, inclusive o canal do motor, continuam)."""
+    atual = [d for d in os.environ.get("LD_LIBRARY_PATH", "").split(":") if d]
+    falta = [d for d in libs_cuda_dirs() if d not in atual]
+    if falta and not os.environ.get("_VOZ_CUDA"):
+        os.environ["LD_LIBRARY_PATH"] = ":".join(falta + atual)
+        os.environ["_VOZ_CUDA"] = "1"
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+def gpu_falhou(py, motivo):
+    """A GPU falhou de verdade: as medições desta assinatura passam a valer só para a CPU."""
+    med = ler_json(MEDICOES) or {}
+    if med.get("assinatura") == assinatura(py):
+        med["gpu_falhou"] = motivo[:200]
+        gravar_json(MEDICOES, med)
+
+
+def ram_livre_mb():
+    try:
+        with open("/proc/meminfo") as f:
+            for l in f:
+                if l.startswith("MemAvailable:"):
+                    return int(l.split()[1]) // 1024
+    except OSError:
+        pass
+    try:  # macOS: metade da memória física, como aproximação
+        r = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=5)
+        return int(r.stdout.strip()) // 2 // 1048576
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0
+
+
+def carga():
+    try:
+        return os.getloadavg()[0]
+    except OSError:
+        return 0.0
+
+
+def palavras(t):
+    t = unicodedata.normalize("NFKD", t.lower())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return [NUMEROS.get(w, w) for w in re.findall(r"[a-z0-9]+", t)]
+
+
+def erro_palavras(ref, hip):
+    """Taxa de erro por palavra (distância de edição / palavras da referência), sem acento nem pontuação."""
+    a, b = palavras(ref), palavras(hip)
+    d = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        ant, d[0] = d[0], i
+        for j, y in enumerate(b, 1):
+            ant, d[j] = d[j], min(d[j] + 1, d[j - 1] + 1, ant + (x != y))
+    return d[len(b)] / max(1, len(a))
+
+
+def erro_efetivo(r):
+    """As frases de referência são voz sintética, mais fácil que a de um microfone de verdade (os modelos pequenos
+    parecem tão bons quanto os grandes): o erro medido vale metade; a outra metade é o erro típico do modelo."""
+    tipico = PERFIL.get(r.get("modelo"), PERFIL["small"])[2]
+    return 0.5 * r["erro"] + 0.5 * tipico if r.get("fonte", "medido") == "medido" and "erro" in r else r.get("erro", tipico)
+
+
+def custo(r):
+    return (r.get("tempo") or 99) + PESO_ERRO * erro_efetivo(r)
+
+
+def estimativa(modelo, nucleos):
+    """Sem medição: o tempo de uma frase na CPU pelo número de núcleos (o small leva ~2,2 s em 8)."""
+    return round(2.2 * PERFIL.get(modelo, PERFIL["small"])[0] * (8.0 / max(1, nucleos or 1)) ** 0.7, 2)
+
+
+def escolha_local(py):
+    """O jeito desta máquina transcrever: {modelo, dispositivo, precisao, tempo, erro, fonte}. Vem das medições (se a
+    assinatura bate) ou da estimativa pelo hardware; VOZ_MODELO e VOZ_DISPOSITIVO restringem."""
+    pedido, disp = os.environ.get("VOZ_MODELO"), os.environ.get("VOZ_DISPOSITIVO")
+    med = ler_json(MEDICOES) or {}
+    if med.get("assinatura") == assinatura(py):
+        rs = [r for r in med.get("resultados", []) if r.get("tempo")
+              and (not pedido or r["modelo"] == pedido) and (not disp or r["dispositivo"] == disp)
+              and not (med.get("gpu_falhou") and r["dispositivo"] != "cpu")]
+        if rs:
+            r = min(rs, key=custo)
+            return dict(r, fonte="medido", carga_medida=med.get("carga", 0.0), nucleos=med.get("nucleos"))
+    cache = modelos_em_cache()
+    n = os.cpu_count() or 1
+    if pedido:
+        m = pedido
+    elif ram_livre_mb() and ram_livre_mb() < 1500 or n < 4:
+        m = "base"
+    else:
+        m = "small"
+    if not pedido and m not in cache and cache:  # um baixado de tamanho parecido, em vez de baixar outro
+        m = min(cache, key=lambda c: abs(PERFIL[c][0] - PERFIL[m][0]))
+    return {"modelo": m, "dispositivo": disp or "cpu", "precisao": "int8", "tempo": estimativa(m, n),
+            "erro": PERFIL.get(m, PERFIL["small"])[2], "fonte": "estimado", "carga_medida": 0.0, "nucleos": n}
+
+
+def capacidade():
+    """O que esta máquina oferece para transcrever (a resposta do voz --motor-info, por ssh, à janela de outra)."""
+    t0 = time.time()
+    py = python_com("faster_whisper")
+    info = {"sistema": "macOS" if eh_mac() else ("WSL" if eh_wsl() else platform.system()), "nucleos": os.cpu_count(),
+            "carga": round(carga(), 2), "ram_livre_mb": ram_livre_mb(), "whisper": bool(py), "gpus": gpus_nvidia()}
+    if py:
+        info["escolha"] = escolha_local(py)
+    info["s"] = round(time.time() - t0, 3)
+    return info
+
+
+def fator_carga(info, e):
+    """Quanto a carga de agora atrasa em relação à da medição (na GPU, bem menos)."""
+    n = max(1, info.get("nucleos") or 1)
+    agora = max(1.0, (info.get("carga", 0.0) + 1) / n)
+    antes = max(1.0, ((e.get("carga_medida") or 0.0) + 1) / n)
+    f = agora / antes
+    return f ** 0.3 if e.get("dispositivo") != "cpu" else f
+
+
+def chave(lugar, e):
+    return "%s|%s|%s" % (lugar, e.get("modelo"), e.get("dispositivo"))
+
+
+def avaliar(lugar, info, hist):
+    """(custo, tempo previsto por frase, de onde veio) de transcrever em `lugar`; None se ele não transcreve."""
+    e = info.get("escolha")
+    if not info.get("whisper") or not e:
+        return None
+    h = hist.get(chave(lugar, e)) or {}
+    if h.get("n", 0) >= 2:
+        tempo, fonte = h["s"] * fator_carga(info, e) / max(0.2, fator_carga(dict(info, carga=h.get("carga", 0)), e)), "uso"
+    else:
+        tempo = (e.get("tempo") or estimativa(e.get("modelo", "small"), info.get("nucleos"))) * fator_carga(info, e)
+        tempo += 0 if lugar == "local" else 0.15  # a ida e a volta do áudio pela rede
+        fonte = e.get("fonte", "estimado")
+    return tempo + PESO_ERRO * erro_efetivo(e), round(tempo, 2), fonte
+
+
+def ssh_cmd(dest, comando, espera=3):
+    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=%d" % espera, "-o", "ServerAliveInterval=10",
+            "-o", "ControlPath=%s/.cache/tt-ssh-%%r@%%h" % CASA, dest,
+            'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ' + comando]
+
+
+class ForaDoAr(RuntimeError):
+    """O ssh não chegou à máquina (desligada, sem rede): ela fica de fora por 10 min."""
+
+
+def sondar(lugar, prazo=6.0):
+    """capacidade() de `lugar` (local aqui; outra máquina pelo voz --motor-info, por ssh)."""
+    if lugar == "local":
+        return capacidade()
+    dest = destino(lugar)
+    if not dest or dest == "local":
+        raise RuntimeError("máquina desconhecida")
+    try:
+        r = subprocess.run(ssh_cmd(dest, "voz --motor-info"), capture_output=True, text=True, timeout=prazo)
+    except subprocess.TimeoutExpired:
+        raise ForaDoAr("o ssh não respondeu em %d s" % prazo)
+    if r.returncode == 255:  # o código do próprio ssh: não conectou
+        raise ForaDoAr((r.stderr.strip().splitlines() or ["ssh falhou"])[-1][:120])
+    linhas = [l for l in r.stdout.splitlines() if l.startswith("{")]
+    if r.returncode != 0 or not linhas:
+        raise RuntimeError("sem o motor de voz (tt antigo ou sem python3)")
+    return json.loads(linhas[-1])
+
+
+def escolher(lugares, avisar=None):
+    """Os lugares que transcrevem, do menor custo ao maior: [(custo, lugar, tempo, fonte, info)], e os erros.
+    Pergunta a todos ao mesmo tempo; a máquina que não respondeu há menos de 10 min fica de fora (sem esperar o
+    ssh dela de novo); depois da primeira resposta útil, espera as outras no máximo mais 1,5 s."""
+    sondas = ler_json(SONDAS, {}) or {}
+    agora = time.time()
+    resultado, erros, fila = {}, [], []
+    for l in dict.fromkeys(lugares):
+        f = sondas.get(l) or {}
+        if l != "local" and f.get("falhou") and agora - f["falhou"] < 600:
+            erros.append("%s: fora do ar (há %d min)" % (l, (agora - f["falhou"]) // 60))
+            continue
+        fila.append(l)
+
+    def um(l):
+        try:
+            resultado[l] = sondar(l)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as ex:
+            resultado[l] = ex
+
+    ts = {l: threading.Thread(target=um, args=(l,), daemon=True) for l in fila}
+    for t in ts.values():
+        t.start()
+    fim, primeira = agora + 7.0, None
+    while time.time() < fim and any(t.is_alive() for t in ts.values()):
+        if primeira is None and any(isinstance(v, dict) and v.get("whisper") for v in list(resultado.values())):
+            primeira = time.time()
+            fim = min(fim, primeira + 1.5)
+        time.sleep(0.05)
+    hist = ler_json(DESEMPENHO, {}) or {}
+    ranking = []
+    for l in fila:
+        v = resultado.get(l)
+        if isinstance(v, dict):
+            sondas[l] = {"ok": time.time()}
+            a = avaliar(l, v, hist)
+            if a:
+                ranking.append((a[0], l, a[1], a[2], v))
+            else:
+                erros.append("%s: sem faster-whisper" % l)
+        else:
+            if isinstance(v, ForaDoAr):
+                sondas[l] = {"falhou": time.time()}
+            erros.append("%s: %s" % (l, v if v is not None else "demorou para responder (fica de fora desta vez)"))
+    gravar_json(SONDAS, sondas)
+    ranking.sort(key=lambda x: x[0])
+    return ranking, erros
+
+
+def registrar_tempo(lugar, e, segundos, info=None):
+    """O tempo de verdade de uma frase (com a rede), média móvel por lugar, modelo e dispositivo."""
+    hist = ler_json(DESEMPENHO, {}) or {}
+    k = chave(lugar, e)
+    h = hist.get(k) or {"s": segundos, "n": 0}
+    h["s"] = round(segundos if h["n"] == 0 else 0.7 * h["s"] + 0.3 * segundos, 3)
+    h["n"] = min(h["n"] + 1, 50)
+    h["carga"] = (info or {}).get("carga", 0.0)
+    h["quando"] = int(time.time())
+    hist[k] = h
+    gravar_json(DESEMPENHO, hist)
+    return h
+
+
+def descrever(lugar, e, tempo=None):
+    disp = {"cpu": "CPU"}.get(e.get("dispositivo"), "GPU")
+    t = (" · ~%.1f s" % tempo).replace(".", ",") if tempo else ""
+    return "%s · %s na %s%s" % ("esta máquina" if lugar == "local" else lugar, e.get("modelo"), disp, t)
+
+
+def combinacoes(gpus, cache, nucleos, ram):
+    """(modelo, dispositivo) a medir: na CPU os leves (o medium e o turbo só em CPU forte); na GPU, os que cabem nela."""
+    out = []
+    leves = [m for m in ("tiny", "base", "small") if m in cache] or ["small"]
+    pesados = [m for m in ("medium", "large-v3-turbo") if m in cache]
+    for m in leves + ([p for p in pesados if nucleos >= 16 and ram > 4000] if pesados else []):
+        out.append((m, "cpu"))
+    if gpus:
+        vram = vram_mb(gpus)
+        for m in [m for m in ("small", "medium", "large-v3-turbo") if m in cache] or ["small"]:
+            if PERFIL[m][1] / 2 < vram * 0.7:
+                out.append((m, "cuda"))
+    return out
+
+
+def medir(fabrica=None, sintetizar=None, saida=print):
+    """Mede cada combinação desta máquina com as frases de referência (ditas pelo Piper) e grava MEDICOES."""
+    com_libs_cuda()
+    if sintetizar is None:
+        import numpy
+        from piper import PiperVoice
+        voz = PiperVoice.load(arquivo_voz_piper())
+
+        def sintetizar(frase):
+            b = io.BytesIO()
+            with wave.open(b, "wb") as w:
+                voz.synthesize_wav(frase, w)
+            with wave.open(io.BytesIO(b.getvalue())) as w:
+                taxa, pcm = w.getframerate(), w.readframes(w.getnframes())
+            a = numpy.frombuffer(pcm, dtype=numpy.int16).astype(numpy.float32) / 32768.0
+            x = numpy.arange(0, len(a), taxa / float(TAXA))
+            a = numpy.interp(x, numpy.arange(len(a)), a).astype(numpy.float32)
+            # ruído de microfone de notebook (~15 dB abaixo da fala), sempre o mesmo: a voz sintética limpa é fácil demais
+            ruido = numpy.random.default_rng(7).normal(0, 1, len(a)).astype(numpy.float32)
+            return a + ruido * float(numpy.sqrt(numpy.mean(a ** 2))) * 10 ** (-15 / 20.0)
+    audios = [(f, sintetizar(f)) for f in FRASES_TESTE]
+    gpus, cache, n, ram = gpus_nvidia(), modelos_em_cache(), os.cpu_count() or 1, ram_livre_mb()
+    resultados = []
+    for modelo, disp in combinacoes(gpus, cache, n, ram):
+        for prec in (["int8"] if disp == "cpu" else ["int8", "int8_float16", "float32"]):
+            m = Motor()
+            if fabrica:
+                m._novo_modelo = fabrica
+            try:
+                t0 = time.time()
+                m.modelo = m._novo_modelo(modelo, disp, prec)
+                carga_s = time.time() - t0
+                m._transcrever(audios[0][1], DICA_TESTE)  # aquecimento
+                tempos, erros = [], []
+                for ref, a in audios:
+                    t0 = time.time()
+                    hip = m._transcrever(a, DICA_TESTE)
+                    tempos.append(time.time() - t0)
+                    erros.append(erro_palavras(ref, hip))
+                r = {"modelo": modelo, "dispositivo": disp, "precisao": prec, "tempo": round(sum(tempos) / len(tempos), 3),
+                     "erro": round(sum(erros) / len(erros), 3), "carregar": round(carga_s, 2)}
+                resultados.append(r)
+                saida("  %-15s %-4s %-12s %5.2f s por frase · erro %3.0f%% · carregar %.1f s"
+                      % (modelo, disp, prec, r["tempo"], r["erro"] * 100, carga_s))
+                break
+            except Exception as ex:  # a próxima precisão, ou a próxima combinação
+                saida("  %-15s %-4s %-12s ✗ %s" % (modelo, disp, prec, str(ex)[:90]))
+            finally:
+                m.modelo = None
+    med = {"assinatura": assinatura(sys.executable), "quando": int(time.time()), "carga": round(carga(), 2),
+           "nucleos": n, "resultados": resultados}
+    gravar_json(MEDICOES, med)
+    if resultados:
+        e = escolha_local(sys.executable)
+        saida("escolha: %s %s (%s)" % (e["modelo"], {"cpu": "na CPU"}.get(e["dispositivo"], "na GPU"),
+                                       ("%.2f s por frase, erro %.0f%%" % (e["tempo"], e["erro"] * 100)).replace(".", ",")))
+    return med
+
+
+def medicao_velha(py):
+    med = ler_json(MEDICOES) or {}
+    return med.get("assinatura") != assinatura(py)
 
 
 class Canal:
@@ -452,59 +1196,96 @@ class Canal:
 
 
 class Transcritor:
-    """Transcreve onde der: os lugares de VOZ_TRANSCREVER (local = este computador; rótulo = outra máquina do tt)."""
+    """Transcreve no melhor lugar (escolher: esta máquina ou outra do tt, pelo custo), com o motor aberto uma vez por
+    conversa. Mede cada frase; se o escolhido ficar bem mais lento que o seguinte, abre o seguinte em segundo plano e
+    troca. Motor que cai é aberto de novo, no melhor lugar que sobrar."""
 
     def __init__(self, avisar=None):
         self.canal = None
         self.onde = ""
+        self.desc = ""
         self.motivo = ""
+        self.escolha = {}
+        self.info = {}
+        self.ranking = []
+        self.proximo = None  # (canal, lugar, escolha, info) já carregado, esperando a troca
+        self.trocando = False
+        self.trava = threading.Lock()
         self.avisar = avisar or (lambda t: None)
 
     def lugares(self):
         v = os.environ.get("VOZ_TRANSCREVER", "").split()
         return v or ["local"]
 
-    def preparar(self):
+    @staticmethod
+    def _canal(lugar):
+        if lugar == "local":
+            py = python_com("faster_whisper")
+            if not py:
+                raise RuntimeError("sem faster-whisper (voz --instalar-audio)")
+            return Canal([py, EU, "servidor"], "local")
+        dest = destino(lugar)
+        if not dest or dest == "local":
+            raise RuntimeError("máquina desconhecida")
+        return Canal(ssh_cmd(dest, "exec voz --motor", espera=8), lugar)
+
+    def _abrir(self, lugar, info):
+        c = self._canal(lugar)
+        try:
+            r = c.pedir({"op": "carregar", "stt": True}, tempo=300)
+        except (OSError, RuntimeError, ValueError):
+            c.fechar()
+            raise
+        return c, r.get("escolha") or info.get("escolha") or {}
+
+    def preparar(self, pular=()):
         if os.environ.get("VOZ_STT_CMD"):
-            self.onde = "comando de teste"
+            self.onde = self.desc = "comando de teste"
             return True
-        erros = []
-        for lugar in self.lugares():
+        self.avisar("escolhendo onde transcrever…")
+        self.ranking, erros = escolher([l for l in self.lugares() if l not in pular])
+        for custo_, lugar, tempo, fonte, info in self.ranking:
             try:
-                if lugar == "local":
-                    py = python_com("faster_whisper")
-                    if not py:
-                        erros.append("local: sem faster-whisper (voz --instalar-audio)")
-                        continue
-                    self.canal = Canal([py, EU, "servidor"], "local")
-                else:
-                    dest = destino(lugar)
-                    if not dest or dest == "local":
-                        erros.append("%s: máquina desconhecida" % lugar)
-                        continue
-                    self.canal = Canal(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-                                        "-o", "ServerAliveInterval=10", dest,
-                                        'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; '
-                                        'exec voz --motor'], lugar)
-                self.onde = lugar
-                modelo = os.environ.get("VOZ_MODELO", "small")
-                self.avisar("carregando o reconhecimento (%s, modelo %s)…" % (lugar, modelo))
-                self.canal.pedir({"op": "carregar", "stt": True}, tempo=300)
-                if lugar != "local":  # o voz tenta esta primeiro da próxima vez (depois da local)
-                    try:
-                        os.makedirs(CACHE, exist_ok=True)
-                        with open(os.path.join(CACHE, "transcrever-ok"), "w") as f:
-                            f.write(lugar + "\n")
-                    except OSError:
-                        pass
+                self.avisar("carregando o reconhecimento: %s…" % descrever(lugar, info.get("escolha", {})))
+                self.canal, self.escolha = self._abrir(lugar, info)
+                self.onde, self.info = lugar, info
+                if self.escolha.get("modelo") != info.get("escolha", {}).get("modelo") or \
+                        self.escolha.get("dispositivo") != info.get("escolha", {}).get("dispositivo"):
+                    tempo = None  # carregou outro jeito (a GPU falhou): a estimativa não vale
+                self.desc = descrever(lugar, self.escolha, tempo)
+                if len(self.ranking) > 1:
+                    self.desc += " (de %d)" % len(self.ranking)
                 return True
-            except (OSError, RuntimeError, ValueError) as e:
-                erros.append("%s: %s" % (lugar, e))
-                if self.canal:
-                    self.canal.fechar()
-                    self.canal = None
+            except (OSError, RuntimeError, ValueError) as ex:
+                erros.append("%s: %s" % (lugar, ex))
         self.motivo = "; ".join(erros) or "nenhum lugar para transcrever"
         return False
+
+    def _alternativa(self):
+        """O melhor lugar do ranking que não é o de agora: (lugar, tempo previsto, info)."""
+        for custo_, lugar, tempo, fonte, info in self.ranking:
+            if lugar != self.onde:
+                return lugar, tempo, info
+        return None
+
+    def _talvez_trocar(self, h):
+        """Depois de duas frases, se o atual leva 1,6 vez o previsto para o seguinte, carrega o seguinte em paralelo."""
+        alt = self._alternativa()
+        if self.trocando or self.proximo or not alt or h["n"] < 2 or h["s"] < 1.6 * alt[1]:
+            return
+        self.trocando = True
+
+        def abrir():
+            try:
+                c, e = self._abrir(alt[0], alt[2])
+                with self.trava:
+                    self.proximo = (c, alt[0], e, alt[2])
+            except (OSError, RuntimeError, ValueError):
+                pass
+            finally:
+                self.trocando = False
+
+        threading.Thread(target=abrir, daemon=True).start()
 
     def texto(self, pcm, dica=""):
         wav = wav_de(pcm)
@@ -512,17 +1293,32 @@ class Transcritor:
         if c:
             return subprocess.run(["sh", "-c", c], input=wav, capture_output=True, timeout=60).stdout.decode(
                 "utf-8", "replace").strip()
-        if self.canal and self.canal.p.poll() is not None:  # o motor caiu (a rede, o ssh): abre de novo
+        with self.trava:
+            if self.proximo:  # o seguinte já carregou: troca
+                velho = self.canal
+                self.canal, self.onde, self.escolha, self.info = self.proximo
+                self.proximo = None
+                self.desc = descrever(self.onde, self.escolha) + " (trocou: o anterior ficou lento)"
+                self.avisar("transcrever: " + self.desc)
+                if velho:
+                    velho.fechar()
+        if self.canal and self.canal.p.poll() is not None:  # o motor caiu (a rede, o ssh): o melhor que sobrar
+            caiu = self.onde
             self.canal.fechar()
             self.canal = None
-            self.preparar()
+            self.preparar(pular=(caiu,))
         if not self.canal:
             raise RuntimeError(self.motivo or "sem reconhecimento")
-        return self.canal.pedir({"op": "stt", "n": len(wav), "dica": dica[:600]}, wav)["texto"]
+        t0 = time.time()
+        txt = self.canal.pedir({"op": "stt", "n": len(wav), "dica": dica[:600]}, wav)["texto"]
+        h = registrar_tempo(self.onde, self.escolha, time.time() - t0, self.info)
+        self._talvez_trocar(h)
+        return txt
 
     def fechar(self):
-        if self.canal:
-            self.canal.fechar()
+        for c in (self.canal, (self.proximo or (None,))[0]):
+            if c:
+                c.fechar()
 
 
 def destino(rotulo):
@@ -767,9 +1563,15 @@ class Conversa:
         self.sair = False
         self.parar_gravacao = threading.Event()
         self.gravador = Gravador()
-        self.transcritor = Transcritor(avisar=lambda t: self.tela.status("… " + t))
+        self.transcritor = Transcritor(avisar=self._aviso_transcritor)
         self.falador = None
         self.dica = ""
+
+    def _aviso_transcritor(self, t):
+        if t.startswith("transcrever: "):  # troca no meio da conversa: fica na conversa
+            self.tela.linha("nota", t)
+        else:
+            self.tela.status("… " + t)
 
     # -- as respostas do voz chegam pelo fd VOZ_TELA_FD: "tipo<TAB>texto" (fala, aviso, fim)
     def turno(self, frase, teclado):
@@ -878,9 +1680,16 @@ class Conversa:
         t.start()
         while t.is_alive():
             barra = "".join(NIVEL[max(0, min(7, int((estado["n"] * 6 - i) * 8)))] for i in range(6))
-            self.tela.status("%s %s  Espaço: terminei · t: digitar · m: %s · Esc: sair"
+            self.tela.status("%s %s  Espaço: terminei · t: digitar · n: outro microfone · m: %s · Esc: sair"
                              % ("● ouvindo" if estado["f"] else "○ fale", barra, "som" if self.mudo else "mudo"))
             k = teclado.tecla(0.1)
+            if k == "n":
+                self.parar_gravacao.set()
+                t.join()
+                self.tela.status("… abrindo o próximo microfone")
+                novo = self.gravador.proximo()
+                self.tela.linha("nota", "ouvir: %s" % novo if novo else "não há outro microfone que funcione")
+                return "\0n"
             if k == " ":
                 self.parar_gravacao.set()
             elif k == "t":
@@ -917,6 +1726,8 @@ class Conversa:
     def rodar(self):
         self.tela.medir()
         som = not self.digitar_sempre
+        if som:
+            self.tela.status("… abrindo o microfone")
         if som and not self.gravador.escolher():
             self.tela.linha("nota", "Sem microfone: %s. Digite (t)." % self.gravador.motivo)
             som = False
@@ -924,11 +1735,11 @@ class Conversa:
         self.falador.aquecer()
         partes = []
         if som:
-            partes.append("ouvir: " + self.gravador.nome)
+            partes.append("ouvir: %s%s" % (self.gravador.nome, " (n: outro)" if len(self.gravador.cands) > 1 else ""))
         with Teclado() as teclado:
             if som:
                 if self.transcritor.preparar():
-                    partes.append("transcrever: %s (%s)" % (self.transcritor.onde, os.environ.get("VOZ_MODELO", "small")))
+                    partes.append("transcrever: " + self.transcritor.desc)
                 else:
                     self.tela.linha("nota", "Sem reconhecimento de voz: %s. Digite (t), ou rode voz --instalar-audio."
                                     % self.transcritor.motivo)
@@ -942,6 +1753,8 @@ class Conversa:
                     frase = self.ouvir(teclado)
                     if frase is None:
                         break
+                    if frase == "\0n":  # n: trocou o microfone; volta a ouvir
+                        continue
                     if frase == "\0t":  # t: digitar esta vez (Esc volta a ouvir)
                         frase = self.digitar(teclado)
                         if not frase:
@@ -963,9 +1776,27 @@ class Conversa:
             if fim and not self.sair:
                 time.sleep(0.6)
         self.transcritor.fechar()
+        self.gravador.fechar()
         if self.falador and self.falador.motor:
             self.falador.motor.fechar()
+        medir_depois()
         return 0
+
+
+def medir_depois():
+    """Ao fechar a janela: se esta máquina transcreve e as medições não valem mais (pacote, modelo ou GPU mudou),
+    mede de novo em segundo plano, com prioridade baixa (as frases de referência precisam da voz do Piper)."""
+    py = python_com("faster_whisper")
+    if not py or os.environ.get("VOZ_STT_CMD") or not os.path.exists(arquivo_voz_piper()) or not medicao_velha(py):
+        return
+    log = os.path.join(CACHE, "medir.log")
+    try:
+        os.makedirs(CACHE, exist_ok=True)
+        with open(log, "a") as f:
+            subprocess.Popen(["nice", "-n", "19", py, EU, "medir"], stdout=f, stderr=f, stdin=subprocess.DEVNULL,
+                             start_new_session=True)
+    except OSError:
+        pass
 
 
 def espelho():
@@ -1021,13 +1852,33 @@ def diagnostico(provar=True):
     g = Gravador()
     if provar:
         ok = g.escolher()
-        linhas.append("gravar: %s" % (g.nome if ok else "✗ " + g.motivo))
-    else:
-        linhas.append("gravar: candidatos " + ", ".join(n for n, _ in candidatos_gravador()))
+        linhas.append("ouvir: %s" % (g.nome if ok else "✗ " + g.motivo))
+        g.fechar()
+    linhas.append("microfones (o 1º que entrega áudio vale; na janela, n passa ao seguinte):")
+    for m in g.cands or candidatos_gravador():
+        linhas.append("    %s%s%s" % ("● " if m.nome == g.nome else "  ", m.nome, " (padrão do sistema)" if m.padrao else ""))
     py = python_com("faster_whisper")
-    linhas.append("transcrever aqui: %s" % ("faster-whisper em %s (modelo %s)" % (py, os.environ.get("VOZ_MODELO", "small"))
-                                            if py else "✗ sem faster-whisper (voz --instalar-audio, ou transcrever noutra máquina)"))
-    linhas.append("transcrever em: %s" % " ".join(Transcritor().lugares()))
+    if py:
+        e = escolha_local(py)
+        med = ler_json(MEDICOES) or {}
+        linhas.append("transcrever aqui: %s (%s)" % (descrever("local", e, e.get("tempo")),
+                                                     "medido em %s" % time.strftime("%d/%m %H:%M", time.localtime(med["quando"]))
+                                                     if e.get("fonte") == "medido" else "estimado; voz --medir mede"))
+        if e.get("fonte") == "medido":
+            for r in sorted(med.get("resultados", []), key=custo):
+                linhas.append("    %-15s %-4s %5.2f s · erro %3.0f%%" % (r["modelo"], r["dispositivo"], r["tempo"], r["erro"] * 100))
+    else:
+        linhas.append("transcrever aqui: ✗ sem faster-whisper (voz --instalar-audio, ou transcreve noutra máquina)")
+    gp = gpus_nvidia()
+    linhas.append("GPU: %s" % (", ".join(g.replace(",", " ·") + " MB" for g in gp) if gp else "nenhuma NVIDIA (só a CPU)"))
+    if provar:
+        ranking, erros = escolher(Transcritor().lugares())
+        linhas.append("onde transcrever (o 1º é o escolhido; custo = tempo + %g × erro):" % PESO_ERRO)
+        for custo_, lugar, tempo, fonte, info in ranking:
+            e = info.get("escolha", {})
+            linhas.append("    %s  (custo %.2f, erro %.0f%%, %s)" % (descrever(lugar, e, tempo), custo_, e.get("erro", 0) * 100, fonte))
+        for er in erros:
+            linhas.append("    ✗ " + er)
     f = Falador()
     linhas.append("falar: %s" % f.det)
     print("\n".join(linhas))
@@ -1051,6 +1902,7 @@ def teste():
         tela.status("%s nível %s" % ("●" if falando else "○", "█" * int(v * 20)))
 
     pcm, motivo = g.frase(nivel=nivel)
+    g.fechar()
     tela.status("")
     print("\rgravado: %s, %.1f s, pico %d%%" % (motivo, len(pcm) / 2 / TAXA, pico[0] * 100))
     if motivo != "fala":
@@ -1087,13 +1939,22 @@ def instalar():
         if subprocess.run([vpy, "-m", "piper.download_voices", VOZ_PIPER, "--data-dir", VOZES]).returncode != 0:
             print("✗ não consegui baixar a voz do Piper")
             return 1
-    modelo = os.environ.get("VOZ_MODELO", "small")
-    print("modelo do Whisper: %s (baixa uma vez para o cache do Hugging Face)" % modelo)
-    r = subprocess.run([vpy, "-c", "from faster_whisper import WhisperModel as W; W(%r, device='cpu', "
-                        "compute_type='int8')" % modelo])
-    if r.returncode != 0:
-        print("✗ não consegui carregar o modelo %s" % modelo)
-        return 1
+    gpus = gpus_nvidia()
+    if gpus and not os.environ.get("VOZ_SEM_GPU"):
+        print("GPU NVIDIA (%s): bibliotecas CUDA para o Whisper (cuBLAS e cuDNN, ~2 GB; VOZ_SEM_GPU=1 pula)" % gpus[0])
+        if subprocess.run(pip + ["nvidia-cublas-cu12", "nvidia-cudnn-cu12==9.*"]).returncode != 0:
+            print("  ✗ não instalou; fica a CPU")
+    modelos = [os.environ["VOZ_MODELO"]] if os.environ.get("VOZ_MODELO") else ["small", "base"]
+    for modelo in modelos:
+        print("modelo do Whisper: %s (baixa uma vez para o cache do Hugging Face)" % modelo)
+        r = subprocess.run([vpy, "-c", "from faster_whisper import WhisperModel as W; W(%r, device='cpu', "
+                            "compute_type='int8')" % modelo])
+        if r.returncode != 0:
+            print("✗ não consegui carregar o modelo %s" % modelo)
+            return 1
+    print("medindo cada jeito de transcrever nesta máquina (modelo × CPU/GPU, frases de referência):")
+    if subprocess.run([vpy, EU, "medir"]).returncode != 0:
+        print("✗ a medição falhou; vale a estimativa pelo hardware (voz --medir tenta de novo)")
     print("✓ pronto: o 🎤 desta máquina transcreve e fala sozinho")
     return 0
 
@@ -1111,6 +1972,24 @@ def main(a):
         return teste()
     if cmd == "servidor":
         return servidor()
+    if cmd == "capacidade":
+        print(json.dumps(capacidade(), ensure_ascii=False))
+        return 0
+    if cmd == "medir":  # no Python com o faster-whisper (e o Piper, que diz as frases de referência)
+        py = python_com("faster_whisper")
+        if py and py != sys.executable:
+            os.execv(py, [py, EU, "medir"])
+        if not py or not os.path.exists(arquivo_voz_piper()):
+            print("sem faster-whisper ou sem a voz do Piper (voz --instalar-audio)")
+            return 1
+        return 0 if medir().get("resultados") else 1
+    if cmd == "escolher":
+        ranking, erros = escolher(os.environ.get("VOZ_TRANSCREVER", "local").split())
+        for custo_, lugar, tempo, fonte, info in ranking:
+            print("%.2f\t%s\t%s\t%s" % (custo_, lugar, tempo, descrever(lugar, info.get("escolha", {}))))
+        for er in erros:
+            print("✗ " + er)
+        return 0 if ranking else 1
     if cmd == "motor":  # o servidor no Python que tem o faster-whisper (pedido por outra máquina, por ssh)
         py = python_com("faster_whisper")
         if not py:

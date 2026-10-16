@@ -3,6 +3,22 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.20.0 · 16/10/2026
+- **🎤 O tt escolhe sozinho o melhor jeito de ouvir e de transcrever, em cada máquina.**
+  - **O microfone pelo tipo:** o headset (ou um microfone dedicado) antes do USB e do Bluetooth, depois a webcam, por
+    último o embutido; o que não entrega áudio fica de fora. No Windows (WSL), o tt grava direto do microfone escolhido,
+    sem mudar o padrão do Windows (o das chamadas). Na janela, **n** passa ao microfone seguinte, e o tt lembra da
+    escolha; `voz --microfone "nome"` fixa uma preferência.
+  - **A transcrição pela medida:** cada máquina com o Whisper mede cada jeito que tem (o modelo × a CPU ou a GPU NVIDIA)
+    em tempo e em erro, e a janela pergunta a todas as suas máquinas ao mesmo tempo e fica com a de menor custo, contando
+    a carga de agora e a rede. As desligadas ficam de fora sem esperar; o tempo de cada frase corrige a próxima escolha, e
+    se a escolhida ficar lenta no meio da conversa a janela passa para outra sozinha. Com GPU NVIDIA, o
+    `voz --instalar-audio` põe as bibliotecas CUDA (num notebook com GeForce MX250: 0,9 s por frase, contra 2,6 s na CPU).
+  - **O cérebro passa a ser o Sonnet:** medido com frases reais, ele acerta as ambíguas que o Haiku errava (escolher a
+    sessão citada e pedir para liberar, perguntar qual sessão, não agir sobre uma frase mal transcrita), por ~1 s a mais.
+    `voz --cerebro-modelo haiku` volta ao mais rápido.
+  - `voz --audio` mostra os microfones, as medições, a GPU e o ranking; `voz --medir` mede de novo.
+
 ## v1.19.1 · 16/10/2026
 - **🎤 Voz no celular sempre atualizada.** O `voz` do celular rodava a cópia do clone usado na instalação
   (`~/tt-terminais`), que não se atualiza sozinho: o daemon do Tasker ficava sem os consertos novos. Agora ele roda o

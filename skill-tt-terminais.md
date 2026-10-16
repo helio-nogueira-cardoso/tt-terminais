@@ -34,8 +34,8 @@ confirme no código antes de alterar contrato.
 - `ia-conta`, `ia-rot`, `ia-login`, `contas-uso.py`, `skill-rodizio-de-contas.md` — rotação de
   contas de IA (ver a skill `rodizio-de-contas`).
 - `atalhos-padrao`, `atalhos-padrao-mobile` — atalhos de barra padrão (desktop e Termux).
-- `voz`, `voz-audio.py` — o 🎤: conversa por voz com o tt (cérebro, regras e ações no `voz`; gravar, transcrever,
-  falar e a janela no `voz-audio.py`). No celular, `termux/bin/voz` roda o `voz` da raiz pelo bash do Termux.
+- `voz`, `voz-audio.py`, `voz-microfone.ps1` — o 🎤: conversa por voz com o tt (cérebro, regras e ações no `voz`; gravar,
+  escolher o motor, transcrever, falar e a janela no `voz-audio.py`; o microfone do Windows no WSL pelo `.ps1`). No celular, `termux/bin/voz` roda o `voz` da raiz pelo bash do Termux.
 - `termux/celular.sh` — provisiona um celular do zero (Termux + Debian proot).
 - `tests/` — suíte de regressão; `Makefile` → `make test`.
 
@@ -302,27 +302,47 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   IA seguir o trabalho; `--salvar` grava em `~/.cache/tt/conversas/CÓDIGO.md`. Se você recebeu um pedido da ⏩,
   é com isto que se relê a conversa original.
 
-### 🎤 Voz (`voz`, `voz-audio.py`)
-- `voz --conversa [--digitar]` (o 🎤): no computador, `exec python3 voz-audio.py conversa` (só biblioteca padrão): grava
-  uma frase (`Gravador`: testa `parecord`, `pw-record --raw`, `arecord`, `arecord -D plughw:C,D` de cada placa, `sox`,
-  `ffmpeg`; fica com o primeiro que entrega som com sinal e lembra dele em `~/.cache/tt-voz/gravador`; macOS: `sox -d`
-  ou `ffmpeg -f avfoundation`; WSL: `PULSE_SERVER=unix:/mnt/wslg/PulseServer`), detecta fala e fim pelo nível (piso
-  adaptativo, `VOZ_LIMIAR`, `VOZ_PAUSA`, `VOZ_ESPERA_FALA_S`), transcreve (`Transcritor`) e chama `voz --turno FRASE`
-  com `VOZ_TELA_FD`: o `falar` do voz escreve `fala|aviso|fim<TAB>texto` nesse fd e a janela mostra e fala (`Falador`:
-  Piper, `say`, voz do Windows por `powershell.exe` com o texto em base64, `spd-say`, `espeak`, `termux-tts-speak`).
-  No celular com o Tasker ligado: `voz --abrir` + `voz-audio.py espelho` (mostra `~/.local/state/tt-voz/conversa.log`;
-  digitar grava em `/sdcard/Tasker/voz/in`).
-- Motor: `voz-audio.py servidor` (no Python com os pacotes; `voz --motor` o acha para outra máquina por ssh): linhas
-  JSON `{"op":"stt","n":N,"dica":…}` + N bytes de WAV 16 kHz, `{"op":"tts","texto":…,"saida":…}`, `{"op":"carregar"}`;
-  responde uma linha JSON. A janela o abre uma vez por conversa (modelo carregado uma vez). Lugares: `VOZ_TRANSCREVER`
-  = `~/.config/tt-voz/transcrever`, ou `local`, a que deu certo (`~/.cache/tt-voz/transcrever-ok`), as do cérebro e as
-  outras máquinas. `voz --dica` dá as palavras do contexto (máquinas, sessões) para o `initial_prompt` do Whisper.
+### 🎤 Voz (`voz`, `voz-audio.py`, `voz-microfone.ps1`)
+- `voz --conversa [--digitar]` (o 🎤): no computador, `exec python3 voz-audio.py conversa` (só biblioteca padrão). Detecta
+  fala e fim pelo nível (piso adaptativo, `VOZ_LIMIAR`, `VOZ_PAUSA`, `VOZ_ESPERA_FALA_S`), transcreve (`Transcritor`) e chama
+  `voz --turno FRASE` com `VOZ_TELA_FD`: o `falar` do voz escreve `fala|aviso|fim<TAB>texto` nesse fd e a janela mostra e
+  fala (`Falador`: Piper, `say`, voz do Windows por `powershell.exe` com o texto em base64, `spd-say`, `espeak`,
+  `termux-tts-speak`). No celular com o Tasker ligado: `voz --abrir` + `voz-audio.py espelho` (mostra
+  `~/.local/state/tt-voz/conversa.log`; digitar grava em `/sdcard/Tasker/voz/in`).
+- Microfone (`candidatos_gravador` → `Mic`, `nota_microfone`): preferência (a tecla n lembra em `~/.cache/tt-voz/microfone`;
+  `VOZ_MICROFONE` = `voz --microfone "nome, outro"`) > headset/microfone dedicado (+300) > USB/Bluetooth (+120) > webcam
+  (+60) > embutido (−100); monitor e "stereo mix" fora. Linux: as fontes do `pactl list sources` (porta "not available"
+  e monitores fora; `node.virtual` = filtro, só com sinal), depois os genéricos (`parecord`/`pw-record`/`arecord` padrão,
+  `plughw:C,D` de cada placa, `sox`, `ffmpeg`), que só valem com sinal (`VOZ_SINAL_MIN`). macOS: `system_profiler
+  SPAudioDataType -json` + `sox -t coreaudio NOME` (ou `ffmpeg -f avfoundation -i :NOME`). WSL: `voz-microfone.ps1`
+  (winmm waveIn + MMDevice; DLL compilada uma vez em `%TEMP%`) lista os microfones do Windows com o padrão e grava um
+  direto (`gravar N`), sem mudar o padrão (o das chamadas); o `parecord` do WSLg grava só o padrão. O gravador fica aberto
+  na conversa (`Fluxo`: thread que guarda os últimos 10 s; `frase()` descarta o que veio antes de ouvir, inclusive a voz
+  do tt); o do Windows leva ~1,5–3 s para abrir. `Gravador.proximo()` = tecla n.
+- Motor: `voz-audio.py servidor` (no Python com os pacotes; `voz --motor` o acha para outra máquina por ssh): linhas JSON
+  `{"op":"stt","n":N,"dica":…}` + N bytes de WAV 16 kHz, `{"op":"tts",…}`, `{"op":"carregar","stt":true}` (responde
+  `escolha`); `com_libs_cuda` recomeça o processo com as bibliotecas CUDA do pip no `LD_LIBRARY_PATH`. `Motor` usa
+  `escolha_local`; GPU que falha no aquecimento cai na CPU e marca `gpu_falhou` nas medições.
+- Escolha: `voz-audio.py medir` (no fim do `voz --instalar-audio`; `voz --medir`; sozinho em segundo plano ao fechar a
+  janela se a assinatura mudou) diz as `FRASES_TESTE` com o Piper (+ ruído de microfone a −15 dB), transcreve com cada
+  `combinacoes()` (CPU: tiny/base/small; GPU: os que cabem em 70% da VRAM, int8 → int8_float16 → float32) e grava tempo e
+  erro por palavra em `~/.local/share/tt-voz/medicoes.json` com a `assinatura` (pacotes, modelos baixados, GPUs).
+  `custo = tempo + PESO_ERRO (4) × erro_efetivo` (metade medido, metade o típico do modelo: a voz sintética é fácil).
+  `voz --motor-info` = `capacidade()` (JSON: núcleos, carga, GPUs, escolha). A janela (`escolher`) pergunta a todos os
+  lugares ao mesmo tempo (ssh com o ControlPath do tt, ConnectTimeout 3; espera no máximo 1,5 s depois da 1ª resposta
+  útil); ssh que não conecta (código 255) fica de fora por 10 min (`~/.cache/tt-voz/sondas.json`); estimativa = histórico
+  real (`desempenho.json`, média móvel por lugar|modelo|dispositivo) ou medição × carga atual + 0,15 s de rede. Depois de
+  duas frases 1,6 vez mais lentas que o previsto para o seguinte, abre o seguinte em paralelo e troca.
+- Cérebro: `ia-rot -p --model $(cerebro_modelo)`; padrão `sonnet` (medido em 16/10/2026: acerta as frases ambíguas que o
+  Haiku errava por ~1 s a mais); `voz --cerebro-modelo haiku|sonnet|opus`.
 - Configuração em `~/.config/tt-voz/`: `cerebro` (`-` = desligado; sem o arquivo, a janela usa `local` se houver
-  `ia-rot`), `transcrever`, `fala`, `modelo`, `permitidas`. `voz --instalar-audio` = venv `~/.local/share/tt-voz/venv`
-  (faster-whisper, piper-tts) + voz `pt_BR-faber-medium` em `~/.local/share/tt-voz/piper` + o modelo no cache do HF.
-  `voz --audio` mostra o que esta máquina usa; `voz --audio-teste` grava, transcreve e repete.
+  `ia-rot`), `cerebro-modelo`, `transcrever`, `fala`, `modelo`, `microfone`, `permitidas`. `voz --instalar-audio` = venv
+  `~/.local/share/tt-voz/venv` (faster-whisper, piper-tts; com GPU NVIDIA, `nvidia-cublas-cu12` e `nvidia-cudnn-cu12`,
+  ~2 GB) + voz `pt_BR-faber-medium` + os modelos small e base + `medir`. `voz --audio` mostra microfones, medições, GPU e
+  o ranking dos lugares; `voz --audio-teste` grava, transcreve e repete.
 - Testes: `tests/test_voz.sh` (regras, cérebro, ações, daemon do celular) e `tests/test_voz_tela.sh` (canal da janela,
-  sistemas com `VOZ_SISTEMA=Darwin|WSL|Linux`, gravação, janela num tmux isolado, `@janela`, instalação).
+  sistemas com `VOZ_SISTEMA=Darwin|WSL|Linux`, microfones com `pactl`/PowerShell falsos, medições e escolha com ssh
+  falso e `VOZ_MOTOR_FALSO`, gravação, janela num tmux isolado, `@janela`, instalação).
 
 ### Arquivos entre máquinas
 - `tt --enviar [arquivo... [destino[:pasta]]]` — navega e envia; `tt --trazer [maquina:caminho [pasta]]`
@@ -682,7 +702,7 @@ ControlPath do ssh, transferências em andamento.
 tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile
 README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
 skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py
-tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py` (a
+tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-microfone.ps1` (a
 lista dos testes, em `tests/lib.sh` e `tests/test_repo_em_dia.sh`, acompanha). `ARQUIVOS_PACOTE` = `ARQUIVOS_FONTE` + `VERSAO`. Mudança que acrescenta um
 arquivo ao pacote PRECISA entrar em `ARQUIVOS_FONTE`, senão a autoatualização instala um pacote
 incompleto.

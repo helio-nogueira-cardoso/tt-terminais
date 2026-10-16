@@ -1846,28 +1846,42 @@ falando. Funciona no Linux, no macOS e no Windows (pelo WSL); no celular o Taske
 status, escolher e ler sessões, falar com um agente (só em sessões que você liberou, dizendo "sim"), abrir uma IA
 nova como o 🚀 (com a IA ou a conta que você disser), trocar a IA do painel como o 👇, passar a conversa como a ⏩,
 ler as tarefas e as subtarefas, o uso das contas. Frases curtas ("máquinas", "status", "dois", "encerrar") vão direto
-às regras; o resto vai ao **cérebro**, um Claude rápido (Haiku, pelo rodízio de contas) que entende a frase solta e
+às regras; o resto vai ao **cérebro**, um Claude (o Sonnet, pelo rodízio de contas) que entende a frase solta e
 escolhe as ações. Na janela ele roda nesta máquina, sem configurar nada (`voz --cerebro "pc local"` escolhe outro
-lugar; `voz --cerebro -` deixa só as regras).
+lugar; `voz --cerebro -` deixa só as regras; `voz --cerebro-modelo haiku|sonnet|opus` troca o modelo: medido com frases
+reais, o Sonnet acerta as ambíguas que o Haiku errava, por ~1 s a mais).
 
 Na janela: **Espaço** encerra a frase na hora (sem esperar o silêncio) ou pula a fala; **t** digita uma frase (no
-escritório, ou sem microfone); **m** liga e desliga a voz; **Esc** fecha. Duas vezes sem ouvir nada, ou "encerrar",
-também fecham. O botão direito do 🎤 tem "Só digitando", "Testar o microfone e a voz" e "Instalar a voz neural".
+escritório, ou sem microfone); **n** passa ao microfone seguinte (e o tt lembra dele); **m** liga e desliga a voz;
+**Esc** fecha. Duas vezes sem ouvir nada, ou "encerrar", também fecham. O botão direito do 🎤 tem "Só digitando",
+"Testar o microfone e a voz" e "Instalar a voz neural".
 
-Como cada sistema ouve, transcreve e fala (`voz --audio` mostra o desta máquina):
+**O microfone** é escolhido pelo tipo: o headset (ou um microfone dedicado) antes do USB e do Bluetooth, depois a
+webcam, por último o embutido; os que não entregam áudio (o conector de fone vazio, um filtro sem sinal) ficam de fora.
+`voz --microfone "blackshark, headset"` fixa a preferência. No Windows (WSL), o tt grava direto do microfone escolhido
+(`voz-microfone.ps1`), sem mudar o padrão do Windows, que continua sendo o das chamadas.
+
+**A transcrição** é escolhida pela medida. Cada máquina com o Whisper mede, na instalação, cada jeito que tem (o
+modelo × a CPU ou a GPU NVIDIA) com frases de referência, em tempo e em erro. Ao abrir, a janela pergunta a todas as
+suas máquinas ao mesmo tempo e fica com a de menor custo (o tempo, a carga de agora e a rede, mais o erro), deixando de
+fora as desligadas sem esperá-las de novo por 10 min. O tempo de cada frase de verdade corrige a escolha seguinte, e
+se a escolhida ficar lenta no meio da conversa a janela passa para a próxima sozinha. Exemplo: o notebook com uma
+GeForce MX250 transcreve uma frase em 0,9 s na GPU (2,6 s na CPU), e um computador sem o Whisper usa essa GPU pela
+rede em ~0,9 s.
 
 | | Gravar (o fim da frase é o silêncio) | Transcrever | Falar |
 | --- | --- | --- | --- |
-| Linux | `parecord`, `pw-record` ou `arecord` (testa cada um e fica com o primeiro que entrega som; se o servidor de som perdeu a placa, grava direto do microfone pelo ALSA) | faster-whisper (modelo `small`) aqui ou noutra máquina | Piper (voz pt-BR), ou `spd-say`/`espeak` |
-| macOS | `sox` (`brew install sox`) ou `ffmpeg` | faster-whisper aqui ou noutra máquina | `say` com a voz Luciana |
-| WSL | `parecord` pelo PulseAudio do WSLg | noutra máquina (sem pesar no disco do Windows) ou aqui | a voz pt-BR do Windows (Maria) |
+| Linux | as fontes do PulseAudio/PipeWire pela escolha acima; sem elas, `pw-record`/`arecord` e o microfone direto pelo ALSA | o de menor custo: aqui (CPU ou GPU) ou noutra máquina | Piper (voz pt-BR), ou `spd-say`/`espeak` |
+| macOS | as entradas do Core Audio, pelo `sox` (`brew install sox`) ou pelo `ffmpeg` | o de menor custo (aqui só a CPU) | `say` com a voz Luciana |
+| WSL | o microfone do Windows escolhido, direto (ou o padrão, pelo WSLg) | o de menor custo (em geral noutra máquina, sem pesar no disco do Windows) | a voz pt-BR do Windows (Maria) |
 | Celular | Tasker | Google (no Tasker) | Tasker |
 
-- `voz --instalar-audio` cria `~/.local/share/tt-voz/venv` com o faster-whisper e o Piper, baixa a voz pt-BR do
-  Piper e o modelo do Whisper (uns 600 MB). Sem ele, a máquina transcreve na primeira das outras que tiver (por ssh,
-  com o modelo carregado uma vez por conversa) e fala com a voz do sistema.
-- `voz --transcrever "local pc"` fixa onde transcrever; `voz --fala piper|say|windows|spd|espeak|nenhum` escolhe a
-  voz; `voz --modelo base|small|medium` troca o modelo (o `base` é 3 vezes mais rápido e erra mais).
+- `voz --instalar-audio` cria `~/.local/share/tt-voz/venv` com o faster-whisper e o Piper (e, com GPU NVIDIA, as
+  bibliotecas CUDA, ~2 GB), baixa a voz pt-BR do Piper e os modelos e mede. `voz --medir` mede de novo (a janela também
+  mede sozinha, em segundo plano, quando um pacote, um modelo ou a GPU mudou).
+- `voz --audio` mostra os microfones, as medições, a GPU e o ranking dos lugares de transcrição.
+- `voz --transcrever "local pc"` limita onde transcrever; `voz --modelo base|small|medium|large-v3-turbo` fixa o modelo;
+  `voz --fala piper|say|windows|spd|espeak|nenhum` escolhe a voz.
 - `voz --audio-teste` grava uma frase, mostra o nível, transcreve e repete o que ouviu.
 - Para esconder o botão nesta máquina: a linha `-	voz` em `~/.config/tt/atalhos`.
 
