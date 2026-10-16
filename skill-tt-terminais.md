@@ -350,6 +350,16 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   útil); ssh que não conecta (código 255) fica de fora por 10 min (`~/.cache/tt-voz/sondas.json`); estimativa = histórico
   real (`desempenho.json`, média móvel por lugar|modelo|dispositivo) ou medição × carga atual + 0,15 s de rede. Depois de
   duas frases 1,6 vez mais lentas que o previsto para o seguinte, abre o seguinte em paralelo e troca.
+- Estado e espera (`voz`): `real_de MAQ SESSÃO` resolve uma ponte (`@ponte`) para a sessão que o cliente dela mostra na
+  outra máquina (`voz --cliente-ponte "origem|ponte"` lá, pelo `TT_PONTE` no environ do cliente; senão `@ponte_alvo`);
+  ler e mandar texto vão lá. `cerebro_prompt` leva a tela de agora da sessão escolhida (`limpar_tela`: sem `CHROME`;
+  `ocupado`, `ha_quanto`), e a regra manda responder estado/contexto pela tela, sem "ler". `ler_agora` não espera
+  (trabalhando → `pendente_marcar`); `aguardar` (depois de `enviar`) espera até `VOZ_ESPERA`=15 voltas de 2 s, com
+  `descarregar` (fala o que a volta já juntou) antes. A janela confere o `pendente` a cada ~6 s enquanto você não fala
+  (`voz --pendente-pronto`: duas telas iguais sem "trabalhando") e fala a resposta (`voz --turno-pendente`).
+- Aparelho de origem: `atalho_janela` com comando `voz …` num cliente que é ponte (`origem_ponte`) pede à máquina de
+  origem `tt --janela-ponte PONTE CMD MÁQUINA SESSÃO` (`janela_ponte`: o cliente que olha a ponte, `voz --alvo`, e a
+  janela lá); falhou, abre aqui com um aviso.
 - Cérebro: `ia-rot -p --model $(cerebro_modelo)`; padrão `sonnet` (medido em 16/10/2026: acerta as frases ambíguas que o
   Haiku errava por ~1 s a mais); `voz --cerebro-modelo haiku|sonnet|opus`.
 - Configuração em `~/.config/tt-voz/`: `cerebro` (`-` = desligado; sem o arquivo, a janela usa `local` se houver

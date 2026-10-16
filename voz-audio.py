@@ -1993,6 +1993,7 @@ class Teclado:
 
 # ---------------------------------------------------------------- opções (tecla c da janela e voz --opcoes)
 CF_VOZ = os.path.join(CASA, ".config", "tt-voz")
+ESTADO = os.path.join(CASA, ".local", "state", "tt-voz")
 CEREBROS = [("1", "haiku", "Haiku", "o mais rápido; erra mais nas frases ambíguas"),
             ("2", "sonnet", "Sonnet", "entende melhor o ambíguo, ~1 s a mais (o padrão)"),
             ("3", "opus", "Opus", "o mais capaz; mais lento e gasta mais cota")]
@@ -2114,6 +2115,8 @@ class Conversa:
         self.transcritor = Transcritor(avisar=self._aviso_transcritor)
         self.falador = None
         self.dica = ""
+        self.pendente_pronto = threading.Event()
+        self.conferindo = False
 
     def _aviso_transcritor(self, t):
         if t.startswith("transcrever: "):  # troca no meio da conversa: fica na conversa
@@ -2122,11 +2125,11 @@ class Conversa:
             self.tela.status("… " + t)
 
     # -- as respostas do voz chegam pelo fd VOZ_TELA_FD: "tipo<TAB>texto" (fala, aviso, fim)
-    def turno(self, frase, teclado):
+    def turno(self, frase, teclado, args=None):
         r, w = os.pipe()
         env = dict(os.environ, VOZ_TELA_FD=str(w))
         try:
-            p = subprocess.Popen(["bash", self.voz, "--turno", frase], pass_fds=(w,), env=env,
+            p = subprocess.Popen(["bash", self.voz] + (args or ["--turno", frase]), pass_fds=(w,), env=env,
                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
             os.close(r)
@@ -2226,7 +2229,18 @@ class Conversa:
 
         t = threading.Thread(target=gravar, daemon=True)
         t.start()
+        ultima = time.time()
         while t.is_alive():
+            # o agente que ficou trabalhando: confere em segundo plano; terminou e você não está falando, ele fala
+            if self.pendente_pronto.is_set() and not estado["f"]:
+                self.parar_gravacao.set()
+                t.join()
+                return "\0p"
+            if (time.time() - ultima > 6 and not estado["f"] and not self.conferindo
+                    and os.path.exists(os.path.join(ESTADO, "pendente"))):
+                ultima = time.time()
+                self.conferindo = True
+                threading.Thread(target=self._conferir_pendente, daemon=True).start()
             barra = "".join(NIVEL[max(0, min(7, int((estado["n"] * 6 - i) * 8)))] for i in range(6))
             self.tela.status("%s %s  Espaço: terminei · t: digitar · c: opções · m: %s · Esc: sair"
                              % ("● ouvindo" if estado["f"] else "○ fale", barra, "som" if self.mudo else "mudo"))
@@ -2279,6 +2293,15 @@ class Conversa:
         else:
             self.tela.linha("erro", "sem reconhecimento: %s" % self.transcritor.motivo)
 
+    def _conferir_pendente(self):
+        try:
+            if subprocess.run(["bash", self.voz, "--pendente-pronto"], capture_output=True, timeout=60).returncode == 0:
+                self.pendente_pronto.set()
+        except (OSError, subprocess.SubprocessError):
+            pass
+        finally:
+            self.conferindo = False
+
     def atualizar_dica(self):
         try:
             self.dica = subprocess.run(["bash", self.voz, "--dica"], capture_output=True, text=True,
@@ -2326,6 +2349,11 @@ class Conversa:
                     if frase is None:
                         break
                     if frase == "\0n":  # trocou o microfone ou as opções: volta a ouvir
+                        continue
+                    if frase == "\0p":  # o agente que estava trabalhando terminou: a resposta dele
+                        self.pendente_pronto.clear()
+                        self.tela.linha("nota", "o agente terminou:")
+                        fim = self.turno("", teclado, ["--turno-pendente"])
                         continue
                     if frase == "\0t":  # t: digitar esta vez (Esc volta a ouvir)
                         frase = self.digitar(teclado)

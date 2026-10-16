@@ -1863,6 +1863,12 @@ escritório, ou sem microfone); **n** passa ao microfone seguinte (e o tt lembra
 e desliga a voz; **Esc** fecha. Duas vezes sem ouvir nada, ou "encerrar", também fecham. O botão direito do 🎤 tem "Só
 digitando", "Opções: modelos, microfone e som", "Testar o microfone e a voz" e "Instalar a voz neural".
 
+**A voz é do aparelho onde você está:** o 🎤 clicado numa ponte (vendo esta máquina de outra) abre a janela na máquina
+de origem, com o microfone e o som dela, já com a sessão que estava na tela como alvo. Perguntas sobre o estado de uma
+sessão ("o que ela está fazendo?") respondem na hora, pela tela de agora; depois de mandar um pedido, a janela espera uns
+30 s e, se o agente segue trabalhando, avisa sozinha quando ele terminar. Numa ponte, a leitura e o texto vão à sessão de
+verdade da outra máquina.
+
 **As opções** (tecla **c**, ou `voz --opcoes`) escolhem o modelo do cérebro (1 Haiku, 2 Sonnet, 3 Opus), o da
 transcrição (a automático, ou b–f um fixo: tiny, base, small, medium, turbo, com o que esta máquina mediu de cada um), o
 microfone (n), a saída de som (s) e a voz (v, com um exemplo). A escolha fica guardada em `~/.config/tt-voz` e vale também na máquina que transcreve.

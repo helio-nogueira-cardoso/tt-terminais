@@ -108,11 +108,42 @@ passou 'voz: sessão não liberada não recebe texto'
 v "permitir sessao" | grep -q liberada || falhou 'permitir sessão'
 saida=$(v "oi mundo"); [[ $saida == *"Enviado para agente-teste"* && $saida == *"Entendi: oi mundo"* ]] || falhou "resposta do agente: $saida"
 saida=$(v repetir); [[ $saida == *'Entendi: oi mundo'* && $saida != *Enviado* ]] || falhou "repetir (o aviso não conta): $saida"
-saida=$(VOZ_ESPERA=1 v "devagar"); [[ $saida == *"ainda está trabalhando"* ]] || falhou "agente demorado: $saida"
+saida=$(VOZ_ESPERA=1 v "devagar"); [[ $saida == *"Eu aviso quando terminar"* ]] || falhou "agente demorado: $saida"
 saida=$(v repetir); [[ $saida == *'Entendi: devagar'* ]] || falhou "repetir depois da demora confere a sessão de novo: $saida"
 [[ -e $HOME/.local/state/tt-voz/pendente ]] && falhou 'pendente ficou depois da resposta'
 v bloquear sessao >/dev/null; v "qualquer coisa" | grep -q 'não está liberada' || falhou 'bloquear sessão'
 passou 'voz: texto vai à sessão liberada e a resposta volta resumida'
+
+# o estado sem esperar: com o agente trabalhando, diz há quanto tempo e fica pendente (o cérebro recebe a tela limpa);
+# a janela confere (--pendente-pronto) e, quando ele termina, fala a resposta (--turno-pendente)
+EST=$HOME/.local/state/tt-voz
+tmux new-session -d -s ocupado-teste "printf '● Rodando a suíte inteira\n✶ Determining… (2m 5s · ↓ 3k tokens)\n  ⏵⏵ bypass permissions on · esc to interrupt\n'; sleep 600"
+printf 'dell:ocupado-teste\n' >>"$HOME/.config/tt-voz/permitidas"; printf dell >"$EST/alvo_m"; printf ocupado-teste >"$EST/alvo_s"; sleep 0.5
+saida=$(VOZ_CEREBRO_CMD="cat > '$T/pedido2.txt'; echo '{\"fala\": \"\", \"acoes\": [{\"acao\": \"ler\"}]}'" v "como está essa sessão")
+[[ $saida == *"Ele está trabalhando há 2 minutos e 5 segundos. Eu aviso quando terminar."* ]] || falhou "estado com o agente trabalhando: $saida"
+grep -q 'o agente está TRABALHANDO há 2 minutos e 5 segundos' "$T/pedido2.txt" && grep -qF '| ● Rodando a suíte inteira' "$T/pedido2.txt" ||
+  falhou "contexto do cérebro sem a tela de agora: $(grep -A4 'tela de agora' "$T/pedido2.txt")"
+grep -q 'bypass permissions' "$T/pedido2.txt" && falhou 'o rodapé do agente foi ao cérebro'
+bash "$V" --pendente-pronto && falhou 'pendente pronto com o agente ainda trabalhando'
+tmux respawn-pane -k -t '=ocupado-teste:' "printf '● Terminei: 12 testes passaram.\n'; sleep 600"; sleep 0.5
+bash "$V" --pendente-pronto || falhou 'pendente não ficou pronto com o agente parado'
+ev=$(VOZ_TELA_FD=3 bash "$V" --turno-pendente 3>&1 >/dev/null)
+[[ $ev == $'fala\tTerminei: 12 testes passaram.' ]] || falhou "a resposta do agente que terminou: '$ev'"
+[[ -e $EST/pendente ]] && falhou 'o pendente ficou depois da resposta'
+tmux kill-session -t '=ocupado-teste'
+passou 'voz: estado sem esperar (trabalhando há quanto tempo; a tela limpa vai ao cérebro); avisa quando o agente termina'
+
+# ponte: "ponte-x" aqui mostra a sessão agente-teste de dell (o cliente dela leva TT_PONTE): ler e mandar vão à de verdade
+ln -sf "$V" "$B/voz"
+tmux new-session -d -s ponte-x 'sleep 600'; tmux set-option -t '=ponte-x:' @ponte u@h1
+fora new -d -s cliponte -x 80 -y 20 "env -u TMUX TT_PONTE='celular|ponte-x' TMUX_TMPDIR=$TMUX_TMPDIR tmux attach -t agente-teste"
+for i in $(seq 25); do [[ $(bash "$V" --cliente-ponte 'celular|ponte-x') == agente-teste ]] && break; sleep 0.2; done
+[[ $(bash "$V" --cliente-ponte 'celular|ponte-x') == agente-teste ]] || falhou 'a sessão que o cliente da ponte mostra'
+printf celular >"$EST/alvo_m"; printf ponte-x >"$EST/alvo_s"; printf 'celular:ponte-x\n' >>"$HOME/.config/tt-voz/permitidas"
+saida=$(v "oi ponte"); [[ $saida == *"Entendi: oi ponte"* ]] || falhou "texto pela ponte: $saida"
+tmux capture-pane -p -t '=agente-teste:' | grep -q 'oi ponte' || falhou 'o texto não chegou à sessão de verdade'
+fora kill-server 2>/dev/null || true; tmux kill-session -t '=ponte-x'; printf dell >"$EST/alvo_m"; printf agente-teste >"$EST/alvo_s"
+passou 'voz: numa ponte, lê e manda texto na sessão de verdade da outra máquina (a que o cliente da ponte mostra)'
 
 # frases soltas: nome da máquina, "sessões do X", número da lista, "sim" para liberar, várias hipóteses, singular
 saida=$(v "dell"); [[ $saida == *"Agora em dell"* && $saida == *"1, agente teste"* ]] || falhou "máquina pelo nome: $saida"

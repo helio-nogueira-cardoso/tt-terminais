@@ -3,6 +3,18 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.23.0 · 16/10/2026
+- **🎤 Sem travar ao perguntar o estado de uma sessão.** "Qual o estado dessa sessão?" esperava o agente terminar
+  (até 2,5 min, em silêncio). Agora o cérebro recebe a tela de agora da sessão e responde na hora: o que o agente está
+  fazendo, se está trabalhando e há quanto tempo. Depois de mandar um pedido ao agente, a janela espera no máximo uns 30 s;
+  se ele segue trabalhando, ela diz "eu aviso quando terminar" e volta a ouvir, e quando ele termina, fala a resposta
+  sozinha. O que já estava pronto para dizer sai antes de qualquer espera.
+- **🎤 Nas sessões que mostram outra máquina (pontes),** a leitura e o texto vão à sessão de verdade de lá, a que a
+  ponte está mostrando agora: sem as barras do tt e o rodapé do agente lidos como resposta ("Update installed",
+  "Crunched for…").
+- **🎤 A voz é do aparelho onde você clica.** O 🎤 clicado numa ponte (vendo esta máquina de outra) abre a janela na
+  máquina de origem, com o microfone e o som dela, já com a sessão que estava na tela como alvo da conversa.
+
 ## v1.22.0 · 16/10/2026
 - **🎤 Vozes neurais: a resposta deixa de soar robótica.** A voz passa a ser gerada no motor (nesta máquina ou na
   que transcreve, por exemplo o computador com GPU) e tocada no aparelho do microfone. A padrão é a **Piper Faber**,

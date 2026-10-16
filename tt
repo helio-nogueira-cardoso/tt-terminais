@@ -2572,7 +2572,7 @@ CONF
   echo "$(conf nome): $(versao)"
 }
 
-# O 🎙 (voz): o utilitário vai para o PATH. No celular o ~/.local/bin/voz é do termux/celular.sh (aponta para o clone e
+# O 🎤 (voz): o utilitário vai para o PATH. No celular o ~/.local/bin/voz é do termux/celular.sh (aponta para o clone e
 # roda pelo bash do Termux, que o cron acha); um voz que não é link (escrito à mão) também fica.
 instalar_voz() {
   chmod +x "$DIR_TT/voz" "$DIR_TT/voz-audio.py" 2>/dev/null
@@ -14597,7 +14597,7 @@ atalho_executar() {
 }
 
 # O comando de um atalho, pelo clique ou pelo menu: "@seguir …" passa a conversa do painel adiante (nesta máquina),
-# "@aqui …" troca o que roda no painel, "@janela …" roda numa janela flutuante sobre a tela (o 🎙), o resto abre numa
+# "@aqui …" troca o que roda no painel, "@janela …" roda numa janela flutuante sobre a tela (o 🎤), o resto abre numa
 # sessão nova e a tela vai para ela.
 atalho_comando() { # cliente painel pasta comando id
   local cliente=$1 pane=$2 pasta=$3 cmd=$4 id=$5 nome
@@ -14612,10 +14612,20 @@ atalho_comando() { # cliente painel pasta comando id
   tmux switch-client -c "$cliente" -t "=$nome" # (a troca de sessão já redesenha o cliente)
 }
 
-# Atalho "@janela CMD": o comando numa janela flutuante encostada na barra, à direita (a do 🎙); fecha quando ele
+# Atalho "@janela CMD": o comando numa janela flutuante encostada na barra, à direita (a do 🎤); fecha quando ele
 # termina. É um popup de verdade (um clique fora não a fecha: a conversa segue enquanto se olha a tela de baixo).
+# O 🎤 (comando "voz …") é do aparelho onde você está: clicado numa ponte (você vê esta máquina de outra), a janela abre
+# na máquina de origem, por cima da ponte, com o microfone e o som dela; a conversa já começa na sessão daqui.
 atalho_janela() { # cliente pasta comando id
-  local c=$1 pasta=$2 cmd=$3 id=$4 cw ch w=80 h=16 tit
+  local c=$1 pasta=$2 cmd=$3 id=$4 cw ch w=80 h=16 tit origem om op sess
+  if [[ $cmd == 'voz '* ]] && origem=$(origem_ponte "$c") && [[ -n $origem && $origem == *'|'* ]]; then
+    om=${origem%%|*} op=${origem#*|}
+    sess=$(do_cliente "$c" '#{session_name}')
+    if ssh "${SSH_OPC[@]}" "$(dest_de "$om")" "$TT_REMOTO --janela-ponte $(q "$op" "$cmd" "$MAQUINA" "$sess")" </dev/null; then
+      return 0
+    fi
+    botao_aviso "$c" "⚠ 🎤 não consegui abrir na máquina de origem ($om); abrindo aqui"
+  fi
   read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
   [[ $cw =~ ^[0-9]+$ ]] && ((cw < w + 2)) && w=$((cw > 22 ? cw - 2 : 20))
   [[ $ch =~ ^[0-9]+$ ]] && ((ch < h + 6)) && h=$((ch > 10 ? ch - 6 : 6))
@@ -14624,7 +14634,20 @@ atalho_janela() { # cliente pasta comando id
     "bash -lc $(q "PATH=\"\$HOME/.local/bin:$DIR_TT:\$PATH\"; $cmd")"
 }
 
-# O 🎙 pela tecla (Ctrl+B v): o atalho "voz" desta máquina, como o clique nele; escondido da barra, a conversa de sempre.
+# Pedido de uma máquina vista por esta numa ponte: abre o comando (o 🎤) na janela do cliente daqui que olha a ponte P
+# (o último que agiu, como no --ir-ponte). Na conversa, a sessão-alvo já é a que estava na tela de lá.
+janela_ponte() { # ponte comando máquina-de-lá sessão-de-lá
+  local p=$1 cmd=$2 m=$3 s=$4 c
+  [[ $cmd == 'voz '* ]] || return 1
+  tmux has-session -t "=$p" 2>/dev/null || return 1
+  c=$(tmux list-clients -t "=$p" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
+  [[ -n $c ]] || return 1
+  [[ $cmd == *--conversa* && -n $m && -n $s ]] && "$HOME/.local/bin/voz" --alvo "$m" "$s" >/dev/null 2>&1
+  ( atalho_janela "$c" "$HOME" "$cmd" voz & ) >/dev/null 2>&1
+  return 0
+}
+
+# O 🎤 pela tecla (Ctrl+B v): o atalho "voz" desta máquina, como o clique nele; escondido da barra, a conversa de sempre.
 atalho_voz() { # cliente painel pasta
   local cmd
   cmd=$(atalho_por_id voz | cut -f3)
@@ -19046,6 +19069,7 @@ case "${1:-}" in
   --seletor) TT_ESTADO=$(mktemp "$RT/tt-menu.XXXXXX"); export TT_ESTADO
              trap limpar_estado EXIT; seletor; exit ;;
   --ir-ponte) ir_ponte "$2" "$3" "$4"; exit ;;
+  --janela-ponte) janela_ponte "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit ;;
   --ponte) ponte "$2" "$3" "$4"; exit ;;
   --focar) focar "$2"; exit ;;
   --soltar) soltar_painel "$2"; exit ;;

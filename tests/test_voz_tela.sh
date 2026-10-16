@@ -535,10 +535,18 @@ tmux send-keys -t '=conversa:' Enter; espera_tela 'transcrever: comando de teste
 [[ $(cat "$HOME/.config/tt-voz/voz") == sistema ]] || falhou "opções: a voz não ficou guardada: $(cat "$HOME/.config/tt-voz/voz" 2>&1)"
 rm -f "$HOME/.config/tt-voz/voz"
 espera_tela 'c: opções' || falhou 'depois das opções, não voltou a ouvir'
+# um agente que ficou trabalhando (pendente) terminou: enquanto ouve, a janela confere e fala a resposta sozinha
+tmux new-session -d -s agente-x "printf '● Pronto: terminei a revisão.\n'; sleep 600"; sleep 0.5
+printf 'mesa:agente-x\n' >"$HOME/.local/state/tt-voz/pendente"
+espera_tela 'o agente terminou:' && espera_tela 'tt: Pronto: terminei a revisão.' ||
+  falhou "a janela não avisou que o agente pendente terminou: $(tmux capture-pane -p -J -t '=conversa:')"
+[[ -e $HOME/.local/state/tt-voz/pendente ]] && falhou 'o pendente ficou depois do aviso'
+tmux kill-session -t '=agente-x'
+espera_tela 'c: opções' || falhou 'depois do aviso, não voltou a ouvir'
 tmux send-keys -t '=conversa:' Escape
 for i in $(seq 50); do [[ -s $J/saiu ]] && break; sleep 0.2; done
 [[ $(<"$J/saiu") == SAIU=0 ]] || falhou "Esc não fechou a janela: $(cat "$J/saiu" 2>/dev/null)"
-passou 'janela: ouve, mostra e fala a resposta; t digita; c abre as opções (cérebro, transcrição e voz, com exemplo; guardados); Esc fecha'
+passou 'janela: ouve, mostra e fala; t digita; c abre as opções (guardadas); avisa sozinha quando o agente pendente termina; Esc fecha'
 
 # voz --opcoes (o item do botão direito do 🎤): 2 volta ao Sonnet (o padrão: sem arquivo), a volta ao automático
 tmux new-session -d -s opcoes -x 100 -y 20 -e VOZ_GRAVADOR="$GRAV" -e VOZ_TTS_CMD="cat >/dev/null" -e PATH="$PATH" \
@@ -608,6 +616,35 @@ for i in $(seq 40); do [[ -s $T/janela.out ]] && break; sleep 0.2; done
 [[ -s $T/janela.out ]] || falhou 'o clique no 🎤 da barra não abriu a janela'
 wait
 passou 'atalho 🎤: @janela roda numa janela flutuante na pasta do painel, pelo clique e pelo Ctrl+B v'
+
+# 🎤 clicado numa ponte (você vê esta máquina de outra): a janela abre na máquina de origem, a do aparelho onde você
+# está (o microfone e o som dela), com a sessão daqui como alvo da conversa
+cat >"$B/ssh" <<FIM
+#!/bin/sh
+for a; do ultimo=\$a; done
+echo "\$ultimo" >>"$T/ssh-ponte.log"
+exit 0
+FIM
+chmod +x "$B/ssh"
+printf '192.0.2.9 ninguem origem\n' >"$XDG_CONFIG_HOME/tt/maquinas"
+rm -f "$XDG_CONFIG_HOME/tt/atalhos"  # o 🎤 de fábrica: @janela voz --conversa
+fora new -d -s viaponte -x 110 -y 30 "env -u TMUX TMUX_TMPDIR=$TMUX_TMPDIR TT_PONTE='origem|ponte-y' tmux attach -t inicio"
+for i in $(seq 25); do cli_p=$(tmux list-clients -F '#{client_width} #{client_name}' | awk '$1 == 110 { print $2 }'); [[ -n $cli_p ]] && break; sleep 0.2; done
+"$TT" --clique voz "$cli_p" "$pane" "$T"
+l=$(cat "$T/ssh-ponte.log" 2>/dev/null)
+[[ $l == *--janela-ponte* && $l == *ponte-y* && $l == *conversa* && $l == *teste* && $l == *inicio* ]] ||
+  falhou "🎤 pela ponte: deveria pedir à máquina de origem: '$l'"
+fora kill-session -t viaponte
+# a máquina de origem: abre no cliente que olha a ponte e põe a sessão de lá como alvo da conversa
+mkdir -p "$HOME/.local/bin"; ln -sf "$V" "$HOME/.local/bin/voz"
+"$TT" --janela-ponte inicio "voz --dica >$T/dica.out # --conversa" dell sessao-de-la
+for i in $(seq 40); do [[ -s $T/dica.out ]] && break; sleep 0.2; done
+[[ -s $T/dica.out ]] || falhou '--janela-ponte: a janela não abriu no cliente da ponte'
+[[ $(cat "$HOME/.local/state/tt-voz/alvo_m") == dell && $(cat "$HOME/.local/state/tt-voz/alvo_s") == sessao-de-la ]] ||
+  falhou "--janela-ponte: a conversa deveria começar na sessão de lá"
+"$TT" --janela-ponte inicio "rm -rf /tmp/nada" dell x && falhou '--janela-ponte aceitou um comando que não é do voz'
+rm -f "$HOME/.local/bin/voz" "$B/ssh"; : >"$XDG_CONFIG_HOME/tt/maquinas"
+passou '🎤 numa ponte: abre na máquina de origem (o microfone e o som de onde você está), já na sessão que estava na tela'
 
 # --- instalação: o voz vai para o ~/.local/bin (fora do celular)
 instalar_isolado
