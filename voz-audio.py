@@ -400,6 +400,27 @@ class Fluxo:
             pass
 
 
+# A fala conta a partir deste nível (RMS de um quadro de 30 ms) ou de 2,6 × o ruído da sala, o que for maior. Um headset
+# com filtro de ruído próprio (o BlackShark) entrega a voz baixa (picos de 400 a 700): a alta ou a máxima o ouvem.
+SENSIBILIDADES = [("normal", 350), ("alta", 180), ("máxima", 100), ("baixa", 600)]
+
+
+def limiar_minimo():
+    """O nível mínimo da fala: VOZ_LIMIAR (voz --limiar, a tecla g das opções) é o nome de uma sensibilidade ou um número."""
+    v = os.environ.get("VOZ_LIMIAR", "").strip().lower()
+    for nome, valor in SENSIBILIDADES:
+        if v.replace("á", "a") == nome.replace("á", "a"):
+            return float(valor)
+    try:
+        return max(10.0, float(v.replace(",", ".")))
+    except ValueError:
+        return float(SENSIBILIDADES[0][1])
+
+
+def rotulo_limiar(valor):
+    return next((n for n, x in SENSIBILIDADES if x == valor), "%d" % valor)
+
+
 class Gravador:
     """Escolhe o microfone (o de melhor nota que entrega áudio; os genéricos precisam de sinal) e grava frases, com
     o fim pelo silêncio. proximo() passa ao microfone seguinte (a tecla n da janela) e lembra a escolha."""
@@ -411,6 +432,8 @@ class Gravador:
         self.cands = []
         self.atual = -1
         self.fluxo = None
+        # da última frase: o maior nível que durou 3 quadros sem chegar a ser fala, e o limiar daquele momento
+        self.quase, self.limiar_quase = 0.0, float(SENSIBILIDADES[0][1])
 
     @property
     def cmd(self):
@@ -507,7 +530,9 @@ class Gravador:
         """Grava até o silêncio depois da fala. Devolve (pcm, motivo): motivo = fala | silencio | parado | erro."""
         espera = float(os.environ.get("VOZ_ESPERA_FALA_S", espera or 8.0))
         pausa = float(os.environ.get("VOZ_PAUSA", pausa or 1.1))
-        minimo = float(os.environ.get("VOZ_LIMIAR", "350"))
+        minimo = limiar_minimo()
+        self.quase, self.limiar_quase = 0.0, minimo
+        ultimos = []
         if not self.fluxo or not self.fluxo.vivo:
             if self.fluxo:
                 self.fluxo.fechar()
@@ -539,6 +564,9 @@ class Gravador:
             if not falando:
                 antes.append(q)
                 antes = antes[-12:]
+                ultimos = (ultimos + [r])[-3:]
+                if len(ultimos) == 3 and min(ultimos) > self.quase:
+                    self.quase, self.limiar_quase = min(ultimos), limiar
                 acima = acima + 1 if r > limiar else 0
                 if acima >= 3:
                     falando, comeco_fala = True, time.time()
@@ -2105,6 +2133,9 @@ def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
         tela.linha("nota", "   agora: " + transcritor.desc)
     if gravador is not None and gravador.nome:
         tela.linha("nota", "microfone: %s   (n: o seguinte)" % gravador.nome)
+    lim = limiar_minimo()
+    tela.linha("nota", "sensibilidade do microfone: %s (a fala conta a partir do nível %d)   (g: a seguinte)"
+               % (rotulo_limiar(lim), lim))
     if falador is not None and falador.qual not in ("nenhum", "cmd"):
         tela.linha("nota", "saída de som: %s   (s: a seguinte)" % falador.onde)
     if falador is not None:
@@ -2112,7 +2143,7 @@ def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
             rotulo_voz(falador.voz), ", ".join(rotulo_voz(v) for v in falador.vozes())))
     mudou = False
     while True:
-        tela.status("opções: 1-3 cérebro · a-f modelo · l máquina · n microfone · s saída · v voz · Enter volta")
+        tela.status("opções: 1-3 cérebro · a-f modelo · l máquina · n microfone · g sensibilidade · s saída · v voz · Enter")
         k = teclado.tecla(0.3)
         if k is None:
             continue
@@ -2159,6 +2190,13 @@ def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
                                                 if nova.startswith("edge:") else ""))
             tela.status("🔊 exemplo da voz…")
             falador.falar("Esta é a voz %s do tt. Diga o que precisa." % rotulo_voz(nova).split(" (")[0])
+        elif k == "g":
+            nomes = [n for n, _ in SENSIBILIDADES]
+            atual = rotulo_limiar(limiar_minimo())
+            nome, valor = SENSIBILIDADES[(nomes.index(atual) + 1) % len(nomes) if atual in nomes else 0]
+            gravar_conf("limiar", "" if nome == SENSIBILIDADES[0][0] else nome)
+            os.environ["VOZ_LIMIAR"] = nome
+            tela.linha("nota", "✓ sensibilidade: %s (a fala conta a partir do nível %d)" % (nome, valor))
         elif k == "s" and falador is not None:
             novo = falador.proxima_saida()
             tela.linha("nota", "✓ saída de som: %s" % novo if novo else "não há outra saída de som")
@@ -2178,6 +2216,7 @@ class Conversa:
         self.dica = ""
         self.pendente_pronto = threading.Event()
         self.conferindo = False
+        self.avisou_fraco = False
 
     def _aviso_transcritor(self, t):
         if t.startswith("transcrever: "):  # troca no meio da conversa: fica na conversa
@@ -2338,6 +2377,8 @@ class Conversa:
             self.tela.linha("erro", "%s não manda som nenhum: está no mudo? (o botão do headset). c e depois n troca o "
                                     "microfone." % self.gravador.nome)
             return ""
+        if res.get("motivo") in ("silencio", "parado"):
+            self._aviso_fraco()
         if res.get("motivo") != "fala":
             return ""
         self.tela.status("… entendendo")
@@ -2360,6 +2401,16 @@ class Conversa:
             novo.fechar()
             self.tela.linha("erro", "não consegui trocar: %s. Continua em %s; l nas opções permite escolher outra máquina."
                             % (novo.motivo, self.transcritor.desc or "sem reconhecimento"))
+
+    def _aviso_fraco(self):
+        """Um som que durou mas não chegou ao limiar (o headset que entrega a voz baixa): diz uma vez por conversa como
+        aumentar a sensibilidade, em vez de só "não ouvi"."""
+        g = self.gravador
+        if self.avisou_fraco or not g.quase or g.quase < 0.3 * g.limiar_quase or g.quase >= g.limiar_quase:
+            return
+        self.avisou_fraco = True
+        self.tela.linha("nota", "ouvi um som fraco (nível %d; a fala conta a partir de %d). Se era você, fale mais perto do "
+                                "microfone ou aumente a sensibilidade: c e depois g." % (g.quase, g.limiar_quase))
 
     def _conferir_pendente(self):
         try:
@@ -2580,7 +2631,9 @@ def teste():
     tela.status("")
     print("\rgravado: %s, %.1f s, pico %d%%" % (motivo, len(pcm) / 2 / TAXA, pico[0] * 100))
     if motivo != "fala":
-        print("✗ não ouvi fala (fale mais perto, ou ajuste VOZ_LIMIAR)")
+        print("✗ não ouvi fala%s: fale mais perto, ou aumente a sensibilidade (voz --limiar alta, ou c e g na janela)"
+              % (" (ouvi um som fraco, nível %d; a fala conta a partir de %d)" % (g.quase, g.limiar_quase)
+                 if g.quase >= 0.3 * g.limiar_quase else ""))
         return 1
     if not t.preparar():
         print("✗ transcrever: " + t.motivo)

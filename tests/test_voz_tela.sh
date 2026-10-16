@@ -502,11 +502,14 @@ rm -f "$B/ssh" "$B/voz"
 # --- gravar até o silêncio: fala detectada pelo nível, silêncio, e o Espaço que encerra
 python3 -c 'import math, struct, sys
 sys.stdout.buffer.write(b"\0\0" * 4000 + b"".join(struct.pack("<h", int(6000 * math.sin(i * 0.17))) for i in range(16000)))' >"$T/tom.raw"
+python3 -c 'import math, struct, sys
+sys.stdout.buffer.write(b"".join(struct.pack("<h", int(280 * math.sin(i * 0.17))) for i in range(16000)))' >"$T/tom-fraco.raw"
 # 0,1 s de ruído baixo de sala (um microfone de verdade nunca dá zero exato: zero exato é microfone no mudo)
 python3 -c 'import random, struct, sys
 random.seed(3); sys.stdout.buffer.write(b"".join(struct.pack("<h", random.randint(-6, 6)) for i in range(1600)))' >"$T/ruido.raw"
 # o microfone falso fica aberto (como o de verdade) e "fala" a frase quando aparece o arquivo $T/falar
-GRAV="while :; do if [ -e '$T/falar' ]; then rm -f '$T/falar'; cat '$T/tom.raw'; fi; cat '$T/ruido.raw' || exit 0; sleep 0.1; done"
+GRAV="while :; do if [ -e '$T/falar' ]; then rm -f '$T/falar'; cat '$T/tom.raw'; fi
+  if [ -e '$T/falar-fraco' ]; then rm -f '$T/falar-fraco'; cat '$T/tom-fraco.raw'; fi; cat '$T/ruido.raw' || exit 0; sleep 0.1; done"
 falar_quando_ouvir() { # SESSÃO: espera a janela ouvir ("○ fale") e "fala" no microfone falso
   local i; for i in $(seq 100); do tmux capture-pane -p -J -t "=$1:" 2>/dev/null | grep -qF '○ fale' && break; sleep 0.2; done
   touch "$T/falar"
@@ -528,6 +531,21 @@ g = m.Gravador(); g.escolher(); t = time.time(); pcm, motivo = g.frase(); print(
 EOF
 )
 [[ $r == 'silencio 0 True' ]] || falhou "silêncio: '$r'"
+# a voz baixa (nível ~200): na sensibilidade normal não chega a ser fala, mas fica anotada (o aviso da janela); na alta, é fala
+r=$(VOZ_GRAVADOR="$GRAV" VOZ_PAUSA=0.6 VOZ_ESPERA_FALA_S=2.5 py <<EOF
+$CARREGA
+import os, threading, time
+g = m.Gravador(); g.escolher(); time.sleep(0.5)
+threading.Timer(0.3, lambda: open("$T/falar-fraco", "w").close()).start()
+pcm, motivo = g.frase(); print(motivo, 150 < g.quase < 250, int(g.limiar_quase))
+os.environ["VOZ_LIMIAR"] = "alta"; time.sleep(0.3)
+threading.Timer(0.3, lambda: open("$T/falar-fraco", "w").close()).start()
+pcm, motivo = g.frase(); print(motivo, len(pcm) > 16000); g.fechar()
+print(m.limiar_minimo(), [m.limiar_minimo() for os.environ["VOZ_LIMIAR"] in ("maxima", "máxima", "baixa", "120", "x", "")])
+EOF
+)
+[[ $r == $'silencio True 350\nfala True\n180.0 [100.0, 100.0, 600.0, 120.0, 350.0, 350.0]' ]] ||
+  falhou "voz baixa: deveria ficar anotada na normal e virar fala na alta: '$r'"
 # microfone no mudo (zero exato): na frase, "mudo"; na escolha, pula para o seguinte e conta qual pulou
 r=$(VOZ_GRAVADOR="while :; do head -c 3200 /dev/zero || exit 0; sleep 0.1; done" VOZ_ESPERA_FALA_S=1 py <<EOF
 $CARREGA
@@ -551,7 +569,7 @@ EOF
 )
 [[ $r == "True Intel USB Audio (Windows) | ['BlackShark V2 Pro PS 2.4 (Windows)']" ]] ||
   falhou "headset no mudo: deveria ouvir pelo seguinte e avisar: '$r'"
-passou 'gravação: fala pelo nível, fim no silêncio; microfone no mudo (zero exato) é pulado e avisado'
+passou 'gravação: fala pelo nível, fim no silêncio; microfone no mudo (zero exato) é pulado e avisado; voz baixa pela sensibilidade'
 
 # --- a janela da conversa: microfone, transcrição e voz falsos; o voz e o cérebro de regras de verdade
 tmux new-session -d -s _base 'sleep 3600'  # o servidor do tmux não morre entre uma janela e a seguinte
@@ -613,10 +631,30 @@ espera_tela 'o agente terminou:' && espera_tela 'tt: Pronto: terminei a revisão
 [[ -e $HOME/.local/state/tt-voz/pendente ]] && falhou 'o pendente ficou depois do aviso'
 tmux kill-session -t '=agente-x'
 espera_tela 'c: opções' || falhou 'depois do aviso, não voltou a ouvir'
+# ouvindo agora: a linha de baixo da tela (não uma de antes); o som que começa antes vira o piso de ruído
+ouvindo() { local i; for i in $(seq 100); do tmux capture-pane -p -J -t '=conversa:' | grep -v '^$' | tail -n 1 | grep -qF 'c: opções' && return 0; sleep 0.2; done; return 1; }
+ouvindo; sleep 0.5; touch "$T/falar-fraco"; sleep 1.8; tmux send-keys -t '=conversa:' Space
+espera_tela 'ouvi um som fraco (nível' && espera_tela 'c e depois g' ||
+  falhou "voz baixa e Espaço: a janela deveria dizer como aumentar a sensibilidade: $(tmux capture-pane -p -J -t '=conversa:')"
+# o "Não ouvi" é falado antes de ouvir de novo (o que se tecla durante a fala não vai às opções): espera a linha de baixo
+espera_tela 'tt: Não ouvi. Pode falar.' || falhou 'voz baixa e Espaço: deveria contar como silêncio'
+ouvindo; tmux send-keys -t '=conversa:' c
+for i in $(seq 50); do (($(tmux capture-pane -p -J -t '=conversa:' | grep -c 'sensibilidade do microfone: normal') >= 2)) && break; sleep 0.2; done
+(($(tmux capture-pane -p -J -t '=conversa:' | grep -c 'sensibilidade do microfone: normal') >= 2)) || falhou 'opções: a sensibilidade não aparece'
+tmux send-keys -t '=conversa:' g; espera_tela '✓ sensibilidade: alta' ||
+  falhou "opções: g não trocou a sensibilidade: $(tmux capture-pane -p -J -t '=conversa:')"
+[[ $(cat "$HOME/.config/tt-voz/limiar") == alta && $(bash "$V" --limiar) == 'limiar: alta' ]] ||
+  falhou "opções: a sensibilidade não ficou guardada: $(cat "$HOME/.config/tt-voz/limiar" 2>&1)"
+tmux send-keys -t '=conversa:' Enter; ouvindo || falhou 'depois da sensibilidade, não voltou a ouvir'
+printf 'onde\n' >>"$J/frases"; n0=$(cat "$J/n"); sleep 0.5; touch "$T/falar-fraco"
+for i in $(seq 50); do (($(cat "$J/n") > n0)) && break; sleep 0.2; done
+(($(cat "$J/n") > n0)) || falhou "na sensibilidade alta, a voz baixa deveria virar frase: $(tmux capture-pane -p -J -t '=conversa:')"
+for i in $(seq 50); do (($(tmux capture-pane -p -J -t '=conversa:' | grep -c 'você: onde') >= 2)) && break; sleep 0.2; done
+espera_tela 'c: opções' || falhou 'depois da voz baixa, não voltou a ouvir'
 tmux send-keys -t '=conversa:' Escape
 for i in $(seq 50); do [[ -s $J/saiu ]] && break; sleep 0.2; done
 [[ $(<"$J/saiu") == SAIU=0 ]] || falhou "Esc não fechou a janela: $(cat "$J/saiu" 2>/dev/null)"
-passou 'janela: ouve, mostra e fala; t digita; c abre as opções (guardadas); avisa sozinha quando o agente pendente termina; Esc fecha'
+passou 'janela: ouve, mostra e fala; t digita; c abre as opções (guardadas); avisa sozinha quando o agente pendente termina; voz baixa: avisa e g aumenta a sensibilidade; Esc fecha'
 
 # voz --opcoes (o item do botão direito do 🎤): 2 volta ao Sonnet (o padrão: sem arquivo), a volta ao automático
 tmux new-session -d -s opcoes -x 100 -y 20 -e VOZ_GRAVADOR="$GRAV" -e VOZ_TTS_CMD="cat >/dev/null" -e PATH="$PATH" \
@@ -630,6 +668,9 @@ tmux send-keys -t '=opcoes:' 2 Enter; espera_tela_op '✓ máquina de transcriç
 [[ $(cat "$HOME/.config/tt-voz/transcrever") == dell ]] || falhou 'máquina escolhida não ficou guardada'
 tmux send-keys -t '=opcoes:' l 0 Enter; espera_tela_op '✓ máquina de transcrição: automática' || falhou 'voz --opcoes: automático'
 [[ ! -e $HOME/.config/tt-voz/transcrever ]] || falhou 'automático não apagou preferência de máquina'
+tmux send-keys -t '=opcoes:' g; espera_tela_op '✓ sensibilidade: máxima' || falhou 'voz --opcoes: g depois da alta'
+tmux send-keys -t '=opcoes:' g g; espera_tela_op '✓ sensibilidade: normal' || falhou 'voz --opcoes: g não deu a volta'
+[[ ! -e $HOME/.config/tt-voz/limiar ]] || falhou 'a sensibilidade normal deveria apagar a escolha'
 tmux send-keys -t '=opcoes:' Escape
 for i in $(seq 30); do [[ -s $J/saiu-op ]] && break; sleep 0.2; done
 [[ ! -e $HOME/.config/tt-voz/cerebro-modelo && ! -e $HOME/.config/tt-voz/modelo ]] || falhou 'voz --opcoes: Sonnet e automático deveriam apagar a escolha'
