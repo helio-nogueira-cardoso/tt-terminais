@@ -2,7 +2,8 @@
 # aidlc-tt: publica a bateria de perguntas do AI-DLC na descrição de uma subtarefa, colhe as
 # respostas escritas no tt para o .md, traz de volta ao tt a que já estava no .md, preserva a
 # descrição anterior como anotação, avisa letra inexistente e "Other" sem texto, não sobrescreve
-# conflito e conclui a subtarefa quando tudo estiver respondido. Isola HOME/XDG.
+# conflito, conclui a subtarefa quando tudo estiver respondido e não cai com o base64 corrompido de
+# outra tarefa. Isola HOME/XDG.
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -122,3 +123,12 @@ aidlc publicar "$MD" "$s" >/dev/null
 [[ $(desc "Responder perguntas" | grep -c '^== Q') == 3 ]] || fail "publicar de novo duplicou perguntas"
 if aidlc publicar "$MD" "$(id_de "Outra coisa")" >/dev/null 2>&1; then fail "um .md não pode ligar a duas tarefas"; fi
 echo "ok: estado só lê; publicar é idempotente e recusa segunda tarefa"
+
+# 6) descrição de OUTRA tarefa com o base64 sem o "=" do fim ou truncado (achado no dell em 16/10) não
+#    derruba o aidlc-tt; a ligada sem o "=" do fim continua sendo achada
+printf 'aaaaaa000001\taberta\t1\t1\tsem igual\tdesc=QUJDRA\n' >>"$C"   # "ABCD" sem o "=="
+printf 'aaaaaa000002\taberta\t1\t1\ttruncada\tdesc=QUJDREVGR\n' >>"$C" # 9 caracteres: não fecha
+sed -i -E "/^$s"$'\t'"/ s/(desc=[A-Za-z0-9+\/]*)=+/\1/" "$C"
+out=$(aidlc estado "$MD" 2>&1) || fail "descrição corrompida de outra tarefa derrubou o estado: $out"
+grep -q 'respondidas: 3/3' <<<"$out" || fail "estado com descrição corrompida ao lado: $out"
+echo "ok: base64 sem '=' ou truncado noutra tarefa não derruba o aidlc-tt"

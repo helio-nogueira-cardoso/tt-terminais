@@ -268,6 +268,13 @@ for ((i=1; i<=$#; i++)); do a=${!i}
   esac
 done
 [ "$MODO_P" = 1 ] && [ ${#pos[@]} -gt 0 ] && PROMPT=${pos[-1]}
+# Prompt pelo stdin (-p sem o texto, como o cérebro da voz): guardado num arquivo e entregue de novo a cada tentativa;
+# sem isto, a conta seguinte a um limite recebia a entrada vazia. Codex e Kiro seguem de fora (só com o texto); com
+# --input-format (stream-json) o stdin é uma conversa viva e vai direto.
+ENTRADA=""
+if [ "$MODO_P" = 1 ] && [ -z "$PROMPT" ] && [ ! -t 0 ] && [[ " $* " != *" --input-format"* ]]; then
+  ENTRADA=$(mktemp); trap 'rm -f "$ENTRADA"' EXIT; cat >"$ENTRADA"
+fi
 
 parse_reset(){ local t d h m s ap base
   t=$(grep -oiE 'try again in[^.]*' "$1" | tail -1)
@@ -309,7 +316,8 @@ SEM_MODELO='requires usage credits|out of usage credits'
 LOGIN='not logged in|please run /login|invalid api key|authentication_error|oauth token has expired|token (has )?expired|please log ?in|(codex|kiro-cli) login|unauthorized'
 # Uma tentativa na conta C. 0 = valeu (a saida ja foi entregue e o rc fica em RC); 1 = proxima.
 tentar(){ local c=$1 rabo u; shift
-  out=$(mktemp); rodar "$c" "$@" >"$out" 2>&1; RC=$?
+  out=$(mktemp)
+  if [ -n "$ENTRADA" ]; then rodar "$c" "$@" <"$ENTRADA" >"$out" 2>&1; else rodar "$c" "$@" >"$out" 2>&1; fi; RC=$?
   # So uma resposta curta ou com erro e mensagem do proprio CLI; um texto longo que fale de "usage limit" nao conta.
   if [ "$RC" != 0 ] || [ "$(wc -c <"$out")" -lt 600 ]; then
     rabo=$(tail -n 15 "$out")

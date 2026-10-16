@@ -12,7 +12,11 @@ case $1 in
   --maquinas) printf 'u@h1 dell\nu@h2 book\n' ;;
   --saude) printf 'Saude das maquinas cadastradas:\n  \033[32m●\033[0m dell             ok\n  \033[31m●\033[0m book             timeout   tempo esgotado\n' ;;
   --listar-tudo) printf '# mestre de obras — celular — 20260101T000000Z\n' ;;
-  --tarefas-lista) printf 'abc123abc123\t \033[1m▸\033[0m ☐ ● zz01 Pagar o boleto  abc123abc123  ◷ hoje 12:00  ━━━ 1/3\n' ;;
+  --tarefas-lista) # a aba da voz (TT_RT/tt-tarefas-ui-UID): abertas, ou a agenda (hoje, prazo) com o dia no cabeçalho do grupo
+    case $(sed -n 's/^filtro=//p' "${TT_RT:-/x}/tt-tarefas-ui-$UID" 2>/dev/null) in
+      hoje|prazo) printf '\t \033[1mAtrasadas\033[0m\nbbb111bbb111\t ▸ ☐ ww03 Mandar a nota  bbb111bbb111  ◷ venceu ontem 14:00\n\t\ndia:20742\t Hoje · sexta, 16/10  ▦\nabc123abc123\t ▸ ☐ ● 12:00 zz01 Pagar o boleto  abc123abc123  ━━━ 1/3\n\t\ndia:20746\t Terça, 20/10  ▦\nccc222ccc222\t ▸ ☐ vv04 Revisar o PR  ccc222ccc222  #trabalho\n' ;;
+      *) printf 'abc123abc123\t \033[1m▸\033[0m ☐ ● zz01 Pagar o boleto  abc123abc123  ◷ hoje 12:00  ━━━ 1/3\nfed321fed321\t ▸ ☐ yy02 BIMO-989/990 aceite  fed321fed321  ◷ qui 22/10  #etq  ≡\n' ;;
+    esac ;;
   --tarefa-codigo) printf 'zz01\tabc123abc123\tPagar o boleto\tzz01\nqq02\tdef456def456\tLigar no banco\tzz01.qq02\n' ;;
   --tarefa-ia-prompt) printf 'TAREFA [abc123abc123]: Pagar o boleto\nPrazo: hoje às 12:00\n\nSubtarefas (código · estado · texto · apelido estável):\n  [111111111111] feita · Achar o boleto · zz01.ka11\n  [def456def456] aberta · Ligar no banco · zz01.qq02\n  [222222222222] aberta · Pagar no app · zz01.pe22\n' ;;
   --atalho-rodar|--seguir) echo "tt $*" >>"$VOZ_IA_LOG" ;;
@@ -68,8 +72,19 @@ if [[ ${1:-} == abrir ]]; then
 fi
 echo "principal 12 por cento"
 FIM
+# proot-distro falso: registra a chamada; lá dentro estão as contas de IA do celular (o ia-conta do Termux não as vê)
+cat >"$B/proot-distro" <<'FIM'
+#!/usr/bin/env bash
+echo "$*" >>"$VOZ_PROOT_LOG"
+case $* in
+  *"ia-conta uso"*) echo 'proot warning: aviso' >&2; printf 'devsblue\t36\tok\t5h 8%% · 7d 36%%\n' ;;
+  *"--listar-contas"*) printf 'devsblue\tclaude\tclaude · devsblue\t5h 8%% · 7d 36%%\ncodex\tcodex\tcodex · y\t5h 1%% · 7d 1%%\n' ;;
+  *"ia-rot -p"*) cat >/dev/null; echo '{"fala": "Do proot.", "acoes": []}' ;;
+esac
+exit 0
+FIM
 chmod +x "$B"/*
-export PATH="$B:$PATH" VOZ_SDCARD=$T/sd VOZ_AM_LOG=$T/am.log VOZ_ESPERA_FALA=0 VOZ_CURL_LOG=$T/curl.log
+export PATH="$B:$PATH" VOZ_SDCARD=$T/sd VOZ_AM_LOG=$T/am.log VOZ_ESPERA_FALA=0 VOZ_CURL_LOG=$T/curl.log VOZ_PROOT_LOG=$T/proot.log
 export VOZ_TELEGRAM=$T/segredos/telegram VOZ_TG_LIGAR=2 VOZ_TG_PAUSA=1 VOZ_IA_LOG=$T/ia.log VOZ_DESTRAVAR_PAUSA=0.5
 tmux new-session -d -s agente-teste "$B/agente.sh"
 tmux new-session -d -s _oculta 'sleep 600'
@@ -136,7 +151,11 @@ saida=$(VOZ_CEREBRO_CMD="exit 1" v "outra frase solta"); [[ $saida == *Enviado* 
 unset VOZ_CEREBRO_CMD
 passou 'voz: cérebro entende frase solta, age, fala uma vez só; sem resposta útil, valem as regras'
 
-saida=$(v tarefas); [[ $saida == *"Tarefas abertas: 1, Pagar o boleto, prazo hoje 12:00, 1 de 3 subtarefas"* ]] || falhou "tarefas: $saida"
+saida=$(v tarefas); [[ $saida == *"Tarefas abertas: 1, Pagar o boleto, prazo hoje 12:00, 1 de 3 subtarefas. 2, BIMO-989/990 aceite, prazo qui 22/10."* ]] ||
+  falhou "tarefas (o N/M das subtarefas é só o da barra, não a data nem o título): $saida"
+saida=$(VOZ_CEREBRO_CMD="cat >/dev/null; echo '{\"acoes\": [{\"acao\": \"tarefas\", \"filtro\": \"hoje\"}]}'" v "o que tenho para hoje")
+[[ $saida == *"Tarefas para hoje: 1, Mandar a nota, prazo venceu ontem 14:00. 2, Pagar o boleto, prazo hoje 12:00, 1 de 3 subtarefas. 3, Revisar o PR, prazo terça, 20/10."* ]] ||
+  falhou "tarefas da agenda (dia do cabeçalho e hora antes do apelido): $saida"
 saida=$(v "tarefa boleto"); [[ $saida == *"Prazo: hoje às 12:00"* && $saida == *"1 de 3 subtarefas feitas"* && $saida == *"Faltam: Ligar no banco; Pagar no app"* ]] || falhou "tarefa com subtarefas: $saida"
 
 # 🚀 com uma IA específica: abre em sessão nova, responde sozinho às perguntas de abertura e pergunta a desconhecida
@@ -162,6 +181,32 @@ v comandos | grep -q 'bloquear sessão' || falhou 'comandos'
 saida=$(v terminal); [[ $saida == *"Máquina dell, sessão agente-teste"* && $saida == *"Pode falar"* ]] || falhou "abrir conversa: $saida"
 v encerrar | grep -q 'Terminal encerrado' || falhou 'encerrar'
 passou 'voz: tarefas, contas, ajuda, abrir e encerrar a conversa'
+
+# No celular as contas e os agentes ficam no proot onde o tt instalou o ia-conta: "contas", o 🚀 neste celular, as contas
+# do contexto do cérebro e o cérebro "local" vão para lá; noutra máquina, o 🚀 abre o ia-conta de lá, como antes.
+P=$T/com.termux/usr; R=$P/var/lib/proot-distro/containers/debian/rootfs/root/.local/share/tt
+mkdir -p "$R"; printf '#!/bin/sh\n' >"$R/ia-conta"; chmod +x "$R/ia-conta"
+saida=$(PREFIX=$P v contas); [[ $saida == *'devsblue: 5h 8%, 7d 36%.'* && $saida != *principal* && $saida != *warning* ]] || falhou "contas no proot: $saida"
+grep -q '^login debian --shared-tmp -- bash -lc .*ia-conta uso$' "$T/proot.log" || falhou "contas: chamada ao proot: $(cat "$T/proot.log")"
+v "ir para celular" >/dev/null; : >"$T/proot.log"
+saida=$(PREFIX=$P v "nova sessão com codex"); [[ $saida == *'pronta em celular'* ]] || falhou "🚀 no celular: $saida"
+s=$(<"$HOME/.local/state/tt-voz/alvo_s")
+grep -q '^login debian --shared-tmp -- bash -lc PATH=.*ia-conta abrir --conta codex$' "$T/proot.log" || falhou "🚀 não abriu o agente no proot: $(cat "$T/proot.log")"
+tmux kill-session -t "=$s" 2>/dev/null || true
+printf '%s' '{"fala": "Ok.", "acoes": []}' >"$T/plano.json"
+VOZ_CEREBRO_CMD="cat > '$T/pedido.txt'; cat '$T/plano.json'" PREFIX=$P v "como estão as minhas contas de ia" >/dev/null
+grep -q 'contas de IA (no celular): devsblue:claude codex:codex' "$T/pedido.txt" || falhou "cérebro: contas do contexto não são as do proot: $(grep 'contas de IA' "$T/pedido.txt")"
+echo local >"$HOME/.config/tt-voz/cerebro"
+saida=$(PREFIX=$P v "uma frase solta para o cérebro do celular"); [[ $saida == *'Do proot.'* ]] || falhou "cérebro local não foi ao proot: $saida"
+rm -f "$HOME/.config/tt-voz/cerebro"
+v "ir para del" >/dev/null; : >"$T/proot.log"; : >"$T/ia.log"
+saida=$(PREFIX=$P VOZ_DESTRAVAR=1 v "nova sessao"); [[ $saida == *'em dell'* ]] && grep -qx 'args: abrir' "$T/ia.log" || falhou "🚀 noutra máquina: $saida / $(cat "$T/ia.log")"
+s=$(<"$HOME/.local/state/tt-voz/alvo_s"); tmux kill-session -t "=$s" 2>/dev/null || true
+grep -q 'ia-conta abrir' "$T/proot.log" && falhou "🚀 noutra máquina passou pelo proot: $(cat "$T/proot.log")"
+mkdir -p "$HOME/.local/bin"; printf '#!/bin/sh\n' >"$HOME/.local/bin/claude"; chmod +x "$HOME/.local/bin/claude"
+saida=$(PREFIX=$P v contas); [[ $saida == *principal* ]] || falhou "com o claude no próprio Termux, contas deveria ficar fora do proot: $saida"
+rm -f "$HOME/.local/bin/claude"; v "aba agente" >/dev/null
+passou 'voz: no celular, contas, 🚀 e o cérebro local usam o proot das contas de IA'
 
 # fala: grava o texto e avisa o Tasker (intent tt.VOZ_FALAR); com VOZ_MUDO não faz nada
 : >"$T/am.log"; bash "$V" --falar "olá carro" >/dev/null

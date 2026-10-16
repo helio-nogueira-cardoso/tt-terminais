@@ -132,6 +132,25 @@ achar() { # achar "termo" lista... -> melhor item (todas as palavras do termo co
 }
 sessoes() { em "$1" "tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -v '^_'"; }
 
+# No celular, as contas e os agentes de IA ficam no Linux do proot-distro onde o tt instalou o ia-conta (o 🚀 do perfil
+# mobile abre lá); o ia-conta do Termux não os vê ("principal ? desconhecido"). proot_ia: esse Linux, ou nada (fora do
+# Termux, ou com o claude no próprio Termux).
+proot_ia() {
+  local b=${PREFIX:-/x}/var/lib/proot-distro r p
+  [[ ${PREFIX:-} == *com.termux* && ! -x $HOME/.local/bin/claude ]] && command -v proot-distro >/dev/null || return 0
+  for r in "$b"/containers/*/rootfs "$b"/installed-rootfs/*; do
+    [[ -x $r/root/.local/share/tt/ia-conta ]] || continue
+    if [[ $r == */rootfs ]]; then p=${r%/rootfs}; p=${p##*/}; else p=${r##*/}; fi
+    printf '%s' "$p"; return 0
+  done
+}
+ia_em() { # ia_em MAQ "COMANDO": o comando de IA (ia-conta, ia-rot) para rodar em MAQ; neste celular, dentro do proot das IAs
+  local d p; d=$(destino "$1")
+  if [[ $d == local || -z $d ]] && p=$(proot_ia) && [[ -n $p ]]; then
+    printf 'proot-distro login %s --shared-tmp -- bash -lc %q' "$p" "PATH=\"\$HOME/.local/bin:\$PATH\" $2"
+  else printf '%s' "$2"; fi
+}
+
 alvo_m() { cat "$ST/alvo_m" 2>/dev/null || local_rotulo; }
 alvo_s() { cat "$ST/alvo_s" 2>/dev/null; }
 liberada() { grep -qxF "$(alvo_m):$(alvo_s)" "$CF/permitidas"; }
@@ -315,10 +334,7 @@ cerebro_chamar() { # prompt no stdin -> resposta do modelo; tenta cada lugar, na
   for lugar in $(cerebro_lugares); do
     case $lugar in
       cmd) timeout "${VOZ_CEREBRO_TEMPO:-45}" bash -c "$VOZ_CEREBRO_CMD" <<<"$p" 2>/dev/null && return 0 ;;
-      local)
-        if [[ -d ${PREFIX:-/x}/var/lib/proot-distro/containers/debian ]] && command -v proot-distro >/dev/null; then
-          timeout 45 proot-distro login debian --shared-tmp -- bash -lc 'PATH=$HOME/.local/bin:$PATH; ia-rot -p --model haiku' <<<"$p" 2>/dev/null && return 0
-        else timeout 45 ia-rot -p --model haiku <<<"$p" 2>/dev/null && return 0; fi ;;
+      local) timeout 45 bash -c "$(ia_em "$(local_rotulo)" 'ia-rot -p --model haiku')" <<<"$p" 2>/dev/null && return 0 ;;
       *) d=$(destino "$lugar"); [[ -n $d && $d != local ]] || continue
         timeout 30 ssh "${SSHO[@]}" "$d" 'PATH="$HOME/.local/bin:$PATH"; ia-rot -p --model haiku' <<<"$p" 2>/dev/null && return 0 ;;
     esac
@@ -374,7 +390,7 @@ FIM
   [[ -s $CF/permitidas ]] && echo "- liberadas para voz: $(tr '\n' ' ' < "$CF/permitidas")"
   [[ -s $ST/pendente ]] && echo "- esperando resposta do agente em: $(cat "$ST/pendente")"
   [[ -n $(pergunta) ]] && echo "- pergunta pendente: $(pergunta) (liberar = espera sim ou não; opcao = espera o número)"
-  echo "- contas de IA (no celular): $(contas_de "$(local_rotulo)" | cut -f1,2 | tr '\t\n' ': ' | sed 's/ $//')"
+  echo "- contas de IA (no celular): $(contas_guardadas "$(local_rotulo)" | cut -f1,2 | tr '\t\n' ': ' | sed 's/ $//')"
   [[ -s $ST/historico ]] && { echo "- conversa recente:"; tail -n 12 "$ST/historico" | sed 's/^/  /'; }
   echo; echo "Frase do usuário (hipóteses do reconhecimento; a primeira é a mais provável):"; printf '%s\n' "$1"
 }
@@ -500,7 +516,18 @@ destravar() { # MAQ SESSAO: espera o agente abrir respondendo às perguntas conh
   done
   return 0
 }
-contas_de() { em "$1" "ia-conta abrir --listar-contas" 2>/dev/null; }  # conta<TAB>provedor<TAB>rótulo<TAB>uso
+contas_de() { # MAQ -> conta<TAB>provedor<TAB>rótulo<TAB>uso (neste celular, as do proot); guarda a lista para o cérebro
+  local r; r=$(em "$1" "$(ia_em "$1" 'ia-conta abrir --listar-contas')" 2>/dev/null)
+  [[ -n $r ]] || return 0
+  printf '%s\n' "$r" > "$ST/contas-$1.$$" && mv "$ST/contas-$1.$$" "$ST/contas-$1"
+  printf '%s\n' "$r"
+}
+contas_guardadas() { # MAQ: a última lista (até 1 dia) sem esperar; com mais de 10 min, renova em segundo plano (o proot leva ~5 s)
+  local f=$ST/contas-$1
+  [[ -n $(find "$f" -mmin -10 2>/dev/null) ]] || ( contas_de "$1" & ) >/dev/null 2>&1
+  [[ -n $(find "$f" -mmin -1440 2>/dev/null) ]] && cat "$f"
+  return 0
+}
 conta_para() { # MAQ PEDIDO -> "--conta X": a conta pedida, ou a do provedor (claude, codex, kiro) com menos uso em 5 h
   local m=$1 q lista c prov melhor
   q=$(norm "$2"); lista=$(contas_de "$m")
@@ -516,7 +543,7 @@ abrir_ia() { # MAQ [IA ou conta]: o 🚀 (ou o menu de contas dele) numa sessão
   local m=$1 q=${2:-} args="" nome
   if [[ -n $q ]]; then args=$(conta_para "$m" "$q") || { falar "Não conheço a IA ou a conta $q em $m."; return; }; fi
   nome="voz-$(norm "${q:-ia}" | tr ' ' '-')-$(date +%H%M%S)"
-  em "$m" "tmux new-session -d -s '$nome' -c ~ $(printf '%q' "ia-conta abrir $args; exec bash") && tmux set-option -w -t '=$nome:' @tt_papel atalho && tmux set-option -w -t '=$nome:' @tt_atalho ia-nova" ||
+  em "$m" "tmux new-session -d -s '$nome' -c ~ $(printf '%q' "$(ia_em "$m" "ia-conta abrir $args"); exec bash") && tmux set-option -w -t '=$nome:' @tt_papel atalho && tmux set-option -w -t '=$nome:' @tt_atalho ia-nova" ||
     { falar "Não consegui abrir a sessão em $m."; return; }
   alvo_novo "$m" "$nome"
   aviso "Abrindo ${q:-a IA com mais folga} em $m."
@@ -554,13 +581,25 @@ tarefas_ler() { # [abertas|hoje|prazo] [N]: lê com uma aba própria (TT_RT temp
   local f=${1:-abertas} w r
   case $f in abertas|hoje|prazo|todas) ;; *) f=abertas ;; esac
   w=$(mktemp -d); printf 'filtro=%s\n' "$f" > "$w/tt-tarefas-ui-$UID"
-  r=$(TT_RT=$w tt --tarefas-lista 2>/dev/null | semcor | awk -F'\t' 'length($1) == 12 && $1 ~ /^[0-9a-f]+$/ { print $2 }' |
-    head -n "${2:-5}" | awk '
-    { l = $0; gsub(/▸|▾|☐|☑|●/, "", l); sub(/^ +/, "", l); sub(/^[a-z]+[0-9]+ /, "", l)
+  # linha: "▸ ☐ [●] [HH:MM] apelido Título  código  [◷ prazo]  [━━━ feitas/total]  [#etiqueta]"; na agenda (hoje, prazo)
+  # o dia fica no cabeçalho do grupo ("dia:N<TAB> Hoje · sexta, 16/10") e a hora antes do apelido. O "N/M" das
+  # subtarefas é só o da barra: uma data ("qui 22/10") ou o título ("BIMO-989/990") também têm barra
+  r=$(TT_RT=$w tt --tarefas-lista 2>/dev/null | semcor | awk -F'\t' '
+      $1 ~ /^dia:/ { print "#" $2; next } $1 == "" { print "#"; next }
+      length($1) == 12 && $1 ~ /^[0-9a-f]+$/ { print $2 }' | awk -v N="${2:-5}" '
+    /^#/ { d = substr($0, 2); sub(/^ +/, "", d); sub(/  .*$/, "", d); i = index(d, " · "); if (i) d = substr(d, 1, i - 1)
+      dia = tolower(d); next }
+    n >= N { exit }
+    { l = $0; gsub(/▸|▾|☐|☑|●/, "", l); sub(/^ +/, "", l)
+      h = ""; if (match(l, /^[0-9][0-9]?:[0-9][0-9] /)) { h = substr(l, 1, RLENGTH - 1); l = substr(l, RLENGTH + 1) }
+      sub(/^[a-z]+[0-9]+ /, "", l)
       t = l; sub(/  .*$/, "", t)
       p = ""; i = index(l, "◷ "); if (i) { p = substr(l, i); sub(/^◷ /, "", p); sub(/  .*$/, "", p) }
-      g = ""; if (match(l, /[0-9]+\/[0-9]+/)) { split(substr(l, RSTART, RLENGTH), x, "/"); g = x[1] " de " x[2] " subtarefas" }
-      printf "%d, %s%s%s. ", NR, t, (p != "" ? ", prazo " p : ""), (g != "" ? ", " g : "") }')
+      if (p == "" && dia != "") p = dia (h != "" ? " " h : "")
+      g = ""; i = index(l, "━ ")
+      if (i) { s = substr(l, i); sub(/^[^ ]* /, "", s)
+        if (match(s, /^[0-9]+\/[0-9]+/)) { split(substr(s, 1, RLENGTH), x, "/"); g = x[1] " de " x[2] " subtarefas" } }
+      printf "%d, %s%s%s. ", ++n, t, (p != "" ? ", prazo " p : ""), (g != "" ? ", " g : "") }')
   rm -rf "$w"
   local nome=abertas; [[ $f == hoje ]] && nome="para hoje"; [[ $f == prazo ]] && nome="com prazo"
   if [[ -n $r ]]; then falar "Tarefas $nome: $r"; else falar "Sem tarefas $nome."; fi
@@ -663,7 +702,9 @@ comando() {
       escolher_opcao "$m" "$lista" "$r" "$(numero "${n#opcao }")"
       if destravar "$m" "$lista"; then falar "Feito. Sessão $(falavel "$lista") pronta."; fi ;;
     contas|rodizio|uso|limite)
-      r=$(ia-conta uso 2>&1 | semcor | head -n 6 | tr '\n' ' ')
+      # "conta<TAB>%<TAB>estado<TAB>5h 22% · 7d 35%" vira "conta: 5h 22%, 7d 35%."; conta sem uso conhecido fica fora
+      r=$(bash -c "$(ia_em "$(local_rotulo)" 'ia-conta uso')" 2>/dev/null | semcor |
+        awk -F'\t' 'NF < 4 { print; next } $4 != "" { gsub(/ · /, ", ", $4); print $1 ": " $4 "." }' | head -n 6 | tr '\n' ' ')
       falar "${r:-Não consegui ler o uso das contas.}" ;;
     repetir|repete|de\ novo|ler|resposta|e\ ai)
       if [[ -s $ST/pendente ]]; then r=$(<"$ST/pendente"); aguardar "${r#*:}" "${r%%:*}"

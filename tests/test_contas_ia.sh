@@ -15,9 +15,13 @@ printf '%s\t%s\n' "${CLAUDE_CONFIG_DIR:-principal}" "$*" >>"$HOME/claude.log"
 c=${CLAUDE_CONFIG_DIR:-/principal}; c=${c##*/}
 e="$c@exemplo.com"; [[ -f ${CLAUDE_CONFIG_DIR:-/x}/email-falso ]] && e=$(cat "$CLAUDE_CONFIG_DIR/email-falso")
 [[ $1 == auth ]] && { printf '{\n  "email": "%s"\n}\n' "$e"; exit 0; }
+# Sem o texto do prompt nos argumentos (ia-rot -p --model haiku, como o cérebro da voz), ele vem pelo stdin, lido antes
+# de tudo (como o Claude de verdade, que só depois descobre o limite).
+[[ $* == *"--model haiku" ]] && entrada=$(cat)
 [[ -f ${CLAUDE_CONFIG_DIR:-/x}/limite-falso ]] && { echo "You've hit your limit · resets 5pm"; exit 1; }
 # Sem prompt (renovação de token pelo ia-conta) o Claude de verdade sai com erro.
 [[ $* == *--no-session-persistence ]] && { echo 'Error: Input must be provided' >&2; exit 1; }
+[[ $* == *"--model haiku" ]] && { echo "resposta de ${CLAUDE_CONFIG_DIR##*/} pelo stdin: $entrada"; exit 0; }
 for a; do :; done; echo "resposta de ${CLAUDE_CONFIG_DIR##*/}: $a"
 EOF
 chmod +x "$B/claude"
@@ -98,6 +102,13 @@ resp=$(cd /tmp && ia-rot --claude-only -p "diga oi" </dev/null 2>"$T/err")
 [[ $resp == 'resposta de gama: diga oi' ]] || falhou "rotação não foi para gama (mais folga): '$resp' $(cat "$T/err")"
 grep -q 'principal' "$HOME/claude.log" && falhou 'ia-rot tentou a principal cheia'
 passou 'ia-rot pula conta com uso ≥ limite e tenta a de mais folga primeiro'
+
+# Prompt pelo stdin: a conta de mais folga (gama) bate no limite; a seguinte (beta) recebe o mesmo pedido, não um vazio.
+touch "$R/gama/limite-falso"
+resp=$(cd /tmp && printf 'pedido pelo stdin' | ia-rot --claude-only -p --model haiku 2>"$T/err")
+[[ $resp == 'resposta de beta pelo stdin: pedido pelo stdin' ]] || falhou "stdin não chegou à 2ª conta: '$resp' $(cat "$T/err")"
+rm -f "$R/gama/limite-falso"
+passou 'ia-rot -p com o prompt no stdin: depois de um limite, a próxima conta recebe o mesmo pedido'
 
 ia-conta remover gama --sim >/dev/null
 [[ ! -e $R/gama && ! -e $B/claude-gama ]] || falhou 'remover não tirou pasta/atalho'

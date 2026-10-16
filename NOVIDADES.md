@@ -3,6 +3,18 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.18.5 · 16/10/2026
+- **🎙 Voz: consertos no celular.** "contas", o 🚀 por voz ("nova sessão com o codex") e as contas que o cérebro conhece
+  agora vêm do Linux do proot, onde o tt instala as contas de IA do celular (o `ia-conta` do Termux não as via: dizia
+  "principal, desconhecido" e não achava o codex). Na leitura das tarefas, "14 de 11 subtarefas" saía de uma data
+  (`14/11`) ou do título (`BIMO-989/990`): agora conta só a barra de progresso; na agenda (hoje, com prazo) diz o dia
+  do grupo e a hora, sem ler "12:00 pese74". O `ia-rot -p` com o pedido pelo stdin (o cérebro) entrega o mesmo pedido à
+  próxima conta quando a primeira bate no limite (antes ia vazio e a volta caía nas regras).
+- **🎙 Voz: tarefas abertas, de hoje ou com prazo.** Pelo cérebro, "quais tarefas eu tenho para hoje" e "o que tem prazo"
+  leem a lista certa, numa aba própria das tarefas (o filtro do painel não muda), e o prazo é lido inteiro ("prazo venceu
+  ontem 14:00") (veio na v1.18.1 e na v1.18.2).
+
+
 ## v1.18.4 · 16/10/2026
 - **🔔 E-mail novo, lembrete de tarefa e demanda por e-mail chegam uma vez só.** Cada máquina que espelha uma conta
   percebia o mesmo e-mail e criava o seu aviso, e o 🔔 mostrava um por máquina (três "📧 1 e-mail novo" iguais). O
@@ -10,6 +22,11 @@ vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu admin
   cada mensagem): a máquina que chega depois só avisa o que nenhuma outra avisou, e cópias criadas ao mesmo tempo
   viram uma na sincronização. A notificação do sistema (a do celular, a da área de trabalho) continua saindo em
   cada aparelho.
+
+## v1.18.3 · 16/10/2026
+- **🧩 aidlc-tt não cai por causa de outra tarefa.** `aidlc-tt publicar/colher/estado` lê todas as tarefas para achar a
+  ligada ao arquivo de perguntas; uma descrição de OUTRA tarefa com o base64 truncado ou sem o `=` do fim derrubava o
+  comando com "Incorrect padding". Agora a descrição sem `=` é lida e a corrompida é ignorada.
 
 ## v1.18.0 · 16/10/2026
 - **🧠 Voz com cérebro (opcional).** `voz --cerebro "pc local"` faz um Claude rápido entender frases soltas ("como anda o
