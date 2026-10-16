@@ -9,7 +9,9 @@
 #   voz --fala MOTOR             auto|piper|say|windows|spd|espeak|nenhum      voz --modelo NOME  (Whisper; padrão: o medido)
 #   voz --microfone "NOME, OUTRO" o microfone preferido (parte do nome); padrão: o headset, depois USB, webcam, embutido
 #   voz --saida "NOME"           a saída de som preferida; padrão: a do aparelho do microfone (o headset ouve e fala)
-#   voz --opcoes                 o painel: o modelo do cérebro e o da transcrição, o microfone e a saída (na janela: c)
+#   voz --opcoes                 o painel: o modelo do cérebro e o da transcrição, o microfone, a saída e a voz (na janela: c)
+#   voz --voz VOZ                piper:pt_BR-faber-medium (padrão, offline) · edge:pt-BR-FranciscaNeural, AntonioNeural ou
+#                                ThalitaMultilingualNeural (as neurais da Microsoft, online) · sistema
 #   voz "maquinas" | "status" | "ir para notebook" | "sessoes" | "aba claude" | "proxima" | "tarefas" | "contas" | "repetir"
 #   voz "qualquer outra frase"   vai, como texto, para a sessão-alvo (só se estiver liberada: "permitir sessao")
 #   voz "terminal" / "encerrar"  abre / fecha a conversa (o Tasker ouve de novo depois de cada resposta)
@@ -807,6 +809,7 @@ audio_env() { # a configuração do áudio para o voz-audio.py
   [[ -z ${VOZ_MODELO:-} && -s $CF/modelo ]] && export VOZ_MODELO=$(<"$CF/modelo")
   [[ -z ${VOZ_MICROFONE:-} && -s $CF/microfone ]] && export VOZ_MICROFONE=$(<"$CF/microfone")
   [[ -z ${VOZ_SAIDA:-} && -s $CF/saida ]] && export VOZ_SAIDA=$(<"$CF/saida")
+  [[ -z ${VOZ_VOZ:-} && -s $CF/voz ]] && export VOZ_VOZ=$(<"$CF/voz")
   # sem configuração, a janela usa o Claude desta máquina como cérebro (se ela tem o rodízio de contas)
   if [[ ! -f $CF/cerebro ]] && { command -v ia-rot >/dev/null || [[ -n $(proot_ia) ]]; }; then export VOZ_CEREBRO_PADRAO=local; fi
   return 0
@@ -853,7 +856,7 @@ case ${1:-} in
       *) [[ $2 =~ ^[a-z0-9.-]+$ ]] || { echo "uso: voz --cerebro-modelo sonnet|haiku|opus" >&2; exit 2; }
         printf '%s\n' "$2" > "$CF/cerebro-modelo"; echo "cérebro: $2" ;;
     esac ;;
-  --transcrever|--fala|--modelo|--microfone|--saida)
+  --transcrever|--fala|--modelo|--microfone|--saida|--voz)
     k=${1#--}; shift
     case ${1:-} in
       "") echo "$k: $(cat "$CF/$k" 2>/dev/null || echo padrão)" ;;

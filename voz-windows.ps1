@@ -5,8 +5,9 @@
 #   powershell.exe -File voz-windows.ps1 saidas     o mesmo das saídas de som
 #   powershell.exe -File voz-windows.ps1 gravar N   PCM s16le mono 16 kHz do microfone N no stdout, até fecharem
 #   powershell.exe -File voz-windows.ps1 falar      imprime as saídas e "--"; depois lê do stdin "D n" (saída n; -1 = a
-#                                                   padrão), "F base64" (fala o texto UTF-8 com a voz pt-BR) e "P" (para
-#                                                   o que está falando ou na fila); responde "fim" a cada F
+#                                                   padrão), "F base64" (fala o texto UTF-8 com a voz pt-BR do Windows),
+#                                                   "T base64" (toca um WAV de 16 bits: a voz neural gerada no motor) e
+#                                                   "P" (para o que está tocando ou na fila); responde "fim" a cada F ou T
 # Usa o winmm (waveIn/waveOut), o MMDevice (os padrões) e o System.Speech; o C# é compilado uma vez numa DLL em %TEMP%.
 param([string]$acao = 'listar', [int]$indice = -1)
 $ErrorActionPreference = 'Stop'
@@ -109,8 +110,25 @@ public static class TtMic {
   }
 
   // toca PCM 16 bits mono na saída dev (-1 = a padrão); cancelado() para no meio
-  static void Tocar(int dev, byte[] pcm, int taxa, Func<bool> cancelado) {
-    var f = new FMT { tag = 1, canais = 1, taxa = taxa, bps = taxa * 2, bloco = 2, bits = 16, extra = 0 };
+  // o PCM de 16 bits de um WAV (os pedaços "fmt " e "data")
+  static bool LerWav(byte[] w, out byte[] pcm, out int taxa, out short canais) {
+    pcm = null; taxa = 0; canais = 1; short bits = 0;
+    if (w.Length < 44 || Encoding.ASCII.GetString(w, 0, 4) != "RIFF") return false;
+    for (int p = 12; p + 8 <= w.Length; ) {
+      string id = Encoding.ASCII.GetString(w, p, 4); int tam = BitConverter.ToInt32(w, p + 4);
+      if (id == "fmt ") { canais = BitConverter.ToInt16(w, p + 10); taxa = BitConverter.ToInt32(w, p + 12); bits = BitConverter.ToInt16(w, p + 22); }
+      else if (id == "data") {
+        if (tam < 0 || p + 8 + tam > w.Length) tam = w.Length - p - 8;
+        pcm = new byte[tam]; Array.Copy(w, p + 8, pcm, 0, tam);
+      }
+      if (tam < 0) break;
+      p += 8 + tam + (tam & 1);
+    }
+    return pcm != null && taxa > 0 && bits == 16;
+  }
+
+  static void Tocar(int dev, byte[] pcm, int taxa, Func<bool> cancelado, short canais = 1) {
+    var f = new FMT { tag = 1, canais = canais, taxa = taxa, bps = taxa * 2 * canais, bloco = (short)(2 * canais), bits = 16, extra = 0 };
     IntPtr h; int r = waveOutOpen(out h, new IntPtr(dev), ref f, IntPtr.Zero, IntPtr.Zero, 0);
     if (r != 0) throw new Exception("waveOutOpen " + r);
     int th = Marshal.SizeOf(typeof(HDR)), off = (int)Marshal.OffsetOf(typeof(HDR), "flags");
@@ -136,7 +154,7 @@ public static class TtMic {
       string l;
       while ((l = Console.In.ReadLine()) != null) {
         if (l == "P") { Interlocked.Exchange(ref canceladosAte, lidos); continue; }
-        if (l.StartsWith("F ")) { lidos++; fila.Add(Tuple.Create(lidos, l.Substring(2))); }
+        if (l.StartsWith("F ") || l.StartsWith("T ")) { lidos++; fila.Add(Tuple.Create(lidos, l)); }
         else if (l.StartsWith("D ")) fila.Add(Tuple.Create(0, l));
       }
       fila.CompleteAdding();
@@ -146,8 +164,12 @@ public static class TtMic {
       if (item.Item1 == 0) { int.TryParse(item.Item2.Substring(2), out dev); continue; }
       int n = item.Item1;
       try {
-        if (n > canceladosAte) {
-          string texto = Encoding.UTF8.GetString(Convert.FromBase64String(item.Item2.Trim()));
+        if (n > canceladosAte && item.Item2.StartsWith("T ")) {
+          byte[] pcm; int taxa; short canais;
+          if (!LerWav(Convert.FromBase64String(item.Item2.Substring(2).Trim()), out pcm, out taxa, out canais)) throw new Exception("WAV inválido");
+          Tocar(dev, pcm, taxa, () => n <= canceladosAte, canais);
+        } else if (n > canceladosAte) {
+          string texto = Encoding.UTF8.GetString(Convert.FromBase64String(item.Item2.Substring(2).Trim()));
           var ms = new MemoryStream();
           voz.SetOutputToAudioStream(ms, new SpeechAudioFormatInfo(22050, AudioBitsPerSample.Sixteen, AudioChannel.Mono));
           voz.Speak(texto); voz.SetOutputToNull();

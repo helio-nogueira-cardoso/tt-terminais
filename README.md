@@ -1865,15 +1865,19 @@ digitando", "Opções: modelos, microfone e som", "Testar o microfone e a voz" e
 
 **As opções** (tecla **c**, ou `voz --opcoes`) escolhem o modelo do cérebro (1 Haiku, 2 Sonnet, 3 Opus), o da
 transcrição (a automático, ou b–f um fixo: tiny, base, small, medium, turbo, com o que esta máquina mediu de cada um), o
-microfone (n) e a saída de som (s). A escolha fica guardada em `~/.config/tt-voz` e vale também na máquina que transcreve.
+microfone (n), a saída de som (s) e a voz (v, com um exemplo). A escolha fica guardada em `~/.config/tt-voz` e vale também na máquina que transcreve.
 
 **O microfone** é escolhido pelo tipo: o headset (ou um microfone dedicado) antes do USB e do Bluetooth, depois a
 webcam, por último o embutido; os que não entregam áudio (o conector de fone vazio, um filtro sem sinal) ficam de fora.
 `voz --microfone "blackshark, headset"` fixa a preferência. No Windows (WSL), o tt grava direto do microfone escolhido
 (`voz-windows.ps1`), sem mudar o padrão do Windows, que continua sendo o das chamadas.
 
-**A voz** sai no mesmo aparelho do microfone (o headset ouve e fala; o microfone embutido, o alto-falante embutido); sem
-par, a saída de melhor nota. No Windows a saída padrão costuma ser o alto-falante ou a P2 e o headset é só o de
+**A voz** é gerada no motor (aqui, ou na máquina que transcreve) e sai no mesmo aparelho do microfone (o headset ouve
+e fala; o microfone embutido, o alto-falante embutido); sem par, a saída de melhor nota. Vozes: **Piper Faber** (a
+padrão; neural e offline), **Francisca**, **Antônio** e **Thalita** (as neurais da Microsoft, as do Edge: quase humanas,
+mas online, e o texto falado vai ao serviço dela) e **a do sistema** (a do Windows, o `say` do macOS, o `spd-say`). Nas
+opções (**c**), **v** passa à seguinte e fala um exemplo; `voz --voz piper:pt_BR-faber-medium|edge:pt-BR-FranciscaNeural|
+sistema` fixa. A fala vai frase a frase (a primeira toca enquanto a seguinte é gerada). No Windows a saída padrão costuma ser o alto-falante ou a P2 e o headset é só o de
 chamadas: o tt toca direto no aparelho escolhido. `voz --saida "nome"` fixa a saída.
 
 **A transcrição** é escolhida pela medida. Cada máquina com o Whisper mede, na instalação, cada jeito que tem (o

@@ -3,6 +3,17 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.22.0 · 16/10/2026
+- **🎤 Vozes neurais: a resposta deixa de soar robótica.** A voz passa a ser gerada no motor (nesta máquina ou na
+  que transcreve, por exemplo o computador com GPU) e tocada no aparelho do microfone. A padrão é a **Piper Faber**,
+  neural e offline. Também dá para escolher as vozes neurais da Microsoft (**Francisca**, **Antônio** e **Thalita**,
+  as mesmas do Edge), que soam quase humanas, mas são online: o texto falado vai para o serviço da Microsoft. A da
+  versão anterior continua como "a do sistema".
+  - Nas opções da janela (**c**), **v** passa à voz seguinte e já fala um exemplo, para você escolher pelo ouvido. A
+    escolha fica guardada (`voz --voz`).
+  - A fala vai frase a frase: a primeira toca enquanto a seguinte é gerada.
+  - O `voz --instalar-audio` também instala o `edge-tts`.
+
 ## v1.21.1 · 16/10/2026
 - **📧 Microsoft com o app do próprio tt.** Conta Outlook, Hotmail ou Microsoft 365 com OAuth2 agora entra de
   fábrica pelo app "tt-terminais" do tt na Microsoft, como já acontecia com o Gmail. A tela de consentimento

@@ -635,9 +635,87 @@ class Motor:
             self.piper.synthesize_wav(texto, w)
         return saida
 
+    def tts_wav(self, texto, voz):
+        """O WAV (16 bits, mono) do texto na voz "piper:NOME" (offline) ou "edge:NOME" (a neural da Microsoft, online)."""
+        if self.falso is not None:
+            return wav_de(b"\0\0" * 1600)
+        motor, _, nome = voz.partition(":")
+        if motor == "piper":
+            if not hasattr(self, "pipers"):
+                self.pipers = {}
+            if nome not in self.pipers:
+                from piper import PiperVoice
+                self.pipers[nome] = PiperVoice.load(os.path.join(VOZES, nome + ".onnx"))
+            b = io.BytesIO()
+            with wave.open(b, "wb") as w:
+                self.pipers[nome].synthesize_wav(texto, w)
+            return b.getvalue()
+        if motor == "edge":
+            import asyncio
+            import edge_tts
+
+            async def juntar():
+                out = b""
+                async for ch in edge_tts.Communicate(texto, nome, rate=os.environ.get("VOZ_RITMO", "+8%")).stream():
+                    if ch["type"] == "audio":
+                        out += ch["data"]
+                return out
+            return mp3_para_wav(asyncio.run(juntar()))
+        raise RuntimeError("voz desconhecida: " + voz)
+
+
+# As vozes: a do sistema (Windows, macOS, spd-say) e as neurais, geradas no motor (aqui ou na máquina que transcreve)
+# e tocadas no aparelho do microfone. As da Microsoft (as do Edge) são online: o texto falado vai ao serviço dela.
+VOZES_NEURAIS = [("piper:pt_BR-faber-medium", "Piper Faber", False),
+                 ("edge:pt-BR-FranciscaNeural", "Francisca", True),
+                 ("edge:pt-BR-AntonioNeural", "Antônio", True),
+                 ("edge:pt-BR-ThalitaMultilingualNeural", "Thalita", True)]
+VOZ_PADRAO = "piper:pt_BR-faber-medium"
+
+
+def rotulo_voz(v):
+    if v == "sistema":
+        return "a do sistema"
+    r = next((x for x in VOZES_NEURAIS if x[0] == v), None)
+    return ("%s (online, Microsoft)" % r[1] if r[2] else "%s (offline)" % r[1]) if r else v
+
+
+def vozes_de(py):
+    """As vozes neurais que o Python py (um venv) sabe gerar: Piper com a voz baixada; as da Microsoft com o edge-tts."""
+    if not py:
+        return []
+    sps = site_packages(py)
+    tem = lambda mod: any(os.path.isdir(os.path.join(sp, mod)) for sp in sps)
+    out = []
+    if tem("piper"):
+        out += ["piper:" + os.path.basename(f)[:-5] for f in sorted(glob.glob(os.path.join(VOZES, "*.onnx")))]
+    if tem("edge_tts") and tem("av"):
+        out += [v for v, _, online in VOZES_NEURAIS if v.startswith("edge:")]
+    return out
+
 
 def arquivo_voz_piper():
     return os.path.join(VOZES, VOZ_PIPER + ".onnx")
+
+
+def mp3_para_wav(mp3, taxa=24000):
+    """MP3 → WAV 16 bits mono, pelo PyAV (que o faster-whisper já traz): sem ffmpeg na máquina."""
+    import av
+    pcm = bytearray()
+    with av.open(io.BytesIO(mp3)) as c:
+        rs = av.AudioResampler(format="s16", layout="mono", rate=taxa)
+        for fr in c.decode(audio=0):
+            for o in rs.resample(fr):
+                pcm += o.to_ndarray().tobytes()
+        for o in rs.resample(None):
+            pcm += o.to_ndarray().tobytes()
+    b = io.BytesIO()
+    with wave.open(b, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(taxa)
+        w.writeframes(bytes(pcm))
+    return b.getvalue()
 
 
 def silencio(segundos):
@@ -649,17 +727,21 @@ def servidor():
     """Laço do motor: lê pedidos no stdin (binário) e responde uma linha JSON por pedido."""
     com_libs_cuda()
     m = Motor()
-    ent, sai = sys.stdin.buffer, sys.stdout
-    sai.write(json.dumps({"pronto": True}) + "\n")
+    ent, sai = sys.stdin.buffer, sys.stdout.buffer
+    sai.write(b'{"pronto": true}\n')
     sai.flush()
     while True:
         linha = ent.readline()
         if not linha:
             return 0
+        dados = b""
         try:
             p = json.loads(linha)
             t0 = time.time()
-            if p.get("op") == "stt":
+            if p.get("op") == "tts_wav":
+                dados = m.tts_wav(p["texto"], p["voz"])
+                r = {"n": len(dados), "s": round(time.time() - t0, 2)}
+            elif p.get("op") == "stt":
                 wav = ent.read(int(p["n"]))
                 r = {"texto": m.stt(wav, p.get("dica", "")), "s": round(time.time() - t0, 2)}
             elif p.get("op") == "tts":
@@ -674,8 +756,8 @@ def servidor():
             else:
                 r = {"erro": "pedido desconhecido"}
         except Exception as e:  # o cliente decide o que fazer; o laço segue
-            r = {"erro": "%s: %s" % (type(e).__name__, e)}
-        sai.write(json.dumps(r, ensure_ascii=False) + "\n")
+            r, dados = {"erro": "%s: %s" % (type(e).__name__, e)}, b""
+        sai.write((json.dumps(r, ensure_ascii=False) + "\n").encode("utf-8") + dados)
         sai.flush()
 
 
@@ -936,6 +1018,7 @@ def capacidade():
             "carga": round(carga(), 2), "ram_livre_mb": ram_livre_mb(), "whisper": bool(py), "gpus": gpus_nvidia()}
     if py:
         info["escolha"] = escolha_local(py)
+    info["vozes"] = vozes_de(python_com("piper") or python_com("edge_tts") or py)
     info["s"] = round(time.time() - t0, 3)
     return info
 
@@ -1176,19 +1259,37 @@ class Canal:
                 buf += b
         return buf.decode("utf-8", "replace")
 
-    def pedir(self, pedido, dados=b"", tempo=60):
+    def pedir(self, pedido, dados=b"", tempo=60, binario=False):
+        """A resposta (JSON) do motor; com binario=True, (resposta, os "n" bytes que vêm depois dela)."""
+        corpo = b""
         with self.trava:
             if self.p.poll() is not None:
                 raise RuntimeError("o motor em %s parou" % self.nome)
             self.p.stdin.write((json.dumps(pedido, ensure_ascii=False) + "\n").encode() + dados)
             self.p.stdin.flush()
             linha = self._linha(tempo)
+            r = json.loads(linha) if linha else None
+            if binario and r and r.get("n"):
+                corpo = self._bytes(int(r["n"]), tempo)
         if not linha:
             raise RuntimeError("o motor em %s não respondeu a tempo" % self.nome)
-        r = json.loads(linha)
         if r.get("erro"):
             raise RuntimeError(r["erro"])
-        return r
+        return (r, corpo) if binario else r
+
+    def _bytes(self, n, tempo):
+        fd, buf, fim = self.p.stdout.fileno(), b"", time.time() + tempo
+        while len(buf) < n:
+            resta = fim - time.time()
+            if resta <= 0:
+                raise RuntimeError("o motor em %s não mandou o áudio a tempo" % self.nome)
+            r, _, _ = select.select([fd], [], [], min(resta, 0.5))
+            if r:
+                b = os.read(fd, min(65536, n - len(buf)))
+                if not b:
+                    raise RuntimeError("o motor em %s parou no meio" % self.nome)
+                buf += b
+        return buf
 
     def fechar(self):
         try:
@@ -1513,7 +1614,13 @@ class FalaWindows:
             self.p.stdin.flush()
 
     def falar(self, texto):
-        self._mandar("F " + base64.b64encode(texto.encode("utf-8")).decode())
+        return self._esperar("F " + base64.b64encode(texto.encode("utf-8")).decode())
+
+    def tocar(self, wav):
+        return self._esperar("T " + base64.b64encode(wav).decode())
+
+    def _esperar(self, cmd):
+        self._mandar(cmd)
         while True:
             l = self._linha(120)
             if l is None or l == "fim" or l.startswith("erro"):
@@ -1533,19 +1640,38 @@ class FalaWindows:
         parar_processo(self.p)
 
 
+def pedacos(texto, limite=220):
+    """O texto em frases: a primeira sozinha (começa a tocar mais cedo), as outras juntas até `limite` letras."""
+    frases = [f for f in re.split(r"(?<=[.!?])\s+", texto.strip()) if f]
+    out, atual = [], ""
+    for f in frases:
+        if atual and (len(out) == 0 or len(atual) + 1 + len(f) > limite):
+            out.append(atual)
+            atual = f
+        else:
+            atual = (atual + " " + f).strip()
+    if atual:
+        out.append(atual)
+    return out or [texto]
+
+
 class Falador:
     """Diz o texto com o melhor motor daqui, no aparelho do microfone (`mic`); `parar()` corta a fala no meio."""
 
-    def __init__(self, motor_canal=None, mic=""):
+    def __init__(self, motor_canal=None, mic="", fornecedor=None):
         self.proc = None
         self.motor = motor_canal
         self.mic = mic
         self.win = None
+        self.fornecedor = fornecedor  # () -> (canal, vozes) da máquina que transcreve, para gerar a voz neural lá
+        self.local = None  # o motor deste computador para a voz neural (quando ele mesmo a gera)
+        self.cancelar = threading.Event()
+        self.voz = os.environ.get("VOZ_VOZ") or VOZ_PADRAO
         self.saidas, self.saida = [], None  # Linux (pactl) e macOS (say -a): a lista e o índice escolhido
         self.trava = threading.Lock()
         self.qual, self.det = self._escolher()
-        if self.qual in ("piper", "say"):
-            self.saidas = saidas_say() if self.qual == "say" else (saidas_pulse() if not eh_wsl() else [])
+        if not eh_wsl() and self.qual not in ("nenhum", "cmd", "termux"):
+            self.saidas = saidas_say() if eh_mac() else saidas_pulse()
             self.saida = escolher_saida(self.saidas, mic)
 
     @property
@@ -1592,6 +1718,79 @@ class Falador:
                     self.win = None
             return self.win
 
+    # -- a voz neural: onde gerar (aqui, se este computador tem o motor dela; senão a máquina que transcreve)
+    def _fonte(self, voz):
+        py = python_com("piper") or python_com("edge_tts")
+        if voz in vozes_de(py):
+            with self.trava:
+                if self.local is None or self.local.p.poll() is not None:
+                    self.local = Canal([py, EU, "servidor"], "voz")
+                return self.local
+        if self.fornecedor:
+            canal, vozes = self.fornecedor()
+            if canal is not None and voz in (vozes or []):
+                return canal
+        return None
+
+    def vozes(self):
+        """As vozes que dá para usar agora: a do sistema e as neurais que aqui ou a máquina que transcreve geram."""
+        tem = set(vozes_de(python_com("piper") or python_com("edge_tts")))
+        if self.fornecedor:
+            tem |= set(self.fornecedor()[1] or [])
+        return ["sistema"] + [v for v, _, _ in VOZES_NEURAIS if v in tem]
+
+    def neural(self):
+        return self.voz != "sistema" and self.qual not in ("nenhum", "cmd", "termux") and self._tocador_wav()
+
+    def _tocador_wav(self):
+        return eh_wsl() and self.qual == "windows" or bool(tocador())
+
+    def _sintetizar(self, texto):
+        c = self._fonte(self.voz)
+        if c is None:
+            raise RuntimeError("nenhuma máquina gera a voz " + rotulo_voz(self.voz))
+        return c.pedir({"op": "tts_wav", "texto": texto, "voz": self.voz}, tempo=60, binario=True)[1]
+
+    def _tocar_wav(self, wav):
+        if eh_wsl() and self.qual == "windows":
+            win = self._abrir_win()
+            return bool(win) and win.tocar(wav)
+        arq = os.path.join(tempfile.gettempdir(), "tt-voz-fala-%d.wav" % os.getpid())
+        with open(arq, "wb") as f:
+            f.write(wav)
+        alvo = self.saidas[self.saida][0] if self.saida is not None and self.saidas and not eh_mac() else None
+        self.proc = subprocess.Popen(tocador(alvo) + [arq], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.proc.wait()
+        self.proc = None
+        return True
+
+    def _falar_neural(self, texto):
+        """Frase a frase: a seguinte é gerada enquanto a atual toca. False se a primeira não saiu (vale a do sistema)."""
+        self.cancelar.clear()
+        fila = queue.Queue(maxsize=2)
+
+        def gerar():
+            for p in pedacos(texto):
+                if self.cancelar.is_set():
+                    break
+                try:
+                    fila.put(self._sintetizar(p))
+                except (OSError, RuntimeError, ValueError) as ex:
+                    fila.put(ex)
+                    break
+            fila.put(None)
+        threading.Thread(target=gerar, daemon=True).start()
+        primeira = True
+        while True:
+            w = fila.get()
+            if w is None:
+                return True
+            if isinstance(w, Exception):
+                return not primeira
+            primeira = False
+            if not self.cancelar.is_set():
+                self._tocar_wav(w)
+
     def _escolher(self):
         pedido = os.environ.get("VOZ_FALA", "auto") or "auto"
         if os.environ.get("VOZ_TTS_CMD"):
@@ -1603,7 +1802,7 @@ class Falador:
                 return "nenhum", "sem voz (só texto)"
             if q == "termux" and eh_termux() and w("termux-tts-speak"):
                 return q, "termux-tts-speak"
-            if q == "piper" and os.path.exists(arquivo_voz_piper()) and tocador():
+            if q == "piper" and self.voz != "sistema" and os.path.exists(arquivo_voz_piper()) and tocador():
                 py = python_com("piper")
                 if py:
                     return q, "Piper %s" % VOZ_PIPER
@@ -1649,6 +1848,14 @@ class Falador:
         return None, None
 
     def falar(self, texto):
+        if self.neural():
+            try:
+                if self._falar_neural(texto):
+                    return True
+            except (OSError, RuntimeError, ValueError):
+                pass
+            if self.cancelar.is_set():
+                return True
         if self.qual == "windows":
             win = self._abrir_win()
             if win is None:
@@ -1675,6 +1882,7 @@ class Falador:
         return True
 
     def parar(self):
+        self.cancelar.set()
         if self.win:
             self.win.parar()
         p = self.proc
@@ -1688,6 +1896,8 @@ class Falador:
             self.win.fechar()
         if self.motor:
             self.motor.fechar()
+        if self.local:
+            self.local.fechar()
 
 
 # ---------------------------------------------------------------- a janela da conversa
@@ -1842,9 +2052,12 @@ def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
         tela.linha("nota", "microfone: %s   (n: o seguinte)" % gravador.nome)
     if falador is not None and falador.qual not in ("nenhum", "cmd"):
         tela.linha("nota", "saída de som: %s   (s: a seguinte)" % falador.onde)
+    if falador is not None:
+        tela.linha("nota", "voz: %s   (v: a seguinte, com um exemplo; disponíveis: %s)" % (
+            rotulo_voz(falador.voz), ", ".join(rotulo_voz(v) for v in falador.vozes())))
     mudou = False
     while True:
-        tela.status("opções: 1-3 cérebro · a-f transcrição · n microfone · s saída · Enter ou Esc volta")
+        tela.status("opções: 1-3 cérebro · a-f transcrição · n microfone · s saída · v voz · Enter ou Esc volta")
         k = teclado.tecla(0.3)
         if k is None:
             continue
@@ -1874,6 +2087,16 @@ def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
             tela.linha("nota", "✓ microfone: %s" % novo if novo else "não há outro microfone que funcione")
             if novo and falador is not None:
                 falador.mic = novo
+        elif k == "v" and falador is not None:
+            lista = falador.vozes()
+            nova = lista[(lista.index(falador.voz) + 1) % len(lista)] if falador.voz in lista else lista[0]
+            falador.voz = nova
+            gravar_conf("voz", "" if nova == VOZ_PADRAO else nova)
+            os.environ["VOZ_VOZ"] = nova
+            tela.linha("nota", "✓ voz: %s%s" % (rotulo_voz(nova), "  (o texto falado vai ao serviço da Microsoft)"
+                                                if nova.startswith("edge:") else ""))
+            tela.status("🔊 exemplo da voz…")
+            falador.falar("Esta é a voz %s do tt. Diga o que precisa." % rotulo_voz(nova).split(" (")[0])
         elif k == "s" and falador is not None:
             novo = falador.proxima_saida()
             tela.linha("nota", "✓ saída de som: %s" % novo if novo else "não há outra saída de som")
@@ -2071,7 +2294,8 @@ class Conversa:
         if som and not self.gravador.escolher():
             self.tela.linha("nota", "Sem microfone: %s. Digite (t)." % self.gravador.motivo)
             som = False
-        self.falador = Falador(mic=self.gravador.nome if som else "")
+        self.falador = Falador(mic=self.gravador.nome if som else "",
+                               fornecedor=lambda: (self.transcritor.canal, (self.transcritor.info or {}).get("vozes")))
         self.falador.aquecer()
         partes = []
         if som:
@@ -2086,8 +2310,13 @@ class Conversa:
                     som = False
             if self.falador.qual == "windows":
                 self.falador._abrir_win()  # já vinha abrindo junto com a transcrição: aqui sabe-se onde toca
-            partes.append("falar: %s%s" % (self.falador.det, "" if self.falador.qual in ("nenhum", "cmd", "spd", "espeak", "termux")
-                                           else " em " + self.falador.onde))
+            if self.falador.neural() and self.falador.voz.startswith("piper:"):  # carrega a voz enquanto a conversa abre
+                threading.Thread(target=lambda: self.falador._sintetizar("ok"), daemon=True).start()
+            if self.falador.neural() and self.falador.voz in self.falador.vozes():
+                partes.append("falar: %s em %s" % (rotulo_voz(self.falador.voz), self.falador.onde))
+            else:
+                partes.append("falar: %s%s" % (self.falador.det, "" if self.falador.qual in ("nenhum", "cmd", "spd", "espeak", "termux")
+                                               else " em " + self.falador.onde))
             self.tela.linha("nota", " · ".join(partes) + "   (c: opções)")
             self.atualizar_dica()
             fim = self.turno("terminal", teclado)
@@ -2277,7 +2506,7 @@ def instalar():
             print("✗ não consegui criar o venv (no Debian/Ubuntu: sudo apt install python3-venv)")
             return 1
     pip = [os.path.join(VENV, "bin", "python"), "-m", "pip", "install", "-q", "--upgrade"]
-    if subprocess.run(pip + ["pip"]).returncode != 0 or subprocess.run(pip + ["faster-whisper", "piper-tts"]).returncode != 0:
+    if subprocess.run(pip + ["pip"]).returncode != 0 or subprocess.run(pip + ["faster-whisper", "piper-tts", "edge-tts"]).returncode != 0:
         print("✗ pip falhou")
         return 1
     vpy = os.path.join(VENV, "bin", "python")

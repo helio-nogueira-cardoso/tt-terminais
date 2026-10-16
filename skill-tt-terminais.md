@@ -327,7 +327,15 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   --device=`. macOS: `say -a ID` (`say -a ?`).
 - Opções (`painel_opcoes`: tecla c da janela; `voz --opcoes` = `voz-audio.py opcoes`): 1–3 cérebro (grava
   `cerebro-modelo`; Sonnet = sem arquivo), a–f transcrição (grava `modelo`; automático = sem arquivo; recarrega o
-  `Transcritor`), n microfone, s saída. `ssh_cmd` leva `VOZ_MODELO=` à máquina que transcreve.
+  `Transcritor`), n microfone, s saída, v voz (grava `voz`; Piper Faber = sem arquivo; fala um exemplo). `ssh_cmd` leva
+  `VOZ_MODELO=` à máquina que transcreve.
+- Vozes neurais (`VOZES_NEURAIS`; `VOZ_VOZ` = `voz --voz`): `piper:NOME` (Piper, offline; `~/.local/share/tt-voz/piper`)
+  e `edge:NOME` (as da Microsoft pelo `edge-tts`, online; MP3 → WAV pelo PyAV, `mp3_para_wav`). O motor responde
+  `{"op":"tts_wav","texto","voz"}` com `{"n":N}` + N bytes de WAV (`Canal.pedir(binario=True)`). `Falador._fonte`: este
+  computador, se o venv dele gera a voz (`vozes_de`), senão o canal da máquina que transcreve (`fornecedor`;
+  `capacidade()` informa `vozes`). `pedacos()`: a 1ª frase sozinha, as outras até 220 letras; a seguinte é gerada enquanto
+  a atual toca. Toca: WSL `FalaWindows.tocar` ("T base64" → waveOut no aparelho); Linux `paplay --device`; macOS
+  `afplay`. Sem a voz em lugar nenhum, ou se a 1ª frase falha, vale a do sistema.
 - Motor: `voz-audio.py servidor` (no Python com os pacotes; `voz --motor` o acha para outra máquina por ssh): linhas JSON
   `{"op":"stt","n":N,"dica":…}` + N bytes de WAV 16 kHz, `{"op":"tts",…}`, `{"op":"carregar","stt":true}` (responde
   `escolha`); `com_libs_cuda` recomeça o processo com as bibliotecas CUDA do pip no `LD_LIBRARY_PATH`. `Motor` usa

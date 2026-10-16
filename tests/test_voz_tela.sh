@@ -181,7 +181,7 @@ cat >"$F/ps-fala" <<'FIM'
 #!/bin/sh
 case "$*" in *" falar") ;; *) exit 1 ;; esac
 printf '0\tpadrao\tHeadphones (Realtek(R) Audio)\tHeadphones (Realtek(R) Audio)\r\n1\t\tSpeakers (Realtek(R) Audio)\tSpeakers (Realtek(R) Audio)\r\n2\tcomunicacao\tHeadphones (BlackShark V2 Pro P\tHeadphones (BlackShark V2 Pro PS 2.4)\r\n--\r\n'
-while IFS= read -r l; do echo "$l" >>"$PS_LOG"; case $l in F*) echo fim ;; esac; done
+while IFS= read -r l; do echo "$l" >>"$PS_LOG"; case $l in F*|T*) echo fim ;; esac; done
 FIM
 chmod +x "$F/ps-fala"
 : >"$T/ps.log"
@@ -353,6 +353,28 @@ EOF
 [[ $r == "[('small', 'cpu', 0.0)] True" ]] || falhou "medir: '$r'"
 passou 'medir: cada combinação com tempo e erro (a que falha fica de fora); a assinatura invalida quando o hardware muda'
 
+# vozes neurais: o que um venv gera (Piper com a voz baixada; as da Microsoft com o edge-tts e o PyAV); frases
+r=$(py <<EOF
+$CARREGA
+import os
+sp = m.site_packages(m.python_com("faster_whisper"))[0]
+print(m.vozes_de(m.python_com("faster_whisper")))
+for d in ("piper", "edge_tts", "av"): os.makedirs(os.path.join(sp, d), exist_ok=True)
+os.makedirs(m.VOZES, exist_ok=True); open(os.path.join(m.VOZES, "pt_BR-faber-medium.onnx"), "w").close()
+print(m.vozes_de(m.python_com("faster_whisper")))
+print(m.pedacos("Tarefas para hoje: 1, a primeira. 2, a segunda. Pode falar."))
+print(m.rotulo_voz("edge:pt-BR-FranciscaNeural"), "|", m.rotulo_voz("piper:pt_BR-faber-medium"), "|", m.rotulo_voz("sistema"))
+import shutil
+for d in ("piper", "edge_tts", "av"): shutil.rmtree(os.path.join(sp, d))
+os.remove(os.path.join(m.VOZES, "pt_BR-faber-medium.onnx"))
+EOF
+)
+[[ $r == "[]
+['piper:pt_BR-faber-medium', 'edge:pt-BR-FranciscaNeural', 'edge:pt-BR-AntonioNeural', 'edge:pt-BR-ThalitaMultilingualNeural']
+['Tarefas para hoje: 1, a primeira.', '2, a segunda. Pode falar.']
+Francisca (online, Microsoft) | Piper Faber (offline) | a do sistema" ]] || falhou "vozes neurais: '$r'"
+passou 'vozes: o que cada máquina gera (Piper offline, as da Microsoft online); a fala vai em frases, a primeira sozinha'
+
 # escolher entre máquinas: ssh falso responde a capacidade de cada uma; fora do ar fica de fora (e é lembrada)
 ln -sf "$V" "$B/voz"
 cat >"$B/tt" <<'FIM'
@@ -412,6 +434,18 @@ EOF
 frase do u@h1
 ['dell|falso|cpu'] 1
 frase do u@h2 | book · falso na CPU (trocou: o anterior ficou lento)" ]] || falhou "transcrever no escolhido e trocar: '$r'"
+r=$(VOZ="$V" VOZ_TRANSCREVER="dell" VOZ_SISTEMA=WSL VOZ_POWERSHELL="$F/ps-fala" PS_LOG=$T/ps2.log python3 - "$A" <<EOF
+$CARREGA
+t = m.Transcritor(); t.preparar(); t.info["vozes"] = ["edge:pt-BR-FranciscaNeural"]
+f = m.Falador(mic="BlackShark V2 Pro PS 2.4 (Windows)", fornecedor=lambda: (t.canal, t.info.get("vozes")))
+f.voz = "edge:pt-BR-FranciscaNeural"
+print(f.vozes(), bool(f.neural()), f.falar("Primeira frase. Segunda frase."))
+f.fechar(); t.fechar()
+EOF
+)
+[[ $r == "['sistema', 'edge:pt-BR-FranciscaNeural'] True True" ]] || falhou "voz neural gerada noutra máquina: '$r'"
+[[ $(grep -c '^T ' "$T/ps2.log") == 2 ]] || falhou "WSL: deveria tocar 2 WAVs (uma frase cada): $(cut -c1-20 "$T/ps2.log")"
+[[ $(grep -m1 '^T ' "$T/ps2.log" | cut -c3- | base64 -d | head -c 4) == RIFF ]] || falhou 'WSL: o que vai ao PowerShell não é um WAV'
 mv "$VOZ_PYTHON.x" "$VOZ_PYTHON"; unset VOZ_PYTHON_LA
 passou 'janela: transcreve no motor da máquina escolhida, mede cada frase e troca para a seguinte quando ela fica lenta'
 unset VOZ_GPUS VOZ_PYTHON
@@ -491,15 +525,20 @@ t0=$(date +%s); espera_tela 'Espaço: terminei' && (($(date +%s) - t0 < 10)) ||
 tmux send-keys -t '=conversa:' c; espera_tela 'cérebro, que entende a frase' || falhou "c não abriu as opções: $(tmux capture-pane -p -J -t '=conversa:')"
 tmux send-keys -t '=conversa:' 1; espera_tela '✓ cérebro: Haiku' || falhou 'opções: 1 não escolheu o Haiku'
 tmux send-keys -t '=conversa:' b; espera_tela '✓ transcrição: tiny' || falhou 'opções: b não escolheu o tiny'
+tmux send-keys -t '=conversa:' v; espera_tela '✓ voz: a do sistema' || falhou "opções: v não trocou a voz: $(tmux capture-pane -p -J -t '=conversa:')"
+for i in $(seq 25); do grep -q 'Esta é a voz a do sistema' "$J/falas" && break; sleep 0.2; done
+grep -q 'Esta é a voz a do sistema' "$J/falas" || falhou 'opções: v não falou o exemplo da voz'
 tmux send-keys -t '=conversa:' Enter; espera_tela 'transcrever: comando de teste' || falhou 'opções: a transcrição não recarregou'
 [[ $(cat "$HOME/.config/tt-voz/cerebro-modelo") == haiku && $(cat "$HOME/.config/tt-voz/modelo") == tiny ]] ||
   falhou "opções: não gravou a escolha: $(cat "$HOME/.config/tt-voz/cerebro-modelo" "$HOME/.config/tt-voz/modelo" 2>&1)"
 [[ $(bash "$V" --cerebro-modelo) == 'cérebro: haiku' ]] || falhou 'o voz não lê o cérebro escolhido nas opções'
+[[ $(cat "$HOME/.config/tt-voz/voz") == sistema ]] || falhou "opções: a voz não ficou guardada: $(cat "$HOME/.config/tt-voz/voz" 2>&1)"
+rm -f "$HOME/.config/tt-voz/voz"
 espera_tela 'c: opções' || falhou 'depois das opções, não voltou a ouvir'
 tmux send-keys -t '=conversa:' Escape
 for i in $(seq 50); do [[ -s $J/saiu ]] && break; sleep 0.2; done
 [[ $(<"$J/saiu") == SAIU=0 ]] || falhou "Esc não fechou a janela: $(cat "$J/saiu" 2>/dev/null)"
-passou 'janela: ouve, mostra e fala a resposta; t digita; c abre as opções (cérebro e transcrição, guardados); Esc fecha'
+passou 'janela: ouve, mostra e fala a resposta; t digita; c abre as opções (cérebro, transcrição e voz, com exemplo; guardados); Esc fecha'
 
 # voz --opcoes (o item do botão direito do 🎤): 2 volta ao Sonnet (o padrão: sem arquivo), a volta ao automático
 tmux new-session -d -s opcoes -x 100 -y 20 -e VOZ_GRAVADOR="$GRAV" -e VOZ_TTS_CMD="cat >/dev/null" -e PATH="$PATH" \
