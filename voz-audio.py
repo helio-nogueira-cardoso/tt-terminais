@@ -3076,49 +3076,92 @@ def teste():
 
 
 def instalar():
-    """venv com faster-whisper e Piper, a voz pt-BR do Piper e o modelo do Whisper (em cache)."""
+    """venv com faster-whisper e Piper, a voz pt-BR do Piper e o modelo do Whisper (em cache).
+    Tudo o que cada passo imprime vai também para ~/.local/state/tt-voz/instalar.log (acrescenta, com data); um passo
+    que falha não derruba os que não dependem dele, e no fim diz quantos erros deram."""
     py = sys.executable
-    print("venv em %s" % VENV)
-    if not os.path.exists(os.path.join(VENV, "bin", "python")) or \
-            subprocess.run([os.path.join(VENV, "bin", "python"), "-m", "pip", "--version"], capture_output=True).returncode != 0:
+    estado = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(CASA, ".local", "state"), "tt-voz")
+    os.makedirs(estado, exist_ok=True)
+    log = os.path.join(estado, "instalar.log")
+    erros = []
+
+    def escrever(txt):
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(txt)
+
+    def dizer(txt):
+        print(txt, flush=True)
+        escrever(txt + "\n")
+
+    def passo(nome, cmd):
+        """roda o comando mostrando a saída e gravando no log; devolve o código de saída."""
+        escrever("\n== %s  $ %s\n" % (time.strftime("%F %T"), " ".join(cmd)))
+        saida = []
+        try:
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
+                                 errors="replace")
+            for linha in p.stdout:
+                sys.stdout.write(linha)
+                escrever(linha)
+                saida.append(linha)
+            rc = p.wait()
+        except OSError as e:
+            rc = 127
+            dizer("  %s" % e)
+        escrever("== %s: código %d\n" % (nome, rc))
+        if rc != 0:
+            erros.append(nome)
+            junto = "".join(saida)
+            if re.search(r"HTTP Error 40[13]|\b40[13] (Client Error|Forbidden)|ns-template", junto):
+                dizer("  ↳ o endereço respondeu 403: um filtro de rede/proxy bloqueia o site. Libere o domínio (o Hugging Face "
+                      "é huggingface.co) ou rode numa rede sem o filtro; a instalação continua de onde parou.")
+        return rc
+
+    dizer("venv em %s (log em %s)" % (VENV, log))
+    vpy = os.path.join(VENV, "bin", "python")
+    if not os.path.exists(vpy) or subprocess.run([vpy, "-m", "pip", "--version"], capture_output=True).returncode != 0:
         if subprocess.run([py, "-m", "venv", VENV], capture_output=True).returncode != 0:
             # Debian/Ubuntu sem o python3-venv (o ensurepip vem nele): o venv sem pip e o pip pelo get-pip.py, sem sudo
-            print("venv sem o ensurepip (falta o python3-venv): pip pelo get-pip.py")
+            dizer("venv sem o ensurepip (falta o python3-venv): pip pelo get-pip.py")
             gp = os.path.join(tempfile.gettempdir(), "tt-voz-get-pip.py")
-            if subprocess.run([py, "-m", "venv", "--clear", "--without-pip", VENV]).returncode != 0 or \
-                    subprocess.run(["curl", "-fsSL", "-m", "120", "-o", gp, os.environ.get(
-                        "VOZ_GET_PIP", "https://bootstrap.pypa.io/get-pip.py")]).returncode != 0 or \
-                    subprocess.run([os.path.join(VENV, "bin", "python"), gp, "-q"]).returncode != 0:
-                print("✗ não consegui criar o venv (no Debian/Ubuntu: sudo apt install python3-venv)")
+            if passo("venv", [py, "-m", "venv", "--clear", "--without-pip", VENV]) != 0 or \
+                    passo("get-pip", ["curl", "-fsSL", "-m", "120", "-o", gp, os.environ.get(
+                        "VOZ_GET_PIP", "https://bootstrap.pypa.io/get-pip.py")]) != 0 or \
+                    passo("get-pip.py", [vpy, gp, "-q"]) != 0:
+                dizer("✗ não consegui criar o venv (no Debian/Ubuntu: sudo apt install python3-venv)")
                 return 1
-    pip = [os.path.join(VENV, "bin", "python"), "-m", "pip", "install", "-q", "--upgrade"]
-    if subprocess.run(pip + ["pip"]).returncode != 0 or subprocess.run(pip + ["faster-whisper", "piper-tts", "edge-tts"]).returncode != 0:
-        print("✗ pip falhou")
+    pip = [vpy, "-m", "pip", "install", "--upgrade", "--disable-pip-version-check"]
+    if passo("pip", pip + ["pip"]) != 0 or passo("pip pacotes", pip + ["faster-whisper", "piper-tts", "edge-tts"]) != 0:
+        dizer("✗ pip falhou (nada mais é instalado sem os pacotes)")
         return 1
-    vpy = os.path.join(VENV, "bin", "python")
     os.makedirs(VOZES, exist_ok=True)
     if not os.path.exists(arquivo_voz_piper()):
-        print("voz do Piper: %s" % VOZ_PIPER)
-        if subprocess.run([vpy, "-m", "piper.download_voices", VOZ_PIPER, "--data-dir", VOZES]).returncode != 0:
-            print("✗ não consegui baixar a voz do Piper")
-            return 1
+        dizer("voz do Piper: %s" % VOZ_PIPER)
+        if passo("voz do Piper", [vpy, "-m", "piper.download_voices", VOZ_PIPER, "--data-dir", VOZES]) != 0:
+            dizer("✗ não consegui baixar a voz do Piper (a fala cai no edge-tts/voz do sistema)")
     gpus = gpus_nvidia()
     if gpus and not os.environ.get("VOZ_SEM_GPU"):
-        print("GPU NVIDIA (%s): bibliotecas CUDA para o Whisper (cuBLAS e cuDNN, ~2 GB; VOZ_SEM_GPU=1 pula)" % gpus[0])
-        if subprocess.run(pip + ["nvidia-cublas-cu12", "nvidia-cudnn-cu12==9.*"]).returncode != 0:
-            print("  ✗ não instalou; fica a CPU")
+        dizer("GPU NVIDIA (%s): bibliotecas CUDA para o Whisper (cuBLAS e cuDNN, ~2 GB; VOZ_SEM_GPU=1 pula)" % gpus[0])
+        if passo("CUDA", pip + ["nvidia-cublas-cu12", "nvidia-cudnn-cu12==9.*"]) != 0:
+            dizer("  ✗ não instalou; fica a CPU")
     modelos = [os.environ["VOZ_MODELO"]] if os.environ.get("VOZ_MODELO") else ["small", "base"]
+    carregou = 0
     for modelo in modelos:
-        print("modelo do Whisper: %s (baixa uma vez para o cache do Hugging Face)" % modelo)
-        r = subprocess.run([vpy, "-c", "from faster_whisper import WhisperModel as W; W(%r, device='cpu', "
-                            "compute_type='int8')" % modelo])
-        if r.returncode != 0:
-            print("✗ não consegui carregar o modelo %s" % modelo)
-            return 1
-    print("medindo cada jeito de transcrever nesta máquina (modelo × CPU/GPU, frases de referência):")
-    if subprocess.run([vpy, EU, "medir"]).returncode != 0:
-        print("✗ a medição falhou; vale a estimativa pelo hardware (voz --medir tenta de novo)")
-    print("✓ pronto: o 🎤 desta máquina transcreve e fala sozinho")
+        dizer("modelo do Whisper: %s (baixa uma vez para o cache do Hugging Face)" % modelo)
+        if passo("modelo %s" % modelo, [vpy, "-c", "from faster_whisper import WhisperModel as W; W(%r, device='cpu', "
+                                                  "compute_type='int8')" % modelo]) == 0:
+            carregou += 1
+        else:
+            dizer("✗ não consegui carregar o modelo %s" % modelo)
+    if carregou and os.path.exists(arquivo_voz_piper()):
+        dizer("medindo cada jeito de transcrever nesta máquina (modelo × CPU/GPU, frases de referência):")
+        if passo("medição", [vpy, EU, "medir"]) != 0:
+            dizer("✗ a medição falhou; vale a estimativa pelo hardware (voz --medir tenta de novo)")
+    if erros:
+        dizer("✗ terminou com %d erro(s): %s. Detalhes em %s; rode voz --instalar-audio de novo depois de resolver."
+              % (len(erros), ", ".join(erros), log))
+        return 1
+    dizer("✓ pronto: o 🎤 desta máquina transcreve e fala sozinho")
     return 0
 
 

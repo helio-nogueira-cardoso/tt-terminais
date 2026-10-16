@@ -889,7 +889,7 @@ tarefa_ler() { # NOME: a tarefa (apelido ou palavras do título), com prazo e as
   tit=$(sed -n 's/^TAREFA \[[0-9a-f]*\]: //p' <<<"$det" | head -n 1)
   prazo=$(sed -n 's/^Prazo: //p' <<<"$det" | head -n 1)
   feitas=$(grep -cE '^  \[[0-9a-f]+\] feita · ' <<<"$det"); total=$(grep -cE '^  \[[0-9a-f]+\] [a-z]+ · ' <<<"$det")
-  abertas=$(sed -nE 's/^  \[[0-9a-f]+\] aberta · (.*) · [a-z]+[0-9]+\.[a-z]+[0-9]+$/\1/p' <<<"$det" | head -n 6 | paste -sd ';' | sed 's/;/; /g')
+  abertas=$(sed -nE 's/^  \[[0-9a-f]+\] aberta · (.*) · [a-z]+[0-9]+\.[a-z]+[0-9]+$/\1/p' <<<"$det" | head -n 6 | paste -sd ';' - | sed 's/;/; /g')
   falar "${tit:-Tarefa $ref}.${prazo:+ Prazo: $prazo.}$( ((total)) && echo " $feitas de $total subtarefas feitas.")${abertas:+ Faltam: $abertas.}"
 }
 

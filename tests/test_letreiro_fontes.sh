@@ -85,7 +85,7 @@ indicador_lst=$H/lista ;; 📋 ;; a.1.x ;; 60
 indicador_sec=$H/lista ;; 🔑 ;; a.0.x ;; 60 ;; X-Api-Key: @chave
 EOF
 # (antes de migrar, as linhas antigas já valem: o painel as mostra)
-est=$(py listar --tsv | cut -f1,2,4 | tr '\t' ' ' | paste -sd,)
+est=$(py listar --tsv | cut -f1,2,4 | tr '\t' ' ' | paste -sd, -)
 contem "$est" 'btc 1 legado' 'linha antiga indicador_btc= aparece como fonte (legado) e ativa'
 contem "$est" 'frases 0 nativa' 'frases fica fora porque indicadores= não a lista'
 atual

@@ -65,7 +65,7 @@ novo precisa seguir estas regras:
    (`tt --e-ponte`).
 7. **Comandos que mudam entre GNU e BSD:** dentro do `tt` as ferramentas GNU do Homebrew já estão na frente do PATH no macOS, mas
    scripts que rodam fora dele (instalador, testes, ganchos) não podem assumir `sed -i` sem sufixo, `stat -c`, `date -d`,
-   `readlink -f`, `grep -P`, `pgrep -c` ou `xargs -r`; opção do `pgrep` vai **antes** do padrão (`pgrep -n -f padrão`).
+   `readlink -f`, `grep -P`, `pgrep -c` ou `xargs -r`, `paste -sd,` sem o `-` final (o BSD exige o arquivo: `paste -sd, -`); opção do `pgrep` vai **antes** do padrão (`pgrep -n -f padrão`).
    Coisa de Linux (notify-send, xdg-open, setsid) só atrás de um teste de existência, com alternativa (`open`, `osascript`).
 8. **Caminhos:** compare pastas com `-ef` ou `realpath` (no macOS `/var/x` e `/private/var/x` são a mesma).
 

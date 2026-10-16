@@ -18519,7 +18519,7 @@ transferir_bloqueante() {
   sed 's/^/   /' <<<"$recebidos" | head -15
   printf '\033[36m📍 em %s: %s\033[0m\n' "$(rotulo "$dst")" "$(rodar "$dst" --caminho-visivel "$ddst")"
   avisar "✓ $n ite$([[ $n == 1 ]] && echo m || echo ns) de $(rotulo "$src") → $(rotulo "$dst"):$ddst"
-  [[ $dst == . ]] || rodar "$dst" --avisar "📥 $n de $(rotulo "$src") → $(rodar "$dst" --caminho-visivel "$ddst" | sed 's/  (.*//'): $(head -3 <<<"$recebidos" | paste -sd, | cut -c1-60) · ⋯ painel → u abre" >/dev/null 2>&1
+  [[ $dst == . ]] || rodar "$dst" --avisar "📥 $n de $(rotulo "$src") → $(rodar "$dst" --caminho-visivel "$ddst" | sed 's/  (.*//'): $(head -3 <<<"$recebidos" | paste -sd, - | cut -c1-60) · ⋯ painel → u abre" >/dev/null 2>&1
 }
 
 pasta_aqui() {
