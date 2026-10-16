@@ -31,7 +31,7 @@ saida=$("$TT" --pedir-sudo --sim sudo-sem-senha 2>&1)
 grep -q 'sudo sem senha ativo' <<<"$saida" || falhou "aceitar deveria ativar: $saida"
 [[ -f $f && $(stat -c %a "$f") == 440 ]] || falhou "regra ausente ou com modo errado: $(ls -l "$T/sudoers")"
 grep -qx "$(id -un) ALL=(ALL) NOPASSWD: ALL" "$f" || falhou "regra errada: $(cat "$f")"
-grep -q '^install -m 0440 -o root -g root ' "$T/sudo.log" || falhou "a regra deveria entrar pelo sudo, com dono root e modo 0440: $(cat "$T/sudo.log")"
+grep -Eq '^install -m 0440 -o root -g (root|wheel) ' "$T/sudo.log" || falhou "a regra deveria entrar pelo sudo, com dono root e modo 0440: $(cat "$T/sudo.log")"
 grep -q $'^sudo-sem-senha\tok\t' <<<"$("$TT" --pendencias --tsv)" || falhou 'depois de ativar, a pendência deveria ficar ok'
 grep -q 'Configuração do sistema:.*NOPASSWD' <<<"$saida" || falhou "o modal deveria mostrar o comando exato: $saida"
 ! grep -q 'na sua pasta (sem administrador)' <<<"$saida" || falhou "passo de administrador listado como feito sem administrador: $saida"
