@@ -16,6 +16,7 @@ A ligação fica na primeira linha da descrição: "aidlc: CAMINHO". Grava só p
 (TT=caminho troca o executável) e lê ~/.config/tt/tarefas para consultar.
 """
 import base64
+import binascii
 import os
 import re
 import subprocess
@@ -85,6 +86,16 @@ def problema(p, valor):
 
 # --- tt ---------------------------------------------------------------------
 
+def desc_b64(valor):
+    """Descrição em base64; uma descrição truncada ou corrompida de OUTRA tarefa não pode derrubar o aidlc-tt."""
+    if not valor:
+        return ""
+    try:
+        return base64.b64decode(valor + "=" * (-len(valor) % 4)).decode("utf-8", "replace")
+    except (ValueError, binascii.Error):
+        return ""
+
+
 def ler_tarefas():
     tarefas = {}
     if not os.path.exists(TAREFAS):
@@ -95,7 +106,7 @@ def ler_tarefas():
             if len(c) < 5 or not re.match(r"^[0-9a-f]{6,}$", c[0]):
                 continue
             meta = dict(p.split("=", 1) for p in (c[5] if len(c) > 5 else "").split("|") if "=" in p)
-            desc = base64.b64decode(meta["desc"]).decode("utf-8", "replace") if meta.get("desc") else ""
+            desc = desc_b64(meta.get("desc", ""))
             tarefas[c[0]] = {"id": c[0], "estado": c[1], "texto": c[4], "desc": desc}
     return tarefas
 
