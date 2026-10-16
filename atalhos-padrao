@@ -14,4 +14,4 @@
 # 🎤 conversa por voz com o tt (Ctrl+B v): "@janela" abre numa janela flutuante, não numa sessão. Ouve pelo microfone,
 # entende (o cérebro: um Claude rápido desta máquina) e responde falando; t digita, Esc fecha. O áudio de cada sistema
 # (Linux, macOS, WSL) é do voz-audio.py; `voz --audio` diz o que esta máquina usa. Para esconder: "-	voz" no perfil.
-🎤	voz	@janela voz --conversa	#cba6f7	Conversar=@janela voz --conversa ;; Só digitando=@janela voz --conversa --digitar ;; - ;; Testar o microfone e a voz=@janela voz --audio-teste ;; Instalar a voz neural (Whisper e Piper)=@janela voz --instalar-audio
+🎤	voz	@janela voz --conversa	#cba6f7	Conversar=@janela voz --conversa ;; Só digitando=@janela voz --conversa --digitar ;; Opções: modelos, microfone e som=@janela voz --opcoes ;; - ;; Testar o microfone e a voz=@janela voz --audio-teste ;; Instalar a voz neural (Whisper e Piper)=@janela voz --instalar-audio

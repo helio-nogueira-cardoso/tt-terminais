@@ -144,6 +144,7 @@ passou 'microfones: o fone primeiro, o embutido depois, o genérico por último;
 cat >"$F/say" <<'FIM'
 #!/bin/sh
 if [ "$1" = -v ] && [ "$2" = '?' ]; then printf 'Alex                en_US    # Hello\nLuciana             pt_BR    # Olá, meu nome é Luciana\n'; exit 0; fi
+if [ "$1" = -a ] && [ "$2" = '?' ]; then printf '   41 MacBook Pro Speakers\n   73 AirPods Pro\n'; exit 0; fi
 echo "$*" >>"$SAY_LOG"
 FIM
 cat >"$F/sox" <<'FIM'
@@ -158,25 +159,84 @@ chmod +x "$F"/*
 r=$(PATH="$F:$PATH" VOZ_SISTEMA=Darwin SAY_LOG=$T/say.log py <<EOF
 $CARREGA
 print(m.candidatos_gravador()[0].cmd[:3])
-f = m.Falador(); print(f.qual, f.det); f.falar("Olá do Mac")
+f = m.Falador(); print(f.qual, f.det, "|", f.onde); f.falar("Olá do Mac")
+f = m.Falador(mic="MacBook Pro Microphone"); f.falar("pelo alto-falante")
 EOF
 )
-[[ $r == $'[\'sox\', \'-q\', \'-d\']\nsay say Luciana' ]] || falhou "macOS: gravar pelo sox e falar pelo say com a Luciana: '$r'"
-[[ $(<"$T/say.log") == '-v Luciana Olá do Mac' ]] || falhou "say: $(cat "$T/say.log")"
-passou 'macOS: grava pelo sox (dispositivo padrão) e fala pelo say com a voz pt-BR'
+[[ $r == $'[\'sox\', \'-q\', \'-d\']\nsay say Luciana | AirPods Pro' ]] || falhou "macOS: gravar pelo sox e falar pelo say com a Luciana: '$r'"
+[[ $(<"$T/say.log") == $'-v Luciana -a 73 Olá do Mac\n-v Luciana -a 41 pelo alto-falante' ]] ||
+  falhou "say: os AirPods sem microfone escolhido; com o microfone do MacBook, o alto-falante dele: $(cat "$T/say.log")"
+passou 'macOS: grava pelo sox e fala pelo say com a voz pt-BR, no aparelho do microfone (sem ele, o fone)'
 
 : >"$T/sock"
 r=$(PATH="$F:$PATH" VOZ_SISTEMA=WSL VOZ_WSLG=$T/sock PS_LOG=$T/ps.log env -u PULSE_SERVER python3 - "$A" <<EOF
 $CARREGA
 import os
 c = m.candidatos_gravador(); print(c[0].cmd[0], os.environ.get("PULSE_SERVER"))
-f = m.Falador(); print(f.qual); f.falar("Ação concluída")
 EOF
 )
-[[ $r == "parecord unix:$T/sock"$'\nwindows' ]] || falhou "WSL: gravar pelo PulseAudio do WSLg e falar com a voz do Windows: '$r'"
-b64=$(grep -o "FromBase64String('[^']*')" "$T/ps.log" | sed "s/.*('//; s/')//")
+[[ $r == "parecord unix:$T/sock" ]] || falhou "WSL: gravar pelo PulseAudio do WSLg: '$r'"
+# a voz do Windows num processo só, no aparelho do microfone (o padrão do Windows aí é a saída P2, não o headset)
+cat >"$F/ps-fala" <<'FIM'
+#!/bin/sh
+case "$*" in *" falar") ;; *) exit 1 ;; esac
+printf '0\tpadrao\tHeadphones (Realtek(R) Audio)\tHeadphones (Realtek(R) Audio)\r\n1\t\tSpeakers (Realtek(R) Audio)\tSpeakers (Realtek(R) Audio)\r\n2\tcomunicacao\tHeadphones (BlackShark V2 Pro P\tHeadphones (BlackShark V2 Pro PS 2.4)\r\n--\r\n'
+while IFS= read -r l; do echo "$l" >>"$PS_LOG"; case $l in F*) echo fim ;; esac; done
+FIM
+chmod +x "$F/ps-fala"
+: >"$T/ps.log"
+r=$(PATH="$F:$PATH" VOZ_SISTEMA=WSL VOZ_POWERSHELL="$F/ps-fala" PS_LOG=$T/ps.log py <<EOF
+$CARREGA
+f = m.Falador(mic="BlackShark V2 Pro PS 2.4 (Windows)"); print(f.qual, "|", f._abrir_win() and f.onde)
+print(f.falar("Ação concluída")); print(f.proxima_saida()); f.fechar()
+f = m.Falador(mic="Microphone Array (Intel Digital Microphones) (Windows)"); f._abrir_win(); print(f.onde); f.fechar()
+EOF
+)
+[[ $r == "windows | Headphones (BlackShark V2 Pro PS 2.4)
+True
+Headphones (Realtek(R) Audio)
+Headphones (Realtek(R) Audio)" ]] || falhou "WSL: a voz do Windows: '$r'"
+[[ $(sed -n 1p "$T/ps.log") == 'D 2' ]] || falhou "WSL: a fala deveria sair no BlackShark (saída 2): $(cat "$T/ps.log")"
+b64=$(grep '^F ' "$T/ps.log" | head -1 | cut -c3-)
 [[ $(printf '%s' "$b64" | base64 -d) == 'Ação concluída' ]] || falhou "texto para o Windows (UTF-8 em base64): $(cat "$T/ps.log")"
-grep -q "pt-BR" "$T/ps.log" || falhou 'a voz do Windows deveria preferir a pt-BR'
+rm -f "$HOME/.cache/tt-voz/saida"
+# Linux: as saídas do PulseAudio; a do mesmo aparelho do microfone, sem a de porta vazia
+cat >"$F/pactl" <<'FIM'
+#!/bin/sh
+case "$*" in
+  get-default-sink) echo alsa_output.speaker ;;
+  "list sinks") cat <<'L'
+Sink #1
+	Name: alsa_output.speaker
+	Description: Comet Lake Speaker
+	Active Port: [Out] Speaker
+Sink #2
+	Name: alsa_output.fone-p2
+	Description: Comet Lake Headphones
+	Ports:
+		[Out] Headphones: Headphones (type: Headphones, priority: 200, not available)
+	Active Port: [Out] Headphones
+Sink #3
+	Name: bluez_output.fone
+	Description: Fone JBL Bluetooth
+L
+  ;;
+esac
+FIM
+chmod +x "$F/pactl"
+r=$(PATH="$F:$PATH" VOZ_SISTEMA=Linux py <<EOF
+$CARREGA
+s = m.saidas_pulse(); print([x[1] for x in s])
+print(s[m.escolher_saida(s, "Fone JBL Bluetooth")][0], s[m.escolher_saida(s, "Comet Lake Digital Microphone")][0])
+print(m.tocador("bluez_output.fone"))
+EOF
+)
+[[ $r == "['Comet Lake Speaker', 'Fone JBL Bluetooth']
+bluez_output.fone alsa_output.speaker
+['paplay', '--device=bluez_output.fone']" ]] || falhou "Linux: saídas do PulseAudio: '$r'"
+printf '#!/bin/sh\nexit 0\n' >"$F/pactl"
+passou 'Linux: a fala sai no aparelho do microfone (o fone com o do fone, o alto-falante com o embutido); a de porta vazia fica de fora'
+
 # WSL com o PowerShell: os microfones do Windows, gravados direto (o headset, mesmo não sendo o padrão); n troca e lembra
 cat >"$F/ps-falso" <<'FIM'
 #!/bin/sh
@@ -201,7 +261,7 @@ True Intel USB Audio (Windows)" ]] || falhou "WSL: microfones do Windows: '$r'"
 [[ $(head -1 "$T/mic.log") == 1 ]] || falhou "WSL: gravou do microfone errado: $(cat "$T/mic.log")"
 rm -f "$HOME/.cache/tt-voz/microfone"
 passou 'WSL: grava direto do headset do Windows (sem mudar o padrão); stereo mix fica de fora; n passa ao seguinte e lembra'
-passou 'WSL: grava pelo PulseAudio do WSLg (PULSE_SERVER) e fala com a voz pt-BR do Windows (acentos intactos)'
+passou 'WSL: a voz do Windows fala no aparelho do microfone (não na saída padrão), acentos intactos; s troca a saída e lembra'
 
 printf '#!/bin/sh\necho "$*" >>"$SPD_LOG"\n' >"$F/spd-say"; chmod +x "$F/spd-say"
 r=$(PATH="$F:$PATH" VOZ_SISTEMA=Linux SPD_LOG=$T/spd.log py <<EOF
@@ -326,6 +386,9 @@ grep -q '✗ local: sem faster-whisper' <<<"$r" && grep -q '✗ velha: sem o mot
 grep -q 'u@h4' "$SSH_LOG" && falhou 'a máquina fora do ar foi sondada de novo antes de 10 min'
 grep -q 'u@h3' "$SSH_LOG" || falhou 'a máquina sem o motor (mas ligada) ficou de fora como se estivesse desligada'
 grep -q '✗ desligada: fora do ar' <<<"$r" || falhou "a fora do ar deveria aparecer como fora do ar: $r"
+r=$(VOZ_MODELO=tiny py <<<"$CARREGA
+print(m.ssh_cmd('u@h1', 'voz --motor-info')[-1].split('; ')[-1])")
+[[ $r == 'VOZ_MODELO=tiny voz --motor-info' ]] || falhou "o modelo escolhido aqui não vai à máquina que transcreve: '$r'"
 passou 'escolher: pergunta a todas, a de menor custo primeiro; a desligada fica de fora por 10 min, a sem motor não'
 
 # a janela transcreve no escolhido (o motor de lá, pelo ssh), mede, e troca quando ele fica lento
@@ -391,6 +454,7 @@ EOF
 passou 'gravação: a fala começa pelo nível e acaba no silêncio; sem fala, "silencio" depois da espera'
 
 # --- a janela da conversa: microfone, transcrição e voz falsos; o voz e o cérebro de regras de verdade
+tmux new-session -d -s _base 'sleep 3600'  # o servidor do tmux não morre entre uma janela e a seguinte
 J=$T/janela; mkdir -p "$J"; echo 0 >"$J/n"
 printf 'máquinas\n' >"$J/frases"
 cat >"$J/stt" <<'FIM'
@@ -423,10 +487,32 @@ tmux send-keys -t '=conversa:' t; sleep 0.4; tmux send-keys -t '=conversa:' -l '
 espera_tela 'tt: Tudo certo por aqui.' || falhou "frase solta ao cérebro: $(tmux capture-pane -p -J -t '=conversa:')"
 t0=$(date +%s); espera_tela 'Espaço: terminei' && (($(date +%s) - t0 < 10)) ||
   falhou 'um filho do voz em segundo plano prendeu a volta (a janela não voltou a ouvir)'
+# c: as opções; 1 = cérebro Haiku, b = transcrição tiny (gravados como voz --cerebro-modelo e voz --modelo); Enter volta
+tmux send-keys -t '=conversa:' c; espera_tela 'cérebro, que entende a frase' || falhou "c não abriu as opções: $(tmux capture-pane -p -J -t '=conversa:')"
+tmux send-keys -t '=conversa:' 1; espera_tela '✓ cérebro: Haiku' || falhou 'opções: 1 não escolheu o Haiku'
+tmux send-keys -t '=conversa:' b; espera_tela '✓ transcrição: tiny' || falhou 'opções: b não escolheu o tiny'
+tmux send-keys -t '=conversa:' Enter; espera_tela 'transcrever: comando de teste' || falhou 'opções: a transcrição não recarregou'
+[[ $(cat "$HOME/.config/tt-voz/cerebro-modelo") == haiku && $(cat "$HOME/.config/tt-voz/modelo") == tiny ]] ||
+  falhou "opções: não gravou a escolha: $(cat "$HOME/.config/tt-voz/cerebro-modelo" "$HOME/.config/tt-voz/modelo" 2>&1)"
+[[ $(bash "$V" --cerebro-modelo) == 'cérebro: haiku' ]] || falhou 'o voz não lê o cérebro escolhido nas opções'
+espera_tela 'c: opções' || falhou 'depois das opções, não voltou a ouvir'
 tmux send-keys -t '=conversa:' Escape
 for i in $(seq 50); do [[ -s $J/saiu ]] && break; sleep 0.2; done
 [[ $(<"$J/saiu") == SAIU=0 ]] || falhou "Esc não fechou a janela: $(cat "$J/saiu" 2>/dev/null)"
-passou 'janela: ouve, mostra e fala a resposta; t digita uma frase; volta a ouvir; Esc fecha'
+passou 'janela: ouve, mostra e fala a resposta; t digita; c abre as opções (cérebro e transcrição, guardados); Esc fecha'
+
+# voz --opcoes (o item do botão direito do 🎤): 2 volta ao Sonnet (o padrão: sem arquivo), a volta ao automático
+tmux new-session -d -s opcoes -x 100 -y 20 -e VOZ_GRAVADOR="$GRAV" -e VOZ_TTS_CMD="cat >/dev/null" -e PATH="$PATH" \
+  "bash '$V' --opcoes; echo SAIU >'$J/saiu-op'; sleep 60"
+espera_tela_op() { local i; for i in $(seq 80); do tmux capture-pane -p -J -t '=opcoes:' 2>/dev/null | grep -qF "$1" && return 0; sleep 0.2; done; return 1; }
+espera_tela_op 'Sonnet' || falhou "voz --opcoes: $(tmux capture-pane -p -J -t '=opcoes:')"
+tmux send-keys -t '=opcoes:' 2; espera_tela_op '✓ cérebro: Sonnet' || falhou 'voz --opcoes: 2'
+tmux send-keys -t '=opcoes:' a; espera_tela_op '✓ transcrição: automático' || falhou 'voz --opcoes: a'
+tmux send-keys -t '=opcoes:' Escape
+for i in $(seq 30); do [[ -s $J/saiu-op ]] && break; sleep 0.2; done
+[[ ! -e $HOME/.config/tt-voz/cerebro-modelo && ! -e $HOME/.config/tt-voz/modelo ]] || falhou 'voz --opcoes: Sonnet e automático deveriam apagar a escolha'
+tmux kill-session -t '=opcoes' 2>/dev/null || true
+passou 'voz --opcoes: o mesmo painel fora da conversa; o padrão (Sonnet, automático) apaga a escolha guardada'
 
 # "encerrar" falado fecha sozinha
 echo 0 >"$J/n"; printf 'encerrar\n' >"$J/frases"; rm -f "$J/saiu"; tmux kill-session -t '=conversa' 2>/dev/null || true

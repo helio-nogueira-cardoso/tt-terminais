@@ -15,4 +15,4 @@
 ⏩	ia-seguir	@seguir proot-distro login debian --shared-tmp -- bash -lc 'PATH="$HOME/.local/bin:$PATH" ia-conta abrir {prompt}'	#f9e2af	@maquinas
 # 🎤 conversa por voz (Ctrl+B v): no celular o Tasker ouve e fala (termux/celular.sh voz); a janela mostra a conversa
 # e deixa digitar. Sem o Tasker, a conversa é digitada.
-🎤	voz	@janela voz --conversa	#cba6f7	Conversar=@janela voz --conversa ;; Só digitando=@janela voz --conversa --digitar
+🎤	voz	@janela voz --conversa	#cba6f7	Conversar=@janela voz --conversa ;; Só digitando=@janela voz --conversa --digitar ;; Opções: modelos=@janela voz --opcoes

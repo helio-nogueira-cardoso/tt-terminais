@@ -8,6 +8,8 @@
 #   voz --medir                  mede cada jeito de transcrever nesta máquina (modelo × CPU/GPU): tempo e erro
 #   voz --fala MOTOR             auto|piper|say|windows|spd|espeak|nenhum      voz --modelo NOME  (Whisper; padrão: o medido)
 #   voz --microfone "NOME, OUTRO" o microfone preferido (parte do nome); padrão: o headset, depois USB, webcam, embutido
+#   voz --saida "NOME"           a saída de som preferida; padrão: a do aparelho do microfone (o headset ouve e fala)
+#   voz --opcoes                 o painel: o modelo do cérebro e o da transcrição, o microfone e a saída (na janela: c)
 #   voz "maquinas" | "status" | "ir para notebook" | "sessoes" | "aba claude" | "proxima" | "tarefas" | "contas" | "repetir"
 #   voz "qualquer outra frase"   vai, como texto, para a sessão-alvo (só se estiver liberada: "permitir sessao")
 #   voz "terminal" / "encerrar"  abre / fecha a conversa (o Tasker ouve de novo depois de cada resposta)
@@ -804,6 +806,7 @@ audio_env() { # a configuração do áudio para o voz-audio.py
   [[ -z ${VOZ_FALA:-} && -s $CF/fala ]] && export VOZ_FALA=$(<"$CF/fala")
   [[ -z ${VOZ_MODELO:-} && -s $CF/modelo ]] && export VOZ_MODELO=$(<"$CF/modelo")
   [[ -z ${VOZ_MICROFONE:-} && -s $CF/microfone ]] && export VOZ_MICROFONE=$(<"$CF/microfone")
+  [[ -z ${VOZ_SAIDA:-} && -s $CF/saida ]] && export VOZ_SAIDA=$(<"$CF/saida")
   # sem configuração, a janela usa o Claude desta máquina como cérebro (se ela tem o rodízio de contas)
   if [[ ! -f $CF/cerebro ]] && { command -v ia-rot >/dev/null || [[ -n $(proot_ia) ]]; }; then export VOZ_CEREBRO_PADRAO=local; fi
   return 0
@@ -839,6 +842,7 @@ case ${1:-} in
   --motor) exec python3 "$AUDIO" motor ;;  # o motor de transcrição desta máquina, para a janela de outra (por ssh)
   --motor-info) exec python3 "$AUDIO" capacidade ;;  # o que esta máquina oferece (a janela de outra pergunta antes)
   --medir) precisa_python && python3 "$AUDIO" medir; pausa_janela ;;
+  --opcoes) precisa_python && { audio_env; exec python3 "$AUDIO" opcoes; } ;;
   --audio) precisa_python && { audio_env; python3 "$AUDIO" diagnostico; echo "cérebro: $(cerebro_lugares | tr '\n' ' ')($(cerebro_modelo))"; } ;;
   --audio-teste) precisa_python && { audio_env; python3 "$AUDIO" teste; }; pausa_janela ;;
   --instalar-audio) precisa_python && python3 "$AUDIO" instalar; pausa_janela ;;
@@ -849,7 +853,7 @@ case ${1:-} in
       *) [[ $2 =~ ^[a-z0-9.-]+$ ]] || { echo "uso: voz --cerebro-modelo sonnet|haiku|opus" >&2; exit 2; }
         printf '%s\n' "$2" > "$CF/cerebro-modelo"; echo "cérebro: $2" ;;
     esac ;;
-  --transcrever|--fala|--modelo|--microfone)
+  --transcrever|--fala|--modelo|--microfone|--saida)
     k=${1#--}; shift
     case ${1:-} in
       "") echo "$k: $(cat "$CF/$k" 2>/dev/null || echo padrão)" ;;

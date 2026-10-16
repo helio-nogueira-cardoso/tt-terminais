@@ -3,6 +3,17 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.21.0 · 16/10/2026
+- **🎤 A voz sai no aparelho do microfone.** O tt falava na saída padrão do sistema. No Windows ela costuma ser o
+  alto-falante ou a saída P2, e o headset é só o padrão de chamadas: a resposta ia para onde ninguém ouvia, e a janela
+  ficava "falando" em silêncio. Agora a fala sai no mesmo aparelho do microfone escolhido (o BlackShark ouve e fala),
+  sem mudar os padrões do Windows; sem par, vai a saída de melhor nota (fone antes de alto-falante). Vale no WSL (a
+  voz do Windows num processo só, que abre uma vez), no Linux (PulseAudio/PipeWire) e no macOS (`say -a`).
+- **🎤 Opções na interface.** Na janela, **c** abre as opções: o modelo do cérebro (1 Haiku, 2 Sonnet, 3 Opus), o da
+  transcrição (automático ou um fixo, com o que esta máquina mediu de cada um), o microfone (n) e a saída de som (s).
+  A escolha fica guardada. Fora da conversa: botão direito do 🎤 → "Opções: modelos, microfone e som" (`voz --opcoes`).
+  `voz --saida "nome"` fixa a saída.
+
 ## v1.20.0 · 16/10/2026
 - **🎤 O tt escolhe sozinho o melhor jeito de ouvir e de transcrever, em cada máquina.**
   - **O microfone pelo tipo:** o headset (ou um microfone dedicado) antes do USB e do Bluetooth, depois a webcam, por

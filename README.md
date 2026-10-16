@@ -1852,14 +1852,22 @@ lugar; `voz --cerebro -` deixa só as regras; `voz --cerebro-modelo haiku|sonnet
 reais, o Sonnet acerta as ambíguas que o Haiku errava, por ~1 s a mais).
 
 Na janela: **Espaço** encerra a frase na hora (sem esperar o silêncio) ou pula a fala; **t** digita uma frase (no
-escritório, ou sem microfone); **n** passa ao microfone seguinte (e o tt lembra dele); **m** liga e desliga a voz;
-**Esc** fecha. Duas vezes sem ouvir nada, ou "encerrar", também fecham. O botão direito do 🎤 tem "Só digitando",
-"Testar o microfone e a voz" e "Instalar a voz neural".
+escritório, ou sem microfone); **n** passa ao microfone seguinte (e o tt lembra dele); **c** abre as opções; **m** liga
+e desliga a voz; **Esc** fecha. Duas vezes sem ouvir nada, ou "encerrar", também fecham. O botão direito do 🎤 tem "Só
+digitando", "Opções: modelos, microfone e som", "Testar o microfone e a voz" e "Instalar a voz neural".
+
+**As opções** (tecla **c**, ou `voz --opcoes`) escolhem o modelo do cérebro (1 Haiku, 2 Sonnet, 3 Opus), o da
+transcrição (a automático, ou b–f um fixo: tiny, base, small, medium, turbo, com o que esta máquina mediu de cada um), o
+microfone (n) e a saída de som (s). A escolha fica guardada em `~/.config/tt-voz` e vale também na máquina que transcreve.
 
 **O microfone** é escolhido pelo tipo: o headset (ou um microfone dedicado) antes do USB e do Bluetooth, depois a
 webcam, por último o embutido; os que não entregam áudio (o conector de fone vazio, um filtro sem sinal) ficam de fora.
 `voz --microfone "blackshark, headset"` fixa a preferência. No Windows (WSL), o tt grava direto do microfone escolhido
-(`voz-microfone.ps1`), sem mudar o padrão do Windows, que continua sendo o das chamadas.
+(`voz-windows.ps1`), sem mudar o padrão do Windows, que continua sendo o das chamadas.
+
+**A voz** sai no mesmo aparelho do microfone (o headset ouve e fala; o microfone embutido, o alto-falante embutido); sem
+par, a saída de melhor nota. No Windows a saída padrão costuma ser o alto-falante ou a P2 e o headset é só o de
+chamadas: o tt toca direto no aparelho escolhido. `voz --saida "nome"` fixa a saída.
 
 **A transcrição** é escolhida pela medida. Cada máquina com o Whisper mede, na instalação, cada jeito que tem (o
 modelo × a CPU ou a GPU NVIDIA) com frases de referência, em tempo e em erro. Ao abrir, a janela pergunta a todas as

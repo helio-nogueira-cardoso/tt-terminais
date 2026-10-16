@@ -149,8 +149,8 @@ class Mic:
         self.nome, self.cmd, self.nota, self.padrao, self.generico, self.partida = nome, cmd, nota, padrao, generico, partida
 
 
-def ps1_microfone():
-    p = os.environ.get("VOZ_MIC_PS1") or os.path.join(os.path.dirname(EU), "voz-microfone.ps1")
+def ps1_windows():
+    p = os.environ.get("VOZ_MIC_PS1") or os.path.join(os.path.dirname(EU), "voz-windows.ps1")
     return p if os.path.exists(p) else None
 
 
@@ -162,8 +162,8 @@ def caminho_windows(p):
 
 
 def mics_windows():
-    """No WSL: os microfones do Windows (voz-microfone.ps1), gravados direto, sem mudar o padrão (o das chamadas)."""
-    ps, ps1 = os.environ.get("VOZ_POWERSHELL") or powershell(), ps1_microfone()
+    """No WSL: os microfones do Windows (voz-windows.ps1), gravados direto, sem mudar o padrão (o das chamadas)."""
+    ps, ps1 = os.environ.get("VOZ_POWERSHELL") or powershell(), ps1_windows()
     if not ps or not ps1:
         return []
     base = [ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", caminho_windows(ps1)]
@@ -969,6 +969,9 @@ def avaliar(lugar, info, hist):
 
 
 def ssh_cmd(dest, comando, espera=3):
+    m = os.environ.get("VOZ_MODELO", "")
+    if re.match(r"^[a-z0-9.-]+$", m):  # o modelo escolhido aqui vale na máquina que transcreve
+        comando = "VOZ_MODELO=%s %s" % (m, comando)
     return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=%d" % espera, "-o", "ServerAliveInterval=10",
             "-o", "ControlPath=%s/.cache/tt-ssh-%%r@%%h" % CASA, dest,
             'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ' + comando]
@@ -1333,11 +1336,108 @@ def destino(rotulo):
 
 
 # ---------------------------------------------------------------- falar
-def tocador():
+# ---------------------------------------------------------------- saídas de som
+# A fala sai no mesmo aparelho do microfone escolhido (o headset ouve e fala); sem par, a saída de melhor nota (a de
+# comunicação do Windows conta como headset), e só por último a padrão. VOZ_SAIDA (voz --saida) e a escolhida com a
+# tecla s das opções vêm antes. No Windows, a padrão costuma ser o alto-falante ou a saída P2 (o headset é a de
+# comunicação): a voz do Windows e o WSLg tocam lá; por isso o tt toca direto no aparelho escolhido.
+MEMO_SAIDA = os.path.join(CACHE, "saida")
+
+
+TIPOS = (r"(microphone array|microphone|microfone|mic|headphones|headset|speakers?|alto-falantes?|fones? de ouvido|"
+         r"earphones?|auriculares|output|input|saída|entrada|array)")
+
+
+def nucleo(nome):
+    """O aparelho de um nome de entrada ou saída, sem o tipo: "Headphones (BlackShark V2 Pro PS 2.4)" →
+    "blackshark v2 pro ps 2.4"; "MacBook Pro Microphone" e "MacBook Pro Speakers" → "macbook pro"."""
+    n = re.sub(r" \((Windows|filtro|padrão.*)\)$", "", nome.strip())
+    m = re.match(r"^([^(]*)\((.+)\)$", n)
+    if m and re.fullmatch(TIPOS + r"( \d+)?", m.group(1).strip(), re.I):
+        n = m.group(2)
+    n = re.sub(r"\b" + TIPOS + r"\b", " ", n, flags=re.I)
+    return " ".join(n.lower().split())
+
+
+def escolher_saida(saidas, mic=""):
+    """saidas: [(id, nome, padrao, comunicacao)] → o índice na lista da saída a usar (None: nenhuma)."""
+    if not saidas:
+        return None
+    prefs = []
+    try:
+        with open(MEMO_SAIDA, encoding="utf-8") as f:
+            prefs.append(f.read().strip().lower())
+    except OSError:
+        pass
+    prefs += [x.strip().lower() for x in re.split(r"[,;]", os.environ.get("VOZ_SAIDA", "")) if x.strip()]
+    for p in [x for x in prefs if x]:
+        for i, s in enumerate(saidas):
+            if p in s[1].lower():
+                return i
+    alvo = nucleo(mic) if mic else ""
+    if len(alvo) >= 4:  # o mesmo aparelho (o nome de um começa pelo do outro: "comet lake pch-lp" e "comet lake")
+        for i, s in enumerate(saidas):
+            n = nucleo(s[1])
+            if len(n) >= 4 and (n == alvo or n.startswith(alvo) or alvo.startswith(n)):
+                return i
+
+    def nota(i):
+        s = saidas[i]
+        v = nota_microfone(s[1].replace("Speakers", "alto-falante embutido"))
+        v = -999 if v is None else v
+        return (v + (150 if s[3] else 0), s[2], -i)
+    return max(range(len(saidas)), key=nota)
+
+
+def saidas_pulse():
+    """[(nome, descrição, padrão, False)] das saídas do PulseAudio/PipeWire (sem as de porta "not available")."""
+    if not shutil.which("pactl"):
+        return []
+    env = dict(os.environ, LC_ALL="C")
+    try:
+        txt = subprocess.run(["pactl", "list", "sinks"], capture_output=True, text=True, timeout=5, env=env).stdout
+        padrao = subprocess.run(["pactl", "get-default-sink"], capture_output=True, text=True, timeout=5,
+                                env=env).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    out = []
+    for bloco in re.split(r"\n(?=Sink #)", txt):
+        nome = re.search(r"^\s*Name: (.+)$", bloco, re.M)
+        desc = re.search(r"^\s*Description: (.+)$", bloco, re.M)
+        if not nome or nome.group(1).strip() == "auto_null":
+            continue
+        porta = re.search(r"^\s*Active Port: (.+)$", bloco, re.M)
+        if porta:
+            linha = next((l for l in bloco.splitlines() if l.strip().startswith(porta.group(1).strip() + ":")), "")
+            if re.search(r"not available\)\s*$", linha):
+                continue
+        out.append((nome.group(1).strip(), (desc.group(1) if desc else nome.group(1)).strip(), nome.group(1) == padrao, False))
+    return out
+
+
+def saidas_say():
+    """macOS: [(id, nome, False, False)] dos aparelhos do `say -a ?`."""
+    try:
+        txt = subprocess.run(["say", "-a", "?"], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    out = []
+    for l in txt.splitlines():
+        m = re.match(r"^\s*(\d+)\s+(.+)$", l)
+        if m:
+            out.append((m.group(1), m.group(2).strip(), False, False))
+    return out
+
+
+def tocador(saida=None):
     w = shutil.which
     if eh_mac() and w("afplay"):
         return ["afplay"]
     ambiente_audio()
+    if saida and w("paplay"):
+        return ["paplay", "--device=" + saida]
+    if saida and w("pw-play"):
+        return ["pw-play", "--target", saida]
     for c in (["paplay"], ["pw-play"], ["aplay", "-q"], ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"]):
         if w(c[0]):
             return c
@@ -1357,26 +1457,140 @@ def voz_say():
     return nomes[0] if nomes else None
 
 
-PS_FALAR = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-            "$v = $s.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -eq 'pt-BR' } | "
-            "Select-Object -First 1; if ($v) { $s.SelectVoice($v.VoiceInfo.Name) }; $s.Rate = 1; "
-            "$s.Speak([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s')))")
+class FalaWindows:
+    """A voz do Windows num processo só (voz-windows.ps1 falar): ele lista as saídas, recebe "D n" (a saída), "F
+    base64" (fala) e "P" (para) e responde "fim" a cada fala; abre uma vez (~1,5 s) e toca no aparelho escolhido."""
+
+    def __init__(self, mic=""):
+        ps, ps1 = os.environ.get("VOZ_POWERSHELL") or powershell(), ps1_windows()
+        if not ps or not ps1:
+            raise RuntimeError("sem o PowerShell do Windows")
+        self.p = subprocess.Popen([ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+                                   caminho_windows(ps1), "falar"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL)
+        self.trava = threading.Lock()
+        self.saidas = []
+        fim = time.time() + 30
+        while time.time() < fim:
+            l = self._linha(fim - time.time())
+            if l is None or l == "--":
+                break
+            partes = l.split("\t")
+            if len(partes) >= 3 and partes[0].isdigit():
+                nome = partes[3] if len(partes) > 3 and partes[3] else partes[2]
+                self.saidas.append((partes[0], nome, "padrao" in partes[1], "comunicacao" in partes[1]))
+        if self.p.poll() is not None:
+            raise RuntimeError("a voz do Windows não abriu")
+        self.atual = None
+        i = escolher_saida(self.saidas, mic)
+        self.usar(i)
+
+    def _linha(self, espera):
+        fd, buf, fim = self.p.stdout.fileno(), b"", time.time() + max(0.1, espera)
+        while not buf.endswith(b"\n"):
+            resta = fim - time.time()
+            if resta <= 0:
+                return None
+            r, _, _ = select.select([fd], [], [], min(resta, 0.3))
+            if r:
+                b = os.read(fd, 1)
+                if not b:
+                    return None
+                buf += b
+        return buf.decode("utf-8", "replace").rstrip("\r\n")
+
+    def usar(self, i):
+        self.atual = i
+        self._mandar("D %s" % (self.saidas[i][0] if i is not None else "-1"))
+
+    @property
+    def nome(self):
+        return self.saidas[self.atual][1] if self.atual is not None else "a saída padrão do Windows"
+
+    def _mandar(self, l):
+        with self.trava:
+            self.p.stdin.write((l + "\n").encode())
+            self.p.stdin.flush()
+
+    def falar(self, texto):
+        self._mandar("F " + base64.b64encode(texto.encode("utf-8")).decode())
+        while True:
+            l = self._linha(120)
+            if l is None or l == "fim" or l.startswith("erro"):
+                return l == "fim"
+
+    def parar(self):
+        try:
+            self._mandar("P")
+        except (OSError, ValueError):
+            pass
+
+    def fechar(self):
+        try:
+            self.p.stdin.close()
+        except OSError:
+            pass
+        parar_processo(self.p)
 
 
 class Falador:
-    """Diz o texto com o melhor motor daqui; `parar()` corta a fala no meio."""
+    """Diz o texto com o melhor motor daqui, no aparelho do microfone (`mic`); `parar()` corta a fala no meio."""
 
-    def __init__(self, motor_canal=None):
+    def __init__(self, motor_canal=None, mic=""):
         self.proc = None
         self.motor = motor_canal
+        self.mic = mic
+        self.win = None
+        self.saidas, self.saida = [], None  # Linux (pactl) e macOS (say -a): a lista e o índice escolhido
         self.trava = threading.Lock()
         self.qual, self.det = self._escolher()
+        if self.qual in ("piper", "say"):
+            self.saidas = saidas_say() if self.qual == "say" else (saidas_pulse() if not eh_wsl() else [])
+            self.saida = escolher_saida(self.saidas, mic)
+
+    @property
+    def onde(self):
+        if self.win:
+            return self.win.nome
+        if self.saida is not None and self.saidas:
+            return self.saidas[self.saida][1]
+        return "a saída padrão"
+
+    def proxima_saida(self):
+        """A saída seguinte (a tecla s das opções); lembra a escolha. O nome, ou None."""
+        lista = self.win.saidas if self.win else self.saidas
+        if not lista:
+            return None
+        atual = self.win.atual if self.win else self.saida
+        i = 0 if atual is None else (atual + 1) % len(lista)
+        if self.win:
+            self.win.usar(i)
+        else:
+            self.saida = i
+        try:
+            os.makedirs(CACHE, exist_ok=True)
+            with open(MEMO_SAIDA, "w", encoding="utf-8") as f:
+                f.write(lista[i][1].lower() + "\n")
+        except OSError:
+            pass
+        return lista[i][1]
 
     def aquecer(self):
-        """Carrega a voz do Piper em segundo plano (a primeira fala sai sem esperar o modelo)."""
+        """Carrega a voz em segundo plano (o Piper, ou o processo da voz do Windows): a primeira fala não espera."""
         if self.qual == "piper":
             threading.Thread(target=lambda: self._piper_canal().pedir({"op": "carregar", "tts": True}, tempo=120),
                              daemon=True).start()
+        elif self.qual == "windows":
+            threading.Thread(target=self._abrir_win, daemon=True).start()
+
+    def _abrir_win(self):
+        with self.trava:
+            if self.win is None or self.win.p.poll() is not None:
+                try:
+                    self.win = FalaWindows(self.mic)
+                except (OSError, RuntimeError, ValueError):
+                    self.win = None
+            return self.win
 
     def _escolher(self):
         pedido = os.environ.get("VOZ_FALA", "auto") or "auto"
@@ -1392,12 +1606,12 @@ class Falador:
             if q == "piper" and os.path.exists(arquivo_voz_piper()) and tocador():
                 py = python_com("piper")
                 if py:
-                    return q, "Piper %s (%s)" % (VOZ_PIPER, py)
+                    return q, "Piper %s" % VOZ_PIPER
             if q == "say" and eh_mac() and w("say"):
                 v = voz_say()
                 return q, "say %s" % (v or "(voz padrão)")
-            if q == "windows" and eh_wsl() and powershell():
-                return q, "voz do Windows (pt-BR, se instalada)"
+            if q == "windows" and eh_wsl() and (os.environ.get("VOZ_POWERSHELL") or powershell()) and ps1_windows():
+                return q, "a voz do Windows"
             if q == "spd" and w("spd-say"):
                 return q, "spd-say pt-BR"
             if q == "espeak" and (w("espeak-ng") or w("espeak")):
@@ -1414,19 +1628,16 @@ class Falador:
         """O processo que diz o texto (ou None: já foi dito, ou não há voz)."""
         q = self.qual
         w = shutil.which
+        alvo = self.saidas[self.saida][0] if self.saida is not None and self.saidas else None
         if q == "cmd":
             return subprocess.Popen(["sh", "-c", os.environ["VOZ_TTS_CMD"]], stdin=subprocess.PIPE), texto
         if q == "piper":
             saida = os.path.join(tempfile.gettempdir(), "tt-voz-fala-%d.wav" % os.getpid())
             self._piper_canal().pedir({"op": "tts", "texto": texto, "saida": saida}, tempo=60)
-            return subprocess.Popen(tocador() + [saida], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), None
+            return subprocess.Popen(tocador(alvo) + [saida], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), None
         if q == "say":
             v = voz_say()
-            return subprocess.Popen(["say"] + (["-v", v] if v else []) + [texto]), None
-        if q == "windows":
-            b64 = base64.b64encode(texto.encode("utf-8")).decode()
-            return subprocess.Popen([powershell(), "-NoProfile", "-NonInteractive", "-Command", PS_FALAR % b64],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), None
+            return subprocess.Popen(["say"] + (["-v", v] if v else []) + (["-a", alvo] if alvo else []) + [texto]), None
         if q == "spd":
             return subprocess.Popen(["spd-say", "-w", "-l", "pt-BR", "-r", "15", texto],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), None
@@ -1438,6 +1649,14 @@ class Falador:
         return None, None
 
     def falar(self, texto):
+        if self.qual == "windows":
+            win = self._abrir_win()
+            if win is None:
+                return False
+            try:
+                return win.falar(texto)
+            except (OSError, ValueError):
+                return False
         try:
             p, entrada = self.comando(texto)
         except (OSError, RuntimeError, ValueError):
@@ -1456,11 +1675,19 @@ class Falador:
         return True
 
     def parar(self):
+        if self.win:
+            self.win.parar()
         p = self.proc
         if p is not None:
             parar_processo(p)
             if self.qual == "spd" and shutil.which("spd-say"):
                 subprocess.run(["spd-say", "-C"], capture_output=True)
+
+    def fechar(self):
+        if self.win:
+            self.win.fechar()
+        if self.motor:
+            self.motor.fechar()
 
 
 # ---------------------------------------------------------------- a janela da conversa
@@ -1552,6 +1779,104 @@ class Teclado:
             return self.fila.get(timeout=espera) if espera else self.fila.get_nowait()
         except queue.Empty:
             return None
+
+
+# ---------------------------------------------------------------- opções (tecla c da janela e voz --opcoes)
+CF_VOZ = os.path.join(CASA, ".config", "tt-voz")
+CEREBROS = [("1", "haiku", "Haiku", "o mais rápido; erra mais nas frases ambíguas"),
+            ("2", "sonnet", "Sonnet", "entende melhor o ambíguo, ~1 s a mais (o padrão)"),
+            ("3", "opus", "Opus", "o mais capaz; mais lento e gasta mais cota")]
+MODELOS_STT = [("a", "", "automático", "o de menor custo em cada máquina (o padrão)"),
+               ("b", "tiny", "tiny", ""), ("c", "base", "base", ""), ("d", "small", "small", ""),
+               ("e", "medium", "medium", ""), ("f", "large-v3-turbo", "turbo", "")]
+
+
+def conf(nome):
+    try:
+        with open(os.path.join(CF_VOZ, nome), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def gravar_conf(nome, valor):
+    arq = os.path.join(CF_VOZ, nome)
+    try:
+        if valor:
+            os.makedirs(CF_VOZ, exist_ok=True)
+            with open(arq, "w", encoding="utf-8") as f:
+                f.write(valor + "\n")
+        elif os.path.exists(arq):
+            os.remove(arq)
+    except OSError:
+        pass
+
+
+def cerebro_atual():
+    return os.environ.get("VOZ_CEREBRO_MODELO") or conf("cerebro-modelo") or "sonnet"
+
+
+def medidas_texto():
+    """As medições desta máquina, numa linha ("small GPU 0,9 s 18% · base CPU 0,8 s 15%")."""
+    med = ler_json(MEDICOES) or {}
+    rs = sorted(med.get("resultados", []), key=custo)
+    return " · ".join(("%s %s %.1f s %d%%" % (r["modelo"].replace("large-v3-", ""), "CPU" if r["dispositivo"] == "cpu" else "GPU",
+                                              r["tempo"], round(r["erro"] * 100))).replace(".", ",") for r in rs)
+
+
+def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
+    """O painel: 1-3 o cérebro, a-f o modelo da transcrição, n o microfone, s a saída de som; Enter ou Esc volta.
+    Grava a escolha em ~/.config/tt-voz (como voz --cerebro-modelo e voz --modelo). Devolve True se a transcrição mudou."""
+    cer, mod = cerebro_atual(), os.environ.get("VOZ_MODELO", "")
+    tela.linha("nota", "── opções do 🎤 (ficam guardadas) ──")
+    tela.linha("nota", "cérebro, que entende a frase:  " + "   ".join(
+        "%s %s%s" % (k, rot, " ✓" if m == cer else "") for k, m, rot, _ in CEREBROS))
+    tela.linha("nota", "transcrição, da voz ao texto:  " + "   ".join(
+        "%s %s%s" % (k, rot, " ✓" if m == mod else "") for k, m, rot, _ in MODELOS_STT))
+    med = medidas_texto()
+    if med:
+        tela.linha("nota", "   medido nesta máquina: " + med)
+    if transcritor is not None and transcritor.desc:
+        tela.linha("nota", "   agora: " + transcritor.desc)
+    if gravador is not None and gravador.nome:
+        tela.linha("nota", "microfone: %s   (n: o seguinte)" % gravador.nome)
+    if falador is not None and falador.qual not in ("nenhum", "cmd"):
+        tela.linha("nota", "saída de som: %s   (s: a seguinte)" % falador.onde)
+    mudou = False
+    while True:
+        tela.status("opções: 1-3 cérebro · a-f transcrição · n microfone · s saída · Enter ou Esc volta")
+        k = teclado.tecla(0.3)
+        if k is None:
+            continue
+        if k in ("esc", "\r", "\n", "q", "c"):
+            return mudou
+        esc = next((x for x in CEREBROS if x[0] == k), None)
+        if esc:
+            gravar_conf("cerebro-modelo", "" if esc[1] == "sonnet" else esc[1])
+            os.environ.pop("VOZ_CEREBRO_MODELO", None)
+            tela.linha("nota", "✓ cérebro: %s (%s)" % (esc[2], esc[3]))
+            continue
+        esc = next((x for x in MODELOS_STT if x[0] == k), None)
+        if esc:
+            gravar_conf("modelo", esc[1])
+            if esc[1]:
+                os.environ["VOZ_MODELO"] = esc[1]
+            else:
+                os.environ.pop("VOZ_MODELO", None)
+            baixado = not esc[1] or esc[1] in modelos_em_cache()
+            tela.linha("nota", "✓ transcrição: %s%s" % (esc[2], "" if baixado else
+                                                        " (não está baixado aqui: a 1ª vez baixa %d MB)" % PERFIL[esc[1]][1]))
+            mudou = mudou or esc[1] != mod
+            continue
+        if k == "n" and gravador is not None:
+            tela.status("… abrindo o próximo microfone")
+            novo = gravador.proximo()
+            tela.linha("nota", "✓ microfone: %s" % novo if novo else "não há outro microfone que funcione")
+            if novo and falador is not None:
+                falador.mic = novo
+        elif k == "s" and falador is not None:
+            novo = falador.proxima_saida()
+            tela.linha("nota", "✓ saída de som: %s" % novo if novo else "não há outra saída de som")
 
 
 class Conversa:
@@ -1680,9 +2005,15 @@ class Conversa:
         t.start()
         while t.is_alive():
             barra = "".join(NIVEL[max(0, min(7, int((estado["n"] * 6 - i) * 8)))] for i in range(6))
-            self.tela.status("%s %s  Espaço: terminei · t: digitar · n: outro microfone · m: %s · Esc: sair"
+            self.tela.status("%s %s  Espaço: terminei · t: digitar · c: opções · m: %s · Esc: sair"
                              % ("● ouvindo" if estado["f"] else "○ fale", barra, "som" if self.mudo else "mudo"))
             k = teclado.tecla(0.1)
+            if k == "c":
+                self.parar_gravacao.set()
+                t.join()
+                if painel_opcoes(self.tela, teclado, self.gravador, self.falador, self.transcritor):
+                    self.recarregar_transcricao()
+                return "\0n"
             if k == "n":
                 self.parar_gravacao.set()
                 t.join()
@@ -1716,6 +2047,15 @@ class Conversa:
         txt = " ".join(txt.split())
         return "" if ALUCINACOES.match(txt.strip(" .!?,")) else txt
 
+    def recarregar_transcricao(self):
+        self.tela.status("… carregando a transcrição")
+        self.transcritor.fechar()
+        self.transcritor = Transcritor(avisar=self._aviso_transcritor)
+        if self.transcritor.preparar():
+            self.tela.linha("nota", "transcrever: " + self.transcritor.desc)
+        else:
+            self.tela.linha("erro", "sem reconhecimento: %s" % self.transcritor.motivo)
+
     def atualizar_dica(self):
         try:
             self.dica = subprocess.run(["bash", self.voz, "--dica"], capture_output=True, text=True,
@@ -1731,11 +2071,11 @@ class Conversa:
         if som and not self.gravador.escolher():
             self.tela.linha("nota", "Sem microfone: %s. Digite (t)." % self.gravador.motivo)
             som = False
-        self.falador = Falador()
+        self.falador = Falador(mic=self.gravador.nome if som else "")
         self.falador.aquecer()
         partes = []
         if som:
-            partes.append("ouvir: %s%s" % (self.gravador.nome, " (n: outro)" if len(self.gravador.cands) > 1 else ""))
+            partes.append("ouvir: %s" % self.gravador.nome)
         with Teclado() as teclado:
             if som:
                 if self.transcritor.preparar():
@@ -1744,8 +2084,11 @@ class Conversa:
                     self.tela.linha("nota", "Sem reconhecimento de voz: %s. Digite (t), ou rode voz --instalar-audio."
                                     % self.transcritor.motivo)
                     som = False
-            partes.append("falar: " + self.falador.det)
-            self.tela.linha("nota", " · ".join(partes))
+            if self.falador.qual == "windows":
+                self.falador._abrir_win()  # já vinha abrindo junto com a transcrição: aqui sabe-se onde toca
+            partes.append("falar: %s%s" % (self.falador.det, "" if self.falador.qual in ("nenhum", "cmd", "spd", "espeak", "termux")
+                                           else " em " + self.falador.onde))
+            self.tela.linha("nota", " · ".join(partes) + "   (c: opções)")
             self.atualizar_dica()
             fim = self.turno("terminal", teclado)
             while not self.sair and not fim:
@@ -1753,7 +2096,7 @@ class Conversa:
                     frase = self.ouvir(teclado)
                     if frase is None:
                         break
-                    if frase == "\0n":  # n: trocou o microfone; volta a ouvir
+                    if frase == "\0n":  # trocou o microfone ou as opções: volta a ouvir
                         continue
                     if frase == "\0t":  # t: digitar esta vez (Esc volta a ouvir)
                         frase = self.digitar(teclado)
@@ -1777,8 +2120,8 @@ class Conversa:
                 time.sleep(0.6)
         self.transcritor.fechar()
         self.gravador.fechar()
-        if self.falador and self.falador.motor:
-            self.falador.motor.fechar()
+        if self.falador:
+            self.falador.fechar()
         medir_depois()
         return 0
 
@@ -1879,8 +2222,11 @@ def diagnostico(provar=True):
             linhas.append("    %s  (custo %.2f, erro %.0f%%, %s)" % (descrever(lugar, e, tempo), custo_, e.get("erro", 0) * 100, fonte))
         for er in erros:
             linhas.append("    ✗ " + er)
-    f = Falador()
-    linhas.append("falar: %s" % f.det)
+    f = Falador(mic=g.nome or "")
+    if f.qual == "windows":
+        f._abrir_win()
+    linhas.append("falar: %s%s" % (f.det, "" if f.qual in ("nenhum", "cmd", "spd", "espeak", "termux") else " em " + f.onde))
+    f.fechar()
     print("\n".join(linhas))
     return 0
 
@@ -1914,9 +2260,11 @@ def teste():
     txt = t.texto(pcm)
     t.fechar()
     print("ouvi: %s" % (txt or "(nada)"))
-    f = Falador()
+    f = Falador(mic=g.nome or "")
     if txt and f.qual != "nenhum":
+        print("falando em: %s" % f.onde if f.qual not in ("spd", "espeak", "termux", "cmd") else "falando")
         f.falar("Ouvi: " + txt)
+    f.fechar()
     return 0
 
 
@@ -1972,6 +2320,19 @@ def main(a):
         return teste()
     if cmd == "servidor":
         return servidor()
+    if cmd == "opcoes":
+        tela = Tela()
+        g = Gravador()
+        tela.status("… abrindo o microfone e a voz")
+        tem_mic = g.escolher()
+        f = Falador(mic=g.nome if tem_mic else "")
+        if f.qual == "windows":
+            f._abrir_win()
+        with Teclado() as teclado:
+            painel_opcoes(tela, teclado, g if tem_mic else None, f)
+        g.fechar()
+        f.fechar()
+        return 0
     if cmd == "capacidade":
         print(json.dumps(capacidade(), ensure_ascii=False))
         return 0
