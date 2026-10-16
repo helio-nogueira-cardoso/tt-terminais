@@ -1871,7 +1871,7 @@ verdade da outra máquina.
 
 **As opções** (tecla **c**, ou `voz --opcoes`) escolhem o modelo do cérebro (1 Haiku, 2 Sonnet, 3 Opus), o da
 transcrição (a automático, ou b–f um fixo: tiny, base, small, medium, turbo, com o que esta máquina mediu de cada um), o
-microfone (n), a saída de som (s) e a voz (v, com um exemplo). A escolha fica guardada em `~/.config/tt-voz` e vale também na máquina que transcreve.
+microfone (n), a saída de som (s) e a voz (v, com um exemplo). **l** abre a escolha da máquina de transcrição: digite o número e Enter (0 volta ao automático; Esc cancela). Ao voltar à conversa, o motor é trocado; se a máquina não responder, o anterior continua e a janela avisa. A escolha fica guardada em `~/.config/tt-voz` e vale também na máquina que transcreve.
 
 **O microfone** é escolhido pelo tipo: o headset (ou um microfone dedicado) antes do USB e do Bluetooth, depois a
 webcam, por último o embutido; os que não entregam áudio (o conector de fone vazio, um filtro sem sinal) ficam de fora.

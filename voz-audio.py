@@ -1327,6 +1327,7 @@ class Transcritor:
         self.ranking = []
         self.proximo = None  # (canal, lugar, escolha, info) já carregado, esperando a troca
         self.trocando = False
+        self.fechado = False
         self.trava = threading.Lock()
         self.avisar = avisar or (lambda t: None)
 
@@ -1396,7 +1397,10 @@ class Transcritor:
             try:
                 c, e = self._abrir(alt[0], alt[2])
                 with self.trava:
-                    self.proximo = (c, alt[0], e, alt[2])
+                    if self.fechado:
+                        c.fechar()
+                    else:
+                        self.proximo = (c, alt[0], e, alt[2])
             except (OSError, RuntimeError, ValueError):
                 pass
             finally:
@@ -1433,9 +1437,12 @@ class Transcritor:
         return txt
 
     def fechar(self):
-        for c in (self.canal, (self.proximo or (None,))[0]):
-            if c:
-                c.fechar()
+        with self.trava:
+            self.fechado = True
+            for c in (self.canal, (self.proximo or (None,))[0]):
+                if c:
+                    c.fechar()
+            self.canal, self.proximo = None, None
 
 
 def destino(rotulo):
@@ -2048,6 +2055,39 @@ def medidas_texto():
                                               r["tempo"], round(r["erro"] * 100))).replace(".", ",") for r in rs)
 
 
+def escolher_maquina(tela, teclado):
+    """Submenu numérico: automático ou uma máquina fixa; Esc preserva a escolha."""
+    maquinas = list(dict.fromkeys(["local"] + os.environ.get("VOZ_MAQUINAS", "").split()
+                                 + os.environ.get("VOZ_TRANSCREVER", "").split()))
+    tela.linha("nota", "máquina de transcrição: 0 automática")
+    for i, lugar in enumerate(maquinas, 1):
+        tela.linha("nota", "%d %s" % (i, "esta máquina (local)" if lugar == "local" else lugar))
+    numero = ""
+    while True:
+        tela.status("máquina: %s · número e Enter escolhe · Esc cancela" % numero)
+        k = teclado.tecla(0.3)
+        if k in ("esc", "q"):
+            return False
+        if k in ("\r", "\n"):
+            if not numero or int(numero) > len(maquinas):
+                tela.linha("erro", "Escolha um número da lista.")
+                numero = ""
+                continue
+            lugar = maquinas[int(numero) - 1] if int(numero) else ""
+            gravar_conf("transcrever", lugar)
+            os.environ["VOZ_TRANSCREVER"] = lugar or " ".join(maquinas)
+            # Uma escolha explícita deve tentar novamente mesmo após uma falha recente de rede.
+            sondas = ler_json(SONDAS, {}) or {}
+            sondas.pop(lugar, None)
+            gravar_json(SONDAS, sondas)
+            tela.linha("nota", "✓ máquina de transcrição: %s (aplicada ao voltar à conversa)" % (lugar or "automática"))
+            return True
+        if k in ("\x7f", "\b", "backspace"):
+            numero = numero[:-1]
+        elif k and k.isascii() and k.isdigit() and len(numero) < 4:
+            numero += k
+
+
 def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
     """O painel: 1-3 o cérebro, a-f o modelo da transcrição, n o microfone, s a saída de som; Enter ou Esc volta.
     Grava a escolha em ~/.config/tt-voz (como voz --cerebro-modelo e voz --modelo). Devolve True se a transcrição mudou."""
@@ -2057,6 +2097,7 @@ def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
         "%s %s%s" % (k, rot, " ✓" if m == cer else "") for k, m, rot, _ in CEREBROS))
     tela.linha("nota", "transcrição, da voz ao texto:  " + "   ".join(
         "%s %s%s" % (k, rot, " ✓" if m == mod else "") for k, m, rot, _ in MODELOS_STT))
+    tela.linha("nota", "máquina de transcrição: %s   (l: escolher máquina ou automática)" % (conf("transcrever") or "automática"))
     med = medidas_texto()
     if med:
         tela.linha("nota", "   medido nesta máquina: " + med)
@@ -2071,12 +2112,15 @@ def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
             rotulo_voz(falador.voz), ", ".join(rotulo_voz(v) for v in falador.vozes())))
     mudou = False
     while True:
-        tela.status("opções: 1-3 cérebro · a-f transcrição · n microfone · s saída · v voz · Enter ou Esc volta")
+        tela.status("opções: 1-3 cérebro · a-f modelo · l máquina · n microfone · s saída · v voz · Enter volta")
         k = teclado.tecla(0.3)
         if k is None:
             continue
         if k in ("esc", "\r", "\n", "q", "c"):
             return mudou
+        if k == "l":
+            mudou = escolher_maquina(tela, teclado) or mudou
+            continue
         esc = next((x for x in CEREBROS if x[0] == k), None)
         if esc:
             gravar_conf("cerebro-modelo", "" if esc[1] == "sonnet" else esc[1])
@@ -2307,12 +2351,15 @@ class Conversa:
 
     def recarregar_transcricao(self):
         self.tela.status("… carregando a transcrição")
-        self.transcritor.fechar()
-        self.transcritor = Transcritor(avisar=self._aviso_transcritor)
-        if self.transcritor.preparar():
+        novo = Transcritor(avisar=self._aviso_transcritor)
+        if novo.preparar():
+            antigo, self.transcritor = self.transcritor, novo
+            antigo.fechar()
             self.tela.linha("nota", "transcrever: " + self.transcritor.desc)
         else:
-            self.tela.linha("erro", "sem reconhecimento: %s" % self.transcritor.motivo)
+            novo.fechar()
+            self.tela.linha("erro", "não consegui trocar: %s. Continua em %s; l nas opções permite escolher outra máquina."
+                            % (novo.motivo, self.transcritor.desc or "sem reconhecimento"))
 
     def _conferir_pendente(self):
         try:

@@ -865,12 +865,16 @@ dica() { # palavras que ajudam o reconhecimento: máquinas, sessões da última 
   [[ -n $(alvo_s) ]] && printf ', %s' "$(falavel "$(alvo_s)")"
   echo
 }
+transcrever_maquinas() {
+  { echo local; tt --maquinas 2>/dev/null | awk '{print $2}'; } | awk 'NF && !visto[$0]++' | tr '\n' ' '
+}
 transcrever_lugares() { # candidatas: esta e todas as máquinas do tt (a janela mede e fica com a de menor custo)
   [[ -s $CF/transcrever ]] && { cat "$CF/transcrever"; return; }
-  { echo local; tt --maquinas 2>/dev/null | awk '{print $2}'; } | awk 'NF && !visto[$0]++' | tr '\n' ' '
+  transcrever_maquinas
 }
 audio_env() { # a configuração do áudio para o voz-audio.py
   export VOZ="$AQUI/voz" VOZ_TRANSCREVER="${VOZ_TRANSCREVER:-$(transcrever_lugares)}"
+  export VOZ_MAQUINAS="$(transcrever_maquinas)"
   [[ -z ${VOZ_FALA:-} && -s $CF/fala ]] && export VOZ_FALA=$(<"$CF/fala")
   [[ -z ${VOZ_MODELO:-} && -s $CF/modelo ]] && export VOZ_MODELO=$(<"$CF/modelo")
   [[ -z ${VOZ_MICROFONE:-} && -s $CF/microfone ]] && export VOZ_MICROFONE=$(<"$CF/microfone")

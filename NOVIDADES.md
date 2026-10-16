@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.24.0 · 16/10/2026
+- **🎤 Você escolhe onde transcrever.** Nas opções (`c`), aperte `l`: escolha esta máquina, uma das outras cadastradas ou automática. Digite o número e Enter; Esc cancela. A escolha fica guardada e o motor troca ao voltar à conversa, sem fechar o 🎤. Se a máquina escolhida falhar, o motor anterior continua funcionando e a janela explica o problema.
+- A escolha também está em `voz --opcoes`. Pela linha de comando: `voz --transcrever local`, `voz --transcrever NOME` ou `voz --transcrever auto`.
+
 ## v1.23.1 · 16/10/2026
 - **🍎 Instalação e testes no macOS, sem tropeço.** O `instalar.sh` instalava o bash atual do Homebrew mas deixava o
   bash 3.2 do sistema na frente do PATH, e o `./tt --instalar` quebrava na sintaxe; agora o bash que roda o instalador

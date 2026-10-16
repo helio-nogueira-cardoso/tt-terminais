@@ -413,6 +413,46 @@ print(m.ssh_cmd('u@h1', 'voz --motor-info')[-1].split('; ')[-1])")
 [[ $r == 'VOZ_MODELO=tiny voz --motor-info' ]] || falhou "o modelo escolhido aqui não vai à máquina que transcreve: '$r'"
 passou 'escolher: pergunta a todas, a de menor custo primeiro; a desligada fica de fora por 10 min, a sem motor não'
 
+# Máquina fixa: o submenu deixa escolher inclusive a mais lenta, voltar ao automático e cancelar.
+r=$(VOZ="$V" VOZ_MAQUINAS="local dell book velha desligada" VOZ_TRANSCREVER="local dell book" python3 - "$A" <<EOF
+$CARREGA
+import os
+class Tela:
+    def linha(self, *args): pass
+    def status(self, *args): pass
+class Teclas:
+    def __init__(self, ks): self.ks = iter(ks)
+    def tecla(self, *args): return next(self.ks)
+assert m.escolher_maquina(Tela(), Teclas(['3', '\\r']))
+assert m.conf('transcrever') == 'book'
+t = m.Transcritor(); assert t.preparar() and t.onde == 'book'
+assert len(t.ranking) == 1 and t._alternativa() is None
+assert t.texto(b'\\0\\0' * 8000) == 'frase do u@h2'
+t.fechar()
+assert not m.escolher_maquina(Tela(), Teclas(['2', 'esc']))
+assert m.conf('transcrever') == 'book'
+assert m.escolher_maquina(Tela(), Teclas(['9', '\\r', '0', '\\r']))
+assert not m.conf('transcrever') and 'dell' in m.Transcritor().lugares()
+assert m.escolher_maquina(Tela(), Teclas(['2', '\\r']))
+t = m.Transcritor(); assert t.preparar() and t.onde == 'dell'
+# A troca durante uma conversa não destrói o motor atual se a máquina escolhida falhar.
+c = m.Conversa(digitar=True); c.tela = Tela(); c.transcritor = t
+assert m.escolher_maquina(Tela(), Teclas(['5', '\\r']))
+c.recarregar_transcricao()
+assert c.transcritor is t and t.texto(b'\\0\\0' * 8000) == 'frase do u@h1'
+assert m.escolher_maquina(Tela(), Teclas(['3', '\\r']))
+c.recarregar_transcricao()
+assert c.transcritor.onde == 'book' and t.fechado
+assert c.transcritor.texto(b'\\0\\0' * 8000) == 'frase do u@h2'
+c.transcritor.fechar()
+m.escolher_maquina(Tela(), Teclas(['0', '\\r']))
+print('ok')
+EOF
+)
+[[ $r == ok ]] || falhou "seleção manual de máquina: '$r'"
+rm -f "$HOME/.cache/tt-voz/desempenho.json"
+passou 'máquina: fixa a escolhida, cancela, volta ao automático, troca na conversa e preserva o motor se falhar'
+
 # a janela transcreve no escolhido (o motor de lá, pelo ssh), mede, e troca quando ele fica lento
 r=$(VOZ="$V" VOZ_TRANSCREVER="dell book" python3 - "$A" <<EOF
 $CARREGA
@@ -585,6 +625,11 @@ espera_tela_op() { local i; for i in $(seq 80); do tmux capture-pane -p -J -t '=
 espera_tela_op 'Sonnet' || falhou "voz --opcoes: $(tmux capture-pane -p -J -t '=opcoes:')"
 tmux send-keys -t '=opcoes:' 2; espera_tela_op '✓ cérebro: Sonnet' || falhou 'voz --opcoes: 2'
 tmux send-keys -t '=opcoes:' a; espera_tela_op '✓ transcrição: automático' || falhou 'voz --opcoes: a'
+tmux send-keys -t '=opcoes:' l; espera_tela_op '0 automática' || falhou 'voz --opcoes: lista de máquinas'
+tmux send-keys -t '=opcoes:' 2 Enter; espera_tela_op '✓ máquina de transcrição: dell' || falhou 'voz --opcoes: escolher máquina'
+[[ $(cat "$HOME/.config/tt-voz/transcrever") == dell ]] || falhou 'máquina escolhida não ficou guardada'
+tmux send-keys -t '=opcoes:' l 0 Enter; espera_tela_op '✓ máquina de transcrição: automática' || falhou 'voz --opcoes: automático'
+[[ ! -e $HOME/.config/tt-voz/transcrever ]] || falhou 'automático não apagou preferência de máquina'
 tmux send-keys -t '=opcoes:' Escape
 for i in $(seq 30); do [[ -s $J/saiu-op ]] && break; sleep 0.2; done
 [[ ! -e $HOME/.config/tt-voz/cerebro-modelo && ! -e $HOME/.config/tt-voz/modelo ]] || falhou 'voz --opcoes: Sonnet e automático deveriam apagar a escolha'

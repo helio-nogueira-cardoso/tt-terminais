@@ -329,7 +329,7 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   --device=`. macOS: `say -a ID` (`say -a ?`).
 - Opções (`painel_opcoes`: tecla c da janela; `voz --opcoes` = `voz-audio.py opcoes`): 1–3 cérebro (grava
   `cerebro-modelo`; Sonnet = sem arquivo), a–f transcrição (grava `modelo`; automático = sem arquivo; recarrega o
-  `Transcritor`), n microfone, s saída, v voz (grava `voz`; Piper Faber = sem arquivo; fala um exemplo). `ssh_cmd` leva
+  `Transcritor`), l máquina de transcrição (número + Enter; 0 automática, Esc cancela; grava `transcrever`; troca ao voltar à conversa, falha mantém o motor anterior com aviso), n microfone, s saída, v voz (grava `voz`; Piper Faber = sem arquivo; fala um exemplo). `ssh_cmd` leva
   `VOZ_MODELO=` à máquina que transcreve.
 - Vozes neurais (`VOZES_NEURAIS`; `VOZ_VOZ` = `voz --voz`): `piper:NOME` (Piper, offline; `~/.local/share/tt-voz/piper`)
   e `edge:NOME` (as da Microsoft pelo `edge-tts`, online; MP3 → WAV pelo PyAV, `mp3_para_wav`). O motor responde
