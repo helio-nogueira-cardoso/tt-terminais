@@ -171,9 +171,9 @@ passou 'ia-conta abrir: codex com --yolo (e --no-daemon no Android); conversa do
 
 # --- atalhos da barra do tt -----------------------------------------------------------------------
 ids() { "$TT" --atalhos-lista | cut -f2 | tr '\n' ' '; }
-[[ $(ids) == "ia-nova ia-aqui ia-seguir " ]] || falhou "padrão deveria ter ia-nova, ia-aqui e ia-seguir: $(ids)"
+[[ $(ids) == "ia-nova ia-aqui ia-seguir voz " ]] || falhou "padrão deveria ter ia-nova, ia-aqui, ia-seguir e voz: $(ids)"
 m=$(PREFIX=/data/data/com.termux/files/usr "$TT" --atalhos-lista)
-[[ $(cut -f2 <<<"$m" | tr '\n' ' ') == "ia-nova ia-aqui ia-seguir " ]] || falhou "celular: $(cut -f2 <<<"$m")"
+[[ $(cut -f2 <<<"$m" | tr '\n' ' ') == "ia-nova ia-aqui ia-seguir voz " ]] || falhou "celular: $(cut -f2 <<<"$m")"
 grep -q "^👇"$'\t'"ia-aqui"$'\t'"@aqui proot-distro login debian .*ia-conta abrir {retomar} {conta}'" <<<"$m" ||
   falhou "celular: ia-aqui não entra no Debian: $m"
 passou 'atalhos: três padrões (ia-nova, ia-aqui, ia-seguir) no PC e no celular (via proot)'

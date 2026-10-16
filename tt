@@ -36,7 +36,8 @@
 # Painéis: ^v abre a sessão escolhida num painel ao lado da tela atual, ^o embaixo, e ^p troca a
 # sessão mostrada no painel em foco (só em painéis abertos assim). Cada painel é uma janela para
 # outra sessão (desta ou de outra máquina); fechar o painel não fecha a sessão. Na barra de baixo
-# há botões (☰ terminais, ┃ lado, ━ baixo, ⋯ painel); o ⋯ / Ctrl+B m abre o menu do painel.
+# há botões (☰ terminais, ┃ lado, ━ baixo, ⋯ painel); o ⋯ / Ctrl+B m abre o menu do painel. O 🎤 (ou Ctrl+B v)
+# abre a conversa por voz com o tt (voz --audio diz como esta máquina ouve, transcreve e fala).
 #
 # Outras máquinas: as Linux online da tailnet (Tailscale) aparecem no mesmo menu, com as sessões
 # delas, via ssh. O usuário de cada uma vem de ~/.config/tt/maquinas, uma por linha:
@@ -2188,7 +2189,7 @@ ajuda() {
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
-  checagens-tt.md checagem-prompt.md)
+  checagens-tt.md checagem-prompt.md voz voz-audio.py)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -2524,6 +2525,7 @@ instalar_aqui() {
     mv "$HOME/.local/bin/tt" "$HOME/.local/bin/tt.antes-instalacao"
   fi
   ln -sfn "$DIR_TT/tt" "$HOME/.local/bin/tt"
+  instalar_voz
   if ! grep -q '^source-file ~/.local/share/tt/tmux.conf' "$HOME/.tmux.conf" 2>/dev/null; then
     [[ -f $HOME/.tmux.conf && ! -f $HOME/.tmux.conf.antes-tt ]] && cp "$HOME/.tmux.conf" "$HOME/.tmux.conf.antes-tt"
     cat >"$HOME/.tmux.conf" <<'CONF'
@@ -2568,6 +2570,16 @@ CONF
   fi
   garantir_navegadores_em_segundo_plano
   echo "$(conf nome): $(versao)"
+}
+
+# O 🎙 (voz): o utilitário vai para o PATH. No celular o ~/.local/bin/voz é do termux/celular.sh (aponta para o clone e
+# roda pelo bash do Termux, que o cron acha); um voz que não é link (escrito à mão) também fica.
+instalar_voz() {
+  chmod +x "$DIR_TT/voz" "$DIR_TT/voz-audio.py" 2>/dev/null
+  e_mobile && return 0
+  [[ -f $DIR_TT/voz ]] || return 0
+  [[ -e $HOME/.local/bin/voz && ! -L $HOME/.local/bin/voz ]] && return 0
+  ln -sfn "$DIR_TT/voz" "$HOME/.local/bin/voz"
 }
 
 # Seletor e rotator de contas de IA (ia-conta/ia-rot, com os nomes antigos claude-conta/claude-rot
@@ -14585,17 +14597,38 @@ atalho_executar() {
 }
 
 # O comando de um atalho, pelo clique ou pelo menu: "@seguir …" passa a conversa do painel adiante (nesta máquina),
-# "@aqui …" troca o que roda no painel, o resto abre numa sessão nova e a tela vai para ela.
+# "@aqui …" troca o que roda no painel, "@janela …" roda numa janela flutuante sobre a tela (o 🎙), o resto abre numa
+# sessão nova e a tela vai para ela.
 atalho_comando() { # cliente painel pasta comando id
   local cliente=$1 pane=$2 pasta=$3 cmd=$4 id=$5 nome
   case $cmd in
     @seguir | '@seguir '*) seguir_ia "$cliente" "$pane" ""; return 0 ;;
     '@aqui '*) atalho_aqui "$cliente" "$pane" "$pasta" "$(sem_marcas "${cmd#@aqui }")" "$id"; return 0 ;;
+    '@janela '*) atalho_janela "$cliente" "$pasta" "$(sem_marcas "${cmd#@janela }" tudo)" "$id"; return 0 ;;
   esac
   nome=$(atalho_nova_sessao "$pasta" "$cmd" "$id") || {
     botao_aviso "$cliente" "atalho: não consegui abrir a sessão"; return 0
   }
   tmux switch-client -c "$cliente" -t "=$nome" # (a troca de sessão já redesenha o cliente)
+}
+
+# Atalho "@janela CMD": o comando numa janela flutuante encostada na barra, à direita (a do 🎙); fecha quando ele
+# termina. É um popup de verdade (um clique fora não a fecha: a conversa segue enquanto se olha a tela de baixo).
+atalho_janela() { # cliente pasta comando id
+  local c=$1 pasta=$2 cmd=$3 id=$4 cw ch w=80 h=16 tit
+  read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
+  [[ $cw =~ ^[0-9]+$ ]] && ((cw < w + 2)) && w=$((cw > 22 ? cw - 2 : 20))
+  [[ $ch =~ ^[0-9]+$ ]] && ((ch < h + 6)) && h=$((ch > 10 ? ch - 6 : 6))
+  tit=$(atalho_por_id "$id" | cut -f1); tit="${tit:+$tit }$id"
+  popup_fixo -c "$c" -E -w "$w" -h "$h" -x R -y S -T " $tit " -d "${pasta:-$HOME}" -e TT_EM_JANELA=1 \
+    "bash -lc $(q "PATH=\"\$HOME/.local/bin:$DIR_TT:\$PATH\"; $cmd")"
+}
+
+# O 🎙 pela tecla (Ctrl+B v): o atalho "voz" desta máquina, como o clique nele; escondido da barra, a conversa de sempre.
+atalho_voz() { # cliente painel pasta
+  local cmd
+  cmd=$(atalho_por_id voz | cut -f3)
+  atalho_comando "$1" "$2" "${3:-$HOME}" "${cmd:-@janela voz --conversa}" voz
 }
 
 # --- ⏩ Seguir a conversa com outra IA ------------------------------------------------
@@ -14943,6 +14976,7 @@ clique() {
     transferencias) eval "$(popup_tt "$2" "⇅ transferências" "$EU --transferencias")" ;;
     copias) eval "$(popup_tt "$2" "📋 cópias" "TT_CLIENTE=$2 TT_PANE=$3 $EU --copias")" ;;
     at[0-9]*) atalho_executar "${faixa#at}" "$2" "$3" "${4:-$HOME}" ;;
+    voz) atalho_voz "$2" "$3" "${4:-$HOME}" ;;
     ajustar) ajustar "$2" ;;
     sessao) seletor_em "$2" "$MAQUINA" "$3" ;;
     fxx*) desafixar_item "$2" "${faixa#fxx}" ;;

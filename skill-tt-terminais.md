@@ -34,6 +34,8 @@ confirme no código antes de alterar contrato.
 - `ia-conta`, `ia-rot`, `ia-login`, `contas-uso.py`, `skill-rodizio-de-contas.md` — rotação de
   contas de IA (ver a skill `rodizio-de-contas`).
 - `atalhos-padrao`, `atalhos-padrao-mobile` — atalhos de barra padrão (desktop e Termux).
+- `voz`, `voz-audio.py` — o 🎤: conversa por voz com o tt (cérebro, regras e ações no `voz`; gravar, transcrever,
+  falar e a janela no `voz-audio.py`). No celular, `termux/bin/voz` roda o `voz` da raiz pelo bash do Termux.
 - `termux/celular.sh` — provisiona um celular do zero (Termux + Debian proot).
 - `tests/` — suíte de regressão; `Makefile` → `make test`.
 
@@ -280,7 +282,11 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   formatam/listam a partir de `atalhos-padrao` + `~/.config/tt/atalhos` (override por ID; emoji `-`
   desativa). Linha: `emoji⇥id⇥comando⇥cor⇥menu` (cor vazia com menu sai `-` na lista: `read` com IFS=tab junta
   tabs). Padrões: 🚀 `ia-nova` (`ia-conta abrir {conta}`), 👇 `ia-aqui` (`@aqui ia-conta abrir {retomar} {conta}`),
-  ⏩ `ia-seguir` (`@seguir ia-conta abrir {prompt}`); no celular, os mesmos dentro de `proot-distro login …`.
+  ⏩ `ia-seguir` (`@seguir ia-conta abrir {prompt}`); no celular, os mesmos dentro de `proot-distro login …`; 🎤 `voz`
+  (`@janela voz --conversa`, também `Ctrl+B v` → `tt --clique voz` → `atalho_voz`, que usa o atalho `voz` do perfil).
+- `@janela CMD` (`atalho_janela`): `popup_fixo` (display-popup de verdade: um clique fora não fecha) de até 80×16
+  encostado na barra à direita (`-x R -y S`), na pasta do painel, com `bash -lc` e `~/.local/bin` + `$DIR_TT` no PATH;
+  fecha quando o comando termina.
 - Menu do botão direito (5ª coluna, itens separados por ` ;; `): `@contas` (o próprio comando com `{conta}` →
   `--listar-contas` dá `conta⇥provedor⇥rótulo⇥uso`; cada item roda com `--conta NOME`; lista guardada em
   `$RT/tt-atalho-contas-UID-<cksum>`), `@maquinas` (o atalho de mesmo ID roda numa sessão nova da máquina:
@@ -295,6 +301,28 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
 - `tt --conversa-ia CÓDIGO [--de MÁQUINA] [--salvar]` — a conversa (Claude, Codex ou Kiro) em Markdown, para outra
   IA seguir o trabalho; `--salvar` grava em `~/.cache/tt/conversas/CÓDIGO.md`. Se você recebeu um pedido da ⏩,
   é com isto que se relê a conversa original.
+
+### 🎤 Voz (`voz`, `voz-audio.py`)
+- `voz --conversa [--digitar]` (o 🎤): no computador, `exec python3 voz-audio.py conversa` (só biblioteca padrão): grava
+  uma frase (`Gravador`: testa `parecord`, `pw-record --raw`, `arecord`, `arecord -D plughw:C,D` de cada placa, `sox`,
+  `ffmpeg`; fica com o primeiro que entrega som com sinal e lembra dele em `~/.cache/tt-voz/gravador`; macOS: `sox -d`
+  ou `ffmpeg -f avfoundation`; WSL: `PULSE_SERVER=unix:/mnt/wslg/PulseServer`), detecta fala e fim pelo nível (piso
+  adaptativo, `VOZ_LIMIAR`, `VOZ_PAUSA`, `VOZ_ESPERA_FALA_S`), transcreve (`Transcritor`) e chama `voz --turno FRASE`
+  com `VOZ_TELA_FD`: o `falar` do voz escreve `fala|aviso|fim<TAB>texto` nesse fd e a janela mostra e fala (`Falador`:
+  Piper, `say`, voz do Windows por `powershell.exe` com o texto em base64, `spd-say`, `espeak`, `termux-tts-speak`).
+  No celular com o Tasker ligado: `voz --abrir` + `voz-audio.py espelho` (mostra `~/.local/state/tt-voz/conversa.log`;
+  digitar grava em `/sdcard/Tasker/voz/in`).
+- Motor: `voz-audio.py servidor` (no Python com os pacotes; `voz --motor` o acha para outra máquina por ssh): linhas
+  JSON `{"op":"stt","n":N,"dica":…}` + N bytes de WAV 16 kHz, `{"op":"tts","texto":…,"saida":…}`, `{"op":"carregar"}`;
+  responde uma linha JSON. A janela o abre uma vez por conversa (modelo carregado uma vez). Lugares: `VOZ_TRANSCREVER`
+  = `~/.config/tt-voz/transcrever`, ou `local`, a que deu certo (`~/.cache/tt-voz/transcrever-ok`), as do cérebro e as
+  outras máquinas. `voz --dica` dá as palavras do contexto (máquinas, sessões) para o `initial_prompt` do Whisper.
+- Configuração em `~/.config/tt-voz/`: `cerebro` (`-` = desligado; sem o arquivo, a janela usa `local` se houver
+  `ia-rot`), `transcrever`, `fala`, `modelo`, `permitidas`. `voz --instalar-audio` = venv `~/.local/share/tt-voz/venv`
+  (faster-whisper, piper-tts) + voz `pt_BR-faber-medium` em `~/.local/share/tt-voz/piper` + o modelo no cache do HF.
+  `voz --audio` mostra o que esta máquina usa; `voz --audio-teste` grava, transcreve e repete.
+- Testes: `tests/test_voz.sh` (regras, cérebro, ações, daemon do celular) e `tests/test_voz_tela.sh` (canal da janela,
+  sistemas com `VOZ_SISTEMA=Darwin|WSL|Linux`, gravação, janela num tmux isolado, `@janela`, instalação).
 
 ### Arquivos entre máquinas
 - `tt --enviar [arquivo... [destino[:pasta]]]` — navega e envia; `tt --trazer [maquina:caminho [pasta]]`
@@ -653,7 +681,8 @@ ControlPath do ssh, transferências em andamento.
 `ARQUIVOS_FONTE` (lista no `tt`): `tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf
 tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile
 README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
-skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py` (a
+skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py
+tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py` (a
 lista dos testes, em `tests/lib.sh` e `tests/test_repo_em_dia.sh`, acompanha). `ARQUIVOS_PACOTE` = `ARQUIVOS_FONTE` + `VERSAO`. Mudança que acrescenta um
 arquivo ao pacote PRECISA entrar em `ARQUIVOS_FONTE`, senão a autoatualização instala um pacote
 incompleto.

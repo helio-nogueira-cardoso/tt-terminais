@@ -3,6 +3,21 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.19.0 · 16/10/2026
+- **🎤 Conversar com o tt pela voz, também no computador.** Um botão novo na barra, o 🎤 (ou `Ctrl+B v`), abre uma
+  janela de conversa: você fala, ela mostra o que entendeu, o tt age e responde falando. Vale no Linux, no macOS e no
+  Windows pelo WSL; no celular, o Tasker continua ouvindo e falando, e a janela mostra a conversa. O que dá para pedir
+  é o mesmo do celular: máquinas e status, sessões, falar com um agente (só nas sessões que você liberou), abrir uma IA
+  como o 🚀, trocar a do painel como o 👇, passar a conversa como a ⏩, tarefas e subtarefas, o uso das contas. O
+  cérebro (um Claude rápido) já vem ligado na janela, nesta máquina.
+  - Na janela: **Espaço** encerra a frase ou pula a fala, **t** digita (no escritório ou sem microfone), **m** tira a
+    voz, **Esc** fecha. O botão direito do 🎤 tem "Só digitando", "Testar o microfone e a voz" e "Instalar a voz neural".
+  - Cada sistema usa o que tem: no Linux grava pelo servidor de som e, se ele perdeu a placa, direto pelo microfone; no
+    macOS, `sox` ou `ffmpeg` e a voz Luciana do `say`; no WSL, o som do WSLg e a voz pt-BR do Windows. A transcrição é o
+    Whisper: aqui, com `voz --instalar-audio` (instala também a voz neural Piper), ou numa máquina sua que o tenha, por
+    ssh, sem instalar nada. `voz --audio` diz o que esta máquina usa. Guia: README, "Conversar com o tt pela voz".
+  - Atalho da barra com `@janela CMD`: roda o comando numa janela flutuante, em vez de numa sessão nova.
+
 ## v1.18.5 · 16/10/2026
 - **🎙 Voz: consertos no celular.** "contas", o 🚀 por voz ("nova sessão com o codex") e as contas que o cérebro conhece
   agora vêm do Linux do proot, onde o tt instala as contas de IA do celular (o `ia-conta` do Termux não as via: dizia

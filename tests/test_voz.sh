@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# voz (termux/bin/voz): comandos por frase, troca de máquina/sessão, trava de sessões, resposta do agente e daemon.
+# voz (o utilitário da raiz; no celular, termux/bin/voz o roda): comandos por frase, troca de máquina/sessão, trava de sessões, resposta do agente e daemon.
 # Tudo com tt/ssh/am falsos e um tmux isolado; nada toca máquinas, celular ou Tasker reais.
 source "$(dirname "$0")/lib.sh"; isolar
-V=$RAIZ/termux/bin/voz
+V=$RAIZ/voz
 bash -n "$V" || falhou "sintaxe: $V"
 
 B=$T/fake; mkdir -p "$B" "$T/sd/Tasker"
@@ -195,7 +195,7 @@ grep -q '^login debian --shared-tmp -- bash -lc PATH=.*ia-conta abrir --conta co
 tmux kill-session -t "=$s" 2>/dev/null || true
 printf '%s' '{"fala": "Ok.", "acoes": []}' >"$T/plano.json"
 VOZ_CEREBRO_CMD="cat > '$T/pedido.txt'; cat '$T/plano.json'" PREFIX=$P v "como estão as minhas contas de ia" >/dev/null
-grep -q 'contas de IA (no celular): devsblue:claude codex:codex' "$T/pedido.txt" || falhou "cérebro: contas do contexto não são as do proot: $(grep 'contas de IA' "$T/pedido.txt")"
+grep -q 'contas de IA (desta máquina): devsblue:claude codex:codex' "$T/pedido.txt" || falhou "cérebro: contas do contexto não são as do proot: $(grep 'contas de IA' "$T/pedido.txt")"
 echo local >"$HOME/.config/tt-voz/cerebro"
 saida=$(PREFIX=$P v "uma frase solta para o cérebro do celular"); [[ $saida == *'Do proot.'* ]] || falhou "cérebro local não foi ao proot: $saida"
 rm -f "$HOME/.config/tt-voz/cerebro"

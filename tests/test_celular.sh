@@ -54,7 +54,7 @@ ids = {e.findtext("id") for e in r.iter("Task")}
 assert all(p.findtext("mid0") in ids for p in r.iter("Profile"))' "$RAIZ/termux/tasker/tt-voz.prj.xml" || falhou 'projeto tt-voz do Tasker inválido'
 cp "$RAIZ/termux/tasker/tt-voz.prj.xml" "$T/voz-antes.xml"; python3 -I "$RAIZ/termux/tasker/gerar-voz.py" >/dev/null
 cmp -s "$T/voz-antes.xml" "$RAIZ/termux/tasker/tt-voz.prj.xml" || falhou 'tt-voz.prj.xml não bate com gerar-voz.py (rode o gerador)'
-grep -q 'tt.VOZ_FALAR' "$RAIZ/termux/bin/voz" && grep -q 'tt.VOZ_FALAR' "$RAIZ/termux/tasker/tt-voz.prj.xml" || falhou 'intent do voz não bate com o perfil do Tasker'
+grep -q 'tt.VOZ_FALAR' "$RAIZ/voz" && grep -q 'tt.VOZ_FALAR' "$RAIZ/termux/tasker/tt-voz.prj.xml" || falhou 'intent do voz não bate com o perfil do Tasker'
 # a 1ª notificação do Android Auto é "Conectando ao Android Auto…": o perfil precisa aceitá-la (as seguintes chegam com ele ocupado)
 python3 -c 'import re, sys, html
 x = html.unescape(open(sys.argv[1]).read()); m = re.search(r"if \(/([^/]+)/i\.test\(t\)\)", x)

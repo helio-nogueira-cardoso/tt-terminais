@@ -1,0 +1,5 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# voz no celular: o utilitário mora na raiz do repositório (é do pacote do tt em todas as máquinas). Este atalho o roda
+# pelo bash do Termux, que o cron acha sem o /usr/bin/env.
+d=$(dirname "$(readlink -f "$0")")
+exec "${BASH:-bash}" "$d/../../voz" "$@"

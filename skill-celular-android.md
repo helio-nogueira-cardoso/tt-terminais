@@ -825,6 +825,11 @@ novo (o `voz` é um arquivo parado em `~/.local/bin`, o projeto `tt-voz` do Task
 daemon só sobe depois da ativação). Você fala, a frase vai para o tt (máquinas, sessões, agentes), e a resposta
 volta falada. A conversa vai e volta até você dizer "encerrar".
 
+O `voz` é o mesmo dos computadores (o 🎤 da barra; README, "Conversar com o tt pela voz"): mora na raiz do repositório
+e o `termux/bin/voz` o roda pelo bash do Termux (o cron não resolve `/usr/bin/env`). No celular, o 🎤 da barra (ou
+`Ctrl+B v`) abre a conversa no Tasker e uma janela que mostra o que foi dito (`~/.local/state/tt-voz/conversa.log`) e
+deixa digitar; sem o Tasker ativado, a conversa da janela é digitada.
+
 Dois canais, escolhidos sozinhos:
 
 | Situação | Você fala com | A resposta vem por |

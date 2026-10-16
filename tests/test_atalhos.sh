@@ -3,10 +3,10 @@
 source "$(dirname "$0")/lib.sh"; isolar
 ids() { "$TT" --atalhos-lista | cut -f2 | tr '\n' ' '; }
 
-[[ $(ids) == "ia-nova ia-aqui ia-seguir " ]] || falhou "padrão do PC deveria ter 3 atalhos: $(ids)"
+[[ $(ids) == "ia-nova ia-aqui ia-seguir voz " ]] || falhou "padrão do PC deveria ter 4 atalhos: $(ids)"
 "$TT" --atalhos-lista | grep -q $'\tia-conta abrir {conta}\t' || falhou 'ia-nova do PC não abre a melhor IA'
 "$TT" --atalhos-lista | grep -q $'\tia-seguir\t@seguir ia-conta abrir {prompt}\t#f9e2af\t@maquinas$' || falhou 'ia-seguir do PC sem @seguir/{prompt}/@maquinas'
-passou 'PC: 3 atalhos padrão (melhor IA numa sessão nova, no painel atual, e a ⏩ que passa a conversa adiante)'
+passou 'PC: 4 atalhos padrão (melhor IA numa sessão nova, no painel atual, a ⏩ que passa a conversa adiante e o 🎤)'
 
 m=$(PREFIX=/data/data/com.termux/files/usr "$TT" --atalhos-lista)
 grep -q 'proot-distro login debian' <<<"$m" || falhou 'celular: atalhos não entram no Debian (proot)'
@@ -30,7 +30,7 @@ passou 'celular: atalhos acham o ia-conta mesmo sem ~/.local/bin no PATH do logi
 
 c=$XDG_CONFIG_HOME/tt/atalhos
 printf '🔧\tia-aqui\tcodex --yolo\t#f38ba8\n-\tia-nova\t\t\n⚡\tmeu\thtop\t#a6e3a1\n' >"$c"
-[[ $(ids) == "ia-aqui ia-seguir meu " ]] || falhou "personalização: $(ids)"
+[[ $(ids) == "ia-aqui ia-seguir voz meu " ]] || falhou "personalização: $(ids)"
 "$TT" --atalhos-lista | grep -q $'^🔧\tia-aqui\tcodex --yolo' || falhou 'troca de um padrão pelo mesmo ID'
 passou 'local: troca padrão pelo ID, "-" desativa, ID novo acrescenta no fim'
 

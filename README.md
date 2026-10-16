@@ -1780,7 +1780,7 @@ O `CL` e o `DBN` usam o `claude` local; no Termux, o do Debian (`proot-distro`).
 ## Atalhos de comandos
 
 A barra também mostra um emoji por comando em `atalhos-padrao`, versionado junto com o tt. O padrão
-são três botões, iguais no PC e no celular:
+são quatro botões, iguais no PC e no celular:
 
 - 🚀 **ia-nova** abre a IA com mais folga de uso **agora** (`ia-conta abrir`, veja [Contas de IA](#contas-de-ia)),
   já sem pedir permissões, numa sessão nova e muda para ela;
@@ -1790,10 +1790,14 @@ são três botões, iguais no PC e no celular:
 - ⏩ **ia-seguir** passa a conversa de IA do painel (Claude, Codex ou Kiro) para outra IA, escolhida pelo
   rotador (em geral porque a conta da atual está ficando sem créditos): acha a conversa e o código dela,
   encerra o agente e abre a nova IA ali mesmo, com um pedido para ler a conversa inteira e seguir o trabalho
-  de onde parou. Veja [Seguir a conversa com outra IA](#seguir-a-conversa-com-outra-ia).
+  de onde parou. Veja [Seguir a conversa com outra IA](#seguir-a-conversa-com-outra-ia);
+- 🎤 **voz** abre a conversa por voz com o tt (também `Ctrl+B v`), numa janela flutuante encostada na barra. Veja
+  [Conversar com o tt pela voz](#conversar-com-o-tt-pela-voz).
 
 Um comando que começa com `@aqui ` roda no painel atual em vez de numa sessão nova; um que começa com
-`@seguir ` é o da ⏩ (o resto do comando abre a nova IA, com `{prompt}` no lugar do arquivo do pedido). No
+`@seguir ` é o da ⏩ (o resto do comando abre a nova IA, com `{prompt}` no lugar do arquivo do pedido); um que
+começa com `@janela ` roda numa janela flutuante sobre a tela, na pasta do painel, e ela fecha quando o comando
+termina (um clique fora não a fecha: a tela de baixo continua visível). No
 celular os três entram no Debian (`proot-distro login debian --shared-tmp -- bash -lc '…'`) e põem eles
 mesmos o `~/.local/bin` de lá no PATH, sem depender do `~/.bashrc` do Debian. O que é próprio do celular
 fica no comando do perfil (`atalhos-padrao-mobile`), não no tt: o menu de contas e a ⏩ usam o próprio comando
@@ -1833,6 +1837,39 @@ painel, mas não ocupam mais a barra.
 As contas não ganham mais um botão cada: os atalhos escolhem entre todas, e o menu do botão direito deixa
 escolher uma. O arquivo versionado pode ser alterado no repositório para que novos atalhos padrão cheguem a
 todas as máquinas.
+
+## Conversar com o tt pela voz
+
+O 🎤 da barra (ou `Ctrl+B v`) abre uma janela de conversa: você fala, o tt mostra o que entendeu, age e responde
+falando. Funciona no Linux, no macOS e no Windows (pelo WSL); no celular o Tasker ouve e fala (guia na skill
+`celular-android`, seção 15) e a janela mostra a conversa. O que dá para pedir é o mesmo do celular: máquinas e
+status, escolher e ler sessões, falar com um agente (só em sessões que você liberou, dizendo "sim"), abrir uma IA
+nova como o 🚀 (com a IA ou a conta que você disser), trocar a IA do painel como o 👇, passar a conversa como a ⏩,
+ler as tarefas e as subtarefas, o uso das contas. Frases curtas ("máquinas", "status", "dois", "encerrar") vão direto
+às regras; o resto vai ao **cérebro**, um Claude rápido (Haiku, pelo rodízio de contas) que entende a frase solta e
+escolhe as ações. Na janela ele roda nesta máquina, sem configurar nada (`voz --cerebro "pc local"` escolhe outro
+lugar; `voz --cerebro -` deixa só as regras).
+
+Na janela: **Espaço** encerra a frase na hora (sem esperar o silêncio) ou pula a fala; **t** digita uma frase (no
+escritório, ou sem microfone); **m** liga e desliga a voz; **Esc** fecha. Duas vezes sem ouvir nada, ou "encerrar",
+também fecham. O botão direito do 🎤 tem "Só digitando", "Testar o microfone e a voz" e "Instalar a voz neural".
+
+Como cada sistema ouve, transcreve e fala (`voz --audio` mostra o desta máquina):
+
+| | Gravar (o fim da frase é o silêncio) | Transcrever | Falar |
+| --- | --- | --- | --- |
+| Linux | `parecord`, `pw-record` ou `arecord` (testa cada um e fica com o primeiro que entrega som; se o servidor de som perdeu a placa, grava direto do microfone pelo ALSA) | faster-whisper (modelo `small`) aqui ou noutra máquina | Piper (voz pt-BR), ou `spd-say`/`espeak` |
+| macOS | `sox` (`brew install sox`) ou `ffmpeg` | faster-whisper aqui ou noutra máquina | `say` com a voz Luciana |
+| WSL | `parecord` pelo PulseAudio do WSLg | noutra máquina (sem pesar no disco do Windows) ou aqui | a voz pt-BR do Windows (Maria) |
+| Celular | Tasker | Google (no Tasker) | Tasker |
+
+- `voz --instalar-audio` cria `~/.local/share/tt-voz/venv` com o faster-whisper e o Piper, baixa a voz pt-BR do
+  Piper e o modelo do Whisper (uns 600 MB). Sem ele, a máquina transcreve na primeira das outras que tiver (por ssh,
+  com o modelo carregado uma vez por conversa) e fala com a voz do sistema.
+- `voz --transcrever "local pc"` fixa onde transcrever; `voz --fala piper|say|windows|spd|espeak|nenhum` escolhe a
+  voz; `voz --modelo base|small|medium` troca o modelo (o `base` é 3 vezes mais rápido e erra mais).
+- `voz --audio-teste` grava uma frase, mostra o nível, transcreve e repete o que ouviu.
+- Para esconder o botão nesta máquina: a linha `-	voz` em `~/.config/tt/atalhos`.
 
 ### Seguir a conversa com outra IA
 
