@@ -56,6 +56,15 @@ tmux send-keys -t m Down Down Up; sleep 0.6
 sem_lixo || falhou "setas escreveram caracteres na tela: $(tela)"
 passou "setas navegam no menu da espera do OAuth, sem escrever ^[[A na tela"
 
+# Seta partida: o resto chega depois do ESC (máquina carregada, ssh lento). Com 50 ms de espera a seta virava Esc e
+# cancelava o menu; com só o "\e[" na mão, o "A" virava tecla solta.
+tmux send-keys -t m -l $'\e'; sleep 0.1; tmux send-keys -t m -l '[B'; sleep 0.5
+[[ $(selecionada) == *'📥 Colar o endereço de volta'* ]] || falhou "seta partida (ESC, depois [B) não desceu: $(tela)"
+tmux send-keys -t m -l $'\e['; sleep 0.1; tmux send-keys -t m -l 'A'; sleep 0.5
+[[ $(selecionada) == *'📋 Copiar o link inteiro'* ]] || falhou "seta partida (\\e[, depois A) não subiu: $(tela)"
+sem_lixo && ! tela | grep -q 'FIM=' || falhou "seta partida escreveu na tela ou fechou o menu: $(tela)"
+passou "seta partida (o resto depois do ESC) ainda é seta"
+
 : >"$CLIP"; tmux send-keys -t m Enter
 esperar '[[ $(cat "$CLIP" 2>/dev/null) == http://127.0.0.1:$P/auth\?* ]]' 8 || falhou "⏎ em Copiar não copiou o link: '$(cat "$CLIP")' $(tela)"
 URL=$(cat "$CLIP")

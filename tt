@@ -12292,7 +12292,8 @@ tarefas_pai_de() { tarefas_meta_get "$(tarefas_meta_de "$1")" pai; }
 # só os lê (cat). Só quando o resultado é certo: busca vazia, e nada antes da recarga que mude o estado ou a
 # busca depois (execute de um editor ou prompt, put, change-query, transform…); senão, o comando de sempre.
 tarefa_acao() { # evento chave
-  local saida antes f
+  local saida antes f ini c ms agora
+  ini=${EPOCHREALTIME:-$(date +%s).0}; ini=${ini/[.,]/}; ini=$((10#${ini:0:13}))
   saida=$(tarefa_acao_ "$@")
   if [[ $saida == *@@TT_RL@@* || $saida == *@@TT_HD@@* ]]; then
     antes=${saida%%@@TT_[RH][LD]@@*}; antes=${antes//clear-query/} # com a busca vazia, limpá-la não muda nada
@@ -12306,6 +12307,15 @@ tarefa_acao() { # evento chave
     fi
     saida=${saida//@@TT_RL@@/"reload-sync($EU --tarefas-lista {q})"}
     saida=${saida//@@TT_HD@@/"transform-header($EU --tarefas-cabecalho)"}
+  fi
+  # Duplo clique (tarefa_acao_): a janela conta do FIM deste clique, com a lista e o cabeçalho já prontos, e não do
+  # começo. O fzf só entrega o 2º clique quando este termina; contado do começo, o tempo do próprio tt entrava nos
+  # 400 ms, e numa máquina carregada dois cliques rápidos viravam dois simples. Só a marca gravada agora é renovada.
+  if [[ ${1:-} == clique ]]; then
+    read -r c ms <<<"$(tarefas_ui_get clique)"
+    if [[ -n $c && $ms =~ ^[0-9]+$ ]] && ((ms >= ini)); then
+      agora=${EPOCHREALTIME:-$(date +%s).0}; agora=${agora/[.,]/}; tarefas_ui_set clique "$c $((10#${agora:0:13}))"
+    fi
   fi
   [[ -n $saida ]] && printf '%s\n' "$saida"
   return 0
@@ -12711,11 +12721,11 @@ tarefas_confirmar() { # título detalhe rótulo-do-botão
       s|S) r=0; break ;;
       n|N|q|'') break ;;
       $'\e')
-        IFS= read -rsn1 -t 0.05 resto || break
+        IFS= read -rsn1 -t "${TT_ESC_SEQ:-0.3}" resto || break
         [[ $resto == '[' ]] || break
-        IFS= read -rsn1 -t 0.05 resto || break
+        IFS= read -rsn1 -t "${TT_ESC_SEQ:-0.3}" resto || break
         [[ $resto == '<' ]] || break
-        local ev=""; while IFS= read -rsn1 -t 0.05 resto; do ev+=$resto; [[ $resto == [Mm] ]] && break; done
+        local ev=""; while IFS= read -rsn1 -t "${TT_ESC_SEQ:-0.3}" resto; do ev+=$resto; [[ $resto == [Mm] ]] && break; done
         [[ $ev == *M ]] || continue
         local b x y; IFS=';' read -r b x y <<<"${ev%M}"
         ((b == 0 && y == 7)) || continue
@@ -12774,11 +12784,11 @@ tarefas_escolha() { # título detalhe opção...
       '') esc=${tec[0]}; break ;;
       n|N|q) break ;;
       $'\e')
-        IFS= read -rsn1 -t 0.05 resto </dev/tty || break
+        IFS= read -rsn1 -t "${TT_ESC_SEQ:-0.3}" resto </dev/tty || break
         [[ $resto == '[' ]] || break
-        IFS= read -rsn1 -t 0.05 resto </dev/tty || break
+        IFS= read -rsn1 -t "${TT_ESC_SEQ:-0.3}" resto </dev/tty || break
         [[ $resto == '<' ]] || break
-        local ev=""; while IFS= read -rsn1 -t 0.05 resto </dev/tty; do ev+=$resto; [[ $resto == [Mm] ]] && break; done
+        local ev=""; while IFS= read -rsn1 -t "${TT_ESC_SEQ:-0.3}" resto </dev/tty; do ev+=$resto; [[ $resto == [Mm] ]] && break; done
         [[ $ev == *M ]] || continue
         local b xx yy hit=-1; IFS=';' read -r b xx yy <<<"${ev%M}"
         ((b == 0)) || continue
@@ -13236,17 +13246,17 @@ calendario_tui() { # modo [epoch-ou-dia] [1 = com horário] [id da tarefa]
       case $tecla in
         $'\e')
           [[ -n $teste ]] && return
-          IFS= read -rsn1 -t 0.03 resto </dev/tty || resto=""
+          IFS= read -rsn1 -t "${TT_ESC_SEQ:-0.3}" resto </dev/tty || resto=""
           if [[ $resto == '[' || $resto == O ]]; then
-            IFS= read -rsn1 -t 0.03 resto </dev/tty || resto=""
+            IFS= read -rsn1 -t "${TT_ESC_SEQ:-0.3}" resto </dev/tty || resto=""
             case $resto in
               C) foco=$((foco + 1)) ;; D) foco=$((foco - 1)) ;;
               A) foco=$((foco - 7)) ;; B) foco=$((foco + 7)) ;;
-              5) read -rsn1 -t 0.03 resto </dev/tty; _mes -1 ;;   # PgUp
-              6) read -rsn1 -t 0.03 resto </dev/tty; _mes 1 ;;    # PgDn
+              5) read -rsn1 -t "${TT_ESC_SEQ:-0.3}" resto </dev/tty; _mes -1 ;;   # PgUp
+              6) read -rsn1 -t "${TT_ESC_SEQ:-0.3}" resto </dev/tty; _mes 1 ;;    # PgDn
               '<')
                 local ev="" ch
-                while IFS= read -rsn1 -t 0.05 ch </dev/tty; do ev+=$ch; [[ $ch == [Mm] ]] && break; done
+                while IFS= read -rsn1 -t "${TT_ESC_SEQ:-0.3}" ch </dev/tty; do ev+=$ch; [[ $ch == [Mm] ]] && break; done
                 [[ $ev == *M ]] && _mouse "${ev%M}" && return ;;
             esac
           elif [[ -z $resto ]]; then return       # esc puro
@@ -17591,7 +17601,7 @@ email_resumo() {
 
 # read -e (readline): setas e outras teclas especiais não viram ^[[A na tela.
 # Qualquer tecla fecha (Esc e Enter inclusive); setas e outras teclas especiais não deixam ^[[A na tela.
-email_pausa() { [[ -t 0 ]] && { printf '\n%s' "${1:-Qualquer tecla volta.}"; local k; read -rsn1 k; [[ $k == $'\e' ]] && read -rsn6 -t 0.02 _; printf '\n'; }; return 0; }
+email_pausa() { [[ -t 0 ]] && { printf '\n%s' "${1:-Qualquer tecla volta.}"; local k; read -rsn1 k; [[ $k == $'\e' ]] && read -rsn6 -t "${TT_ESC_SEQ:-0.3}" _; printf '\n'; }; return 0; }
 
 # Assistente de cadastro: provedor/endereço → descoberta → autenticação → segredo → teste obrigatório.
 email_conta_nova_ui() {
@@ -17944,7 +17954,9 @@ transferencias() {
     fi
     case $tecla in
       q | Q | '') return ;;
-      $'\e') resto=""; IFS= read -rsn2 -t 0.03 resto || true
+      # O resto de uma seta pode chegar depois do ESC (máquina carregada, ssh/mosh lento): com 30 ms a seta virava
+      # Esc e fechava a tela. TT_ESC_SEQ (padrão 0,3 s) vale para todas as telas que leem teclas assim.
+      $'\e') resto=""; IFS= read -rsn2 -t "${TT_ESC_SEQ:-0.3}" resto || true
         case $resto in
           '[A') ((sel > 1)) && sel=$((sel - 1)) ;;
           '[B') ((sel < n)) && sel=$((sel + 1)) ;;

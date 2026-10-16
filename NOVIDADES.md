@@ -3,6 +3,15 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.24.2 · 16/10/2026
+- **⌨ Seta não vira Esc com a máquina ocupada.** As telas que leem tecla por tecla (transferências, confirmações e
+  escolhas das tarefas, calendário, a espera do login OAuth do e-mail) davam 30 a 50 ms para o resto de uma seta
+  chegar depois do ESC. Com a máquina carregada, ou por ssh e mosh, ele chega depois: a seta virava Esc e a tela
+  fechava. Agora a espera é de 0,3 s (`TT_ESC_SEQ` muda). Um Esc sozinho continua fechando, só um pouco depois.
+- **🖱 Duplo clique nas tarefas com a máquina ocupada.** Os 400 ms do duplo clique contavam do começo do 1º clique, e
+  o tempo que o próprio tt leva para recarregar a lista entrava na conta: com a máquina carregada, dois cliques rápidos
+  viravam dois simples. Agora contam do fim do 1º clique.
+
 ## v1.24.1 · 16/10/2026
 - **🎤 Sensibilidade do microfone.** Um headset com filtro de ruído próprio (o BlackShark, por exemplo) entrega a voz
   baixa, e o tt respondia "não ouvi" mesmo com você falando. Nas opções (`c`), `g` troca a sensibilidade: normal,

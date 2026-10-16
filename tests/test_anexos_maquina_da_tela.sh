@@ -43,6 +43,24 @@ c_ponte=$(cli 100) c_local=$(cli 90) c_email=$(cli 80)
 [[ -n $c_ponte && -n $c_local && -n $c_email ]] || falhou "clientes de teste não subiram: $(tmux list-clients)"
 espera() { local i; for ((i = 0; i < 30; i++)); do [[ -s $1 ]] && return 0; sleep 0.1; done; return 1; }
 limpa() { rm -f "$T/xdg.log" "$T/ssh.log" "$T/ssh.stdin"; }
+# Transferência lançada em segundo plano (setsid) pelo S pela ponte: o ssh dela pode chegar depois do limpa da
+# etapa seguinte e cair no registro dela (sob a carga da suíte, era o "S local: não deveria usar ssh").
+# Espera todas acabarem: estado ainda em andamento ou trabalhador vivo.
+espera_transferencias() {
+  local i f p st ativo
+  for ((i = 0; i < 200; i++)); do
+    ativo=0
+    for f in "$TT_RT/tt-transferencias-$UID"/*.status; do
+      [[ -f $f ]] || continue
+      st=$(cat "$f" 2>/dev/null); p=$(cat "${f%.status}.pid" 2>/dev/null)
+      case $st in 'na fila' | calculando* | transferindo*) ativo=1 ;; esac
+      [[ -n $p ]] && kill -0 "$p" 2>/dev/null && ativo=1
+    done
+    ((ativo)) || return 0
+    sleep 0.1
+  done
+  return 1
+}
 
 A="$T/aerc-tmp/Relatório final (v2).pdf"; mkdir -p "${A%/*}"; printf 'PDF-%s\n' "$RANDOM" >"$A"
 
@@ -87,6 +105,7 @@ grep -q -- '--pasta-recebidos' "$T/ssh.log" || falhou "S pela ponte: não pergun
 info=$(cat "$TT_RT/tt-transferencias-$UID"/*.info 2>/dev/null)
 grep -q $'book-x\t~/Recebidos' <<<"$info" || falhou "S pela ponte: não iniciou a transferência para book-x:~/Recebidos (info: '$info'; saída: $(cat "$T/salvar.out"))"
 [[ -z $(ls -A "$HOME/.cache/tt-anexos/salvar" 2>/dev/null) ]] || falhou 'S pela ponte: o anexo ficou na pasta de salvar'
+espera_transferencias || falhou 'S pela ponte: a transferência não terminou em 20 s'
 passou 'S pela ponte: o anexo vai para a pasta de recebidos da máquina da tela'
 
 # S desta máquina: pede a pasta (aqui pela entrada) e não sobrescreve.

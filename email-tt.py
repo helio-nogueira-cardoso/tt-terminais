@@ -33,6 +33,11 @@ import urllib.parse, urllib.request, xml.etree.ElementTree as ET
 
 SEGREDOS = os.path.expanduser("~/.secrets")
 TIMEOUT = 15
+# Espera pelo resto de uma tecla especial depois do ESC (seta, clique), a mesma das telas do tt (TT_ESC_SEQ).
+try:
+    ESC_SEQ = float(os.environ.get("TT_ESC_SEQ") or 0.3)
+except ValueError:
+    ESC_SEQ = 0.3
 
 
 def ler_conf(caminho):
@@ -384,12 +389,15 @@ def menu_espera(opcoes, pronto, prazo, colado=None):
                     if m:  # outra tecla especial (Home, F1…): ignora
                         buf = buf[m.end():]
                         continue
-                    if len(buf) == 1:
-                        mais = ler(0.05)
+                    if re.fullmatch(r"\033(?:\[[0-?]*[ -/]*|O)?", buf):
+                        # Tecla especial pela metade: o resto pode chegar depois do ESC (máquina carregada, ssh
+                        # lento). Com 50 ms a seta virava Esc, e com só o "\033[" o "B" virava tecla solta.
+                        mais = ler(ESC_SEQ)
                         if mais:
                             buf += mais
                             continue
-                        return "cancelado"  # Esc sozinho
+                        if len(buf) == 1:
+                            return "cancelado"  # Esc sozinho
                     buf = buf[1:]
                     continue
                 c, buf = buf[0], buf[1:]

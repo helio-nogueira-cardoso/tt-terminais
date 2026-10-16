@@ -57,11 +57,25 @@ grep -q "act:feita:$m	.*faltam 2 subtarefas" <<<"$(printf 'modo=menu:%s\n' "$m" 
 printf 'filtro=todas\nmodo=lista\n' >"$UI"
 echo "ok: ⏎, ✓ e menu recusam, avisam o que falta e abrem a mãe"
 
-# 3) duplo clique (2 cliques rápidos) também recusa, e a mãe fica aberta mostrando as subtarefas
-acao clique "$m" >/dev/null; acao clique "$m" >/dev/null
+# 3) duplo clique (2 cliques rápidos) também recusa, e a mãe fica aberta mostrando as subtarefas. A janela larga é
+# porque aqui se confere a recusa, não o tempo (que é a 3b): sob a carga da suíte, só a partida do 2º tt passava
+# de 300 ms.
+TT_TAREFAS_DUPLO_MS=5000 acao clique "$m" >/dev/null; TT_TAREFAS_DUPLO_MS=5000 acao clique "$m" >/dev/null
 [[ $(est Viagem) == aberta ]] || fail "duplo clique concluiu a mãe com subtarefas abertas"
 grep -qx "exp=$m" "$UI" || fail "depois da recusa no duplo clique a mãe deveria estar aberta"
 echo "ok: duplo clique recusa e deixa a mãe aberta"
+
+# 3b) a janela do duplo clique conta do FIM do 1º clique (lista e cabeçalho já prontos), não do começo: o fzf só
+# entrega o 2º clique quando o 1º termina, e numa máquina carregada o tempo do próprio tt passava dos 400 ms (era a
+# falha da etapa 3 sob a carga da suíte). A marca do clique é posterior à lista que ele deixou pronta.
+printf 'filtro=todas\nmodo=lista\n' >"$UI"
+o=$(acao clique "$m"); l=$(sed -n "s/.*reload-sync(cat '\([^']*\)'.*/\1/p" <<<"$o" | head -1)
+[[ -n $l && -f $l ]] || fail "o clique deveria deixar a lista pronta (reload-sync(cat ARQ)): $o"
+lm=$(stat -c %.3Y "$l"); lm=${lm/./}; rm -f "$l"
+read -r _ cm <<<"$(sed -n 's/^clique=//p' "$UI" | tail -1)"
+[[ $cm =~ ^[0-9]+$ ]] && ((cm >= lm)) || fail "a marca do clique ($cm) deveria ser do fim do clique, depois da lista pronta ($lm)"
+printf 'filtro=todas\nmodo=lista\n' >"$UI"
+echo "ok: a janela do duplo clique conta do fim do 1º clique"
 
 # 4) concluir a última subtarefa NÃO conclui a mãe; com tudo feito, a mãe conclui
 run --tarefa-ok "$s1"; run --tarefa-ok "$s2"

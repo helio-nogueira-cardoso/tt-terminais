@@ -236,7 +236,10 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   (linha, colunas, ação de cada aba/botão) e o clique consulta o mapa (FZF_CLICK_HEADER_*).
 - Mouse no painel: clique numa tarefa abre/fecha (▸/▾); 2º clique na mesma linha em < 400 ms =
   duplo (marca feita) — detectado pelo tt, porque a recarga do 1º clique faz o fzf entregar dois
-  cliques simples; botão direito = menu de ações. Não use `--id-nth` (o fzf perde o clique que
+  cliques simples; os 400 ms (`TT_TAREFAS_DUPLO_MS`; 1500 no Android) contam do FIM do 1º clique
+  (`tarefa_acao` renova a marca `clique=` do estado da UI depois de pronta a lista), não do começo: o fzf
+  só entrega o 2º quando o 1º termina, e numa máquina carregada o tempo do tt passava da janela;
+  botão direito = menu de ações. Não use `--id-nth` (o fzf perde o clique que
   chega durante a recarga) nem ligue `q` (impediria digitar tarefas com q).
 - Teclado no painel: `⏎` alterna feita (ou cria o que foi digitado), `→`/`␣` abre, `←` fecha,
   `^n` nova, `^s` subtarefa, `^e` descrição, `^d` prazo, `^t` calendário, `^o` mais ações, `^p`
@@ -873,6 +876,14 @@ das outras máquinas do usuário** (logar ou trocar a conta de IA de uma máquin
 - Uma mudança só está pronta quando o mesmo resultado funciona por todos os canais do elemento:
   CLI, teclado, mouse/toque, menu e barra.
 - Mudança que acrescenta arquivo ao pacote deve entrar em `ARQUIVOS_FONTE` no `tt`.
+- Tecla lida byte a byte numa tela própria (`read -rsn1`): o resto de uma seta ou clique depois do ESC espera
+  `-t "${TT_ESC_SEQ:-0.3}"`, nunca 30–50 ms. Sob carga, ssh ou mosh o resto chega depois, e a seta virava Esc (a tela
+  de transferências fechava). O `email-tt.py` usa o mesmo prazo (`ESC_SEQ`) e espera também o `\e[` pela metade;
+  `tests/test_transferencias.sh` (2b) e `tests/test_email_oauth_menu.sh` mandam a seta partida.
+- Teste que lança trabalho em segundo plano (transferência por `setsid`) espera ele acabar antes da etapa seguinte:
+  o que o trabalho faz depois cai no registro da outra etapa (`espera_transferencias` em
+  `tests/test_anexos_maquina_da_tela.sh`). Etapa que confere comportamento, e não tempo, não depende de janela
+  curta (o duplo clique de `tests/test_tarefas_subtarefas.sh` 3 usa `TT_TAREFAS_DUPLO_MS=5000`; o tempo fica na 3b).
 
 ### Desempenho: o servidor do tmux é o gargalo
 O servidor do tmux é uma linha só e atende um pedido por vez, atrás dos redesenhos dos painéis: uma IA que

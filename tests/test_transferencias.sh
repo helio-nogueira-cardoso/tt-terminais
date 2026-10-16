@@ -44,6 +44,14 @@ for i in $(seq 1 11); do tmux -L $S send-keys -t x Down; sleep 0.15; done
 espera '▶12'; tela | grep -Fq 'arq1.txt' || fail 'a rolagem não mostrou o último trabalho'
 tmux -L $S send-keys -t x q; sleep 0.3
 
+# 2b) seta partida: o ESC chega antes do resto ("[B"), como numa máquina carregada ou num ssh lento. Com 30 ms de
+# espera a seta virava Esc e a tela fechava (era o "tela não mostrou: ▶12" que aparecia sob a carga da suíte).
+rm -f "$D"/*; for i in 1 2 3; do job "4$i" 'concluída' "parte$i.txt"; done
+abre; espera '▶1'
+tmux -L $S send-keys -t x -l $'\e'; sleep 0.1; tmux -L $S send-keys -t x -l '[B'
+espera '▶2'
+tmux -L $S send-keys -t x q; sleep 0.3
+
 # 3) x limpa as terminadas e preserva as em andamento
 rm -f "$D"/*
 job 300 'concluída' 'feita.txt'; job 301 'erro — veja o log' 'ruim.txt' 'x'
