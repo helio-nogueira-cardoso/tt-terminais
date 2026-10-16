@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (mede tempo/tela: roda sem outros testes disputando a máquina)
 # Roda do mouse nos chips da barra (tt --rolar, ligado no tmux.conf em WheelUp/DownStatus):
 #  - "sessão ▾": a seguinte/anterior desta máquina, na ordem do tmux, dando a volta, sem pontes nem ocultas;
 #  - rajada (vários eventos de uma rolagem) anda um passo só;

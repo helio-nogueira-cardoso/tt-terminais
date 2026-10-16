@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (mede tempo/tela: roda sem outros testes disputando a máquina)
 # Botões clicáveis no popup do e-mail: a sessão oculta do aerc ganha uma linha de status com um botão
 # por ação (range user|em_<ação>), roteada pelo mesmo caminho dos botões da barra (tt --clique) e
 # traduzida na tecla do aerc; em tela estreita ficam só os ícones; aplicada também a uma sessão
@@ -108,6 +109,7 @@ bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAI
 printf '#!/bin/bash\n%s\n' "$(exec_como aerc sleep 600)" >"$T/bin/aerc-dorme"; chmod +x "$T/bin/aerc-dorme"
 sessao_dorme() { bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc-dorme' largo"; }
 sessao_dorme; antes=$(tmux show -qv -t =_tt-email: @tt_email_binds); pid=$(tmux display -p -t =_tt-email: '#{pane_pid}')
+for _ in $(seq 1 30); do [[ $(tmux display -p -t =_tt-email: '#{pane_current_command}') == aerc ]] && break; sleep 0.1; done  # (espera o exec do script de teste)
 [[ $(tmux display -p -t =_tt-email: '#{pane_current_command}') == aerc ]] || falhou "o aerc de teste deveria aparecer como aerc: $(tmux display -p -t =_tt-email: '#{pane_current_command}')"
 mkfifo "$T/anexo.in"   # (stdin que só espera: /dev/zero fazia o script girar; o caminho com $T deixa a limpeza matá-lo)
 script -qfc "tmux attach -t =_tt-email" "$T/anexo.log" <>"$T/anexo.in" >/dev/null 2>&1 & anexo=$!

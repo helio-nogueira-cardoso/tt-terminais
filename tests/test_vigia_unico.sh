@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (mede tempo/tela: roda sem outros testes disputando a máquina)
 # Vigia: uma instância só, mesmo lançando várias juntas; quem perde o pidfile sai; sem tmux, sai.
 source "$(dirname "$0")/lib.sh"; isolar
 tmux -f /dev/null new -d -s s 'sleep 600'
