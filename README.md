@@ -77,7 +77,7 @@ Plataformas: Linux (Debian, Ubuntu e derivados, incluindo WSL; Fedora/RHEL; open
 macOS (Homebrew), Termux no Android, Linux (Debian) dentro do proot do Termux e FreeBSD, OpenBSD e NetBSD.
 Os navegadores baixados (Chrome e Carbonyl) são binários glibc x86_64: só entram em Linux x86_64 com glibc.
 
-macOS: bash ≥ 4 e as demais dependências pelo Homebrew (`brew install bash tmux fzf ripgrep`). Como o
+macOS: bash ≥ 4 e as demais dependências pelo Homebrew (`brew install bash tmux fzf ripgrep`). O `./instalar.sh` instala também as ferramentas GNU (coreutils, gnu-sed, gnu-tar, findutils, grep, gawk, util-linux) e um Python novo; o tt as põe na frente do PATH só dos processos dele. Como o
 ssh não interativo do macOS (zsh) não carrega o Homebrew, a instalação acrescenta ao `~/.zshenv` um
 bloco entre marcadores que põe `~/.local/bin`, `/opt/homebrew/bin` e `/usr/local/bin` no PATH, e todo
 comando que o tt manda para outra máquina já leva esse PATH. Não é preciso `setopt NO_EQUALS`.

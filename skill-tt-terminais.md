@@ -881,6 +881,15 @@ depois do primeiro boot estão na mesma skill. Também está lá a receita que u
 das outras máquinas do usuário** (logar ou trocar a conta de IA de uma máquina sem o dono copiar link nem colar código:
 `ia-login` + controle rápido, com uma função de bash testada em `tests/test_login_pelo_celular.sh`).
 
+## Portabilidade (Linux e macOS)
+
+O tt roda no Linux (Debian/Ubuntu/WSL/Termux…) **e** no macOS (Homebrew). Ao desenvolver, não assuma Linux: o macOS tem zsh como
+shell padrão, bash 3.2 no sistema, ferramentas BSD e não tem `/proc`, `setsid`, `getent`, `xdg-open`, `notify-send` nem
+`C.UTF-8`. As regras completas (e os auxiliares `env_do_pid`, `cwd_do_pid`, `cmdline_do_pid`, `$TT_UTF8`, `tt --e-ponte`) estão
+na seção "Portabilidade" do `AGENTS.md`; o guardião é `tests/test_portabilidade.sh`. No macOS o tt põe as ferramentas GNU do
+Homebrew (coreutils, gnu-sed, gnu-tar, findutils, grep, gawk, util-linux) na frente do PATH só dos processos dele, e a janela nova
+volta ao PATH de origem (`_TT_PATH_ORIGEM`).
+
 ## Testes e desenvolvimento
 
 - `make test` → `tests/run.sh`. `make test-installed` roda contra `~/.local/share/tt`.

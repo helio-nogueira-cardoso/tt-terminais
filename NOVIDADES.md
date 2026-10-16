@@ -3,6 +3,25 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.27.0 · 16/10/2026
+- **🍎 O tt agora roda no macOS (Homebrew), de ponta a ponta.** `./instalar.sh` instala o que o sistema não tem (bash 5, tmux,
+  fzf, ripgrep, as ferramentas GNU — coreutils, sed, tar, findutils, grep, gawk, util-linux — e um Python novo) e o `tt` põe
+  essas versões na frente do PATH **só dos processos dele**; a janela nova volta ao PATH de origem, então o `ls`, o `sed` e o
+  `grep` dos seus painéis seguem os do sistema.
+- **Janela nova do Terminal.app/iTerm abre direto no tt** (o `~/.zshrc` ganha um bloco). O `env bash` do macOS achava o
+  bash 3.2 e o tt quebrava na sintaxe: agora o tt e os auxiliares (`ia-conta`, `ia-login`, `ia-rot`, `voz`, o gatilho do
+  letreiro) se reexecutam no bash do Homebrew, e o bloco do zsh nunca fecha a janela se não houver bash 4+.
+- **Correções que só aparecem no Mac:** o e-mail ✉ abre no zsh (o `=_tt-email` sem aspas virava "comando não encontrado");
+  pontes vindas de outra máquina (você vendo o Mac pelo `dell`) são reconhecidas sem `/proc`, então links e atalhos abrem
+  na tela certa; o letreiro anima a 6 quadros/s (rodava a 1); janelas de terminal soltas e agentes (Claude, Codex, Kiro) são
+  achados pelo `ps`/`lsof`; as contas de IA em uso (`ia-conta`) são vistas por `ps eww`; `/var` e `/private/var` são a mesma
+  pasta para casar conversa e painel; o título dos popups com emoji sai inteiro (o macOS não tem `C.UTF-8`); `flock` portátil.
+- **🛡 Guardião de portabilidade para os agentes.** Nova seção "Portabilidade" no `AGENTS.md`, no bloco de regras que o tt
+  instala em todos os agentes de todas as máquinas e na skill; e o `tests/test_portabilidade.sh` reprova código novo que
+  reintroduz o que só funciona no Linux (`/proc` direto, `=alvo` sem aspas, `$variável` em `if-shell`, script bash 4+ sem
+  guarda, `C.UTF-8`, `exec -a` em teste…). A suíte inteira passa no macOS: `tests/run.sh` põe sozinho o que precisa no PATH
+  e há um `script(1)` sobre pty em `tests/macos-bin`.
+
 ## v1.26.0 · 16/10/2026
 - **📌 A roda no chip `+N ▾` das fixadas:** para cima, as abas escondidas giram junto com a última visível ao lado do
   chip (a próxima escondida aparece); para baixo, todas as abas giram uma casa.
@@ -50,11 +69,6 @@ vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu admin
   ou `voz --transcrever auto`.
 
 ## v1.23.1 · 16/10/2026
-- **🍎 Instalação e testes no macOS, sem tropeço.** O `instalar.sh` instalava o bash atual do Homebrew mas deixava o
-  bash 3.2 do sistema na frente do PATH, e o `./tt --instalar` quebrava na sintaxe; agora o bash que roda o instalador
-  vai na frente. O `tests/run.sh` passa a pôr sozinho as ferramentas GNU do Homebrew (coreutils, sed, findutils,
-  util-linux…) na frente do PATH só durante a rodada e, se faltar `timeout`, `setsid`, `aerc` ou `sox`, diz uma vez
-  qual `brew install` resolve, em vez de reprovar a suíte inteira com "comando não encontrado".
 - **🎤 Microfone no mudo é percebido.** Um headset no mudo (o botão dele) entrega silêncio absoluto, e o 🎤 ficava
   "ouvindo" esse microfone sem nunca ouvir você. Agora o tt passa para o microfone seguinte e avisa na janela ("o
   BlackShark não manda som nenhum: está no mudo?"); no meio da conversa, se o microfone emudece, a janela avisa igual
