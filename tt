@@ -2599,7 +2599,11 @@ malha_estado() {
         printf ' %s:✗(%s)' "$para" "$est"; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não alcança $para ($est)" ;;
       esac
     done <"$de"
-    [[ -s $de ]] || { printf ' (sem resposta: não foi possível consultá-la)'; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não respondeu ao diagnóstico"; }
+    if [[ ! -s $de ]]; then
+      # Sozinha na malha: o diagnóstico local não tem par a listar, e vazio é o certo (não é ilha).
+      if [[ $(basename "$de") == "$MAQUINA" && -z $(maquinas) ]]; then printf ' (sem outras máquinas cadastradas)'
+      else printf ' (sem resposta: não foi possível consultá-la)'; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não respondeu ao diagnóstico"; fi
+    fi
     echo
   done
   rm -rf "$d"
