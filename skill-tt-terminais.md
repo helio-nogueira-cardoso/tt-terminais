@@ -318,7 +318,9 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   (winmm waveIn + MMDevice; DLL compilada uma vez em `%TEMP%`) lista os microfones do Windows com o padrão e grava um
   direto (`gravar N`), sem mudar o padrão (o das chamadas); o `parecord` do WSLg grava só o padrão. O gravador fica aberto
   na conversa (`Fluxo`: thread que guarda os últimos 10 s; `frase()` descarta o que veio antes de ouvir, inclusive a voz
-  do tt); o do Windows leva ~1,5–3 s para abrir. `Gravador.proximo()` = tecla n.
+  do tt); o do Windows leva ~1,5–3 s para abrir. `Gravador.proximo()` = tecla n. Nível 0 exato na prova = microfone
+  no mudo (`Gravador.mudo`): pulado mesmo sendo headset, listado em `pulados` (a janela avisa); `frase()` com tudo zero
+  devolve "mudo".
 - Saída de som (`escolher_saida`): VOZ_SAIDA / a escolhida com s (`~/.cache/tt-voz/saida`) > o mesmo aparelho do
   microfone (`nucleo()` tira o tipo: "Headphones (BlackShark…)" e "BlackShark… (Windows)" → "blackshark…"; "MacBook Pro
   Microphone/Speakers" → "macbook pro") > a de melhor nota (a de comunicação do Windows +150) > a padrão. WSL:

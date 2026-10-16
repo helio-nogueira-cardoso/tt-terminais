@@ -407,6 +407,7 @@ class Gravador:
     def __init__(self):
         self.nome = None
         self.motivo = ""
+        self.pulados = []
         self.cands = []
         self.atual = -1
         self.fluxo = None
@@ -425,13 +426,16 @@ class Gravador:
         if self.cands[0].nome == "VOZ_GRAVADOR":  # escolhido à mão: sem prova
             return self._usar(0, Fluxo(self.cands[0]), lembrar=False)
         erros, mudos = [], []
+        self.pulados = []  # os que estavam no mudo (silêncio absoluto): a janela avisa
         sinal = float(os.environ.get("VOZ_SINAL_MIN", "20"))
         ordem = list(range(de, len(self.cands))) + list(range(0, de))
         for i in ordem:
             m = self.cands[i]
             f = Fluxo(m)
             ok, nv = self._prova(f, m)
-            if ok and (nv >= sinal or not m.generico):
+            if ok and self.mudo(nv) and not m.generico:
+                self.pulados.append(m.nome)
+            if ok and not self.mudo(nv) and (nv >= sinal or not m.generico):
                 return self._usar(i, f, lembrar=False)
             if ok:
                 mudos.append((nv, i, f))
@@ -462,7 +466,8 @@ class Gravador:
 
     @staticmethod
     def _prova(f, m):
-        """(entregou áudio?, nível): espera o primeiro áudio (o do Windows demora) e mede ~0,4 s."""
+        """(entregou áudio?, nível): espera o primeiro áudio (o do Windows demora) e mede ~0,4 s. Nível 0 exato é
+        silêncio digital: o microfone no mudo (o botão do headset), não uma sala quieta (que sempre tem ruído)."""
         partida = float(os.environ.get("VOZ_PROVA_S", m.partida))
         q = f.quadro(partida)
         if q is None:
@@ -475,6 +480,10 @@ class Gravador:
             b.append(q)
         return len(b) >= 4, rms(b"".join(b[2:]))
 
+    @staticmethod
+    def mudo(nivel):
+        return nivel == 0.0
+
     def proximo(self):
         """O microfone seguinte que entrega áudio (a tecla n); lembra a escolha. None se não há outro."""
         if len(self.cands) < 2:
@@ -482,8 +491,8 @@ class Gravador:
         for k in range(1, len(self.cands)):
             i = (self.atual + k) % len(self.cands)
             f = Fluxo(self.cands[i])
-            ok, _ = self._prova(f, self.cands[i])
-            if ok:
+            ok, nv = self._prova(f, self.cands[i])
+            if ok and not self.mudo(nv):
                 self._usar(i, f, lembrar=True)
                 return self.nome
             f.fechar()
@@ -512,12 +521,14 @@ class Gravador:
         inicio = time.time()
         comeco_fala = 0.0
         motivo = "silencio"
+        algum_som = False
         while True:
             q = self.fluxo.quadro(2.0)
             if q is None:
                 motivo = "erro" if not falando else "fala"
                 break
             r = rms(q)
+            algum_som = algum_som or r > 0
             piso = r if piso is None else (min(piso * 1.03, r) if not falando else piso)
             limiar = max(piso * 2.6, minimo)
             if nivel:
@@ -545,6 +556,8 @@ class Gravador:
                     break
         if motivo == "fala":
             return b"".join(fala), motivo
+        if motivo == "silencio" and not algum_som:
+            return b"", "mudo"
         return b"", motivo
 
 
@@ -2090,6 +2103,10 @@ def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
                 falador.mic = novo
         elif k == "v" and falador is not None:
             lista = falador.vozes()
+            if len(lista) < 2:
+                tela.linha("nota", "nenhuma voz neural disponível agora (a máquina que transcreve ainda não respondeu, ou "
+                                   "nenhuma tem o Piper ou o edge-tts): a voz fica %s" % rotulo_voz(falador.voz))
+                continue
             nova = lista[(lista.index(falador.voz) + 1) % len(lista)] if falador.voz in lista else lista[0]
             falador.voz = nova
             gravar_conf("voz", "" if nova == VOZ_PADRAO else nova)
@@ -2273,6 +2290,10 @@ class Conversa:
         if res.get("motivo") == "erro":
             self.tela.linha("erro", "o gravador parou (%s)" % self.gravador.nome)
             return None
+        if res.get("motivo") == "mudo":
+            self.tela.linha("erro", "%s não manda som nenhum: está no mudo? (o botão do headset). c e depois n troca o "
+                                    "microfone." % self.gravador.nome)
+            return ""
         if res.get("motivo") != "fala":
             return ""
         self.tela.status("… entendendo")
@@ -2317,6 +2338,9 @@ class Conversa:
         if som and not self.gravador.escolher():
             self.tela.linha("nota", "Sem microfone: %s. Digite (t)." % self.gravador.motivo)
             som = False
+        for nome in self.gravador.pulados:
+            self.tela.linha("erro", "%s não manda som nenhum: está no mudo? (o botão do headset, ou o microfone "
+                                    "desligado). Ouvindo pelo seguinte; c e depois n troca." % nome)
         self.falador = Falador(mic=self.gravador.nome if som else "",
                                fornecedor=lambda: (self.transcritor.canal, (self.transcritor.info or {}).get("vozes")))
         self.falador.aquecer()

@@ -462,8 +462,11 @@ rm -f "$B/ssh" "$B/voz"
 # --- gravar até o silêncio: fala detectada pelo nível, silêncio, e o Espaço que encerra
 python3 -c 'import math, struct, sys
 sys.stdout.buffer.write(b"\0\0" * 4000 + b"".join(struct.pack("<h", int(6000 * math.sin(i * 0.17))) for i in range(16000)))' >"$T/tom.raw"
+# 0,1 s de ruído baixo de sala (um microfone de verdade nunca dá zero exato: zero exato é microfone no mudo)
+python3 -c 'import random, struct, sys
+random.seed(3); sys.stdout.buffer.write(b"".join(struct.pack("<h", random.randint(-6, 6)) for i in range(1600)))' >"$T/ruido.raw"
 # o microfone falso fica aberto (como o de verdade) e "fala" a frase quando aparece o arquivo $T/falar
-GRAV="while :; do if [ -e '$T/falar' ]; then rm -f '$T/falar'; cat '$T/tom.raw'; fi; head -c 3200 /dev/zero || exit 0; sleep 0.1; done"
+GRAV="while :; do if [ -e '$T/falar' ]; then rm -f '$T/falar'; cat '$T/tom.raw'; fi; cat '$T/ruido.raw' || exit 0; sleep 0.1; done"
 falar_quando_ouvir() { # SESSÃO: espera a janela ouvir ("○ fale") e "fala" no microfone falso
   local i; for i in $(seq 100); do tmux capture-pane -p -J -t "=$1:" 2>/dev/null | grep -qF '○ fale' && break; sleep 0.2; done
   touch "$T/falar"
@@ -478,14 +481,37 @@ EOF
 )
 read -r mot dur <<<"$r"
 [[ $mot == fala ]] && awk -v d="$dur" 'BEGIN { exit !(d >= 1.0 && d <= 2.2) }' || falhou "frase com 1 s de fala: '$r'"
-r=$(VOZ_GRAVADOR="while :; do head -c 3200 /dev/zero || exit 0; sleep 0.1; done" VOZ_ESPERA_FALA_S=1 py <<EOF
+r=$(VOZ_GRAVADOR="while :; do cat '$T/ruido.raw' || exit 0; sleep 0.1; done" VOZ_ESPERA_FALA_S=1 py <<EOF
 $CARREGA
 import time
 g = m.Gravador(); g.escolher(); t = time.time(); pcm, motivo = g.frase(); print(motivo, len(pcm), time.time() - t < 4)
 EOF
 )
 [[ $r == 'silencio 0 True' ]] || falhou "silêncio: '$r'"
-passou 'gravação: a fala começa pelo nível e acaba no silêncio; sem fala, "silencio" depois da espera'
+# microfone no mudo (zero exato): na frase, "mudo"; na escolha, pula para o seguinte e conta qual pulou
+r=$(VOZ_GRAVADOR="while :; do head -c 3200 /dev/zero || exit 0; sleep 0.1; done" VOZ_ESPERA_FALA_S=1 py <<EOF
+$CARREGA
+g = m.Gravador(); g.escolher(); print(g.frase()[1]); g.fechar()
+EOF
+)
+[[ $r == mudo ]] || falhou "frase com o microfone no mudo: '$r'"
+cat >"$F/ps-mudo" <<'FIM'
+#!/bin/sh
+case "$*" in
+  *" listar") printf '0\tpadrao\tMicrophone (HD Pro Webcam C920)\tMicrophone (Intel USB Audio)\r\n1\t\tMicrophone (BlackShark V2 Pro P\tMicrophone (BlackShark V2 Pro PS 2.4)\r\n' ;;
+  *" gravar 1") head -c 64000 /dev/zero; sleep 5 ;;
+  *" gravar 0") head -c 64000 /dev/urandom; sleep 5 ;;
+esac
+FIM
+chmod +x "$F/ps-mudo"
+r=$(PATH="$F:$PATH" VOZ_SISTEMA=WSL VOZ_WSLG=/nada VOZ_POWERSHELL="$F/ps-mudo" VOZ_PROVA_S=0.6 py <<EOF
+$CARREGA
+g = m.Gravador(); print(g.escolher(), g.nome, "|", g.pulados); g.fechar()
+EOF
+)
+[[ $r == "True Intel USB Audio (Windows) | ['BlackShark V2 Pro PS 2.4 (Windows)']" ]] ||
+  falhou "headset no mudo: deveria ouvir pelo seguinte e avisar: '$r'"
+passou 'gravação: fala pelo nível, fim no silêncio; microfone no mudo (zero exato) é pulado e avisado'
 
 # --- a janela da conversa: microfone, transcrição e voz falsos; o voz e o cérebro de regras de verdade
 tmux new-session -d -s _base 'sleep 3600'  # o servidor do tmux não morre entre uma janela e a seguinte
@@ -498,6 +524,10 @@ cat >/dev/null; n=$(($(cat "$J/n") + 1)); echo $n >"$J/n"; sed -n "${n}p" "$J/fr
 FIM
 chmod +x "$J/stt"
 export J
+# um Piper (falso) neste computador: a tecla v tem para onde ir
+VV=$HOME/.local/share/tt-voz/venv; python3 -m venv --without-pip "$VV" 2>/dev/null || { mkdir -p "$VV/bin"; ln -sf "$(command -v python3)" "$VV/bin/python"; : >"$VV/pyvenv.cfg"; }
+mkdir -p "$("$VV/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/piper" "$HOME/.local/share/tt-voz/piper"
+: >"$HOME/.local/share/tt-voz/piper/pt_BR-faber-medium.onnx"
 # o cérebro deixa um filho em segundo plano com o canal aberto: a volta acaba quando o voz acaba, sem esperar por ele
 printf '%s' '{"fala": "Tudo certo por aqui.", "acoes": []}' >"$J/plano.json"
 tmux new-session -d -s conversa -x 100 -y 30 -e VOZ_GRAVADOR="$GRAV" -e VOZ_STT_CMD="$J/stt" -e VOZ_PAUSA=0.5 \
@@ -533,7 +563,7 @@ tmux send-keys -t '=conversa:' Enter; espera_tela 'transcrever: comando de teste
   falhou "opções: não gravou a escolha: $(cat "$HOME/.config/tt-voz/cerebro-modelo" "$HOME/.config/tt-voz/modelo" 2>&1)"
 [[ $(bash "$V" --cerebro-modelo) == 'cérebro: haiku' ]] || falhou 'o voz não lê o cérebro escolhido nas opções'
 [[ $(cat "$HOME/.config/tt-voz/voz") == sistema ]] || falhou "opções: a voz não ficou guardada: $(cat "$HOME/.config/tt-voz/voz" 2>&1)"
-rm -f "$HOME/.config/tt-voz/voz"
+rm -f "$HOME/.config/tt-voz/voz"; rm -rf "$VV" "$HOME/.local/share/tt-voz/piper"
 espera_tela 'c: opções' || falhou 'depois das opções, não voltou a ouvir'
 # um agente que ficou trabalhando (pendente) terminou: enquanto ouve, a janela confere e fala a resposta sozinha
 tmux new-session -d -s agente-x "printf '● Pronto: terminei a revisão.\n'; sleep 600"; sleep 0.5

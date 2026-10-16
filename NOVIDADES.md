@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.23.1 · 16/10/2026
+- **🎤 Microfone no mudo é percebido.** Um headset no mudo (o botão dele) entrega silêncio absoluto, e o 🎤 ficava
+  "ouvindo" esse microfone sem nunca ouvir você. Agora o tt passa para o microfone seguinte e avisa na janela ("o
+  BlackShark não manda som nenhum: está no mudo?"); no meio da conversa, se o microfone emudece, a janela avisa igual
+  (c e depois n troca o microfone).
+- **🎤 A tecla v das opções não troca mais para a voz do sistema sem querer** quando as vozes neurais ainda não estão
+  disponíveis (a máquina que transcreve não respondeu): ela diz que nenhuma voz neural está disponível agora.
+
 ## v1.23.0 · 16/10/2026
 - **🎤 Sem travar ao perguntar o estado de uma sessão.** "Qual o estado dessa sessão?" esperava o agente terminar
   (até 2,5 min, em silêncio). Agora o cérebro recebe a tela de agora da sessão e responde na hora: o que o agente está
