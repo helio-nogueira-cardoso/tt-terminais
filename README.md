@@ -225,6 +225,12 @@ que quebrou e, por ela como ponte, reautoriza a chave desta máquina, sem precis
 O `--cadastrar` já deixa a chave autorizada no destino, para o acesso direto não depender de
 configuração manual.
 
+Os menus e a barra pulam as máquinas que o Tailscale dá como desligadas. Só a marca "Online" dele não basta: ela é a
+visão do servidor de coordenação e às vezes oscila com a máquina de pé e o ssh funcionando. A máquina sai da lista só
+quando o Tailscale a dá como fora, não há tráfego recente com ela e ela foi vista pela última vez há mais de 5 min
+(`TT_TS_TOLERANCIA`, em segundos). E o clique para ir a uma sessão dela (uma fixada, uma ponte) tenta o ssh assim mesmo:
+se ela responder, vai; senão, avisa que ela não respondeu.
+
 
 Tudo isso também está no menu de máquinas (clique no nome da máquina na barra). Configuração:
 

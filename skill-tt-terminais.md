@@ -821,7 +821,11 @@ máquinas vão ao mesmo tempo: enviar (`propagar_*`) dispara em 2º plano; puxar
 máquinas, o total leva o tempo da mais lenta); `reconciliar_fixadas` consulta as remotas todas de uma vez.
 `SSH_OPC` = BatchMode, ConnectTimeout 4, StrictHostKeyChecking accept-new, ControlMaster/Persist
 (socket em `~/.cache/tt-ssh-%r@%h`, 12 h), keepalive. `TT_REMOTO` força o PATH (homebrew/local) e
-chama `~/.local/bin/tt`. `dest_de ROTULO` resolve `.` (local) ou `usuario@host`.
+chama `~/.local/bin/tt`. `dest_de ROTULO` resolve `.` (local) ou `usuario@host` pela lista de `maquinas` (cache de 20 s
+de `maquinas_agora`): fica de fora a que o Tailscale dá como desligada **de verdade** (Online falso, sem `Active` e
+`LastSeen` há mais de `TT_TS_TOLERANCIA` s, padrão 300; só o Online oscila com a máquina de pé). `dest_ir ROTULO` é o
+dos cliques que vão a uma máquina (fixada, ponte, origem da tela, atalho/⏩ noutra máquina): cadastrada mas fora da lista,
+devolve o host assim mesmo (`maquinas_agora todas`) e sai 2, e quem chama diz "não respondeu" se o ssh falhar.
 
 - **Fixadas**: versão em `.v` (ns da última mudança); `receber_fixadas` só aceita versão mais nova
   (uma máquina atrasada nunca desfaz mudança nova); `puxar_fixadas` busca a maior entre todas. Lock

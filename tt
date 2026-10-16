@@ -1563,14 +1563,32 @@ cat_remoto() { timeout "$4" ssh "${SSH_OPC[@]}" "$1" "cat $3 2>/dev/null" </dev/
 # Lê ~/.config/tt/maquinas; com o Tailscale, pula as desligadas e usa o nome completo
 # (host.tailnet.ts.net: o nome curto pode coincidir com o desta máquina — por exemplo, um WSL
 # com o mesmo hostname do Windows que o hospeda).
+# Desligada é a que o Tailscale dá como fora, sem tráfego recente com ela (Active) e vista pela última vez há
+# mais de TT_TS_TOLERANCIA s (padrão 300). Só a marca Online não basta: ela é a visão do servidor de
+# coordenação e oscila. Em 16/10/2026 a empresa viu o Dell "desligado" por mais de um minuto com o túnel ssh
+# de pé, e o clique numa fixada dele dizia "máquina não cadastrada ou desligada" sem nem tentar.
+# "maquinas_agora todas": as cadastradas, mesmo as dadas como desligadas (dest_ir).
 maquinas_agora() {
   [[ -f $CONF_MAQ ]] || return 0
   { command -v tailscale >/dev/null && tailscale status --json 2>/dev/null || echo '{}'; } | python3 -c '
-import json, sys
+import calendar, json, sys, time
 try:
     d = json.load(sys.stdin)
 except ValueError:
     d = {}
+todas = sys.argv[3:4] == ["todas"]
+try:
+    tolerancia = float(sys.argv[4])
+except (IndexError, ValueError):
+    tolerancia = 300.0
+def desligada(p):
+    if p.get("Online") or p.get("Active"):
+        return False
+    try:  # "2026-10-16T19:10:00.1Z"; o valor zero (0001-01-01) é "nunca vista": desligada
+        visto = calendar.timegm(time.strptime((p.get("LastSeen") or "")[:19], "%Y-%m-%dT%H:%M:%S"))
+    except ValueError:
+        return True
+    return visto < 86400 or time.time() - visto > tolerancia
 pares = {}
 for p in (d.get("Peer") or {}).values():
     dns = p.get("DNSName", "").rstrip(".")
@@ -1588,11 +1606,11 @@ for linha in open(sys.argv[1]):
     rotulo = c[2] if len(c) > 2 else host.split(".")[0]
     p = pares.get(host)
     if p is not None:
-        if not p.get("Online"):
+        if not todas and desligada(p):
             continue
         host = p.get("DNSName", "").rstrip(".") or host
     print(f"{usuario}@{host} {rotulo}")
-' "$CONF_MAQ" "$(id -un)" 2>/dev/null
+' "$CONF_MAQ" "$(id -un)" "${1:-}" "${TT_TS_TOLERANCIA:-300}" 2>/dev/null
 }
 
 # Máquinas Linux online da tailnet que ainda não estão cadastradas: "host sistema".
@@ -1624,8 +1642,26 @@ meu_host() {
 }
 
 dest_de() { [[ $1 == "$MAQUINA" ]] && echo . || maquinas | awk -v r="$1" '$2 == r { print $1; exit }'; }
+# Para ir agora (um clique, a tela de uma ponte): o de dest_de; se o Tailscale tirou a máquina da lista (ela está
+# cadastrada, mas dada como desligada), o cadastro assim mesmo, e o ssh decide (ConnectTimeout). Sai 2 nesse caso,
+# para quem chama dizer "não respondeu" em vez de "desligada" quando o ssh falhar.
+dest_ir() {
+  local d
+  d=$(dest_de "$1")
+  [[ -n $d ]] && { printf '%s\n' "$d"; return 0; }
+  d=$(maquinas_agora todas | awk -v r="$1" '$2 == r { print $1; exit }')
+  [[ -n $d ]] || return 1
+  printf '%s\n' "$d"
+  return 2
+}
 
-rotulo_de() { maquinas | awk -v d="$1" '$1 == d { print $2; f = 1 } END { if (!f) print d }'; }
+# (a que o Tailscale dá como desligada sai da lista, mas pode estar sendo usada: dest_ir; o rótulo vem do cadastro)
+rotulo_de() {
+  local r
+  r=$(maquinas | awk -v d="$1" '$1 == d { print $2; exit }')
+  [[ -z $r && $1 == *@* ]] && r=$(maquinas_agora todas | awk -v d="$1" '$1 == d { print $2; exit }')
+  printf '%s\n' "${r:-$1}"
+}
 
 # Resiliência de conexão (aprendizado do incidente dell 2026-10): a rota Tailscale pode
 # estar viva e o SSH ainda falhar por chave ausente ou policy; e um primeiro acesso pelo
@@ -4739,7 +4775,7 @@ ir_para() {
   local dest=$1 s=$2 origem om op
   origem=$(origem_ponte "${TT_CLIENTE:-}")
   om=${origem%%|*} op=${origem#*|}
-  if [[ $dest != . && -n $origem && -n $op ]] && ssh "${SSH_OPC[@]}" "$(dest_de "$om")" "$TT_REMOTO --ir-ponte $(q "$op" "$(rotulo "$dest")" "$s")" </dev/null; then
+  if [[ $dest != . && -n $origem && -n $op ]] && ssh "${SSH_OPC[@]}" "$(dest_ir "$om")" "$TT_REMOTO --ir-ponte $(q "$op" "$(rotulo "$dest")" "$s")" </dev/null; then
     sair_menu
     return 0
   fi
@@ -4779,9 +4815,9 @@ ir_ponte() {
   [[ -n $c ]] || return 1
   if [[ $r == "$MAQUINA" ]]; then alvo=$s
   else
-    dest=$(dest_de "$r")
+    dest=$(dest_ir "$r")
     if [[ -z $dest ]]; then
-      tmux display-message -c "$c" "⚠ $r: máquina não cadastrada ou desligada; sessão $s não aberta"
+      tmux display-message -c "$c" "⚠ $r: máquina não cadastrada; sessão $s não aberta"
       return 1
     fi
     alvo=$(criar_ponte "$dest" "$s" "$c") || return 1
@@ -6911,7 +6947,7 @@ abrir_na_tela() {
   c=${TT_LINK_CLIENTE:-}
   [[ -n $c || -z ${TMUX:-} ]] || c=$(cliente_externo)
   om=$(maquina_da_tela "$c"); [[ -n $om ]] || return 1
-  d=$(dest_de "$om"); [[ -n $d && $d != . ]] || return 1
+  d=$(dest_ir "$om"); [[ -n $d && $d != . ]] || return 1
   [[ -n $c ]] && tmux display-message -c "$c" -d 2500 "🌐 abrindo em $om" 2>/dev/null
   rodar_fora 0 "timeout 20 ssh $(q "${SSH_OPC[@]}") $(q "$d") $(q "$TT_REMOTO --abrir-aqui $(q "$qual" "$u")") </dev/null >/dev/null 2>&1 || TT_ABRIR_AQUI=1 $(q "$EU") --abrir-aqui $(q "$qual" "$u")"
 }
@@ -14061,20 +14097,26 @@ barra_fixadas() {
 
 # Clique num item fixado: vai para ele (ponte, se for de outra máquina).
 ir_fixada() {
-  local c=$1 chave=${2#fx} r s id k d resolvida
+  local c=$1 chave=${2#fx} r s id k d resolvida fora rc
   while IFS=$'\t' read -r r s id; do
     fixada_chave_em k "$r" "$s" "$id"
     [[ $k == "$chave" ]] && break
     r=""; s=""
   done < <(fixadas)
   [[ -n $s ]] || return 0
-  d=$(dest_de "$r")
-  if [[ -z $d ]]; then tmux display-message -c "$c" "📌 $r: máquina não cadastrada ou desligada"; return 0; fi
+  # Dada como desligada pelo Tailscale (fora=2), vai assim mesmo: a marca dele oscila com a máquina de pé
+  d=$(dest_ir "$r"); fora=$?
+  if [[ -z $d ]]; then tmux display-message -c "$c" "📌 $r: máquina não cadastrada"; return 0; fi
+  ((fora == 2)) && tmux display-message -c "$c" -d 4000 "⟳ $r: o Tailscale a dá como desligada; tentando assim mesmo…"
   if [[ -n $id ]]; then
     if [[ $d == . ]]; then
       resolvida=$(session_by_id "$id")
     else
       resolvida=$(timeout 6 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --resolver-fixada $(q "$s") $(q "$id")" </dev/null 2>/dev/null)
+      rc=$?
+      if ((fora == 2 && (rc == 124 || rc == 255))); then
+        tmux display-message -c "$c" "📌 $r não respondeu: o Tailscale a dá como desligada"; return 0
+      fi
       resolvida=${resolvida%%$'\t'*}
       # Achada pelo id lá agora há pouco: a sessão existe. O entrar_remoto pula a 2ª ida por ssh
       # (has-session) que só confirmaria isso (~0,2 a 0,6 s a menos até a troca).
@@ -14320,7 +14362,7 @@ dest_da_tela() {
   local c om d
   c=${TT_LINK_CLIENTE:-}; [[ -n $c || -z ${TMUX:-} ]] || c=$(cliente_externo 2>/dev/null)
   om=$(maquina_da_tela "$c"); [[ -n $om ]] || return 0
-  d=$(dest_de "$om"); [[ -n $d && $d != . ]] && printf '%s\t%s\t%s\n' "$d" "$om" "$c"
+  d=$(dest_ir "$om"); [[ -n $d && $d != . ]] && printf '%s\t%s\t%s\n' "$d" "$om" "$c"
   return 0
 }
 
@@ -14667,8 +14709,8 @@ pasta_portavel() {
 atalho_na_maquina() { # id cliente painel rótulo comando pasta
   local id=$1 c=$2 p=$3 r=$4 cmd=$5 pasta=$6 d s
   if [[ $cmd == @seguir* ]]; then seguir_ia "$c" "$p" "$r"; return 0; fi
-  d=$(dest_de "$r")
-  [[ -n $d && $d != . ]] || { botao_aviso "$c" "⚠ $r: máquina não cadastrada ou desligada"; return 0; }
+  d=$(dest_ir "$r")
+  [[ -n $d && $d != . ]] || { botao_aviso "$c" "⚠ $r: máquina não cadastrada"; return 0; }
   tmux display-message -c "$c" -d 2000 "⟳ abrindo o atalho $id em $r…" 2>/dev/null
   s=$(timeout 20 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --atalho-sessao $(q "$id" "$(pasta_portavel "$pasta")")" </dev/null 2>/dev/null)
   [[ $s =~ ^[^[:space:]]+$ ]] || { botao_aviso "$c" "⚠ $r não abriu o atalho $id (sem resposta, ou o tt de lá não tem esse atalho)"; return 0; }
@@ -14808,7 +14850,7 @@ atalho_janela() { # cliente pasta comando id
   if [[ $cmd == 'voz '* ]] && origem=$(origem_ponte "$c") && [[ -n $origem && $origem == *'|'* ]]; then
     om=${origem%%|*} op=${origem#*|}
     sess=$(do_cliente "$c" '#{session_name}')
-    if ssh "${SSH_OPC[@]}" "$(dest_de "$om")" "$TT_REMOTO --janela-ponte $(q "$op" "$cmd" "$MAQUINA" "$sess")" </dev/null; then
+    if ssh "${SSH_OPC[@]}" "$(dest_ir "$om")" "$TT_REMOTO --janela-ponte $(q "$op" "$cmd" "$MAQUINA" "$sess")" </dev/null; then
       return 0
     fi
     botao_aviso "$c" "⚠ 🎤 não consegui abrir na máquina de origem ($om); abrindo aqui"
@@ -15003,8 +15045,8 @@ seguir_ia() { # cliente painel [rótulo-destino]
     botao_aviso "$c" "⏩ a conversa $prov ${id:0:8} segue com outra IA neste painel"
     return 0
   fi
-  d=$(dest_de "$r")
-  [[ -n $d && $d != . ]] || { botao_aviso "$c" "⚠ $r: máquina não cadastrada ou desligada"; return 0; }
+  d=$(dest_ir "$r")
+  [[ -n $d && $d != . ]] || { botao_aviso "$c" "⚠ $r: máquina não cadastrada"; return 0; }
   tmux display-message -c "$c" -d 3000 "⏩ passando a conversa para $r…" 2>/dev/null
   s=$(timeout 30 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --seguir-abrir $(q "$MAQUINA" "$prov" "$id" "$(pasta_portavel "$la")")" </dev/null 2>/dev/null)
   if [[ ! $s =~ ^[^[:space:]]+$ ]]; then
@@ -15161,7 +15203,7 @@ rolar() { # range ±1 cliente
       om=${origem%%|*} op=${origem#*|}
       if [[ -z $origem || -z $op ]]; then rolar_maquina_cliente "$c" "$MAQUINA" "$dir"; return 0; fi
       rolar_vez "m-$c" "${TT_ROLAR_FOLGA:-400}" || return 0
-      d=$(dest_de "$om")
+      d=$(dest_ir "$om")
       if [[ -z $d ]] || ! timeout 30 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --rolar-ponte $(q "$op" "$MAQUINA" "$dir")" </dev/null >/dev/null 2>&1; then
         botao_aviso "$c" "⚠ não consegui falar com $om (a máquina desta tela) para trocar de máquina"
       fi

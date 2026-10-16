@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.27.2 · 16/10/2026
+- **📌 Fixada de outra máquina que dizia "desligada" sem estar.** Às vezes o clique numa fixada de outra máquina dizia
+  "máquina não cadastrada ou desligada" e não ia; depois de vários cliques, ia. O tt confiava na marca "Online" do
+  Tailscale, que oscila com a máquina de pé e o ssh funcionando (a empresa viu o Dell "desligado" por mais de um minuto
+  com o túnel aberto). Agora a máquina só sai da lista quando o Tailscale a dá como fora, sem tráfego recente e vista
+  pela última vez há mais de 5 min. E o clique para ir a uma sessão dela (fixada, ponte) tenta o ssh assim mesmo: vai, se
+  ela responder; senão avisa que ela não respondeu.
+
 ## v1.27.0 · 16/10/2026
 - **🍎 O tt agora roda no macOS (Homebrew), de ponta a ponta.** `./instalar.sh` instala o que o sistema não tem (bash 5, tmux,
   fzf, ripgrep, as ferramentas GNU — coreutils, sed, tar, findutils, grep, gawk, util-linux — e um Python novo) e o `tt` põe
