@@ -23,9 +23,11 @@ export PATH="$B:$PATH"
 # --- o voz no pacote e no PATH; no celular, o termux/bin/voz roda o da raiz
 grep -qE '^ARQUIVOS_FONTE=.*' "$RAIZ/tt" && sed -n '/^ARQUIVOS_FONTE=(/,/)/p' "$RAIZ/tt" | grep -qw 'voz-audio.py' &&
   sed -n '/^ARQUIVOS_FONTE=(/,/)/p' "$RAIZ/tt" | grep -qE '(^| )voz( |$)' || falhou 'voz e voz-audio.py fora do ARQUIVOS_FONTE'
-[[ $(bash "$RAIZ/termux/bin/voz" --destino dell) == u@h1 ]] || falhou 'termux/bin/voz não roda o voz da raiz'
+[[ $(TT_DIR=/nada bash "$RAIZ/termux/bin/voz" --destino dell) == u@h1 ]] || falhou 'termux/bin/voz não roda o voz da raiz'
+mkdir -p "$T/pacote"; printf 'echo "do pacote: $*"\n' >"$T/pacote/voz"
+[[ $(TT_DIR=$T/pacote bash "$RAIZ/termux/bin/voz" status) == 'do pacote: status' ]] || falhou 'termux/bin/voz deveria preferir o voz do tt instalado'
 [[ $(head -1 "$V") == '#!/usr/bin/env bash' ]] || falhou 'o voz da raiz precisa de um shebang que valha fora do Termux'
-passou 'voz no pacote (raiz) e o atalho do celular apontando para ele'
+passou 'voz no pacote (raiz); o atalho do celular roda o do tt instalado (atualizado sozinho) ou o da raiz'
 
 # --- canal da janela: "tipo<TAB>texto" no fd VOZ_TELA_FD; fim encerra; status sem a linha "units"
 ev=$(VOZ_TELA_FD=3 bash "$V" --turno maquinas 3>&1 >/dev/null)

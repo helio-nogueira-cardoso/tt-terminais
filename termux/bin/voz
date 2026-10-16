@@ -1,5 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# voz no celular: o utilitário mora na raiz do repositório (é do pacote do tt em todas as máquinas). Este atalho o roda
-# pelo bash do Termux, que o cron acha sem o /usr/bin/env.
-d=$(dirname "$(readlink -f "$0")")
-exec "${BASH:-bash}" "$d/../../voz" "$@"
+# voz no celular: roda o voz do tt instalado (o pacote, que se atualiza sozinho com a main) pelo bash do Termux, que o
+# cron acha sem o /usr/bin/env; sem o tt instalado, o da raiz deste clone.
+p=${TT_DIR:-$HOME/.local/share/tt}/voz
+[[ -f $p ]] || p=$(dirname "$(readlink -f "$0")")/../../voz
+exec "${BASH:-bash}" "$p" "$@"

@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.19.1 · 16/10/2026
+- **🎤 Voz no celular sempre atualizada.** O `voz` do celular rodava a cópia do clone usado na instalação
+  (`~/tt-terminais`), que não se atualiza sozinho: o daemon do Tasker ficava sem os consertos novos. Agora ele roda o
+  `voz` do tt instalado, que acompanha cada versão publicada.
+
 ## v1.19.0 · 16/10/2026
 - **🎤 Conversar com o tt pela voz, também no computador.** Um botão novo na barra, o 🎤 (ou `Ctrl+B v`), abre uma
   janela de conversa: você fala, ela mostra o que entendeu, o tt age e responde falando. Vale no Linux, no macOS e no

@@ -826,7 +826,8 @@ daemon só sobe depois da ativação). Você fala, a frase vai para o tt (máqui
 volta falada. A conversa vai e volta até você dizer "encerrar".
 
 O `voz` é o mesmo dos computadores (o 🎤 da barra; README, "Conversar com o tt pela voz"): mora na raiz do repositório
-e o `termux/bin/voz` o roda pelo bash do Termux (o cron não resolve `/usr/bin/env`). No celular, o 🎤 da barra (ou
+e o `termux/bin/voz` roda o do tt instalado (`~/.local/share/tt/voz`, atualizado a cada versão; sem ele, o da raiz do
+clone) pelo bash do Termux (o cron não resolve `/usr/bin/env`). No celular, o 🎤 da barra (ou
 `Ctrl+B v`) abre a conversa no Tasker e uma janela que mostra o que foi dito (`~/.local/state/tt-voz/conversa.log`) e
 deixa digitar; sem o Tasker ativado, a conversa da janela é digitada.
 
