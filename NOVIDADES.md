@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.27.3 · 16/10/2026
+- **🍎 Janelas soltas no macOS e testes isolados.** O tt acha as janelas de terminal soltas (fora do tmux) também no macOS e passou a
+  ter `TT_SEM_SOLTOS=1`, que os testes ligam para que as janelas abertas na máquina de quem roda a suíte não apareçam nas listagens
+  (o `test_listar_lote` reprovava só por isso).
+
 ## v1.27.2 · 16/10/2026
 - **📌 Fixada de outra máquina que dizia "desligada" sem estar.** Às vezes o clique numa fixada de outra máquina dizia
   "máquina não cadastrada ou desligada" e não ia; depois de vários cliques, ia. O tt confiava na marca "Online" do

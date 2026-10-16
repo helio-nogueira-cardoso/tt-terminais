@@ -814,6 +814,7 @@ soltos_bsd() {
 
 soltos() {
   local meu_sid="" pid sid tty pai fg cmd st v tem c
+  [[ ${TT_SEM_SOLTOS:-} == 1 ]] && return 0  # (os testes isolam: as janelas soltas desta máquina não entram nas listagens deles)
   [[ -r /proc/$$/stat ]] || { soltos_bsd; return; }
   # Com /proc (Linux, Termux), lido direto: eram ps + tr + id e, por janela solta, tr + grep + dois ps
   # (~60 ms ao abrir a central). Sem /proc (macOS), o ps de antes.

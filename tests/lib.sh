@@ -53,6 +53,7 @@ isolar() {
   export TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8  # ambiente controlavel: nao herdar TERM=dumb nem locale vazio do chamador
   export TT_LETREIRO_SEM_PADRAO=1 # a suíte começa com o cadastro vazio; o perfil de fábrica tem teste próprio
   export TT_EMAIL_SEM_REDE=1 TT_T_ATUALIZACAO=999999 TT_ATALHOS_PADRAO=$T/pkg/atalhos-padrao
+  export TT_SEM_SOLTOS=1 # as janelas de terminal soltas (fora do tmux) desta máquina não entram nas listagens dos testes
   export TT_SEM_NAVEGADORES=1 # instalar no HOME temporário não baixa Chrome/Carbonyl em segundo plano
   export TT_PEND_SEM_NAVEGADORES=1 # o catálogo de pendências não oferece Chrome/Carbonyl (os testes que querem, esvaziam a variável)
   export TT_PEND_SEM_SUDO_SEM_SENHA=1 # nem o "sudo sem senha" (o sudo da máquina pede senha; test_sudo_sem_senha.sh a esvazia)
