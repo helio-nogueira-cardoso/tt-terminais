@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.27.5 · 16/10/2026
+- **🖥️ Terminal interativo para agentes (`tt --pty`).** Um agente de IA não tem tty: `sudo`, `ssh`, `vim` e instaladores ficavam fora
+  de alcance. Agora ele abre uma sessão tmux própria (`ia-pty-NOME`), digita, lê a tela e espera por um texto; você entra nela
+  (`tt --pty entrar`) para digitar o que o agente não deve ver, como a senha. Funciona igual no Linux e no macOS e entra nas regras
+  que todos os agentes recebem.
+- **🍎 "Sudo sem senha" no macOS.** O passo gravava a regra com `install -g root`, mas o macOS não tem grupo `root` (é `wheel`): falhava e
+  o tt culpava a senha ("senha errada?"). Agora usa o grupo real do root e a mensagem de erro é mais precisa.
+
 ## v1.27.4 · 16/10/2026
 - **🔒 E-mail OAuth e uso das contas de IA em redes com inspeção de TLS.** O Python 3.13+ rejeita, no modo estrito de X.509, a CA de
   inspeção de redes corporativas (Netskope e afins) que o sistema já confia mas que não declara `keyUsage`: a renovação do token do

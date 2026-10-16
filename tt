@@ -19,6 +19,7 @@
 #   tt --nova [N]   cria uma sessão solta (sem entrar) e imprime o nome
 #   tt --pendencias o que o tt pode precisar instalar nesta máquina, e o que já está pronto
 #   tt --pedir-sudo instala o que falta (pergunta antes; --sim aceita tudo; ids escolhem)
+#   tt --pty AÇÃO   terminal interativo (tmux) para agentes: abrir|enviar|tecla|ler|esperar|entrar|fechar|listar
 #   tt --checar     confere se o tt funciona aqui (--checar-agente: um agente confere e corrige; --checar-ver
 #                   o último relatório; --checar-handoff: pacote de logs, sem segredos, para quem mantém o tt)
 #   tt --sessoes-ia conversas do Claude/Codex/Kiro iguais em todas as máquinas (status|on|off|agora)
@@ -6061,7 +6062,8 @@ sudo_sem_senha_ativar() {
   printf '# Gerado pelo tt (pendência "sudo sem senha"): %s usa o sudo sem senha. Desfazer: sudo rm %s\n%s ALL=(ALL) NOPASSWD: ALL\n' "$u" "$f" "$u" >"$tmp"
   chmod 0440 "$tmp"
   if ! "$s" visudo -cf "$tmp" >/dev/null 2>&1; then echo "  ✗ o visudo recusou a regra; nada foi gravado."; rm -f "$tmp"; return 1; fi
-  if ! "$s" install -m 0440 -o root -g root "$tmp" "$f"; then echo "  ✗ não consegui gravar $f (senha errada?)."; rm -f "$tmp"; return 1; fi
+  # O grupo do root é "root" no Linux e "wheel" no macOS (lá não existe grupo "root").
+  if ! "$s" install -m 0440 -o root -g "$(id -gn root 2>/dev/null || echo root)" "$tmp" "$f"; then echo "  ✗ não consegui gravar $f (senha errada, ou o install recusou: veja a mensagem acima)."; rm -f "$tmp"; return 1; fi
   rm -f "$tmp"
   if "$s" -n true 2>/dev/null; then echo "  ✓ sudo sem senha ativo (regra em $f)"; pk_log "sudo sem senha: regra gravada em $f"; return 0; fi
   echo "  ✗ a regra foi gravada em $f, mas o sudo ainda pede senha (o /etc/sudoers inclui /etc/sudoers.d?)."; return 1
@@ -11022,6 +11024,69 @@ notificar_daqui() { # texto [segundos (padrão 86400)] [--sempre]
   if ((sempre == 0)) && usuario_olhando "$s" "$w"; then echo vendo; return 0; fi
   tarefas_notificar "🤖 $s" "$txt" "sessao:$MAQUINA|$s|$p" "$canal" "$dura" >/dev/null 2>&1
   echo notificado
+}
+
+# Terminal interativo permanente para agentes (tt --pty). O Bash de uma IA não tem tty: sudo, ssh, vim, instaladores e
+# qualquer "Password:" ficam inalcançáveis. Aqui o agente abre uma sessão tmux própria (ia-pty-NOME), digita nela, lê a
+# tela e espera por um texto; o usuário entra na mesma sessão (tt --pty entrar) para digitar o que o agente não deve
+# ver, como a senha. Só usa o tmux: igual no Linux e no macOS.
+pty_agente() { # ação [NOME] args…
+  local acao=${1:-} nome s tela n rx seg
+  case $acao in
+    abrir|enviar|tecla|ler|esperar|entrar|fechar|listar) shift ;;
+    *) cat >&2 <<'FIM_USO'
+uso: tt --pty AÇÃO [NOME] …    (NOME padrão: padrao; a sessão se chama ia-pty-NOME)
+  abrir  [NOME] [PASTA]          cria a sessão (ou reaproveita) e imprime o nome dela
+  enviar [NOME] [--sem-enter] T  digita o texto T (literal) e Enter
+  tecla  [NOME] TECLA…           envia teclas do tmux: C-c, Enter, Up, y …
+  ler    [NOME] [LINHAS]         imprime a tela (padrão: últimas 40 linhas)
+  esperar [NOME] REGEX [SEG]     espera o REGEX (egrep) aparecer na tela; 0 achou, 1 acabou o tempo (padrão 30 s)
+  entrar [NOME]                  leva o seu cliente à sessão (dentro do tmux: switch-client; fora: attach)
+  fechar [NOME]                  encerra a sessão          listar    sessões ia-pty-* abertas
+Senha: o agente NUNCA a digita. Ao ver "Password:" (esperar 'assword'), avise com tt --notificar-daqui --sempre e peça
+ao usuário para rodar "tt --pty entrar NOME".
+FIM_USO
+       return 1 ;;
+  esac
+  if [[ $acao == listar ]]; then tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^ia-pty-' || true; return 0; fi
+  # o NOME é opcional, mas só quando o 1º argumento não parece ser o resto da ação
+  nome=padrao
+  case $acao in
+    abrir|entrar|fechar|ler|enviar|tecla|esperar)
+      if [[ -n ${1:-} && ${1:-} != --* ]] && { [[ $acao == abrir || $acao == entrar || $acao == fechar ]] || tmux has-session -t "=ia-pty-${1//[^A-Za-z0-9_-]/_}" 2>/dev/null; }; then nome=$1; shift; fi ;;
+  esac
+  s=ia-pty-${nome//[^A-Za-z0-9_-]/_}
+  if [[ $acao != abrir ]] && ! tmux has-session -t "=$s" 2>/dev/null; then
+    echo "tt --pty: a sessão $s não existe (tt --pty abrir $nome)" >&2; return 1
+  fi
+  case $acao in
+    abrir)
+      if ! tmux has-session -t "=$s" 2>/dev/null; then
+        tmux new-session -d -s "$s" -x 200 -y 50 -c "${1:-$PWD}" || return 1
+      fi
+      echo "$s" ;;
+    enviar)
+      local enter=1; [[ ${1:-} == --sem-enter ]] && { enter=0; shift; }
+      tmux send-keys -t "=$s:" -l -- "$*" || return 1
+      ((enter)) && tmux send-keys -t "=$s:" Enter
+      return 0 ;;
+    tecla) (($#)) || { echo "tt --pty tecla: faltou a tecla" >&2; return 1; }; tmux send-keys -t "=$s:" "$@" ;;
+    ler)
+      n=${1:-40}; [[ $n == *[!0-9]* ]] && n=40
+      tmux capture-pane -p -J -S "-$n" -t "=$s:" | awk '{ l[NR] = $0 } NF { u = NR } END { for (i = 1; i <= u; i++) print l[i] }' | sed 's/[[:space:]]*$//' ;;
+    esperar)
+      rx=${1:-}; seg=${2:-30}; [[ -n $rx ]] || { echo "tt --pty esperar: faltou o REGEX" >&2; return 1; }
+      [[ $seg == *[!0-9]* ]] && seg=30
+      local fim=$((SECONDS + seg))
+      while :; do
+        tela=$(tmux capture-pane -p -J -t "=$s:" 2>/dev/null) || return 1
+        grep -Eq -- "$rx" <<<"$tela" && return 0
+        ((SECONDS >= fim)) && return 1
+        sleep 0.3
+      done ;;
+    entrar) if [[ -n ${TMUX:-} ]]; then tmux switch-client -t "=$s"; else tmux attach -t "=$s"; fi ;;
+    fechar) tmux kill-session -t "=$s" ;;
+  esac
 }
 
 notifs_clique() { # cliente
@@ -19236,6 +19301,7 @@ case "${1:-}" in
   --ir-fixada) ir_fixada "$2" "$3"; exit ;;
   --notificar) notificar "${2:-}" "${3:-300}" "${4:-}"; exit ;;
   --notificar-daqui) shift; notificar_daqui "$@"; exit ;;
+  --pty) shift; pty_agente "$@"; exit ;;
   --notifs) notifs_popup "${2:-}"; exit ;;
   --notifs-ui) notifs_ui "${2:-}"; exit ;;
   --notifs-lidas) notifs_marcar_lidas; exit ;;

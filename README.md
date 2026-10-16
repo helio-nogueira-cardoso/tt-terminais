@@ -831,6 +831,10 @@ AwesomeAPI, frases, e notícias G1 + BBC World por RSS — tudo sem chave, com c
 vigia, nunca no letreiro). Com aviso OU transferência ativa, o letreiro cede a vez (transferências aparecem aqui, com o
 andamento ao vivo — nada cobre as linhas de cima).
 
+**Terminal interativo para agentes (`tt --pty`).** O Bash de uma IA não tem tty, então `sudo`, `ssh`, `vim` e instaladores
+ficavam fora de alcance. `tt --pty abrir|enviar|tecla|ler|esperar|entrar|fechar|listar` dá a ela uma sessão tmux (`ia-pty-NOME`)
+que ela digita e lê; você entra nela com `tt --pty entrar` para digitar a senha, que o agente nunca vê. Igual no Linux e no macOS.
+
 O miolo da faixa é desenhado por um processo leve por terminal (`letreiro-tt.py`, que o tmux liga à
 barra como `#()` e encerra quando o terminal sai): ele só lê arquivos e imprime uma linha quando o
 conteúdo muda, e o tmux redesenha então **só a barra**, no máximo uma vez por segundo — em vez da

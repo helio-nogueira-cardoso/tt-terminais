@@ -1,6 +1,6 @@
 ---
 name: tt-terminais
-description: Referência completa do tt-terminais (central de terminais em Bash+tmux) para IAs operarem e evoluírem o projeto. Use ao trabalhar no repositório tt-terminais, ao diagnosticar a central/barra/sessões/fixadas/tarefas/e-mail/sync entre máquinas, ao TRABALHAR COM AS TAREFAS DO USUÁRIO (códigos e apelidos, registrar o que fez na descrição com `tt --tarefa-log`, atualizar, concluir, compartilhar por e-mail), ou ao usar os verbos `tt --...` por linha de comando. Cobre todos os verbos CLI, os ranges da barra e o roteamento de clique, os arquivos de perfil/estado/cache/pacote, o vigia e seus temporizadores, a sincronização por ssh e git, identidade de máquina/sessão/fixada, e-mail (aerc), celular/Termux, testes e as convenções de desenvolvimento. Use também quando o agente precisar AVISAR o usuário (pedir algo, dar retorno, avisar que uma rodada importante acabou): `tt --notificar-daqui` só notifica se ele não estiver olhando para a sessão, e o clique leva de volta a ela. E para pôr perguntas do AI-DLC no painel de tarefas, onde o usuário responde (`aidlc-tt`).
+description: Referência completa do tt-terminais (central de terminais em Bash+tmux) para IAs operarem e evoluírem o projeto. Use ao trabalhar no repositório tt-terminais, ao diagnosticar a central/barra/sessões/fixadas/tarefas/e-mail/sync entre máquinas, ao TRABALHAR COM AS TAREFAS DO USUÁRIO (códigos e apelidos, registrar o que fez na descrição com `tt --tarefa-log`, atualizar, concluir, compartilhar por e-mail), ou ao usar os verbos `tt --...` por linha de comando. Cobre todos os verbos CLI, os ranges da barra e o roteamento de clique, os arquivos de perfil/estado/cache/pacote, o vigia e seus temporizadores, a sincronização por ssh e git, identidade de máquina/sessão/fixada, e-mail (aerc), celular/Termux, testes e as convenções de desenvolvimento. Use também quando o agente precisar AVISAR o usuário (pedir algo, dar retorno, avisar que uma rodada importante acabou): `tt --notificar-daqui` só notifica se ele não estiver olhando para a sessão, e o clique leva de volta a ela. E para pôr perguntas do AI-DLC no painel de tarefas, onde o usuário responde (`aidlc-tt`). E quando o agente precisar de um terminal interativo (sudo, ssh, prompts, instaladores): `tt --pty`.
 ---
 
 # tt-terminais — central de terminais multi-máquina (Bash + tmux)
@@ -1145,6 +1145,30 @@ tt --notificar-daqui "Preciso da sua aprovação para o push" --sempre      # av
   sessão. Sem a faixa (`faixa_notif=0`, não há 🔔) segue o caminho antigo (tela dos clientes).
 - Fora do tmux (sem `$TMUX_PANE`) vira um `tt --notificar` comum. Notificação de outra máquina
   fica na faixa daquela máquina.
+
+## Terminal interativo para agentes (`tt --pty`)
+
+O Bash de um agente não tem tty (`tty` diz "not a tty"): `sudo`, `ssh`, `vim`, instaladores e qualquer "Password:" ficam fora de
+alcance. `tt --pty` dá a ele um terminal de verdade, que é só uma sessão tmux `ia-pty-NOME` (igual no Linux e no macOS):
+
+```bash
+tt --pty abrir deploy [PASTA]         # cria (ou reaproveita) e imprime ia-pty-deploy
+tt --pty enviar deploy 'sudo -v'      # digita o texto literal + Enter (--sem-enter para só digitar)
+tt --pty esperar deploy 'assword' 20  # espera o egrep aparecer na tela: 0 achou, 1 acabou o tempo
+tt --pty ler deploy 40                # a tela (últimas 40 linhas, sem linhas vazias no fim)
+tt --pty tecla deploy C-c             # teclas do tmux (C-c, Enter, Up, y…)
+tt --pty entrar deploy                # leva o CLIENTE do usuário à sessão (switch-client dentro do tmux; attach fora)
+tt --pty fechar deploy                # encerra; tt --pty listar mostra as abertas
+```
+
+- NOME é opcional (`padrao`). A sessão aparece na central como as outras, e o usuário pode entrar a qualquer hora.
+- **Senha: o agente nunca a digita.** Ao ver `Password:`: `tt --notificar-daqui --sempre "preciso da senha do sudo"` e pedir
+  ao usuário `tt --pty entrar NOME`; ele digita e volta com Ctrl-b d. Depois o agente segue com `esperar`/`ler`.
+  Para o sudo, a saída durável é a regra `NOPASSWD` da pendência `sudo-sem-senha` (`tt --pedir-sudo sudo-sem-senha`), criada
+  uma vez por esse caminho. No macOS o sudo guarda o tíquete por terminal (`tty_tickets`): um `sudo -v` do usuário em outro
+  terminal não vale para o do agente.
+- `attach` de dentro do tmux dá "sessions should be nested with care": use `entrar` (que escolhe `switch-client`).
+- Código: `pty_agente` no `tt`; teste `tests/test_pty_agentes.sh`.
 
 ## Perguntas do AI-DLC no painel de tarefas (`aidlc-tt`)
 
