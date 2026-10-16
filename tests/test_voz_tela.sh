@@ -155,6 +155,7 @@ cat >"$F/powershell.exe" <<'FIM'
 #!/bin/sh
 printf '%s\n' "$@" >"$PS_LOG"
 FIM
+printf '#!/bin/sh\necho "{}"\n' >"$F/system_profiler"   # (no Mac de verdade o system_profiler lista os microfones reais)
 chmod +x "$F"/*
 r=$(PATH="$F:$PATH" VOZ_SISTEMA=Darwin SAY_LOG=$T/say.log py <<EOF
 $CARREGA
@@ -224,6 +225,7 @@ L
 esac
 FIM
 chmod +x "$F/pactl"
+printf '#!/bin/sh\nexit 0\n' >"$F/paplay"; chmod +x "$F/paplay"   # (no Linux de verdade o paplay existe; no Mac, não)
 r=$(PATH="$F:$PATH" VOZ_SISTEMA=Linux py <<EOF
 $CARREGA
 s = m.saidas_pulse(); print([x[1] for x in s])
@@ -242,7 +244,7 @@ cat >"$F/ps-falso" <<'FIM'
 #!/bin/sh
 case "$*" in
   *" listar") printf '0\tpadrao,comunicacao\tMicrophone (HD Pro Webcam C920)\tMicrophone (Intel USB Audio)\r\n1\t\tMicrophone (BlackShark V2 Pro P\tMicrophone (BlackShark V2 Pro PS 2.4)\r\n2\t\tStereo Mix (Realtek)\tStereo Mix (Realtek(R) Audio)\r\n' ;;
-  *" gravar "*) echo "${*##* }" >>"$MIC_LOG"; head -c 64000 /dev/urandom; sleep 5 ;;
+  *" gravar "*) for ultimo; do :; done; echo "$ultimo" >>"$MIC_LOG"; head -c 64000 /dev/urandom; sleep 5 ;;
 esac
 FIM
 chmod +x "$F/ps-falso"

@@ -68,6 +68,8 @@ if [[ $OSTYPE == darwin* && -z ${_TT_PATH_ORIGEM:-} ]]; then
   done
   export PATH _TT_PATH_ORIGEM; unset _tt_h _tt_p
 fi
+# Locale UTF-8 que existe nesta máquina (o macOS não tem C.UTF-8; tem o en_US.UTF-8).
+TT_UTF8=C.UTF-8; [[ $OSTYPE == darwin* ]] && TT_UTF8=en_US.UTF-8
 
 # Partida rápida (gerar_rapido): com o núcleo gerado na instalação, este desvio lê só ele (~100 KB, ~10 ms) e
 # cada função na 1ª chamada, em vez do arquivo inteiro (~850 KB, de 60 a 90 ms) a cada clique, tecla e recarga.
@@ -4188,6 +4190,7 @@ q() {
   # Num locale não UTF-8 (tmux/run-shell sem LANG) o %q escreve um emoji como $'\360\237\223\260', e o sh que roda o
   # comando mostrava esses bytes no título do popup ("\360\237\223\260 letreiro"). Com C.UTF-8 o texto passa inteiro.
   local a o LC_ALL=C.UTF-8
+  [[ $OSTYPE == darwin* ]] && LC_ALL=en_US.UTF-8  # (o macOS não tem C.UTF-8)
   for a in "$@"; do
     printf -v o '%q' "$a"
     [[ $o == =* ]] && o="\\$o"
@@ -4509,6 +4512,12 @@ guarda_tamanho() {
   while read -r c term w h s; do
     [[ $term == tmux* || $term == screen* ]] || continue
     if ((w < 12 || h < 4)); then
+      # Um tamanho pequeno de passagem (o cliente que acabou de voltar ao e-mail ainda se redesenha, mais devagar no
+      # macOS) não é ciclo: confere de novo antes de desligar.
+      sleep 0.5
+      read -r w h s < <(tmux display -p -c "$c" '#{client_width} #{client_height} #{session_name}' 2>/dev/null) || continue
+      [[ -n ${w:-} ]] || continue
+      ((w < 12 || h < 4)) || continue
       tmux detach-client -t "$c" && n=$((n + 1))
       echo "$(date '+%F %T') guarda: desliguei a vista aninhada $c ($w x $h, sessão $s)" >>"$HOME/.cache/tt-vigia.log"
     fi
@@ -4701,6 +4710,20 @@ cwd_do_pid() { # pid
   [[ -n $d ]] && printf '%s\n' "$d"
 }
 
+# tt --e-ponte PID: 1 se o cliente PID é uma ponte de outra máquina (TT_PONTE= no ambiente dele ou um sshd na linhagem), senão 0.
+# O letreiro-tt.py (que não pode lançar processos) pergunta isto uma vez, na partida, quando não há /proc (macOS).
+e_ponte_pid() { # pid
+  local p=${1:-} c n=0
+  [[ $p =~ ^[0-9]+$ ]] || { echo 0; return; }
+  [[ -n $(env_do_pid "$p" TT_PONTE) ]] && { echo 1; return; }
+  while ((p > 1 && n++ < 12)); do
+    read -r p c < <(ps -o ppid=,comm= -p "$p" 2>/dev/null) || break
+    [[ ${c##*/} == sshd* ]] && { echo 1; return; }
+    [[ $p =~ ^[0-9]+$ ]] || break
+  done
+  echo 0
+}
+
 origem_ponte() {
   local pid
   if [[ -n ${1:-} ]]; then pid=$(do_cliente "$1" '#{client_pid}')
@@ -4735,7 +4758,7 @@ ir_para() {
   if [[ -n ${TMUX:-} && -z ${TT_CLIENTE:-} ]]; then
     TT_CLIENTE=$(cliente_do_painel) || true
     if [[ -z $TT_CLIENTE ]]; then
-      echo "Não consegui identificar a tela deste menu; não troquei nada. (Use: tmux attach -t =$s)" >&2
+      echo "Não consegui identificar a tela deste menu; não troquei nada. (Use: tmux attach -t '=$s')" >&2
       return 1
     fi
   fi
@@ -10207,7 +10230,8 @@ barra_notifs_fmt() {
   # redesenhos entre os segundos, cada um logo depois de um quadro novo.
   local fps k; fps=$(conf ticker_fps); [[ $fps =~ ^([1-9]|1[0-9]|20)$ ]] || fps=6
   # O 7º é a largura só da parte esquerda (#{w:}): onde o slot começa, para o clique achar o item sob o mouse.
-  printf '#(python3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}} #{client_width} %s #{w:#{E:@barra_faixa}})' "$DIR_TT/letreiro-tt.py" "$fps"
+  local pre=""; [[ -d /proc/self ]] || pre="TT_LETREIRO_PONTE=\`$(q "$EU") --e-ponte #{client_pid}\` "  # (sem /proc: o shell decide uma vez, na partida)
+  printf '#(%spython3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}} #{client_width} %s #{w:#{E:@barra_faixa}})' "$pre" "$DIR_TT/letreiro-tt.py" "$fps"
   for ((k = 1; k < fps; k++)); do printf '#(%s %s #{client_pid} %s %s)' "$BASH" "$DIR_TT/gatilho-tt.sh" "$k" "$fps"; done
 }
 
@@ -11900,7 +11924,7 @@ tarefas_ui() {
 # rótulos só usam caracteres de largura 1, então a largura é o número de caracteres. Um botão
 # nunca é partido entre linhas, nem sobra separador solto no fim de uma linha.
 tarefas_cabecalho() {
-  [[ $(locale charmap 2>/dev/null) == UTF-8 ]] || local LC_ALL=C.UTF-8
+  [[ $(locale charmap 2>/dev/null) == UTF-8 ]] || local LC_ALL=$TT_UTF8
   local larg=$(( ${FZF_COLUMNS:-64} - 3 )) mapa modo f
   ((larg < 20)) && larg=20
   mapa=$(tarefas_mapa_arq); mkdir -p "$RT"; : >"$mapa.tmp"
@@ -13632,7 +13656,7 @@ tt_largura() {
   # de um caractere UTF-8).
   resto=${t//[$'\x01'-$'\x7f']/}
   [[ -z $resto ]] && { W=${#t}; return 0; }
-  LC_ALL=C.UTF-8; n=${#t}
+  LC_ALL=$TT_UTF8; n=${#t}
   for ((i = 0; i < ${#resto}; i++)); do
     printf -v cp '%d' "'${resto:i:1}"
     if ((cp >= 0x1100 && (cp <= 0x115f || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) ||
@@ -13759,7 +13783,7 @@ barra_fixadas_fmt() {
   fi
   # Locale que não é UTF-8: as larguras contariam bytes. O teste é o tamanho de um "é" (1 caractere só em
   # UTF-8), sem o processo do `locale charmap`.
-  local _u='é'; ((${#_u} == 1)) || local LC_ALL=C.UTF-8
+  local _u='é'; ((${#_u} == 1)) || local LC_ALL=$TT_UTF8
   fixadas_selos
   local -a nome=() maq=() chaves=() vivas=()
   local total=0
@@ -15656,12 +15680,12 @@ botao_email() {
     local pane_cmd; pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
     if [[ $pane_cmd != aerc* ]]; then
       # O aerc saiu e o shell da sessão mostra o erro: anexa o popup a ele para o erro ficar visível.
-      email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")$(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
+      email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")$(q "$TT_TMUX_BIN") -u attach -t $(q "=$EMAIL_SESSAO")"
       tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
       botao_aviso "$cliente" "e-mail: o aerc não abriu. Verifique a conta em 📧 → contas (ou rode: aerc)."
       return
     fi
-    email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")$(q "$TT_TMUX_BIN") -u attach -t =$EMAIL_SESSAO"
+    email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")$(q "$TT_TMUX_BIN") -u attach -t $(q "=$EMAIL_SESSAO")"
     return
   fi
   tmux display-popup -c "$cliente" -E "${geo[@]}" \
@@ -18823,6 +18847,7 @@ case "${1:-}" in
   --tema-clientes) tema_cliente "${2:-}"; exit 0 ;;
   --copiar-tela) copiar_tela "$2" "$3"; exit 0 ;;
   --versao) versao; exit ;;
+  --e-ponte) e_ponte_pid "${2:-}"; exit ;;
   --sincronizar) shift; sincronizar "$@"; exit ;;
   --conta-propagar) shift; conta_propagar "$@"; exit ;;
   --conta-receber) conta_receber "${2:-}"; exit ;;

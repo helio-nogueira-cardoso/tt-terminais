@@ -9,7 +9,7 @@ B=$T/bin; mkdir -p "$B" "$HOME/.config/tt/email"
 cat >"$B/apt-get" <<'EOF'
 #!/bin/sh
 case "$*" in *install*)
-  [ -n "$APTDORME" ] && { sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$/status > "$SUDOLOG.inicio"; sleep "$APTDORME"; }
+  [ -n "$APTDORME" ] && { if [ -r /proc/$$/status ]; then sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$/status; else python3 -c 'import signal; print(1 if signal.getsignal(signal.SIGHUP) == signal.SIG_IGN else 0)'; fi > "$SUDOLOG.inicio"; sleep "$APTDORME"; }
   [ -n "$APTFALHA" ] && { echo "E: Unable to locate package" >&2; exit 100; }
   echo "$*" >> "$SUDOLOG"
   [ -n "$TT_FINGE_FALTA_ARQ" ] && : > "$TT_FINGE_FALTA_ARQ"

@@ -10,7 +10,7 @@ EU=tt
 
 # 1) q(), sem locale nenhum: o emoji sai inteiro e sem $'…'
 for loc in POSIX C; do
-  saida=$(env -i LC_ALL=$loc bash -c 'eval "$1"; q " 📰 letreiro "' _ "$(sed -n '/^q() {/,/^}/p' "$TT")")
+  saida=$(env -i LC_ALL=$loc "$BASH" -c 'eval "$1"; q " 📰 letreiro "' _ "$(sed -n '/^q() {/,/^}/p' "$TT")")
   [[ $saida != *'\3'* && $saida != *"\$'"* ]] || falhou "q() em locale $loc escapou o emoji: $saida"
   [[ $saida == *📰* ]] || falhou "q() em locale $loc perdeu o emoji: $saida"
 done

@@ -85,7 +85,15 @@ done, _ = os.waitpid(pid, os.WNOHANG)
 vivo = done == 0
 if vivo:
     os.write(fd, b"q")
-    time.sleep(0.6); done, _ = os.waitpid(pid, os.WNOHANG)
+    # drena a saída enquanto espera: no macOS o processo só termina depois que alguém lê o fim do pty
+    fim = time.time() + 1.5
+    while time.time() < fim:
+        r, _, _ = select.select([fd], [], [], 0.1)
+        if r:
+            try: os.read(fd, 4096)
+            except OSError: pass
+        done, _ = os.waitpid(pid, os.WNOHANG)
+        if done: break
 utf8 = "atualização com ação".encode() in out
 print("SEGUROU_UTF8" if vivo and done and utf8 else "PISCOU" if not vivo else "NAO-FECHOU-NO-Q" if not done else "UTF8-ESCAPOU")
 PY

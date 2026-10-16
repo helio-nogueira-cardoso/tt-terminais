@@ -646,34 +646,11 @@ def tmux_para_ansi(q):
 TEM_PROC = os.path.isdir("/proc/self")
 
 
-def _ps(*args):
-    """Saída do ps (macOS e BSD, onde não há /proc); vazio se falhar."""
-    import subprocess
-    try:
-        return subprocess.run(["ps", *args], capture_output=True, text=True, timeout=5).stdout
-    except (OSError, subprocess.SubprocessError):
-        return ""
-
-
 def e_ponte(pid):
-    """TT_PONTE= no ambiente do cliente, ou um sshd na linhagem dele (ponte de outra máquina)."""
+    """TT_PONTE= no ambiente do cliente, ou um sshd na linhagem dele (ponte de outra máquina). Sem /proc (macOS) quem
+    decide é o shell do tt, uma vez, na partida (tt --e-ponte): chega em TT_LETREIRO_PONTE. Este processo não lança nada."""
     if not TEM_PROC:
-        # `ps eww` do BSD imprime o ambiente depois do comando; a linhagem sai de ppid/comm
-        if any(t.startswith("TT_PONTE=") for t in _ps("eww", "-p", str(pid)).split()):
-            return True
-        for _ in range(12):
-            if pid <= 1:
-                break
-            linha = _ps("-o", "ppid=,comm=", "-p", str(pid)).split(None, 1)
-            if len(linha) < 2:
-                break
-            if os.path.basename(linha[1].strip()).startswith("sshd"):
-                return True
-            try:
-                pid = int(linha[0])
-            except ValueError:
-                break
-        return False
+        return os.environ.get("TT_LETREIRO_PONTE") == "1"
     try:
         with open("/proc/%d/environ" % pid, "rb") as f:
             if any(v.startswith(b"TT_PONTE=") for v in f.read().split(b"\0")):
@@ -727,24 +704,12 @@ def substituido(tty, pid):
     #() pela linha de comando inteira: ao redimensionar (a largura vai nela) ele cria um processo novo
     e só aposenta o antigo depois de 1 h. Quem foi substituído sai, para não acumular."""
     if not TEM_PROC:
-        import time
-        meu, outros = None, []
-        for ln in _ps("-axww", "-o", "pid=,lstart=,args=").splitlines():
-            t = ln.split(None, 6)
-            if len(t) < 7:
-                continue
-            try:
-                ini = (time.mktime(time.strptime(" ".join(t[1:6]), "%a %b %d %H:%M:%S %Y")), int(t[0]))
-            except ValueError:
-                continue
-            if ini[1] == os.getpid():
-                meu = ini
-                continue
-            a = t[6].split()
-            k = next((n for n, x in enumerate(a) if x.endswith("letreiro-tt.py")), -1)
-            if k >= 0 and a[k + 1:k + 4] == ["fluxo", tty, str(pid)]:
-                outros.append(ini)
-        return meu is not None and any(o > meu for o in outros)
+        # sem /proc: o processo mais novo do cliente grava o token dele num arquivo (marca_token); o mais velho vê o token trocado
+        try:
+            with open(arq_token(pid)) as f:
+                return f.read().strip() != TOKEN
+        except OSError:
+            return False
 
     def inicio(p):
         with open("/proc/%s/stat" % p) as f:
@@ -761,6 +726,23 @@ def substituido(tty, pid):
         except (OSError, ValueError, IndexError):
             continue
     return False
+
+
+TOKEN = "%d.%d" % (os.getpid(), time.time_ns())
+
+
+def arq_token(pid):
+    d = RT if os.path.isdir(RT) else "/tmp"
+    return os.path.join(d, "tt-letreiro-%d.tok" % pid)
+
+
+def marca_token(pid):
+    """Sem /proc: este é o pintor mais novo do cliente PID; quem leu outro token aí foi substituído."""
+    try:
+        with open(arq_token(pid), "w") as f:
+            f.write(TOKEN)
+    except OSError:
+        pass
 
 
 def marca_anim(pid):
@@ -790,6 +772,8 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
     1/fps s e os gatilhos (fps-1 #() quase vazios, ver gatilho-tt.sh) provocam os redesenhos entre os
     segundos — cada um logo depois de um quadro novo, de modo que a barra nunca mostra um quadro velho."""
     ponte = e_ponte(pid)
+    if not TEM_PROC:
+        marca_token(pid)
     fd = None
     try:
         fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)

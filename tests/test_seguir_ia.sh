@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (depende de tela e tempo: roda sem outros testes disputando a máquina)
 # ⏩ (atalho @seguir): a conversa de IA do painel segue com outra IA.
 #  - acha a conversa e o código dela: Claude (registro do pid), Codex (mesma pasta, mexida desde que o agente
 #    começou), Kiro (trava com o pid); painel sem agente não faz nada;

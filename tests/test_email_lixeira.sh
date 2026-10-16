@@ -119,7 +119,7 @@ chmod +x "$T/bin/aerc"; export PATH=$T/bin:$PATH
 python3 -I -c 'import socket, sys; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$XDG_RUNTIME_DIR/aerc.sock"
 printf '%s\n' 'INBOX     Ana   Oi' '' '[Gmail] Connected' >"$T/status"
 # (redesenha só quando o status muda: limpar a tela a cada volta deixaria a captura pegar a tela vazia)
-tmux new-session -d -s _tt-email -x 120 -y 20 "exec -a aerc bash -c 'while :; do h=\$(cksum <$T/status); [[ \$h != \$u ]] && { clear; cat $T/status; u=\$h; }; sleep 0.2; done'"
+tmux new-session -d -s _tt-email -x 120 -y 20 "$(exec_como aerc bash -c "while :; do h=\$(cksum <$T/status); [[ \$h != \$u ]] && { clear; cat $T/status; u=\$h; }; sleep 0.2; done")"
 tmux set -q -t =_tt-email: @ponte email
 anexar v 120 22 _tt-email; sleep 1.5
 clientes() { tmux list-clients -t =_tt-email 2>/dev/null | wc -l; }

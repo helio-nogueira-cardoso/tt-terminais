@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (depende de tela e tempo: roda sem outros testes disputando a máquina)
 # Links em qualquer painel, de ponta a ponta (tmux.conf instalado, cliente anexado e mouse SGR de
 # verdade): clique num endereço partido em várias linhas (quebra do terminal ou do próprio programa,
 # com recuo, como no Claude Code) abre a URL inteira; duplo clique copia o link inteiro; arrastar
