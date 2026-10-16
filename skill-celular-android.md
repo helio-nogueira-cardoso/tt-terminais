@@ -854,6 +854,15 @@ no carro. O perfil precisa aceitar já a primeira notificação: as seguintes ch
 **Abrir a conversa no celular:** rode a tarefa `Terminal` do Tasker (▶, atalho ou widget) ou `voz --abrir` no Termux.
 Sem voz, `voz "frase"` no Termux faz o mesmo (`VOZ_MUDO=1` só imprime).
 
+**Cérebro (opcional):** `voz --cerebro "pc local"` liga uma camada de IA: o que não é comando curto e exato vai a um
+Claude rápido (`ia-rot -p --model haiku`, pelo rodízio de contas), primeiro na máquina `pc` por ssh e, se ela não
+responder, no próprio celular (`local` = o Claude do Debian/proot). Ele recebe a frase (todas as hipóteses do
+reconhecimento), o contexto (máquinas, a última lista de sessões, a sessão escolhida, contas, pergunta pendente e as
+últimas falas, em `~/.local/state/tt-voz/historico`) e devolve um JSON `{"fala": …, "acoes": […]}` que o `voz` executa,
+falando uma vez só por volta (as falas da volta se juntam; o Tasker só ouve depois da última). As travas ficam no
+código: texto livre só vai a sessão liberada, e "liberar" só com o sim do usuário. Sem resposta útil em ~45 s, valem as
+regras. `voz --cerebro -` desliga. Cada volta leva uns 3 a 10 s.
+
 **Carro sem Android Auto ou detecção extra:** `voz --carro "CarMode"` lista globais do Tasker que valem 1 no carro (as do
 seu perfil de carro). Com uma delas em 1, ou com a tela apagada, o Tasker não abre o microfone e o `voz` explica como
 seguir (pelo Telegram, se ligado).
@@ -866,8 +875,10 @@ seguir (pelo Telegram, se ligado).
 | `NOME` da máquina · `ir para NOME` · `vai para o NOME` | passa àquela máquina e já lê as sessões dela, numeradas (`celular`/`aqui` = este aparelho) |
 | `sessoes` · `sessoes do NOME` · `quais as abas da NOME` | lê as sessões numeradas (as `_ocultas` ficam fora) |
 | o número (`2`, `dois`, `segunda`) · `aba NOME` · `proxima` · `anterior` | escolhe a sessão-alvo (no nome, todas as palavras ditas precisam estar nele) |
-| `nova sessao` | cria uma sessão com `ia-conta abrir` na máquina atual e já a libera para voz |
-| `tarefas` · `contas` | lê as primeiras tarefas do `tt` · o uso das contas de IA (`ia-conta uso`) |
+| `nova sessao` · `nova sessao com codex` (ou claude, kiro, uma conta) | o 🚀: abre a IA numa sessão nova `voz-…` da máquina atual, já liberada; responde sozinho às perguntas de abertura conhecidas (confiar na pasta, pular a atualização, aceitar o modo sem confirmações, tema) e lê as desconhecidas com as opções numeradas ("diga o número") |
+| (cérebro) "troca a IA dessa sessão para o codex" · "passa essa conversa para a empresa" | o 👇 (`tt --atalho-rodar ia-aqui`, retoma a conversa do Claude) · o ⏩ (`tt --seguir`, aqui ou noutra máquina) |
+| (cérebro) "lê as três últimas respostas" | as N últimas respostas do agente da sessão escolhida |
+| `tarefas` · `tarefa NOME` · `contas` | as tarefas abertas com prazo e progresso · uma tarefa (apelido ou palavras do título) com as subtarefas que faltam · o uso das contas de IA |
 | `repetir` · `onde` | repete a última fala (ou confere de novo um agente que demorou) · diz máquina e sessão atuais |
 | `enter` · `cancelar` | só a tecla Enter ou Escape na sessão-alvo (confirmações do agente) |
 | `sim` (quando ele pergunta) · `permitir sessao` · `bloquear sessao` | libera ou tira a sessão-alvo do texto livre |

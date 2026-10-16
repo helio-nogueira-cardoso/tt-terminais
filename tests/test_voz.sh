@@ -12,7 +12,10 @@ case $1 in
   --maquinas) printf 'u@h1 dell\nu@h2 book\n' ;;
   --saude) printf 'Saude das maquinas cadastradas:\n  \033[32m●\033[0m dell             ok\n  \033[31m●\033[0m book             timeout   tempo esgotado\n' ;;
   --listar-tudo) printf '# mestre de obras — celular — 20260101T000000Z\n' ;;
-  --tarefas-lista) printf 'abc123abc123\t \033[1m▸\033[0m ☐ ● zz01 Pagar o boleto  abc123abc123\n' ;;
+  --tarefas-lista) printf 'abc123abc123\t \033[1m▸\033[0m ☐ ● zz01 Pagar o boleto  abc123abc123  ◷ hoje 12:00  ━━━ 1/3\n' ;;
+  --tarefa-codigo) printf 'zz01\tabc123abc123\tPagar o boleto\tzz01\nqq02\tdef456def456\tLigar no banco\tzz01.qq02\n' ;;
+  --tarefa-ia-prompt) printf 'TAREFA [abc123abc123]: Pagar o boleto\nPrazo: hoje às 12:00\n\nSubtarefas (código · estado · texto · apelido estável):\n  [111111111111] feita · Achar o boleto · zz01.ka11\n  [def456def456] aberta · Ligar no banco · zz01.qq02\n  [222222222222] aberta · Pagar no app · zz01.pe22\n' ;;
+  --atalho-rodar|--seguir) echo "tt $*" >>"$VOZ_IA_LOG" ;;
 esac
 FIM
 cat >"$B/ssh" <<'FIM'
@@ -44,11 +47,30 @@ esac
 FIM
 cat >"$B/ia-conta" <<'FIM'
 #!/usr/bin/env bash
+# ia-conta falso: "abrir" mostra as perguntas de abertura (confiar, atualizar e uma desconhecida) como menus de setas
+if [[ ${1:-} == abrir && ${2:-} == --listar-contas ]]; then
+  printf 'principal\tclaude\tclaude · principal\t5h 10%% · 7d 1%%\nbeta\tclaude\tclaude · beta\t5h 2%% · 7d 1%%\ncodex\tcodex\tcodex · x\t5h 0%% · 7d 0%%\n'; exit
+fi
+if [[ ${1:-} == abrir ]]; then
+  echo "args: $*" >>"$VOZ_IA_LOG"
+  menu() { local t=$1 sel=0 c i; shift; local ops=("$@")
+    while :; do
+      clear; echo "$t"
+      for i in "${!ops[@]}"; do if ((i == sel)); then echo " ❯ $((i + 1)). ${ops[i]}"; else echo "   $((i + 1)). ${ops[i]}"; fi; done
+      IFS= read -rsn1 c
+      if [[ $c == $'\e' ]]; then read -rsn2 c; [[ $c == '[B' ]] && sel=$((sel + 1)); [[ $c == '[A' ]] && sel=$((sel - 1))
+      elif [[ -z $c || $c == $'\r' ]]; then echo "escolheu: ${ops[sel]}" >>"$VOZ_IA_LOG"; return; fi
+    done; }
+  menu "Do you trust the files in this folder?" "Yes, proceed" "No, exit"
+  menu "Update available! 1.2 -> 1.3" "Update now" "Skip" "Skip until next version"
+  menu "Qual cor você prefere?" "Azul" "Verde"
+  clear; echo "● Pronto para trabalhar."; echo "> "; sleep 600; exit
+fi
 echo "principal 12 por cento"
 FIM
 chmod +x "$B"/*
 export PATH="$B:$PATH" VOZ_SDCARD=$T/sd VOZ_AM_LOG=$T/am.log VOZ_ESPERA_FALA=0 VOZ_CURL_LOG=$T/curl.log
-export VOZ_TELEGRAM=$T/segredos/telegram VOZ_TG_LIGAR=2 VOZ_TG_PAUSA=1
+export VOZ_TELEGRAM=$T/segredos/telegram VOZ_TG_LIGAR=2 VOZ_TG_PAUSA=1 VOZ_IA_LOG=$T/ia.log VOZ_DESTRAVAR_PAUSA=0.5
 tmux new-session -d -s agente-teste "$B/agente.sh"
 tmux new-session -d -s _oculta 'sleep 600'
 v() { VOZ_MUDO=1 bash "$V" "$@"; }
@@ -97,7 +119,38 @@ grep -q -- '--es fim 1' "$T/am.log" || falhou "2º silêncio não encerrou no Ta
 v __silencio__ >/dev/null; v status >/dev/null; [[ -e $HOME/.local/state/tt-voz/silencio ]] && falhou 'frase ouvida não zerou o silêncio'
 passou 'voz: silêncio pede de novo e só encerra na segunda vez'
 
-v tarefas | grep -q 'Pagar o boleto' || falhou 'tarefas'
+# cérebro: frase solta vai ao modelo (aqui um falso, que guarda o pedido e devolve o plano de $T/plano.json)
+export VOZ_CEREBRO_CMD="cat > '$T/pedido.txt'; cat '$T/plano.json'"
+printf '%s' '{"fala": "Vou ver como ele está.", "acoes": [{"acao": "escolher", "maquina": "dell", "sessao": "agente"}, {"acao": "ler"}]}' >"$T/plano.json"
+: >"$T/am.log"; saida=$(VOZ_MUDO= bash "$V" "me conta como anda o agente lá do dell")
+[[ $saida == *"Vou ver como ele está"* && $saida == *"Sessão agente teste, em dell"* && $saida == *"Entendi"* ]] || falhou "cérebro: plano não executado: $saida"
+[[ $(grep -c 'tt.VOZ_FALAR' "$T/am.log") == 1 ]] || falhou "cérebro: devia falar uma vez só na volta: $(cat "$T/am.log")"
+grep -q 'me conta como anda o agente' "$T/pedido.txt" && grep -q 'máquina atual: dell' "$T/pedido.txt" || falhou 'cérebro: pedido sem a frase ou o contexto'
+grep -q 'você: me conta como anda' "$HOME/.local/state/tt-voz/historico" || falhou 'cérebro: histórico não gravado'
+rm -f "$T/pedido.txt"; v status >/dev/null; [[ -e $T/pedido.txt ]] && falhou 'comando simples não deveria ir ao cérebro'
+printf '%s' '{"fala": "Até logo.", "acoes": [{"acao": "encerrar"}]}' >"$T/plano.json"
+: >"$T/am.log"; VOZ_MUDO= bash "$V" "pode desligar tudo por hoje" >/dev/null; grep -q -- '--es fim 1' "$T/am.log" || falhou "cérebro: encerrar não fechou: $(cat "$T/am.log")"
+printf 'isto não é json' >"$T/plano.json"
+saida=$(v "uma frase qualquer sem sentido"); [[ $saida == *"Enviado para agente-teste"* || $saida == *"não está liberada"* ]] || falhou "cérebro com resposta ruim: devia cair nas regras: $saida"
+saida=$(VOZ_CEREBRO_CMD="exit 1" v "outra frase solta"); [[ $saida == *Enviado* || $saida == *liberada* ]] || falhou "cérebro fora do ar: devia cair nas regras: $saida"
+unset VOZ_CEREBRO_CMD
+passou 'voz: cérebro entende frase solta, age, fala uma vez só; sem resposta útil, valem as regras'
+
+saida=$(v tarefas); [[ $saida == *"1, Pagar o boleto, prazo hoje 12:00, 1 de 3 subtarefas"* ]] || falhou "tarefas: $saida"
+saida=$(v "tarefa boleto"); [[ $saida == *"Prazo: hoje às 12:00"* && $saida == *"1 de 3 subtarefas feitas"* && $saida == *"Faltam: Ligar no banco; Pagar no app"* ]] || falhou "tarefa com subtarefas: $saida"
+
+# 🚀 com uma IA específica: abre em sessão nova, responde sozinho às perguntas de abertura e pergunta a desconhecida
+saida=$(v "nova sessão com codex"); [[ $saida == *"Ele pergunta: Qual cor você prefere?"* && $saida == *"1, Azul. 2, Verde."* ]] || falhou "abrir codex: $saida"
+grep -q 'args: abrir --conta codex' "$T/ia.log" && grep -q 'escolheu: Yes, proceed' "$T/ia.log" && grep -q 'escolheu: Skip$' "$T/ia.log" || falhou "perguntas de abertura: $(cat "$T/ia.log")"
+saida=$(v "dois"); [[ $saida == *"Feito. Sessão voz codex"* ]] && grep -q 'escolheu: Verde' "$T/ia.log" || falhou "resposta à pergunta: $saida / $(cat "$T/ia.log")"
+[[ $(<"$HOME/.local/state/tt-voz/alvo_s") == voz-codex-* ]] && grep -q ':voz-codex-' "$HOME/.config/tt-voz/permitidas" || falhou 'sessão nova não virou o alvo liberado'
+# 👇 e ⏩: a IA do provedor com menos uso (beta), e a conversa passada adiante pelo tt
+: >"$T/ia.log"; saida=$(v "aba agente"); v sim >/dev/null
+VOZ_CEREBRO_CMD="cat >/dev/null; echo '{\"acoes\": [{\"acao\": \"trocar_ia\", \"ia\": \"claude\"}, {\"acao\": \"passar\"}]}'" v "troca para o claude e depois passa adiante" >/dev/null
+grep -q 'tt --atalho-rodar ia-aqui  %[0-9]* conta=beta' "$T/ia.log" && grep -q 'tt --seguir  %[0-9]*' "$T/ia.log" || falhou "👇/⏩: $(cat "$T/ia.log")"
+passou 'voz: tarefas com subtarefas; 🚀 com IA escolhida passa pelas perguntas de abertura; 👇 e ⏩ pelo tt'
+
+v tarefas >/dev/null || falhou 'tarefas'
 v contas | grep -q 'principal' || falhou 'contas'
 v "" | grep -q 'diga ajuda e um tema' || falhou 'ajuda geral'
 v ajuda | grep -q 'diga ajuda e um tema' || falhou 'ajuda'

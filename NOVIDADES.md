@@ -3,6 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.18.0 · 16/10/2026
+- **🧠 Voz com cérebro (opcional).** `voz --cerebro "pc local"` faz um Claude rápido entender frases soltas ("como anda o
+  claude da empresa?", "abre um codex no pc", "lê as três últimas respostas") e agir no tt; comandos curtos continuam
+  instantâneos. Por voz também dá para abrir sessões como o 🚀 (com a IA ou a conta que você disser, já passando pelas
+  perguntas de abertura como "confiar nesta pasta" e "pular atualização"), trocar a IA da sessão como o 👇, passar a
+  conversa adiante como o ⏩ e ouvir uma tarefa com as subtarefas que faltam. Guia: skill `celular-android`, seção 15.
+
 ## v1.17.0 · 15/10/2026
 - **🎙 Falar com o tt pela voz, no celular e no carro (opcional, só no celular).** `termux/celular.sh voz` liga uma
   conversa por voz com o tt: listar máquinas, ver o status, trocar de máquina e de sessão, ler tarefas e o uso das contas
