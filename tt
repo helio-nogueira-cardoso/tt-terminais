@@ -53,6 +53,22 @@ if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
   echo "tt: precisa do bash 4 ou mais novo (este é o $BASH_VERSION). No macOS: brew install bash" >&2; exit 1
 fi
 
+# macOS: o tt usa recursos do GNU (stat -c, date -d, sed, grep, find, tar, setsid, flock…) que o macOS não tem. Com o
+# Homebrew, as versões GNU ficam na frente do PATH SÓ dos processos do tt; o PATH de origem fica em _TT_PATH_ORIGEM
+# (a janela nova volta a ele, para o ls, o sed e o grep dos seus painéis continuarem os do sistema).
+if [[ $OSTYPE == darwin* && -z ${_TT_PATH_ORIGEM:-} ]]; then
+  _TT_PATH_ORIGEM=$PATH
+  for _tt_h in /opt/homebrew /usr/local; do
+    [[ -d $_tt_h/opt/coreutils/libexec/gnubin ]] || continue
+    for _tt_p in util-linux/bin gawk/libexec/gnubin findutils/libexec/gnubin grep/libexec/gnubin gnu-tar/libexec/gnubin gnu-sed/libexec/gnubin coreutils/libexec/gnubin python3/bin; do
+      [[ -d $_tt_h/opt/$_tt_p ]] && PATH="$_tt_h/opt/$_tt_p:$PATH"
+    done
+    [[ ":$PATH:" == *":$_tt_h/bin:"* ]] || PATH="$PATH:$_tt_h/bin"  # (no fim: não esconde as ferramentas que já estavam no PATH)
+    break
+  done
+  export PATH _TT_PATH_ORIGEM; unset _tt_h _tt_p
+fi
+
 # Partida rápida (gerar_rapido): com o núcleo gerado na instalação, este desvio lê só ele (~100 KB, ~10 ms) e
 # cada função na 1ª chamada, em vez do arquivo inteiro (~850 KB, de 60 a 90 ms) a cada clique, tecla e recarga.
 # Um tt que não é o instalado (o do repositório, o de um teste) ou um núcleo mais velho que ele seguem o
@@ -463,7 +479,7 @@ vigiar() {
   mkdir -p "$HOME/.cache"
   # Uma instância só: se o PID registrado ainda é um vigia vivo, sai.
   outro=$(cat "$pidf" 2>/dev/null)
-  if [[ -n $outro ]] && tr '\0' ' ' <"/proc/$outro/cmdline" 2>/dev/null | grep -q -- '--vigia'; then exit 0; fi
+  if [[ -n $outro ]] && cmdline_do_pid "$outro" | grep -q -- '--vigia'; then exit 0; fi
   echo $$ >"$pidf"
   # A checagem acima não é atômica: dois vigias lançados juntos passam por ela. Quem gravou por
   # último fica; o outro sai aqui (e, a cada volta, qualquer vigia que perdeu o pidfile sai).
@@ -774,8 +790,29 @@ nomear_todas() {
 
 # Janelas de terminal abertas fora do tmux: shells líderes de sessão num pts, sem TMUX no ambiente,
 # que não vieram de SSH/mosh. Saída: "shell|primeiro-plano|programa|diretório".
+# soltos no macOS/BSD: sem sid nem /proc. Líder de sessão = "s" no stat do ps; o tty é ttysNNN; o ambiente (TMUX=) sai do
+# `ps eww` e o diretório do `lsof`. Fica de fora o próprio shell de quem chamou e os ancestrais dele.
+soltos_bsd() {
+  local pid st tty pai fg cmd base c anc="" p env cwd
+  p=$$; while [[ $p =~ ^[0-9]+$ ]] && ((p > 1)); do anc+=" $p "; p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); done
+  _nome_de() { c=$(ps -o comm= -p "$1" 2>/dev/null); c=${c##*/}; c=${c#-}; }
+  ps -U "$EUID" -o pid=,stat=,tty=,ppid=,tpgid=,comm= 2>/dev/null | while read -r pid st tty pai fg cmd; do
+    [[ $st == *s* && $tty == ttys* ]] || continue
+    base=${cmd##*/}; base=${base#-}
+    [[ $base =~ ^(bash|zsh|fish)$ && $anc != *" $pid "* ]] || continue
+    env=$(ps eww -p "$pid" 2>/dev/null); [[ " $env" == *" TMUX="* ]] && continue
+    _nome_de "$pai"
+    case $c in sshd* | mosh-server | tailscaled | tmux*) continue ;; esac
+    [[ $fg -gt 0 ]] || fg=$pid
+    _nome_de "$fg"
+    cwd=$(lsof -a -p "$fg" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+    echo "$pid|$fg|$c|$cwd"
+  done
+}
+
 soltos() {
   local meu_sid="" pid sid tty pai fg cmd st v tem c
+  [[ -r /proc/$$/stat ]] || { soltos_bsd; return; }
   # Com /proc (Linux, Termux), lido direto: eram ps + tr + id e, por janela solta, tr + grep + dois ps
   # (~60 ms ao abrir a central). Sem /proc (macOS), o ps de antes.
   if [[ -r /proc/$$/stat ]]; then read -r st <"/proc/$$/stat"; st=${st##*) }; read -r _ _ _ meu_sid _ <<<"$st"
@@ -1241,7 +1278,7 @@ previa_solta() {
   echo
   echo "  terminal:  $(ps -o tty= -p "$sh")   shell: $sh"
   echo "  rodando:   $(ps -o args= -p "$fg" | cut -c1-70)"
-  echo "  pasta:     $(encurtar "$(readlink "/proc/$fg/cwd")")"
+  echo "  pasta:     $(encurtar "$(cwd_do_pid "$fg")")"
   echo
   if [[ $cmd == claude ]]; then
     read -r id status nome < <(claude_info "$fg")
@@ -1268,13 +1305,13 @@ adotar() {
   fg=$(ps -o tpgid= -p "$sh" | tr -d ' ')
   [[ -n $fg ]] || { echo "Essa janela já foi fechada." >&2; return 1; }
   cmd=$(ps -o comm= -p "$fg")
-  cwd=$(readlink "/proc/$fg/cwd")
+  cwd=$(cwd_do_pid "$fg")
 
   if [[ $cmd == claude ]]; then
     read -r id status rotulo < <(claude_info "$fg")
     [[ -n ${id:-} ]] || { echo "Não achei qual conversa esse Claude está usando." >&2; return 1; }
     [[ $status == idle ]] || { echo "Esse Claude está trabalhando. Espere ele terminar e tente de novo." >&2; return 1; }
-    flags=$(tr '\0' '\n' <"/proc/$fg/cmdline" | grep -xE -- '--dangerously-skip-permissions|--verbose' | tr '\n' ' ')
+    flags=$(cmdline_do_pid "$fg" | tr ' ' '\n' | grep -xE -- '--dangerously-skip-permissions|--verbose' | tr '\n' ' ')
     claude=$HOME/.local/bin/claude
     [[ -x $claude ]] || claude=$(command -v claude)
     nome=$(proximo_nome claude)
@@ -2602,7 +2639,7 @@ CONF
     for pidf in "$RT" "${XDG_RUNTIME_DIR:-$RT}" "${TMPDIR:-/tmp}" /tmp; do
       pidf="$pidf/tt-vigia-$UID.pid"
       pid=$(cat "$pidf" 2>/dev/null)
-      if [[ -n $pid ]] && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--vigia'; then kill "$pid"; fi
+      if [[ -n $pid ]] && cmdline_do_pid "$pid" | grep -q -- '--vigia'; then kill "$pid"; fi
       rm -f "$pidf"
     done
     tmux run-shell -b "$HOME/.local/bin/tt --vigia"
@@ -3922,7 +3959,7 @@ assinatura_local() {
 SESSOES_IA_CAB='maquina	sessao	anexada	ocioso_s	janelas	cmd_1oplano	agente	fixada	papel	rascunho	titulo	ultima_linha'
 sessoes_ia_agentes() {
   { if [[ -n ${PS_SIA:-} ]]; then echo "$PS_SIA"; else ps -e -o pid=,ppid=,comm= 2>/dev/null; fi; } | awk -v raiz="$1" '
-    { pai[$1]=$2; nome[$1]=$3 }
+    { n=$3; sub(/.*\//, "", n); sub(/^-/, "", n); pai[$1]=$2; nome[$1]=n }  # (macOS: comm vem com o caminho inteiro)
     END { for (p in pai) { q=p; while (q in pai && q!=raiz && q>1) q=pai[q]
             if (q==raiz && p!=raiz && nome[p] ~ /^(claude|codex|kiro|kiro-cli|aerc|node|ssh|vim|nvim|python3?)$/) v[nome[p]]=1 }
           for (k in v) printf "%s%s", (n++?",":""), k }'
@@ -4496,7 +4533,7 @@ guarda_aninhado() { # cliente [voltou]
     echo "$(date '+%F %T') guarda: o cliente do e-mail $c foi para $(tmux display -p -c "$c" '#{client_last_session}' 2>/dev/null); voltou ao e-mail" >>"$HOME/.cache/tt-vigia.log"
     return 0
   fi
-  if tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- "attach -t =$EMAIL_SESSAO"; then
+  if cmdline_do_pid "$pid" | grep -q -- "attach -t =$EMAIL_SESSAO"; then
     [[ $s == "$EMAIL_SESSAO" ]] && return 0
     tmux switch-client -c "$c" -t "=$EMAIL_SESSAO" 2>/dev/null || tmux detach-client -t "$c" 2>/dev/null
     echo "$(date '+%F %T') guarda: o cliente do e-mail $c foi para $s; voltou ao e-mail" >>"$HOME/.cache/tt-vigia.log"
@@ -4648,6 +4685,20 @@ cliente_do_painel() {
 env_do_pid() { # pid VAR
   if [[ -r /proc/$1/environ ]]; then tr '\0' '\n' <"/proc/$1/environ" 2>/dev/null | sed -n "s/^$2=//p" | head -1
   else ps eww -p "$1" 2>/dev/null | tr ' ' '\n' | sed -n "s/^$2=//p" | head -1; fi
+}
+
+# Linha de comando do processo PID, com espaços entre os argumentos. Linux: /proc; macOS (sem /proc): o ps.
+cmdline_do_pid() { # pid
+  if [[ -r /proc/$1/cmdline ]]; then tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null
+  else ps -o args= -p "$1" 2>/dev/null; fi
+}
+
+# Diretório de trabalho do processo PID. Linux: /proc; macOS (sem /proc): o lsof. Devolve 1 se não achar.
+cwd_do_pid() { # pid
+  local d
+  if [[ -e /proc/$1/cwd ]]; then d=$(readlink "/proc/$1/cwd" 2>/dev/null)
+  else d=$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1); fi
+  [[ -n $d ]] && printf '%s\n' "$d"
 }
 
 origem_ponte() {
@@ -6273,7 +6324,7 @@ checar_coletar() {
 
   # vigia: vivo, único e sem girar a CPU (o bug do wait sem pids o deixou horas a 100%)
   pid=$(cat "$RT/tt-vigia-$UID.pid" 2>/dev/null)
-  if [[ -n $pid ]] && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--vigia'; then
+  if [[ -n $pid ]] && cmdline_do_pid "$pid" | grep -q -- '--vigia'; then
     cpu=$(ps -o %cpu= -p "$pid" 2>/dev/null | awk '{ printf "%d", $1 }')
     if ((${cpu:-0} >= 50)); then checar_linha vigia aviso "vigia vivo (pid $pid) mas usando ${cpu}% de CPU em média" "ver o fim de ~/.cache/tt-vigia.log; matar o pid e deixar o tmux religar (tmux run-shell -b '~/.local/bin/tt --vigia')"
     else checar_linha vigia ok "vigia vivo (pid $pid, ${cpu:-0}% de CPU)"; fi
@@ -10157,7 +10208,7 @@ barra_notifs_fmt() {
   local fps k; fps=$(conf ticker_fps); [[ $fps =~ ^([1-9]|1[0-9]|20)$ ]] || fps=6
   # O 7º é a largura só da parte esquerda (#{w:}): onde o slot começa, para o clique achar o item sob o mouse.
   printf '#(python3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}} #{client_width} %s #{w:#{E:@barra_faixa}})' "$DIR_TT/letreiro-tt.py" "$fps"
-  for ((k = 1; k < fps; k++)); do printf '#(bash %s #{client_pid} %s %s)' "$DIR_TT/gatilho-tt.sh" "$k" "$fps"; done
+  for ((k = 1; k < fps; k++)); do printf '#(%s %s #{client_pid} %s %s)' "$BASH" "$DIR_TT/gatilho-tt.sh" "$k" "$fps"; done
 }
 
 # --- Letreiro do slot (sem aviso novo, infos roladas; fontes configuráveis) -------------------------
@@ -14921,7 +14972,7 @@ seguir_ia() { # cliente painel [rótulo-destino]
   fi
   pasta=$(tmux display-message -p -t "$p" '#{pane_current_path}' 2>/dev/null); [[ -n $pasta ]] || pasta=$HOME
   # A pasta do agente como ele a vê (o /proc mostra a de dentro de um proot com a raiz dele na frente).
-  la=$(readlink "/proc/$pid/cwd" 2>/dev/null || echo "$pasta")
+  la=$(cwd_do_pid "$pid" || echo "$pasta")
   la=$(sed -E 's#^.*/proot-distro/(containers/[^/]+/rootfs|installed-rootfs/[^/]+)(/|$)#/#' <<<"$la")
   if [[ $r == "$MAQUINA" ]]; then
     seguir_abrir "$MAQUINA" "$prov" "$id" "$la" "$p" "$pasta" || { botao_aviso "$c" "⚠ ⏩ não consegui abrir a nova IA (veja o atalho @seguir)"; return 0; }
@@ -19205,7 +19256,7 @@ case "${1:-}" in
   --nomear-todas-local) nomear_todas_local; exit ;;
   --vigia) vigiar; exit ;;
   --rapido) rapido_cmd "${2:-status}"; exit $? ;;
-  --janela) exec "$TT_TMUX_BIN" new-session -s "$(proximo_nome)" ;;
+  --janela) PATH=${_TT_PATH_ORIGEM:-$PATH}; unset _TT_PATH_ORIGEM; exec "$TT_TMUX_BIN" new-session -s "$(proximo_nome)" ;;
   -h | --help | ajuda) ajuda; exit 0 ;;
   # Opção que não existe: antes abria a central em silêncio (um erro de digitação parecia funcionar).
   -*) echo "tt: opção desconhecida: $1 (tt --help mostra as principais)" >&2; exit 2 ;;

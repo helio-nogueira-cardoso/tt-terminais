@@ -190,6 +190,7 @@ while True:
     time.sleep(1)
 PY
 chmod +x "$T/falso/claude"
+[[ $(uname -s) == Darwin ]] && { printf '#!/bin/bash\nwhile :; do sleep 1; done\n' >"$T/falso/claude"; nomear_script "$T/falso/claude" claude; }
 printf '👇\tia-aqui\t@aqui echo "[{retomar}]" >%q\t\n' "$T/aqui.out" >"$XDG_CONFIG_HOME/tt/atalhos"
 tmux new-session -d -s trabalho -x 120 -y 30 -c "$T" "bash -c '$T/falso/claude; exec bash'"
 pane=$(tmux display-message -p -t '=trabalho:' '#{pane_id}')
@@ -206,7 +207,7 @@ for _ in $(seq 30); do [[ -s $T/aqui.out ]] && break; sleep 0.2; done
   falhou "@aqui não retomou a conversa do painel: '$(cat "$T/aqui.out" 2>/dev/null)' (pane=$pane pid=$pid claude=$cpid; ps=$(ps -p "$pid,$cpid" -o pid=,ppid=,comm=); sess=$(cat "$HOME/.claude/sessions/$cpid.json" 2>/dev/null))"
 kill -0 "$cpid" 2>/dev/null && falhou '@aqui não fechou o agente que estava no painel'
 [[ $(tmux list-sessions -F '#{session_name}' | wc -l) == 1 ]] || falhou '@aqui abriu sessão nova em vez de usar o painel'
-[[ $(tmux display-message -p -t "$pane" '#{pane_current_path}') == "$T" ]] || falhou '@aqui mudou a pasta do painel'
+[[ $(tmux display-message -p -t "$pane" '#{pane_current_path}') -ef "$T" ]] || falhou '@aqui mudou a pasta do painel'
 passou '@aqui: fecha o agente do painel e abre o novo ali mesmo, na mesma pasta, retomando a conversa'
 
 # Painel só com shell: {retomar} some.

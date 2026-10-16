@@ -14,6 +14,15 @@ exec_como() {
   printf 'exec %q' "$T/nomes/$nome/$nome"; (($#)) && printf ' %q' "$@"; return 0
 }
 
+# nomear_script ARQUIVO NOME — faz um script de teste aparecer como processo NOME (ps/tmux). Linux: não precisa (o comm é o nome
+# do script ou o prctl do próprio script). macOS: o nome é o do executável, então o interpretador do script (#!) vira uma
+# cópia do bash com esse nome. O corpo do script tem que ser sh/bash.
+nomear_script() {
+  [[ $(uname -s) == Darwin ]] || return 0
+  mkdir -p "$T/nomes/$2"; [[ -x $T/nomes/$2/$2 ]] || cp "$(command -v bash)" "$T/nomes/$2/$2"
+  /usr/bin/sed -i '' "1s|.*|#!$T/nomes/$2/$2|" "$1"
+}
+
 isolar() {
   local home_real=${HOME_REAL:-${HOME:-}}
   T=$(mktemp -d)
@@ -32,50 +41,7 @@ isolar() {
     if [[ $(uname -s) == Darwin ]]; then
       mkdir -p "$T/basebin"
       for c in bash python3 tmux fzf rg; do ln -sf "$(command -v "$c")" "$T/basebin/$c" 2>/dev/null || true; done
-      # script(1): os testes usam a sintaxe do util-linux (-qfc "cmd" arquivo), que aceita stdin que não é terminal
-      # (FIFO, arquivo); o do BSD exige tty. Este adaptador faz o mesmo com pty: roda cmd num pty novo, copia o
-      # stdin para ele e a saída dele para o stdout e para o arquivo.
-      cat >"$T/basebin/script" <<'SHIM'
-#!/usr/bin/env python3
-import fcntl, os, pty, select, struct, sys, termios, time
-a = sys.argv[1:]; cmd = None; arq = []; tm = None
-while a:
-    x = a.pop(0)
-    if x == "-T": tm = open(a.pop(0), "w")
-    elif x.startswith("-") and x.endswith("c") and x != "-": cmd = a.pop(0)
-    elif x.startswith("-"): pass
-    else: arq.append(x)
-log = open(arq[0], "wb", buffering=0) if arq and arq[0] != "/dev/null" else None
-pid, fd = pty.fork()
-if pid == 0:
-    os.execvp("/bin/bash", ["bash", "-c", cmd] if cmd else ["bash"])
-try:
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(os.environ.get("LINES", 24)), int(os.environ.get("COLUMNS", 80)), 0, 0))
-except OSError: pass
-ent = sys.stdin.fileno(); vivo_ent = True; ultimo = time.monotonic()
-while True:
-    fds = [fd] + ([ent] if vivo_ent else [])
-    try: r, _, _ = select.select(fds, [], [], 0.2)
-    except OSError: break
-    if fd in r:
-        try: d = os.read(fd, 65536)
-        except OSError: break
-        if not d: break
-        if log: log.write(d)
-        if tm:
-            agora = time.monotonic(); tm.write("%.6f %d\n" % (agora - ultimo, len(d))); tm.flush(); ultimo = agora
-        try: os.write(1, d)
-        except OSError: pass
-    if vivo_ent and ent in r:
-        try: d = os.read(ent, 65536)
-        except OSError: d = b""
-        if not d: vivo_ent = False
-        else: os.write(fd, d)
-try: _, st = os.waitpid(pid, 0)
-except ChildProcessError: st = 0
-sys.exit(os.waitstatus_to_exitcode(st))
-SHIM
-      chmod +x "$T/basebin/script"
+      ln -sf "$RAIZ/tests/macos-bin/script" "$T/basebin/script"  # script(1) do util-linux, sobre pty (ver macos-bin/script)
       export PATH="$T/basebin:$PATH"
       TT_PATH_BASE="$T/basebin:$(tr ':' '\n' <<<"$PATH" | grep -F gnubin | paste -sd: -):/usr/bin:/bin"
       TT_PATH_BASE=${TT_PATH_BASE//::/:}

@@ -92,7 +92,7 @@ sys.exit(0 if not cheios and barra >= 12 else 1)
 PY
 passou 'em regime, só a barra é redesenhada (zero redesenhos completos com o letreiro rolando)'
 # o pintor (fluxo) + 5 gatilhos por cliente; o gatilho só dispara enquanto o letreiro desliza
-n=$(pgrep -fc 'gatilho-tt.sh')
+n=$(pgrep -f 'gatilho-tt.sh' | wc -l | tr -d ' ')
 ((n >= 5)) || falhou "esperava 5 gatilhos para o cliente (ticker_fps=6), vi $n"
 passou 'ticker_fps=6: 1 pintor + 5 gatilhos por cliente, ~6 redesenhos da barra por segundo'
 

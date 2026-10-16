@@ -7,13 +7,13 @@ pid() { cat "$TT_RT/tt-vigia-$(id -u).pid" 2>/dev/null; }
 for i in 1 2 3; do TT_PAUSA=2 "$TT" --vigia >/dev/null 2>&1 & done
 sleep 3
 [[ $(vivos) -le 2 ]] || true # subshells do vigia contam; o dono é o do pidfile
-p=$(pid); [[ -n $p && -d /proc/$p ]] || falhou 'nenhum vigia ficou com o pidfile'
+p=$(pid); [[ -n $p ]] && kill -0 "$p" 2>/dev/null || falhou 'nenhum vigia ficou com o pidfile'
 sleep 3; n=0; for q in $(pgrep -f "$TT --vigia"); do [[ $(ps -o ppid= -p "$q" | tr -d ' ') == 1 || $(ps -o ppid= -p "$q" | tr -d ' ') == $$ ]] && n=$((n+1)); done
 [[ $n -le 1 ]] || falhou "$n vigias principais rodando"
 passou 'três vigias lançados juntos: fica um só'
 echo 99999 >"$TT_RT/tt-vigia-$(id -u).pid"; sleep 5
-[[ -d /proc/$p ]] && falhou 'vigia que perdeu o pidfile continuou rodando'
+kill -0 "$p" 2>/dev/null && falhou 'vigia que perdeu o pidfile continuou rodando'
 passou 'vigia que perde o pidfile sai sozinho'
 TT_PAUSA=1 "$TT" --vigia >/dev/null 2>&1 & v=$!; sleep 2; tmux kill-server; sleep 7
-[[ -d /proc/$v ]] && falhou 'vigia continuou sem servidor tmux'
+kill -0 "$v" 2>/dev/null && falhou 'vigia continuou sem servidor tmux'
 passou 'sem servidor tmux, o vigia sai'

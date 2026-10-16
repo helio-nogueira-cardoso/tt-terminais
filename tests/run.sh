@@ -20,8 +20,10 @@ if [[ $(uname -s) == Darwin ]]; then
       [[ -d $_pre/opt/$_f/libexec/gnubin ]] && PATH="$_pre/opt/$_f/libexec/gnubin:$PATH"
     done
     [[ -d $_pre/opt/util-linux/bin ]] && PATH="$_pre/opt/util-linux/bin:$PATH"
-    PATH="$_pre/bin:$PATH"; export PATH
+    PATH="$_pre/bin:$PATH"
   fi
+  # script(1) no estilo do util-linux (o do BSD exige tty): adaptador sobre pty, para os testes que dão stdin por FIFO/pipe
+  PATH="$(cd "$(dirname "$0")" && pwd)/macos-bin:$PATH"; export PATH
 fi
 
 raiz=${TT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}

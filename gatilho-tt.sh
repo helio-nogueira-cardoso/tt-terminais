@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# bash 4+ (o `env bash` pode achar o 3.2 do macOS: o path_helper põe /usr/bin na frente): recomeça com o do Homebrew.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  for _tt_b in /opt/homebrew/bin/bash /usr/local/bin/bash; do [ -x "$_tt_b" ] && exec "$_tt_b" "$0" "$@"; done
+  echo "$0: precisa do bash 4 ou mais novo (este é o $BASH_VERSION). No macOS: brew install bash" >&2; exit 1
+fi
 # Gatilho do letreiro (ver letreiro-tt.py): uma linha VAZIA por segundo, 30 ms depois do quadro K do
 # pintor, só enquanto ele desliza o letreiro. Uma linha impressa por um #() da barra redesenha a
 # barra (no máximo 1 vez/s por #()): com FPS-1 gatilhos defasados de 1/FPS s a barra muda FPS vezes
@@ -13,7 +18,8 @@ marca=$rt/tt-letreiro-$pid.anim
 fifo=$rt/tt-gatilho-$pid-$k.$$
 mkfifo "$fifo" 2>/dev/null && exec {fd}<>"$fifo" && rm -f "$fifo" || exit 1
 printf '\n' || exit 0  # sem uma 1ª linha o tmux mostra "<'comando' not ready>" no lugar do #()
-while [[ -d /proc/$pid ]]; do
+# (/proc/PID no Linux; sem /proc, no macOS, kill -0: builtin, sem fork)
+while [[ -d /proc/$pid ]] || { [[ ! -d /proc/self ]] && kill -0 "$pid" 2>/dev/null; }; do
   agora=${EPOCHREALTIME/[.,]/}  # microssegundos
   seg=$((agora / 1000000))
   alvo=$(( (seg * 1000000) + (k * 1000000 / fps) + 30000 ))

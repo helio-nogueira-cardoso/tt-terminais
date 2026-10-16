@@ -39,7 +39,7 @@ tmux capture-pane -p -t '=trabalho:' | grep -q EMAIL-ASSUNTO || falhou 'cenário
 e=$(cat "$T/pkg/nomeador-local.py.entrada" 2>/dev/null)
 [[ -n $e ]] || falhou 'o nomeador não foi chamado'
 grep -q 'EMAIL-ASSUNTO' <<<"$e" && falhou "o nomeador leu o e-mail aberto por cima: $e"
-grep -q 'TRABALHO-REAL-3' <<<"$e" && grep -q "Pasta: $T/proj" <<<"$e" && grep -q 'primeiro plano: bash' <<<"$e" ||
+grep -q 'TRABALHO-REAL-3' <<<"$e" && grep -qE "Pasta: (/private)?$T/proj" <<<"$e" && grep -q 'primeiro plano: bash' <<<"$e" ||
   falhou "o nomeador não leu a sessão: $e"
 passou 'nomeador: tela, pasta e programa da sessão, não do e-mail aberto por cima'
 
@@ -47,7 +47,7 @@ passou 'nomeador: tela, pasta e programa da sessão, não do e-mail aberto por c
 l=$("$TT" --listar)
 grep -q 'EMAIL-ASSUNTO' <<<"$l" && falhou 'a busca da central pegou o e-mail'
 grep -P '^trabalho\t' <<<"$l" | grep -q 'TRABALHO-REAL-3' || falhou "a busca da central sem a tela da sessão: $l"
-grep -P '^trabalho\t' <<<"$l" | sed 's/\x1b\[[0-9;]*m//g' | cut -f2 | grep -q "bash *$T/proj" || falhou "linha da sessão sem o programa/pasta dela: $(grep -P '^trabalho\t' <<<"$l" | cut -f2)"
+grep -P '^trabalho\t' <<<"$l" | sed 's/\x1b\[[0-9;]*m//g' | cut -f2 | grep -qE "bash *(/private)?$T/proj" || falhou "linha da sessão sem o programa/pasta dela: $(grep -P '^trabalho\t' <<<"$l" | cut -f2)"
 grep -qP '^%[0-9]+\t' <<<"$l" && falhou 'o e-mail apareceu como painel da sessão na central'
 p=$("$TT" --previa trabalho)
 grep -q 'TRABALHO-REAL-3' <<<"$p" && ! grep -q 'EMAIL-ASSUNTO' <<<"$p" || falhou "prévia da central: $p"

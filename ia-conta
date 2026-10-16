@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# bash 4+ (o `env bash` pode achar o 3.2 do macOS: o path_helper põe /usr/bin na frente): recomeça com o do Homebrew.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  for _tt_b in /opt/homebrew/bin/bash /usr/local/bin/bash; do [ -x "$_tt_b" ] && exec "$_tt_b" "$0" "$@"; done
+  echo "$0: precisa do bash 4 ou mais novo (este é o $BASH_VERSION). No macOS: brew install bash" >&2; exit 1
+fi
 # ia-conta (também claude-conta) — seletor de contas de IA: perfis de login do Claude Code com
 # conversas locais compartilhadas, e o uso da janela de todas as contas da rotação (Claude, Codex, Kiro).
 #
@@ -144,9 +149,21 @@ apagar_atalho() {
   fi
 }
 
-# PIDs de Claude rodando na principal (sem CLAUDE_CONFIG_DIR), fora este processo. Sem /proc (macOS) não vê nada.
+# PIDs de Claude rodando na principal (sem CLAUDE_CONFIG_DIR), fora este processo. Sem /proc (macOS), pelo `ps eww`,
+# que imprime o ambiente depois do comando (só dos processos do próprio usuário; valor com espaço não é lido).
 principal_em_uso() {
-  local f pid arg0 kv cfg casa
+  local f pid arg0 kv cfg casa cmd t
+  if [[ ! -d /proc/self ]]; then
+    ps eww -U "$UID" -o pid=,command= 2>/dev/null | while read -r pid cmd; do
+      [[ $pid == "$$" || $pid == "$BASHPID" ]] && continue
+      arg0=${cmd%% *}; [[ ${arg0##*/} == claude ]] || continue
+      cfg="" casa=""
+      for t in $cmd; do case $t in CLAUDE_CONFIG_DIR=*) cfg=1 ;; HOME=*) casa=${t#HOME=} ;; esac; done
+      [[ -n $cfg || ( -n $casa && $casa != "$HOME" ) ]] && continue
+      printf '%s ' "$pid"
+    done
+    return 0
+  fi
   # Só o read do bash (sem tr/grep por processo: eram três processos externos para cada um das centenas
   # de processos da máquina).
   for f in /proc/[0-9]*/environ; do
@@ -200,7 +217,14 @@ entrar() {
 # PIDs de processos (fora este) que rodam com CLAUDE_CONFIG_DIR apontando para DIR. Um Claude aberto
 # guarda o caminho: se a pasta muda de nome ou sai, ele perde a credencial no meio da conversa.
 em_uso() {
-  local dir=$1 f pid
+  local dir=$1 f pid cmd t
+  if [[ ! -d /proc/self ]]; then
+    ps eww -U "$UID" -o pid=,command= 2>/dev/null | while read -r pid cmd; do
+      [[ $pid == "$$" || $pid == "$BASHPID" ]] && continue
+      for t in $cmd; do [[ $t == "CLAUDE_CONFIG_DIR=$dir" || $t == "CLAUDE_CONFIG_DIR=$dir/" ]] && { printf '%s ' "$pid"; break; }; done
+    done
+    return 0
+  fi
   for f in /proc/[0-9]*/environ; do
     pid=${f#/proc/}; pid=${pid%/environ}
     [[ $pid == "$$" || $pid == "$BASHPID" ]] && continue

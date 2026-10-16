@@ -11,8 +11,16 @@ corpo, tecla = sys.argv[1], sys.argv[2].encode().decode("unicode_escape").encode
 pid, fd = pty.fork()
 if pid == 0:
     os.execvp("bash", ["bash", "-c", corpo + "\nemail_pausa 'fecha com qualquer tecla'; echo FIM"])
-time.sleep(0.4); os.write(fd, tecla)
-out = b""; fim = time.time() + 3
+out = b""
+# espera a mensagem da pausa aparecer (o programa já está no read) antes de mandar a tecla; um sleep fixo falhava sob carga
+pronto = time.time() + 5
+while time.time() < pronto and b"qualquer tecla" not in out:
+    r, _, _ = select.select([fd], [], [], 0.1)
+    if r:
+        try: out += os.read(fd, 4096)
+        except OSError: break
+time.sleep(0.2); os.write(fd, tecla)
+fim = time.time() + 3
 while time.time() < fim:
     r, _, _ = select.select([fd], [], [], 0.2)
     if r:

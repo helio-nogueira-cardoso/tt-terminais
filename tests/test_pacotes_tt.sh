@@ -134,13 +134,15 @@ EOF
 chmod +x "$B/apt-get"
 fake sudo 'echo "sudo $*" >> "$LOG"; exec "$@"'
 export LOG=$T/chamadas.log ATUALIZADO=$T/atualizado
+# O índice do apt desta máquina não conta (no macOS nem existe): uma pasta própria, com um índice "fresco" de mentira.
+mkdir -p "$T/apt-lists"; : >"$T/apt-lists/teste_Packages"; export PK_APT_LISTAS=$T/apt-lists
 inst() { : >"$LOG"; rm -f "$ATUALIZADO"
-  rodar LOG="$LOG" ATUALIZADO="$ATUALIZADO" EXIGE_INDICE="${EXIGE_INDICE:-}" SEM_SENHA="${SEM_SENHA:-}" TT_SO=Linux TT_AMBIENTE="${AMB:-nativo}" -- "$@" 2>&1; }
+  rodar LOG="$LOG" ATUALIZADO="$ATUALIZADO" PK_APT_LISTAS="${PK_APT_LISTAS_TESTE:-$PK_APT_LISTAS}" EXIGE_INDICE="${EXIGE_INDICE:-}" SEM_SENHA="${SEM_SENHA:-}" TT_SO=Linux TT_AMBIENTE="${AMB:-nativo}" -- "$@" 2>&1; }
 
 # (a) tudo certo: uma chamada só, com sudo, ambiente sem perguntas e espera da trava do dpkg
 saida=$(inst "pk_instalar apt-get sudo curl unzip; echo \"rc=\$? ok=\${PK_OK[*]} falhos=\${PK_FALHOS[*]-}\"")
 grep -q 'rc=0 ok=curl unzip falhos=$' <<<"$saida" || falhou "instalação simples: $saida"
-[[ $(grep -c '^apt-get' "$LOG") == 1 ]] || falhou 'tudo certo deveria ser uma chamada só'
+[[ $(grep -c '^apt-get' "$LOG") == 1 ]] || falhou "tudo certo deveria ser uma chamada só: $(tr '\n' '|' <"$LOG")"
 grep -q '^sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -y -o DPkg::Lock::Timeout=120 install curl unzip$' "$LOG" || falhou "linha de comando: $(cat "$LOG")"
 passou 'instalar: uma chamada, via sudo, sem perguntas e esperando a trava do dpkg'
 

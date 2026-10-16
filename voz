@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# bash 4+ (o `env bash` pode achar o 3.2 do macOS: o path_helper põe /usr/bin na frente): recomeça com o do Homebrew.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  for _tt_b in /opt/homebrew/bin/bash /usr/local/bin/bash; do [ -x "$_tt_b" ] && exec "$_tt_b" "$0" "$@"; done
+  echo "$0: precisa do bash 4 ou mais novo (este é o $BASH_VERSION). No macOS: brew install bash" >&2; exit 1
+fi
 # voz — conversar com o tt-terminais pela voz (ou digitando). No computador (Linux, macOS, WSL) é o 🎤 da barra, uma
 # janela que ouve pelo microfone, entende e responde falando; no celular, o Tasker ouve e fala (e o Telegram, no carro).
 #   voz --conversa [--digitar]   a janela do 🎤 (a da barra do tt): ouvir, entender, agir e falar; --digitar só teclado

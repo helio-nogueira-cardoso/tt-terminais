@@ -398,7 +398,7 @@ PK_PACOTES=(); PK_SEM_PACOTE=(); PK_NO_SISTEMA=(); PK_OK=(); PK_FALHOS=(); PK_MO
 pk_log() { mkdir -p "${PK_LOG%/*}" 2>/dev/null; printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$PK_LOG" 2>/dev/null; return 0; }
 
 # O índice do apt está vazio (máquina recém-criada, WSL novo)? Sem ele nenhum pacote tem candidato.
-pk_apt_sem_indice() { ! compgen -G '/var/lib/apt/lists/*_Packages*' >/dev/null 2>&1 && ! compgen -G '/var/lib/apt/lists/*_Packages.*' >/dev/null 2>&1; }
+pk_apt_sem_indice() { local d=${PK_APT_LISTAS:-/var/lib/apt/lists}; ! compgen -G "$d/*_Packages*" >/dev/null 2>&1 && ! compgen -G "$d/*_Packages.*" >/dev/null 2>&1; }
 
 # Roda um comando de gerenciador com privilégio, mostrando a saída e guardando-a no log e num arquivo
 # para o diagnóstico. Devolve o código do comando. PK_MOTIVO diz por que falhou quando dá para saber.

@@ -67,7 +67,7 @@ passou 'principal que já é a conta pedida: nada a fazer'
 
 # 5) Claude aberto na principal: recusa e não toca na credencial. (argv[0] "claude", sem CLAUDE_CONFIG_DIR)
 echo antigo@x.com >"$HOME/.claude/quem"; rm -f "$HOME/.claude/.account-email"
-( unset CLAUDE_CONFIG_DIR; exec -a claude sleep 40 ) & aberto=$!
+( unset CLAUDE_CONFIG_DIR; eval "$(exec_como claude sleep 40)" ) & aberto=$!
 sleep 0.5
 msg=$(ia-conta adicionar principal --email novo@x.com 2>&1) && falhou 'adicionar principal deveria recusar com Claude aberto'
 grep -q 'a principal está aberta agora' <<<"$msg" || falhou "mensagem da recusa: $msg"
@@ -77,7 +77,7 @@ grep -q 'a principal continua em antigo@x.com' <<<"$saida" && grep -q '✗ teste
 [[ $(cat "$HOME/.claude/quem") == antigo@x.com ]] || falhou 'a credencial mudou apesar da recusa'
 # um Claude de perfil (CLAUDE_CONFIG_DIR) aberto não impede
 kill "$aberto" 2>/dev/null; wait "$aberto" 2>/dev/null || true
-( export CLAUDE_CONFIG_DIR=$R/perfil; exec -a claude sleep 40 ) & perfil_aberto=$!
+( export CLAUDE_CONFIG_DIR=$R/perfil; eval "$(exec_como claude sleep 40)" ) & perfil_aberto=$!
 sleep 0.5
 saida=$(printf 's\ncerto-novo@x.com\n' | IA_LOGIN_ESPERA=10 ia-login --principal novo@x.com 2>&1) || falhou "um Claude de perfil aberto não deveria impedir: $saida"
 kill "$perfil_aberto" 2>/dev/null; wait "$perfil_aberto" 2>/dev/null || true

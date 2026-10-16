@@ -15,6 +15,7 @@ B=$T/fb; mkdir -p "$B"
 for n in claude codex kiro-cli; do
   printf '#!/usr/bin/env python3\nimport ctypes, time\nctypes.CDLL(None).prctl(15, b"%s", 0, 0, 0)\nwhile True:\n    time.sleep(1)\n' "$n" >"$B/falso-$n"
   chmod +x "$B/falso-$n"
+  [[ $(uname -s) == Darwin ]] && { printf '#!/bin/bash\nwhile :; do sleep 1; done\n' >"$B/falso-$n"; nomear_script "$B/falso-$n" "$n"; }
 done
 cat >"$B/ia-conta" <<'EOF'
 #!/usr/bin/env bash

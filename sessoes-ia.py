@@ -718,8 +718,54 @@ def sem_raiz_proot(caminho):
     return caminho
 
 
+def _saida(*cmd):
+    import subprocess
+    try:
+        return subprocess.run(list(cmd), capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def variantes_pasta(cwd):
+    """A mesma pasta escrita de outras formas: no macOS /var, /tmp e /etc são links para /private/…, e o agente grava a
+    pasta como a viu (com ou sem o /private), enquanto o lsof devolve a real."""
+    v = [cwd]
+    if cwd.startswith("/private/"):
+        v.append(cwd[len("/private"):])
+    elif cwd.startswith(("/var/", "/tmp/", "/etc/")):
+        v.append("/private" + cwd)
+    r = os.path.realpath(cwd)
+    if r not in v:
+        v.append(r)
+    return v
+
+
+def mesma_pasta(a, b):
+    a, b = a.rstrip("/"), b.rstrip("/")
+    return a == b or bool(set(variantes_pasta(a)) & set(variantes_pasta(b)))
+
+
+def cwd_processo(pid):
+    """Diretório de trabalho do processo: /proc no Linux; sem /proc (macOS), o lsof. "" se não achar."""
+    try:
+        return os.readlink("/proc/%d/cwd" % pid)
+    except OSError:
+        pass
+    for l in _saida("lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn").splitlines():
+        if l.startswith("n"):
+            return l[1:]
+    return ""
+
+
 def inicio_processo(pid):
-    """Hora (epoch) em que o processo começou, pelo /proc; None sem /proc."""
+    """Hora (epoch) em que o processo começou: pelo /proc; sem /proc (macOS), pelo `ps -o lstart=`; None se não achar."""
+    if not os.path.exists("/proc/stat"):
+        import time
+        t = _saida("ps", "-o", "lstart=", "-p", str(pid)).strip()
+        try:
+            return time.mktime(time.strptime(t, "%a %b %d %H:%M:%S %Y"))
+        except ValueError:
+            return None
     try:
         with open("/proc/%d/stat" % pid) as f:
             campos = f.read().rsplit(")", 1)[1].split()
@@ -801,10 +847,7 @@ def cmd_achar(a):
     pids = {int(x) for x in (op.get("pids", "") + "," + str(pid)).split(",") if x.strip().isdigit()}
     cwd = op.get("cwd") or ""
     if not cwd and pid:
-        try:
-            cwd = os.readlink("/proc/%d/cwd" % pid)
-        except OSError:
-            cwd = ""
+        cwd = cwd_processo(pid)
     cwd = sem_raiz_proot(cwd.rstrip("/")) if cwd else ""
     desde = (inicio_processo(pid) or 0) - 5 if pid else 0
     tela = linhas_tela(op["tela"]) if op.get("tela") else []
@@ -821,12 +864,13 @@ def cmd_achar(a):
                     print("claude\t%s" % i)
                     return 0
         for d in todas(".claude"):
-            pasta = os.path.join(d, "projects", enc_claude(cwd)) if cwd else None
-            if pasta and os.path.isdir(pasta):
-                for fn in os.listdir(pasta):
-                    if fn.endswith(".jsonl"):
-                        c = os.path.join(pasta, fn)
-                        cands.append((fn[:-6], c, cwd, os.path.getmtime(c)))
+            for vc in (variantes_pasta(cwd) if cwd else []):
+                pasta = os.path.join(d, "projects", enc_claude(vc))
+                if os.path.isdir(pasta):
+                    for fn in os.listdir(pasta):
+                        if fn.endswith(".jsonl"):
+                            c = os.path.join(pasta, fn)
+                            cands.append((fn[:-6], c, cwd, os.path.getmtime(c)))
     elif prov == "kiro":
         for d in todas(".kiro"):
             b = os.path.join(d, "sessions", "cli")
@@ -863,7 +907,7 @@ def cmd_achar(a):
                         cands.append((m.group(1), c, cwd_codex(c) or "", mt))
     cands = [x for x in cands if x[3] >= desde]
     if cwd:
-        mesma = [x for x in cands if x[2].rstrip("/") == cwd]
+        mesma = [x for x in cands if mesma_pasta(x[2], cwd)]
         cands = mesma or cands
     if not cands:
         return 1

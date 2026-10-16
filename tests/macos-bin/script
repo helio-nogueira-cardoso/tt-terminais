@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+# script(1) no macOS: os testes usam a sintaxe do util-linux (-qfc "cmd" arquivo, -T tempos), que aceita stdin que não é
+# terminal (FIFO, arquivo); o do BSD exige tty. Este adaptador faz o mesmo com pty: roda cmd num pty novo, repassa o stdin
+# para ele (depois que o programa tirar o terminal do modo canônico) e a saída dele vai para o stdout e para o arquivo.
+import fcntl, os, pty, select, struct, sys, termios, time
+a = sys.argv[1:]; cmd = None; arq = []; tm = None
+while a:
+    x = a.pop(0)
+    if x == "-T": tm = open(a.pop(0), "w")
+    elif x.startswith("-") and x.endswith("c") and x != "-": cmd = a.pop(0)
+    elif x.startswith("-"): pass
+    else: arq.append(x)
+log = open(arq[0], "wb", buffering=0) if arq and arq[0] != "/dev/null" else None
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp("/bin/bash", ["bash", "-c", cmd] if cmd else ["bash"])
+try:
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(os.environ.get("LINES", 24)), int(os.environ.get("COLUMNS", 80)), 0, 0))
+except OSError: pass
+ent = sys.stdin.fileno(); vivo_ent = True; ultimo = time.monotonic()
+# No BSD, o que chega ao pty em modo canônico ANTES de o programa passar para o modo cru (read -n1) se perde; no Linux fica.
+# Por isso o stdin só é repassado depois de um instante.
+liberar_min = time.monotonic() + 0.2
+liberar_max = time.monotonic() + float(os.environ.get("TT_SCRIPT_ATRASO", "4"))
+def pode_ler_stdin():
+    agora = time.monotonic()
+    if agora < liberar_min: return False
+    if agora >= liberar_max: return True
+    try: return not (termios.tcgetattr(fd)[3] & termios.ICANON)   # o programa já passou para o modo cru (read -n1)
+    except termios.error: return True
+while True:
+    fds = [fd] + ([ent] if vivo_ent and pode_ler_stdin() else [])
+    try: r, _, _ = select.select(fds, [], [], 0.2)
+    except OSError: break
+    if fd in r:
+        try: d = os.read(fd, 65536)
+        except OSError: break
+        if not d: break
+        if log: log.write(d)
+        if tm:
+            agora = time.monotonic(); tm.write("%.6f %d\n" % (agora - ultimo, len(d))); tm.flush(); ultimo = agora
+        try: os.write(1, d)
+        except OSError: pass
+    if vivo_ent and ent in r:
+        try: d = os.read(ent, 65536)
+        except OSError: d = b""
+        if not d: vivo_ent = False
+        else: os.write(fd, d)
+try: _, st = os.waitpid(pid, 0)
+except ChildProcessError: st = 0
+sys.exit(os.waitstatus_to_exitcode(st))

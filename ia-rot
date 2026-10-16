@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# bash 4+ (o `env bash` pode achar o 3.2 do macOS: o path_helper põe /usr/bin na frente): recomeça com o do Homebrew.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  for _tt_b in /opt/homebrew/bin/bash /usr/local/bin/bash; do [ -x "$_tt_b" ] && exec "$_tt_b" "$0" "$@"; done
+  echo "$0: precisa do bash 4 ou mais novo (este é o $BASH_VERSION). No macOS: brew install bash" >&2; exit 1
+fi
 # ia-rot (também claude-rot) — roda um agente headless rotacionando entre contas quando a janela de creditos de uma acaba.
 # Contas: as do Claude (principal + as do ia-conta), o Codex e o Kiro, da com mais folga de uso para a
 # com menos (veja --melhor). Conta sem credencial ou deslogada e pulada sem bloqueio (volta a valer

@@ -28,6 +28,7 @@ while ((i < ${#args[@]})); do
   dest=$a; i=$((i+1)); break
 done
 cmd="${args[*]:i}"; host=${dest#*@}
+cmd=${cmd//:\/opt\/homebrew\/bin:\/usr\/local\/bin:/:}   # (o PATH_REMOTO do tt, para Macs remotos, esconderia o tailscale falso por um de verdade em /opt/homebrew/bin)
 read -r dir ip < <(awk -v h="$host" '$1 == h { print $2, $3 }' "$SIM_HOSTS")
 [[ -n ${dir:-} ]] || { echo "ssh: Could not resolve hostname $host" >&2; exit 255; }
 # nome que só ESTA máquina (a que chama) não resolve: o celular sem o MagicDNS

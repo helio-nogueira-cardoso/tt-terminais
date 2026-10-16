@@ -98,6 +98,17 @@ t=$(ver tmux -V); f=$(ver fzf --version)
 antigo "${t:-0}" 3.4 && echo "Aviso: tmux $t é mais antigo que o recomendado (3.4); algumas funções podem falhar (tt --pendencias explica)."
 antigo "${f:-0}" 0.60 && echo "Aviso: fzf $f é mais antigo que o recomendado (0.60); o tt baixa o fzf atual para a sua pasta na primeira vez que você aceitar a pendência (tt --pedir-sudo fzf-novo)."
 
+# macOS: o tt usa recursos do GNU (stat -c, date -d, sed, grep, find, tar, setsid, flock…) e um Python novo (o do sistema é
+# o 3.9). Com o Homebrew, instala o que faltar; o tt põe essas versões na frente do PATH só dos processos dele.
+if [[ $(pk_so) == macos && $gerenciador == brew ]]; then
+  gnu=(); for f in coreutils gnu-sed gnu-tar findutils grep gawk util-linux; do brew list --formula "$f" >/dev/null 2>&1 || gnu+=("$f"); done
+  python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null || gnu+=(python)
+  if ((${#gnu[@]})); then
+    echo "macOS: instalando o que o tt usa e o sistema não tem: ${gnu[*]}"
+    brew install "${gnu[@]}" || echo "Aviso: não consegui instalar ${gnu[*]}; o tt pede depois (tt --pendencias)." >&2
+  fi
+fi
+
 ./tt --instalar "$@"
 
 # Opcional: nomeador local de abas (modelo open source leve que roda só nesta máquina, sem conta).
