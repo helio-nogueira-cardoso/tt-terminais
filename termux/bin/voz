@@ -558,7 +558,7 @@ tarefas_ler() { # [abertas|hoje|prazo] [N]: lê com uma aba própria (TT_RT temp
     head -n "${2:-5}" | awk '
     { l = $0; gsub(/▸|▾|☐|☑|●/, "", l); sub(/^ +/, "", l); sub(/^[a-z]+[0-9]+ /, "", l)
       t = l; sub(/  .*$/, "", t)
-      p = ""; if (match(l, /◷ [^ ]+( [0-9:]+)?/)) { p = substr(l, RSTART, RLENGTH); sub(/^◷ /, "", p) }
+      p = ""; i = index(l, "◷ "); if (i) { p = substr(l, i); sub(/^◷ /, "", p); sub(/  .*$/, "", p) }
       g = ""; if (match(l, /[0-9]+\/[0-9]+/)) { split(substr(l, RSTART, RLENGTH), x, "/"); g = x[1] " de " x[2] " subtarefas" }
       printf "%d, %s%s%s. ", NR, t, (p != "" ? ", prazo " p : ""), (g != "" ? ", " g : "") }')
   rm -rf "$w"
