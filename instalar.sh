@@ -29,6 +29,10 @@ fi
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
 
+# O shebang do tt é `env bash`: se o bash que está rodando este instalador (o novo do Homebrew, depois do exec
+# acima) não é o primeiro do PATH, o `./tt --instalar` pegaria o bash 3.2 do sistema e quebraria na sintaxe.
+[[ $(command -v bash) == "$BASH" ]] || { PATH="${BASH%/*}:$PATH"; export PATH; }
+
 # shellcheck source=pacotes-tt.sh
 source ./pacotes-tt.sh
 

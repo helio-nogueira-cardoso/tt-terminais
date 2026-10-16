@@ -4,6 +4,26 @@
 #   TT_DIR=~/.local/share/tt tests/run.sh # instalação ativa
 set -euo pipefail
 
+# A suíte usa bash 5 (mapfile, EPOCHREALTIME). No macOS o `bash` do PATH pode ser o 3.2 do sistema: recomeça com o do Homebrew.
+if ((BASH_VERSINFO[0] < 5)); then
+  for _b in /opt/homebrew/bin/bash /usr/local/bin/bash; do [[ -x $_b ]] && exec "$_b" "$0" "$@"; done
+  echo "a suíte precisa do bash 5 (este é o $BASH_VERSION); no macOS: brew install bash" >&2; exit 2
+fi
+
+# macOS: o tt e os testes supõem ferramentas GNU (timeout, stat -c, sed, setsid…) e o Python novo. Com o
+# Homebrew, põe-as na frente do PATH só nesta rodada (nada muda no seu shell).
+if [[ $(uname -s) == Darwin ]]; then
+  _brew=$(command -v brew || ls /opt/homebrew/bin/brew /usr/local/bin/brew 2>/dev/null | head -1 || true)
+  if [[ -n $_brew ]]; then
+    _pre=$("$_brew" --prefix)
+    for _f in coreutils gnu-sed gnu-tar findutils grep gawk; do
+      [[ -d $_pre/opt/$_f/libexec/gnubin ]] && PATH="$_pre/opt/$_f/libexec/gnubin:$PATH"
+    done
+    [[ -d $_pre/opt/util-linux/bin ]] && PATH="$_pre/opt/util-linux/bin:$PATH"
+    PATH="$_pre/bin:$PATH"; export PATH
+  fi
+fi
+
 raiz=${TT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}
 tt=$raiz/tt
 conf=$raiz/tmux.conf
@@ -108,12 +128,29 @@ for t in "$suite_dir"/test_*.sh; do
 done
 
 for cmd in bash python3 rg tmux; do exige "$cmd"; done
+# Sem `timeout` toda a suíte reprova com "comando não encontrado" e nada diz o porquê: avisa antes, uma vez,
+# com o pacote certo (Homebrew); o que for só opcional apenas avisa.
+declare -A pacote_do_teste=([timeout]=coreutils [setsid]=util-linux [aerc]=aerc [sox]=sox)
+faltam_teste=()
+for cmd in "${!pacote_do_teste[@]}"; do command -v "$cmd" >/dev/null 2>&1 || faltam_teste+=("$cmd"); done
+if ((${#faltam_teste[@]})); then
+  printf 'faltam ferramentas dos testes: %s\n' "${faltam_teste[*]}" >&2
+  if [[ $(uname -s) == Darwin ]]; then
+    for cmd in "${faltam_teste[@]}"; do pk_lista+=" ${pacote_do_teste[$cmd]}"; done
+    printf '  no macOS: brew install%s\n' "$pk_lista" >&2
+  fi
+  command -v timeout >/dev/null 2>&1 || exit 2
+fi
 [[ -x $tt ]] || { printf 'tt não executável: %s\n' "$tt" >&2; exit 2; }
 [[ -f $conf ]] || { printf 'tmux.conf não encontrado: %s\n' "$conf" >&2; exit 2; }
 [[ -f $tema ]] || { printf 'tema-tmux.conf não encontrado: %s\n' "$tema" >&2; exit 2; }
 
 if bash -n "$tt"; then ok 'sintaxe Bash'; else falha 'sintaxe Bash'; fi
 for f in pacotes-tt.sh instalar.sh; do if bash -n "$suite_dir/../$f"; then ok "sintaxe Bash: $f"; else falha "sintaxe Bash: $f"; fi; done
+tem "$suite_dir/../instalar.sh" '\$\(command -v bash\)\ ==\ "\$BASH"' && ok 'instalar.sh: o bash que o roda vai na frente do PATH (shebang env bash do tt)' ||
+  falha 'instalar.sh: sem o bash atual na frente do PATH, o ./tt --instalar pega o bash 3.2 do macOS'
+tem "$suite_dir/run.sh" 'faltam ferramentas dos testes' && ok 'run.sh avisa, uma vez e com o pacote certo, as ferramentas de teste que faltam' ||
+  falha 'run.sh: sem aviso das ferramentas de teste ausentes'
 
 # tt --help mostra os verbos; uma opção desconhecida é recusada (antes abria a central em silêncio).
 # (saída capturada antes do rg: com pipefail, o `rg -q` fecha o cano e o sed do --help morre com SIGPIPE)

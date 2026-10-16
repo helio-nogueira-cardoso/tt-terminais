@@ -4,6 +4,11 @@ Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
 ## v1.23.1 · 16/10/2026
+- **🍎 Instalação e testes no macOS, sem tropeço.** O `instalar.sh` instalava o bash atual do Homebrew mas deixava o
+  bash 3.2 do sistema na frente do PATH, e o `./tt --instalar` quebrava na sintaxe; agora o bash que roda o instalador
+  vai na frente. O `tests/run.sh` passa a pôr sozinho as ferramentas GNU do Homebrew (coreutils, sed, findutils,
+  util-linux…) na frente do PATH só durante a rodada e, se faltar `timeout`, `setsid`, `aerc` ou `sox`, diz uma vez
+  qual `brew install` resolve, em vez de reprovar a suíte inteira com "comando não encontrado".
 - **🎤 Microfone no mudo é percebido.** Um headset no mudo (o botão dele) entrega silêncio absoluto, e o 🎤 ficava
   "ouvindo" esse microfone sem nunca ouvir você. Agora o tt passa para o microfone seguinte e avisa na janela ("o
   BlackShark não manda som nenhum: está no mudo?"); no meio da conversa, se o microfone emudece, a janela avisa igual
