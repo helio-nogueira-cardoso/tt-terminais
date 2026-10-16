@@ -14627,7 +14627,7 @@ atalho_comando() { # cliente painel pasta comando id
 # O 🎤 (comando "voz …") é do aparelho onde você está: clicado numa ponte (você vê esta máquina de outra), a janela abre
 # na máquina de origem, por cima da ponte, com o microfone e o som dela; a conversa já começa na sessão daqui.
 atalho_janela() { # cliente pasta comando id
-  local c=$1 pasta=$2 cmd=$3 id=$4 cw ch w=80 h=16 tit origem om op sess
+  local c=$1 pasta=$2 cmd=$3 id=$4 cw ch w=96 h=16 tit origem om op sess
   if [[ $cmd == 'voz '* ]] && origem=$(origem_ponte "$c") && [[ -n $origem && $origem == *'|'* ]]; then
     om=${origem%%|*} op=${origem#*|}
     sess=$(do_cliente "$c" '#{session_name}')
@@ -14636,9 +14636,10 @@ atalho_janela() { # cliente pasta comando id
     fi
     botao_aviso "$c" "⚠ 🎤 não consegui abrir na máquina de origem ($om); abrindo aqui"
   fi
+  # até 96 colunas e quase a altura toda (a conversa do 🎤 rola por dentro: roda do mouse, PgUp/PgDn), até 60 linhas
   read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
   [[ $cw =~ ^[0-9]+$ ]] && ((cw < w + 2)) && w=$((cw > 22 ? cw - 2 : 20))
-  [[ $ch =~ ^[0-9]+$ ]] && ((ch < h + 6)) && h=$((ch > 10 ? ch - 6 : 6))
+  [[ $ch =~ ^[0-9]+$ ]] && { h=$((ch - 6)); ((h > 60)) && h=60; ((h < 6)) && h=6; }
   tit=$(atalho_por_id "$id" | cut -f1); tit="${tit:+$tit }$id"
   popup_fixo -c "$c" -E -w "$w" -h "$h" -x R -y S -T " $tit " -d "${pasta:-$HOME}" -e TT_EM_JANELA=1 \
     "bash -lc $(q "PATH=\"\$HOME/.local/bin:$DIR_TT:\$PATH\"; $cmd")"

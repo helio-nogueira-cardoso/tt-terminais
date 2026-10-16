@@ -100,19 +100,24 @@ saida=$(v sessoes); [[ $saida == *agente* && $saida != *oculta* ]] || falhou "se
 v "ir para marte" | grep -q 'Não achei' || falhou 'máquina inexistente não foi recusada'
 passou 'voz: trocar de máquina e listar sessões (ocultas fora)'
 
-saida=$(v "aba agente"); [[ $saida == *"não está liberada"* && $saida == *"Diga sim"* ]] || falhou "aba: $saida"
-saida=$(v "oi mundo"); [[ $saida == *"não está liberada"* ]] || falhou "texto livre sem liberação: $saida"
-tmux capture-pane -p -t '=agente-teste:' | grep -q 'oi mundo' && falhou 'enviou texto a sessão não liberada'
-passou 'voz: sessão não liberada não recebe texto'
+# escolher já libera (sem "diga sim"); bloquear solta a sessão e o texto livre deixa de ir a ela
+saida=$(v "aba agente"); [[ $saida == *"Sessão agente teste, em dell. Pode falar com ela."* && $saida != *"Diga sim"* ]] || falhou "aba: $saida"
+grep -qx 'dell:agente-teste' "$HOME/.config/tt-voz/permitidas" || falhou 'escolher não liberou a sessão'
+v bloquear sessao | grep -q 'solta' || falhou 'bloquear sessão'
+[[ -z $(cat "$HOME/.local/state/tt-voz/alvo_s" 2>/dev/null) ]] && ! grep -qx 'dell:agente-teste' "$HOME/.config/tt-voz/permitidas" ||
+  falhou 'bloquear não soltou a sessão'
+saida=$(v "oi mundo"); [[ $saida == *"escolha uma sessão"* ]] || falhou "texto livre sem sessão escolhida: $saida"
+tmux capture-pane -p -t '=agente-teste:' | grep -q 'oi mundo' && falhou 'enviou texto a uma sessão solta'
+passou 'voz: escolher a sessão já libera; bloquear a solta'
 
+v "aba agente" >/dev/null
 v "permitir sessao" | grep -q liberada || falhou 'permitir sessão'
 saida=$(v "oi mundo"); [[ $saida == *"Enviado para agente-teste"* && $saida == *"Entendi: oi mundo"* ]] || falhou "resposta do agente: $saida"
 saida=$(v repetir); [[ $saida == *'Entendi: oi mundo'* && $saida != *Enviado* ]] || falhou "repetir (o aviso não conta): $saida"
 saida=$(VOZ_ESPERA=1 v "devagar"); [[ $saida == *"Eu aviso quando terminar"* ]] || falhou "agente demorado: $saida"
 saida=$(v repetir); [[ $saida == *'Entendi: devagar'* ]] || falhou "repetir depois da demora confere a sessão de novo: $saida"
 [[ -e $HOME/.local/state/tt-voz/pendente ]] && falhou 'pendente ficou depois da resposta'
-v bloquear sessao >/dev/null; v "qualquer coisa" | grep -q 'não está liberada' || falhou 'bloquear sessão'
-passou 'voz: texto vai à sessão liberada e a resposta volta resumida'
+passou 'voz: texto vai à sessão escolhida e a resposta volta resumida'
 
 # o estado sem esperar: com o agente trabalhando, diz há quanto tempo e fica pendente (o cérebro recebe a tela limpa);
 # a janela confere (--pendente-pronto) e, quando ele termina, fala a resposta (--turno-pendente)
@@ -148,14 +153,15 @@ passou 'voz: numa ponte, lê e manda texto na sessão de verdade da outra máqui
 # frases soltas: nome da máquina, "sessões do X", número da lista, "sim" para liberar, várias hipóteses, singular
 saida=$(v "dell"); [[ $saida == *"Agora em dell"* && $saida == *"1, agente teste"* ]] || falhou "máquina pelo nome: $saida"
 saida=$(v "quais as sessões do dell"); [[ $saida == *"Em dell: 1, agente teste"* ]] || falhou "sessões do dell: $saida"
-saida=$(v "um"); [[ $saida == *"Sessão agente teste, em dell"* && $saida == *"Diga sim"* ]] || falhou "escolher pelo número: $saida"
-saida=$(v "sim"); [[ $saida == *"liberada"* ]] && grep -qx 'dell:agente-teste' "$HOME/.config/tt-voz/permitidas" || falhou "sim libera: $saida"
+grep -vx 'dell:agente-teste' "$HOME/.config/tt-voz/permitidas" >"$T/p"; cp "$T/p" "$HOME/.config/tt-voz/permitidas"
+saida=$(v "um"); [[ $saida == *"Sessão agente teste, em dell. Pode falar com ela."* ]] && grep -qx 'dell:agente-teste' "$HOME/.config/tt-voz/permitidas" ||
+  falhou "escolher pelo número (já libera): $saida"
 saida=$(v "segunda"); [[ $saida == *"Não há sessão 2"* ]] || falhou "número fora da lista: $saida"
 saida=$(v $'blablabla\nmaquinas'); [[ $saida == *"Máquinas:"* ]] || falhou "hipótese que é comando: $saida"
 saida=$(v "máquina"); [[ $saida == *"Máquinas:"* ]] || falhou "singular: $saida"
 saida=$(v "vai para o dell"); [[ $saida == *"Agora em dell"* ]] || falhou "vai para o dell: $saida"
 v "aba agente" >/dev/null  # trocar de máquina limpa a sessão; os testes seguintes contam com ela
-passou 'voz: frases soltas (nome da máquina, sessões do X, número, sim, hipóteses do reconhecimento)'
+passou 'voz: frases soltas (nome da máquina, sessões do X, número, hipóteses do reconhecimento)'
 
 # silêncio: na 1ª vez pede de novo (ouve), na 2ª encerra avisando o Tasker (fim=1)
 : >"$T/am.log"; saida=$(VOZ_MUDO= bash "$V" __silencio__); [[ $saida == *"Não ouvi. Pode falar"* ]] || falhou "silêncio 1: $saida"
@@ -177,8 +183,8 @@ rm -f "$T/pedido.txt"; v status >/dev/null; [[ -e $T/pedido.txt ]] && falhou 'co
 printf '%s' '{"fala": "Até logo.", "acoes": [{"acao": "encerrar"}]}' >"$T/plano.json"
 : >"$T/am.log"; VOZ_MUDO= bash "$V" "pode desligar tudo por hoje" >/dev/null; grep -q -- '--es fim 1' "$T/am.log" || falhou "cérebro: encerrar não fechou: $(cat "$T/am.log")"
 printf 'isto não é json' >"$T/plano.json"
-saida=$(v "uma frase qualquer sem sentido"); [[ $saida == *"Enviado para agente-teste"* || $saida == *"não está liberada"* ]] || falhou "cérebro com resposta ruim: devia cair nas regras: $saida"
-saida=$(VOZ_CEREBRO_CMD="exit 1" v "outra frase solta"); [[ $saida == *Enviado* || $saida == *liberada* ]] || falhou "cérebro fora do ar: devia cair nas regras: $saida"
+saida=$(v "uma frase qualquer sem sentido"); [[ $saida == *"Enviado para agente-teste"* ]] || falhou "cérebro com resposta ruim: devia cair nas regras: $saida"
+saida=$(VOZ_CEREBRO_CMD="exit 1" v "outra frase solta"); [[ $saida == *Enviado* ]] || falhou "cérebro fora do ar: devia cair nas regras: $saida"
 unset VOZ_CEREBRO_CMD
 passou 'voz: cérebro entende frase solta, age, fala uma vez só; sem resposta útil, valem as regras'
 
@@ -195,7 +201,7 @@ grep -q 'args: abrir --conta codex' "$T/ia.log" && grep -q 'escolheu: Yes, proce
 saida=$(v "dois"); [[ $saida == *"Feito. Sessão voz codex"* ]] && grep -q 'escolheu: Verde' "$T/ia.log" || falhou "resposta à pergunta: $saida / $(cat "$T/ia.log")"
 [[ $(<"$HOME/.local/state/tt-voz/alvo_s") == voz-codex-* ]] && grep -q ':voz-codex-' "$HOME/.config/tt-voz/permitidas" || falhou 'sessão nova não virou o alvo liberado'
 # 👇 e ⏩: a IA do provedor com menos uso (beta), e a conversa passada adiante pelo tt
-: >"$T/ia.log"; saida=$(v "aba agente"); v sim >/dev/null
+: >"$T/ia.log"; saida=$(v "aba agente")
 VOZ_CEREBRO_CMD="cat >/dev/null; echo '{\"acoes\": [{\"acao\": \"trocar_ia\", \"ia\": \"claude\"}, {\"acao\": \"passar\"}]}'" v "troca para o claude e depois passa adiante" >/dev/null
 grep -q 'tt --atalho-rodar ia-aqui  %[0-9]* conta=beta' "$T/ia.log" && grep -q 'tt --seguir  %[0-9]*' "$T/ia.log" || falhou "👇/⏩: $(cat "$T/ia.log")"
 passou 'voz: tarefas com subtarefas; 🚀 com IA escolhida passa pelas perguntas de abertura; 👇 e ⏩ pelo tt'
@@ -205,13 +211,96 @@ v contas | grep -q 'principal' || falhou 'contas'
 v "" | grep -q 'diga ajuda e um tema' || falhou 'ajuda geral'
 v ajuda | grep -q 'diga ajuda e um tema' || falhou 'ajuda'
 v "ajuda sessões" | grep -q 'aba e uma palavra do nome' || falhou 'ajuda sessões'
-v "ajuda com o agente" | grep -q 'sim para liberar' || falhou 'ajuda agente'
+v "ajuda com o agente" | grep -q 'bloquear sessão a solta' || falhou 'ajuda agente'
 v "ajuda maquinas" | grep -q 'por exemplo, notebook' || falhou 'ajuda máquinas'
 v "ajuda conversa" | grep -q 'volto a ouvir' || falhou 'ajuda conversa'
 v comandos | grep -q 'bloquear sessão' || falhou 'comandos'
 saida=$(v terminal); [[ $saida == *"Máquina dell, sessão agente-teste"* && $saida == *"Pode falar"* ]] || falhou "abrir conversa: $saida"
 v encerrar | grep -q 'Terminal encerrado' || falhou 'encerrar'
 passou 'voz: tarefas, contas, ajuda, abrir e encerrar a conversa'
+
+# "abra uma nova sessão em M com X" é o 🚀 (não a lista de sessões); frase longa que só cita a máquina vai ao cérebro
+: >"$T/ia.log"; saida=$(VOZ_DESTRAVAR=1 v "abra uma nova sessão no book com o codex")
+[[ $saida == *'Abrindo codex em book'* && $saida != *'Diga o número'* ]] && grep -q 'args: abrir --conta codex' "$T/ia.log" ||
+  falhou "abrir sessão nova numa máquina: $saida / $(cat "$T/ia.log")"
+[[ $(<"$EST/alvo_m") == book && $(<"$EST/alvo_s") == voz-codex-* ]] || falhou "a sessão nova não virou o alvo: $(cat "$EST/alvo_m"):$(cat "$EST/alvo_s")"
+tmux kill-session -t "=$(<"$EST/alvo_s")" 2>/dev/null || true
+: >"$T/ia.log"; VOZ_DESTRAVAR=1 v "crie uma sessão nova" >/dev/null; grep -qx 'args: abrir' "$T/ia.log" || falhou "crie uma sessão nova: $(cat "$T/ia.log")"
+tmux kill-session -t "=$(<"$EST/alvo_s")" 2>/dev/null || true
+printf '%s' '{"fala": "Entendi o pedido longo.", "acoes": []}' >"$T/plano.json"
+saida=$(VOZ_CEREBRO_CMD="cat > '$T/pedido3.txt'; cat '$T/plano.json'" v "passe uma a uma das sessões tanto da empresa como do computador dell e resuma")
+[[ $saida == *'Entendi o pedido longo.'* && $saida != *'Diga o número'* ]] || falhou "frase longa que cita a máquina foi tomada pelas regras: $saida"
+saida=$(v "sessões do dell"); [[ $saida == *'Em dell:'* ]] || falhou "frase curta com a máquina continua listando: $saida"
+v "aba agente" >/dev/null
+passou 'voz: abrir sessão nova numa máquina pelo rodízio; frase longa que cita a máquina vai ao cérebro'
+
+# índice: as sessões desta máquina (sem ocultas nem pontes) com estado e a tela; o de todas as máquinas ao mesmo tempo
+tmux new-session -d -s ponte-z 'sleep 600'; tmux set-option -t '=ponte-z:' @ponte u@h1
+r=$(bash "$V" --indice-local 2)
+grep -qP '^celular\tagente-teste\t-\t\tparado' <<<"$r" && grep -qP '^\t\| ● Entendi' <<<"$r" || falhou "índice desta máquina: $r"
+grep -q 'ponte-z\|_oculta' <<<"$r" && falhou "o índice trouxe ponte ou sessão oculta: $r"
+mkdir -p "$HOME/.local/share/tt"; ln -sf "$V" "$HOME/.local/share/tt/voz"  # as outras máquinas (ssh falso) têm o voz novo
+rm -f "$EST/indice"; bash "$V" --indice-atualizar
+(($(grep -cP '^celular\tagente-teste\t' "$EST/indice") == 3)) || falhou "índice de todas as máquinas (3, pelo ssh falso): $(cat "$EST/indice")"
+rm -f "$HOME/.local/share/tt/voz"; rm -f "$EST/indice"; bash "$V" --indice-atualizar  # lá, um voz antigo: nada, sem erro
+(($(grep -cP '^celular\tagente-teste\t' "$EST/indice") == 1)) || falhou "máquina com voz antigo deveria ficar de fora: $(cat "$EST/indice")"
+tmux kill-session -t '=ponte-z'
+# escolher pelo nome ou pelo título, em qualquer máquina (pelo índice)
+printf 'dell\tagente-teste\t-\t\tparado\nbook\tsessao-do-book\tclaude\tRevisar o bimo\ttrabalhando há 3 minutos\n' >"$EST/indice"
+saida=$(v "aba revisar bimo"); [[ $saida == *'Sessão sessao do book, em book. Pode falar com ela.'* ]] || falhou "sessão de outra máquina pelo título: $saida"
+[[ $(<"$EST/alvo_m") == book ]] && grep -qx 'book:sessao-do-book' "$HOME/.config/tt-voz/permitidas" || falhou 'a sessão de outra máquina não virou o alvo liberado'
+saida=$(v "vai para a sessão revisar bimo"); [[ $saida == *'Sessão sessao do book, em book'* ]] || falhou "ir para a sessão: $saida"
+printf '%s' '{"fala": "", "acoes": []}' >"$T/plano.json"
+VOZ_CEREBRO_CMD="cat > '$T/pedido4.txt'; cat '$T/plano.json'" v "qual sessão está revisando o bimo" >/dev/null
+grep -q 'book · sessao-do-book · claude · "Revisar o bimo" · trabalhando há 3 minutos' "$T/pedido4.txt" || falhou "o índice não foi ao cérebro: $(grep -A3 'índice' "$T/pedido4.txt")"
+printf dell >"$EST/alvo_m"; v "aba agente" >/dev/null
+passou 'voz: índice das sessões (todas as máquinas, sem ocultas nem pontes); escolher pelo nome ou título em qualquer máquina'
+
+# panorama: todas as sessões numa leitura só, resumidas pelo cérebro numa volta; sem ele, o estado de cada uma
+printf '%s' '{"fala": "agente teste está parado e respondeu.", "acoes": []}' >"$T/plano.json"
+saida=$(VOZ_CEREBRO_CMD="cat > '$T/pedido5.txt'; cat '$T/plano.json'" v "resumo de todas as sessões")
+[[ $saida == *'Vou olhar as sessões.'* && $saida == *'agente teste está parado e respondeu.'* ]] || falhou "panorama: $saida"
+grep -q '^PANORAMA' "$T/pedido5.txt" && grep -q 'celular · agente-teste' "$T/pedido5.txt" && grep -q '| ● Entendi' "$T/pedido5.txt" ||
+  falhou "o pedido do panorama: $(cat "$T/pedido5.txt" | head -40)"
+saida=$(VOZ_CEREBRO_CMD="exit 1" v "o que está acontecendo nas sessões"); [[ $saida == *'agente teste em celular, sem agente, parado'* ]] ||
+  falhou "panorama sem o cérebro: $saida"
+printf '%s' '{"fala": "", "acoes": [{"acao": "panorama"}]}' >"$T/plano.json"
+saida=$(VOZ_CEREBRO_CMD="cat > '$T/pedido6.txt'; cat '$T/plano.json'" v "me conta o que cada agente anda fazendo hoje")
+grep -q '^PANORAMA' "$T/pedido6.txt" || falhou "a ação panorama do cérebro: $saida"
+passou 'voz: panorama (todas as sessões numa leitura, um resumo do cérebro; sem ele, o estado de cada uma)'
+
+# o Claude aberto da janela: o voz manda só o contexto (as regras ficam no system prompt) pelo socket; sem resposta, o de sempre
+cat >"$T/sock.py" <<'FIM'
+import os, socket, sys
+s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(4)
+for resp in sys.argv[3:]:
+    c, _ = s.accept(); d = b""
+    while True:
+        b = c.recv(65536)
+        if not b: break
+        d += b
+    open(sys.argv[2], "ab").write(d + b"\n====\n")
+    if resp != "-": c.sendall(resp.encode())
+    c.close()
+FIM
+python3 "$T/sock.py" "$T/cerebro.sock" "$T/sock.log" '{"fala": "Pelo socket.", "acoes": []}' - & sp=$!
+for i in $(seq 25); do [[ -S $T/cerebro.sock ]] && break; sleep 0.2; done
+saida=$(VOZ_CEREBRO_SOCK=$T/cerebro.sock VOZ_CEREBRO_CMD="cat >/dev/null; echo '{\"fala\": \"Pelo caminho de sempre.\", \"acoes\": []}'" v "uma frase solta pelo socket")
+[[ $saida == *'Pelo socket.'* ]] || falhou "cérebro pelo socket: $saida"
+grep -q '^Contexto:' "$T/sock.log" && ! grep -q 'Responda SÓ com um JSON' "$T/sock.log" || falhou "pelo socket vai só o contexto: $(head -5 "$T/sock.log")"
+saida=$(VOZ_CEREBRO_SOCK=$T/cerebro.sock VOZ_CEREBRO_CMD="cat >/dev/null; echo '{\"fala\": \"Pelo caminho de sempre.\", \"acoes\": []}'" v "outra frase solta pelo socket")
+[[ $saida == *'Pelo caminho de sempre.'* ]] || falhou "socket sem resposta: deveria usar o caminho de sempre: $saida"
+wait "$sp" 2>/dev/null
+# voz --cerebro-vivo-aqui: a conta do rodízio, o Claude em stream-json com as regras no system prompt
+mkdir -p "$T/vivo"; printf '#!/usr/bin/env bash\necho "$*" >>%q\nprintf "beta\\t10\\tok\\n"\n' "$T/vivo/rot.log" >"$T/vivo/ia-rot"
+printf '#!/usr/bin/env bash\necho "CCD=${CLAUDE_CONFIG_DIR:-} $*" >%q\n' "$T/vivo/claude.log" >"$T/vivo/claude"; chmod +x "$T/vivo"/*
+PATH="$T/vivo:$PATH" bash "$V" --cerebro-vivo-aqui haiku
+grep -q -- '--claude-only --melhor' "$T/vivo/rot.log" || falhou "a conta do cérebro aberto não veio do rodízio: $(cat "$T/vivo/rot.log")"
+l=$(cat "$T/vivo/claude.log")
+[[ $l == "CCD=$HOME/.local/share/claude-contas/beta -p --model haiku --input-format stream-json --output-format stream-json --verbose --tools  --no-session-persistence --system-prompt-file $EST/cerebro-regras.md" ]] ||
+  falhou "o Claude do cérebro aberto: $l"
+grep -q 'Responda SÓ com um JSON' "$EST/cerebro-regras.md" && grep -q 'microfone do computador' "$EST/cerebro-regras.md" || falhou 'as regras do cérebro aberto'
+passou 'voz: cérebro aberto (só o contexto pelo socket; sem resposta, o caminho de sempre); conta do rodízio e stream-json'
 
 # No celular as contas e os agentes ficam no proot onde o tt instalou o ia-conta: "contas", o 🚀 neste celular, as contas
 # do contexto do cérebro e o cérebro "local" vão para lá; noutra máquina, o 🚀 abre o ia-conta de lá, como antes.

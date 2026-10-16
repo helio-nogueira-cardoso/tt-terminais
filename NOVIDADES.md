@@ -3,6 +3,23 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.25.0 · 16/10/2026
+- **🎤 Escolher a sessão já a libera.** Acabou o "diga sim para liberar": escolheu (pelo número, pelo nome, pelo
+  cérebro, ou abrindo uma nova), pode falar com ela. "Bloquear sessão" a solta.
+- **🎤 Sessão nova pelo rodízio:** "abra uma sessão nova na empresa" abre o agente da conta com mais folga naquela
+  máquina (antes, lia a lista de sessões). Com a IA ("com o codex") e com um pedido ("para revisar o bimo"), que vai
+  assim que ele abre.
+- **🎤 As sessões de todas as máquinas:** a janela guarda um índice delas (agente, título, trabalhando ou parada) e
+  acha a sessão pelo nome ou pelo assunto em qualquer máquina. "Panorama" ou "resumo de todas as sessões" lê todas ao
+  mesmo tempo e resume o que cada uma faz, em segundos (antes, uma por uma, minutos). Frase longa que só cita a máquina
+  não vira mais "sessões da empresa": vai ao cérebro.
+- **🎤 Respostas mais rápidas:** o Claude do cérebro fica aberto enquanto a janela está aberta, e cada volta leva
+  ~1,5 s (eram ~7 s). As conexões com as outras máquinas são as do tt, já abertas.
+- **🎤 Janela maior e com rolagem:** um pouco mais larga e quase da altura da tela; a roda do mouse, as setas,
+  PgUp/PgDn e Home/End rolam a conversa, e ela não pula quando chega texto com você lendo lá em cima.
+- **🎤 Primeira vez numa máquina:** nada de traceback na tela. Sem o reconhecimento de voz instalado, a janela oferece
+  instalar ali mesmo, em segundo plano (também sem o `python3-venv`, sem sudo), e passa a ouvir quando termina.
+
 ## v1.24.2 · 16/10/2026
 - **⌨ Seta não vira Esc com a máquina ocupada.** As telas que leem tecla por tecla (transferências, confirmações e
   escolhas das tarefas, calendário, a espera do login OAuth do e-mail) davam 30 a 50 ms para o resto de uma seta

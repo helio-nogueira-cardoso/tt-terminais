@@ -337,6 +337,15 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   350, alta 180, máxima 100, baixa 600; grava `limiar` = `voz --limiar` → `VOZ_LIMIAR`, nome ou número; normal = sem
   arquivo), s saída, v voz (grava `voz`; Piper Faber = sem arquivo; fala um exemplo). `ssh_cmd` leva `VOZ_MODELO=` à
   máquina que transcreve.
+- Janela (`Tela`/`Teclado`): `Tela.abrir()` = tela alternativa + mouse SGR (1000/1006), histórico (`itens`, `linhas`
+  requebradas no SIGWINCH), `desloc` (0 = acompanha o fim), `rolar(n|"inicio"|"fim")`, estado com "↑ rolada"/"↓ N
+  novas · End volta"; sem `abrir()` (teste do microfone) escreve rolando. `Teclado(tela)._consumir` entende a roda
+  (`\e[<64/65;…M`), setas, PgUp/PgDn (`\e[5~`/`\e[6~`), Home/End e manda à tela; Esc sozinho espera `TT_ESC_SEQ`.
+  `@janela` (tt `atalho_janela`): até 96 colunas, altura `cliente − 6` (até 60). Erro de thread → `_erro_thread` →
+  `~/.cache/tt-voz/erros.log`; `_aquecer_piper` engole a falta do Piper. Sem reconhecimento e sem faster-whisper aqui,
+  `_oferecer_instalar` (s/n; "n" vale 7 dias em `~/.cache/tt-voz/instalar-recusado`) roda `voz-audio.py instalar` em 2º
+  plano (`VOZ_INSTALAR_CMD` nos testes; passo a passo em `~/.cache/tt-voz/instalar.log`) e, pronto, `som_pronto` faz a
+  conversa passar a ouvir. `instalar()` sem o `python3-venv`: `venv --without-pip` + `get-pip.py` (`VOZ_GET_PIP`).
 - Detector (`Gravador.frase`): fala = 3 quadros de 30 ms acima de max(2,6 × piso, `limiar_minimo()`). Guarda em
   `quase`/`limiar_quase` o maior nível que durou 3 quadros sem virar fala; no silêncio (ou Espaço sem fala) com
   `quase` ≥ 30% do limiar, a janela avisa uma vez por conversa (`_aviso_fraco`) como aumentar a sensibilidade.
@@ -371,8 +380,31 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
 - Aparelho de origem: `atalho_janela` com comando `voz …` num cliente que é ponte (`origem_ponte`) pede à máquina de
   origem `tt --janela-ponte PONTE CMD MÁQUINA SESSÃO` (`janela_ponte`: o cliente que olha a ponte, `voz --alvo`, e a
   janela lá); falhou, abre aqui com um aviso.
-- Cérebro: `ia-rot -p --model $(cerebro_modelo)`; padrão `sonnet` (medido em 16/10/2026: acerta as frases ambíguas que o
-  Haiku errava por ~1 s a mais); `voz --cerebro-modelo haiku|sonnet|opus`.
+- Cérebro: `cerebro_regras` (fixas) + `cerebro_contexto FRASE` (estado, tela da sessão escolhida, índice, conversa);
+  `cerebro_chamar CONTEXTO` usa o Claude aberto da janela (`VOZ_CEREBRO_SOCK`: socket Unix servido por `CerebroVivo` no
+  `voz-audio.py`; manda só o contexto) e, sem resposta, `ia-rot -p --model $(cerebro_modelo) --no-session-persistence`
+  com regras + contexto. `voz --cerebro-vivo` (a janela o abre ao começar; `VOZ_CEREBRO_VIVO=0` desliga;
+  `VOZ_CEREBRO_VIVO_CMD` nos testes) = no 1º lugar do cérebro (aqui, ou `ssh … voz --cerebro-vivo-aqui MODELO`, só se o
+  voz de lá o tem), `cerebro_vivo_aqui`: conta de `ia-rot --claude-only --melhor` (principal = sem `CLAUDE_CONFIG_DIR`,
+  senão `~/.local/share/claude-contas/CONTA`), `claude -p --input-format stream-json --output-format stream-json
+  --verbose --tools "" --no-session-persistence --system-prompt-file ~/.local/state/tt-voz/cerebro-regras.md`. Aquece
+  com uma volta, recomeça depois de `VOLTAS` (20) ou de um erro (`is_error`, tempo esgotado); ~1,5 s por volta (contra
+  ~7 s). Padrão `sonnet` (medido em 16/10/2026: acerta as frases ambíguas que o Haiku errava por ~1 s a mais);
+  `voz --cerebro-modelo haiku|sonnet|opus`. Ações novas: `panorama` (MÁQUINA opcional), `nova_sessao` com `texto` (o 1º
+  pedido, mandado quando o agente abre).
+- Liberação: escolher (lista, número, nome, cérebro, sessão nova, próxima/anterior) grava em `permitidas` (`liberar`);
+  `enviar`, Enter/cancelar, 👇 e ⏩ só pedem a sessão escolhida; "bloquear sessão" tira da lista e solta a escolha.
+- Índice (`indice_local [N]` = `voz --indice-local`: uma ida ao tmux, sem ocultas nem pontes; agente e título do
+  `tt --listar-tudo --para-ia`; estado por `ocupado`/`ha_quanto`; N linhas limpas, sem a caixa de digitar ❯/›/> com
+  espaço comum ou não separável); `indice_todas [N] [MÁQUINA]` (todas ao mesmo tempo; lá só se o voz de lá tem o
+  verbo; `VOZ_T_INDICE`=8 s); `voz --indice-atualizar` grava `~/.local/state/tt-voz/indice` (a janela, a cada
+  `VOZ_T_INDICE_JANELA`=30 s); `indice_lista` (até 60 s, senão refaz) alimenta `sessao_em_todas` (escolher pelo nome
+  ou título em qualquer máquina) e o contexto do cérebro. `panorama` = `indice_todas 20` → `cerebro_chamar "PANORAMA…"`
+  (uma frase por sessão); sem o cérebro, o estado de cada uma.
+- Regras (`reescrever`): `RE_NOVA`/`RE_NOVA_VERBO` ("abra uma nova sessão em M com X" → `nova sessao …`; "abrir a sessão
+  X" sem nova/uma e sem em/no/na/com é escolher); "máquina + sessões" só em frase de até 6 palavras sem
+  `RE_PEDIDO`; `RE_PANORAMA`/`RE_PANORAMA2`; "ir para a sessão X" = `sessao X`; "ir para X" que não é máquina procura
+  a sessão. `em` aceita `EM_TEMPO`; o ssh do voz usa o ControlPath do tt (`~/.cache/tt-ssh-%r@%h`, 12 h).
 - Configuração em `~/.config/tt-voz/`: `cerebro` (`-` = desligado; sem o arquivo, a janela usa `local` se houver
   `ia-rot`), `cerebro-modelo`, `transcrever`, `fala`, `modelo`, `microfone`, `permitidas`. `voz --instalar-audio` = venv
   `~/.local/share/tt-voz/venv` (faster-whisper, piper-tts; com GPU NVIDIA, `nvidia-cublas-cu12` e `nvidia-cudnn-cu12`,

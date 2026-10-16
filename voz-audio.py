@@ -1954,46 +1954,147 @@ NIVEL = "▁▂▃▄▅▆▇█"
 
 
 class Tela:
-    """Conversa rolando para cima e uma linha de estado embaixo (redesenhada no lugar)."""
+    """A conversa e uma linha de estado embaixo. Aberta (abrir()), desenha numa tela própria (a alternativa do terminal)
+    com o histórico guardado: a roda do mouse, as setas, PgUp/PgDn e Home/End rolam (o Teclado chama rolar()); rolada
+    para cima, a vista não pula quando chega texto (o estado diz quantas linhas novas há embaixo). Sem abrir() (o teste
+    do microfone), escreve rolando, como um terminal."""
 
     def __init__(self):
-        self.trava = threading.Lock()
+        self.trava = threading.RLock()  # o redesenho do SIGWINCH roda na mesma thread de quem escreve
         self.estado = ""
-        self.largura = 70
+        self.largura, self.altura = 70, 24
+        self.itens = []  # (quem, texto) de tudo o que foi dito
+        self.linhas = []  # os itens quebrados na largura de agora, com as cores
+        self.desloc = 0  # linhas roladas para cima (0 = acompanhando o fim)
+        self.novas = 0
+        self.cheia = False
 
     def medir(self):
         try:
-            self.largura = max(30, os.get_terminal_size(sys.stdout.fileno()).columns)
+            t = os.get_terminal_size(sys.stdout.fileno())
+            self.largura, self.altura = max(30, t.columns), max(5, t.lines)
         except OSError:
-            self.largura = 70
+            self.largura, self.altura = 70, 24
+
+    def _quebrar(self, quem, texto):
+        rot = {"voce": "você: ", "tt": "tt: ", "nota": "", "erro": "⚠ "}.get(quem, "")
+        corpo = textwrap.wrap(texto, max(10, self.largura - 1 - len(rot))) or [""]
+        return ["%s%s%s%s" % (COR.get(quem, ""), rot if i == 0 else " " * len(rot), l, COR["fim"])
+                for i, l in enumerate(corpo)]
+
+    def abrir(self):
+        """Tela própria com histórico e a roda do mouse (SGR)."""
+        with self.trava:
+            self.medir()
+            self.cheia = True
+            sys.stdout.write("\033[?1049h\033[?1000h\033[?1006h\033[?25l\033[2J")
+            self._desenhar()
+        try:
+            signal.signal(signal.SIGWINCH, lambda *a: self._redimensionar())
+        except (ValueError, OSError, AttributeError):
+            pass  # fora da thread principal ou sem SIGWINCH
+
+    def fechar(self):
+        with self.trava:
+            if self.cheia:
+                self.cheia = False
+                sys.stdout.write("\033[?1006l\033[?1000l\033[?25h\033[?1049l")
+                sys.stdout.flush()
+
+    def _redimensionar(self):
+        with self.trava:
+            self.medir()
+            self.linhas = [l for q, t in self.itens for l in self._quebrar(q, t)]
+            self.desloc = min(self.desloc, self._max_desloc())
+            self._desenhar()
+
+    def _max_desloc(self):
+        return max(0, len(self.linhas) - (self.altura - 1))
+
+    def _desenhar(self):
+        if not self.cheia:
+            return
+        h = self.altura - 1
+        fim = len(self.linhas) - self.desloc
+        vis = self.linhas[max(0, fim - h):fim]
+        out = ["\033[?2026h"]
+        for i in range(h):
+            out.append("\033[%d;1H\033[2K%s" % (i + 1, vis[i] if i < len(vis) else ""))
+        out.append("\033[%d;1H\033[2K%s\033[?2026l" % (self.altura, self._linha_estado()))
+        sys.stdout.write("".join(out))
+        sys.stdout.flush()
+
+    def _linha_estado(self):
+        if not self.desloc:
+            return self.estado[: max(10, self.largura - 1)]
+        marca = " ↓ %d nova%s · End volta" % (self.novas, "" if self.novas == 1 else "s") if self.novas else " ↑ rolada · End volta"
+        return "%s\033[7m%s\033[0m" % (self.estado[: max(0, self.largura - 1 - len(marca))], marca)
+
+    def rolar(self, n):
+        """n linhas para cima (negativo: para baixo); "inicio"/"fim" vão às pontas."""
+        with self.trava:
+            if n == "inicio":
+                self.desloc = self._max_desloc()
+            elif n == "fim":
+                self.desloc = 0
+            else:
+                self.desloc = min(self._max_desloc(), max(0, self.desloc + n))
+            if not self.desloc:
+                self.novas = 0
+            self._desenhar()
+
+    def pagina(self):
+        return max(1, self.altura - 2)
 
     def linha(self, quem, texto):
-        self.medir()
-        rot = {"voce": "você: ", "tt": "tt: ", "nota": "", "erro": "⚠ "}.get(quem, "")
-        corpo = textwrap.wrap(texto, self.largura - 1 - len(rot)) or [""]
         with self.trava:
+            if not self.cheia:
+                self.medir()
+            novas = self._quebrar(quem, texto)
+            self.itens.append((quem, texto))
+            self.linhas.extend(novas)
+            if len(self.itens) > 2000:  # a conversa de um dia inteiro cabe; o resto vai embora
+                self.itens = self.itens[-1500:]
+                self.linhas = [l for q, t in self.itens for l in self._quebrar(q, t)]
+            if self.cheia:
+                if self.desloc:
+                    self.desloc = min(self._max_desloc(), self.desloc + len(novas))  # a vista fica onde estava
+                    self.novas += len(novas)
+                self._desenhar()
+                return
             sys.stdout.write("\r\033[2K")
-            for i, l in enumerate(corpo):
-                pre = rot if i == 0 else " " * len(rot)
-                sys.stdout.write("%s%s%s%s\n" % (COR.get(quem, ""), pre, l, COR["fim"]))
+            for l in novas:
+                sys.stdout.write(l + "\n")
             sys.stdout.write(self.estado)
             sys.stdout.flush()
 
     def status(self, texto):
         with self.trava:
             self.estado = texto[: max(10, self.largura - 1)]
-            sys.stdout.write("\r\033[2K" + self.estado)
+            if self.cheia:
+                sys.stdout.write("\033[%d;1H\033[2K%s" % (self.altura, self._linha_estado()))
+            else:
+                sys.stdout.write("\r\033[2K" + self.estado)
             sys.stdout.flush()
 
 
-class Teclado:
-    """Lê teclas sem esperar Enter (modo cbreak) numa thread; Esc sozinho vira 'esc'."""
+# as sequências que o Teclado entende: a roda do mouse (SGR), setas, PgUp/PgDn, Home/End; o resto de um CSI é descartado
+SEQ_MOUSE = re.compile(rb"\x1b\[<(\d+);\d+;\d+[Mm]")
+SEQ_TECLA = re.compile(rb"\x1b(?:\[(\d+)~|\[([ABCDHF])|O([ABCDHF]))")
+SEQ_CSI = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
+SEQ_INCOMPLETA = re.compile(rb"\x1b(\[[0-?<]*[ -/]*|O)?$")
 
-    def __init__(self):
+
+class Teclado:
+    """Lê teclas sem esperar Enter (modo cbreak) numa thread; Esc sozinho vira 'esc'. A rolagem (roda do mouse, setas,
+    PgUp/PgDn, Home/End) vai direto à tela (tela.rolar), em qualquer momento da conversa."""
+
+    def __init__(self, tela=None):
         self.fila = queue.Queue()
         self.fd = sys.stdin.fileno()
         self.antes = None
         self.vivo = True
+        self.tela = tela
 
     def __enter__(self):
         import termios
@@ -2015,22 +2116,73 @@ class Teclado:
         if self.antes is not None:
             termios.tcsetattr(self.fd, termios.TCSADRAIN, self.antes)
 
+    def _rolar(self, n):
+        if self.tela is not None:
+            self.tela.rolar(n)
+
     def _ler(self):
+        import codecs
+        dec = codecs.getincrementaldecoder("utf-8")("replace")
+        buf = b""
+        espera = float(os.environ.get("TT_ESC_SEQ", "0.3"))
         while self.vivo:
-            r, _, _ = select.select([self.fd], [], [], 0.2)
-            if not r:
+            r, _, _ = select.select([self.fd], [], [], 0.2 if not buf else espera)
+            if r:
+                b = os.read(self.fd, 256)
+                if not b:
+                    self.fila.put("esc")
+                    return
+                buf += b
+            elif buf:  # nada mais chegou: um Esc sozinho (ou o pedaço de uma sequência que não veio inteira)
+                if buf == b"\x1b":
+                    self.fila.put("esc")
+                buf = b""
                 continue
-            b = os.read(self.fd, 64)
-            if not b:
-                self.fila.put("esc")
-                return
-            if b == b"\x1b":
-                self.fila.put("esc")
-            elif b.startswith(b"\x1b"):
-                continue  # setas e outras sequências: nada
             else:
-                for ch in b.decode("utf-8", "replace"):
+                continue
+            buf = self._consumir(buf, dec)
+
+    def _consumir(self, buf, dec):
+        """Tira de buf o que já dá para entender; devolve o resto (uma sequência que ainda não chegou inteira)."""
+        while buf:
+            i = buf.find(b"\x1b")
+            if i != 0:
+                texto = buf if i < 0 else buf[:i]
+                for ch in dec.decode(texto):
                     self.fila.put(ch)
+                buf = b"" if i < 0 else buf[i:]
+                continue
+            m = SEQ_MOUSE.match(buf)
+            if m:
+                bt = int(m.group(1))
+                if bt in (64, 65):
+                    self._rolar(3 if bt == 64 else -3)
+                buf = buf[m.end():]
+                continue
+            m = SEQ_TECLA.match(buf)
+            if m:
+                cod = m.group(1)
+                letra = (m.group(2) or m.group(3) or b"").decode()
+                if cod in (b"5", b"6"):
+                    self._rolar((1 if cod == b"5" else -1) * (self.tela.pagina() if self.tela else 10))
+                elif cod in (b"1", b"7") or letra == "H":
+                    self._rolar("inicio")
+                elif cod in (b"4", b"8") or letra == "F":
+                    self._rolar("fim")
+                elif letra in ("A", "B"):
+                    self._rolar(1 if letra == "A" else -1)
+                buf = buf[m.end():]
+                continue
+            m = SEQ_CSI.match(buf)
+            if m:
+                buf = buf[m.end():]
+                continue
+            if SEQ_INCOMPLETA.match(buf):
+                return buf  # espera o resto
+            # Esc seguido de outra coisa (Alt+tecla): o Esc, e a tecla segue
+            self.fila.put("esc")
+            buf = buf[1:]
+        return buf
 
     def tecla(self, espera=0.0):
         try:
@@ -2202,6 +2354,156 @@ def painel_opcoes(tela, teclado, gravador=None, falador=None, transcritor=None):
             tela.linha("nota", "✓ saída de som: %s" % novo if novo else "não há outra saída de som")
 
 
+class CerebroVivo:
+    """O Claude do cérebro aberto a conversa toda (`voz --cerebro-vivo`: stream-json, regras no system prompt), servido
+    aos `voz --turno` por um socket Unix (VOZ_CEREBRO_SOCK): cada volta ~1,5 s, contra ~7 s de um `claude -p` que parte do
+    zero. Enquanto abre (a escolha da conta pode levar dezenas de segundos), se cair ou errar, o socket responde vazio e o
+    voz usa o caminho de sempre (ia-rot -p). Depois de VOLTAS voltas recomeça (o contexto não cresce sem fim)."""
+    VOLTAS = 20
+
+    def __init__(self, voz):
+        self.voz = voz
+        self.proc = None
+        self.fila = None
+        self.voltas = 0
+        self.trava = threading.Lock()
+        self.pronto = threading.Event()
+        self.abrindo = False
+        self.fechado = False
+        self.pasta = tempfile.mkdtemp(prefix="tt-voz-")
+        self.sock = os.path.join(self.pasta, "cerebro.sock")
+        self.srv = None
+
+    def iniciar(self):
+        import socket
+        try:
+            self.srv = socket.socket(socket.AF_UNIX)
+            self.srv.bind(self.sock)
+            self.srv.listen(4)
+        except OSError:
+            return
+        os.environ["VOZ_CEREBRO_SOCK"] = self.sock
+        threading.Thread(target=self._servir, daemon=True).start()
+        self._abrir_fundo()
+
+    def _abrir_fundo(self):
+        if self.abrindo or self.fechado:
+            return
+        self.abrindo = True
+        threading.Thread(target=self._abrir, daemon=True).start()
+
+    def _abrir(self):
+        try:
+            p = subprocess.Popen(["bash", self.voz, "--cerebro-vivo"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+            if self.fechado:
+                parar_processo(p)
+                return
+            fila = queue.Queue()
+            threading.Thread(target=self._ler, args=(p, fila), daemon=True).start()
+            with self.trava:
+                self.proc, self.fila, self.voltas = p, fila, 0
+                ok = self._pedir('Início da conversa. Responda só: {"fala": "", "acoes": []}',
+                                 float(os.environ.get("VOZ_CEREBRO_ABRIR", "120"))) is not None
+            if ok:
+                self.pronto.set()
+        except OSError:
+            pass
+        finally:
+            self.abrindo = False
+
+    @staticmethod
+    def _ler(p, fila):
+        for linha in p.stdout:
+            try:
+                d = json.loads(linha)
+            except ValueError:
+                continue
+            if d.get("type") == "result":
+                fila.put(d)
+        fila.put(None)
+
+    def _parar(self):
+        self.pronto.clear()
+        p, self.proc = self.proc, None
+        if p:
+            try:
+                p.stdin.close()
+            except OSError:
+                pass
+            try:
+                os.killpg(p.pid, signal.SIGTERM)  # o grupo todo: o ia-rot que ainda escolhe a conta, ou o Claude
+            except OSError:
+                pass
+            parar_processo(p)
+
+    def _pedir(self, texto, tempo):
+        """Uma volta (com a trava): o texto da resposta, ou None (e o processo é descartado)."""
+        p = self.proc
+        if p is None or p.poll() is not None:
+            return None
+        try:
+            while not self.fila.empty():
+                self.fila.get_nowait()
+            msg = {"type": "user", "message": {"role": "user", "content": texto}}
+            p.stdin.write((json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8"))
+            p.stdin.flush()
+            d = self.fila.get(timeout=tempo)
+        except (OSError, ValueError, queue.Empty):
+            d = None
+        if not d or d.get("is_error") or not isinstance(d.get("result"), str):
+            self._parar()
+            return None
+        self.voltas += 1
+        return d["result"]
+
+    def pedir(self, texto, tempo=45.0):
+        if not self.pronto.is_set():
+            return None
+        with self.trava:
+            r = self._pedir(texto, tempo)
+            if r is None or self.voltas >= self.VOLTAS:
+                self._parar()
+        if not self.pronto.is_set():
+            self._abrir_fundo()  # a próxima volta já pega um novo (até lá, o caminho de sempre)
+        return r
+
+    def _servir(self):
+        while not self.fechado:
+            try:
+                c, _ = self.srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._atender, args=(c,), daemon=True).start()
+
+    def _atender(self, c):
+        try:
+            c.settimeout(60)
+            dados = b""
+            while True:
+                b = c.recv(65536)
+                if not b:
+                    break
+                dados += b
+            r = self.pedir(dados.decode("utf-8", "replace"), float(os.environ.get("VOZ_CEREBRO_TEMPO", "45")))
+            if r:
+                c.sendall(r.encode("utf-8"))
+        except OSError:
+            pass
+        finally:
+            c.close()
+
+    def fechar(self):
+        self.fechado = True
+        os.environ.pop("VOZ_CEREBRO_SOCK", None)
+        try:
+            self.srv and self.srv.close()
+        except OSError:
+            pass
+        self._parar()  # sem a trava: ela pode estar presa na abertura (a escolha da conta leva até 2 min)
+        shutil.rmtree(self.pasta, ignore_errors=True)
+
+
 class Conversa:
     def __init__(self, digitar=False):
         self.tela = Tela()
@@ -2215,6 +2517,8 @@ class Conversa:
         self.falador = None
         self.dica = ""
         self.pendente_pronto = threading.Event()
+        self.som_pronto = threading.Event()
+        self.cerebro = None
         self.conferindo = False
         self.avisou_fraco = False
 
@@ -2303,6 +2607,8 @@ class Conversa:
             self.tela.status("você> " + txt + "▏  (Enter manda · Esc " + ("sai" if self.digitar_sempre else "volta a ouvir") + ")")
             k = teclado.tecla(0.2)
             if k is None:
+                if not txt and self.som_pronto.is_set():
+                    return "\0n"  # o reconhecimento acabou de ser instalado: volta ao laço, que passa a ouvir
                 continue
             if k == "esc":
                 return None
@@ -2428,7 +2734,109 @@ class Conversa:
         except (OSError, subprocess.SubprocessError):
             pass
 
+    def _erro_thread(self, a):
+        """Erro numa tarefa de segundo plano: vai ao log (~/.cache/tt-voz/erros.log), nunca à tela da conversa."""
+        try:
+            import traceback
+            os.makedirs(CACHE, exist_ok=True)
+            with open(os.path.join(CACHE, "erros.log"), "a", encoding="utf-8") as f:
+                f.write("%s %s\n" % (time.strftime("%F %T"), "".join(
+                    traceback.format_exception(a.exc_type, a.exc_value, a.exc_traceback)).rstrip()))
+        except OSError:
+            pass
+
+    def _aquecer_piper(self):
+        try:
+            self.falador._sintetizar("ok")
+        except (OSError, RuntimeError, ValueError):
+            pass  # sem o Piper em lugar nenhum: fala a voz do sistema
+
+    def _oferecer_instalar(self, teclado):
+        """Sem reconhecimento em lugar nenhum e sem ele aqui: oferece instalar agora (em 2º plano; a conversa segue
+        digitando e passa a ouvir quando terminar). "n" fica lembrado por 7 dias."""
+        if python_com("faster_whisper") or os.environ.get("VOZ_STT_CMD"):
+            return
+        marca = os.path.join(CACHE, "instalar-recusado")
+        try:
+            if time.time() - os.path.getmtime(marca) < 7 * 86400:
+                return
+        except OSError:
+            pass
+        self.tela.linha("nota", "Para ouvir você, esta máquina precisa do reconhecimento de voz (Whisper e a voz Piper, "
+                                "~1 GB, uns minutos). Instalo agora, em segundo plano? Enquanto isso, você digita.")
+        self.tela.status("instalar o reconhecimento de voz? s: sim · n: agora não")
+        fim = time.time() + 120
+        while time.time() < fim:
+            k = teclado.tecla(0.3)
+            if k in ("s", "S", "\r", "\n"):
+                threading.Thread(target=self._instalar_fundo, daemon=True).start()
+                return
+            if k in ("n", "N", "esc", "q"):
+                try:
+                    os.makedirs(CACHE, exist_ok=True)
+                    open(marca, "w").close()
+                except OSError:
+                    pass
+                self.tela.linha("nota", "Tudo bem: siga digitando. Para instalar depois: botão direito no 🎤 → Instalar a voz neural.")
+                return
+
+    def _instalar_fundo(self):
+        log = os.path.join(CACHE, "instalar.log")
+        self.tela.linha("nota", "instalando o reconhecimento de voz (o passo a passo fica em %s)…" % log)
+        try:
+            os.makedirs(CACHE, exist_ok=True)
+            with open(log, "w", encoding="utf-8") as f:
+                cmd = ["bash", "-c", os.environ["VOZ_INSTALAR_CMD"]] if os.environ.get("VOZ_INSTALAR_CMD") else \
+                    [sys.executable, EU, "instalar"]  # (VOZ_INSTALAR_CMD: testes)
+                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=f, text=True, stdin=subprocess.DEVNULL)
+                for linha in p.stdout:
+                    f.write(linha)
+                    f.flush()
+                    if linha.strip():
+                        self.tela.linha("nota", "  " + linha.strip()[:160])
+                rc = p.wait()
+        except OSError as e:
+            rc = 1
+            self.tela.linha("erro", "não consegui instalar: %s" % e)
+        if rc != 0:
+            self.tela.linha("erro", "a instalação não terminou (veja %s). Siga digitando." % log)
+            return
+        novo = Transcritor(avisar=self._aviso_transcritor)
+        if novo.preparar():
+            antigo, self.transcritor = self.transcritor, novo
+            antigo.fechar()
+            self.tela.linha("nota", "✓ reconhecimento instalado: transcrever: %s. Pode falar." % novo.desc)
+            self.som_pronto.set()
+        else:
+            novo.fechar()
+            self.tela.linha("erro", "instalou, mas não abriu: %s" % novo.motivo)
+
+    def _indice_fundo(self):
+        """O índice das sessões de todas as máquinas (o cérebro escolhe por ele) renovado a cada ~30 s."""
+        while not self.sair:
+            try:
+                subprocess.run(["bash", self.voz, "--indice-atualizar"], timeout=40, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except (OSError, subprocess.SubprocessError):
+                pass
+            for _ in range(int(float(os.environ.get("VOZ_T_INDICE_JANELA", "30")) * 2)):
+                if self.sair:
+                    return
+                time.sleep(0.5)
+
     def rodar(self):
+        self.tela.abrir()
+        try:
+            return self._rodar()
+        finally:
+            self.tela.fechar()
+
+    def _rodar(self):
+        threading.excepthook = self._erro_thread
+        if os.environ.get("VOZ_CEREBRO_VIVO", "1") != "0":
+            self.cerebro = CerebroVivo(self.voz)
+            self.cerebro.iniciar()  # a conta e o Claude abrem enquanto o microfone e a transcrição abrem
+        threading.Thread(target=self._indice_fundo, daemon=True).start()
         self.tela.medir()
         som = not self.digitar_sempre
         if som:
@@ -2445,27 +2853,34 @@ class Conversa:
         partes = []
         if som:
             partes.append("ouvir: %s" % self.gravador.nome)
-        with Teclado() as teclado:
+        with Teclado(self.tela) as teclado:
+            sem_reconhecimento = False
             if som:
                 if self.transcritor.preparar():
                     partes.append("transcrever: " + self.transcritor.desc)
                 else:
-                    self.tela.linha("nota", "Sem reconhecimento de voz: %s. Digite (t), ou rode voz --instalar-audio."
+                    sem_reconhecimento = True
+                    self.tela.linha("nota", "Sem reconhecimento de voz: %s. Por enquanto, digite."
                                     % self.transcritor.motivo)
                     som = False
             if self.falador.qual == "windows":
                 self.falador._abrir_win()  # já vinha abrindo junto com a transcrição: aqui sabe-se onde toca
             if self.falador.neural() and self.falador.voz.startswith("piper:"):  # carrega a voz enquanto a conversa abre
-                threading.Thread(target=lambda: self.falador._sintetizar("ok"), daemon=True).start()
+                threading.Thread(target=self._aquecer_piper, daemon=True).start()
             if self.falador.neural() and self.falador.voz in self.falador.vozes():
                 partes.append("falar: %s em %s" % (rotulo_voz(self.falador.voz), self.falador.onde))
             else:
                 partes.append("falar: %s%s" % (self.falador.det, "" if self.falador.qual in ("nenhum", "cmd", "spd", "espeak", "termux")
                                                else " em " + self.falador.onde))
             self.tela.linha("nota", " · ".join(partes) + "   (c: opções)")
+            if sem_reconhecimento and not self.digitar_sempre:
+                self._oferecer_instalar(teclado)
             self.atualizar_dica()
             fim = self.turno("terminal", teclado)
             while not self.sair and not fim:
+                if self.som_pronto.is_set():  # a instalação terminou: passa a ouvir
+                    self.som_pronto.clear()
+                    som = self.gravador.fluxo is not None or self.gravador.escolher()
                 if som and not self.digitar_sempre:
                     frase = self.ouvir(teclado)
                     if frase is None:
@@ -2490,13 +2905,16 @@ class Conversa:
                     frase = self.digitar(teclado)
                     if frase is None:
                         break
-                    if not frase:
+                    if not frase or frase == "\0n":
                         continue
                     self.tela.linha("voce", frase)
                 fim = self.turno(frase, teclado)
                 self.atualizar_dica()
             if fim and not self.sair:
                 time.sleep(0.6)
+        self.sair = True
+        if self.cerebro:
+            self.cerebro.fechar()
         self.transcritor.fechar()
         self.gravador.fechar()
         if self.falador:
@@ -2524,12 +2942,20 @@ def medir_depois():
 def espelho():
     """Celular: a conversa é do Tasker (ele ouve e fala); a janela mostra o conversa.log e deixa digitar."""
     tela = Tela()
+    try:
+        return _espelho(tela)
+    finally:
+        tela.fechar()
+
+
+def _espelho(tela):
     estado = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(CASA, ".local", "state"), "tt-voz")
     log = os.path.join(estado, "conversa.log")
     entrada = os.path.join(os.environ.get("VOZ_SDCARD", "/sdcard"), "Tasker", "voz", "in")
     pos = os.path.getsize(log) if os.path.exists(log) else 0
+    tela.abrir()
     tela.linha("nota", "A conversa abre no Tasker (ele ouve e fala). Aqui aparece o que foi dito.")
-    with Teclado() as teclado:
+    with Teclado(tela) as teclado:
         while True:
             tela.status("t: digitar · Esc: fechar a janela (diga encerrar para fechar a conversa)")
             k = teclado.tecla(0.3)
@@ -2653,10 +3079,18 @@ def instalar():
     """venv com faster-whisper e Piper, a voz pt-BR do Piper e o modelo do Whisper (em cache)."""
     py = sys.executable
     print("venv em %s" % VENV)
-    if not os.path.exists(os.path.join(VENV, "bin", "python")):
-        if subprocess.run([py, "-m", "venv", VENV]).returncode != 0:
-            print("✗ não consegui criar o venv (no Debian/Ubuntu: sudo apt install python3-venv)")
-            return 1
+    if not os.path.exists(os.path.join(VENV, "bin", "python")) or \
+            subprocess.run([os.path.join(VENV, "bin", "python"), "-m", "pip", "--version"], capture_output=True).returncode != 0:
+        if subprocess.run([py, "-m", "venv", VENV], capture_output=True).returncode != 0:
+            # Debian/Ubuntu sem o python3-venv (o ensurepip vem nele): o venv sem pip e o pip pelo get-pip.py, sem sudo
+            print("venv sem o ensurepip (falta o python3-venv): pip pelo get-pip.py")
+            gp = os.path.join(tempfile.gettempdir(), "tt-voz-get-pip.py")
+            if subprocess.run([py, "-m", "venv", "--clear", "--without-pip", VENV]).returncode != 0 or \
+                    subprocess.run(["curl", "-fsSL", "-m", "120", "-o", gp, os.environ.get(
+                        "VOZ_GET_PIP", "https://bootstrap.pypa.io/get-pip.py")]).returncode != 0 or \
+                    subprocess.run([os.path.join(VENV, "bin", "python"), gp, "-q"]).returncode != 0:
+                print("✗ não consegui criar o venv (no Debian/Ubuntu: sudo apt install python3-venv)")
+                return 1
     pip = [os.path.join(VENV, "bin", "python"), "-m", "pip", "install", "-q", "--upgrade"]
     if subprocess.run(pip + ["pip"]).returncode != 0 or subprocess.run(pip + ["faster-whisper", "piper-tts", "edge-tts"]).returncode != 0:
         print("✗ pip falhou")
@@ -2703,16 +3137,20 @@ def main(a):
         return servidor()
     if cmd == "opcoes":
         tela = Tela()
-        g = Gravador()
-        tela.status("… abrindo o microfone e a voz")
-        tem_mic = g.escolher()
-        f = Falador(mic=g.nome if tem_mic else "")
-        if f.qual == "windows":
-            f._abrir_win()
-        with Teclado() as teclado:
-            painel_opcoes(tela, teclado, g if tem_mic else None, f)
-        g.fechar()
-        f.fechar()
+        tela.abrir()
+        try:
+            g = Gravador()
+            tela.status("… abrindo o microfone e a voz")
+            tem_mic = g.escolher()
+            f = Falador(mic=g.nome if tem_mic else "")
+            if f.qual == "windows":
+                f._abrir_win()
+            with Teclado(tela) as teclado:
+                painel_opcoes(tela, teclado, g if tem_mic else None, f)
+            g.fechar()
+            f.fechar()
+        finally:
+            tela.fechar()
         return 0
     if cmd == "capacidade":
         print(json.dumps(capacidade(), ensure_ascii=False))

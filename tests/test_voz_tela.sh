@@ -49,9 +49,9 @@ passou 'voz --turno: falas, fim e o cérebro chegam à janela pelo VOZ_TELA_FD; 
 printf '#!/usr/bin/env bash\necho "$*" >>%q; cat >/dev/null; echo %q\n' "$T/ia-rot.log" '{"fala": "Do cérebro local.", "acoes": []}' >"$B/ia-rot"; chmod +x "$B/ia-rot"
 [[ $(VOZ_CEREBRO_PADRAO=local bash "$V" --turno "uma frase solta qualquer") == *'Do cérebro local.'* ]] || falhou 'VOZ_CEREBRO_PADRAO=local não usou o ia-rot'
 r=$(bash "$V" --audio 2>/dev/null | tail -1); [[ $r == 'cérebro: local (sonnet)' ]] || falhou "voz --audio (cérebro padrão com ia-rot): '$r'"
-[[ $(tail -1 "$T/ia-rot.log") == '-p --model sonnet' ]] || falhou "o cérebro deveria ser o Sonnet: $(cat "$T/ia-rot.log")"
+[[ $(tail -1 "$T/ia-rot.log") == '-p --model sonnet --no-session-persistence' ]] || falhou "o cérebro deveria ser o Sonnet: $(cat "$T/ia-rot.log")"
 bash "$V" --cerebro-modelo haiku >/dev/null; VOZ_CEREBRO_PADRAO=local bash "$V" --turno "outra frase solta" >/dev/null
-[[ $(tail -1 "$T/ia-rot.log") == '-p --model haiku' ]] || falhou "voz --cerebro-modelo haiku não trocou: $(tail -1 "$T/ia-rot.log")"
+[[ $(tail -1 "$T/ia-rot.log") == '-p --model haiku --no-session-persistence' ]] || falhou "voz --cerebro-modelo haiku não trocou: $(tail -1 "$T/ia-rot.log")"
 bash "$V" --cerebro-modelo 'x;y' >/dev/null 2>&1 && falhou 'modelo com caracteres estranhos aceito'
 bash "$V" --cerebro-modelo padrao >/dev/null
 bash "$V" --cerebro - >/dev/null
@@ -571,7 +571,111 @@ EOF
   falhou "headset no mudo: deveria ouvir pelo seguinte e avisar: '$r'"
 passou 'gravação: fala pelo nível, fim no silêncio; microfone no mudo (zero exato) é pulado e avisado; voz baixa pela sensibilidade'
 
+# --- a tela da janela: histórico, rolagem (a vista não pula com texto novo) e o leitor das sequências de rolagem
+r=$(py <<EOF
+$CARREGA
+import io, sys
+t = m.Tela(); t.largura, t.altura = 40, 10; t.cheia = True; sys.stdout = io.StringIO()
+for i in range(30): t.linha("tt", "linha %d" % i)
+sc = lambda x: m.re.sub(r"\x1b\[[0-9;]*m", "", x)
+v = lambda: [sc(x) for x in t.linhas[max(0, len(t.linhas) - t.desloc - 9):len(t.linhas) - t.desloc]]
+a = v()[-1]; t.rolar(3); b = v()[-1]; t.linha("tt", "nova"); c = v()[-1]; nov = t.novas; est = t._linha_estado()
+t.rolar("fim"); d = v()[-1]; t.rolar("inicio"); e = v()[0]; t.rolar(-1000); f = t.desloc
+class F:
+    def __init__(s): s.r = []
+    def rolar(s, n): s.r.append(n)
+    def pagina(s): return 8
+tc = m.Teclado.__new__(m.Teclado); tc.fila = m.queue.Queue(); tc.tela = F()
+import codecs
+resto = tc._consumir(b"\x1b[<64;1;1M\x1b[<65;3;3Mab\x1b[5~\x1b[6~\x1b[H\x1b[F\x1bOA\xc3\xa9\x1b[<0;1;1M\x1b[<6", codecs.getincrementaldecoder("utf-8")())
+teclas = []
+while not tc.fila.empty(): teclas.append(tc.fila.get())
+sys.stdout = sys.__stdout__
+print(a, "|", b, "|", c, nov, "↓ 1 nova" in est, "|", d, "|", e, f, "|", tc.tela.r, teclas, resto)
+EOF
+)
+[[ $r == "tt: linha 29 | tt: linha 26 | tt: linha 26 1 True | tt: nova | tt: linha 0 0 | [3, -3, 8, -8, 'inicio', 'fim', 1] ['a', 'b', 'é'] b'\x1b[<6'" ]] ||
+  falhou "tela com histórico e rolagem: '$r'"
+passou 'janela: histórico com rolagem (roda, PgUp/PgDn, Home/End, setas); rolada, a vista não pula com texto novo'
+
+# --- o cérebro aberto: um Claude falso em stream-json; a 1ª volta abre; recomeça depois de VOLTAS; erro cai no de sempre
+cat >"$T/claude-falso.py" <<'FIM'
+import json, sys
+open(sys.argv[1], "a").write("início\n")
+n = 0
+for linha in sys.stdin:
+    d = json.loads(linha); n += 1
+    txt = d["message"]["content"]
+    open(sys.argv[1], "a").write("pedido: %s\n" % txt.splitlines()[0][:40])
+    print(json.dumps({"type": "system", "subtype": "init"}), flush=True)
+    erro = "ERRO" in txt
+    print(json.dumps({"type": "result", "is_error": erro, "result": '{"fala": "vivo %d", "acoes": []}' % n}), flush=True)
+FIM
+r=$(VOZ_CEREBRO_VIVO_CMD="python3 '$T/claude-falso.py' '$T/vivo.log'" VOZ_CEREBRO_CMD="exit 1" py <<EOF
+$CARREGA
+import os, subprocess, time
+m.CerebroVivo.VOLTAS = 3
+c = m.CerebroVivo("$V"); c.iniciar()
+for i in range(100):
+    if c.pronto.is_set(): break
+    time.sleep(0.05)
+turno = lambda f: subprocess.run(["bash", "$V", "--turno", f], capture_output=True, text=True).stdout.strip().splitlines()[-1]
+a = turno("uma frase solta"); b = turno("outra frase solta")
+for i in range(100):
+    if c.pronto.is_set(): break
+    time.sleep(0.05)
+d = turno("depois de recomeçar"); e = turno("ERRO de propósito")
+c.fechar()
+print(a, "|", b, "|", d, "|", "vivo" if e.startswith("vivo") else "de sempre", "|", os.path.exists(c.sock))
+EOF
+)
+[[ $r == "vivo 2 | vivo 3 | vivo 2 | de sempre | False" ]] ||
+  falhou "cérebro aberto: '$r' / $(cat "$T/vivo.log")"
+(($(grep -c '^início' "$T/vivo.log") >= 2)) && grep -q '^pedido: Início da conversa' "$T/vivo.log" && grep -q '^pedido: Contexto:' "$T/vivo.log" ||
+  falhou "cérebro aberto: abre, aquece e recomeça: $(cat "$T/vivo.log")"
+passou 'cérebro aberto da janela: socket para os turnos, aquece ao abrir, recomeça depois de VOLTAS; erro cai no caminho de sempre'
+
+# --- nada de traceback na janela: o aquecimento da voz que não existe em lugar nenhum, e erro de 2º plano vai ao log
+r=$(py 2>"$T/err.txt" <<EOF
+$CARREGA
+import threading
+c = m.Conversa()
+class F:
+    def _sintetizar(self, t): raise RuntimeError("nenhuma máquina gera a voz Piper Faber (offline)")
+c.falador = F(); c._aquecer_piper()
+threading.excepthook = c._erro_thread
+t = threading.Thread(target=lambda: 1 / 0); t.start(); t.join()
+print(open(m.os.path.join(m.CACHE, "erros.log")).read().count("ZeroDivisionError") > 0)
+EOF
+)
+[[ $r == True && ! -s $T/err.txt ]] || falhou "erro de 2º plano na tela: '$r' / $(cat "$T/err.txt")"
+# sem reconhecimento: a janela oferece instalar; s instala em 2º plano e, pronto, passa a ouvir; n fica lembrado
+printf '#!/bin/sh\ncat >/dev/null; echo oi\n' >"$T/stt-um"; chmod +x "$T/stt-um"
+r=$(VOZ_INSTALAR_CMD="echo passo um; sleep 0.3; echo passo dois" py <<EOF
+$CARREGA
+import io, os, sys, time
+m.python_com = lambda x: None; os.environ.pop("VOZ_STT_CMD", None)
+class K:
+    def __init__(self, t): self.t = list(t)
+    def tecla(self, e=0): return self.t.pop(0) if self.t else None
+c = m.Conversa(); linhas = []
+c.tela.linha = lambda q, t: linhas.append(t); c.tela.status = lambda t: None
+c._oferecer_instalar(K("n")); recusou = os.path.exists(os.path.join(m.CACHE, "instalar-recusado"))
+c._oferecer_instalar(K("s")); calado = not any("passo" in l for l in linhas)  # recusado há pouco: nem pergunta
+os.remove(os.path.join(m.CACHE, "instalar-recusado"))
+c._oferecer_instalar(K("s")); os.environ["VOZ_STT_CMD"] = "$T/stt-um"
+for i in range(100):
+    if c.som_pronto.is_set(): break
+    time.sleep(0.05)
+print(recusou, calado, c.som_pronto.is_set(), any("passo dois" in l for l in linhas), any("reconhecimento instalado" in l for l in linhas))
+EOF
+)
+[[ $r == 'True True True True True' ]] || falhou "oferta de instalar o reconhecimento: '$r'"
+passou 'janela: sem traceback (erro de 2º plano vai ao log); sem reconhecimento, oferece instalar e passa a ouvir quando termina'
+
 # --- a janela da conversa: microfone, transcrição e voz falsos; o voz e o cérebro de regras de verdade
+# (o índice de 2º plano da janela pergunta às máquinas por ssh: aqui elas não respondem, sem rede de verdade)
+printf '#!/bin/sh\nexit 255\n' >"$B/ssh"; chmod +x "$B/ssh"
 tmux new-session -d -s _base 'sleep 3600'  # o servidor do tmux não morre entre uma janela e a seguinte
 J=$T/janela; mkdir -p "$J"; echo 0 >"$J/n"
 printf 'máquinas\n' >"$J/frases"
@@ -651,10 +755,26 @@ for i in $(seq 50); do (($(cat "$J/n") > n0)) && break; sleep 0.2; done
 (($(cat "$J/n") > n0)) || falhou "na sensibilidade alta, a voz baixa deveria virar frase: $(tmux capture-pane -p -J -t '=conversa:')"
 for i in $(seq 50); do (($(tmux capture-pane -p -J -t '=conversa:' | grep -c 'você: onde') >= 2)) && break; sleep 0.2; done
 espera_tela 'c: opções' || falhou 'depois da voz baixa, não voltou a ouvir'
+# rolagem: a roda do mouse (a sequência SGR que o terminal manda) sobe; texto novo não faz a vista pular; End volta
+ultima() { tmux capture-pane -p -J -t '=conversa:' | grep -v '^$' | tail -n 1; }
+ouvindo; for i in 1 2 3 4; do tmux send-keys -t '=conversa:' -l $'\e[<64;10;5M'; done
+for i in $(seq 25); do [[ $(ultima) == *'↑ rolada'* ]] && break; sleep 0.2; done
+[[ $(ultima) == *'↑ rolada'* ]] || falhou "a roda do mouse não rolou a conversa: $(ultima)"
+tmux send-keys -t '=conversa:' t; sleep 0.4; tmux send-keys -t '=conversa:' -l 'contas'; tmux send-keys -t '=conversa:' Enter
+for i in $(seq 50); do [[ $(ultima) == *'novas'* ]] && break; sleep 0.2; done
+[[ $(ultima) == *'↓ '*' novas · End volta'* ]] || falhou "texto novo com a conversa rolada: $(ultima)"
+tmux capture-pane -p -J -t '=conversa:' | grep -q 'uso das contas' && falhou 'texto novo fez a vista rolada pular para o fim'
+tmux send-keys -t '=conversa:' End
+for i in $(seq 25); do [[ $(ultima) != *rolada* && $(ultima) != *novas* ]] && break; sleep 0.2; done
+[[ $(ultima) != *novas* ]] && tmux capture-pane -p -J -t '=conversa:' | grep -q 'uso das contas' || falhou "End não voltou ao fim: $(tmux capture-pane -p -J -t '=conversa:')"
+tmux send-keys -t '=conversa:' PageUp
+for i in $(seq 25); do [[ $(ultima) == *'↑ rolada'* ]] && break; sleep 0.2; done
+[[ $(ultima) == *'↑ rolada'* ]] || falhou "PgUp não rolou: $(ultima)"
+tmux send-keys -t '=conversa:' End; sleep 0.3
 tmux send-keys -t '=conversa:' Escape
 for i in $(seq 50); do [[ -s $J/saiu ]] && break; sleep 0.2; done
 [[ $(<"$J/saiu") == SAIU=0 ]] || falhou "Esc não fechou a janela: $(cat "$J/saiu" 2>/dev/null)"
-passou 'janela: ouve, mostra e fala; t digita; c abre as opções (guardadas); avisa sozinha quando o agente pendente termina; voz baixa: avisa e g aumenta a sensibilidade; Esc fecha'
+passou 'janela: ouve, mostra e fala; t digita; c abre as opções (guardadas); avisa sozinha quando o agente pendente termina; voz baixa: avisa e g aumenta a sensibilidade; roda do mouse, PgUp e End rolam sem pular; Esc fecha'
 
 # voz --opcoes (o item do botão direito do 🎤): 2 volta ao Sonnet (o padrão: sem arquivo), a volta ao automático
 tmux new-session -d -s opcoes -x 100 -y 20 -e VOZ_GRAVADOR="$GRAV" -e VOZ_TTS_CMD="cat >/dev/null" -e PATH="$PATH" \
@@ -731,7 +851,13 @@ i=$("$TT" --atalhos-lista | cut -f2 | grep -n '^voz$' | cut -d: -f1); rm -f "$T/
 for i in $(seq 40); do [[ -s $T/janela.out ]] && break; sleep 0.2; done
 [[ -s $T/janela.out ]] || falhou 'o clique no 🎤 da barra não abriu a janela'
 wait
-passou 'atalho 🎤: @janela roda numa janela flutuante na pasta do painel, pelo clique e pelo Ctrl+B v'
+# o tamanho: até 96 colunas e quase a altura toda (cliente de 120×30: janela de 96×24, por dentro 94×22)
+printf '🎤\tvoz\t@janela stty size >%s\t#cba6f7\n' "$T/janela.tam" >"$XDG_CONFIG_HOME/tt/atalhos"
+"$TT" --clique voz "$cli" "$pane" "$T" &
+for i in $(seq 40); do [[ -s $T/janela.tam ]] && break; sleep 0.2; done
+[[ $(cat "$T/janela.tam" 2>/dev/null) == '22 94' ]] || falhou "tamanho da janela do 🎤 (linhas colunas por dentro): $(cat "$T/janela.tam" 2>/dev/null)"
+wait
+passou 'atalho 🎤: @janela roda numa janela flutuante na pasta do painel, pelo clique e pelo Ctrl+B v; 96 colunas e quase a altura toda'
 
 # 🎤 clicado numa ponte (você vê esta máquina de outra): a janela abre na máquina de origem, a do aparelho onde você
 # está (o microfone e o som dela), com a sessão daqui como alvo da conversa

@@ -1850,17 +1850,30 @@ todas as máquinas.
 O 🎤 da barra (ou `Ctrl+B v`) abre uma janela de conversa: você fala, o tt mostra o que entendeu, age e responde
 falando. Funciona no Linux, no macOS e no Windows (pelo WSL); no celular o Tasker ouve e fala (guia na skill
 `celular-android`, seção 15) e a janela mostra a conversa. O que dá para pedir é o mesmo do celular: máquinas e
-status, escolher e ler sessões, falar com um agente (só em sessões que você liberou, dizendo "sim"), abrir uma IA
-nova como o 🚀 (com a IA ou a conta que você disser), trocar a IA do painel como o 👇, passar a conversa como a ⏩,
-ler as tarefas e as subtarefas, o uso das contas. Frases curtas ("máquinas", "status", "dois", "encerrar") vão direto
-às regras; o resto vai ao **cérebro**, um Claude (o Sonnet, pelo rodízio de contas) que entende a frase solta e
-escolhe as ações. Na janela ele roda nesta máquina, sem configurar nada (`voz --cerebro "pc local"` escolhe outro
-lugar; `voz --cerebro -` deixa só as regras; `voz --cerebro-modelo haiku|sonnet|opus` troca o modelo: medido com frases
-reais, o Sonnet acerta as ambíguas que o Haiku errava, por ~1 s a mais).
+status, escolher e ler sessões, falar com um agente (escolher a sessão já a libera; "bloquear sessão" a solta), abrir
+uma IA nova como o 🚀 ("abra uma sessão nova na empresa com o codex para revisar o bimo": pelo rodízio de contas, ou a
+IA ou a conta que você disser, já com o 1º pedido), trocar a IA do painel como o 👇, passar a conversa como a ⏩, ler as
+tarefas e as subtarefas, o uso das contas. Frases curtas ("máquinas", "status", "dois", "encerrar") vão direto às
+regras; o resto vai ao **cérebro**, um Claude (o Sonnet, pelo rodízio de contas) que entende a frase solta e escolhe
+as ações. Na janela ele roda nesta máquina, sem configurar nada (`voz --cerebro "pc local"` escolhe outro lugar;
+`voz --cerebro -` deixa só as regras; `voz --cerebro-modelo haiku|sonnet|opus` troca o modelo: medido com frases reais,
+o Sonnet acerta as ambíguas que o Haiku errava, por ~1 s a mais). A janela mantém esse Claude aberto a conversa toda
+(stream-json, a conta escolhida pelo rodízio ao abrir): cada volta leva ~1,5 s, contra ~7 s de um Claude que parte do
+zero; enquanto ele abre, ou se cair, vale o caminho de sempre.
+
+**As sessões de todas as máquinas:** a janela guarda um índice de todas elas (agente, título, se está trabalhando ou
+parada), renovado a cada 30 s em segundo plano, e o cérebro escolhe por ele: "vá para a sessão que revisa o bimo" acha
+a sessão em qualquer máquina, pelo nome ou pelo título. "Panorama", "resumo de todas as sessões" ou "o que está
+acontecendo nas sessões" leem todas de uma vez (todas as máquinas ao mesmo tempo, `voz --panorama [MÁQUINA]`) e
+resumem o que cada uma faz, primeiro as que esperam por você. `voz --indice-local [N]` é o índice desta máquina.
 
 Na janela: **Espaço** encerra a frase na hora (sem esperar o silêncio) ou pula a fala; **t** digita uma frase (no
 escritório, ou sem microfone); **n** passa ao microfone seguinte (e o tt lembra dele); **c** abre as opções; **m** liga
-e desliga a voz; **Esc** fecha. Duas vezes sem ouvir nada, ou "encerrar", também fecham. O botão direito do 🎤 tem "Só
+e desliga a voz; **Esc** fecha. A janela tem até 96 colunas e quase a altura toda da tela, e a conversa rola: a roda
+do mouse, as setas, **PgUp**/**PgDn** e **Home**/**End**; rolada para cima, ela não pula quando chega texto (embaixo
+aparece quantas linhas novas há; **End** volta). Sem o reconhecimento de voz instalado, a janela oferece instalar ali
+mesmo, em segundo plano (sem sudo: sem o `python3-venv`, o pip vem pelo `get-pip.py`), segue digitando e passa a ouvir
+quando termina; um erro de segundo plano vai a `~/.cache/tt-voz/erros.log`, nunca à tela. Duas vezes sem ouvir nada, ou "encerrar", também fecham. O botão direito do 🎤 tem "Só
 digitando", "Opções: modelos, microfone e som", "Testar o microfone e a voz" e "Instalar a voz neural".
 
 **A voz é do aparelho onde você está:** o 🎤 clicado numa ponte (vendo esta máquina de outra) abre a janela na máquina
