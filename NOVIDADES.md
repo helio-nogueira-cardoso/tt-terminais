@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.21.1 · 16/10/2026
+- **📧 Microsoft com o app do próprio tt.** Conta Outlook, Hotmail ou Microsoft 365 com OAuth2 agora entra de
+  fábrica pelo app "tt-terminais" do tt na Microsoft, como já acontecia com o Gmail. A tela de consentimento
+  mostra o nome do tt, não o do Thunderbird. Conta pessoal entra com um aviso de publicador não verificado;
+  numa empresa, o administrador costuma precisar aprovar o app. Quem precisar do ID do Thunderbird (às vezes já
+  aprovado no tenant da empresa) digita `thunderbird` no lugar do client_id. Contas já cadastradas continuam
+  com o app que usavam.
+
 ## v1.21.0 · 16/10/2026
 - **🎤 A voz sai no aparelho do microfone.** O tt falava na saída padrão do sistema. No Windows ela costuma ser o
   alto-falante ou a saída P2, e o headset é só o padrão de chamadas: a resposta ia para onde ninguém ouvia, e a janela

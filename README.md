@@ -386,8 +386,9 @@ servidores são descobertos pelo domínio do endereço (base pública do Thunder
 - **senha / senha de app** — lida sem aparecer na tela, guardada em `~/.secrets/aerc-<conta>.txt` (600);
 - **comando externo** — `pass`, `secret-tool`, Bitwarden etc.: a senha nem chega ao disco;
 - **OAuth2 / SSO** — Microsoft pelo código no aparelho (abre-se o link em qualquer aparelho e digita-se o
-  código); Google e outros pelo navegador. Precisa do ID de um app OAuth (para a Microsoft há a opção do ID
-  público do Thunderbird). O token de renovação fica em `~/.secrets` e o aerc renova o acesso sozinho.
+  código); Google e outros pelo navegador. Gmail e Microsoft funcionam de fábrica com os apps do próprio tt;
+  outros provedores pedem o ID de um app OAuth. O token de renovação fica em `~/.secrets` e o aerc renova o
+  acesso sozinho.
 
 Em **ajustar** (ou ✏ editar): servidores IMAP/SMTP, portas, segurança (TLS, STARTTLS ou nenhuma, só
 para localhost), usuário de login diferente do endereço, nome de exibição e pasta inicial.
@@ -577,6 +578,12 @@ Gmail com OAuth2 funciona **de fábrica**: sem informar `client_id`, o cadastro 
 "Desktop" do próprio tt no Google (num app instalado o client_secret não é confidencial — o
 fluxo nativo do Google assume isso, e rclone e Thunderbird embutem os deles). Quem preferir o
 próprio app continua passando `oauth_client_id=`.
+
+Microsoft (Outlook, Hotmail, Microsoft 365) com OAuth2 também: sem `client_id`, o cadastro usa o app
+"tt-terminais" do tt no Microsoft Entra, que aceita contas pessoais e de trabalho e é um cliente público
+(sem segredo). O publicador não é verificado: conta pessoal entra com um aviso, e o tenant de uma empresa
+costuma pedir a aprovação do administrador. `oauth_client_id=thunderbird` usa o ID público do Thunderbird,
+que às vezes já está aprovado no tenant da empresa.
 
 ### Pendências de instalação 📦
 

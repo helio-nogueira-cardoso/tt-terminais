@@ -49,11 +49,11 @@ grep -q '^oauth_client_id=' "$c" && falhou 'descoberta sobrescreveu a escolha po
 [[ $(cat "$HOME/.secrets/aerc-blue.txt") == SENHA_BLUE ]] || falhou 'senha escolhida não foi preservada'
 passou 'assistente: descoberta Microsoft preserva a autenticação escolhida pelo usuário'
 
-# Provedor Microsoft escolhido direto, OAuth2, client_id em branco = Thunderbird.
+# Provedor Microsoft escolhido direto, OAuth2, client_id em branco = o app do próprio tt.
 printf 'microsoft\neu@m.test\nM365\noauth\n\n' | "$TT" --email-conta-nova-ui >"$T/saida" 2>&1
 mc=$HOME/.config/tt/email/m365.conf
-grep -qx 'oauth_client_id=9e5f94bc-e8a4-4e73-b8be-63364c29d753' "$mc" 2>/dev/null ||
-  falhou "conta Microsoft com OAuth2 não foi gravada: $(tail -3 "$T/saida")"
+grep -qx 'oauth_client_id=fa7042a4-7b4f-4148-833b-ceb8ce1b8808' "$mc" 2>/dev/null ||
+  falhou "conta Microsoft com OAuth2 não foi gravada com o app do tt: $(tail -3 "$T/saida")"
 grep -qx 'auth=oauth' "$mc" || falhou 'conta Microsoft não ficou com auth=oauth'
 grep -q 'Falta o ID' "$T/saida" && falhou 'assistente ainda exige o client_id antes de perguntá-lo'
 passou 'assistente: OAuth2 da Microsoft não para em "Falta o ID do app OAuth"'

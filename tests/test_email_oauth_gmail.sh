@@ -23,7 +23,15 @@ grep -q '^oauth_client_id=meu.apps.googleusercontent.com$' "$HOME/.config/tt/ema
 [[ -e $HOME/.secrets/aerc-proprio.client_secret ]] && falhou 'segredo do tt gravado para client próprio'
 passou 'client_id próprio é respeitado, sem segredo do tt'
 
-# Microsoft continua com o app do Thunderbird; o padrão do Gmail não interfere.
+# Microsoft sem client_id: o app do tt na Microsoft (sem segredo); "thunderbird" usa o ID público dele.
+"$TT" --email-adicionar nome=MsTT endereco=t@empresa.com provedor=microsoft auth=oauth >/dev/null || falhou 'cadastro microsoft oauth sem client_id'
+grep -qx 'oauth_client_id=fa7042a4-7b4f-4148-833b-ceb8ce1b8808' "$HOME/.config/tt/email/mstt.conf" || falhou "Microsoft sem client_id deveria usar o app do tt: $(grep oauth_client_id "$HOME/.config/tt/email/mstt.conf")"
+[[ -e $HOME/.secrets/aerc-mstt.client_secret ]] && falhou 'app da Microsoft é cliente público: nada de segredo'
+"$TT" --email-adicionar nome=MsTb endereco=b@empresa.com provedor=microsoft auth=oauth oauth_client_id=thunderbird >/dev/null || falhou 'cadastro microsoft oauth thunderbird'
+grep -qx 'oauth_client_id=9e5f94bc-e8a4-4e73-b8be-63364c29d753' "$HOME/.config/tt/email/mstb.conf" || falhou '"thunderbird" deveria virar o ID público do Thunderbird'
+passou 'Microsoft: app do tt de fábrica, "thunderbird" ainda disponível'
+
+# Microsoft com o app do Thunderbird informado à mão; o padrão do Gmail não interfere.
 "$TT" --email-adicionar nome=Ms endereco=m@empresa.com provedor=microsoft auth=oauth oauth_client_id=9e5f94bc-e8a4-4e73-b8be-63364c29d753 >/dev/null || falhou 'cadastro microsoft oauth'
 [[ -e $HOME/.secrets/aerc-ms.client_secret ]] && falhou 'segredo do Gmail gravado numa conta Microsoft'
 passou 'padrão do Gmail não vaza para outros provedores'

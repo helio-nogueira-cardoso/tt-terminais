@@ -16039,8 +16039,12 @@ outro|Outro (descobrir pelo domínio ou configurar à mão)|||senha oauth comand
 
 email_provedor() { awk -F'|' -v k="$1" '$1 == k' <<<"$EMAIL_PROVEDORES"; }
 
-# Padrões de OAuth2 por provedor (o ID do app é do usuário; para a Microsoft há a opção do ID
-# público do Thunderbird, que muitos clientes livres usam).
+# Padrões de OAuth2 por provedor. Microsoft: o app "tt-terminais" do próprio tt no Microsoft Entra (contas
+# pessoais e de trabalho, cliente público: código no aparelho ou retorno em http://localhost, sem segredo;
+# permissões delegadas de IMAP, SMTP e offline_access). Publicador não verificado: conta pessoal entra com um
+# aviso; tenant de empresa costuma pedir a aprovação do administrador. "thunderbird" no client_id usa o ID
+# público do Thunderbird (às vezes já aprovado no tenant da empresa); quem preferir informa o de um app seu.
+EMAIL_MICROSOFT_ID=fa7042a4-7b4f-4148-833b-ceb8ce1b8808
 EMAIL_THUNDERBIRD_ID=9e5f94bc-e8a4-4e73-b8be-63364c29d753
 
 # App OAuth "Desktop" do próprio tt no Google: contas Gmail com auth=oauth funcionam de fábrica,
@@ -16053,9 +16057,15 @@ email_gmail_secret() { printf 'GOCSPX-%s%s' 'vtcInea5Jcu3w6' 'ufZpm9b2WM_VOm'; }
 
 # Aplica o app do tt quando a conta Gmail OAuth não traz um client_id próprio; e garante o
 # arquivo do client_secret (que o email-tt.py já lê) quando o app em uso é o do tt.
-email_gmail_padrao_id() {
-  [[ ${E[provedor]:-} == gmail && ${E[auth]:-} == oauth && -z ${E[oauth_client_id]:-} ]] || return 0
-  E[oauth_client_id]=$EMAIL_GMAIL_ID
+# Sem client_id (ou com "thunderbird"), Gmail e Microsoft usam o app do próprio tt.
+email_app_padrao_id() {
+  [[ ${E[auth]:-} == oauth ]] || return 0
+  [[ ${E[provedor]:-} == microsoft && ${E[oauth_client_id]:-} == [Tt]hunderbird ]] && E[oauth_client_id]=$EMAIL_THUNDERBIRD_ID
+  [[ -z ${E[oauth_client_id]:-} ]] || return 0
+  case ${E[provedor]:-} in
+    gmail) E[oauth_client_id]=$EMAIL_GMAIL_ID ;;
+    microsoft) E[oauth_client_id]=$EMAIL_MICROSOFT_ID ;;
+  esac
 }
 email_gmail_padrao_secret() {
   [[ ${E[auth]:-} == oauth && ${E[oauth_client_id]:-} == "$EMAIL_GMAIL_ID" && -n ${E[_slug]:-} ]] || return 0
@@ -16136,7 +16146,7 @@ EOF
 
 email_salvar_validado() { # snapshot autorizar_oauth(0|1)
   local snap=$1 autorizar=${2:-0} slug=${E[_slug]}
-  email_gmail_padrao_id
+  email_app_padrao_id
   # Sync local exige mbsync instalado: recusa antes de gravar, sem fingir que ligou.
   if [[ ${E[sync_local]:-} == 1 ]] && ! command -v "$(mbsync_bin)" >/dev/null; then
     email_snapshot_restaurar "$snap" "$slug"
@@ -16934,7 +16944,7 @@ email_validar() {
   [[ " $auths " == *" ${E[auth]} "* ]] || { echo "${E[provedor]} não oferece o método de autenticação escolhido."; return 1; }
   [[ ${E[auth]} != comando || -n ${E[cred_cmd]:-} || ${2:-} == antes-do-segredo ]] || { echo "Falta o comando que imprime a senha."; return 1; }
   if [[ ${E[auth]} == oauth && ${2:-} != antes-do-segredo ]]; then
-    email_gmail_padrao_id
+    email_app_padrao_id
     [[ -n ${E[oauth_client_id]:-} ]] || { echo "Falta o ID do aplicativo OAuth (client_id)."; return 1; }
     [[ ${E[oauth_token_endpoint]:-} == https://* || ${E[oauth_token_endpoint]:-} == http://127.0.0.1:* || ${E[oauth_token_endpoint]:-} == http://localhost:* ]] ||
       { echo "O endpoint de token OAuth deve usar HTTPS (HTTP só é aceito em localhost)."; return 1; }
@@ -17479,7 +17489,7 @@ email_auth_aplicar() {
   if [[ ${E[auth]} == oauth ]]; then
     E[cred_cmd]=""
     [[ -n ${E[oauth_token_endpoint]:-} ]] || email_oauth_padrao "${E[provedor]}"
-    email_gmail_padrao_id
+    email_app_padrao_id
   else
     E[oauth_client_id]=""; E[oauth_auth_endpoint]=""; E[oauth_token_endpoint]=""
     E[oauth_device_endpoint]=""; E[oauth_scope]=""
@@ -17508,14 +17518,15 @@ email_pedir_segredo() {
     oauth)
       printf '\nOAuth2 precisa do ID de um app registrado (client_id).\n'
       if [[ ${E[provedor]} == microsoft ]]; then
-        printf 'Você pode registrar o seu (portal do Azure → Registros de aplicativo) ou usar o ID público\n'
-        printf 'do Thunderbird, que vários clientes livres usam (deixe em branco para usá-lo).\n'
+        printf 'Microsoft: ⏎ usa o app do próprio tt (recomendado); "thunderbird" usa o ID público do Thunderbird\n'
+        printf '(às vezes já aprovado no tenant da empresa); ou informe o client_id de um app seu (portal do Azure).\n'
         email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-}"
-        E[oauth_client_id]=${E[oauth_client_id]:-$EMAIL_THUNDERBIRD_ID}
+        email_app_padrao_id
+        [[ ${E[oauth_client_id]} == "$EMAIL_MICROSOFT_ID" ]] && printf '✓ App do tt: %s…\n' "${EMAIL_MICROSOFT_ID:0:13}"
       else
         [[ ${E[provedor]} == gmail ]] && printf 'Google: ⏎ usa o app do próprio tt (recomendado); ou informe o client_id de um app\n"Desktop" seu (console.cloud.google.com → APIs e serviços → Credenciais).\n'
         email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-}"
-        email_gmail_padrao_id
+        email_app_padrao_id
         if [[ ${E[oauth_client_id]:-} == "${EMAIL_GMAIL_ID:-}" ]]; then
           email_gmail_padrao_secret
           printf '✓ App do tt: %s…\n' "${EMAIL_GMAIL_ID:0:24}"
