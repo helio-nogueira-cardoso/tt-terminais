@@ -45,6 +45,14 @@
 #   host-no-tailscale  -                      (não mostrar essa máquina)
 # Sem linha, usa o mesmo usuário daqui e o nome do host como rótulo.
 
+# O tt precisa do bash 4+ (arrays associativos, mapfile, @(…)). O `env bash` do shebang pode achar o 3.2 do macOS (o
+# path_helper de /etc/zprofile põe /usr/bin na frente do PATH nos shells de login): então recomeça com o do Homebrew.
+# (Só sintaxe do bash 3.2 daqui até o fim desta guarda.)
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  for _tt_b in /opt/homebrew/bin/bash /usr/local/bin/bash; do [ -x "$_tt_b" ] && exec "$_tt_b" "$0" "$@"; done
+  echo "tt: precisa do bash 4 ou mais novo (este é o $BASH_VERSION). No macOS: brew install bash" >&2; exit 1
+fi
+
 # Partida rápida (gerar_rapido): com o núcleo gerado na instalação, este desvio lê só ele (~100 KB, ~10 ms) e
 # cada função na 1ª chamada, em vez do arquivo inteiro (~850 KB, de 60 a 90 ms) a cada clique, tecla e recarga.
 # Um tt que não é o instalado (o do repositório, o de um teste) ou um núcleo mais velho que ele seguem o
@@ -4635,12 +4643,19 @@ cliente_do_painel() {
 }
 
 # "máquina|ponte" se o cliente tmux atual é uma ponte vinda de outra máquina (vazio se não).
+# Valor da variável VAR no ambiente do processo PID (vazio se não houver). Linux: /proc; macOS (sem /proc): o `ps eww`
+# do BSD imprime o ambiente depois do comando (só dos processos do próprio usuário). Valor com espaço não é lido.
+env_do_pid() { # pid VAR
+  if [[ -r /proc/$1/environ ]]; then tr '\0' '\n' <"/proc/$1/environ" 2>/dev/null | sed -n "s/^$2=//p" | head -1
+  else ps eww -p "$1" 2>/dev/null | tr ' ' '\n' | sed -n "s/^$2=//p" | head -1; fi
+}
+
 origem_ponte() {
   local pid
   if [[ -n ${1:-} ]]; then pid=$(do_cliente "$1" '#{client_pid}')
   else pid=$(tmux display-message -p '#{client_pid}' 2>/dev/null); fi
   [[ -n $pid ]] || return
-  tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | sed -n 's/^TT_PONTE=//p'
+  env_do_pid "$pid" TT_PONTE
 }
 
 # Vai para a sessão S de DEST no cliente atual. Se este cliente é uma ponte vinda de outra máquina
@@ -6797,16 +6812,16 @@ chrome_falhou() {
 
 # Máquina onde está a tela do cliente C, quando não é esta: C é uma ponte vinda de outra máquina
 # (TT_PONTE="máquina|ponte") ou um cliente aberto dentro de uma (o do popup do e-mail: TT_ORIGEM).
-# Vazio quando a tela é desta máquina. Sem /proc (macOS), vazio: abre aqui, como antes. No w3m do e-mail
+# Vazio quando a tela é desta máquina. No macOS (sem /proc) o ambiente vem do `ps eww`. No w3m do e-mail
 # (user namespace do unshare) o environ do cliente é negado: aí quem lê é o servidor do tmux (run-shell).
 maquina_da_tela() {
   local c=${1:-} pid o ler
   [[ -n $c ]] || return 0
   pid=$(do_cliente "$c" '#{client_pid}'); [[ $pid =~ ^[0-9]+$ ]] || return 0
-  ler="tr '\\0' '\\n' </proc/$pid/environ | sed -n 's/^TT_PONTE=//p; s/^TT_ORIGEM=//p' | head -1"
   if [[ -e /proc/$pid/environ ]] && ! (exec 3<"/proc/$pid/environ") 2>/dev/null; then
+    ler="tr '\\0' '\\n' </proc/$pid/environ | sed -n 's/^TT_PONTE=//p; s/^TT_ORIGEM=//p' | head -1"
     o=$(tmux run-shell "$ler" 2>/dev/null)
-  else o=$(bash -c "$ler" 2>/dev/null); fi
+  else o=$(env_do_pid "$pid" TT_PONTE); [[ -n $o ]] || o=$(env_do_pid "$pid" TT_ORIGEM); fi
   o=${o%%|*}
   [[ -n $o && $o != "$MAQUINA" ]] && printf '%s\n' "$o"
   return 0

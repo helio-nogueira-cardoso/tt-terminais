@@ -37,11 +37,11 @@ isolar() {
       # stdin para ele e a saída dele para o stdout e para o arquivo.
       cat >"$T/basebin/script" <<'SHIM'
 #!/usr/bin/env python3
-import fcntl, os, pty, select, struct, sys, termios
-a = sys.argv[1:]; cmd = None; arq = []
+import fcntl, os, pty, select, struct, sys, termios, time
+a = sys.argv[1:]; cmd = None; arq = []; tm = None
 while a:
     x = a.pop(0)
-    if x == "-T": a.pop(0)
+    if x == "-T": tm = open(a.pop(0), "w")
     elif x.startswith("-") and x.endswith("c") and x != "-": cmd = a.pop(0)
     elif x.startswith("-"): pass
     else: arq.append(x)
@@ -52,7 +52,7 @@ if pid == 0:
 try:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(os.environ.get("LINES", 24)), int(os.environ.get("COLUMNS", 80)), 0, 0))
 except OSError: pass
-ent = sys.stdin.fileno(); vivo_ent = True
+ent = sys.stdin.fileno(); vivo_ent = True; ultimo = time.monotonic()
 while True:
     fds = [fd] + ([ent] if vivo_ent else [])
     try: r, _, _ = select.select(fds, [], [], 0.2)
@@ -62,6 +62,8 @@ while True:
         except OSError: break
         if not d: break
         if log: log.write(d)
+        if tm:
+            agora = time.monotonic(); tm.write("%.6f %d\n" % (agora - ultimo, len(d))); tm.flush(); ultimo = agora
         try: os.write(1, d)
         except OSError: pass
     if vivo_ent and ent in r:

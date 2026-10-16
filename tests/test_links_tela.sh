@@ -152,12 +152,19 @@ passou "Ctrl+B u lista os links do painel"
 # navegador=perguntar: o clique abre a escolha (as três opções do e-mail, mais copiar).
 cfg navegador=perguntar; : >"$LOG"
 clicar 20 "$y2"; sleep 2.5
+if [[ $(uname -s) == Darwin ]]; then
+  # macOS: o Chrome e o Carbonyl baixados são só para Linux x86_64 (navegadores_graficos_ok falha), então não há o que
+  # perguntar: o clique abre direto no navegador do sistema, com a URL inteira.
+  esperar 'abriu "$U"' 6 || falhou "macOS: o clique deveria abrir a URL inteira no navegador do sistema: '$(cat "$LOG")'"
+  passou "macOS, sem navegadores gráficos: com navegador=perguntar o clique abre direto o navegador do sistema, com a URL inteira"
+else
 tela=$(fora capture-pane -p -t v)
 grep -q 'abrir link' <<<"$tela" && grep -q 'Google Chrome interno' <<<"$tela" && grep -q 'Carbonyl' <<<"$tela" &&
   grep -q 'Navegador padrão do sistema' <<<"$tela" || falhou "clique não abriu a escolha do navegador: $tela"
 fora send -t v Down Down Enter; sleep 1.5
 esperar 'abriu "$U"' 6 || falhou "escolher o navegador do sistema não abriu a URL inteira: '$(cat "$LOG")'"
 passou "com navegador=perguntar, o clique abre a escolha e o navegador do sistema recebe a URL inteira"
+fi
 cfg navegador=sistema
 
 # Programa que captura o mouse (como o Claude Code): fora de link o clique continua indo para ele; num
@@ -187,6 +194,9 @@ passou "programa que captura o mouse: clique fora de link chega a ele; no link, 
 esperar 'abriu "$U"' 3 || falhou "Ctrl+clique não abriu o link: '$(cat "$LOG")'"
 passou "Ctrl+clique num link abre a URL inteira"
 
+if [[ $(uname -s) == Darwin ]]; then
+  passou 'macOS: o Carbonyl (binário Linux x86_64) não se aplica; cenários do Carbonyl pulados'
+else
 # Carbonyl (navegador no terminal) sobe num popup grande. Escolhido no seletor (que já é um popup, e o
 # tmux não abre popup sobre popup), ele sobe quando o seletor fecha. A URL tem "#", que o run-shell
 # lia como formato do tmux: tem que chegar inteira.
@@ -225,6 +235,7 @@ fora send -t v C-q
 esperar '! fora capture-pane -p -t v | grep -q "Ctrl+Q (ou Ctrl+C) fecha"' 6 || falhou "Ctrl+Q não fechou o popup do Carbonyl: $(fora capture-pane -p -t v)"
 passou "Ctrl+Q fecha o popup do Carbonyl (que sozinho só sai com Ctrl+C)"
 cfg navegador=sistema
+fi
 
 # --- 3) Cadastro OAuth com navegador: a URL é longa demais para uma linha ------------------------------
 # c ⏎ copia o link inteiro, ⏎ abre pela escolha do navegador, e colar o endereço de volta conclui.

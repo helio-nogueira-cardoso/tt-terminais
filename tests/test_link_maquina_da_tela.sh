@@ -55,7 +55,7 @@ espera "$T/xdg.log" && [[ $(cat "$T/xdg.log") == "$U" ]] || falhou 'cliente dest
 [[ ! -s $T/ssh.log ]] || falhou "cliente desta máquina: não deveria usar ssh ($(cat "$T/ssh.log"))"
 passou 'cliente desta máquina: abre aqui, sem ssh'
 
-src=$(sed -n '/^email_origem() {/p; /^origem_ponte() {/,/^}/p; /^do_cliente() {/,/^}/p; /^q() {/,/^}/p' "$TT")
+src=$(sed -n '/^email_origem() {/p; /^origem_ponte() {/,/^}/p; /^env_do_pid() {/,/^}/p; /^do_cliente() {/,/^}/p; /^q() {/,/^}/p' "$TT")
 grep -q '^email_origem()' <<<"$src" || falhou 'email_origem não encontrado'
 [[ $(bash -c "$src"'
  email_origem "$1"' _ "$c_ponte") == "TT_ORIGEM=book-x " ]] || falhou "email_origem do cliente de ponte: '$(bash -c "$src"'
@@ -66,7 +66,7 @@ passou 'popup do e-mail aberto de uma ponte leva TT_ORIGEM ao cliente de dentro'
 
 # No w3m do e-mail (unshare --map-root-user --net) o environ do cliente é negado: o servidor do tmux lê por ele.
 if unshare --map-root-user --net true 2>/dev/null; then
-  src_m=$(sed -n '/^maquina_da_tela() {/,/^}/p; /^do_cliente() {/,/^}/p' "$TT")
+  src_m=$(sed -n '/^maquina_da_tela() {/,/^}/p; /^do_cliente() {/,/^}/p; /^env_do_pid() {/,/^}/p' "$TT")
   # como no e-mail de verdade: o aerc roda num painel, com TMUX (dentro do namespace o uid é 0 e o socket padrão seria outro)
   r=$(MAQUINA=aqui TMUX="$TMUX_TMPDIR/tmux-$(id -u)/default,0,0" unshare --map-root-user --net bash -c "$src_m"$'\n''maquina_da_tela "$1"' _ "$c_ponte")
   [[ $r == book-x ]] || falhou "dentro do isolamento do w3m não achou a máquina da tela: '$r'"

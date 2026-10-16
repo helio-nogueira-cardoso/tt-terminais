@@ -643,8 +643,37 @@ def tmux_para_ansi(q):
     return re.sub(r"#\[([^\]]*)\]", troca, q).replace("##", "#") + "\033[0m"
 
 
+TEM_PROC = os.path.isdir("/proc/self")
+
+
+def _ps(*args):
+    """Saída do ps (macOS e BSD, onde não há /proc); vazio se falhar."""
+    import subprocess
+    try:
+        return subprocess.run(["ps", *args], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
 def e_ponte(pid):
     """TT_PONTE= no ambiente do cliente, ou um sshd na linhagem dele (ponte de outra máquina)."""
+    if not TEM_PROC:
+        # `ps eww` do BSD imprime o ambiente depois do comando; a linhagem sai de ppid/comm
+        if any(t.startswith("TT_PONTE=") for t in _ps("eww", "-p", str(pid)).split()):
+            return True
+        for _ in range(12):
+            if pid <= 1:
+                break
+            linha = _ps("-o", "ppid=,comm=", "-p", str(pid)).split(None, 1)
+            if len(linha) < 2:
+                break
+            if os.path.basename(linha[1].strip()).startswith("sshd"):
+                return True
+            try:
+                pid = int(linha[0])
+            except ValueError:
+                break
+        return False
     try:
         with open("/proc/%d/environ" % pid, "rb") as f:
             if any(v.startswith(b"TT_PONTE=") for v in f.read().split(b"\0")):
@@ -697,6 +726,26 @@ def substituido(tty, pid):
     """True se existe outro `letreiro-tt.py fluxo` MAIS NOVO para o mesmo cliente. O tmux identifica o
     #() pela linha de comando inteira: ao redimensionar (a largura vai nela) ele cria um processo novo
     e só aposenta o antigo depois de 1 h. Quem foi substituído sai, para não acumular."""
+    if not TEM_PROC:
+        import time
+        meu, outros = None, []
+        for ln in _ps("-axww", "-o", "pid=,lstart=,args=").splitlines():
+            t = ln.split(None, 6)
+            if len(t) < 7:
+                continue
+            try:
+                ini = (time.mktime(time.strptime(" ".join(t[1:6]), "%a %b %d %H:%M:%S %Y")), int(t[0]))
+            except ValueError:
+                continue
+            if ini[1] == os.getpid():
+                meu = ini
+                continue
+            a = t[6].split()
+            k = next((n for n, x in enumerate(a) if x.endswith("letreiro-tt.py")), -1)
+            if k >= 0 and a[k + 1:k + 4] == ["fluxo", tty, str(pid)]:
+                outros.append(ini)
+        return meu is not None and any(o > meu for o in outros)
+
     def inicio(p):
         with open("/proc/%s/stat" % p) as f:
             return (int(f.read().rsplit(")", 1)[1].split()[19]), int(p))
