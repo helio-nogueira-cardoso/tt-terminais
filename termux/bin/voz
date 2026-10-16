@@ -351,7 +351,7 @@ Ações (na ordem em que devem acontecer):
 {"acao":"trocar_ia","ia":"claude, codex, kiro ou conta"}  o 👇: troca o agente da sessão escolhida (retoma a conversa)
 {"acao":"passar","maquina":"opcional: outra máquina"}  o ⏩: a conversa da sessão escolhida segue com outra IA
 {"acao":"opcao","numero":N}  responde a uma pergunta de menu que apareceu na tela do agente
-{"acao":"tarefas"}  lê as tarefas abertas            {"acao":"tarefa","nome":"apelido ou palavras do título"}  uma
+{"acao":"tarefas","filtro":"abertas|hoje|prazo"}  lê as tarefas            {"acao":"tarefa","nome":"apelido ou palavras do título"}  uma
   tarefa com prazo e as subtarefas que faltam
 {"acao":"contas"} {"acao":"repetir"} {"acao":"ajuda","tema":"maquinas|sessoes|agente|conversa|comandos"}
 {"acao":"encerrar"}  fecha a conversa
@@ -386,19 +386,19 @@ limpo = lambda v: " ".join(str(v or "").split()).replace(U, " ")
 print(limpo(d.get("fala")))
 for a in d.get("acoes") or []:
     if isinstance(a, dict) and a.get("acao"):
-        print(U.join(limpo(a.get(k)) for k in ("acao", "maquina", "sessao", "texto", "tecla", "tema", "ia", "quantas", "nome", "numero")))'
+        print(U.join(limpo(a.get(k)) for k in ("acao", "maquina", "sessao", "texto", "tecla", "tema", "ia", "quantas", "nome", "numero", "filtro")))'
 cerebro() { # cerebro "FRASE(S)": executa o plano do modelo; 1 = sem cérebro ou sem resposta útil (o chamador usa as regras)
-  local frase=$1 resp plano fala a mq se tx te tm ia qt nm nu m encerra= dito
+  local frase=$1 resp plano fala a mq se tx te tm ia qt nm nu fl m encerra= dito
   [[ -n $(cerebro_lugares) ]] || return 1
   resp=$(cerebro_prompt "$frase" | cerebro_chamar) || return 1
   plano=$(python3 -I -c "$CEREBRO_PY" <<<"$resp" 2>/dev/null) || return 1
   fala=$(head -n 1 <<<"$plano")
   JUNTAR=1; rm -f "$ST/turno"
   [[ -n $fala ]] && falar "$fala"
-  while IFS=$'\x1f' read -r a mq se tx te tm ia qt nm nu; do
+  while IFS=$'\x1f' read -r a mq se tx te tm ia qt nm nu fl; do
     case $a in
       maquinas|status|contas|repetir) comando "$a" ;;
-      tarefas) tarefas_ler ;;
+      tarefas) tarefas_ler "${fl:-abertas}" ;;
       listar) if m=$(achar_maquina "${mq:-$(alvo_m)}"); then printf '%s' "$m" > "$ST/alvo_m"; rm -f "$ST/alvo_s"; listar_sessoes "$m"
               else falar "Não achei a máquina $mq."; fi ;;
       escolher)
@@ -550,15 +550,20 @@ passar_ia() { # [MAQ]: o ⏩ na sessão escolhida (a conversa segue com outra IA
 }
 
 # ---------- tarefas ----------
-tarefas_ler() {
-  local r
-  r=$(tt --tarefas-lista 2>/dev/null | semcor | awk -F'\t' '{print $2}' | head -n "${1:-5}" | awk '
+tarefas_ler() { # [abertas|hoje|prazo] [N]: lê com uma aba própria (TT_RT temporário), sem mexer na do painel
+  local f=${1:-abertas} w r
+  case $f in abertas|hoje|prazo|todas) ;; *) f=abertas ;; esac
+  w=$(mktemp -d); printf 'filtro=%s\n' "$f" > "$w/tt-tarefas-ui-$UID"
+  r=$(TT_RT=$w tt --tarefas-lista 2>/dev/null | semcor | awk -F'\t' 'length($1) == 12 && $1 ~ /^[0-9a-f]+$/ { print $2 }' |
+    head -n "${2:-5}" | awk '
     { l = $0; gsub(/▸|▾|☐|☑|●/, "", l); sub(/^ +/, "", l); sub(/^[a-z]+[0-9]+ /, "", l)
       t = l; sub(/  .*$/, "", t)
       p = ""; if (match(l, /◷ [^ ]+( [0-9:]+)?/)) { p = substr(l, RSTART, RLENGTH); sub(/^◷ /, "", p) }
       g = ""; if (match(l, /[0-9]+\/[0-9]+/)) { split(substr(l, RSTART, RLENGTH), x, "/"); g = x[1] " de " x[2] " subtarefas" }
       printf "%d, %s%s%s. ", NR, t, (p != "" ? ", prazo " p : ""), (g != "" ? ", " g : "") }')
-  if [[ -n $r ]]; then falar "Tarefas abertas: $r"; else falar "Sem tarefas abertas."; fi
+  rm -rf "$w"
+  local nome=abertas; [[ $f == hoje ]] && nome="para hoje"; [[ $f == prazo ]] && nome="com prazo"
+  if [[ -n $r ]]; then falar "Tarefas $nome: $r"; else falar "Sem tarefas $nome."; fi
 }
 tarefa_ler() { # NOME: a tarefa (apelido ou palavras do título), com prazo e as subtarefas que faltam
   local q ref ap txt r n w ok det tit prazo feitas total abertas

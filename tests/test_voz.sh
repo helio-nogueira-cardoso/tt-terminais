@@ -136,7 +136,7 @@ saida=$(VOZ_CEREBRO_CMD="exit 1" v "outra frase solta"); [[ $saida == *Enviado* 
 unset VOZ_CEREBRO_CMD
 passou 'voz: cérebro entende frase solta, age, fala uma vez só; sem resposta útil, valem as regras'
 
-saida=$(v tarefas); [[ $saida == *"1, Pagar o boleto, prazo hoje 12:00, 1 de 3 subtarefas"* ]] || falhou "tarefas: $saida"
+saida=$(v tarefas); [[ $saida == *"Tarefas abertas: 1, Pagar o boleto, prazo hoje 12:00, 1 de 3 subtarefas"* ]] || falhou "tarefas: $saida"
 saida=$(v "tarefa boleto"); [[ $saida == *"Prazo: hoje às 12:00"* && $saida == *"1 de 3 subtarefas feitas"* && $saida == *"Faltam: Ligar no banco; Pagar no app"* ]] || falhou "tarefa com subtarefas: $saida"
 
 # 🚀 com uma IA específica: abre em sessão nova, responde sozinho às perguntas de abertura e pergunta a desconhecida
