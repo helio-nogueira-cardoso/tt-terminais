@@ -15886,7 +15886,10 @@ email_sessao_criar() {
   # VAXIS_FORCE_UNICODE: o aerc mede emoji com seletor de variação (🕸️, ⚠️) como 2 colunas, igual ao
   # tmux (3.5 e 3.6) e aos terminais. Sem isso ele contava 1, a linha ficava com uma coluna a mais e o
   # fim dela (o horário) transbordava para a linha de baixo: dígitos soltos na coluna de pastas.
-  tmux new-session -d -s "$EMAIL_SESSAO" -x 150 -y 40 -c "$HOME" -e VAXIS_FORCE_UNICODE=1 "$cmd" || return 1
+  # XDG_CONFIG_HOME: no macOS o aerc só olha ~/Library/Preferences/aerc (não ~/.config/aerc, onde o tt grava contas,
+  # binds e o styleset tt-catppuccin) e morria com "Can't find styleset" logo ao abrir. Apontar para ~/.config vale
+  # igual no Linux.
+  tmux new-session -d -s "$EMAIL_SESSAO" -x 150 -y 40 -c "$HOME" -e VAXIS_FORCE_UNICODE=1 -e "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}" "$cmd" || return 1
   tmux set -q -t "=$EMAIL_SESSAO:" @ponte email
   tmux set -q -t "=$EMAIL_SESSAO:" @tt_oculta 1
   tmux set -q -t "=$EMAIL_SESSAO:" @nome_auto 0

@@ -8,6 +8,9 @@ vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu admin
   de alcance. Agora ele abre uma sessão tmux própria (`ia-pty-NOME`), digita, lê a tela e espera por um texto; você entra nela
   (`tt --pty entrar`) para digitar o que o agente não deve ver, como a senha. Funciona igual no Linux e no macOS e entra nas regras
   que todos os agentes recebem.
+- **🍎 O e-mail (aerc) não abria no macOS.** O aerc só procura estilos e configuração em `~/Library/Preferences/aerc` no macOS, e o tt grava
+  tudo em `~/.config/aerc`: o aerc morria ao abrir com "Can't find styleset tt-catppuccin" e o tt avisava "o aerc fechou sozinho". A sessão
+  oculta do e-mail agora roda com `XDG_CONFIG_HOME` apontando para `~/.config` (igual no Linux).
 - **🍎 "Sudo sem senha" no macOS.** O passo gravava a regra com `install -g root`, mas o macOS não tem grupo `root` (é `wheel`): falhava e
   o tt culpava a senha ("senha errada?"). Agora usa o grupo real do root e a mensagem de erro é mais precisa.
 
