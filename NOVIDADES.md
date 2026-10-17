@@ -3,6 +3,35 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.28.0 · 17/10/2026
+- **🎤 A voz não lê mais as telas de abertura dos agentes.** Na sessão que ela abre (o 🚀 pela voz, o 👇 e o ⏩), o tt
+  responde sozinho o que é rotina, no Claude, no Codex, no Kiro ou em outro agente: pular a atualização, aceitar os termos
+  sem ceder as conversas para treino, o tema, o "Enter para continuar", o aviso do modo sem permissões que o próprio 🚀
+  pediu, o login que já deu certo. A voz fala só o resultado do agente e as perguntas que são suas.
+- **Segurança:** "confiar nesta pasta" só vai sozinho se a pasta está na sua lista (`voz --pastas add '~/Projetos/**'`;
+  quando a voz pergunta, "sempre" põe a pasta na lista). Senha, login ou chave, algo destrutivo (apagar, sobrescrever,
+  `rm -rf`), permissão nova de execução (rodar comando, editar, servidor MCP, "não perguntar de novo") e créditos a voz
+  nunca aprova: lê a pergunta e as opções e espera o seu número, sim ou não. Senha ela manda você digitar no terminal. O que
+  foi respondido sozinho fica em `~/.local/state/tt-voz/aprovacoes.log`.
+- **Catálogo das telas, fácil de estender:** `telas-agentes.conf`, um bloco por tela de cada agente; os seus vão em
+  `~/.config/tt/telas-agentes.conf` (um bloco com o mesmo nome troca o do pacote; `classe = -` desliga).
+- **⏱ "Espere um minuto e depois confira a sessão".** A voz agenda (segundos, minutos, "um minuto e meio", até 6 h), fica
+  livre para outros pedidos e, na hora, confere e fala sozinha o resultado (ou resume, ou só avisa). "Me avise quando ele
+  terminar" e "acompanhe a sessão" vigiam até concluir e falam também quando ela pedir uma decisão. "O que você está
+  esperando?" lista; "cancele a espera" cancela. No celular, o mesmo, pelo Tasker ou pelo bot.
+- **🧭 A interface do tt pela voz.** Fixadas: fixar, desafixar, listar, mover (início, fim, esquerda, direita, posição) e
+  agrupar. Tarefas: criar ("nova tarefa comprar pão para amanhã às 14 horas"), subtarefa, concluir, reabrir, prazo, tirar
+  o prazo, apelido e apagar (com o seu sim). Notificações: ler as não lidas, marcar como lidas, limpar as lidas (com o sim).
+  Letreiro: ler, pausar, continuar.
+- **🧹 Fechar sessões e limpeza.** "Feche a sessão X" pede o seu sim; se é a escolhida ou se está trabalhando, pede duas
+  vezes. "Limpeza" olha todas as sessões de todas as máquinas e sugere as paradas, cada uma com o motivo ("terminal sem
+  programa, parado há 2 dias"; "Claude parado há 5 horas; por último: …"); as que estão em uso, fixadas, com alguém
+  olhando, com texto não enviado ou com o agente esperando a sua resposta ficam. "Fechar" fecha a lista, "tira a dois"
+  deixa uma de fora, "cancelar" não fecha nada.
+- **Pela linha de comando:** `tt --notifs-listar`, `tt --notifs-limpar-lidas`, `tt --letreiro-ler`,
+  `tt --letreiro-pausa sim|nao`. No macOS, a marca de pausa do letreiro passa a ficar na mesma pasta temporária que o tt
+  usa (antes ia para `/run/user`, que lá não existe).
+
 ## v1.27.5 · 16/10/2026
 - **🖥️ Terminal interativo para agentes (`tt --pty`).** Um agente de IA não tem tty: `sudo`, `ssh`, `vim` e instaladores ficavam fora
   de alcance. Agora ele abre uma sessão tmux própria (`ia-pty-NOME`), digita, lê a tela e espera por um texto; você entra nela
@@ -13,6 +42,7 @@ vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu admin
   oculta do e-mail agora roda com `XDG_CONFIG_HOME` apontando para `~/.config` (igual no Linux).
 - **🍎 "Sudo sem senha" no macOS.** O passo gravava a regra com `install -g root`, mas o macOS não tem grupo `root` (é `wheel`): falhava e
   o tt culpava a senha ("senha errada?"). Agora usa o grupo real do root e a mensagem de erro é mais precisa.
+
 
 ## v1.27.4 · 16/10/2026
 - **🔒 E-mail OAuth e uso das contas de IA em redes com inspeção de TLS.** O Python 3.13+ rejeita, no modo estrito de X.509, a CA de

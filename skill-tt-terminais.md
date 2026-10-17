@@ -34,6 +34,8 @@ confirme no código antes de alterar contrato.
 - `ia-conta`, `ia-rot`, `ia-login`, `contas-uso.py`, `skill-rodizio-de-contas.md` — rotação de
   contas de IA (ver a skill `rodizio-de-contas`).
 - `atalhos-padrao`, `atalhos-padrao-mobile` — atalhos de barra padrão (desktop e Termux).
+- `telas-agentes.py`, `telas-agentes.conf` — as telas dos agentes (confiar na pasta, atualização, termos, permissão…) e o
+  que a voz faz com cada uma: responder sozinha a rotina e a pasta autorizada, perguntar a decisão.
 - `voz`, `voz-audio.py`, `voz-windows.ps1` — o 🎤: conversa por voz com o tt (cérebro, regras e ações no `voz`; gravar,
   escolher o motor, transcrever, falar e a janela no `voz-audio.py`; o microfone do Windows no WSL pelo `.ps1`). No celular, `termux/bin/voz` roda o `voz` da raiz pelo bash do Termux.
 - `termux/celular.sh` — provisiona um celular do zero (Termux + Debian proot).
@@ -152,7 +154,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --fixar [maquina:]sessao` — fixa/desafixa a sessão.
 - `tt --fixadas` — lista as fixadas; `tt --barra-fixadas` (interno) formata a faixa.
 - Internos: `--aplicar-fixadas`/`--barras` (liga a 2ª linha), `--ir-fixada`, `--mover-fixada`,
-  `--notificar TEXTO [SEGUNDOS]` (aviso na faixa de notificações, 3ª linha; expira sozinho), `--notificar-daqui TEXTO [SEGUNDOS] [--sempre]` (aviso de agente pelo 🔔: só se o usuário não estiver olhando para a janela de onde veio; abrir o aviso leva à sessão e ao painel; `--notifs-lidas` marca todos como lidos; ver "Agente avisa o usuário"), `--notifs` (a central do 🔔: abas Todas/Não lidas/Lidas/Agentes/E-mail/Tarefas e botões ↗ Abrir, ◐ Lida/não lida, ✓ Ler todas, ✕ Apagar, 🧹 Limpar lidas (confirma) no cabeçalho, com mapa de cliques; tudo passa pelo despachante `--notifs-acao EVENTO ID` (internos `--notifs-cabecalho`, `--notifs-lista-ui`, `--notifs-previa ID` = a prévia do aviso em foco; estado em `$RT/tt-notifs-ui-UID`; uma linha por aviso, a em foco destacada com `--highlight-line`; nada de processo por aviso no desenho: `notif_quando_em`, `notifs_ids_em`); teclas ⏎, Espaço, Tab/Shift+Tab, `^u`, `^a`, `^d`/Del, `^r`, `^l`, Esc/q; exclusões usam lápides sincronizadas entre máquinas; teste `tests/test_notifs_central.sh`; arquivo do aviso = `exp\ttexto\tação\tcanal[\tcódigo]`: o 5º campo, opcional, é o código do EVENTO (`notificar TEXTO SEG AÇÃO CANAL CÓDIGO`), igual em todas as máquinas: aviso com o mesmo código não é recriado, a sincronização deixa um só na rede (o de menor id; cópias ganham lápide; o lido passa) e a lápide de aviso apagado guarda `codigo=…`; usado pelo `novidades-v<versão>` e pelo lembrete de tarefa `lembrete-<id>|<dia ou prazo>`; código de LOTE `BASE#item,item,…` para o evento que cada máquina percebe sozinha, em hora e número diferentes (e-mail novo: `email-<slug>#<chave>,…`, chave = 12 hex do sha1 do Message-ID, de `email-tt.py cabecalhos`; demandas: `demandas-<slug>#`, `demandas-espera-<slug>#`, `demandas-ignoradas-<slug>#`): o aviso leva só os itens que a rede ainda não avisou (`notifs_itens_conhecidos BASE`, vigentes + lápides com código) e, depois de cada junção, `notifs_lotes_normalizar` apaga, do mais velho ao mais novo, o que não traz item novo (o lido de quem some passa aos mais velhos que ele cobria inteiros); a poda guarda o código na lápide; a notificação do SISTEMA (`notificar_aparelho`) continua sendo de cada aparelho que percebe o evento; leitores do arquivo leem o 5º campo à parte (`read -r exp txt acao canal _`); teste `tests/test_notifs_sync.sh`), chave `faixa_notif=0|1`. `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
+  `--notificar TEXTO [SEGUNDOS]` (aviso na faixa de notificações, 3ª linha; expira sozinho), `--notificar-daqui TEXTO [SEGUNDOS] [--sempre]` (aviso de agente pelo 🔔: só se o usuário não estiver olhando para a janela de onde veio; abrir o aviso leva à sessão e ao painel; `--notifs-lidas` marca todos como lidos; `--notifs-listar [todas|naolidas|lidas]` = `id<TAB>lida<TAB>quando<TAB>texto` em texto puro (a voz lê por ele); `--notifs-limpar-lidas` apaga as lidas e imprime quantas; ver "Agente avisa o usuário"), `--notifs` (a central do 🔔: abas Todas/Não lidas/Lidas/Agentes/E-mail/Tarefas e botões ↗ Abrir, ◐ Lida/não lida, ✓ Ler todas, ✕ Apagar, 🧹 Limpar lidas (confirma) no cabeçalho, com mapa de cliques; tudo passa pelo despachante `--notifs-acao EVENTO ID` (internos `--notifs-cabecalho`, `--notifs-lista-ui`, `--notifs-previa ID` = a prévia do aviso em foco; estado em `$RT/tt-notifs-ui-UID`; uma linha por aviso, a em foco destacada com `--highlight-line`; nada de processo por aviso no desenho: `notif_quando_em`, `notifs_ids_em`); teclas ⏎, Espaço, Tab/Shift+Tab, `^u`, `^a`, `^d`/Del, `^r`, `^l`, Esc/q; exclusões usam lápides sincronizadas entre máquinas; teste `tests/test_notifs_central.sh`; arquivo do aviso = `exp\ttexto\tação\tcanal[\tcódigo]`: o 5º campo, opcional, é o código do EVENTO (`notificar TEXTO SEG AÇÃO CANAL CÓDIGO`), igual em todas as máquinas: aviso com o mesmo código não é recriado, a sincronização deixa um só na rede (o de menor id; cópias ganham lápide; o lido passa) e a lápide de aviso apagado guarda `codigo=…`; usado pelo `novidades-v<versão>` e pelo lembrete de tarefa `lembrete-<id>|<dia ou prazo>`; código de LOTE `BASE#item,item,…` para o evento que cada máquina percebe sozinha, em hora e número diferentes (e-mail novo: `email-<slug>#<chave>,…`, chave = 12 hex do sha1 do Message-ID, de `email-tt.py cabecalhos`; demandas: `demandas-<slug>#`, `demandas-espera-<slug>#`, `demandas-ignoradas-<slug>#`): o aviso leva só os itens que a rede ainda não avisou (`notifs_itens_conhecidos BASE`, vigentes + lápides com código) e, depois de cada junção, `notifs_lotes_normalizar` apaga, do mais velho ao mais novo, o que não traz item novo (o lido de quem some passa aos mais velhos que ele cobria inteiros); a poda guarda o código na lápide; a notificação do SISTEMA (`notificar_aparelho`) continua sendo de cada aparelho que percebe o evento; leitores do arquivo leem o 5º campo à parte (`read -r exp txt acao canal _`); teste `tests/test_notifs_sync.sh`), chave `faixa_notif=0|1`. `--fixadas-popup [cliente]` (popup: ir/desafixar/reordenar ao vivo), `--mover-fixada-rel N ±1` e `--desafixar-n N` (índice 0-based do popup), `--alternar-fixada`, `--alternar-fixada-rotulo`,
   `--resolver-fixada`, `--fixadas-girar cima|baixo [cliente]` (a roda no chip), `--fixadas-agrupar [cliente]`
   (botão direito no chip, `^g` no popup). Sync: `--propagar-fixadas`, `--receber-fixadas [V]`, `--puxar-fixadas`,
   `--reconciliar-fixadas`, `--marcar-fixadas`.
@@ -264,7 +266,9 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   `--letreiro-catalogo [ID]` · `--letreiro-segredo NOME` · `--letreiro-ajustes` / `--letreiro-ajuste CHAVE [VALOR]`
   (`ticker_ligado`, `ticker_rolagem`, `ticker_veloc`, `ticker_fps`, `ticker_separador`, `ticker_ordem`, `ticker_largura`,
   `ticker_pausa`, `ticker_cor`, `ticker_economia`, `ticker_bateria_min`, `ticker_ponte`, `ticker_idioma`, `ticker_fuso`) ·
-  `--letreiro-migrar` (indicador_NOME=/indicadores= → arquivos; idempotente, roda sozinho) · `--ticker-fontes`,
+  `--letreiro-migrar` (indicador_NOME=/indicadores= → arquivos; idempotente, roda sozinho) · `--letreiro-ler` (a linha de
+  agora, sem buscar na rede) · `--letreiro-pausa [sim|nao|alternar|estado]` (imprime pausado|rolando; a marca é
+  `$RT/tt-letreiro-pausa`, e o `letreiro-tt.py` sem `/run/user` usa o `$TMPDIR`, como o tt) · `--ticker-fontes`,
   `--ticker-quadro [largura]` (antigos, valem).
 - Painel: menu ⋯ → 📰 (`--letreiro-ui`; despachante único `--letreiro-acao EVENTO CHAVE`, formulário
   `--letreiro-form-evento`/`--letreiro-form-exec`, assistente `--letreiro-assistente`, `--letreiro-menu-fonte`,
@@ -391,8 +395,53 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   --verbose --tools "" --no-session-persistence --system-prompt-file ~/.local/state/tt-voz/cerebro-regras.md`. Aquece
   com uma volta, recomeça depois de `VOLTAS` (20) ou de um erro (`is_error`, tempo esgotado); ~1,5 s por volta (contra
   ~7 s). Padrão `sonnet` (medido em 16/10/2026: acerta as frases ambíguas que o Haiku errava por ~1 s a mais);
-  `voz --cerebro-modelo haiku|sonnet|opus`. Ações novas: `panorama` (MÁQUINA opcional), `nova_sessao` com `texto` (o 1º
-  pedido, mandado quando o agente abre).
+  `voz --cerebro-modelo haiku|sonnet|opus`. Ações: `panorama` (MÁQUINA opcional), `nova_sessao` com `texto` (o 1º
+  pedido, mandado quando o agente abre), `opcao` (número, sim, nao, sempre), `esperar` (`segundos`, `depois`),
+  `acompanhar`, `cancelar_espera`, `esperas`, `fixar`, `desafixar`, `fixadas`, `mover_fixada` (`posicao`),
+  `agrupar_fixadas`, `tarefa_nova` (texto com marcadores), `subtarefa`, `concluir_tarefa`, `reabrir_tarefa`,
+  `apelido_tarefa`, `prazo_tarefa` (`prazo`), `apagar_tarefa`, `notificacoes`, `notificacoes_lidas`,
+  `limpar_notificacoes`, `letreiro` (`tecla` ler|pausar|continuar), `fechar_sessao`, `limpeza`. As destrutivas confirmam
+  pelas regras (o cérebro não confirma).
+- Telas dos agentes (`telas-agentes.py` + o catálogo `telas-agentes.conf`, estendido por `~/.config/tt/telas-agentes.conf`:
+  blocos `[id]` com `agente`, `classe` rotina|pasta|decisao|-, `tela` (regex), `opcao`/`evitar`/`tecla`, `motivo`; o mesmo id
+  troca o do pacote). `telas-agentes.py decidir --pastas ARQ --maquina M --casa DIR… [--cwd]` lê a tela VISÍVEL (o
+  histórico guarda menus já respondidos) e imprime `decisão classe id ação marcada tipo pasta pergunta opções motivo`
+  (decisão nada|auto|perguntar; tipo menu|sn|enter|senha; menu = o último com cursor ❯ › ▶, numerado ou não; lista do
+  agente sem cursor não vale). Ordem: senha na última linha (trava do código) → todos os `decisao` → rotina/pasta na ordem;
+  a opção escolhida sozinha nunca casa `NUNCA` (não pergunte de novo, sempre, todas, acesso total, apagar…); `tecla` só
+  em tela que pede só Enter. `pasta` = sozinho só se a pasta (da tela, ou a do painel) está em `~/.config/tt-voz/pastas`
+  (`[MÁQUINA:]PASTA`, `/**` = subpastas, `*`, `..` barrado; `casas_de M` traz o `$HOME` de lá e a `/root` do proot).
+  `validar`, `catalogo`, `pasta-ok`. No `voz`: `tela_tratar MAQ SESSÃO TELA abertura|trabalho [PASTA] auto|voz|perguntar`
+  (0 nada, 1 perguntou, 2 respondeu; `voz` = sozinho só se `@tt_voz`=1, a opção de sessão que o 🚀/👇/⏩ pela voz gravam);
+  `destravar` (abertura) e `resposta_ou_pergunta` (depois de `aguardar`, `ler_agora`, pendente, agenda) o usam; a pergunta
+  fica em `pergunta` (`opcao|sn|enter:MAQ:SESSÃO`) + `pergunta.info` (classe, id, pasta, origem) e `responder_pergunta`
+  (número, sim, nao, sempre, enter) responde e segue (`destravar` e o 1º pedido guardado em `pedido-SESSÃO`, ou
+  `aguardar`); senha: a voz manda digitar no terminal. Registro: `~/.local/state/tt-voz/aprovacoes.log` (sozinha|você).
+  `voz --pastas [add|rm [MÁQUINA:]PASTA]`. Teste: `tests/test_telas_agentes.sh`.
+- Confirmação (`confirmar_pedir ETAPAS P1 P2 AÇÃO ARGS…`, só ações de `CONFIRMAVEIS`): grava `confirmar`, `pergunta` =
+  confirmar; "sim" (`confirmar sim`) faz, com ETAPAS=2 pergunta P2 antes; "não" desiste (5 min de validade).
+- Agenda e acompanhamento (o que a voz fala sozinha): `esperar SEG ler|resumir|avisar [NOME]` grava `agenda` (`quando
+  depois máquina sessão N canal`); `duracao_de` lê "um minuto e meio", "30 segundos", "vinte e cinco minutos"; até 6 h;
+  vencida há mais de `VOZ_AGENDA_VALIDADE` (900 s) cai calada. `acompanhar [NOME]` grava `acompanhar` (até
+  `VOZ_ACOMPANHAR_MAX`=7200 s; tira o `pendente` da mesma sessão) e `acompanhar_estado` diz sumiu/trabalhando/pergunta/
+  pergunta-dita/terminou (mexeu e parada em duas olhadas)/parada. `voz --fundo-pronto` (0 = há o que falar: agenda
+  vencida, acompanhada com novidade, pendente pronto) e `voz --turno-fundo` (fala, cada um pelo `CANAL` do pedido); a
+  janela confere a cada ~6 s ouvindo e digitando; o daemon do celular a cada `VOZ_T_FUNDO` (6 s). `esperas`,
+  `cancelar_espera` (agenda, acompanhamentos e pendente), `voz --esperas`.
+- Interface do tt pela voz: fixadas (`fixar_voz fixar|desafixar`, `fixadas_ler`, `mover_fixada_voz NOME
+  inicio|fim|esquerda|direita|N` = `tt --mover-fixada`, `tt --fixadas-agrupar`); tarefas (`tarefa_nova` com `frase_natural`:
+  "para amanhã às 14 horas" → `@amanha 14h`, "urgente" → `!alta`; `subtarefa_nova`, `tarefa_fazer
+  concluir|reabrir|apelido|apagar` (apagar confirma), `tarefa_prazo` = `--tarefa-frase` sem o @prazo + o novo →
+  `--tarefa-editar`; `tarefa_achar NOME [sub]`); notificações (`tt --notifs-listar`, `--notifs-lidas`,
+  `--notifs-limpar-lidas` com confirmação); letreiro (`tt --letreiro-ler`, `tt --letreiro-pausa sim|nao`). Texto com
+  acento vem da frase original (`cru_sufixo`, `cru_trecho`).
+- Fechar e limpeza: `fechar_sessao [NOME]` confirma (2 vezes se é a escolhida ou está trabalhando; sessão `_*` nunca) e
+  `fechar_uma` usa `tt --fechar . SESSÃO` lá (solta a fixada). `limpeza [MÁQUINA]`: `tt --listar-tudo --tsv` de todas ao
+  mesmo tempo → `LIMPEZA_AWK` (manter: escolhida, acompanhada, anexada, fixada, papel ≠ atalho, rascunho, ocioso < 120 s,
+  agente com a última linha em "?", outro programa; fechar: shell parado ≥ `VOZ_LIMPEZA_SHELL` 3600 s, agente parado ≥
+  `VOZ_LIMPEZA_AGENTE` 14400 s, com o motivo) → `limpeza.analise` e `limpeza` (até `VOZ_LIMPEZA_MAX` 8, as mais paradas);
+  `pergunta` = limpeza: "fechar" (`limpeza_fechar`, que pula a que voltou a ser usada há < `VOZ_LIMPEZA_RECENTE` s),
+  "tira a N" (`limpeza_tirar`), "cancelar". Teste: `tests/test_voz_acoes.sh`.
 - Liberação: escolher (lista, número, nome, cérebro, sessão nova, próxima/anterior) grava em `permitidas` (`liberar`);
   `enviar`, Enter/cancelar, 👇 e ⏩ só pedem a sessão escolhida; "bloquear sessão" tira da lista e solta a escolha.
 - Índice (`indice_local [N]` = `voz --indice-local`: uma ida ao tmux, sem ocultas nem pontes; agente e título do
@@ -411,7 +460,9 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   `~/.local/share/tt-voz/venv` (faster-whisper, piper-tts; com GPU NVIDIA, `nvidia-cublas-cu12` e `nvidia-cudnn-cu12`,
   ~2 GB) + voz `pt_BR-faber-medium` + os modelos small e base + `medir`. `voz --audio` mostra microfones, medições, GPU e
   o ranking dos lugares; `voz --audio-teste` grava, transcreve e repete.
-- Testes: `tests/test_voz.sh` (regras, cérebro, ações, daemon do celular) e `tests/test_voz_tela.sh` (canal da janela,
+- Testes: `tests/test_voz.sh` (regras, cérebro, ações, daemon do celular), `tests/test_voz_acoes.sh` (esperar,
+  acompanhar, pergunta no meio do trabalho, fixadas, tarefas, notificações, letreiro, fechar, limpeza),
+  `tests/test_telas_agentes.sh` (o catálogo e a trava) e `tests/test_voz_tela.sh` (canal da janela,
   sistemas com `VOZ_SISTEMA=Darwin|WSL|Linux`, microfones com `pactl`/PowerShell falsos, medições e escolha com ssh
   falso e `VOZ_MOTOR_FALSO`, gravação, janela num tmux isolado, `@janela`, instalação).
 
@@ -778,7 +829,7 @@ ControlPath do ssh, transferências em andamento.
 tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile
 README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
 skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py
-tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1` (a
+tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf` (a
 lista dos testes, em `tests/lib.sh` e `tests/test_repo_em_dia.sh`, acompanha). `ARQUIVOS_PACOTE` = `ARQUIVOS_FONTE` + `VERSAO`. Mudança que acrescenta um
 arquivo ao pacote PRECISA entrar em `ARQUIVOS_FONTE`, senão a autoatualização instala um pacote
 incompleto.
