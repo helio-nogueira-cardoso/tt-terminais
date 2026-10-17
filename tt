@@ -6301,11 +6301,20 @@ def bloco(prefixo, recuo, segs):
         out.append((prefixo if i == 0 else " " * recuo) + pinta(l))
     return out
 
-saida, primeira = [], True
+saida, primeira, pend = [], True, None
+
+def fecha():
+    """Despeja o item/parágrafo em montagem: as linhas de continuação já foram coladas no texto dele."""
+    global pend
+    if pend:
+        saida.extend(bloco(pend[0], pend[1], inline(pend[2])))
+        pend = None
+
 for ln in sys.stdin.read().splitlines():
     ln = ln.rstrip()
     m = re.match(r"^(#{2,3}) +(.*)$", ln)
     if m:
+        fecha()
         if not primeira and saida and saida[-1] != "":
             saida.append("")
         titulo = m.group(2)
@@ -6316,19 +6325,24 @@ for ln in sys.stdin.read().splitlines():
         primeira = False
         continue
     if not ln.strip():
+        fecha()
         if saida and saida[-1] != "":
             saida.append("")
         continue
     m = re.match(r"^( *)([-*+]|\d+[.)]) +(.*)$", ln)
     if m:
+        fecha()
         nivel = len(m.group(1)) // 2
         marca = m.group(2) if m.group(2)[0].isdigit() else "•◦▪"[min(nivel, 2)]
         base = 2 + 2 * nivel
-        prefixo = " " * base + marca + " "
-        saida += bloco(prefixo, base + len(marca) + 1, inline(m.group(3)))
+        pend = (" " * base + marca + " ", base + len(marca) + 1, m.group(3))
+    elif pend:
+        # linha de continuação do item (ou do parágrafo): cola no texto e quebra tudo junto
+        pend = (pend[0], pend[1], pend[2] + " " + ln.strip())
     else:
-        saida += bloco("  ", 2, inline(ln.strip()))
+        pend = ("  ", 2, ln.strip())
     primeira = False
+fecha()
 print("\n".join(saida))
 ' "$w"
 }

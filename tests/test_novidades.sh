@@ -112,4 +112,10 @@ grep -q '^    ◦ subitem forte$' <<<"$limpo" && grep -q '^  • Negrito' <<<"$l
 python3 -I -c 'import sys, unicodedata as u; sys.exit(max(sum(2 if u.east_asian_width(c) in "WF" else 1 for c in l) for l in sys.stdin.read().splitlines()) > 40)' <<<"$limpo" ||
   falhou "linha mais larga que 40 colunas: $limpo"
 passou 'novidades: negrito e código formatados, subitens com recuo, linhas na largura da tela'
+# Item escrito em várias linhas no NOVIDADES.md (continuação com recuo): vira um parágrafo só, com o recuo do item.
+fmt=$(printf '%s\n' '- primeira linha do item que' '  continua na segunda linha e' '  termina na terceira.' '- outro item' | "$TT" --novidades-fmt 60)
+limpo=$(sed 's/\x1b\[[0-9;]*m//g' <<<"$fmt")
+grep -q '^  • primeira linha do item que continua na segunda' <<<"$limpo" && grep -q '^    termina na terceira\.$' <<<"$limpo" &&
+  grep -q '^  • outro item$' <<<"$limpo" && ! grep -q '^  [a-z]' <<<"$limpo" || falhou "continuação do item não foi juntada: $limpo"
+passou 'novidades: linhas de continuação do item entram no mesmo parágrafo, com o recuo dele'
 echo "TODOS OS TESTES PASSARAM"
