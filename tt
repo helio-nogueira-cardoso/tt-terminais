@@ -6381,7 +6381,7 @@ checar_linha() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:--}"; } # id esta
 
 # Uma linha por checagem (TSV). Só lê: nada aqui corrige, e uma checagem que falha não derruba as outras.
 checar_coletar() {
-  local agora pid cpu f x n m slug st erro d desde mot inst
+  local agora pid cpu f x n m slug st erro d desde mot inst ativas
   local -a falta=() extra=() codigo=() lst=()
   local -A NO_PACOTE=() E=()
   printf -v agora '%(%s)T' -1
@@ -6547,8 +6547,10 @@ elif est: print("ok\t" + (d.get("Self") or {}).get("DNSName", "").split(".")[0])
   # conversas das IAs entre as máquinas
   if sessoes_ia_ativo && [[ -s $CONF_MAQ && -d $ESTADO_DIR/sessoes-ia/maquinas ]]; then
     lst=()
+    ativas=" $(maquinas 2>/dev/null | awk '{ print $2 }' | tr '\n' ' ')"   # oculta ou desligada no Tailscale não é defeito daqui
     for f in "$ESTADO_DIR"/sessoes-ia/maquinas/*; do
       [[ -f $f ]] || continue
+      [[ $ativas == *" ${f##*/} "* ]] || continue
       read -r x st _ <"$f"
       [[ $st == ok && $x =~ ^[0-9]+$ ]] && ((agora - x < 172800)) && continue
       [[ $st == pulada ]] && continue   # a outra estava fora da rede: não é defeito daqui
