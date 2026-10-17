@@ -1920,6 +1920,18 @@ concluir" vigiam a sessão (até 2 h): a voz fala quando ela terminar ou pedir u
 rotina. "O que você está esperando?" lista; "cancele a espera" ou "pare de acompanhar" cancela. No celular, o daemon faz
 o mesmo e responde pelo canal do pedido (o Tasker ou o bot do Telegram).
 
+**Modo retorno (a voz chama você):** "modo retorno" (ou "me chama quando elas terminarem", "pode ir que eu espero") fecha
+o microfone: a janela mostra quem está em aberto (`⏸ retorno: site há 3min`) e, quando uma sessão a que você pediu algo
+responde, pede uma decisão sua ou fecha, toca um aviso curto, fala o resultado (ou a pergunta com as opções) e abre o
+microfone para a sua resposta; em silêncio, volta a esperar. Espaço fala com ela, `t` digita, `r` sai do modo. "Modo
+retorno por 5 minutos" põe um prazo: se nada chamar nesse tempo, a voz chama assim mesmo, com um resumo do que cada
+sessão fez desde o seu pedido (o cérebro compara a tela de agora com a da hora do pedido); cada retorno zera a contagem.
+No modo, o pedido a um agente não espera ouvindo ("Te chamo quando responder"); sem nada em aberto, a voz sai do modo
+sozinha. "Ligar o retorno automático" faz cada pedido já entrar nele. Nas sessões abertas pela voz, o Claude e o Codex
+avisam na hora quando terminam ou pedem algo, com a última mensagem deles: o `ia-conta` passa o gancho `Stop` e
+`Notification` ao Claude (`--settings`) e o `notify` ao Codex (`-c`), só nessas sessões e sem mudar a sua configuração;
+Kiro, Gemini e outros são conferidos pela tela (todas as sessões de uma máquina numa ida, a cada 10 s).
+
 **A interface do tt pela voz:** "fixar esta sessão" (ou "fixe a sessão site"), "desafixar a sessão X", "quais são as
 fixadas", "mova a fixada X para o início" (fim, esquerda, direita, posição 3) e "agrupe as fixadas"; "nova tarefa comprar
 pão para amanhã às 14 horas" (vira `@amanha 14h`; "urgente" no fim vira `!alta`), "adicione a subtarefa X na tarefa Y",

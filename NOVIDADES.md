@@ -3,6 +3,24 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.29.0 · 17/10/2026
+- **🎤 Modo retorno: a voz fecha o microfone e as sessões chamam você.** Diga "modo retorno" (ou "me chama quando elas
+  terminarem", "pode ir que eu espero"): a janela para de ouvir e mostra quem está em aberto ("⏸ retorno: site há
+  3min"). Quando uma sessão a que você pediu algo responde, pede uma decisão sua ou fecha, a voz toca um aviso curto, fala
+  (o resultado, ou a pergunta com as opções) e abre o microfone para a sua resposta; em silêncio, volta a esperar.
+  Espaço fala com ela, `t` digita, `r` sai do modo.
+- **Com prazo:** "modo retorno por 5 minutos" (ou "pode ir que eu espero no máximo 5 minutos"). Se nada chamar nesse
+  tempo, a voz chama mesmo assim, com um resumo do que cada sessão fez **desde o seu pedido** (não a tela inteira) e se
+  ainda trabalha; cada retorno zera a contagem. Sem nenhum pedido em aberto, ela sai do modo sozinha.
+- **No modo, o pedido não espera ouvindo:** "Enviado para site. Te chamo quando responder." e o microfone fecha de novo.
+  Respondida uma decisão, a sessão volta a ser esperada. "Ligar o retorno automático" faz cada pedido já entrar no modo.
+- **Avisos na hora, sem ficar olhando a tela:** nas sessões abertas pela voz (🚀, 👇, ⏩) o Claude e o Codex avisam quando
+  terminam a vez ou pedem algo (o gancho `Stop`/`Notification` do Claude e o `notify` do Codex, passados só a essas
+  sessões pela linha de comando; o seu `settings.json` e o seu `config.toml` não mudam), já com a última mensagem do
+  agente, que é o que a voz fala. Kiro, Gemini e outros: a voz confere a tela de todas as sessões de uma máquina numa ida só.
+- "Sair do modo retorno", "cancele a espera" e "o que você está esperando?" valem também para o modo. `voz --retorno
+  [SEGUNDOS|sair|auto sim|nao]`, e o cérebro entende as ações `retorno`, `sair_retorno` e `retorno_auto`.
+
 ## v1.28.15 · 17/10/2026
 - **Vigia no celular e no Mac:** a sincronização das contas de e-mail em paralelo (v1.28.10) esperava as contas com um
   `wait` sem lista, o que no bash 5.3 (Termux e Mac) já deixou o vigia preso a 100% de CPU. Agora espera só as contas

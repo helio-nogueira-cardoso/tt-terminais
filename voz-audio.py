@@ -526,6 +526,21 @@ class Gravador:
             self.fluxo.fechar()
             self.fluxo = None
 
+    def pausar(self):
+        """O modo retorno: fecha o microfone (o sistema para de mostrá-lo em uso); retomar() reabre o mesmo, sem a prova."""
+        self.fechar()
+
+    def retomar(self):
+        if self.fluxo and self.fluxo.vivo:
+            return True
+        if not (0 <= self.atual < len(self.cands)):
+            return self.escolher()
+        try:
+            self.fluxo = Fluxo(self.cands[self.atual])
+        except OSError:
+            return self.escolher(self.atual)
+        return True
+
     def frase(self, nivel=None, parar=None, espera=None, maximo=20.0, pausa=None):
         """Grava até o silêncio depois da fala. Devolve (pcm, motivo): motivo = fala | silencio | parado | erro."""
         espera = float(os.environ.get("VOZ_ESPERA_FALA_S", espera or 8.0))
@@ -1578,6 +1593,25 @@ def saidas_say():
     return out
 
 
+def som_plim():
+    """O aviso antes do que a voz fala sozinha (o retorno de uma sessão): dois tons curtos, um WAV em memória."""
+    import struct
+    import wave
+    taxa, partes = 22050, []
+    for freq, dur in ((880.0, 0.09), (1320.0, 0.14)):
+        n = int(taxa * dur)
+        for i in range(n):
+            env = min(1.0, i / (taxa * 0.01), (n - i) / (taxa * 0.03))
+            partes.append(struct.pack("<h", int(9000 * env * math.sin(2 * math.pi * freq * i / taxa))))
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(taxa)
+        w.writeframes(b"".join(partes))
+    return buf.getvalue()
+
+
 def tocador(saida=None):
     w = shutil.which
     if eh_mac() and w("afplay"):
@@ -1811,6 +1845,17 @@ class Falador:
         self.proc.wait()
         self.proc = None
         return True
+
+    def plim(self):
+        """O som curto antes do retorno de uma sessão (VOZ_PLIM=0 desliga). Sem tocador, nada."""
+        if self.qual == "nenhum" or os.environ.get("VOZ_PLIM") == "0":
+            return
+        try:
+            if not (eh_wsl() and self.qual == "windows") and tocador() is None:
+                return
+            self._tocar_wav(som_plim())
+        except (OSError, RuntimeError, ValueError, TypeError):
+            pass
 
     def _falar_neural(self, texto):
         """Frase a frase: a seguinte é gerada enquanto a atual toca. False se a primeira não saiu (vale a do sistema)."""
@@ -2521,6 +2566,8 @@ class Conversa:
         self.cerebro = None
         self.conferindo = False
         self.avisou_fraco = False
+        self.retorno_estado = ""
+        self.retomando = None
 
     def _aviso_transcritor(self, t):
         if t.startswith("transcrever: "):  # troca no meio da conversa: fica na conversa
@@ -2629,6 +2676,9 @@ class Conversa:
 
     def ouvir(self, teclado):
         """Uma frase falada → texto. None = sair; '' = silêncio; '\0t' = quer digitar."""
+        if self.retomando is not None:  # o microfone ainda reabrindo (depois do modo retorno)
+            self.retomando.join(10)
+            self.retomando = None
         self.parar_gravacao.clear()
         res = {}
         estado = {"n": 0.0, "f": False}
@@ -2725,11 +2775,12 @@ class Conversa:
 
     def _ha_fundo(self):
         """Há algo que a voz possa ter de falar sozinha? (o agente pendente, uma espera agendada, uma sessão acompanhada)"""
-        return any(os.path.exists(os.path.join(ESTADO, n)) for n in ("pendente", "agenda", "acompanhar"))
+        return any(os.path.exists(os.path.join(ESTADO, n)) for n in ("pendente", "agenda", "acompanhar", "retorno"))
 
     def _nota_fundo(self):
         """A nota antes do que a voz fala sozinha: de onde vem (o agente pendente, a hora combinada, a sessão acompanhada)."""
-        for n, t in (("pendente", "o agente terminou:"), ("agenda", "deu a hora:"), ("acompanhar", "a sessão acompanhada:")):
+        for n, t in (("retorno.fila", "retorno:"), ("pendente", "o agente terminou:"), ("agenda", "deu a hora:"),
+                     ("acompanhar", "a sessão acompanhada:")):
             if os.path.exists(os.path.join(ESTADO, n)):
                 self.tela.linha("nota", t)
                 return
@@ -2747,6 +2798,74 @@ class Conversa:
             pass
         finally:
             self.conferindo = False
+
+    # -- o modo retorno: o microfone fecha e a janela espera as sessões chamarem
+    def _em_retorno(self):
+        return os.path.exists(os.path.join(ESTADO, "retorno"))
+
+    def _conferir_retorno(self):
+        """voz --retorno-pronto: a 1ª linha é o estado (quem está em aberto, o prazo); saída 0 = há o que falar."""
+        try:
+            r = subprocess.run(["bash", self.voz, "--retorno-pronto"], capture_output=True, text=True, timeout=90,
+                               stdin=subprocess.DEVNULL)
+            linhas = (r.stdout or "").strip().splitlines()
+            if linhas:
+                self.retorno_estado = linhas[0][:120]
+            if r.returncode == 0:
+                self.pendente_pronto.set()
+        except (OSError, subprocess.SubprocessError):
+            pass
+        finally:
+            self.conferindo = False
+
+    def aguardar_retorno(self, teclado):
+        """Espera no modo retorno, com o microfone fechado, conferindo a cada VOZ_T_RETORNO s. '\0p' = há retorno a
+        falar; '\0f' = Espaço (falar agora); '\0t' = digitar; '\0r' = sair do modo; '\0n' = o modo acabou por fora;
+        None = fechar a janela."""
+        self.gravador.pausar()
+        intervalo = float(os.environ.get("VOZ_T_RETORNO", "3"))
+        ultima = 0.0
+        while not self.sair:
+            if self.pendente_pronto.is_set():
+                self.pendente_pronto.clear()
+                return "\0p"
+            if not self._em_retorno():
+                return "\0n"
+            if time.time() - ultima > intervalo and not self.conferindo:
+                ultima = time.time()
+                self.conferindo = True
+                threading.Thread(target=self._conferir_retorno, daemon=True).start()
+            self.tela.status("⏸ retorno: %s  ·  Espaço: falar · t: digitar · r: sair do modo · Esc: sair"
+                             % (self.retorno_estado or "…"))
+            k = teclado.tecla(0.2)
+            if k == " ":
+                return "\0f"
+            if k == "t":
+                return "\0t"
+            if k == "r":
+                return "\0r"
+            if k in ("esc", "q"):
+                return None
+        return None
+
+    def _retomar_mic(self, som):
+        """Reabre o microfone em segundo plano (enquanto a voz fala o retorno); ouvir() espera por ele."""
+        if som and not self.digitar_sempre and self.gravador.cands:
+            self.retomando = threading.Thread(target=self.gravador.retomar, daemon=True)
+            self.retomando.start()
+
+    def sua_vez(self, teclado, som, digitar=False):
+        """Uma frase sua depois de um retorno (ou do Espaço): o texto, '' (silêncio ou nada: volta a esperar) ou None."""
+        if self.retomando is not None:
+            self.retomando.join(10)
+            self.retomando = None
+        if digitar or not som or self.digitar_sempre:
+            frase = self.digitar(teclado)
+            return "" if frase in ("\0p", "\0n") else frase
+        frase = self.ouvir(teclado)
+        if frase == "\0t":
+            frase = self.digitar(teclado)
+        return "" if frase in ("\0p", "\0n") else frase
 
     def atualizar_dica(self):
         try:
@@ -2902,6 +3021,35 @@ class Conversa:
                 if self.som_pronto.is_set():  # a instalação terminou: passa a ouvir
                     self.som_pronto.clear()
                     som = self.gravador.fluxo is not None or self.gravador.escolher()
+                if self._em_retorno():
+                    r = self.aguardar_retorno(teclado)
+                    if r is None:
+                        break
+                    if r == "\0r":
+                        self._retomar_mic(som)
+                        fim = self.turno("sair do modo retorno", teclado)
+                        continue
+                    if r == "\0n":  # o modo acabou (outra conversa, o celular): volta a ouvir sempre
+                        self._retomar_mic(som)
+                        continue
+                    if r != "\0t":
+                        self._retomar_mic(som)
+                    if r == "\0p":  # uma sessão chamou (respondeu, pediu uma decisão, fechou) ou o prazo venceu
+                        self._nota_fundo()
+                        if not self.mudo and self.falador:
+                            self.falador.plim()
+                        fim = self.turno("", teclado, ["--turno-fundo"])
+                        if fim or self.sair:
+                            continue
+                    frase = self.sua_vez(teclado, som, digitar=(r == "\0t"))
+                    if frase is None:
+                        break
+                    if not frase:  # em silêncio: volta a esperar (ou, se o modo acabou, a ouvir sempre)
+                        continue
+                    self.tela.linha("voce", frase)
+                    fim = self.turno(frase, teclado)
+                    self.atualizar_dica()
+                    continue
                 if som and not self.digitar_sempre:
                     frase = self.ouvir(teclado)
                     if frase is None:

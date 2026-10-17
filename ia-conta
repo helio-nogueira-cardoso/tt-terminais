@@ -316,6 +316,18 @@ remover() {
   printf 'Conta "%s" removida. Guardada em %s\nPara desfazer: mv %q %q\n' "$nome" "$destino" "$destino" "$dir"
 }
 
+# Sessão da voz do tt (aberta ou trocada por ela: @tt_voz, ou TT_VOZ_EVENTOS=1 do 🚀): o agente avisa a voz quando termina
+# a vez ou pede algo (voz --evento), com a última mensagem dele, sem a voz ficar olhando a tela. Só nessas sessões, e por
+# opção da linha de comando: a configuração do usuário (settings.json do Claude, config.toml do Codex) não muda.
+voz_eventos() {
+  [[ ${TT_VOZ_EVENTOS:-} == 1 ]] && return 0
+  [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 1
+  [[ $(tmux display-message -p -t "$TMUX_PANE" '#{@tt_voz}' 2>/dev/null) == 1 ]]
+}
+voz_gancho() { # TIPO AGENTE -> o comando do gancho (o voz do pacote, ao lado deste ia-conta)
+  printf '%q --evento %s %s' "$AQUI/voz" "$1" "$2"
+}
+
 rodar() {
   local nome=$1 dir
   shift
@@ -326,6 +338,8 @@ rodar() {
       command -v codex >/dev/null 2>&1 || die 'o Codex não está instalado nesta máquina'
       # No Android (proot) o Codex não tem o pacote do servidor em segundo plano e sai com erro.
       [[ -n ${ANDROID_ROOT:-} ]] && set -- --no-daemon "$@"
+      # notify: o Codex roda o programa a cada vez que termina, com o JSON da vez (a última mensagem) no fim
+      voz_eventos && [[ -x $AQUI/voz ]] && set -- -c "notify=[\"$AQUI/voz\",\"--evento\",\"terminou\",\"codex\"]" "$@"
       exec env IA_CONTA=codex codex "$@" ;;
     kiro)
       command -v kiro-cli >/dev/null 2>&1 || die 'o Kiro não está instalado nesta máquina'
@@ -336,6 +350,11 @@ rodar() {
   # mesmo vazia, fica como está.
   export CLAUDE_CODE_SUBAGENT_MODEL_FORCE=${CLAUDE_CODE_SUBAGENT_MODEL_FORCE-1}
   export CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP=${CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP-1}
+  # Stop: terminou a vez (o JSON no stdin traz a última mensagem); Notification: pede permissão ou uma escolha
+  if voz_eventos && [[ -x $AQUI/voz ]]; then
+    set -- --settings "$(printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"%s"}]}],"Notification":[{"hooks":[{"type":"command","command":"%s"}]}]}}' \
+      "$(voz_gancho terminou claude | sed 's/[\\"]/\\&/g')" "$(voz_gancho pergunta claude | sed 's/[\\"]/\\&/g')")" "$@"
+  fi
   if [[ $nome == principal ]]; then
     IA_CONTA=principal exec env -u CLAUDE_CONFIG_DIR "$CLAUDE_BIN" "$@"
   fi

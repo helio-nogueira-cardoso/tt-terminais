@@ -427,7 +427,32 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   pergunta-dita/terminou (mexeu e parada em duas olhadas)/parada. `voz --fundo-pronto` (0 = há o que falar: agenda
   vencida, acompanhada com novidade, pendente pronto) e `voz --turno-fundo` (fala, cada um pelo `CANAL` do pedido); a
   janela confere a cada ~6 s ouvindo e digitando; o daemon do celular a cada `VOZ_T_FUNDO` (6 s). `esperas`,
-  `cancelar_espera` (agenda, acompanhamentos e pendente), `voz --esperas`.
+  `cancelar_espera` (agenda, acompanhamentos, pendente e o modo retorno), `voz --esperas`.
+- Modo retorno (`modo_retorno [SEG]`, frases "modo retorno (por N)", "me chama quando elas terminarem", "pode ir que eu
+  espero"; `retorno_sair`, `retorno_auto sim|nao` = `~/.config/tt-voz/retorno-auto`; CLI `voz --retorno [SEG|sair|auto X]`;
+  cérebro `retorno` (`segundos`), `sair_retorno`, `retorno_auto` (`tecla`)). Estado em `~/.local/state/tt-voz`: `retorno`
+  (`início prazo último-contato canal`), `chamadas` (uma por sessão: `máquina sessão pedido-em retornou-em
+  assinatura-no-pedido assinatura-da-última-olhada pergunta-dita foto pedido`; em aberto = pedido > retornou; a foto é a
+  tela de antes do pedido, em `fotos/`), `retorno.fila` (`tipo máquina sessão arquivo`) e `eventos.visto-MÁQUINA`.
+  `enviar` grava a chamada antes de mandar e, no modo, não chama `aguardar`; `resposta_ou_pergunta` e o acompanhar marcam
+  `chamada_retornou` (sem fala dupla); `responder_pergunta` no modo reabre a chamada. `retorno_novidade` (dentro do
+  `fundo_pronto`): os eventos de cada máquina das chamadas (uma ida: `awk` desde o `eventos.visto`), a conferência de
+  reserva a cada `VOZ_RETORNO_POLL` (10 s; `telas_lote`: as telas visíveis das sessões em aberto de uma máquina numa ida;
+  terminou = parada, igual em duas olhadas e diferente da do pedido; decisão pelo `tela_decidir`; sumiu) e o prazo.
+  `turno_retorno` (dentro do `turno_fundo`): respostas (a mensagem do evento pelo `resumo`, senão a tela), sessões que
+  fecharam, o resumo do prazo (`retorno_resumo_prazo`: o cérebro com o pedido e o `retorno_delta` = o que apareceu depois
+  da foto; sem cérebro, o estado) e a pergunta por último (uma por vez); sem nada em aberto, sai do modo. `voz
+  --retorno-pronto` = 1ª linha `retorno_status` + saída do `fundo_pronto`. Janela: `aguardar_retorno` (microfone fechado
+  com `Gravador.pausar`, confere a cada `VOZ_T_RETORNO` = 3 s; Espaço/t/r/Esc), `Falador.plim` (som curto; `VOZ_PLIM=0`
+  desliga), `retomar` reabre o mesmo microfone enquanto a voz fala e a sua vez (`sua_vez`) em silêncio volta a esperar.
+- Ganchos dos agentes (as sessões da voz): `ia-conta` (`voz_eventos`: `TT_VOZ_EVENTOS=1`, que o 🚀 passa, ou `@tt_voz`=1 da
+  sessão do `$TMUX_PANE`, que o 👇/⏩ gravam antes de abrir) passa ao Claude `--settings` com `Stop` → `voz --evento
+  terminou claude` e `Notification` → `voz --evento pergunta claude`, e ao Codex `-c notify=[voz,--evento,terminou,codex]`;
+  nada no `settings.json`/`config.toml` do usuário. `voz --evento TIPO AGENTE [JSON]` (`evento_gravar`) roda na máquina da
+  sessão, não imprime nada, ignora sessão sem `@tt_voz` e o `idle_prompt`/`auth_success`, guarda a última mensagem
+  (`last_assistant_message` do stdin do Claude, `last-assistant-message` do argumento do Codex) em `eventos.d/ID.txt` e
+  acrescenta `ID sessão tipo agente arquivo` em `eventos` (ID = `EPOCHREALTIME`; poda em 300 linhas). O monitor-silence do
+  tmux não serve: avisa o 1º silêncio e só rearma quando alguém olha a janela.
 - Interface do tt pela voz: fixadas (`fixar_voz fixar|desafixar`, `fixadas_ler`, `mover_fixada_voz NOME
   inicio|fim|esquerda|direita|N` = `tt --mover-fixada`, `tt --fixadas-agrupar`); tarefas (`tarefa_nova` com `frase_natural`:
   "para amanhã às 14 horas" → `@amanha 14h`, "urgente" → `!alta`; `subtarefa_nova`, `tarefa_fazer
@@ -462,6 +487,7 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   o ranking dos lugares; `voz --audio-teste` grava, transcreve e repete.
 - Testes: `tests/test_voz.sh` (regras, cérebro, ações, daemon do celular), `tests/test_voz_acoes.sh` (esperar,
   acompanhar, pergunta no meio do trabalho, fixadas, tarefas, notificações, letreiro, fechar, limpeza),
+  `tests/test_voz_retorno.sh` (ganchos, modo retorno, prazo, reserva, decisão, frases, janela),
   `tests/test_telas_agentes.sh` (o catálogo e a trava) e `tests/test_voz_tela.sh` (canal da janela,
   sistemas com `VOZ_SISTEMA=Darwin|WSL|Linux`, microfones com `pactl`/PowerShell falsos, medições e escolha com ssh
   falso e `VOZ_MOTOR_FALSO`, gravação, janela num tmux isolado, `@janela`, instalação).
