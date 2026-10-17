@@ -1522,7 +1522,7 @@ maquinas() {
   cat "$cache" 2>/dev/null || maquinas_agora
 }
 # Consulta todas as outras máquinas ao mesmo tempo e guarda "quantas-sessões versão" de cada uma
-# ("? ?" se não responder). Demora até 3 s: chame sempre em segundo plano.
+# ("? ?" se não responder). Demora até TT_T_INFO (8 s): chame sempre em segundo plano.
 atualizar_info() {
   local -a pids=()
   local dest rot f r
@@ -1531,7 +1531,7 @@ atualizar_info() {
     {
       # PATH_REMOTO na frente: o tmux do sistema (3.5/3.6) não conversa com um servidor 3.8 ("server exited
       # unexpectedly"), e a contagem de sessões da máquina saía sempre 0 no menu de máquinas.
-      r=$(timeout 3 ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0, \$4}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null) || r="? ?"
+      r=$(timeout "${TT_T_INFO:-8}" ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0, \$4}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null) || r="? ?"
       echo "$r" >"$f.$$" && mv "$f.$$" "$f"
     } & pids+=($!)
   done < <(maquinas)
@@ -3917,7 +3917,7 @@ rotular() {
 listar_remoto() {
   local dest=$1 rot=$2 saida err st
   err=$(mktemp)
-  saida=$(timeout 6 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --listar" 2>"$err" </dev/null)
+  saida=$(timeout "${TT_T_LISTAR:-12}" ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --listar" 2>"$err" </dev/null)
   st=$?
   if ((st == 0)); then
     if [[ -n $saida ]]; then rotular "$dest" "$rot" <<<"$saida"
