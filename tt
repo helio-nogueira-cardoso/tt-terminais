@@ -5863,6 +5863,8 @@ pend_avaliar() {
       [[ -x $(bin_carbonyl) ]] && return 0
       P_USR=1; P_SYS=$(pend_faltam curl unzip) ;;
     chrome-libs)
+      # Onde o tt não baixa Chrome/Carbonyl (Termux, ARM, musl), um download antigo esquecido não vira pendência sem pacote.
+      navegadores_graficos_ok || [[ -n ${TT_FINGE_CHROME_LIBS:-}${TT_FINGE_CHROME_LIBS_ARQ:-} ]] || { P_APLICA=0; return 0; }
       [[ -x $(bin_chromium) || -x $(bin_carbonyl) || -n ${TT_FINGE_CHROME_LIBS:-}${TT_FINGE_CHROME_LIBS_ARQ:-} ]] || { P_APLICA=0; return 0; }
       P_ROTULO="bibliotecas do Chrome e do Carbonyl"
       P_MOTIVO="bibliotecas do sistema sem as quais o Chrome e o Carbonyl baixados não abrem"
