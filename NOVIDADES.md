@@ -3,6 +3,16 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.28.14 · 17/10/2026
+- **Ponte vinda do Mac: o clique numa sessão não se perde mais.** Vendo outra máquina pelo Mac, o clique numa sessão pede ao
+  Mac que troque a tela. O Tailscale SSH do macOS responde sempre "deu certo" (código de saída 0); quando o Mac não
+  conseguia, o tt achava que tinha ido e não fazia nada. Agora vale a resposta escrita de lá, e se o Mac diz que não, a
+  ponte abre daqui. O mesmo vale para a roda no chip da máquina, para o 🎤 aberto pela ponte e para conferir se a sessão
+  de lá existe.
+- **Rede lenta até a máquina da tela:** depois de 1,5 s sem resposta aparece "⟳ esperando … responder"; em 10 s
+  (`TT_T_PONTE`) o tt desiste com "não respondeu; a tela não trocou". O pedido que chegar lá depois disso não faz nada:
+  antes, cliques presos numa rede travada chegavam todos juntos minutos depois e trocavam a tela várias vezes.
+
 ## v1.28.0 · 17/10/2026
 - **🎤 A voz não lê mais as telas de abertura dos agentes.** Na sessão que ela abre (o 🚀 pela voz, o 👇 e o ⏩), o tt
   responde sozinho o que é rotina, no Claude, no Codex, no Kiro ou em outro agente: pular a atualização, aceitar os termos

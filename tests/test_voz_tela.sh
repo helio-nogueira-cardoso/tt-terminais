@@ -867,6 +867,7 @@ cat >"$B/ssh" <<FIM
 #!/bin/sh
 for a; do ultimo=\$a; done
 echo "\$ultimo" >>"$T/ssh-ponte.log"
+case \$ultimo in *'&& echo tt-ok'*) echo tt-ok ;; esac  # a máquina de lá respondeu que fez
 exit 0
 FIM
 chmod +x "$B/ssh"

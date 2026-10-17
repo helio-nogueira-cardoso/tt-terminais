@@ -4397,7 +4397,8 @@ ponte() {
 # checagem e o attach.
 sessao_remota_existe() {
   local dest=$1 s=$2
-  timeout 5 ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO tmux has-session -t $(q "=$s")" </dev/null >/dev/null 2>&1
+  # pelo "tt-ok" impresso lá, não pelo código de saída (o Tailscale SSH do macOS devolve sempre 0)
+  [[ $(timeout 5 ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO tmux has-session -t $(q "=$s")&& echo tt-ok" </dev/null 2>/dev/null) == *tt-ok* ]]
 }
 
 # Acha a sessão remota pela IDENTIDADE, não pelo nome: o vigia renomeia sessões sozinho, e um nome
@@ -4773,13 +4774,47 @@ origem_ponte() {
 # Vai para a sessão S de DEST no cliente atual. Se este cliente é uma ponte vinda de outra máquina
 # (você está vendo esta máquina de lá), pede para a de lá fazer a troca: assim a tela que você
 # usa troca de verdade, sem encadear ponte dentro de ponte.
+# Pede à máquina OM (a de origem da ponte, que mostra esta tela) que rode "tt VERBO ARGS…" lá. 0 só se ela respondeu
+# que fez: vale o "tt-ok" impresso lá, não o código de saída (o Tailscale SSH do macOS devolve sempre 0, o "não" de lá
+# chegava como "sim"). Com prazo: numa rede que trava, desiste em TT_T_PONTE s (padrão 10) e devolve 2 ("não
+# respondeu"); o pedido que chegar lá depois do prazo (TT_PRAZO, ver prazo_vencido) não faz mais nada.
+pedir_na_origem() { # máquina verbo args…
+  local om=$1 d t=${TT_T_PONTE:-10} prazo r rc
+  shift
+  d=$(dest_ir "$om")
+  [[ -n $d ]] || return 1
+  printf -v prazo '%(%s)T' -1
+  r=$(timeout "$t" ssh "${SSH_OPC[@]}" "$d" "TT_PRAZO=$((prazo + t + 5)) $TT_REMOTO $(q "$@")&& echo tt-ok" </dev/null 2>/dev/null); rc=$?
+  [[ $r == *tt-ok* ]] && return 0
+  ((rc == 124 || rc == 255)) && return 2
+  return 1
+}
+
+# Pedido vindo de outra máquina que chegou depois do prazo dela (TT_PRAZO, epoch): ela já desistiu e avisou na tela.
+# Fazer agora trocaria a tela do nada, minutos depois (em 17/10/2026 seis cliques presos numa rede travada chegaram
+# juntos ao Mac e trocaram a tela seis vezes).
+prazo_vencido() {
+  local agora
+  [[ ${TT_PRAZO:-} =~ ^[0-9]+$ ]] || return 1
+  printf -v agora '%(%s)T' -1
+  ((agora > TT_PRAZO))
+}
+
 ir_para() {
-  local dest=$1 s=$2 origem om op
+  local dest=$1 s=$2 origem om op aviso st
   origem=$(origem_ponte "${TT_CLIENTE:-}")
   om=${origem%%|*} op=${origem#*|}
-  if [[ $dest != . && -n $origem && -n $op ]] && ssh "${SSH_OPC[@]}" "$(dest_ir "$om")" "$TT_REMOTO --ir-ponte $(q "$op" "$(rotulo "$dest")" "$s")" </dev/null; then
-    sair_menu
-    return 0
+  if [[ $dest != . && -n $origem && -n $op ]]; then
+    # Quem troca a tela é a máquina de origem. Rede lenta até ela: diz que está esperando, e desiste com aviso.
+    ( sleep 1.5; tmux display-message ${TT_CLIENTE:+-c "$TT_CLIENTE"} -d 10000 "⟳ esperando $om (a máquina desta tela) responder…" ) >/dev/null 2>&1 &
+    aviso=$!
+    pedir_na_origem "$om" --ir-ponte "$op" "$(rotulo "$dest")" "$s"; st=$?
+    kill "$aviso" 2>/dev/null
+    if ((st == 0)); then sair_menu; return 0; fi
+    if ((st == 2)); then
+      tmux display-message ${TT_CLIENTE:+-c "$TT_CLIENTE"} "⚠ $om (a máquina desta tela) não respondeu; a tela não trocou"
+      return 1
+    fi
   fi
   local container
   container=$( [[ -n ${TT_CLIENTE:-} ]] && contem_cliente "$TT_CLIENTE")
@@ -4810,6 +4845,7 @@ ir_para() {
 # máquina de rótulo R (desta, direto; de outra, por uma ponte).
 ir_ponte() {
   local p=$1 r=$2 s=$3 alvo c dest
+  prazo_vencido && return 1
   tmux has-session -t "=$p" 2>/dev/null || return 1
   # Com pontes por aparelho, P tem um cliente só. Pontes antigas (compartilhadas) podem ter vários:
   # aí troca só o que agiu por último (quem clicou ou teclou na barra de lá).
@@ -14987,9 +15023,7 @@ atalho_janela() { # cliente pasta comando id
   if [[ $cmd == 'voz '* ]] && origem=$(origem_ponte "$c") && [[ -n $origem && $origem == *'|'* ]]; then
     om=${origem%%|*} op=${origem#*|}
     sess=$(do_cliente "$c" '#{session_name}')
-    if ssh "${SSH_OPC[@]}" "$(dest_ir "$om")" "$TT_REMOTO --janela-ponte $(q "$op" "$cmd" "$MAQUINA" "$sess")" </dev/null; then
-      return 0
-    fi
+    pedir_na_origem "$om" --janela-ponte "$op" "$cmd" "$MAQUINA" "$sess" && return 0
     botao_aviso "$c" "⚠ 🎤 não consegui abrir na máquina de origem ($om); abrindo aqui"
   fi
   # até 96 colunas e quase a altura toda (a conversa do 🎤 rola por dentro: roda do mouse, PgUp/PgDn), até 60 linhas
@@ -15006,6 +15040,7 @@ atalho_janela() { # cliente pasta comando id
 janela_ponte() { # ponte comando máquina-de-lá sessão-de-lá
   local p=$1 cmd=$2 m=$3 s=$4 c
   [[ $cmd == 'voz '* ]] || return 1
+  prazo_vencido && return 1
   tmux has-session -t "=$p" 2>/dev/null || return 1
   c=$(tmux list-clients -t "=$p" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
   [[ -n $c ]] || return 1
@@ -15317,6 +15352,7 @@ rolar_maquina_cliente() { # cliente rótulo-atual ±1
 # tt --rolar-ponte PONTE RÓTULO-ATUAL ±1 (pedido pela barra da outra máquina).
 rolar_ponte() { # ponte rótulo-atual ±1
   local c
+  prazo_vencido && return 1
   c=$(tmux list-clients -t "=$1" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
   [[ -n $c ]] || return 1
   rolar_maquina_cliente "$c" "$2" "$3"
@@ -15340,8 +15376,7 @@ rolar() { # range ±1 cliente
       om=${origem%%|*} op=${origem#*|}
       if [[ -z $origem || -z $op ]]; then rolar_maquina_cliente "$c" "$MAQUINA" "$dir"; return 0; fi
       rolar_vez "m-$c" "${TT_ROLAR_FOLGA:-400}" || return 0
-      d=$(dest_ir "$om")
-      if [[ -z $d ]] || ! timeout 30 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --rolar-ponte $(q "$op" "$MAQUINA" "$dir")" </dev/null >/dev/null 2>&1; then
+      if ! pedir_na_origem "$om" --rolar-ponte "$op" "$MAQUINA" "$dir"; then
         botao_aviso "$c" "⚠ não consegui falar com $om (a máquina desta tela) para trocar de máquina"
       fi
       rolar_fim "m-$c" ;;

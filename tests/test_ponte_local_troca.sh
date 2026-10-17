@@ -8,9 +8,11 @@
 # ao vivo: confere que a condicao-fonte exige dest != . e prova a booleana nos dois casos.
 source "$(dirname "$0")/lib.sh"; isolar
 
-cond=$(grep -n 'ssh "${SSH_OPC\[@\]}".*--ir-ponte' "$TT" | head -1)
-[[ -n $cond ]] || falhou "nao achei a condicao de reflexo de ponte em ir_para"
-linha=${cond#*:}
+# a guarda é o "if" de ir_para logo antes do pedido à origem (pedir_na_origem … --ir-ponte)
+corpo=$(sed -n '/^ir_para() {/,/^}/p' "$TT")
+grep -q 'pedir_na_origem "$om" --ir-ponte' <<<"$corpo" || falhou "nao achei o pedido --ir-ponte em ir_para"
+linha=$(grep -B8 'pedir_na_origem "$om" --ir-ponte' <<<"$corpo" | grep 'if \[\[' | tail -1)
+[[ -n $linha ]] || falhou "nao achei a condicao de reflexo de ponte em ir_para"
 
 case $linha in
   *'$dest != .'*) : ;;
