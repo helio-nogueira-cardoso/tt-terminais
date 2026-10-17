@@ -6501,6 +6501,25 @@ checar_coletar() {
     else checar_linha sshd falha "sem servidor ssh (openssh-server): as outras máquinas não alcançam esta" "tt --pedir-sudo sshd"; fi
   fi
 
+  # tailscale: deslogado ou sem falar com o servidor de coordenação (filtro de rede da empresa, "unexpected EOF") deixa
+  # esta máquina fora da tailnet; o cache mantém o nó vivo até o tailscaled reiniciar, e aí o registro falha.
+  if command -v tailscale >/dev/null 2>&1; then
+    x=$(tailscale status --json 2>/dev/null | python3 -c '
+import json, sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+est = d.get("BackendState", "")
+saude = " ".join(d.get("Health") or [])
+if est and est != "Running": print("parado\t" + est)
+elif "coordination" in saude or "logged out" in saude: print("coord\t" + saude[:90])
+elif est: print("ok\t" + (d.get("Self") or {}).get("DNSName", "").split(".")[0])' 2>/dev/null) || x=""
+    case ${x%%$'\t'*} in
+    ok) checar_linha tailscale ok "conectado à tailnet como ${x#*$'\t'}" ;;
+    parado) checar_linha tailscale falha "tailscale ${x#*$'\t'}: esta máquina está fora da tailnet" "troque para uma rede sem filtro (hotspot) e rode: sudo tailscale up --ssh (com --hostname=NOME, o mesmo de antes); não reinicie o tailscaled na rede da empresa" ;;
+    coord) checar_linha tailscale aviso "tailscale sem falar com o servidor de coordenação (${x#*$'\t'}): provável filtro de rede" "não reinicie o tailscaled nesta rede (o registro falharia e a máquina ficaria deslogada); troque de rede ou peça ao TI para liberar *.tailscale.com" ;;
+    esac
+  fi
+
   # agentes: regras do tt no AGENTS.md único, CLAUDE.md como link para ele, skill instalada
   f=$HOME/.agents/AGENTS.md
   if ! grep -q 'tt-managed:regras-tt BEGIN' "$f" 2>/dev/null; then checar_linha agentes falha "as regras do tt não estão em ~/.agents/AGENTS.md" "tt --reforcar-agentes"

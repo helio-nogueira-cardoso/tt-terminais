@@ -68,6 +68,17 @@ echo 'IMAP error: AUTHENTICATIONFAILED' >"$ES/email-sync/trab.erro"
 l=$(grep '^email:trab' <<<"$("$TT" --checar --tsv)")
 [[ $l == *$'\tfalha\t'*AUTHENTICATIONFAILED* || $l == *$'\taviso\t'* ]] || falhou "e-mail com erro não foi acusado: $l"
 rm -rf "$XDG_CONFIG_HOME/tt/email" "$ES/email-sync"
+
+# tailscale: conectado = ok; sem falar com o servidor de coordenação = aviso (filtro de rede); deslogado = falha
+mkdir -p "$T/ts"; printf '#!/bin/sh\ncat "%s/status.json"\n' "$T/ts" >"$T/ts/tailscale"; chmod +x "$T/ts/tailscale"
+ts_linha() { PATH="$T/ts:$PATH" "$TT" --checar --tsv | grep '^tailscale'; }
+echo '{"BackendState":"Running","Health":[],"Self":{"DNSName":"mac.tail.ts.net."}}' >"$T/ts/status.json"
+[[ $(ts_linha) == $'tailscale\tok\t'*mac* ]] || falhou "tailscale conectado deveria ser ok: $(ts_linha)"
+echo '{"BackendState":"Running","Health":["Unable to connect to the Tailscale coordination server"],"Self":{"DNSName":"mac.tail.ts.net."}}' >"$T/ts/status.json"
+[[ $(ts_linha) == $'tailscale\taviso\t'* ]] || falhou "sem coordenação deveria ser aviso: $(ts_linha)"
+echo '{"BackendState":"NeedsLogin","Health":["You are logged out."],"Self":{"DNSName":"mac.tail.ts.net."}}' >"$T/ts/status.json"
+[[ $(ts_linha) == $'tailscale\tfalha\t'*NeedsLogin* ]] || falhou "deslogado deveria ser falha: $(ts_linha)"
+passou 'coletor: tailscale ok, sem coordenação (aviso) e deslogado (falha)'
 passou 'e-mail: conta com espelho falhando aparece com a causa'
 
 # INBOX em dia e a volta completa falhando sempre (pasta que sumiu do servidor e ficou no espelho): aviso com a causa
