@@ -2304,7 +2304,7 @@ ajuda() {
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
-  checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1)
+  checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
 # Pacote (tar no stdout) com a versão a instalar: do repositório, se esta é a máquina de
@@ -10938,7 +10938,7 @@ letreiro_clique() { # cliente x
         letreiro) eval "$(popup_tt "$c" "📰 letreiro" "$EU --letreiro-ui")" ;;
         central) tmux display-popup -c "$c" -E $(tam_popup "$c") "TT_CLIENTE=$(q "$c") $EU" ;;
       esac ;;
-    pausa) python3 -I "$DIR_TT/letreiro-tt.py" pausar >/dev/null ;;
+    pausa) TT_RT=$RT python3 -I "$DIR_TT/letreiro-tt.py" pausar >/dev/null ;;
   esac
   return 0
 }
@@ -11095,6 +11095,40 @@ notifs_apagar_lidas() {
     notifs_sincronizar_em_segundo_plano
     atualizar_barras_pedir >/dev/null 2>&1
   fi
+}
+# Os avisos em texto puro, do mais novo ao mais velho (a voz lê e conta por aqui): "id<TAB>lida(0|1)<TAB>quando<TAB>texto".
+notifs_listar() { # [todas|naolidas|lidas]
+  local filtro=${1:-todas} f exp txt lida quando ids
+  notifs_ids_em ids
+  for f in "${ids[@]}"; do
+    IFS=$'\t' read -r exp txt _ <"$DIR_NOTIFS/$f" || continue
+    [[ -n $txt ]] || continue
+    lida=0; [[ -f $DIR_NOTIFS/$f.lida ]] && lida=1
+    case $filtro in naolidas) ((lida == 0)) || continue ;; lidas) ((lida == 1)) || continue ;; esac
+    notif_quando_em quando "${f:0:10}"
+    printf '%s\t%s\t%s\t%s\n' "$f" "$lida" "$quando" "$txt"
+  done
+}
+# Apaga as lidas (🧹 da central) e imprime quantas eram.
+notifs_limpar_lidas_cli() {
+  local f n=0
+  for f in $(notifs_ids); do [[ -f $DIR_NOTIFS/$f.lida ]] && n=$((n + 1)); done
+  ((n)) && notifs_apagar_lidas
+  echo "$n"
+}
+# O letreiro pela linha de comando (e pela voz): pausar/continuar a rolagem e saber se está pausado.
+letreiro_pausa_cli() { # [sim|nao|alternar|estado] -> pausado | rolando
+  local pausado=0 r
+  [[ -s $RT/tt-letreiro-pausa ]] && pausado=1
+  case ${1:-estado} in
+    estado) ;;
+    sim) ((pausado)) || r=$(TT_RT=$RT python3 -I "$DIR_TT/letreiro-tt.py" pausar 2>/dev/null) ;;
+    nao) ((pausado)) && r=$(TT_RT=$RT python3 -I "$DIR_TT/letreiro-tt.py" pausar 2>/dev/null) ;;
+    alternar) r=$(TT_RT=$RT python3 -I "$DIR_TT/letreiro-tt.py" pausar 2>/dev/null) ;;
+    *) echo "uso: tt --letreiro-pausa [sim|nao|alternar|estado]" >&2; return 2 ;;
+  esac
+  [[ ${r:-} == erro ]] && return 1
+  if [[ -s $RT/tt-letreiro-pausa ]]; then echo pausado; else echo rolando; fi
 }
 # De onde veio um aviso (a aba da central que o mostra): agentes (🔔 dos agentes, tt --notificar-daqui),
 # email, tarefas (lembretes, demandas, sincronização) ou outros. Grava em NOTIF_ORIGEM, sem subshell.
@@ -19239,6 +19273,10 @@ case "${1:-}" in
   --notifs) notifs_popup "${2:-}"; exit ;;
   --notifs-ui) notifs_ui "${2:-}"; exit ;;
   --notifs-lidas) notifs_marcar_lidas; exit ;;
+  --notifs-listar) notifs_listar "${2:-todas}"; exit 0 ;;   # id, lida, quando, texto (texto puro; a voz lê por aqui)
+  --notifs-limpar-lidas) notifs_limpar_lidas_cli; exit 0 ;; # apaga as lidas (aqui e na rede) e diz quantas
+  --letreiro-ler) ticker_linha_montar; echo; exit 0 ;;      # o que o letreiro mostra agora (sem buscar nada na rede)
+  --letreiro-pausa) letreiro_pausa_cli "${2:-estado}"; exit $? ;;
   --notif-abrir) notif_abrir "${2:-}" "${3:-}"; exit 0 ;;
   --ticker-loop) exit 0 ;; # compatibilidade: o vigia de uma versão antiga ainda chama isto na troca; o letreiro é o #() da barra
   --ticker-quadro) python3 -I "$DIR_TT/letreiro-tt.py" quadro "${2:-}"; exit ;; # [largura]: um quadro do miolo da faixa (diagnóstico)

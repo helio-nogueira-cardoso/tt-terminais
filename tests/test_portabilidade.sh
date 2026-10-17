@@ -27,7 +27,7 @@ teto links-tt.py "$PROC" 3 "$MSG_PROC"
 teto sessoes-ia.py "$PROC" 4 "$MSG_PROC"
 teto voz-audio.py "$PROC" 2 "$MSG_PROC"
 teto nomeador-local.py "$PROC" 1 "$MSG_PROC"
-for f in email-tt.py contas-uso.py tarefas-merge.py letreiro-fontes.py aidlc-tt ia-login; do teto "$f" "$PROC" 0 "$MSG_PROC"; done
+for f in email-tt.py contas-uso.py tarefas-merge.py letreiro-fontes.py telas-agentes.py aidlc-tt ia-login; do teto "$f" "$PROC" 0 "$MSG_PROC"; done
 passou 'sem /proc novo (os existentes têm retorno para o macOS)'
 
 # 2) Locale: o macOS não tem C.UTF-8 (tem en_US.UTF-8). No tt use $TT_UTF8; no voz já há o teste do sistema.

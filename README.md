@@ -1893,6 +1893,45 @@ sessão ("o que ela está fazendo?") respondem na hora, pela tela de agora; depo
 30 s e, se o agente segue trabalhando, avisa sozinha quando ele terminar. Numa ponte, a leitura e o texto vão à sessão de
 verdade da outra máquina.
 
+**As telas que o agente mostra antes de conversar** (e no meio do trabalho) a voz não lê para você à toa. Na sessão que
+ela abriu (o 🚀 pela voz, o 👇 e o ⏩), o tt responde sozinho o que é rotina: pular a atualização, aceitar os termos sem
+ceder as conversas para treino, o tema, o "Enter para continuar", o aviso do modo sem permissões que o próprio 🚀 pediu,
+o login que já deu certo. "Confiar nesta pasta" ele só responde sozinho se a pasta está na **sua lista**
+(`~/.config/tt-voz/pastas`: uma por linha, `[MÁQUINA:]PASTA`, com `PASTA/**` valendo as subpastas; `voz --pastas add
+'~/Projetos/**'`, `voz --pastas rm …`, `voz --pastas`); fora dela, a voz pergunta e "sempre" põe a pasta na lista. O que
+pede senha, credencial (login, chave de API), algo destrutivo (apagar, sobrescrever, `rm -rf`, `drop table`), uma
+permissão nova de execução (rodar um comando, editar, servidor MCP, "não perguntar de novo", acesso total) ou dinheiro
+(créditos) a voz **nunca** responde: lê a pergunta e as opções e espera você dizer o número, sim, não ou sempre. Senha
+ela nem lê: você digita no terminal. Pergunta que ela não conhece também é sua. Tudo o que foi respondido sozinho fica em
+`~/.local/state/tt-voz/aprovacoes.log`. Quem reconhece as telas é o catálogo `telas-agentes.conf` (Claude, Codex, Kiro,
+Gemini e blocos para qualquer agente), que você estende em `~/.config/tt/telas-agentes.conf`: um bloco com o mesmo `[id]`
+troca o do pacote (por exemplo, para ouvir o aviso do modo sem permissões, `classe = decisao`), `classe = -` desliga.
+As decisões vêm sempre antes das rotinas, e a opção que "não pergunta de novo", "sempre", "todas" ou apaga nunca é
+escolhida sozinha, mesmo que um bloco peça.
+
+**Esperar e acompanhar:** "espere um minuto e depois confira a sessão" (ou "daqui a 30 segundos leia a resposta",
+"espere 10 minutos e resuma a sessão site", "me chama em 5 minutos") agenda e deixa você livre; na hora, a voz confere
+e fala sozinha o resultado, ou a pergunta que exige decisão. "Me avise quando ele terminar" e "acompanhe a sessão até
+concluir" vigiam a sessão (até 2 h): a voz fala quando ela terminar ou pedir uma decisão sua, e responde sozinha a
+rotina. "O que você está esperando?" lista; "cancele a espera" ou "pare de acompanhar" cancela. No celular, o daemon faz
+o mesmo e responde pelo canal do pedido (o Tasker ou o bot do Telegram).
+
+**A interface do tt pela voz:** "fixar esta sessão" (ou "fixe a sessão site"), "desafixar a sessão X", "quais são as
+fixadas", "mova a fixada X para o início" (fim, esquerda, direita, posição 3) e "agrupe as fixadas"; "nova tarefa comprar
+pão para amanhã às 14 horas" (vira `@amanha 14h`; "urgente" no fim vira `!alta`), "adicione a subtarefa X na tarefa Y",
+"conclua a tarefa X", "reabra a tarefa X", "mude o prazo da tarefa X para sexta", "tire o prazo da tarefa X", "qual o
+apelido da tarefa X", "apague a tarefa X" (pede o sim); "ler as notificações" (as não lidas), "marque as notificações
+como lidas", "limpe as notificações" (as lidas, pede o sim); "o que está no letreiro", "pause o letreiro", "continue o
+letreiro".
+
+**Fechar sessões e a limpeza:** "feche a sessão X" pergunta antes ("diga sim para fechar"); se é a sessão escolhida, ou
+se o agente dela está trabalhando, pergunta duas vezes. "Limpeza" (ou "quais sessões posso fechar", "limpe as sessões
+do dell") olha todas as sessões das máquinas: quem está olhando, fixada, papel no tt, texto não enviado, uso recente,
+agente esperando sua resposta, outro programa aberto ficam; terminal sem programa parado há mais de 1 h e agente parado
+há mais de 4 h são sugeridos, cada um com o motivo ("velha, no dell: terminal sem programa, parado há 2 dias"). Depois:
+"fechar" fecha todas da lista (conferindo antes que ninguém voltou a usar), "tira a dois" deixa uma de fora, "cancelar"
+não fecha nada.
+
 **As opções** (tecla **c**, ou `voz --opcoes`) escolhem o modelo do cérebro (1 Haiku, 2 Sonnet, 3 Opus), o da
 transcrição (a automático, ou b–f um fixo: tiny, base, small, medium, turbo, com o que esta máquina mediu de cada um), o
 microfone (n), a sensibilidade do microfone (g), a saída de som (s) e a voz (v, com um exemplo). **l** abre a escolha da

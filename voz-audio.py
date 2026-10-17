@@ -2603,12 +2603,18 @@ class Conversa:
     def digitar(self, teclado):
         """Linha digitada (Enter manda, Esc volta a ouvir)."""
         txt = ""
+        ultima = time.time()
         while True:
             self.tela.status("você> " + txt + "▏  (Enter manda · Esc " + ("sai" if self.digitar_sempre else "volta a ouvir") + ")")
             k = teclado.tecla(0.2)
             if k is None:
                 if not txt and self.som_pronto.is_set():
                     return "\0n"  # o reconhecimento acabou de ser instalado: volta ao laço, que passa a ouvir
+                if not txt and self.pendente_pronto.is_set():
+                    return "\0p"  # a voz tem algo a falar sozinha (e você não está digitando)
+                if time.time() - ultima > 6:
+                    ultima = time.time()
+                    self._talvez_conferir()
                 continue
             if k == "esc":
                 return None
@@ -2637,16 +2643,15 @@ class Conversa:
         t.start()
         ultima = time.time()
         while t.is_alive():
-            # o agente que ficou trabalhando: confere em segundo plano; terminou e você não está falando, ele fala
+            # o que a voz fala sozinha (o agente que terminou, a espera que venceu, a sessão acompanhada): confere em
+            # segundo plano; com algo pronto e você sem falar, ela fala
             if self.pendente_pronto.is_set() and not estado["f"]:
                 self.parar_gravacao.set()
                 t.join()
                 return "\0p"
-            if (time.time() - ultima > 6 and not estado["f"] and not self.conferindo
-                    and os.path.exists(os.path.join(ESTADO, "pendente"))):
+            if time.time() - ultima > 6 and not estado["f"]:
                 ultima = time.time()
-                self.conferindo = True
-                threading.Thread(target=self._conferir_pendente, daemon=True).start()
+                self._talvez_conferir()
             barra = "".join(NIVEL[max(0, min(7, int((estado["n"] * 6 - i) * 8)))] for i in range(6))
             self.tela.status("%s %s  Espaço: terminei · t: digitar · c: opções · m: %s · Esc: sair"
                              % ("● ouvindo" if estado["f"] else "○ fale", barra, "som" if self.mudo else "mudo"))
@@ -2718,9 +2723,25 @@ class Conversa:
         self.tela.linha("nota", "ouvi um som fraco (nível %d; a fala conta a partir de %d). Se era você, fale mais perto do "
                                 "microfone ou aumente a sensibilidade: c e depois g." % (g.quase, g.limiar_quase))
 
+    def _ha_fundo(self):
+        """Há algo que a voz possa ter de falar sozinha? (o agente pendente, uma espera agendada, uma sessão acompanhada)"""
+        return any(os.path.exists(os.path.join(ESTADO, n)) for n in ("pendente", "agenda", "acompanhar"))
+
+    def _nota_fundo(self):
+        """A nota antes do que a voz fala sozinha: de onde vem (o agente pendente, a hora combinada, a sessão acompanhada)."""
+        for n, t in (("pendente", "o agente terminou:"), ("agenda", "deu a hora:"), ("acompanhar", "a sessão acompanhada:")):
+            if os.path.exists(os.path.join(ESTADO, n)):
+                self.tela.linha("nota", t)
+                return
+
+    def _talvez_conferir(self):
+        if not self.conferindo and self._ha_fundo():
+            self.conferindo = True
+            threading.Thread(target=self._conferir_pendente, daemon=True).start()
+
     def _conferir_pendente(self):
         try:
-            if subprocess.run(["bash", self.voz, "--pendente-pronto"], capture_output=True, timeout=60).returncode == 0:
+            if subprocess.run(["bash", self.voz, "--fundo-pronto"], capture_output=True, timeout=90).returncode == 0:
                 self.pendente_pronto.set()
         except (OSError, subprocess.SubprocessError):
             pass
@@ -2887,14 +2908,19 @@ class Conversa:
                         break
                     if frase == "\0n":  # trocou o microfone ou as opções: volta a ouvir
                         continue
-                    if frase == "\0p":  # o agente que estava trabalhando terminou: a resposta dele
+                    if frase == "\0p":  # o agente terminou, a espera venceu ou a sessão acompanhada mudou: a voz fala
                         self.pendente_pronto.clear()
-                        self.tela.linha("nota", "o agente terminou:")
-                        fim = self.turno("", teclado, ["--turno-pendente"])
+                        self._nota_fundo()
+                        fim = self.turno("", teclado, ["--turno-fundo"])
                         continue
                     if frase == "\0t":  # t: digitar esta vez (Esc volta a ouvir)
                         frase = self.digitar(teclado)
-                        if not frase:
+                        if frase == "\0p":
+                            self.pendente_pronto.clear()
+                            self._nota_fundo()
+                            fim = self.turno("", teclado, ["--turno-fundo"])
+                            continue
+                        if not frase or frase == "\0n":
                             continue
                         self.tela.linha("voce", frase)
                     elif frase == "":
@@ -2905,6 +2931,11 @@ class Conversa:
                     frase = self.digitar(teclado)
                     if frase is None:
                         break
+                    if frase == "\0p":
+                        self.pendente_pronto.clear()
+                        self._nota_fundo()
+                        fim = self.turno("", teclado, ["--turno-fundo"])
+                        continue
                     if not frase or frase == "\0n":
                         continue
                     self.tela.linha("voce", frase)

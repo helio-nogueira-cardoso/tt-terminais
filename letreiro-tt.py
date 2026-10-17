@@ -61,6 +61,8 @@ ESTADO = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(HOME, ".l
 DIR_NOTIFS = os.path.join(ESTADO, "notifs")
 DIR_TICKER = os.path.join(HOME, ".cache", "tt-ticker")
 RT = os.environ.get("TT_RT") or "/run/user/%d" % os.getuid()
+if not (os.path.isdir(RT) and os.access(RT, os.W_OK)):  # macOS (sem /run/user): a mesma pasta que o tt usa
+    RT = os.environ.get("TMPDIR") or "/tmp"
 DIR_TRANSF = os.path.join(RT, "tt-transferencias-%d" % os.getuid())
 CINZA, TEXTO, AVISO, TRANSF, FUNDO = "#45475a", "#7f849c", "#f9e2af", "#89b4fa", "#232838"
 ESTILOS = {"alta": "#a6e3a1", "baixa": "#f38ba8", "neutra": "#9399b2", "velho": "#585b70", "erro": "#fab387"}

@@ -195,10 +195,20 @@ saida=$(VOZ_CEREBRO_CMD="cat >/dev/null; echo '{\"acoes\": [{\"acao\": \"tarefas
   falhou "tarefas da agenda (dia do cabeçalho e hora antes do apelido): $saida"
 saida=$(v "tarefa boleto"); [[ $saida == *"Prazo: hoje às 12:00"* && $saida == *"1 de 3 subtarefas feitas"* && $saida == *"Faltam: Ligar no banco; Pagar no app"* ]] || falhou "tarefa com subtarefas: $saida"
 
-# 🚀 com uma IA específica: abre em sessão nova, responde sozinho às perguntas de abertura e pergunta a desconhecida
-saida=$(v "nova sessão com codex"); [[ $saida == *"Ele pergunta: Qual cor você prefere?"* && $saida == *"1, Azul. 2, Verde."* ]] || falhou "abrir codex: $saida"
+# 🚀 com uma IA específica: abre em sessão nova; a pasta fora da lista autorizada é perguntada ("sempre" a põe na lista
+# e confia), a atualização é pulada sozinha e a pergunta desconhecida é lida, com as opções. A pessoal vem por um link (como
+# /tmp → /private/tmp no macOS): o tmux mostra o caminho físico, e ela continua sendo "a sua pasta pessoal"
+ln -s "$T/home" "$T/casa"; rm -f "$EST"/casas-*
+saida=$(HOME=$T/casa v "nova sessão com codex")
+[[ $saida == *"quer confiar na pasta a sua pasta pessoal, que não está na sua lista"* && $saida == *"1, Yes, proceed. 2, No, exit."* &&
+  $saida == *"Ou diga sempre"* ]] || falhou "pasta fora da lista: $saida"
+grep -q 'escolheu:' "$T/ia.log" && falhou "respondeu sozinho fora da lista: $(cat "$T/ia.log")"
+saida=$(v "sempre"); [[ $saida == *"pergunta: Qual cor você prefere? Opções: 1, Azul. 2, Verde. Diga o número."* ]] || falhou "sempre: $saida"
+grep -qx 'dell:~' "$HOME/.config/tt-voz/pastas" || falhou "sempre não pôs a pasta na lista: $(cat "$HOME/.config/tt-voz/pastas")"
 grep -q 'args: abrir --conta codex' "$T/ia.log" && grep -q 'escolheu: Yes, proceed' "$T/ia.log" && grep -q 'escolheu: Skip$' "$T/ia.log" || falhou "perguntas de abertura: $(cat "$T/ia.log")"
+grep -q 'rotina "Skip" (sozinha)' "$EST/aprovacoes.log" && grep -q 'pasta "Yes, proceed" (você)' "$EST/aprovacoes.log" || falhou "registro das aprovações: $(cat "$EST/aprovacoes.log")"
 saida=$(v "dois"); [[ $saida == *"Feito. Sessão voz codex"* ]] && grep -q 'escolheu: Verde' "$T/ia.log" || falhou "resposta à pergunta: $saida / $(cat "$T/ia.log")"
+bash "$V" --pastas add '~' >/dev/null; [[ $(bash "$V" --pastas) == *'~'* ]] || falhou "voz --pastas: $(bash "$V" --pastas)"
 [[ $(<"$HOME/.local/state/tt-voz/alvo_s") == voz-codex-* ]] && grep -q ':voz-codex-' "$HOME/.config/tt-voz/permitidas" || falhou 'sessão nova não virou o alvo liberado'
 # 👇 e ⏩: a IA do provedor com menos uso (beta), e a conversa passada adiante pelo tt
 : >"$T/ia.log"; saida=$(v "aba agente")
