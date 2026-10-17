@@ -16327,8 +16327,13 @@ email_contatos_indexar() {
   done
   mkdir -p "${EMAIL_CONTATOS_CACHE%/*}"
   ((${#mds[@]})) || { : >"$EMAIL_CONTATOS_CACHE"; return 0; }
-  python3 -I "$EMAIL_PY" contatos-indexar "--sem=$meus" "${mds[@]}" >"$EMAIL_CONTATOS_CACHE.tmp" 2>/dev/null &&
-    mv "$EMAIL_CONTATOS_CACHE.tmp" "$EMAIL_CONTATOS_CACHE" || rm -f "$EMAIL_CONTATOS_CACHE.tmp"
+  # Uma indexação por vez: ela cobre todas as contas, e as contas sincronizando em paralelo acabavam juntas e
+  # disparavam várias (4 por vez, minutos cada uma, saturando o celular). Com a trava ocupada, esta sai.
+  (
+    flock -n 8 || exit 0
+    python3 -I "$EMAIL_PY" contatos-indexar "--sem=$meus" "${mds[@]}" >"$EMAIL_CONTATOS_CACHE.tmp" 2>/dev/null &&
+      mv "$EMAIL_CONTATOS_CACHE.tmp" "$EMAIL_CONTATOS_CACHE" || rm -f "$EMAIL_CONTATOS_CACHE.tmp"
+  ) 8>"$EMAIL_CONTATOS_CACHE.lock"
 }
 # tt --email-contatos TEXTO (address-book-cmd): "endereço<TAB>nome" dos que casam com TEXTO (no
 # nome ou no endereço, sem distinguir maiúsculas), manuais primeiro, depois os mais frequentes.
