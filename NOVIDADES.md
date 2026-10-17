@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.28.15 · 17/10/2026
+- **Vigia no celular e no Mac:** a sincronização das contas de e-mail em paralelo (v1.28.10) esperava as contas com um
+  `wait` sem lista, o que no bash 5.3 (Termux e Mac) já deixou o vigia preso a 100% de CPU. Agora espera só as contas
+  que ela mesma começou.
+
 ## v1.28.14 · 17/10/2026
 - **Ponte vinda do Mac: o clique numa sessão não se perde mais.** Vendo outra máquina pelo Mac, o clique numa sessão pede ao
   Mac que troque a tela. O Tailscale SSH do macOS responde sempre "deu certo" (código de saída 0); quando o Mac não

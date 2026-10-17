@@ -17211,12 +17211,12 @@ email_intervalo_gravar() { mkdir -p "$ESTADO_DIR/email-sync" && echo "$1" >"$EST
 # As contas em paralelo (cada uma tem a trava própria): uma conta lenta (o Gmail em timeout, até o teto de 240/600 s)
 # não segura as outras até o "sync parado" da barra.
 email_sync_todas() { # [inbox|completo] [vigia]
-  local slug; local -A E=()
+  local slug; local -A E=(); local -a pids=()
   for slug in $(email_slugs); do
     E=(); email_ler "$slug" || continue
-    [[ ${E[sync_local]:-} == 1 ]] && { email_sync "$slug" "${1:-inbox}" "${2:-}" & }
+    [[ ${E[sync_local]:-} == 1 ]] && { email_sync "$slug" "${1:-inbox}" "${2:-}" & pids+=($!); }
   done
-  wait
+  esperar ${pids[@]+"${pids[@]}"}  # nunca "wait" sem pids: no bash 5.3 ele trava no vigia (ver esperar)
   return 0
 }
 
