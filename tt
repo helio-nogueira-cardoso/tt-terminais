@@ -2353,7 +2353,7 @@ pacote_valido() {
     [[ -s $dir/$f ]] || { echo "$(conf nome): ✗ pacote incompleto (falta $f), nada instalado"; return 1; }
   done
   for f in tt tema-terminal.sh tema-agentes.sh memoria-agentes.sh ia-conta ia-rot ia-login; do
-    bash -n "$dir/$f" 2>/dev/null || { echo "$(conf nome): ✗ $f com erro de sintaxe, nada instalado"; return 1; }
+    "${BASH:-bash}" -n "$dir/$f" 2>/dev/null || { echo "$(conf nome): ✗ $f com erro de sintaxe, nada instalado"; return 1; }
   done
 }
 
