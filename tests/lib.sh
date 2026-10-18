@@ -50,6 +50,23 @@ isolar() {
   export TT_PATH_BASE
   export HOME=$T/home XDG_CONFIG_HOME=$T/home/.config TMUX_TMPDIR=$T/tmux TT_RT=$T/rt TT_DIR=$T/pkg
   sem_tela_real "$T/run"
+  # CLIs de IA reais não rodam sob o HOME falso: no macOS o kiro-cli grava no login keychain e, sem ~/Library/Keychains,
+  # o sistema abre "Chaves Não Encontradas… Restaurar para padrões" na cara do dono. Cada pasta do PATH que os tem passa a
+  # ser um espelho (links) sem eles: continuam ausentes, como numa máquina sem o CLI.
+  local d f ia_n=0 novo_path=""
+  local -a dirs_path=()
+  IFS=: read -r -a dirs_path <<<"$PATH"
+  for d in "${dirs_path[@]}"; do
+    if [[ -n $d && -d $d && ( -e $d/kiro-cli || -e $d/codex ) ]]; then
+      ia_n=$((ia_n + 1)); mkdir -p "$T/ia-sem/$ia_n"
+      for f in "$d"/*; do
+        [[ ${f##*/} == kiro-cli || ${f##*/} == codex ]] || ln -sf "$f" "$T/ia-sem/$ia_n/${f##*/}" 2>/dev/null || true
+      done
+      d=$T/ia-sem/$ia_n
+    fi
+    novo_path+=${novo_path:+:}$d
+  done
+  export PATH=$novo_path
   export TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8  # ambiente controlavel: nao herdar TERM=dumb nem locale vazio do chamador
   export TT_LETREIRO_SEM_PADRAO=1 # a suíte começa com o cadastro vazio; o perfil de fábrica tem teste próprio
   export TT_EMAIL_SEM_REDE=1 TT_T_ATUALIZACAO=999999 TT_ATALHOS_PADRAO=$T/pkg/atalhos-padrao
