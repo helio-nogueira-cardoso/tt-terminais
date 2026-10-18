@@ -88,6 +88,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   a internet (Cloudflare/Google/Apple, mediana; cache em `$RT/tt-hora`, válido por 12 h) e a hora que o tt
   usa nas tarefas e na barra; `--sincronizar` mede agora; `agora` imprime o epoch confiável. Config
   `hora_sync=0` desliga, `hora_urls=` troca os endpoints. Desvio ≥ 60 s: `@barra_hora` mostra a hora corrigida.
+- `tt --vigia-garantir` — religa o vigia parado (confere no máximo a cada 30 s; cada clique na barra e o gancho `client-attached` chamam). `TT_SEM_VIGIA_AUTO=1` desliga (os testes). Salto de relógio entre duas voltas do vigia (sleep): a malha espera `TT_POS_WAKE` s (90); `TT_FOLGA_WAKE` (30) é a folga sobre 3 voltas que conta como salto.
 - `tt --checar [--tsv]` — checagem desta máquina sem IA (vigia, atualização, separação pacote × perfil × clone, e-mail,
   tarefas, malha, agentes, pendências, hora, conversas das IAs): `id estado(ok|aviso|falha) resumo correção`; sai 1 com falha.
   `tt --checar-agente [--de VERSÃO] [--so-coletor]` abre uma rodada: com conta livre, `ia-rot -p … --dangerously-skip-permissions`
@@ -797,7 +798,7 @@ na ordem da 1ª aparição, estável; sem mudança não grava nem propaga).
 Binds de teclado (prefixo `Ctrl+B`): `s` central, `t` tarefas, `|` split horizontal, `-` split
 vertical, `c` janela nova, `r` recarrega config, `m` menu do painel, `y` histórico de cópias, `N`
 renomear sessão, `F1..F10` botões. Mouse: Ctrl ou Alt + arrastar/duplo/triplo clique copiam (sem modificador vão ao programa; o Ctrl+arrastar = painel flutuante do tmux 3.8 fica desligado); botão do meio cola;
-`MouseDown/Up1Status*` → `--clique`; `MouseUp3Status*` → `--clique-direito`; `WheelUp/DownStatus` em `maquina`/`sessao` →
+`MouseDown/Up1Status*` → `--clique` (o 6º argumento é o evento, `d` ao pressionar e `u` ao soltar: o 📌 `fixar` ignora o `u`; sem ele, CLI e testes, age sempre); `MouseUp3Status*` → `--clique-direito`; `WheelUp/DownStatus` em `maquina`/`sessao` →
 `tt --rolar RANGE ±1 CLIENTE` (`rolar_sessao`: ordem do tmux, sem pontes/ocultas; `rolar_maquina_cliente`: ordem de
 `rotulos`, 1ª sessão do `--listar-leve` de lá, pula quem não responde em `TT_T_ROLAR` s e lembra 60 s; de uma ponte,
 pede à máquina da tela `tt --rolar-ponte PONTE RÓTULO ±1`; um passo por vez, `TT_ROLAR_FOLGA` ms entre eles), no

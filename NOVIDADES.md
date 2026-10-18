@@ -3,6 +3,20 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.29.1 · 18/10/2026
+- **📌 fixa de verdade.** O 📌/📍 da barra alterna e agia duas vezes num toque lento (apertar e soltar com mais de 0,5 s, um
+  clique firme no trackpad ou o toque do celular): fixava e desafixava e a sessão ficava como estava. Agora ele age só ao
+  pressionar; o soltar é ignorado.
+- **📌 numa sessão de ponte fixa a sessão real.** Estando numa ponte (`dell-checkin`), o pino ia para a ponte local, que o
+  vigia encerra por ociosidade e o reconciliador então apagava da lista. Agora vale para a sessão da outra máquina
+  (`dell:checkin`), e o pino da ponte acende quando ela está fixada.
+- **Vigia que morre é religado.** Se o vigia parasse (morto de fora, servidor tmux trocado), ninguém o religava e nada
+  sincronizava (e-mail, fixadas, malha, atualização). Cada clique na barra e cada cliente que se anexa conferem (no máximo a
+  cada 30 s) e o religam; `tt --vigia-garantir` faz isso na hora. `TT_SEM_VIGIA_AUTO=1` desliga.
+- **A malha espera a rede subir depois de um sleep.** Num Mac que dorme, o vigia acorda em janelas de poucos segundos e
+  acusava "ilha" (sem rota) com a rede ainda subindo. Se o relógio dá um salto entre duas voltas, a malha só é conferida
+  `TT_POS_WAKE` s depois (90 por padrão).
+
 ## v1.29.0 · 17/10/2026
 - **🎤 Modo retorno: a voz fecha o microfone e as sessões chamam você.** Diga "modo retorno" (ou "me chama quando elas
   terminarem", "pode ir que eu espero"): a janela para de ouvir e mostra quem está em aberto ("⏸ retorno: site há

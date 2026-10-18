@@ -53,3 +53,12 @@ esperar '! na_faixa' 10 || falhou "item continuou na faixa depois do ✕: $(fora
 tmux has-session -t =minha 2>/dev/null || falhou 'o ✕ da faixa fechou a sessão em vez de só desafixar'
 esperar '[[ -n $(coluna $barra "📍") ]]' 10 || falhou 'o pino da barra não voltou a 📍 depois de desafixar'
 passou 'toque no ✕ da faixa desafixa (some da faixa e da lista) sem fechar a sessão'
+
+# Toque LENTO no 📍 (pressionar e soltar com mais de 0,5 s: clique firme, ou o toque do celular). Os dois eventos
+# chegam ao tt como cliques; o 📍 alterna, então agiria duas vezes (fixa e desafixa) e a sessão ficava como estava.
+# Ele age só ao pressionar; o soltar é ignorado.
+x=$(coluna $barra '📍'); [[ -n $x ]] || falhou "📍 não voltou à barra: $(fora capture-pane -p -t v | sed -n "${barra}p")"
+fora send -t v -l $'\e[<0;'"$x;$barra"$'M'; sleep 0.9; fora send -t v -l $'\e[<0;'"$x;$barra"$'m'
+esperar fixada 10 || falhou 'toque lento no 📍 não deixou a sessão fixada (fixou e desafixou na mesma volta)'
+sleep 2; fixada || falhou 'toque lento no 📍: a fixada sumiu depois de soltar'
+passou 'toque lento no 📍 (pressionar e soltar > 0,5 s) fixa uma vez só'

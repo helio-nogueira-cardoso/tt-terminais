@@ -469,6 +469,23 @@ faxina_vigia() {
   return 0
 }
 
+# Vigia parado (morto de fora, servidor trocado): ninguém o religava, e com ele morto nada sincroniza (e-mail,
+# fixadas, malha, atualização). Quem usa a barra o religa: cada clique e cada cliente que se anexa chamam isto,
+# que confere no máximo a cada 30 s (marca em $RT) e só age com o tmux de pé. TT_SEM_VIGIA_AUTO=1 desliga (testes).
+vigia_garantir() {
+  [[ ${TT_SEM_VIGIA_AUTO:-} == 1 ]] && return 0
+  local pidf="$RT/tt-vigia-$UID.pid" marca="$RT/tt-vigia-garantir-$UID" agora ult=0 pid=""
+  printf -v agora '%(%s)T' -1
+  { read -r ult <"$marca"; } 2>/dev/null
+  ((agora - ${ult:-0} < 30)) && return 0
+  echo "$agora" >"$marca"
+  { read -r pid <"$pidf"; } 2>/dev/null
+  [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null && cmdline_do_pid "$pid" | grep -q -- '--vigia' && return 0
+  tmux list-sessions >/dev/null 2>&1 || return 0
+  { mkdir -p "$HOME/.cache"; echo "$(date '+%F %T') vigia parado: religado por quem usa a barra (vigia_garantir)" >>"$HOME/.cache/tt-vigia.log"; } 2>/dev/null
+  tmux run-shell -b "$HOME/.local/bin/tt --vigia"
+}
+
 # Vigia: roda em segundo plano enquanto o tmux existir (iniciado pelo ~/.tmux.conf) e vai
 # renomeando semanticamente as sessões conforme o uso. Depois de algumas interações, também
 # revisa sessões que já tinham um nome escolhido; nomes fixados acompanham o rename.
@@ -490,7 +507,7 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   faxina_vigia
-  local ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_sonda=0 ultima_email_sync=0 ultima_email_completo=0 ultima_notifs=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_volta=0 pos_wake=0 ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_sonda=0 ultima_email_sync=0 ultima_email_completo=0 ultima_notifs=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   ultima_email_completo=$(email_ultima_completa)
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
@@ -519,6 +536,11 @@ vigiar() {
     atualizar_barras
     [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || { echo "$(date '+%F %T') vigia $$ saiu: há outro" >>"$log"; exit 0; }
     agora=$(date +%s)
+    # Acordou de um sleep? O laço anda no tempo em que a máquina está acordada, e o relógio dá o salto: se esta volta
+    # veio muito depois da anterior, a rede (Wi-Fi, Tailscale) ainda está subindo e conferir a malha agora acusaria ilha
+    # que não existe (o Mac faz DarkWake de poucos segundos a cada ~15 min). A malha espera TT_POS_WAKE s depois do salto.
+    ((ultima_volta > 0 && agora - ultima_volta > 3 * pausa + ${TT_FOLGA_WAKE:-30})) && pos_wake=$agora
+    ultima_volta=$agora
     # Sessões e versão de cada máquina (menu de máquinas): a cada 5 min (TT_T_INFO), não a cada volta —
     # eram três ssh por minuto por máquina, o dia inteiro; o menu consulta de novo ao abrir.
     if [[ -s $CONF_MAQ ]] && ((agora - ultima_info >= t_info)); then
@@ -540,7 +562,7 @@ vigiar() {
       ("$EU" --notifs-sync >/dev/null 2>&1 &)
     fi
     # Malha: cada máquina conhece todas as outras (aprende o que falta, se apresenta) e avisa de ilhas.
-    if ((agora - ${ultima_malha:-0} >= ${TT_T_MALHA:-900})); then
+    if ((agora - ${ultima_malha:-0} >= ${TT_T_MALHA:-900} && agora - pos_wake >= ${TT_POS_WAKE:-90})); then
       ultima_malha=$agora
       ("$EU" --malha-vigia >/dev/null 2>&1 &)
     fi
@@ -2201,6 +2223,7 @@ malha_estado() {
 # Falha de uma volta só costuma ser rede passageira (celular trocando de Wi-Fi).
 malha_vigia() {
   local f="$RT/tt-malha-ilha-$UID" n saida
+  [[ -n ${TT_TESTE_MALHA_MARCA:-} ]] && date +%s >>"$TT_TESTE_MALHA_MARCA" # gancho de teste: quando a malha foi conferida
   malha_completar
   if saida=$(malha_estado 2>&1); then rm -f "$f"; return 0; fi
   n=$(($(cat "$f" 2>/dev/null || echo 0) + 1)); echo "$n" >"$f"
@@ -2676,7 +2699,12 @@ CONF
     tmux set -gqu @barra_ticker \; set -gqu @barra_aviso 2>/dev/null
     # O vigia em execução é da versão antiga: troca por um novo.
     # (versões antigas gravavam o pidfile onde o XDG_RUNTIME_DIR do momento apontasse: procura em todos)
-    for pidf in "$RT" "${XDG_RUNTIME_DIR:-$RT}" "${TMPDIR:-/tmp}" /tmp; do
+    # Com TT_RT explícito (testes, instalação isolada) o runtime é só esse: os outros diretórios são de OUTRO tt. No macOS o
+    # pidfile do vigia de verdade mora no $TMPDIR (não há /run/user): sem esta guarda, instalar num HOME isolado matava o
+    # vigia de quem rodava a suíte e apagava o pidfile dele.
+    local -a pidfs=("$RT" "${XDG_RUNTIME_DIR:-$RT}" "${TMPDIR:-/tmp}" /tmp)
+    [[ -n ${TT_RT:-} ]] && pidfs=("$RT")
+    for pidf in "${pidfs[@]}"; do
       pidf="$pidf/tt-vigia-$UID.pid"
       pid=$(cat "$pidf" 2>/dev/null)
       if [[ -n $pid ]] && cmdline_do_pid "$pid" | grep -q -- '--vigia'; then kill "$pid"; fi
@@ -8709,19 +8737,28 @@ aplicar_fixadas() {
   # barra (status) é conferido e gravado pelo atualizar_barras, no fim, junto com o resto.
   # Marca nas sessões daqui (@tt_fixada): o 📌 ao lado do nome, na barra, fica aceso nas fixadas.
   # Só grava o que mudou, e tudo numa ida só: todo set-option redesenha a tela inteira de todos os clientes.
-  local sess marca l lista
-  local -A fix=(); local -a lote=()
-  lista=$(tmux list-sessions -F "#{session_name}"$'\t'"#{@tt_fixada}" 2>/dev/null) || return 0
+  local sess marca l lista alvo dest d r aceso
+  local -A fix=() fixr=() rot=(); local -a lote=()
+  # 0x1F separa os campos: @tt_fixada vazio no meio sumiria com o TAB (espaço em branco do IFS).
+  lista=$(tmux list-sessions -F $'#{session_name}\x1f#{@tt_fixada}\x1f#{@ponte_alvo}' 2>/dev/null) || return 0
   if [[ -f $CONF_FIX ]]; then
     while IFS= read -r l || [[ -n $l ]]; do
       [[ $l =~ ^[[:space:]]*$ || $l != *$'\t'* ]] && continue
-      [[ ${l%%$'\t'*} == "$MAQUINA" ]] || continue
-      l=${l#*$'\t'}; l=${l%%$'\t'*}; [[ -n $l ]] && fix[$l]=1
+      r=${l%%$'\t'*}; l=${l#*$'\t'}; l=${l%%$'\t'*}; [[ -n $l ]] || continue
+      if [[ $r == "$MAQUINA" ]]; then fix[$l]=1; else fixr["$r|$l"]=1; fi
     done <"$CONF_FIX"
   fi
-  while IFS=$'\t' read -r sess marca; do
+  # Ponte: o pino acende quando a sessão REAL da outra máquina está fixada (o rótulo vem do cadastro, uma ida só).
+  if ((${#fixr[@]})) && [[ $lista == *'|'* ]]; then
+    while read -r d r; do rot[$d]=$r; done < <(maquinas)
+  fi
+  while IFS=$'\x1f' read -r sess marca alvo; do
     [[ -n $sess ]] || continue
-    if [[ -n ${fix[$sess]:-} ]]; then [[ $marca == 1 ]] || lote_add lote set -q -t "=$sess:" @tt_fixada 1
+    aceso=${fix[$sess]:-}
+    if [[ -z $aceso && -n $alvo ]]; then
+      dest=${alvo%%|*}; [[ -n ${rot[$dest]:-} ]] && aceso=${fixr["${rot[$dest]}|${alvo#*|}"]:-}
+    fi
+    if [[ -n $aceso ]]; then [[ $marca == 1 ]] || lote_add lote set -q -t "=$sess:" @tt_fixada 1
     else [[ -z $marca ]] || lote_add lote set -q -u -t "=$sess:" @tt_fixada; fi
   done <<<"$lista"
   ((${#lote[@]})) && tmux "${lote[@]}" 2>/dev/null
@@ -13721,11 +13758,19 @@ remover_fixada() {
 # Pino ao lado do nome da sessão, na barra (mesma convenção do seletor): 📍 = não fixada, o clique
 # fixa; 📌 = fixada, o clique desafixa.
 fixar_atual() {
-  local c=$1 s r
-  s=$(do_cliente "$c" '#{session_name}')
+  local c=$1 s alvo dest nome rot r
+  IFS=$'\x1f' read -r s alvo <<<"$(do_cliente "$c" $'#{session_name}\x1f#{@ponte_alvo}')"
   [[ -n $s ]] || return 0
-  r=$(alternar_fixada "$MAQUINA" "$s")
-  tmux display-message -c "$c" -d 2500 "$([[ $r == fixada ]] && echo 📌 || echo 📍) $s $r$([[ $r == fixada ]] && echo " — aparece na faixa das fixadas em todas as máquinas; o ✕ dela desafixa")"
+  rot=$MAQUINA nome=$s
+  # Numa sessão de PONTE o pino vale para a sessão real da outra máquina (@ponte_alvo = "destino|sessão lá"): fixar a
+  # ponte não adiantava, o vigia a encerra por ociosidade e o reconciliador apagava a fixada da lista.
+  if [[ -n $alvo && ${alvo%%|*} != . && -n ${alvo#*|} ]]; then
+    dest=${alvo%%|*}; r=$(rotulo_de "$dest")
+    # Rótulo que não está no cadastro (rotulo_de devolve o próprio destino): não há como falar com a máquina.
+    [[ $r != "$dest" ]] && { rot=$r; nome=${alvo#*|}; }
+  fi
+  r=$(alternar_fixada "$rot" "$nome")
+  tmux display-message -c "$c" -d 2500 "$([[ $r == fixada ]] && echo 📌 || echo 📍) $([[ $rot == "$MAQUINA" ]] && echo "$nome" || echo "$rot:$nome") $r$([[ $r == fixada ]] && echo " — aparece na faixa das fixadas em todas as máquinas; o ✕ dela desafixa")"
 }
 
 # Sessão daqui renomeada: o item fixado acompanha.
@@ -15390,6 +15435,11 @@ clique() {
   # Normalizar aqui evita que um clique válido seja descartado silenciosamente.
   local faixa=${1#user|}
   local marca="$RT/tt-clique-$UID" agora anterior cliente_anterior faixa_anterior
+  # O 📌/📍 alterna, então age só ao PRESSIONAR (6º argumento d). O soltar (u) é ignorado: num toque lento (> 0,5 s)
+  # os dois eventos passavam do debounce abaixo e o pino fixava e desafixava na mesma volta. Sem o 6º argumento
+  # (CLI, testes) age como sempre.
+  [[ $faixa == fixar && ${6:-} == u ]] && return 0
+  vigia_garantir
   agora=${EPOCHREALTIME/[.,]/}000 # ns (com a precisão de µs), como o date +%s%N, sem processo
   if read -r anterior cliente_anterior faixa_anterior 2>/dev/null <"$marca" &&
      [[ $cliente_anterior == "$2" && $faixa_anterior == "$faixa" ]] &&
@@ -19097,6 +19147,7 @@ case "${1:-}" in
   --estado-maquina) estado_aplicar "$2" "$3" "$4"; exit ;;
   --malha-completar) malha_completar; exit ;;
   --malha-vigia) malha_vigia; exit ;;
+  --vigia-garantir) vigia_garantir; exit ;;
   --malha) malha_completar; malha_estado; exit $? ;;
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;
@@ -19390,7 +19441,7 @@ case "${1:-}" in
   --fechar) fechar_em "$2" "$3"; exit ;;
   --cabecalho) cabecalho; exit ;;
   --clique-cabecalho) clique_cabecalho "${2:-}"; exit ;;
-  --clique) clique "$2" "$3" "$4" "${5:-$HOME}" "${6:-0}"; exit ;;
+  --clique) clique "$2" "$3" "$4" "${5:-$HOME}" "${6:-0}" "${7:-}"; exit ;;
   --menu-painel) menu_painel "$2" "$3"; exit ;;
   --menu-tmux) menu_tmux "$2" "${3:-}"; exit ;;
   --menu-atalhos) menu_atalhos "$2"; exit ;;
