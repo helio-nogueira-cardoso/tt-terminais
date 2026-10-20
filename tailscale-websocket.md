@@ -4,6 +4,9 @@ Em redes corporativas com inspeção Netskope, o protocolo nativo do Tailscale p
 
 ## Ativar
 
+Em instalações novas ou atualizações no macOS, o `tt` garante Node.js/Tailscale pelo Homebrew e ativa este
+fallback automaticamente. A ativação manual continua disponível para reparar ou conferir uma máquina:
+
 No Mac, com Node.js, Tailscale e `sudo` disponível:
 
 ```sh

@@ -101,6 +101,11 @@ antigo "${f:-0}" 0.60 && echo "Aviso: fzf $f é mais antigo que o recomendado (0
 # macOS: o tt usa recursos do GNU (stat -c, date -d, sed, grep, find, tar, setsid, flock…) e um Python novo (o do sistema é
 # o 3.9). Com o Homebrew, instala o que faltar; o tt põe essas versões na frente do PATH só dos processos dele.
 if [[ $(pk_so) == macos && $gerenciador == brew ]]; then
+  macos_ws=(node tailscale)
+  mapfile -t faltam < <(faltam_de "${macos_ws[@]}")
+  if ((${#faltam[@]})); then
+    instalar_pacotes "${faltam[@]}" || { echo 'Falha ao instalar Node.js/Tailscale, necessários no macOS para o fallback WebSocket.' >&2; exit 1; }
+  fi
   gnu=(); for f in coreutils gnu-sed gnu-tar findutils grep gawk util-linux; do brew list --formula "$f" >/dev/null 2>&1 || gnu+=("$f"); done
   python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null || gnu+=(python)
   if ((${#gnu[@]})); then

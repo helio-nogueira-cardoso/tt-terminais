@@ -5,6 +5,8 @@ vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu admin
 
 ## v2.0.0 · 20/10/2026
 Começa o ciclo 2.x.
+- **🍎 Tailscale WebSocket automático no Mac:** a instalação e as atualizações agora garantem Node.js/Tailscale,
+  aplicam os atalhos padrão do macOS e ativam o fallback WebSocket local versionado, de forma idempotente.
 - **📸 Snapshots do estado (ativável):** `tt --snapshots on` grava, a cada aba, sessão, agente de IA ou fixada que muda, um snapshot do
   estado da máquina (abas e painéis na ordem, o agente de IA de cada painel com a conversa e a conta, as fixadas na ordem), até 50, com
   data e hora. `tt --snapshots` (ou administrar → 📸) lista, mostra a árvore e restaura, perguntando o modo a cada vez (aditivo: só recria o

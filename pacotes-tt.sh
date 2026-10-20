@@ -175,6 +175,8 @@ bash|=|=|=|=|=|=|=|=|=|=|=
 tmux|=|=|=|=|=|=|=|=|=|~|=
 fzf|=|=|=|=|=|=|=|=|=|=|=
 python3|=|=|=|python|=|=|python@3.13|python|=|python%3|python313
+node|=|=|=|=|=|=|node|=|=|=|
+tailscale|=|=|=|=|=|=|tailscale|=|=|=|
 ssh|openssh-client|openssh-clients|openssh-clients|openssh|openssh-client|openssh|openssh|openssh|~|~|~
 sshd|openssh-server|openssh-server|openssh|openssh|openssh-server|openssh|~|openssh|~|~|~
 tar|=|=|=|=|=|=|gnu-tar|=|gtar|gtar|gtar

@@ -2780,6 +2780,26 @@ mac_atalhos() {
   esac
 }
 
+# A instalação/atualização é a entrada normal de uma máquina nova. No macOS, além do
+# zshenv e do tmux, deixa o terminal com os atalhos padrão e liga o fallback WebSocket
+# versionado do Tailscale. TT_MAC_AUTO=0 é reservado para testes ou para uma instalação
+# deliberadamente manual; cada operação continua idempotente.
+mac_configurar_padrao() {
+  [[ $(uname -s 2>/dev/null) == Darwin ]] || return 0
+  [[ ${TT_MAC_AUTO:-1} == 0 ]] && return 0
+  local term rc=0
+  term=$(mac_terminal)
+  case $term in
+    terminal|ghostty) mac_atalhos ativar || rc=1 ;;
+    iterm|wezterm) echo "macOS: $term preserva a configuração do terminal; veja tt --mac status." ;;
+    *) echo 'macOS: terminal não reconhecido; veja tt --mac atalhos.' ;;
+  esac
+  if [[ ${TT_TAILSCALE_WS_AUTO:-1} != 0 ]]; then
+    tailscale_ws ativar || rc=1
+  fi
+  return "$rc"
+}
+
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
@@ -3097,6 +3117,7 @@ instalar_aqui() {
   fi
   if [[ -n $mesmo ]]; then
     [[ -r $DIR_TT/rapido/nucleo.sh && ! $DIR_TT/tt -nt $DIR_TT/rapido/nucleo.sh ]] || gerar_rapido "$DIR_TT" >/dev/null 2>&1
+    mac_configurar_padrao || return 1
     garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (já instalada)"; return 0
   fi
   if [[ $origem != "$DIR_TT" ]]; then
@@ -3139,6 +3160,7 @@ CONF
   limpar_cache_maquinas
   atualizar_bashrc
   configurar_zshenv
+  mac_configurar_padrao || return 1
   configurar_aerc
   "$DIR_TT/tema-agentes.sh" --aplicar
   "$DIR_TT/memoria-agentes.sh" --aplicar
