@@ -64,6 +64,27 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
 - **Nomes automáticos**: sessões genéricas ganham nome pelo assunto (título do Claude Code, ou o
   Claude Haiku lendo a tela, se o `claude` estiver instalado).
 
+
+## Atalhos no Mac
+
+No macOS alguns atalhos do tt mudam, porque o sistema ou o terminal se metem no caminho. `tt --mac atalhos` mostra a tabela e
+`tt --mac status` diz o que está ligado no terminal em uso.
+
+| No tt (Linux) | No Mac | Por quê |
+|---|---|---|
+| `Ctrl+B …` | `Control+B …` | igual |
+| Ctrl+arrastar, duplo e triplo clique (copiar) | Option+arrastar, duplo e triplo clique | o macOS transforma Ctrl+clique em botão direito |
+| Ctrl+clique num link | Option+clique (ou `Ctrl+B u`) | idem |
+| Alt+… | Option+… | o Option só vira Meta se o terminal for configurado |
+| Ctrl+Shift+V (colar) | Cmd+V | colar do próprio terminal |
+| `Ctrl+B F1`…`F10` | `Ctrl+B g 1`…`0` | sem a tecla fn, F1–F10 viram brilho e volume (`g`, depois 1 a 9 e 0) |
+| `Ctrl+B [`, `v`, `y` | igual | copia sem mouse |
+
+`tt --mac ativar` liga o Option como Meta: no **Terminal.app** grava `useOptionAsMetaKey` no perfil padrão (com cópia em
+`~/.config/tt/backup`; vale em janelas novas) e no **Ghostty** acrescenta `macos-option-as-alt = true` ao config. No iTerm2
+(Profiles › Keys › Left Option key = Esc+) e no WezTerm o `tt --mac status` só orienta. Para forçar o terminal:
+`TT_MAC_TERMINAL=terminal|ghostty|iterm|wezterm`. Teste: `tests/test_mac_atalhos.sh`.
+
 ## Requisitos
 
 bash, git, tmux ≥ 3.4, fzf ≥ 0.60, python3, ssh, tar (GNU) e `rg` (testes e busca rápida).

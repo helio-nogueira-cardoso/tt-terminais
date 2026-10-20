@@ -684,6 +684,13 @@ e os instaladores da pasta do usuário ficam no `tt`.
 - `tt --nomear-texto` (interno, lê stdin), `--nomeador-ui`, `--sugerir`, `--renomear`,
   `--nomear-todas[-local]`.
 
+### Atalhos no Mac (`tt --mac`)
+- `tt --mac [status|ativar|atalhos]`: no macOS Ctrl+clique vira botão direito, Ctrl+Shift+V não existe (Cmd+V) e F1–F10 pedem fn.
+  O `tmux.conf` liga `M-MouseDown1Pane`/`M-SecondClick1Pane` como o Ctrl (Option+clique abre link), a tabela `tt-botoes`
+  (`Ctrl+B g 1…9,0` = F1…F10) e `y`/Enter para copiar no modo de cópia. `ativar` liga o Option como Meta: Terminal.app
+  (`useOptionAsMetaKey` do perfil padrão, via `defaults import`, com cópia em `~/.config/tt/backup`) e Ghostty
+  (`macos-option-as-alt = true`); iTerm2/WezTerm só orientam. `TT_MAC_TERMINAL` força o terminal. Teste: `tests/test_mac_atalhos.sh`.
+
 ### Botões inteligentes (teclado F1–F10 / barra de teclas do Termux)
 `tt --botao ACAO cliente painel pasta`. Mapeamento (tmux.conf): F1→`cl`, F2→`clc`, F3→`clr`,
 F4→`dbn`, F5→`tela`, F6→`sair`, F7→`ant`, F8→`zm`, F9→`jn`, F10→`dv`.

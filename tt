@@ -28,6 +28,7 @@
 #   tt --letreiro-listar  fontes (APIs) do letreiro da faixa: -add -editar -rm -testar -log -exportar -importar
 #                   -catalogo -ajustes; painel: menu ⋯ → 📰 Letreiro (README: "Letreiro: fontes")
 #   tt --tailscale-ws ativar|desativar|status|testar  fallback WebSocket local do Tailscale no macOS
+#   tt --mac [status|ativar|atalhos]  atalhos no Mac: Option como Meta (Terminal.app, Ghostty, iTerm2) e a tabela Linux → Mac
 #
 # Menu: Enter entra; ^n nova; ^r renomeia; ^x fecha; ^a dá nome às genéricas. As palavras do
 # cabeçalho são clicáveis. ^f (ou clique) filtra por máquina; a busca procura em nome, máquina,
@@ -2338,6 +2339,93 @@ tailscale_ws() {
   local acao=${1:-status} dir=$DIR_TT
   [[ -r $dir/tailscale-ws.sh ]] || dir=${EU%/*}
   "$dir/tailscale-ws.sh" "$dir" "$acao"
+}
+
+# tt --mac [status|ativar|atalhos]: no Mac, Ctrl+clique vira botão direito antes de chegar ao tmux, Ctrl+Shift+V não existe,
+# F1–F10 pedem a tecla fn e o Option só vira Meta (Alt) se o terminal for configurado. `status` diz o que está ligado,
+# `ativar` liga o Option como Meta no terminal em uso (com cópia do que mudou), `atalhos` mostra Linux → Mac.
+mac_terminal() {
+  case ${TERM_PROGRAM:-} in
+    Apple_Terminal) echo terminal ;; ghostty) echo ghostty ;; iTerm.app) echo iterm ;; WezTerm) echo wezterm ;;
+    *) local t=${TT_MAC_TERMINAL:-}; [[ -n $t ]] && { echo "$t"; return; }
+       # dentro do tmux o TERM_PROGRAM é "tmux": pergunta ao ambiente do cliente
+       t=$(tmux show-environment -g TERM_PROGRAM 2>/dev/null); t=${t#TERM_PROGRAM=}
+       case $t in Apple_Terminal) echo terminal ;; ghostty) echo ghostty ;; iTerm.app) echo iterm ;; WezTerm) echo wezterm ;; *) echo desconhecido ;; esac ;;
+  esac
+}
+
+# Terminal.app: valor de useOptionAsMetaKey do perfil padrão (1/0), ou "?" se não deu para ler.
+mac_terminal_meta() {
+  python3 -I - "${1:-ler}" <<'FIM_PY' 2>/dev/null || echo '?'
+import plistlib, subprocess, sys
+modo = sys.argv[1]
+exp = subprocess.run(["defaults", "export", "com.apple.Terminal", "-"], capture_output=True)
+d = plistlib.loads(exp.stdout)
+nome = d.get("Default Window Settings") or "Basic"
+perfis = d.setdefault("Window Settings", {})
+p = perfis.get(nome)
+if p is None: print("?"); sys.exit(0)
+if modo == "ler": print(1 if p.get("useOptionAsMetaKey") else 0); sys.exit(0)
+import os, time
+os.makedirs(os.path.expanduser("~/.config/tt/backup"), exist_ok=True)
+open(os.path.expanduser("~/.config/tt/backup/Terminal-%s.plist" % time.strftime("%Y%m%d%H%M%S")), "wb").write(exp.stdout)
+p["useOptionAsMetaKey"] = True
+r = subprocess.run(["defaults", "import", "com.apple.Terminal", "-"], input=plistlib.dumps(d), capture_output=True)
+print(1 if r.returncode == 0 else "?")
+FIM_PY
+}
+
+mac_ghostty_conf() {
+  local c
+  for c in "${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/config" "$HOME/Library/Application Support/com.mitchellh.ghostty/config"; do
+    [[ -e $c ]] && { printf '%s\n' "$c"; return; }
+  done
+  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/config"
+}
+
+mac_atalhos_tabela() {
+  cat <<'FIM'
+Atalho no tt (Linux)            No Mac                                   Observação
+------------------------------  ---------------------------------------  ----------------------------------------
+Ctrl+B …                        Control+B …                              igual (o prefixo é a tecla Control)
+Ctrl+arrastar / duplo / triplo  Option+arrastar / duplo / triplo clique  Ctrl+clique vira botão direito no macOS
+Ctrl+clique num link            Option+clique (ou Ctrl+B u)              abre a escolha do navegador
+Alt+…                           Option+…                                 precisa de "Option como Meta": tt --mac ativar
+Ctrl+Shift+V (colar)            Cmd+V                                    colar do próprio terminal
+Ctrl+B F1…F10                   Ctrl+B g 1…0                             sem a tecla fn (g, depois 1 a 9 e 0)
+Ctrl+B [ , v , y                igual                                    copia sem mouse: v marca, y (ou Enter) copia
+FIM
+}
+
+mac_atalhos() {
+  local acao=${1:-status} term meta conf
+  [[ $(uname -s) == Darwin ]] || { echo "tt --mac: só faz sentido no macOS (aqui: $(uname -s))"; [[ $acao == atalhos ]] && mac_atalhos_tabela; return 0; }
+  term=$(mac_terminal)
+  case $acao in
+    atalhos) mac_atalhos_tabela ;;
+    status)
+      case $term in
+        terminal) meta=$(mac_terminal_meta ler)
+          [[ $meta == 1 ]] && echo "Terminal.app: Option como Meta ligado ✓" || echo "Terminal.app: Option como Meta DESLIGADO (tt --mac ativar; vale em janelas novas)" ;;
+        ghostty) conf=$(mac_ghostty_conf)
+          if grep -Eqs '^[[:space:]]*macos-option-as-alt[[:space:]]*=[[:space:]]*(true|left|right)' "$conf"; then echo "Ghostty: macos-option-as-alt ligado ✓ ($conf)"
+          else echo "Ghostty: Option como Alt DESLIGADO (tt --mac ativar)"; fi ;;
+        iterm) echo "iTerm2: ligue em Settings > Profiles > Keys > General: Left Option key = Esc+ (o tt não mexe nos perfis do iTerm2)" ;;
+        wezterm) echo "WezTerm: no wezterm.lua, use send_composed_key_when_left_alt_is_pressed = false (o tt não edita o arquivo)" ;;
+        *) echo "terminal não reconhecido: defina TT_MAC_TERMINAL=terminal|ghostty|iterm|wezterm ou veja tt --mac atalhos" ;;
+      esac
+      echo "Ctrl+clique no Mac é botão direito; use Option+clique/arrastar. Tabela completa: tt --mac atalhos" ;;
+    ativar)
+      case $term in
+        terminal) meta=$(mac_terminal_meta gravar)
+          [[ $meta == 1 ]] && echo "Terminal.app: Option como Meta ligado no perfil padrão (cópia em ~/.config/tt/backup). Abra uma janela NOVA do Terminal para valer." || { echo "não consegui gravar; ligue em Terminal > Settings > Profiles > Keyboard > Use Option as Meta key" >&2; return 1; } ;;
+        ghostty) conf=$(mac_ghostty_conf)
+          if grep -Eqs '^[[:space:]]*macos-option-as-alt' "$conf"; then echo "Ghostty: macos-option-as-alt já está no $conf; confira o valor (true)."
+          else mkdir -p "${conf%/*}" && printf '\n# tt: Option como Alt (atalhos Alt+… do tmux)\nmacos-option-as-alt = true\n' >> "$conf" && echo "Ghostty: gravei macos-option-as-alt = true em $conf (recarregue com Cmd+Shift+,)."; fi ;;
+        *) mac_atalhos status; return 1 ;;
+      esac ;;
+    *) echo "uso: tt --mac [status|ativar|atalhos]" >&2; return 2 ;;
+  esac
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
@@ -19145,6 +19233,7 @@ case "${1:-}" in
   --tema-agentes) "$DIR_TT/tema-agentes.sh" --aplicar; exit ;;
   --memoria-agentes) "$DIR_TT/memoria-agentes.sh" --aplicar; exit ;;
   --aidlc) aidlc_bootstrap "${2:-.}"; exit $? ;;
+  --mac) shift; mac_atalhos "${1:-status}"; exit $? ;;
   --tailscale-ws) shift; tailscale_ws "${1:-status}"; exit $? ;;
   --verificar-atualizacao) verificar_atualizacao; exit ;;
   --garantir-atualizacao) garantir_atualizacao; exit ;;
