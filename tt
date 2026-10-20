@@ -3947,7 +3947,7 @@ aerc_definir() { # arquivo seção chave valor [forcar]
 aerc_html_tt_garantir() {
   local alvo=${TT_AERC_FILTRO_HTML:-} f
   [[ -n $alvo && -x $alvo ]] && { :; } || alvo=""
-  [[ -n $alvo ]] || for f in /usr/libexec/aerc/filters/html /usr/lib/aerc/filters/html /usr/local/libexec/aerc/filters/html; do
+  [[ -n $alvo ]] || for f in "${PREFIX:-/nonexistent}/libexec/aerc/filters/html" /usr/libexec/aerc/filters/html /usr/lib/aerc/filters/html /usr/local/libexec/aerc/filters/html; do
     [[ -x $f ]] && { alvo=$f; break; }
   done
   [[ -n $alvo ]] || return 1
