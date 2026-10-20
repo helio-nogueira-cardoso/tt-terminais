@@ -24,17 +24,18 @@ diff <(grep -E 'root +C-MouseDown1Pane' <<<"$chaves" | sed -E 's/C-MouseDown1Pan
      <(grep -E 'root +M-MouseDown1Pane' <<<"$chaves" | sed -E 's/M-MouseDown1Pane/X/') >/dev/null || falhou 'Option+clique difere do Ctrl+clique'
 
 # 2) tt --mac
-"$TT" --mac atalhos | grep -q 'Cmd+V' || falhou 'tabela sem Cmd+V'
-"$TT" --mac atalhos | grep -q 'Ctrl+B g 1' || falhou 'tabela sem Ctrl+B g'
+tab=$("$TT" --mac atalhos)
+[[ $tab == *"Cmd+V"* ]] || falhou 'tabela sem Cmd+V'
+[[ $tab == *"Ctrl+B g 1"* ]] || falhou 'tabela sem Ctrl+B g'
 if [[ $(uname -s) == Darwin ]]; then
   # Ghostty: ativar grava a chave uma vez só, num config isolado
   export XDG_CONFIG_HOME="$T/cfg" TT_MAC_TERMINAL=ghostty TERM_PROGRAM=
-  "$TT" --mac status | grep -q 'DESLIGADO' || falhou 'Ghostty deveria estar desligado'
+  st=$("$TT" --mac status); [[ $st == *DESLIGADO* ]] || falhou "Ghostty deveria estar desligado: $st"
   "$TT" --mac ativar >/dev/null || falhou 'ativar (Ghostty)'
   "$TT" --mac ativar >/dev/null
   [[ $(grep -c '^macos-option-as-alt = true' "$T/cfg/ghostty/config") == 1 ]] || falhou 'macos-option-as-alt gravado mais de uma vez'
-  "$TT" --mac status | grep -q 'ligado' || falhou 'status não vê o Ghostty ligado'
+  st=$("$TT" --mac status); [[ $st == *"ligado"* && $st != *DESLIGADO* ]] || falhou "status não vê o Ghostty ligado: $st"
 else
-  "$TT" --mac status | grep -q 'só faz sentido no macOS' || falhou 'fora do Mac deveria avisar'
+  st=$("$TT" --mac status); [[ $st == *"só faz sentido no macOS"* ]] || falhou "fora do Mac deveria avisar: $st"
 fi
 echo 'ok: atalhos do Mac (Option, Ctrl+B g, tt --mac)'
