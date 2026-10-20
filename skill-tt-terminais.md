@@ -684,6 +684,21 @@ e os instaladores da pasta do usuário ficam no `tt`.
 - `tt --nomear-texto` (interno, lê stdin), `--nomeador-ui`, `--sugerir`, `--renomear`,
   `--nomear-todas[-local]`.
 
+### Snapshots do estado (`snapshots-tt.py`)
+- Ativável: `snapshots=1` (`tt --snapshots on|off|status`; sem argumento abre a tela, também no menu administrar → 📸). Ganchos do tmux `[20]` em
+  `session-created/closed/renamed`, `after-new-window`, `window-unlinked`, `window-renamed` (`set-hook -gw`) e `after-split-window` chamam
+  `tt --snapshot-evento TIPO`; `marcar_fixadas` também; o vigia chama `--snapshot-vigiar` (troca de agente: compara `painel:provedor:pid`).
+  `snapshot_evento` anota o motivo e agenda UMA gravação em `TT_SNAP_ESPERA`=4 s; `snapshot_capturar` coleta (uma ida ao tmux; `conversa_do_painel`
+  por painel em paralelo; pasta do agente pelo `cwd_do_pid`, no Termux sem o prefixo `installed-rootfs/<distro>`) e `snapshots-tt.py gravar` dedupa por
+  assinatura e poda em `TT_SNAP_MAX`=50 (`~/.local/state/tt/snapshots/<ns>.json`, `TT_SNAP_DIR`). Dados entre o tt e o python usam 0x1F (o `read` com
+  IFS=tab junta campos vazios). Sessão `_*`, ponte (`@ponte`) e painel flutuante ficam fora.
+- Restaurar: `snapshot_restaurar ID aditivo|substituir [sessão-em-uso]` (a tela sempre pergunta o modo; substituir pede "sim"); grava antes um snapshot
+  "antes de restaurar" (marca `$RT/tt-snap-UID.restaurando` pausa os eventos), recria sessões/abas/painéis na ordem com o layout, as fixadas (aditivo
+  acrescenta; substituir copia), e escreve em cada painel de agente `snapshot_cmd_agente` = `ia-conta retomar PROVEDOR CÓDIGO [--conta C]` (Termux:
+  `proot-distro login debian --shared-tmp -- bash -lc 'cd PASTA; …'`). `ia-conta retomar`: claude `--dangerously-skip-permissions --resume`, codex
+  `resume ID --dangerously-bypass-approvals-and-sandbox`, kiro `--v3 --trust-all-tools --resume-id`; sem a conversa aqui (`sessoes-ia.py existe`), sessão
+  nova do mesmo agente. Arquivo novo do pacote: `snapshots-tt.py`. Teste: `tests/test_snapshots.sh`.
+
 ### Busca na conversa inteira (`busca-tt.py`)
 - Escopo **conversa** da central (`^e`: tudo → nomes → conversa): índice SQLite FTS5 (`~/.cache/tt/busca.db`, `TT_BUSCA_DB`) da conversa
   inteira do agente de cada painel (`conversa_do_painel` + `sessoes-ia.py exportar`) e do scrollback inteiro do tmux. `busca_indexar`

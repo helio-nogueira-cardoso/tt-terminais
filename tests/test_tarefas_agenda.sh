@@ -49,7 +49,8 @@ run --tarefa-add "pagar" >/dev/null
 idp=$(awk -F'\t' '$5=="pagar"{print $1}' "$C")
 awk -F'\t' -v OFS='\t' -v id="$idp" -v m="prazo=$ontem" 'NF>=5{if($1==id){$6=m} print}' "$C" >"$C.n" && mv "$C.n" "$C"
 run --tarefas-barra | grep -Fq 'fab387,bold] 📋 1' || fail "barra deveria mostrar 📋 1 laranja com tarefa vencida: $(run --tarefas-barra)"
-echo "ok: barra fica laranja (📋 N) quando há tarefa vencida"
+run --tarefas-barra | grep -Fq 'fab387,bold] 📋 1 (3) ' || fail "com 1 atrasada de 3 abertas a barra deveria mostrar 📋 1 (3): $(run --tarefas-barra)"
+echo "ok: barra fica laranja (📋 N) quando há tarefa vencida, com o total entre parênteses (N (total))"
 
 # 3) ciclar recorrência: sem -> d -> w -> m -> sem
 run --tarefa-rep-ciclar "$idp" >/dev/null; [[ $(meta "$idp") == *rep=d* ]] || fail "1º ciclo rep deveria ser diária (d)"

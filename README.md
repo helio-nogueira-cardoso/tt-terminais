@@ -65,6 +65,40 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
   Claude Haiku lendo a tela, se o `claude` estiver instalado).
 
 
+## Snapshots do estado (histórico e restaurar)
+
+Funcionalidade **ativável** (`tt --snapshots on`; desligada de fábrica). Ligada, o tt grava um snapshot do estado **desta máquina**
+a cada mudança que você faz: sessão ou aba criada, fechada ou renomeada, painel dividido, troca do agente de IA de um painel e
+mudança nas fixadas. Fica guardado até **50** (o mais antigo sai), cada um com data e hora, o motivo ("aba criada: site") e o que
+tem dentro:
+
+- as sessões e abas na ordem, com layout, pasta e programa de cada painel;
+- o agente de IA de cada painel (Claude, Codex ou Kiro): o código da conversa e a conta;
+- as fixadas, na ordem.
+
+Rajadas viram um snapshot só (`TT_SNAP_ESPERA`, 4 s) e estado igual ao último não grava de novo. A troca de agente num painel não tem
+gancho no tmux; o vigia a percebe a cada volta.
+
+`tt --snapshots` (também menu administrar → 📸) abre a lista com data e hora e a prévia da árvore de cada um; ⏎ restaura. **O modo é
+perguntado a cada vez**: *aditivo* (padrão: recria só o que falta e não fecha nada do que está aberto; as fixadas que faltam voltam) ou
+*substituir* (deixa igual ao snapshot: fecha o que não está nele, menos a sessão em uso e as ocultas, e as fixadas ficam como estavam;
+pede "sim"). Antes de restaurar o tt grava o estado de agora, então a restauração também se desfaz.
+
+**Cada agente de IA é retomado na mesma conversa**, do jeito da máquina e sempre sem pedir permissões (`ia-conta retomar`):
+
+| Agente | Comando |
+|---|---|
+| Claude | `claude --dangerously-skip-permissions --resume CÓDIGO` (na conta do snapshot, ou na principal se ela não existe aqui) |
+| Codex | `codex resume CÓDIGO --dangerously-bypass-approvals-and-sandbox` |
+| Kiro | `kiro-cli chat --v3 --trust-all-tools --resume-id CÓDIGO` |
+
+Linux, macOS e WSL chamam o `ia-conta` direto; no Termux o comando entra no Debian do proot (`proot-distro login debian --shared-tmp -- bash -lc …`),
+onde os agentes vivem, e na pasta de dentro do proot; como root, o `ia-conta` liga `IS_SANDBOX=1` sozinho. Se a conversa não está nesta máquina
+(as conversas sincronizam entre elas, mas pode não ter chegado), abre uma sessão **nova** do mesmo agente, também sem pedir permissões, com aviso.
+
+`tt --snapshots [on|off|status]`, `tt --snapshots-listar`, `tt --snapshot-ver ID`, `tt --snapshot-restaurar ID [aditivo|substituir]`,
+`tt --snapshot-agora`. Arquivos: `~/.local/state/tt/snapshots/*.json` (`TT_SNAP_DIR`; teto `TT_SNAP_MAX`=50). Teste: `tests/test_snapshots.sh`.
+
 ## Busca na conversa inteira
 
 A busca da central (`tt`, `Ctrl+B s`) sempre achou texto no nome, na máquina, na pasta, no título do Claude e no **fim da tela**

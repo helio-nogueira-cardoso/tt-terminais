@@ -76,6 +76,7 @@ Uso:
   ia-conta kiro [argumentos do kiro-cli chat]
   ia-conta abrir [--retomar <id-da-conversa-do-claude>] [--exceto <conta>]... [--prompt-arquivo <arq>] [--conta <conta>]
   ia-conta abrir --listar-contas
+  ia-conta retomar claude|codex|kiro <código-da-conversa> [--conta <conta>]
   ia-conta adicionar <conta> [--email <e-mail>]
   ia-conta adicionar principal [--email <e-mail>]   # troca o login da principal (a de ~/.claude)
   ia-conta entrar <conta>
@@ -100,7 +101,8 @@ O nome antigo claude-conta continua valendo.
 abrir escolhe, entre todas as contas da rotação (Claude, Codex e Kiro), a com mais folga de uso
 neste momento (ia-rot --melhor) e a abre interativa no modo sem confirmações do provedor:
 claude --dangerously-skip-permissions, codex --yolo (no Android, também --no-daemon),
-kiro-cli chat --v3 --trust-all-tools. --retomar continua a conversa do Claude dada quando a escolhida também é do Claude (as conversas
+kiro-cli chat --v3 --trust-all-tools. retomar continua a conversa dada no MESMO agente (claude --resume, codex resume, kiro-cli chat
+--resume-id), sempre sem pedir permissões; é o que o tt usa ao restaurar um snapshot. --retomar continua a conversa do Claude dada quando a escolhida também é do Claude (as conversas
 são compartilhadas entre as contas); se for Codex ou Kiro, abre uma sessão nova. --conta abre a conta dada
 (principal, um perfil, codex ou kiro) em vez da escolhida pelo rotador; --listar-contas imprime as contas que
 dá para abrir aqui, "conta<TAB>provedor<TAB>rótulo<TAB>uso", só de caches (é o menu do botão direito dos
@@ -834,6 +836,43 @@ abrir() {
   esac
 }
 
+# ia-conta retomar PROVEDOR CÓDIGO [--conta CONTA]: continua a conversa CÓDIGO no mesmo agente (Claude, Codex ou Kiro), sempre no
+# modo sem confirmações do provedor (o tt chama ao restaurar um snapshot). Sem a conversa nesta máquina, abre uma sessão nova do
+# mesmo agente (com aviso). Conta do Claude que não existe aqui: usa a principal.
+retomar_ia() {
+  local prov=${1:-} id=${2:-} conta="" existe=1
+  [[ $# -ge 2 ]] || die 'uso: ia-conta retomar claude|codex|kiro CÓDIGO [--conta CONTA]'
+  shift 2
+  while (($#)); do
+    case $1 in
+      --conta) conta=${2:-}; shift ;;
+      *) die "retomar: opção desconhecida '$1'" ;;
+    esac
+    shift
+  done
+  [[ $id =~ ^[0-9A-Za-z][0-9A-Za-z_-]{6,}$ ]] || die "retomar: código de conversa inválido '$id'"
+  # Como root (Debian do proot no celular) o Claude só aceita pular permissões em ambiente isolado.
+  [[ $EUID == 0 ]] && export IS_SANDBOX=1
+  [[ -r $AQUI/sessoes-ia.py ]] && ! python3 -I "$AQUI/sessoes-ia.py" existe "$id" >/dev/null 2>&1 && existe=0
+  ((existe)) || echo "(a conversa $id não está nesta máquina: abro uma sessão nova do mesmo agente)"
+  case $prov in
+    claude)
+      if [[ -z $conta || $conta == codex || $conta == kiro ]]; then conta=principal
+      elif ! grep -qxF -- "$conta" <<<"$(contas_rotacao)"; then echo "(a conta '$conta' não existe nesta máquina: uso a principal)"; conta=principal; fi
+      [[ $conta == principal ]] || renovar_tokens "$conta"
+      printf '%s' "$conta" >"$ATUAL_ROT" 2>/dev/null || true
+      if ((existe)); then rodar "$conta" --dangerously-skip-permissions --resume "$id"
+      else rodar "$conta" --dangerously-skip-permissions; fi ;;
+    codex)
+      if ((existe)); then rodar codex resume "$id" --dangerously-bypass-approvals-and-sandbox
+      else rodar codex --yolo; fi ;;
+    kiro)
+      if ((existe)); then rodar kiro --v3 --trust-all-tools --resume-id "$id"
+      else rodar kiro --v3 --trust-all-tools; fi ;;
+    *) die "retomar: provedor '$prov' desconhecido (claude, codex ou kiro)" ;;
+  esac
+}
+
 acao=${1:-}
 case $acao in
   '' | -h | --help | ajuda) uso ;;
@@ -864,6 +903,7 @@ case $acao in
     ;;
   uso) uso_contas "${@:2}" ;;
   abrir) abrir "${@:2}" ;;
+  retomar) retomar_ia "${@:2}" ;;
   cadastro) cadastro "${@:2}" ;;
   *) rodar "$acao" "${@:2}" ;;
 esac

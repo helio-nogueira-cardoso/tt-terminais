@@ -1146,6 +1146,8 @@ def main(a):
         return cmd_achar(a[1:])
     if c == "exportar":
         return cmd_exportar(a[1:])
+    if c == "existe" and len(a) == 2:  # a conversa CÓDIGO está nesta máquina? (sai 0 se sim)
+        return 0 if achar_conversa(a[1])[1] else 1
     if c == "inventario":
         cmd_inventario()
     elif c == "pedir" and len(a) >= 2:

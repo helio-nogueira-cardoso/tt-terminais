@@ -3,6 +3,16 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.0.0 · 20/10/2026
+Começa o ciclo 2.x.
+- **📸 Snapshots do estado (ativável):** `tt --snapshots on` grava, a cada aba, sessão, agente de IA ou fixada que muda, um snapshot do
+  estado da máquina (abas e painéis na ordem, o agente de IA de cada painel com a conversa e a conta, as fixadas na ordem), até 50, com
+  data e hora. `tt --snapshots` (ou administrar → 📸) lista, mostra a árvore e restaura, perguntando o modo a cada vez (aditivo: só recria o
+  que falta; substituir: deixa igual). A restauração **retoma cada agente na mesma conversa**, do jeito de cada máquina (Linux, Mac, WSL ou o
+  Debian do proot no Termux) e sempre sem pedir permissões: `claude --dangerously-skip-permissions --resume`, `codex resume … --dangerously-bypass-approvals-and-sandbox`,
+  `kiro-cli chat --v3 --trust-all-tools --resume-id` (novo `ia-conta retomar`). Antes de restaurar, grava o estado de agora.
+- **📋 O chip de tarefas atrasadas mantém o tamanho da fila:** com 2 atrasadas entre 23 abertas aparece `2 (23)`, não só `2`.
+
 ## v1.32.0 · 20/10/2026
 - **🔎 Busca na conversa inteira:** a central ganhou o escopo **conversa** (`^e`: tudo → nomes → conversa) que procura na conversa
   inteira do agente de cada painel (Claude, Codex, Kiro) e no scrollback inteiro do tmux, não só nas últimas 150 linhas da tela.

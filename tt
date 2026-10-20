@@ -28,6 +28,7 @@
 #   tt --letreiro-listar  fontes (APIs) do letreiro da faixa: -add -editar -rm -testar -log -exportar -importar
 #                   -catalogo -ajustes; painel: menu ⋯ → 📰 Letreiro (README: "Letreiro: fontes")
 #   tt --tailscale-ws ativar|desativar|status|testar  fallback WebSocket local do Tailscale no macOS
+#   tt --snapshots [on|off|status]  histórico de até 50 snapshots do estado (abas, agentes de IA, fixadas); ⏎ restaura
 #   tt --busca [estado|agora|on|off|consultar T]  busca na conversa inteira e no scrollback (central: ^e → "conversa")
 #   tt --mac [status|ativar|atalhos]  atalhos no Mac: Option como Meta (Terminal.app, Ghostty, iTerm2) e a tabela Linux → Mac
 #
@@ -584,6 +585,8 @@ vigiar() {
       ("$EU" --puxar-demandas >/dev/null 2>&1 &)
       ("$EU" --puxar-letreiro >/dev/null 2>&1 &)
     fi
+    # Snapshots do estado (snapshots=1): troca de agente de IA num painel não tem gancho no tmux, então a volta confere.
+    if snapshots_ativo; then ("$EU" --snapshot-vigiar >/dev/null 2>&1 &); fi
     # Índice de busca na conversa inteira (busca-tt.py): a cada TT_T_BUSCA (180 s; 0 desliga), só do que mudou.
     local t_busca=${TT_T_BUSCA:-180}
     if ((t_busca > 0)) && busca_ativa && ((agora - ${ultima_busca:-0} >= t_busca)); then
@@ -1305,6 +1308,272 @@ for l in linhas[max(0, i - 14): i + 6]:
   # Não está nas 150 linhas da tela: procura na conversa inteira e no scrollback inteiro (índice).
   [[ $k == %* ]] || { busca_ativa && busca_py trecho "$k" "$q" 2>/dev/null && return 0; }
   return 1
+}
+
+# --- Snapshots do estado (histórico de até 50, restaurável) ----------------------------------------------------------------
+# Ativável (snapshots=1 no config; `tt --snapshots on`). A cada mudança do usuário — sessão ou janela criada, fechada ou renomeada,
+# painel dividido, troca de agente de IA num painel, mudança nas fixadas — grava um snapshot do estado DESTA máquina: sessões e
+# janelas na ordem (layout, pasta, programa), o agente de IA de cada painel (provedor, conversa, conta) e as fixadas na ordem. Um
+# aviso de evento espera TT_SNAP_ESPERA s (4) antes de gravar, para juntar rajadas; estado igual ao último não grava. Restaurar
+# (tt --snapshots) pergunta o modo a cada vez (aditivo ou substituir) e RETOMA a conversa de cada agente do jeito desta máquina
+# (ia-conta retomar: claude --resume, codex resume, kiro-cli chat --resume-id; no Termux, dentro do Debian do proot), sempre sem
+# pedir permissões. Armazenamento e formato: snapshots-tt.py. Teste: tests/test_snapshots.sh.
+snapshots_ativo() { [[ $(conf snapshots) == 1 ]]; }
+snap_py() { python3 -I "$DIR_TT/snapshots-tt.py" "$@"; }
+SNAP_US=$'\x1f'
+
+# Um evento do usuário (gancho do tmux, fixadas, vigia): anota o motivo e agenda UMA gravação daqui a alguns segundos.
+snapshot_evento() { # tipo [nome]
+  snapshots_ativo || return 0
+  [[ -e $RT/tt-snap-$UID.restaurando && -z $(find "$RT/tt-snap-$UID.restaurando" -mmin +10 2>/dev/null) ]] && return 0
+  local txt
+  case $1 in
+    sessao-criada) txt="sessão criada" ;; sessao-fechada) txt="sessão fechada" ;; sessao-renomeada) txt="sessão renomeada" ;;
+    janela-criada) txt="aba criada" ;; janela-fechada) txt="aba fechada" ;; janela-renomeada) txt="aba renomeada" ;;
+    painel-dividido) txt="painel dividido" ;; fixadas) txt="fixadas mudaram" ;; agente) txt="agente de IA trocado" ;;
+    *) txt=$1 ;;
+  esac
+  printf '%s\n' "$txt${2:+: $2}" >>"$RT/tt-snap-$UID.pedidos"
+  mkdir "$RT/tt-snap-$UID.agendado" 2>/dev/null || {
+    [[ -n $(find "$RT/tt-snap-$UID.agendado" -mmin +2 2>/dev/null) ]] && rmdir "$RT/tt-snap-$UID.agendado" 2>/dev/null
+    return 0
+  }
+  ( sleep "${TT_SNAP_ESPERA:-4}"; rmdir "$RT/tt-snap-$UID.agendado" 2>/dev/null; "$EU" --snapshot-agora --auto ) </dev/null >/dev/null 2>&1 &
+  return 0
+}
+
+# Cada pedido anotado, sem repetir, numa linha só; apaga os pedidos.
+snapshot_motivo_de() {
+  local f="$RT/tt-snap-$UID.pedidos"
+  [[ -s $f ]] || { echo "manual"; return; }
+  awk '!v[$0]++ { printf "%s%s", (n++ ? " · " : ""), $0 }' "$f"; rm -f "$f"
+}
+
+# Pasta de um agente no formato desta máquina: no Termux o /proc do agente mostra o caminho do rootfs do Debian; o Claude e o
+# retomar precisam da pasta de DENTRO do proot.
+snap_pasta_guest() { local d=$1; [[ $d == */installed-rootfs/* ]] && d=/${d#*/installed-rootfs/*/}; printf '%s\n' "$d"; }
+
+# "provedor pid código" do agente do painel P, gravado em ARQ (vazio se não há agente).
+snap_agente_de() { conversa_do_painel "$1" >"$2" 2>/dev/null || : >"$2"; }
+
+# Coleta o estado (uma ida ao tmux para os painéis, o agente de cada painel em paralelo) e grava pelo snapshots-tt.py.
+snapshot_capturar() { # [motivo] [--forcar]
+  local motivo=${1:-} forcar="" trava="$RT/tt-snap-$UID.captura" tmp s w wn wl wa pi pa pid pp pc br k n foco ult="" prov apid cod conta pasta d
+  [[ ${2:-} == --forcar ]] && forcar=--forcar
+  [[ -n $motivo ]] || motivo=$(snapshot_motivo_de)
+  if ! mkdir "$trava" 2>/dev/null; then
+    [[ -n $(find "$trava" -mmin +5 2>/dev/null) ]] && { rm -rf "$trava"; mkdir "$trava" 2>/dev/null; } || return 0
+  fi
+  tmp=$(mktemp -d "$RT/tt-snap-p.XXXXXX") || { rmdir "$trava"; return 1; }
+  local -a ORDEM=() P_S=() P_W=() P_WN=() P_WL=() P_WA=() P_PI=() P_PA=() P_ID=() P_PP=() P_PC=()
+  local -A VISTA=()
+  while IFS= read -r s; do
+    [[ -n $s && $s != _* ]] || continue
+    [[ -z $(tmux show-options -qv -t "=$s:" @ponte 2>/dev/null) ]] || continue # ponte para outra máquina: não é daqui
+    VISTA[$s]=1; ORDEM+=("$s")
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  while IFS=$SNAP_US read -r fl s w wn wl wa pi pa pid pp pc br; do
+    [[ $fl != 1 && -n ${VISTA[$s]:-} && -z $br ]] || continue
+    P_S+=("$s") P_W+=("$w") P_WN+=("$wn") P_WL+=("$wl") P_WA+=("$wa") P_PI+=("$pi") P_PA+=("$pa") P_ID+=("$pid") P_PP+=("$pp") P_PC+=("$pc")
+  done < <(tmux list-panes -a -F "#{pane_floating_flag}${SNAP_US}#{session_name}${SNAP_US}#{window_index}${SNAP_US}#{window_name}${SNAP_US}#{window_layout}${SNAP_US}#{window_active}${SNAP_US}#{pane_index}${SNAP_US}#{pane_active}${SNAP_US}#{pane_id}${SNAP_US}#{pane_current_path}${SNAP_US}#{pane_current_command}${SNAP_US}#{@ponte}" 2>/dev/null)
+  PS_CACHE=$(ps -eo pid=,ppid=,comm= 2>/dev/null)
+  for k in "${!P_ID[@]}"; do par snap_agente_de "${P_ID[k]}" "$tmp/ag.$k"; done
+  par_fim
+  foco=$(tmux list-clients -F '#{client_activity} #{session_name}' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+  {
+    printf 'M%s%s%s%s\n' "$SNAP_US" "$MAQUINA" "$SNAP_US" "$foco"
+    n=0; for s in "${ORDEM[@]}"; do n=$((n + 1)); printf 'S%s%s%s%s\n' "$SNAP_US" "$n" "$SNAP_US" "$s"; done
+    for k in "${!P_ID[@]}"; do
+      s=${P_S[k]} w=${P_W[k]}
+      if [[ $ult != "$s|$w" ]]; then
+        ult="$s|$w"
+        printf 'W%s%s%s%s%s%s%s%s%s%s\n' "$SNAP_US" "$s" "$SNAP_US" "$w" "$SNAP_US" "${P_WN[k]}" "$SNAP_US" "${P_WL[k]}" "$SNAP_US" "${P_WA[k]}"
+      fi
+      prov="" apid="" cod="" conta=""; pasta=${P_PP[k]}
+      if [[ -s $tmp/ag.$k ]]; then
+        read -r prov apid cod <"$tmp/ag.$k"
+        conta=$(env_do_pid "$apid" IA_CONTA 2>/dev/null)
+        d=$(cwd_do_pid "$apid" 2>/dev/null) && [[ -n $d ]] && pasta=$(snap_pasta_guest "$d")
+      fi
+      printf 'P%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n' "$SNAP_US" "$s" "$SNAP_US" "$w" "$SNAP_US" "${P_PI[k]}" "$SNAP_US" "$pasta" "$SNAP_US" "${P_PC[k]}" "$SNAP_US" "$prov" "$SNAP_US" "$cod" "$SNAP_US" "$conta" "$SNAP_US" "${P_PA[k]}"
+    done
+    while IFS=$'\t' read -r k s w; do [[ -n $k ]] && printf 'F%s%s%s%s%s%s\n' "$SNAP_US" "$k" "$SNAP_US" "$s" "$SNAP_US" "$w"; done < <(fixadas 2>/dev/null)
+  } | snap_py gravar "$motivo" $forcar
+  rm -rf "$tmp"; rmdir "$trava"
+}
+
+# O vigia (a cada volta): troca de agente de IA num painel não tem gancho no tmux; compara "painel:provedor:pid[:conversa]" com
+# a volta anterior e, se mudou, anota o evento.
+snapshot_vigiar() {
+  snapshots_ativo || return 0
+  local f="$ESTADO_DIR/snapshots.agentes" atual="" p prov pid _
+  mkdir -p "$ESTADO_DIR"
+  PS_CACHE=$(ps -eo pid=,ppid=,comm= 2>/dev/null)
+  while read -r p; do
+    prov="" pid=""; read -r prov pid _ < <(agente_no_painel "$p" 2>/dev/null) || true
+    [[ -n $prov ]] && atual+="$p:$prov:$pid"$'\n'
+  done < <(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)
+  if [[ -f $f && $(<"$f") != "${atual%$'\n'}" ]]; then snapshot_evento agente; fi
+  printf '%s' "${atual%$'\n'}" >"$f"
+}
+
+# Comando que continua a conversa de um agente NESTA máquina: direto no Linux, no Mac e no WSL; no Termux, dentro do Debian do proot
+# (os agentes vivem lá), como os atalhos do perfil mobile. Sempre pelo ia-conta retomar, que usa o modo sem confirmações do provedor.
+snapshot_cmd_agente() { # provedor código conta pasta
+  local prov=$1 cod=$2 conta=$3 pasta=$4 base amb=nativo args cd_
+  printf -v args '%q %q' "$prov" "$cod"; [[ -n $conta ]] && printf -v args '%s --conta %q' "$args" "$conta"
+  base='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" ia-conta retomar '"$args"
+  pacotes_lib 2>/dev/null && amb=$(pk_ambiente 2>/dev/null)
+  if [[ $amb == termux ]] && tem_cmd proot-distro; then
+    printf -v cd_ 'cd %q 2>/dev/null; %s' "$pasta" "$base"
+    printf 'proot-distro login debian --shared-tmp -- bash -lc %q' "$cd_"
+  else
+    printf '%s' "$base"
+  fi
+}
+
+# "quando (motivo)" do snapshot ID.
+snapshot_rotulo() { snap_py listar | awk -F'\t' -v id="$1" 'index($1, id) == 1 { print $2 " (" $3 ")"; exit }'; }
+
+# Fixadas do snapshot (linhas "máquina<TAB>sessão<TAB>chave"). aditivo: acrescenta as que faltam. substituir: a lista fica como no snapshot.
+snapshot_restaurar_fixadas() { # modo linhas…
+  local modo=$1 novo l; shift
+  [[ $modo == substituir ]] || (($#)) || return 0
+  travar_fixadas || return 0
+  novo=$(mktemp "$CONF_FIX.XXXXXX") || { destravar_fixadas; return 0; }
+  if [[ $modo == substituir ]]; then
+    : >"$novo"; for l in "$@"; do printf '%s\n' "$l" >>"$novo"; done
+  else
+    { grep -v '^\s*$' "$CONF_FIX" 2>/dev/null; for l in "$@"; do printf '%s\n' "$l"; done; } |
+      awk -F'\t' '!(($1 FS $2) in v) { v[$1 FS $2] = 1; print }' >"$novo"
+  fi
+  mv "$novo" "$CONF_FIX"
+  marcar_fixadas
+  destravar_fixadas
+  aplicar_fixadas
+  propagar_fixadas
+}
+
+# Termina a janela que acabou de ser montada: o layout guardado, o painel ativo e (se era a ativa) a janela ativa.
+snap_fechar_janela() { # sessão janela layout painel-ativo janela-ativa
+  [[ -n $1 && -n $2 ]] || return 0
+  [[ -n $3 ]] && tmux select-layout -t "=$1:$2" "$3" >/dev/null 2>&1
+  [[ -n $4 ]] && tmux select-pane -t "$4" >/dev/null 2>&1
+  [[ $5 == 1 ]] && tmux select-window -t "=$1:$2" >/dev/null 2>&1
+  return 0
+}
+
+# Restaura o snapshot ID. aditivo: só recria o que falta (sessão que já existe fica como está; as fixadas que faltam voltam).
+# substituir: deixa igual ao snapshot (fecha o que não está nele, recria o que existe; a sessão em uso e as ocultas ficam; as
+# fixadas ficam exatamente como no snapshot). Antes de tudo grava um snapshot do estado de agora: a restauração também se desfaz.
+snapshot_restaurar() { # id modo [sessão-em-uso]
+  local id=$1 modo=${2:-aditivo} atual=${3:-} dados rot t a b c d e f g h i s
+  [[ $modo == aditivo || $modo == substituir ]] || { echo "tt: modo '$modo' (use aditivo ou substituir)" >&2; return 2; }
+  dados=$(snap_py dados "$id") || { echo "tt: snapshot '$id' não encontrado" >&2; return 1; }
+  rot=$(snapshot_rotulo "$id")
+  : >"$RT/tt-snap-$UID.restaurando"
+  snapshot_capturar "antes de restaurar $rot" --forcar >/dev/null 2>&1
+  local -a SESS=() FIX=()
+  local -A EXISTE=() NO=()
+  while IFS=$SNAP_US read -r t a b _; do
+    case $t in S) SESS+=("$b"); NO[$b]=1 ;; esac
+  done <<<"$dados"
+  while IFS= read -r s; do [[ -n $s ]] && EXISTE[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  if [[ $modo == substituir ]]; then
+    for s in "${!EXISTE[@]}"; do
+      [[ $s == _* || $s == "$atual" ]] && continue
+      [[ -z $(tmux show-options -qv -t "=$s:" @ponte 2>/dev/null) ]] || continue
+      tmux kill-session -t "=$s" 2>/dev/null; unset "EXISTE[$s]"
+    done
+  fi
+  # Monta, na ordem do arquivo: S… (só nomes), depois W/P de cada janela. A janela é criada no 1º painel dela.
+  local cs="" cw="" lay="" wn="" wat="" pativo="" novas=0 pid cmd pasta_ok primeira=0 opt
+  while IFS=$SNAP_US read -r t a b c d e f g h i; do
+    case $t in
+      W) # a=sessão b=índice c=nome d=layout e=ativa
+        snap_fechar_janela "$cs" "$cw" "$lay" "$pativo" "$wat"
+        cs=$a cw=$b wn=$c lay=$d wat=$e pativo=""; primeira=1
+        [[ -n ${EXISTE[$a]:-} ]] && cs="" ;; # sessão que já existe: pula
+      P) # a=sessão b=janela c=índice-do-painel d=pasta e=programa f=provedor g=código h=conta i=ativo
+        [[ -n $cs ]] || continue
+        pasta_ok=(); [[ -d $d ]] && pasta_ok=(-c "$d")
+        if ((primeira)); then
+          primeira=0
+          if ! tmux has-session -t "=$cs" 2>/dev/null; then
+            pid=$(tmux new-session -d -s "$cs" -n "$wn" ${pasta_ok[@]+"${pasta_ok[@]}"} -P -F '#{pane_id}' 2>/dev/null)
+            novas=$((novas + 1))
+            opt=$(tmux display-message -p -t "$pid" '#{window_index}' 2>/dev/null)
+            [[ -n $opt && $opt != "$cw" ]] && tmux move-window -d -s "=$cs:$opt" -t "=$cs:$cw" >/dev/null 2>&1
+          else
+            pid=$(tmux new-window -d -t "=$cs:$cw" -n "$wn" ${pasta_ok[@]+"${pasta_ok[@]}"} -P -F '#{pane_id}' 2>/dev/null) ||
+              pid=$(tmux new-window -d -t "=$cs:" -n "$wn" ${pasta_ok[@]+"${pasta_ok[@]}"} -P -F '#{pane_id}' 2>/dev/null)
+          fi
+        else
+          pid=$(tmux split-window -d -t "=$cs:$cw" ${pasta_ok[@]+"${pasta_ok[@]}"} -P -F '#{pane_id}' 2>/dev/null)
+        fi
+        [[ -n $pid ]] || continue
+        [[ $i == 1 ]] && pativo=$pid
+        if [[ -n $f && -n $g ]]; then
+          cmd=$(snapshot_cmd_agente "$f" "$g" "$h" "$d")
+          tmux send-keys -t "$pid" -l -- "$cmd" 2>/dev/null; tmux send-keys -t "$pid" Enter 2>/dev/null
+        fi ;;
+      F) FIX+=("$a"$'\t'"$b"$'\t'"$c") ;;
+    esac
+  done <<<"$dados"
+  snap_fechar_janela "$cs" "$cw" "$lay" "$pativo" "$wat"
+  for s in "${SESS[@]}"; do [[ -n ${EXISTE[$s]:-} ]] && echo "= $s: já existia, mantida" || echo "+ $s: recriada"; done
+  snapshot_restaurar_fixadas "$modo" ${FIX[@]+"${FIX[@]}"}
+  rm -f "$RT/tt-snap-$UID.restaurando"
+  snapshot_capturar "restaurado de $rot" --forcar >/dev/null 2>&1
+  echo "✓ snapshot restaurado ($modo). Cada agente de IA foi retomado na mesma conversa, sem pedir permissões."
+}
+
+# Pergunta SEMPRE o modo (aditivo é o padrão e não perde nada; substituir pede confirmação) e restaura.
+snapshot_perguntar() { # id [sessão-em-uso]
+  local id=$1 atual=${2:-} rot k r
+  rot=$(snapshot_rotulo "$id")
+  printf '\n  \033[1mRestaurar o snapshot de %s\033[0m\n\n' "$rot"
+  printf '   \033[36ma\033[0m  aditivo (padrão): recria só o que falta; nada do que está aberto é fechado\n'
+  printf '   \033[36ms\033[0m  substituir: deixa igual ao snapshot (fecha o que não está nele; a sessão em uso fica)\n'
+  printf '   \033[36mesc\033[0m cancelar\n\n  › '
+  IFS= read -rsn1 k
+  case $k in
+    '' | a | A) echo aditivo; snapshot_restaurar "$id" aditivo "$atual" ;;
+    s | S)
+      printf 'substituir\n  Isto FECHA as sessões que não estão no snapshot. Digite "sim" para confirmar: '
+      read -r r
+      [[ $r == sim ]] && snapshot_restaurar "$id" substituir "$atual" || echo "cancelado." ;;
+    *) echo "cancelado."; return 0 ;;
+  esac
+  read -rsn1 -p '  (tecla fecha) '
+}
+
+# A tela: lista com data e hora, motivo e contagens; a prévia mostra a árvore do snapshot; ⏎ restaura.
+snapshots_ui() {
+  local sel id atual lista
+  atual=$(tmux display-message -p '#{session_name}' 2>/dev/null)
+  while :; do
+    lista=$(snap_py listar | awk -F'\t' '{ printf "%s\t%s  %-40.40s \033[90m%s sessões · %s painéis · %s IA · %s fixadas\033[0m\n", $1, $2, $3, $4, $5, $6, $7 }')
+    [[ -n $lista ]] || { echo "Nenhum snapshot ainda. Ligue com: tt --snapshots on"; read -rsn1 -p '(tecla fecha)'; return 0; }
+    sel=$(fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse --exact --prompt='📸 ' --pointer='▶' \
+      --header='snapshots do estado · ⏎ restaurar (pergunta o modo) · esc sai' \
+      --preview="$EU --snapshot-ver {1}" --preview-window='right,55%,wrap' <<<"$lista") || return 0
+    id=${sel%%$'\t'*}
+    snapshot_perguntar "$id" "$atual"
+  done
+}
+
+# tt --snapshots [on|off|status]: sem argumento (num terminal) abre a tela.
+snapshots_cmd() {
+  case ${1:-ui} in
+    on) conf_gravar snapshots 1; echo "📸 snapshots ligados: a cada mudança de aba, sessão, agente de IA ou fixadas grava o estado (até 50)."
+      snapshot_capturar "snapshots ligados" --forcar >/dev/null 2>&1 ;;
+    off) conf_gravar snapshots 0; echo "📸 snapshots desligados (os que existem ficam; tt --snapshots on religa)." ;;
+    status) snapshots_ativo && echo "📸 snapshots: ligados" || echo "📸 snapshots: desligados (tt --snapshots on)"
+      snap_py listar | awk -F'\t' 'NR == 1 { u = $2 " (" $3 ")" } END { printf "   %d guardado(s)%s\n", NR, (NR ? "; o último: " u : "") }' ;;
+    ui) if [[ -t 1 ]]; then snapshots_ui; else snap_py listar; fi ;;
+    *) echo "uso: tt --snapshots [on|off|status]" >&2; return 2 ;;
+  esac
 }
 
 # --- Busca na conversa inteira (índice FTS5 do busca-tt.py) ---------------------------------------------------
@@ -2512,7 +2781,7 @@ mac_atalhos() {
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py
+ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
   checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
@@ -8014,6 +8283,7 @@ menu_admin() {
     printf 'm\t  ⚙ tmux…\t%s\n' "$EU --menu-tmux $(q "$c") $p"
     printf -- '-\t\t\n'
     printf 'c\t  📧 Contas de e-mail…\t%s\n' "$EU --email-contas $(q "$c")"
+    printf 'S\t  📸 Snapshots do estado (histórico e restaurar)…\t%s\n' "$(popup_tt "$c" "📸 snapshots" "$EU --snapshots")"
     printf 's\t  🧠 Conversas das IAs: sincronizar agora…\t%s\n' "$(popup_tt "$c" "🧠 conversas das IAs" "$EU --sessoes-ia agora; echo; $EU --sessoes-ia; read -rsn1 -p '(tecla fecha)'")"
     printf -- '-\t\t\n'
     ((atras)) && printf 'u\t  ⟳ Atualizar as desatualizadas (%s)\t%s\n' "$(versao_humana)" "$(popup_tt "$c" sincronizar "$EU --sincronizar; read -rsn1 -p '(tecla fecha)'")"
@@ -8166,7 +8436,7 @@ destravar_fixadas() { rmdir "$CONF_FIX.trava" 2>/dev/null; return 0; }
 
 # Versão da lista: a hora (ns) da última mudança, em ~/.config/tt/fixadas.v.
 versao_fixadas() { local v; v=$(cat "$CONF_FIX.v" 2>/dev/null); echo "${v:-0}"; }
-marcar_fixadas() { date +%s%N >"$CONF_FIX.v"; }
+marcar_fixadas() { date +%s%N >"$CONF_FIX.v"; snapshot_evento fixadas; }
 
 # Recebe a lista de outra máquina (stdin) com a versão V. Só aceita se for mais nova que a daqui:
 # uma máquina que volta atrasada nunca desfaz uma mudança mais recente.
@@ -11918,7 +12188,7 @@ tarefas_lembrete() {
 # --- barra e UI ------------------------------------------------------------
 
 # Botão do canto direito da 2ª linha, ao lado do relógio/versão: 📋 com a contagem de abertas.
-# Quando há tarefa aberta vencida ou de hoje, o botão fica VERMELHO com ⚠ e a contagem de urgentes,
+# Quando há tarefa aberta ATRASADA, o botão fica laranja com a contagem delas e, entre parênteses, o total de abertas (2 (23)),
 # para o prazo "trabalhar por você" sem precisar abrir o painel.
 # --- painel de tarefas -------------------------------------------------------
 #
@@ -12052,7 +12322,10 @@ tarefas_demandas_n() { local c; read -ra c < <(tarefas_contagens); echo "${c[7]:
 barra_tarefas_fmt() {
   local h n a x en; read -r h n a a a a x en < <(tarefas_contagens)
   if ((x > 0)); then
-    printf '#[range=user|tarefas]#[fg=#1e1e2e,bg=#fab387,bold] 📋 %s #[norange]#[default] ' "$x"
+    # Atrasadas e, entre parênteses, quantas abertas há no total ("2 (23)"): o laranja não esconde o tamanho da fila.
+    # Se todas estão atrasadas, o total seria o mesmo número de novo: fica só ele.
+    local rot=$x; ((n > x)) && rot="$x ($n)"
+    printf '#[range=user|tarefas]#[fg=#1e1e2e,bg=#fab387,bold] 📋 %s #[norange]#[default] ' "$rot"
   elif ((n > 0)); then
     printf '#[range=user|tarefas]#[fg=#1e1e2e,bg=#f9e2af,bold] 📋 %s #[norange]#[default] ' "$n"
   else
@@ -19257,7 +19530,7 @@ fi
 # imprimem algo ou falham, o tmux abre por cima do painel um modo de leitura com a mensagem, que
 # esconde o menu/popup (parecia que o menu "sumia").
 case "${1:-}" in
-  --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --notifs-sync | --notifs-receber | --clique | --rolar | --atalho-rodar | --seguir | --popup | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela | --chrome-falhou)
+  --snapshot-evento | --snapshot-agora | --snapshot-vigiar | --ir-fixada | --mover-fixada | --fixadas-popup | --mover-fixada-rel | --desafixar-n | --aplicar-fixadas | --email-sync | --notifs-sync | --notifs-receber | --clique | --rolar | --atalho-rodar | --seguir | --popup | --menu-painel | --menu-tmux | --menu-arquivos | --menu-maquinas | --menu-admin | --menu-sessao | --clique-direito | --nova-e-ir | --seletor-em | --bordas | --guarda-tamanho | --ajustar | --barras | --tema-clientes | --descongelar | --copiado | --copiar-tela | --soltar | --vigia | --link-abrir | --links-tela | --chrome-falhou)
     exec >/dev/null 2>&1
     trap 'exit 0' EXIT
     trap 'exit 0' TERM INT HUP ;; # o vigia é encerrado com TERM a cada atualização
@@ -19326,6 +19599,14 @@ case "${1:-}" in
   --tema-agentes) "$DIR_TT/tema-agentes.sh" --aplicar; exit ;;
   --memoria-agentes) "$DIR_TT/memoria-agentes.sh" --aplicar; exit ;;
   --aidlc) aidlc_bootstrap "${2:-.}"; exit $? ;;
+  --snapshots) shift; snapshots_cmd "$@"; exit $? ;;
+  --snapshot-agora) if [[ ${2:-} == --auto ]]; then snapshot_capturar ""; else snapshot_capturar manual --forcar; fi; exit 0 ;;
+  --snapshot-evento) snapshot_evento "${2:-}" "${3:-}"; exit 0 ;;
+  --snapshot-vigiar) snapshot_vigiar; exit 0 ;;
+  --snapshot-cmd-agente) snapshot_cmd_agente "${2:-}" "${3:-}" "${4:-}" "${5:-}"; echo; exit 0 ;;
+  --snapshots-listar) snap_py listar; exit ;;
+  --snapshot-ver) snap_py ver "${2:-}"; exit ;;
+  --snapshot-restaurar) snapshot_restaurar "${2:-}" "${3:-aditivo}" "${4:-}"; exit $? ;;
   --busca) shift; busca_cmd "$@"; exit $? ;;
   --busca-indexar) busca_indexar; exit 0 ;;
   --busca-consulta) shift; busca_consulta "$*"; exit 0 ;;
