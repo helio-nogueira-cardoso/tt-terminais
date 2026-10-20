@@ -1553,16 +1553,31 @@ snapshot_perguntar() { # id [sessão-em-uso]
 # A tela: lista com data e hora, motivo e contagens; a prévia mostra a árvore do snapshot;
 # botão ↩ Restaurar no cabeçalho, Ctrl+R e ⏎ restauram o item selecionado.
 snapshots_ui() {
-  local sel id atual lista
+  local sel id atual lista acao r
   atual=$(tmux display-message -p '#{session_name}' 2>/dev/null)
   while :; do
+    if ! snapshots_ativo; then
+      printf '\n  📸 \033[1mSnapshots do estado\033[0m estão \033[33mdesligados\033[0m.\n\n'
+      printf '  Ligados, o tt grava (até 50) o estado desta máquina a cada aba, sessão, agente de IA ou fixada que muda,\n'
+      printf '  e você restaura qualquer um depois, com cada agente de IA voltando na mesma conversa.\n\n'
+      printf '  \033[36m⏎\033[0m ou \033[36ms\033[0m  ligar agora     \033[36mesc\033[0m  sair\n\n  › '
+      IFS= read -rsn1 r
+      case $r in '' | s | S) snapshots_cmd on; echo; continue ;; *) return 0 ;; esac
+    fi
     lista=$(snap_py listar | awk -F'\t' '{ printf "%s\t%s  %-40.40s \033[90m%s sessões · %s painéis · %s IA · %s fixadas\033[0m\n", $1, $2, $3, $4, $5, $6, $7 }')
-    [[ -n $lista ]] || { echo "Nenhum snapshot ainda. Ligue com: tt --snapshots on"; read -rsn1 -p '(tecla fecha)'; return 0; }
+    [[ -n $lista ]] || lista=$'-\t\033[90m(nenhum snapshot ainda: o primeiro sai na próxima mudança, ou ^n grava agora)\033[0m'
     sel=$(fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse --exact --prompt='📸 ' --pointer='▶' \
       --header='↩ Restaurar · Ctrl+R · ⏎' \
       --bind='ctrl-r:accept,click-header:accept' \
+      --border=rounded --border-label=' ^n grava agora · ^o liga/desliga · esc sai ' --expect=ctrl-o,ctrl-n \
       --preview="$EU --snapshot-ver {1}" --preview-window='right,55%,wrap' <<<"$lista") || return 0
+    acao=${sel%%$'\n'*}; sel=${sel#*$'\n'}
+    case $acao in
+      ctrl-o) snapshots_cmd off; sleep 1; continue ;;
+      ctrl-n) snapshot_capturar "manual" --forcar >/dev/null 2>&1; continue ;;
+    esac
     id=${sel%%$'\t'*}
+    [[ $id == - || -z $id ]] && continue
     snapshot_perguntar "$id" "$atual"
   done
 }
@@ -8322,6 +8337,9 @@ menu_admin() {
     printf 'm\t  ⚙ tmux…\t%s\n' "$EU --menu-tmux $(q "$c") $p"
     printf -- '-\t\t\n'
     printf 'c\t  📧 Contas de e-mail…\t%s\n' "$EU --email-contas $(q "$c")"
+    if busca_ativa; then printf 'B\t  🔎 Busca na conversa inteira: ligada (desligar)\t%s\n' "$(popup_tt "$c" "🔎 busca na conversa" "$EU --busca off; echo; $EU --busca estado; read -rsn1 -p '(tecla fecha)'")"
+    else printf 'B\t  🔎 Busca na conversa inteira: desligada (ligar)\t%s\n' "$(popup_tt "$c" "🔎 busca na conversa" "$EU --busca on; echo; $EU --busca agora; $EU --busca estado; read -rsn1 -p '(tecla fecha)'")"; fi
+    [[ $(uname -s) == Darwin ]] && printf 'M\t  🍎 Atalhos no Mac (Option como Meta, tabela Linux → Mac)…\t%s\n' "$(popup_tt "$c" "🍎 atalhos no Mac" "$EU --mac status; echo; $EU --mac atalhos; echo; read -rp 'Ligar o Option como Meta agora? [s/N] ' r; [[ \$r == [sS] ]] && $EU --mac ativar; read -rsn1 -p '(tecla fecha)'")"
     printf 'S\t  📸 Snapshots do estado (histórico e restaurar)…\t%s\n' "$(popup_tt "$c" "📸 snapshots" "$EU --snapshots")"
     printf 's\t  🧠 Conversas das IAs: sincronizar agora…\t%s\n' "$(popup_tt "$c" "🧠 conversas das IAs" "$EU --sessoes-ia agora; echo; $EU --sessoes-ia; read -rsn1 -p '(tecla fecha)'")"
     printf -- '-\t\t\n'
@@ -15975,6 +15993,7 @@ clique() {
     fixar) fixar_atual "$2" ;;
     fx*) ir_fixada "$2" "$faixa" ;;
     tarefas) abrir_tarefas "$2" ;;
+    snapshots) eval "$(popup_tt "$2" "📸 snapshots" "$EU --snapshots")" ;;
     entrada) tarefas_filtro_set entrada; abrir_tarefas "$2" ;;   # chip 📥: direto na Entrada
     em_*) email_botao_acao "${faixa#em_}" ;;
     notifs) notifs_popup "$2" ;;

@@ -22,6 +22,15 @@ done
 [[ $(grep -c 'after-new-window\[20\]' <<<"$hk") == 1 ]] || falhou 'recarregar acumulou o gancho'
 tmux kill-server 2>/dev/null || true
 
+# --- caminhos pela interface: atalho de teclado, rota do clique, menu administrar e a tela (liga/desliga)
+grep -q "bind S run-shell -b \"~/.local/bin/tt --clique snapshots " "$RAIZ/tmux.conf" || falhou 'Ctrl+B S não abre os snapshots'
+grep -q '    snapshots) eval "$(popup_tt' "$RAIZ/tt" || falhou 'clique() sem a rota snapshots'
+grep -q "📸 Snapshots do estado (histórico e restaurar)" "$RAIZ/tt" || falhou 'menu administrar sem o item dos snapshots'
+grep -q "🔎 Busca na conversa inteira: " "$RAIZ/tt" || falhou 'menu administrar sem o item da busca (ligar/desligar)'
+grep -q "🍎 Atalhos no Mac" "$RAIZ/tt" || falhou 'menu administrar sem o item dos atalhos do Mac'
+grep -q -- '--expect=ctrl-o,ctrl-n' "$RAIZ/tt" || falhou 'tela dos snapshots sem ^o/^n'
+cli=$(tmux list-clients -F '#{client_name}' 2>/dev/null | head -1); : "${cli:=}"
+
 # --- desligado por padrão: evento não grava nada
 st=$("$TT" --snapshots status); [[ $st == *desligados* ]] || falhou 'deveria nascer desligado'
 tmux new-session -d -s alfa -x 120 -y 40 -c "$T"

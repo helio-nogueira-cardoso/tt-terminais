@@ -8,6 +8,11 @@ vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu admin
   Corrigido o caminho dos LaunchDaemons; repetir a garantia não reinicia serviços saudáveis. Falha restaura a
   configuração anterior e aparece no diagnóstico, sem prompt de senha. Linux/Termux e ambientes de teste ficam isolados.
 
+## v2.0.6 · 20/10/2026
+- **Caminhos pela interface para o que a 2.0.0 trouxe:** `Ctrl+B S` abre os 📸 snapshots; a tela dos snapshots agora liga e desliga a
+  funcionalidade (desligada, oferece ligar com ⏎; `^o` desliga, `^n` grava agora); o menu administrar ganhou **🔎 Busca na conversa
+  inteira** (liga/desliga) e, no macOS, **🍎 Atalhos no Mac** (estado do Option, tabela Linux → Mac e ativar). Antes só dava pela linha de comando.
+
 ## v2.0.0 · 20/10/2026
 Começa o ciclo 2.x.
 - **🍎 Tailscale WebSocket automático no Mac:** a instalação e as atualizações agora garantem Node.js/Tailscale,

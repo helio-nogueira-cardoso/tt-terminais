@@ -690,7 +690,7 @@ e os instaladores da pasta do usuário ficam no `tt`.
   `--nomear-todas[-local]`.
 
 ### Snapshots do estado (`snapshots-tt.py`)
-- Ativável: `snapshots=1` (`tt --snapshots on|off|status`; sem argumento abre a tela, também no menu administrar → 📸). Ganchos do tmux `[20]` em
+- Ativável: `snapshots=1` (`tt --snapshots on|off|status`; sem argumento abre a tela, também `Ctrl+B S` — rota `snapshots` do `clique()` — e menu administrar → 📸; na tela, ⏎ liga quando desligada, `^o` desliga, `^n` grava agora). Ganchos do tmux `[20]` em
   `session-created/closed/renamed`, `after-new-window`, `window-unlinked`, `window-renamed` (`set-hook -gw`) e `after-split-window` chamam
   `tt --snapshot-evento TIPO`; `marcar_fixadas` também; o vigia chama `--snapshot-vigiar` (troca de agente: compara `painel:provedor:pid`).
   `snapshot_evento` anota o motivo e agenda UMA gravação em `TT_SNAP_ESPERA`=4 s; `snapshot_capturar` coleta (uma ida ao tmux; `conversa_do_painel`

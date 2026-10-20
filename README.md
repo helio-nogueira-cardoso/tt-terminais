@@ -79,7 +79,7 @@ tem dentro:
 Rajadas viram um snapshot só (`TT_SNAP_ESPERA`, 4 s) e estado igual ao último não grava de novo. A troca de agente num painel não tem
 gancho no tmux; o vigia a percebe a cada volta.
 
-`tt --snapshots` (também menu administrar → 📸) abre a lista com data e hora e a prévia da árvore de cada um; ⏎ restaura. **O modo é
+`tt --snapshots` (também `Ctrl+B S` e menu administrar → 📸) abre a lista com data e hora e a prévia da árvore de cada um; ⏎ restaura. **O modo é
 perguntado a cada vez**: *aditivo* (padrão: recria só o que falta e não fecha nada do que está aberto; as fixadas que faltam voltam) ou
 *substituir* (deixa igual ao snapshot: fecha o que não está nele, menos a sessão em uso e as ocultas, e as fixadas ficam como estavam;
 pede "sim"). Antes de restaurar o tt grava o estado de agora, então a restauração também se desfaz.
@@ -113,7 +113,7 @@ A busca da central (`tt`, `Ctrl+B s`) sempre achou texto no nome, na máquina, n
 
 O vigia reindexa a cada `TT_T_BUSCA` s (180; 0 desliga) só o que mudou (assinatura `mtime:tamanho` da conversa; scrollback pelo
 tamanho do histórico e o fim da tela) e esquece painel e conversa que sumiram. Índice em `~/.cache/tt/busca.db`
-(`TT_BUSCA_DB`; teto de `TT_BUSCA_MAX_KB`=16384 KB por fonte). `busca_conversa=0` no config (ou `tt --busca off`) desliga.
+(`TT_BUSCA_DB`; teto de `TT_BUSCA_MAX_KB`=16384 KB por fonte). `busca_conversa=0` no config, `tt --busca off` ou o menu administrar → 🔎 desliga.
 
 `tt --busca [estado|agora|on|off|consultar TEXTO]`; `tt --busca-consulta TEXTO` (o que as outras máquinas respondem).
 Teste: `tests/test_busca_conversa.sh`.
