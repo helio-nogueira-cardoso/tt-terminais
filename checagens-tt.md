@@ -51,7 +51,12 @@ repositório) e chega a todas as máquinas na próxima versão; regra só de uma
   só numa máquina (o celular sem o MagicDNS): a malha religa pelo IP da tailnet que as outras anunciam.
 - **Conferir também:** linha `tailscale` do `tt --checar`. `aviso` = sem falar com o servidor de coordenação (filtro de rede
   da empresa; o nó segue vivo pelo cache); `falha` = deslogado/parado. Não reinicie o `tailscaled` na rede com filtro: o
-  registro falha e a máquina fica deslogada. Troque para uma rede sem filtro e rode `sudo tailscale up --ssh --hostname=NOME`.
+  registro falha e a máquina fica deslogada. **No Mac, confira primeiro `tt --tailscale-ws status` e repare com
+  `tt --tailscale-ws garantir`: instalação e vigia mantêm o bridge automaticamente.** O reparo valida os listeners
+  antes de mudar o daemon; sudo sem senha/dependência ausente fica em `~/.local/state/tt/tailscale-ws/estado`.
+  Login necessário é uma pendência separada; o bridge não troca identidade nem credenciais. Fora do Mac, ou se
+  a rede continuar recusando mesmo com o bridge saudável, troque para uma rede sem filtro e rode
+  `sudo tailscale up --ssh --hostname=NOME`.
 
 ## 7. Agentes
 - **Conferir:** `~/.agents/AGENTS.md` tem o bloco `tt-managed:regras-tt`; `CLAUDE.md` dos perfis e `AGENTS.md` do

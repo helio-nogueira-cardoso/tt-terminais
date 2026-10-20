@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.0.4 · 20/10/2026
+- **WebSocket reforçado no Mac:** a instalação e o vigia garantem os três serviços e conferem seus listeners.
+  Corrigido o caminho dos LaunchDaemons; repetir a garantia não reinicia serviços saudáveis. Falha restaura a
+  configuração anterior e aparece no diagnóstico, sem prompt de senha. Linux/Termux e ambientes de teste ficam isolados.
+
 ## v2.0.0 · 20/10/2026
 Começa o ciclo 2.x.
 - **🍎 Tailscale WebSocket automático no Mac:** a instalação e as atualizações agora garantem Node.js/Tailscale,

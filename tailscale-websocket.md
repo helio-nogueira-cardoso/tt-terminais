@@ -4,8 +4,22 @@ Em redes corporativas com inspeção Netskope, o protocolo nativo do Tailscale p
 
 ## Ativar
 
-Em instalações novas ou atualizações no macOS, o `tt` garante Node.js/Tailscale pelo Homebrew e ativa este
-fallback automaticamente. A ativação manual continua disponível para reparar ou conferir uma máquina:
+Em instalações novas ou atualizações no macOS, o `tt` garante Node.js com WebSocket nativo e o `tailscaled`
+pelo Homebrew (Intel e Apple Silicon), e ativa este fallback automaticamente. O vigia reforça a garantia
+ao iniciar e a cada cinco minutos. Em Linux e Termux a rotina não faz nada.
+
+`tt --tailscale-ws garantir` é a mesma operação idempotente da instalação e do vigia: compara arquivos,
+confere os serviços e consulta `/tt-health` nos três listeners. Só recarrega o que mudou ou caiu.
+Os arquivos são instalados atomicamente, os argumentos e opções existentes do `tailscaled` são preservados,
+e os bridges ficam prontos antes de apontar o daemon ao proxy. Falha de carregamento restaura o estado anterior.
+Ao atualizar o bridge ou as CAs, reconecta o daemon uma vez para descartar tentativas antigas malsucedidas.
+
+As chamadas administrativas usam `sudo -n`. Sem privilégio, Homebrew ou dependência disponível, fica uma
+pendência em `~/.local/state/tt/tailscale-ws/estado` e `ultima.log`, visível também em `tt --checar`.
+A instalação do tt continua e o vigia tenta novamente; nunca pede senha nem inicia login do Tailscale.
+A instalação requer o daemon standalone `tailscaled`; a extensão da aplicação gráfica não é administrada pelo tt.
+
+A ativação manual continua disponível para reparar ou conferir uma máquina:
 
 No Mac, com Node.js, Tailscale e `sudo` disponível:
 
@@ -26,4 +40,10 @@ tt --saude
 tt --tailscale-ws desativar
 ```
 
-Durante a ativação, as CAs confiadas pelo macOS são exportadas para `~/.local/share/tt-tailscale-ws/system-ca.pem`, permitindo que o Node confie na inspeção Netskope. Nenhum auth key, token ou segredo é copiado para o pacote.
+O bridge e as CAs públicas do System Keychain são instalados em `/Library/Application Support/tt-tailscale-ws/`,
+com propriedade de root. O backup de um plist anterior sem proxy fica nessa pasta como `tailscaled.antes-ws.plist`.
+Os logs ficam em `~/.local/state/tt/tailscale-ws/`. Nenhum auth key, token ou segredo é copiado para o pacote.
+
+`desativar` tira apenas as variáveis do fallback e preserva o restante do serviço; não restaura backups antigos
+contaminados pelo próprio proxy. O próximo reforço volta a ativá-lo. `TT_TAILSCALE_WS_AUTO=0` no ambiente do
+instalador/vigia suspende o reforço explicitamente. `TT_MAC_AUTO=0`, `TT_RT` isolado ou HOME temporário protegem testes.

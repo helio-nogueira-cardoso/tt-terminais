@@ -108,6 +108,11 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --aidlc [raiz]` — bootstrap AI-DLC no projeto (idempotente).
 
 ### Máquinas, cadastro, diagnóstico
+- **macOS:** instalação e vigia (a cada 300 s) chamam `--tailscale-ws-garantir`: Node com WebSocket nativo,
+  tailscaled e três LaunchDaemons conferidos, sem reinício quando saudáveis. `--tailscale-ws garantir|ativar|status|testar|desativar`
+  usa `tailscale-ws.py`; grava estado/log em `$ESTADO_DIR/tailscale-ws/`. Só `sudo -n`, sem login automático;
+  bridge pronto antes do proxy, rollback se falhar, opções do daemon preservadas. Linux/Termux não agem.
+  `TT_TAILSCALE_WS_AUTO=0` suspende; testes (`TT_MAC_AUTO=0`, `TT_RT` ou HOME isolado) não tocam no sistema.
 - `tt --cadastrar [host [usuario [nome]]]` — testa ssh, instala o tt lá, cadastra as duas máquinas
   uma na outra. Sem host, lista as do Tailscale.
 - `tt --descadastrar [nome]` — tira do menu (aqui e lá); opcional desinstalar lá.

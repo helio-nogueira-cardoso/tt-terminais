@@ -27,7 +27,7 @@
 #   tt --tarefas-sync [modo] [url]  como as tarefas vão às outras máquinas (p2p, git, ambos, off)
 #   tt --letreiro-listar  fontes (APIs) do letreiro da faixa: -add -editar -rm -testar -log -exportar -importar
 #                   -catalogo -ajustes; painel: menu ⋯ → 📰 Letreiro (README: "Letreiro: fontes")
-#   tt --tailscale-ws ativar|desativar|status|testar  fallback WebSocket local do Tailscale no macOS
+#   tt --tailscale-ws garantir|ativar|desativar|status|testar  fallback WebSocket local no macOS
 #   tt --snapshots [on|off|status]  histórico de até 50 snapshots do estado (abas, agentes de IA, fixadas); ⏎ restaura
 #   tt --busca [estado|agora|on|off|consultar T]  busca na conversa inteira e no scrollback (central: ^e → "conversa")
 #   tt --mac [status|ativar|atalhos]  atalhos no Mac: Option como Meta (Terminal.app, Ghostty, iTerm2) e a tabela Linux → Mac
@@ -646,6 +646,8 @@ vigiar() {
       ("$EU" --checar-auto >/dev/null 2>&1 &)
       # Esta máquina aceita conexão da malha (sshd do sistema ou o do usuário na 8022)?
       ("$EU" --sshd-garantir --vigia >/dev/null 2>&1 &)
+      # Macs mantêm o bridge local disponível mesmo depois de queda ou atualização.
+      ("$EU" --tailscale-ws-garantir >/dev/null 2>&1 &)
     fi
     # Limpeza conservadora: somente sessões sem processo, sem histórico e desanexadas há 5 min.
     fechar_paradas "$agora"
@@ -2690,7 +2692,16 @@ ajuda() {
 tailscale_ws() {
   local acao=${1:-status} dir=$DIR_TT
   [[ -r $dir/tailscale-ws.sh ]] || dir=${EU%/*}
-  "$dir/tailscale-ws.sh" "$dir" "$acao"
+  bash "$dir/tailscale-ws.sh" "$dir" "$acao"
+}
+
+tailscale_ws_garantir() {
+  [[ $(uname -s) == Darwin && ${TT_MAC_AUTO:-1} != 0 && ${TT_TAILSCALE_WS_AUTO:-1} != 0 && -z ${TT_RT:-} ]] || return 0
+  local d=$ESTADO_DIR/tailscale-ws rc=0
+  mkdir -p "$d"
+  # Um registro curto por rodada; o helper serializa instalação e vigia sem esperar senha.
+  tailscale_ws garantir >"$d/ultima.log" 2>&1 || rc=$?
+  return "$rc"
 }
 
 # tt --mac [status|ativar|atalhos]: no Mac, Ctrl+clique vira botão direito antes de chegar ao tmux, Ctrl+Shift+V não existe,
@@ -2795,13 +2806,13 @@ mac_configurar_padrao() {
     *) echo 'macOS: terminal não reconhecido; veja tt --mac atalhos.' ;;
   esac
   if [[ ${TT_TAILSCALE_WS_AUTO:-1} != 0 ]]; then
-    tailscale_ws ativar || rc=1
+    tailscale_ws_garantir || echo 'macOS: WebSocket pendente; o vigia tentará de novo (tt --tailscale-ws status).'
   fi
   return "$rc"
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
+ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
   checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
@@ -7067,6 +7078,10 @@ checar_coletar() {
     else checar_linha sshd falha "sem servidor ssh (openssh-server): as outras máquinas não alcançam esta" "tt --pedir-sudo sshd"; fi
   fi
 
+  if [[ $(uname -s) == Darwin && ${TT_TAILSCALE_WS_AUTO:-1} != 0 && -z ${TT_RT:-} ]]; then
+    if x=$(tailscale_ws status 2>&1); then checar_linha tailscale-ws ok "$x"
+    else checar_linha tailscale-ws falha "$x" "tt --tailscale-ws garantir; ver ~/.local/state/tt/tailscale-ws/ultima.log"; fi
+  fi
   # tailscale: deslogado ou sem falar com o servidor de coordenação (filtro de rede da empresa, "unexpected EOF") deixa
   # esta máquina fora da tailnet; o cache mantém o nó vivo até o tailscaled reiniciar, e aí o registro falha.
   if command -v tailscale >/dev/null 2>&1; then
@@ -19636,6 +19651,7 @@ case "${1:-}" in
   --busca-mudou) busca_mudou; exit 0 ;;
   --mac) shift; mac_atalhos "${1:-status}"; exit $? ;;
   --tailscale-ws) shift; tailscale_ws "${1:-status}"; exit $? ;;
+  --tailscale-ws-garantir) tailscale_ws_garantir; exit $? ;;
   --verificar-atualizacao) verificar_atualizacao; exit ;;
   --garantir-atualizacao) garantir_atualizacao; exit ;;
   --sondar-atualizacao) atualizacao_sondar; exit ;;

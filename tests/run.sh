@@ -50,6 +50,7 @@ suite_dir=$(cd "$(dirname "$0")" && pwd)
 # por vez, sem disputar a máquina. A fila começa pelos mais demorados da última rodada
 # (~/.cache/tt-testes/duracoes); a saída de cada teste sai inteira quando ele termina.
 unset TMUX TMUX_PANE TT_CLIENTE TT_PANE # (a tela gráfica de quem roda a suíte: cada teste a tira, ver sem_tela_real no lib.sh)
+export TT_MAC_AUTO=0 TT_TAILSCALE_WS_AUTO=0
 res=$(mktemp -d "${TMPDIR:-/tmp}/tt-testes.XXXXXX")
 duracoes=${XDG_CACHE_HOME:-$HOME/.cache}/tt-testes/duracoes
 tempo_max=${TT_TESTE_TEMPO_MAX:-1800}

@@ -39,6 +39,7 @@ function websocketBridge(client, head, url, protocol, upgrade) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/tt-health') return res.writeHead(200, {'Content-Type': 'text/plain'}).end('tt-tailscale-ws\n');
   let url;
   try { url = destination(req); } catch (_) { return res.writeHead(403).end(); }
   if (url.pathname !== '/key') return res.writeHead(404).end();
