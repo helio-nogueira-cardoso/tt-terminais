@@ -1458,7 +1458,7 @@ CONF_ATALHOS=$CONF_DIR/atalhos
 if [[ -n ${TT_REPO:-} ]]; then REPO_TT=$TT_REPO; else conf_em REPO_TT repo; fi
 [[ -z $REPO_TT && -e ${EU%/*}/.git && -f ${EU%/*}/tmux.conf ]] && REPO_TT=${EU%/*}
 SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new
-  -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%r@%h" -o ControlPersist=12h
+  -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%C" -o ControlPersist=12h
   -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
 # Comandos remotos rodam no shell não interativo de lá. No macOS (zsh) ele não tem o Homebrew no
 # PATH: nem tmux nem o bash novo que o tt exige (o /bin/bash de lá é o 3.2). Todo comando remoto
@@ -1729,9 +1729,11 @@ diagnosticar_conexao() {
 import json, sys
 try: d = json.load(sys.stdin)
 except Exception: sys.exit()
-alvo = sys.argv[1].split("@")[-1].split(".")[0].lower()
+host = sys.argv[1].split("@")[-1].rstrip(".").lower()
+alvo = host.split(".")[0]
 for p in (d.get("Peer") or {}).values():
-    if (p.get("HostName","").lower() == alvo
+    if (host in [ip.lower() for ip in (p.get("TailscaleIPs") or [])]
+            or p.get("HostName","").lower() == alvo
             or p.get("DNSName","").split(".")[0].lower() == alvo):
         print("online" if p.get("Online") else "offline"); break
 ' "$dest" 2>/dev/null)
@@ -1749,8 +1751,11 @@ for p in (d.get("Peer") or {}).values():
   if grep -q 'login.tailscale.com' <<<"$err"; then echo precisa-aprovar
   elif grep -qi 'tailnet policy does not permit' <<<"$err"; then echo policy-nega
   elif grep -qi 'permission denied' <<<"$err"; then echo sem-chave
+  elif grep -qiE 'not allowed at this time|exceeded maxstartups' <<<"$err"; then echo ssh-limitado
+  elif grep -qiE 'could not resolve hostname|name or service not known|no address associated with hostname' <<<"$err"; then echo dns
   elif grep -qiE 'timed out|connection timed out' <<<"$err"; then echo timeout
-  elif grep -qiE 'connection refused|port 22' <<<"$err"; then echo porta-fechada
+  elif grep -qi 'connection refused' <<<"$err"; then echo porta-fechada
+  elif grep -qiE 'connection reset|connection closed' <<<"$err"; then echo conexao-interrompida
   else echo "erro"
   fi
 }
@@ -1765,6 +1770,9 @@ explicar_diagnostico() {
   precisa-aprovar) echo "o Tailscale SSH de la pede aprovacao no navegador (tente de novo apos aprovar)." ;;
   policy-nega) echo "a policy do tailnet nao permite esse usuario de destino; ajuste a ACL ou use outro usuario." ;;
   sem-chave) echo "rota e porta ok, mas a chave publica nao esta autorizada la; rode: tt --reparar <maquina>." ;;
+  ssh-limitado) echo "o servidor SSH recusou temporariamente novas conexoes; verifique limites e logs do sshd antes de tentar novamente." ;;
+  dns) echo "o nome nao foi resolvido; verifique DNS/MagicDNS ou use um endereco Tailscale conhecido." ;;
+  conexao-interrompida) echo "a conexao SSH foi interrompida; verifique rede, limites e logs do servidor." ;;
   timeout) echo "tempo esgotado; rede instavel ou maquina sobrecarregada." ;;
   *) echo "falha nao classificada." ;;
   esac

@@ -7,7 +7,7 @@ mkdir -p "$T/bin"
 cat >"$T/bin/tailscale" <<'TS'
 #!/usr/bin/env bash
 case $1 in
-  status) printf '{"Peer":{"a":{"HostName":"alvo","DNSName":"alvo.tail.ts.net.","Online":true}}}\n' ;;
+  status) printf '{"Peer":{"a":{"HostName":"alvo","DNSName":"alvo.tail.ts.net.","TailscaleIPs":["100.1.1.1"],"Online":true}}}\n' ;;
   ping)
     case ${TS_MODO:-derp} in
       derp) echo "pong from alvo (100.1.1.1) via DERP(sao) in 30ms"; echo "direct connection not established"; exit 1 ;;
@@ -28,3 +28,10 @@ r=$(TS_MODO=direto diagnosticar_conexao u@alvo); [[ $r == ok ]] || falhou "par d
 passou 'par alcançável só por relay (DERP) ou direto: ok (não é ilha)'
 r=$(TS_MODO=mudo diagnosticar_conexao u@alvo);   [[ $r == sem-rota ]] || falhou "sem nenhum pong deveria dar sem-rota, deu '$r'"
 passou 'nenhum pong: sem-rota'
+r=$(TS_MODO=mudo diagnosticar_conexao u@100.1.1.1); [[ $r == sem-rota ]] || falhou "IP Tailscale sem pong deveria dar sem-rota, deu '$r'"
+passou 'endereço IP também identifica o par Tailscale'
+ssh() { echo "${SSH_ERRO:-}" >&2; return 255; }
+r=$(SSH_ERRO='Not allowed at this time' diagnosticar_conexao u@desconhecido); [[ $r == ssh-limitado ]] || falhou "recusa temporária: '$r'"
+r=$(SSH_ERRO='Could not resolve hostname host' diagnosticar_conexao u@desconhecido); [[ $r == dns ]] || falhou "falha DNS: '$r'"
+r=$(SSH_ERRO='Connection reset by peer port 22' diagnosticar_conexao u@desconhecido); [[ $r == conexao-interrompida ]] || falhou "reset não é porta fechada: '$r'"
+passou 'recusa temporária SSH e erro DNS têm diagnósticos distintos'
