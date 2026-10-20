@@ -75,3 +75,13 @@ grep -q '^teste_heredoc() {' "$D/tt" || falhou 'cenário do heredoc não montado
 saida=$(TT_COMPLETO=1 bash -c 'TT_SO_CARREGAR=1 source "$1"; gerar_rapido "$2"' _ "$TT_DIR/tt" "$D" 2>&1) && falhou "o gerador aceitou uma divisão errada: $saida"
 [[ -e $D/rapido ]] && falhou 'divisão recusada não pode deixar rapido/'
 passou "o gerador recusa uma divisão que não confere ($saida)"
+
+# 20/10/2026: no Mac o tt põe o /opt/homebrew/bin no FIM do PATH, então `bash` é o /bin/bash 3.2 do sistema, que não
+# carrega o tt: as conferências do gerador falhavam e a instalação ficava sem rapido/ (silenciosa). O gerador usa o
+# próprio interpretador ($BASH), não o `bash` do PATH.
+D2=$T/bash-velho; mkdir -p "$D2/bin" "$D2/pkg"; cp "$TT_DIR/tt" "$D2/pkg/tt"
+printf '#!/bin/sh\necho "bash velho" >&2; exit 1\n' >"$D2/bin/bash"; chmod +x "$D2/bin/bash"
+saida=$(PATH="$D2/bin:$PATH" TT_COMPLETO=1 "$BASH" -c 'TT_SO_CARREGAR=1 source "$1"; gerar_rapido "$2"' _ "$TT_DIR/tt" "$D2/pkg" 2>&1) ||
+  falhou "o gerador depende do bash do PATH: $saida"
+[[ -r $D2/pkg/rapido/nucleo.sh ]] || falhou 'gerador sem núcleo com outro bash no PATH'
+passou 'o gerador usa o próprio bash, não o do PATH'
