@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.30.0 · 20/10/2026
+- **🍎 Fallback WebSocket local do Tailscale:** `tt --tailscale-ws ativar` instala o bridge restrito a loopback e os LaunchDaemons para controle/DERP em redes corporativas com Netskope; `status`, `testar` e `desativar` completam a operação. Detalhes em `tailscale-websocket.md`.
+
 ## v1.29.1 · 18/10/2026
 - **📌 fixa de verdade.** O 📌/📍 da barra alterna e agia duas vezes num toque lento (apertar e soltar com mais de 0,5 s, um
   clique firme no trackpad ou o toque do celular): fixava e desafixava e a sessão ficava como estava. Agora ele age só ao
