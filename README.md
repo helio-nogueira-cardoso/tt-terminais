@@ -65,6 +65,25 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
   Claude Haiku lendo a tela, se o `claude` estiver instalado).
 
 
+## Busca na conversa inteira
+
+A busca da central (`tt`, `Ctrl+B s`) sempre achou texto no nome, na máquina, na pasta, no título do Claude e no **fim da tela**
+(150 linhas, 2500 caracteres). Agora ela tem um 3º escopo, **conversa**: `^e` (ou clique no cabeçalho) alterna
+`tudo → nomes → conversa`. No escopo conversa a lista vem de um índice de texto completo (SQLite FTS5, só biblioteca padrão):
+
+- a **conversa inteira** do agente de IA de cada painel (Claude, Codex, Kiro, lida pelo `sessoes-ia.py`);
+- o **scrollback inteiro** do tmux de cada painel (não só a janela de 150 linhas);
+- sem acento nem maiúscula (`autenticacao` acha "Autenticação"), várias palavras em qualquer ordem, prefixo (`autent`),
+  `"frase exata"` entre aspas e `!palavra` para excluir; o melhor resultado vem primeiro, com um pedaço do trecho ao lado do nome;
+- as outras máquinas respondem ao mesmo tempo (ssh em paralelo); a prévia mostra as últimas ocorrências, com contexto e destaque.
+
+O vigia reindexa a cada `TT_T_BUSCA` s (180; 0 desliga) só o que mudou (assinatura `mtime:tamanho` da conversa; scrollback pelo
+tamanho do histórico e o fim da tela) e esquece painel e conversa que sumiram. Índice em `~/.cache/tt/busca.db`
+(`TT_BUSCA_DB`; teto de `TT_BUSCA_MAX_KB`=16384 KB por fonte). `busca_conversa=0` no config (ou `tt --busca off`) desliga.
+
+`tt --busca [estado|agora|on|off|consultar TEXTO]`; `tt --busca-consulta TEXTO` (o que as outras máquinas respondem).
+Teste: `tests/test_busca_conversa.sh`.
+
 ## Atalhos no Mac
 
 No macOS alguns atalhos do tt mudam, porque o sistema ou o terminal se metem no caminho. `tt --mac atalhos` mostra a tabela e

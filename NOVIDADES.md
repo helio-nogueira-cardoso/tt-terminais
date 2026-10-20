@@ -3,6 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v1.32.0 · 20/10/2026
+- **🔎 Busca na conversa inteira:** a central ganhou o escopo **conversa** (`^e`: tudo → nomes → conversa) que procura na conversa
+  inteira do agente de cada painel (Claude, Codex, Kiro) e no scrollback inteiro do tmux, não só nas últimas 150 linhas da tela.
+  Sem acento nem maiúscula, várias palavras em qualquer ordem, prefixo, `"frase exata"` e `!exclusão`; as outras máquinas
+  respondem juntas, o melhor resultado vem primeiro e a prévia pula para o trecho. Índice SQLite FTS5 atualizado pelo vigia só
+  com o que mudou. `tt --busca [estado|agora|on|off]`.
+
 ## v1.31.0 · 20/10/2026
 - **🍎 Atalhos no Mac:** no macOS Ctrl+clique vira botão direito, Ctrl+Shift+V não existe e F1–F10 pedem fn. Agora Option+clique,
   arrastar, duplo e triplo clique fazem o que o Ctrl faz (copiar e abrir link), `Ctrl+B g 1`…`0` chamam os botões F1–F10,

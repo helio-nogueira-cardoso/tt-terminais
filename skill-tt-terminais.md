@@ -684,6 +684,16 @@ e os instaladores da pasta do usuário ficam no `tt`.
 - `tt --nomear-texto` (interno, lê stdin), `--nomeador-ui`, `--sugerir`, `--renomear`,
   `--nomear-todas[-local]`.
 
+### Busca na conversa inteira (`busca-tt.py`)
+- Escopo **conversa** da central (`^e`: tudo → nomes → conversa): índice SQLite FTS5 (`~/.cache/tt/busca.db`, `TT_BUSCA_DB`) da conversa
+  inteira do agente de cada painel (`conversa_do_painel` + `sessoes-ia.py exportar`) e do scrollback inteiro do tmux. `busca_indexar`
+  (vigia a cada `TT_T_BUSCA`=180 s; `--busca-indexar`) monta o TSV `sessão painel provedor código` numa ida ao tmux e o
+  `busca-tt.py indexar` relê só o que mudou (assinatura `mtime:tamanho` / histórico+fim da tela) e esquece o que sumiu.
+  `busca-tt.py consultar|trecho|estado`; texto = palavras E, sem acento/caixa, prefixo, `"frase"`, `!exclui`. Na central o fzf fica
+  `--disabled` e `change:transform` (`--busca-mudou`) manda `reload(--listar-busca {q})`, que consulta esta máquina e as outras
+  (`--busca-consulta` por ssh, `TT_T_BUSCA_REMOTA`=5 s) e filtra as listas guardadas. `busca_conversa=0`/`tt --busca off` desliga.
+  Arquivo novo do pacote: `busca-tt.py` em `ARQUIVOS_FONTE`. Teste: `tests/test_busca_conversa.sh`.
+
 ### Atalhos no Mac (`tt --mac`)
 - `tt --mac [status|ativar|atalhos]`: no macOS Ctrl+clique vira botão direito, Ctrl+Shift+V não existe (Cmd+V) e F1–F10 pedem fn.
   O `tmux.conf` liga `M-MouseDown1Pane`/`M-SecondClick1Pane` como o Ctrl (Option+clique abre link), a tabela `tt-botoes`

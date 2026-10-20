@@ -28,11 +28,12 @@
 #   tt --letreiro-listar  fontes (APIs) do letreiro da faixa: -add -editar -rm -testar -log -exportar -importar
 #                   -catalogo -ajustes; painel: menu ⋯ → 📰 Letreiro (README: "Letreiro: fontes")
 #   tt --tailscale-ws ativar|desativar|status|testar  fallback WebSocket local do Tailscale no macOS
+#   tt --busca [estado|agora|on|off|consultar T]  busca na conversa inteira e no scrollback (central: ^e → "conversa")
 #   tt --mac [status|ativar|atalhos]  atalhos no Mac: Option como Meta (Terminal.app, Ghostty, iTerm2) e a tabela Linux → Mac
 #
 # Menu: Enter entra; ^n nova; ^r renomeia; ^x fecha; ^a dá nome às genéricas. As palavras do
 # cabeçalho são clicáveis. ^f (ou clique) filtra por máquina; a busca procura em nome, máquina,
-# programa, pasta, título do Claude e no conteúdo da tela (^e: só nos nomes); a prévia pula para
+# programa, pasta, título do Claude e no conteúdo da tela (^e: só nos nomes, ou na conversa inteira do agente); a prévia pula para
 # o trecho encontrado. Sessões com vários painéis mostram cada painel (├ └): Enter vai direto
 # nele, ^x fecha só ele, ^r dá nome a ele, ^t solta ele como sessão própria.
 #
@@ -582,6 +583,12 @@ vigiar() {
       ("$EU" --puxar-contas-ia >/dev/null 2>&1 &)
       ("$EU" --puxar-demandas >/dev/null 2>&1 &)
       ("$EU" --puxar-letreiro >/dev/null 2>&1 &)
+    fi
+    # Índice de busca na conversa inteira (busca-tt.py): a cada TT_T_BUSCA (180 s; 0 desliga), só do que mudou.
+    local t_busca=${TT_T_BUSCA:-180}
+    if ((t_busca > 0)) && busca_ativa && ((agora - ${ultima_busca:-0} >= t_busca)); then
+      ultima_busca=$agora
+      ("$EU" --busca-indexar >>"$HOME/.cache/tt-busca.log" 2>&1 &)
     fi
     # Conversas das IAs (Claude, Codex, Kiro) entre as máquinas: a cada TT_T_SESSOES_IA (1800 s; 0 desliga).
     # A primeira volta espera 5 min do início do vigia (ele reinicia a cada versão nova).
@@ -1295,7 +1302,83 @@ for l in linhas[max(0, i - 14): i + 6]:
     print(padrao.sub(lambda m: "\033[30;43m" + m.group(0) + "\033[0m", l))
 ' "$q" "$p" && return 0
   done
+  # Não está nas 150 linhas da tela: procura na conversa inteira e no scrollback inteiro (índice).
+  [[ $k == %* ]] || { busca_ativa && busca_py trecho "$k" "$q" 2>/dev/null && return 0; }
   return 1
+}
+
+# --- Busca na conversa inteira (índice FTS5 do busca-tt.py) ---------------------------------------------------
+# A tela guardada em cada linha do menu só tem o fim do painel (150 linhas, 2500 caracteres). O índice guarda a conversa
+# INTEIRA do agente de cada painel (Claude, Codex, Kiro) e o scrollback inteiro do tmux, sem acento nem caixa, e a busca
+# da central tem um 3º escopo, "conversa" (^e: tudo → nomes → conversa), que consulta o índice desta máquina e das outras.
+# busca_conversa=0 no config desliga. Teste: tests/test_busca_conversa.sh.
+busca_ativa() { [[ $(conf busca_conversa) != 0 ]]; }
+busca_py() { python3 -I "$DIR_TT/busca-tt.py" "$@"; }
+
+# Reindexa esta máquina: uma ida ao tmux para os painéis (sem flutuantes, ocultas nem pontes) e, de cada um, a conversa do
+# agente. O busca-tt.py só relê o que mudou. Uma volta por vez (trava mkdir).
+busca_indexar() {
+  busca_ativa || return 0
+  local trava="$RT/tt-busca-$UID.trava" arq s p br prov pid id
+  if ! mkdir "$trava" 2>/dev/null; then
+    [[ -n $(find "$trava" -mmin +30 2>/dev/null) ]] && rm -rf "$trava" && mkdir "$trava" 2>/dev/null || return 0
+  fi
+  arq=$(mktemp "$RT/tt-busca.XXXXXX") || { rmdir "$trava"; return 1; }
+  while IFS=$'\x1f' read -r fl s p br; do
+    [[ $fl != 1 && $s != _* && -z $br ]] || continue
+    prov=""; id=""
+    read -r prov pid id < <(conversa_do_painel "$p" 2>/dev/null) || true
+    printf '%s\t%s\t%s\t%s\n' "$s" "$p" "$prov" "$id"
+  done < <(tmux list-panes -a -F $'#{pane_floating_flag}\x1f#{session_name}\x1f#{pane_id}\x1f#{@ponte}' 2>/dev/null) >"$arq"
+  nice -n 10 python3 -I "$DIR_TT/busca-tt.py" indexar "$arq"
+  rm -f "$arq"; rmdir "$trava"
+}
+
+# Sessões desta máquina que casam com TEXTO: "sessão<TAB>pontuação<TAB>fonte<TAB>trecho" (melhor primeiro).
+busca_consulta() { busca_ativa || return 0; busca_py consultar "$*"; }
+
+# Linhas da central (as mesmas das listas guardadas) só das sessões cuja conversa/scrollback casa com TEXTO, esta máquina
+# e as outras ao mesmo tempo, melhor primeiro, com um pedaço do trecho achado ao lado do nome.
+listar_busca() { # texto
+  local q=$1 tmp dest rot i=0 n filtro c
+  local -a pids=()
+  [[ -n ${q//[[:space:]]/} ]] || { lista_rapida_central; return; }
+  filtro=$(estado maquina); [[ $filtro == todas ]] && filtro=""
+  tmp=$(mktemp -d "$RT/tt-busca-q.XXXXXX") || return 1
+  if [[ -z $filtro || $filtro == "$MAQUINA" ]]; then
+    printf '%s\n' "$MAQUINA" >"$tmp/r.0"; busca_consulta "$q" >"$tmp/q.0" 2>/dev/null & pids+=($!)
+  fi
+  while read -r dest rot; do
+    [[ -z $filtro || $filtro == "$rot" ]] || continue
+    i=$((i + 1)); printf '%s\n' "$rot" >"$tmp/r.$i"
+    timeout "${TT_T_BUSCA_REMOTA:-5}" ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --busca-consulta $(q "$q")" >"$tmp/q.$i" 2>/dev/null </dev/null & pids+=($!)
+  done < <(maquinas)
+  esperar ${pids[@]+"${pids[@]}"}
+  for n in $(seq 0 "$i"); do
+    [[ -s $tmp/q.$n ]] || continue
+    read -r rot <"$tmp/r.$n"; c=$(cache_lista "$rot")
+    [[ -s $c ]] || continue
+    awk -F'\t' -v OFS='\t' 'NR == FNR { sc[$1] = $2; tr[$1] = $4; next }
+      ($2 in sc) { t = tr[$2]; if (length(t) > 70) t = substr(t, 1, 70) "…"
+                   printf "%s\t%s\n", sc[$2], $1 OFS $2 OFS $3 "  \033[90m‹" t "›\033[0m" OFS $4 }' "$tmp/q.$n" "$c"
+  done | LC_ALL=C sort -t$'\t' -k1,1n | cut -f2-
+  rm -rf "$tmp"
+}
+
+# Ligado ao "change" do fzf da central: no escopo conversa, cada tecla refaz a lista pelo índice.
+busca_mudou() { [[ $(estado busca) == conversa ]] && echo 'reload('"$EU"' --listar-busca {q})'; return 0; }
+
+# tt --busca [estado|agora|on|off|consultar TEXTO]
+busca_cmd() {
+  case ${1:-estado} in
+    estado) busca_ativa && echo "🔎 busca na conversa inteira: ligada" || echo "🔎 busca na conversa inteira: desligada (tt --busca on)"
+      busca_py estado ;;
+    agora) busca_indexar ;;
+    on) conf_gravar busca_conversa 1; echo "🔎 ligada (o vigia reindexa a cada ${TT_T_BUSCA:-180}s; tt --busca agora faz já)" ;;
+    off) conf_gravar busca_conversa 0; echo "🔎 desligada (o índice fica; tt --busca on religa)" ;;
+    consultar) shift; busca_py consultar "$*" ;;
+    *) echo "uso: tt --busca [estado|agora|on|off|consultar TEXTO]" >&2; return 2 ;;
+  esac
 }
 
 previa_solta() {
@@ -2429,7 +2512,7 @@ mac_atalhos() {
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws-bridge.cjs tailscale-websocket.md
+ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
   checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
@@ -4075,7 +4158,7 @@ estado() {
   return 0
 }
 estado_por() { [[ -n ${TT_ESTADO:-} ]] && echo "$1=$2" >>"$TT_ESTADO"; }
-nth_atual() { [[ $(estado busca) == nomes ]] && echo 1 || echo 1,2; }
+nth_atual() { [[ $(estado busca) == nomes ]] && echo 1 || echo 1,2; } # conversa: a busca vem do índice, o fzf não filtra
 
 # Menu completo: esta máquina primeiro, depois as outras (consultadas em paralelo).
 # Com filtro de máquina, só ela.
@@ -4253,7 +4336,7 @@ cabecalho() {
     [[ $r == "$m" ]] && linha+=" \033[1;30;46m $r \033[0m" || linha+="  $r "
   done
   linha+="    busca:"
-  for r in tudo nomes; do
+  for r in tudo nomes $(busca_ativa && echo conversa); do
     [[ $r == "$b" ]] && linha+=" \033[1;30;45m $r \033[0m" || linha+="  $r "
   done
   printf '%b\n' "$linha"
@@ -4335,11 +4418,16 @@ clique_cabecalho() {
     🖥 | máquinas…) echo 'print(maquinas)+accept'; return ;;
     ^x | fechar) echo "execute-silent($EU --fechar {1} {2})+reload($EU --listar-tudo)"; return ;;
     esc | sair | sai) echo abort; return ;;
-    tudo | nomes) estado_por busca "$w" ;;
+    tudo | nomes | conversa) estado_por busca "$w" ;;
     '?' | ajuda | menos) [[ $(estado ajuda) == 1 ]] && estado_por ajuda 0 || estado_por ajuda 1
       echo "transform-header($EU --cabecalho)"; return ;;
     prévia | 'prévia (^/)') echo toggle-preview; return ;;
-    ^e | busca | busca:) [[ $(estado busca) == nomes ]] && estado_por busca tudo || estado_por busca nomes ;;
+    ^e | busca | busca:)
+      case $(estado busca) in
+        nomes) busca_ativa && estado_por busca conversa || estado_por busca tudo ;;
+        conversa) estado_por busca tudo ;;
+        *) estado_por busca nomes ;;
+      esac ;;
     ^f | filtrar | máquina:)
       # Próxima máquina na roda: todas → esta → as outras → todas.
       mapfile -t lista < <(echo todas; rotulos)
@@ -4349,7 +4437,11 @@ clique_cabecalho() {
     *)
       for r in todas $(rotulos); do [[ $w == "$r" ]] && estado_por maquina "$r"; done ;;
   esac
-  echo "reload($EU --listar-tudo)+transform-header($EU --cabecalho)+change-nth($(nth_atual))"
+  if [[ $(estado busca) == conversa ]]; then
+    echo "disable-search+reload($EU --listar-busca {q})+transform-header($EU --cabecalho)+change-nth($(nth_atual))"
+  else
+    echo "enable-search+reload($EU --listar-tudo)+transform-header($EU --cabecalho)+change-nth($(nth_atual))"
+  fi
 }
 
 # Cita para o shell de lá. O printf %q não escapa um "=" no começo da palavra: o bash aceita, mas o
@@ -19127,6 +19219,7 @@ escolher() {
     --bind="ctrl-v:print(lado)+accept,ctrl-o:print(embaixo)+accept,ctrl-p:print(aqui)+accept,ctrl-t:print(soltar)+accept" \
     --bind="ctrl-s:print(enviar)+accept,ctrl-g:print(trazer)+accept" \
     --bind="ctrl-f:transform($EU --clique-cabecalho máquina),ctrl-e:transform($EU --clique-cabecalho busca)" \
+    --bind="change:transform($EU --busca-mudou)" \
     --bind="click-header:transform($EU --clique-cabecalho \"\$FZF_CLICK_HEADER_WORD\")" \
     --bind="left-click:transform($EU --clique-linha {1} {2})" \
     --bind='double-click:ignore' \
@@ -19233,6 +19326,11 @@ case "${1:-}" in
   --tema-agentes) "$DIR_TT/tema-agentes.sh" --aplicar; exit ;;
   --memoria-agentes) "$DIR_TT/memoria-agentes.sh" --aplicar; exit ;;
   --aidlc) aidlc_bootstrap "${2:-.}"; exit $? ;;
+  --busca) shift; busca_cmd "$@"; exit $? ;;
+  --busca-indexar) busca_indexar; exit 0 ;;
+  --busca-consulta) shift; busca_consulta "$*"; exit 0 ;;
+  --listar-busca) listar_busca "${2:-}"; exit 0 ;;
+  --busca-mudou) busca_mudou; exit 0 ;;
   --mac) shift; mac_atalhos "${1:-status}"; exit $? ;;
   --tailscale-ws) shift; tailscale_ws "${1:-status}"; exit $? ;;
   --verificar-atualizacao) verificar_atualizacao; exit ;;
