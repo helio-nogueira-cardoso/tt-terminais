@@ -69,15 +69,37 @@ activate() {
 <key>RunAtLoad</key><true/></dict></plist>
 EOF
   if [[ -f $TAILSCALE_PLIST && ! -f $TAILSCALE_PLIST.antes-ws ]]; then sudo cp "$TAILSCALE_PLIST" "$TAILSCALE_PLIST.antes-ws"; fi
-  local p label
-  sudo install -o root -g wheel -m 644 "$td/control.plist" "$PLIST_DIR/com.tailscale.tt-ws-control.plist"
-  sudo install -o root -g wheel -m 644 "$td/control80.plist" "$PLIST_DIR/com.tailscale.tt-ws-control80.plist"
-  sudo install -o root -g wheel -m 644 "$td/derp.plist" "$PLIST_DIR/com.tailscale.tt-ws-derp.plist"
-  sudo install -o root -g wheel -m 644 "$td/tailscaled.plist" "$TAILSCALE_PLIST"
+  local p label old_ts=$td/old-tailscaled.plist
+  [[ -f $TAILSCALE_PLIST ]] && sudo cp "$TAILSCALE_PLIST" "$old_ts"
+  for p in control control80 derp; do
+    [[ -f "$PLIST_DIR/com.tailscale.tt-ws-$p.plist" ]] && sudo cp "$PLIST_DIR/com.tailscale.tt-ws-$p.plist" "$td/old-$p.plist"
+  done
+  rollback() {
+    for label in "${labels[@]}" com.tailscale.tailscaled; do launch bootout system/$label >/dev/null 2>&1 || true; done
+    for p in control control80 derp; do
+      if [[ -f "$td/old-$p.plist" ]]; then
+        sudo install -o root -g wheel -m 644 "$td/old-$p.plist" "$PLIST_DIR/com.tailscale.tt-ws-$p.plist"
+        launch bootstrap system "$PLIST_DIR/com.tailscale.tt-ws-$p.plist" >/dev/null 2>&1 || true
+      else
+        sudo rm -f "$PLIST_DIR/com.tailscale.tt-ws-$p.plist"
+      fi
+    done
+    if [[ -f $old_ts ]]; then
+      sudo install -o root -g wheel -m 644 "$old_ts" "$TAILSCALE_PLIST"
+      launch bootstrap system "$TAILSCALE_PLIST" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$td"
+  }
+  sudo install -o root -g wheel -m 644 "$td/control.plist" "$PLIST_DIR/com.tailscale.tt-ws-control.plist" || { rollback; die 'não consegui instalar o serviço de controle WebSocket.'; }
+  sudo install -o root -g wheel -m 644 "$td/control80.plist" "$PLIST_DIR/com.tailscale.tt-ws-control80.plist" || { rollback; die 'não consegui instalar o serviço WebSocket da porta 80.'; }
+  sudo install -o root -g wheel -m 644 "$td/derp.plist" "$PLIST_DIR/com.tailscale.tt-ws-derp.plist" || { rollback; die 'não consegui instalar o serviço DERP WebSocket.'; }
+  sudo install -o root -g wheel -m 644 "$td/tailscaled.plist" "$TAILSCALE_PLIST" || { rollback; die 'não consegui instalar a configuração do tailscaled.'; }
   for label in "${labels[@]}"; do launch bootout system/$label >/dev/null 2>&1 || true; done
-  for p in control control80 derp; do launch bootstrap system "$PLIST_DIR/$p.plist"; done
+  for p in control control80 derp; do
+    launch bootstrap system "$PLIST_DIR/com.tailscale.tt-ws-$p.plist" || { rollback; die "não consegui iniciar o serviço WebSocket $p; configuração anterior restaurada."; }
+  done
   launch bootout system/com.tailscale.tailscaled >/dev/null 2>&1 || true
-  launch bootstrap system "$TAILSCALE_PLIST"
+  launch bootstrap system "$TAILSCALE_PLIST" || { rollback; die 'não consegui iniciar o tailscaled com o fallback; configuração anterior restaurada.'; }
   rm -rf "$td"
   echo '✓ fallback WebSocket local do Tailscale ativado.'
   status
