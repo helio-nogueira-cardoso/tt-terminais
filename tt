@@ -4124,6 +4124,31 @@ quote_1.dim=false
 TEMA
 }
 
+# Texto simples no leitor: quebra na largura do terminal (o w3m já faz isso com o HTML), colore citações e endereços e deixa os
+# links clicáveis (OSC 8), como no HTML.
+aerc_filtro_texto() { echo "wrap -w 100 | colorize | python3 $DIR_TT/email-tt.py linkify"; }
+
+# Filtros que o aerc traz de fábrica e que uma seção [filters] só com text/html apaga. Sem o de text/plain o aerc mostra "No filter
+# configured for this mimetype ('text/plain')" e trata o CORPO de um e-mail em texto simples como se fosse um anexo ("Open using the
+# system handler / Save to file"): o HTML aparecia bem e o texto simples não. Só acrescenta o que FALTA (um filtro escolhido pelo dono
+# fica). Sai 0 se mudou algo (o aerc em execução precisa reiniciar para ler), 1 se já estava tudo.
+aerc_filtros_basicos() { # aerc.conf
+  local conf=$1 mudou=1 tipo cmd sec
+  [[ -f $conf ]] || return 1
+  while IFS='|' read -r tipo cmd; do
+    sec=$(sed -n '/^\[filters\]/,/^\[/p' "$conf")
+    grep -qE "^[[:space:]]*${tipo//./\\.}[[:space:]]*=" <<<"$sec" && continue
+    aerc_definir "$conf" filters "$tipo" "$cmd"; mudou=0
+  done <<EOF
+text/plain|$(aerc_filtro_texto)
+text/calendar|calendar
+message/delivery-status|colorize
+message/rfc822|colorize
+.headers|colorize
+EOF
+  return $mudou
+}
+
 # Reparo sob demanda do aerc (chamado por botao_email antes de abrir). A configuração completa roda na
 # instalação, mas o aerc pode ter sido instalado DEPOIS do tt, ou o filtro de HTML pode apontar para
 # uma ferramenta ausente; então o corpo HTML aparece VAZIO. Repara APENAS o filtro text/html, sem
@@ -4145,8 +4170,10 @@ aerc_reparar_se_preciso() {
      { command -v lynx >/dev/null && [[ $linha_html == *lynx* && $linha_html != *linkify* ]]; } ||
      { ! command -v w3m >/dev/null && ! command -v lynx >/dev/null && [[ $linha_html == *email-tt.py\ html* && $linha_html != *linkify* ]]; }; then
     aerc_definir "$conf" filters text/html "$(aerc_filtro_html)" forcar
+    aerc_filtros_basicos "$conf" >/dev/null
     return 0
   fi
+  aerc_filtros_basicos "$conf" && return 0 # só faltavam os de texto simples e outros: reinicia o aerc para ler
   return 1
 }
 
@@ -4228,6 +4255,7 @@ UI
      { command -v lynx >/dev/null && grep -q '^[[:space:]]*text/html[[:space:]]*=.*lynx' "$conf" && ! grep -q '^[[:space:]]*text/html[[:space:]]*=.*linkify' "$conf"; }; then
     aerc_definir "$conf" filters text/html "$f_html" forcar
   fi
+  aerc_filtros_basicos "$conf" >/dev/null || true # text/plain & cia: sem eles o corpo em texto simples vira "anexo"
 
   # Abertura de link (:open-link, Ctrl+l): o tt --abrir-url escolhe o abridor da plataforma (xdg-open
   # no desktop, termux-open-url no Termux) e, sem GUI (ssh), copia a URL para a área de transferência

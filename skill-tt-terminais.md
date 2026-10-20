@@ -639,6 +639,10 @@ e os instaladores da pasta do usuário ficam no `tt`.
   não avisou, a notificação do sistema leva todas; `email_aviso=0` desliga) e `atualizar_barras`; `barra_email_fmt` (`tt --barra-email`)
   preenche `@barra_email` (não lidas do espelho; ⚠ vermelho se `--email-sync-estado curto` tem
   erro/parado, ⏳ âmbar se só atrasado), referenciada pelo range `email` do tema.
+- Filtros do leitor (`aerc_filtros_basicos`, `aerc_filtro_texto`): a seção `[filters]` do `aerc.conf` SUBSTITUI a lista de fábrica do aerc; só com `text/html` o corpo
+  `text/plain` aparecia como anexo ("No filter configured for this mimetype"). `configurar_aerc` e `aerc_reparar_se_preciso` (ao abrir o 📧) acrescentam, só se
+  faltarem, `text/plain=wrap -w 100 | colorize | python3 email-tt.py linkify`, `text/calendar=calendar`, `message/delivery-status|rfc822=colorize` e `.headers=colorize`
+  (filtro do dono fica). Teste: `tests/test_aerc_texto_plano.sh`.
 - `tt --email-atalhos` — tela de atalhos do aerc em português (um ícone por assunto: `EMAIL_ATALHOS_ICONES`).
 - `tt --email-esc` (Esc na lista da sessão oculta: limpa filtro/busca — "| filter"/"| search" na linha de status do
   aerc — ou desanexa o popup), `tt --email-naolidas` (botão ✉: `:filter -u` ↔ `:clear`), `tt --email-lixeira
