@@ -27,6 +27,7 @@
 #   tt --tarefas-sync [modo] [url]  como as tarefas vão às outras máquinas (p2p, git, ambos, off)
 #   tt --letreiro-listar  fontes (APIs) do letreiro da faixa: -add -editar -rm -testar -log -exportar -importar
 #                   -catalogo -ajustes; painel: menu ⋯ → 📰 Letreiro (README: "Letreiro: fontes")
+#   tt --tailscale-ws ativar|desativar|status|testar  fallback WebSocket local do Tailscale no macOS
 #
 # Menu: Enter entra; ^n nova; ^r renomeia; ^x fecha; ^a dá nome às genéricas. As palavras do
 # cabeçalho são clicáveis. ^f (ou clique) filtra por máquina; a busca procura em nome, máquina,
@@ -2325,8 +2326,14 @@ ajuda() {
   printf '\nVersão instalada: %s (%s)\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao_humana)" "$(versao)" "$DIR_TT" "$DIR_TT"
 }
 
+tailscale_ws() {
+  local acao=${1:-status} dir=$DIR_TT
+  [[ -r $dir/tailscale-ws.sh ]] || dir=${EU%/*}
+  "$dir/tailscale-ws.sh" "$dir" "$acao"
+}
+
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md
+ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws-bridge.cjs tailscale-websocket.md
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
   checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
@@ -19130,6 +19137,7 @@ case "${1:-}" in
   --tema-agentes) "$DIR_TT/tema-agentes.sh" --aplicar; exit ;;
   --memoria-agentes) "$DIR_TT/memoria-agentes.sh" --aplicar; exit ;;
   --aidlc) aidlc_bootstrap "${2:-.}"; exit $? ;;
+  --tailscale-ws) shift; tailscale_ws "${1:-status}"; exit $? ;;
   --verificar-atualizacao) verificar_atualizacao; exit ;;
   --garantir-atualizacao) garantir_atualizacao; exit ;;
   --sondar-atualizacao) atualizacao_sondar; exit ;;
