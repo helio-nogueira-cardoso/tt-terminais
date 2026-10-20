@@ -7,6 +7,7 @@
 # ssh e tmux falsos: o ssh roda o comando "de lá" aqui mesmo e sai sempre 0, como o do Mac.
 source "$(dirname "$0")/lib.sh"; isolar
 B=$T/bin; mkdir -p "$B"
+ln -s "$BASH" "$B/bash" # bash -c precisa usar o mesmo executável da suíte, não um wrapper do PATH da máquina
 cat >"$B/tailscale" <<'FIM'
 #!/bin/sh
 echo '{}'
@@ -26,7 +27,11 @@ FIM
 cat >"$B/remoto-tt" <<'FIM'
 #!/usr/bin/env bash
 printf 'prazo=%s %s\n' "${TT_PRAZO:-}" "$*" >>"$T/remoto.log"
-exit "$(cat "$T/remoto-rc" 2>/dev/null || echo 0)"
+case $* in
+  --ir-ponte*) exit "$(cat "$T/remoto-rc" 2>/dev/null || echo 0)" ;;
+  *'tmux has-session'*) exit "$(cat "$T/remoto-sessao" 2>/dev/null || echo 0)" ;;
+  *) exit 0 ;;
+esac
 FIM
 mv "$B/remoto-tt" "$T/remoto-tt"
 cat >"$B/tmux" <<'FIM'
@@ -39,6 +44,8 @@ esac
 exit 0
 FIM
 chmod +x "$B"/* "$T/remoto-tt"
+mkdir -p "$HOME/.local/bin"
+ln -s "$B/tmux" "$HOME/.local/bin/tmux" # o comando remoto prepara este PATH antes de consultar a sessão
 export T PATH="$B:$TT_PATH_BASE"
 printf 'ho u maq-o\n' >"$XDG_CONFIG_HOME/tt/maquinas"
 
@@ -48,7 +55,7 @@ echo $! >"$T/pid"
 trap 'kill "$(cat "$T/pid")" 2>/dev/null' EXIT
 clicar() { # na sessão sessao-x da maq-o, vista daqui
   rm -f "$T/ssh.log" "$T/tmux.log" "$T/remoto.log" "$TT_RT"/tt-maquinas-*
-  TMUX=tmux-teste TMUX_PANE=%1 TT_SO_CARREGAR=1 bash -c 'source "$1"; TT_CLIENTE=cliente ir_para u@ho sessao-x' _ "$TT"
+  TMUX=tmux-teste TMUX_PANE=%1 TT_SO_CARREGAR=1 "$BASH" -c 'source "$1"; TT_CLIENTE=cliente ir_para u@ho sessao-x' _ "$TT" || true
 }
 locais() { grep -v '^\[lá\]' "$T/tmux.log" 2>/dev/null; }
 
@@ -82,7 +89,7 @@ locais | grep -q 'new-session\|switch-client' && falhou "sem resposta da origem,
 passou 'origem que não responde: aviso de espera, desistência no prazo, nenhuma troca'
 
 # --- do lado de lá: o pedido que chega depois do prazo não troca a tela; no prazo, troca
-eu=$(TT_SO_CARREGAR=1 bash -c 'source "$1"; echo "$MAQUINA"' _ "$TT")
+eu=$(TT_SO_CARREGAR=1 "$BASH" -c 'source "$1"; echo "$MAQUINA"' _ "$TT")
 rm -f "$T/tmux.log"
 TMUX=tmux-teste TT_PRAZO=$(($(date +%s) - 1)) "$TT" --ir-ponte ponte-o "$eu" sessao-x || true
 [[ ! -s $T/tmux.log ]] || falhou "pedido atrasado mexeu no tmux: $(cat "$T/tmux.log")"

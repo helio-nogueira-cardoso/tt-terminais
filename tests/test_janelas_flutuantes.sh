@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (interface com pausas, cliques e redraws; roda sem outros testes disputando a máquina)
 # Janelas flutuantes: com painel_flutuante=1 e tmux 3.8+, TODO display-popup do tt (central, seletor, menus,
 # agenda, notificações, fixadas, e-mail…) vira um painel modal que fecha ao clicar na janela fora dele; o título
 # vai na borda; o comando recebe TT_CLIENTE e TT_EM_JANELA. Desligado, em tmux velho, com um modal já aberto, ou
