@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.2.0 · 21/10/2026
+- **📧 Outlook, Hotmail e Microsoft 365 entram com menos atrito:** sem `client_id`, o cadastro agora usa o app público **Outlook Mobile** e lê o e-mail pelo
+  **Microsoft Graph** (escopo `https://graph.microsoft.com/.default`, que a Microsoft já preautoriza para esse app e devolve os escopos de e-mail que a conta
+  pode usar). Isso evita, em muitos tenants corporativos, a tela de aprovação do administrador que o app de terceiros exigia. `oauth_client_id=thunderbird`
+  (IMAP/SMTP) e `oauth_client_id=tt` (o app próprio do tt) continuam valendo.
+
 ## v2.1.2 · 21/10/2026
 - **🩺 O vigia não trava mais quando a pasta de onde foi lançado some:** ele herdava o diretório de quem o lançou. Apagada essa pasta (um worktree, uma
   pasta temporária), toda sonda de atualização falhava com "getcwd: impossível acessar os diretórios pais" e era acusada como "rede": um Mac ficou 16 sondas
