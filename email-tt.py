@@ -1179,7 +1179,7 @@ def classificar_email(frm, subj):
             return None
         if re.search(r'pix gr[aá]tis|isen|tarifa|promo|oferta|conhe[cç]a|cuidado|desconto|\boff\b', s):
             return "Newsletters"
-    if re.search(r'confirme seu (e-?mail|endere)|confirm your email', s):
+    if re.search(r'confirme seu (e-?mail|endere)|confirm your email|sign in to|entrar na sua conta|acesse sua conta', s):
         return "Códigos"
     if re.search(r'c[oó]digo|verif|verify|\botp\b|one-time|senha.*(reset|redefin)|password.*reset|security code', s):
         return "Códigos"
@@ -1190,14 +1190,20 @@ def classificar_email(frm, subj):
         return "@ Ação"
     if d in ("make.com", "us2.make.com") or re.search(r'triagem|resumo|relat[oó]rio|digest|reserva confirmada|pipeline|failed|fixed|voluntariado', s):
         return "Automações"
-    if d in ("jetbrains.com", "discord.com", "onedrive.com", "paypal.com", "communications.paypal.com", "fly.io",
-             "email.fly.io", "calendly.com", "twitch.tv", "alerts.udemy.com", "e.udemymail.com", "amazonaws.com") or \
+    if d in ("jetbrains.com", "discord.com", "onedrive.com", "paypal.com", "paypal.com.br", "communications.paypal.com",
+             "fly.io", "email.fly.io", "calendly.com", "twitch.tv", "alerts.udemy.com", "e.udemymail.com", "amazonaws.com",
+             "reservio.com", "ebanx.com", "shop.app") or \
        ("microsoft" in d and any(x in d for x in ("store", "notification", "communication", "info"))) or \
-       any(x in d for x in ("atlassian", "sharepoint", "wellhub", "gympass", "tldv", "sunsama", "zenklub", "feedz", "teams")):
+       "familysafety" in a or \
+       any(x in d for x in ("atlassian", "sharepoint", "wellhub", "gympass", "tldv", "sunsama", "zenklub", "feedz",
+                            "teams", "islandcloud", "shopifyemail")) or \
+       re.search(r'order #|pedido\b.*confirmad|agendamento|pagamento autom|status do seu pagamento|download your purchased', s):
         return "Notificações"
-    if d in ("lumine.tv", "email.granado.com.br", "merchtraffic.com") or \
-       any(x in d for x in ("globo", "evangelizar", "estadao", "udemy")) or \
-       re.search(r'desconto|oferta|\boff\b|novidade|boletim|newsletter|unsubscribe', s):
+    if d in ("lumine.tv", "email.granado.com.br", "merchtraffic.com", "springframework.guru", "myjotform.com",
+             "livrariatravessa.com.br", "lofigirl.com") or \
+       any(x in d for x in ("globo", "evangelizar", "estadao", "udemy", "hbomax", "mails.microsoft", "engage.microsoft",
+                            "engagemail", "customermail.microsoft", "microsoftrewards")) or \
+       re.search(r'desconto|oferta|\boff\b|novidade|boletim|newsletter|unsubscribe|course sale|sale ends|announcing|acontece em|appreciation|thanks for subscrib|follow us', s):
         return "Newsletters"
     return None
 

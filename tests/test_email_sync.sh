@@ -111,6 +111,11 @@ casos = [
   ("x@lumine.tv", "Oferta imperdível 50% OFF", "Newsletters"),
   ("noreply@build.com", "Failed pipeline for development", "Automações"),
   ("x@itau.com.br", "A fatura do seu cartão fechou", None),
+  ("john@springframework.guru", "July Course Sale", "Newsletters"),
+  ("service@paypal.com.br", "Status do seu pagamento mudou", "Notificações"),
+  ("noreply@shop.app", "Sign in to Shop", "Códigos"),
+  ("informativo@livrariatravessa.com.br", "Acontece em Ribeirão| Novembro", "Newsletters"),
+  ("faturadigital@itau.com.br", "A fatura do seu cartão fechou", None),
   ("x@desconhecido.com", "assunto qualquer", None),
 ]
 for frm, subj, esp in casos:
