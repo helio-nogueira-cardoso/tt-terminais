@@ -317,6 +317,8 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
                             claude_env=<variáveis para o claude nesses botões, ex.: IS_SANDBOX=1>
                             email=<cliente de e-mail do botão 📧; padrão aerc. A conta e as
                             credenciais ficam na config do próprio cliente, nunca aqui>
+                            email_padrao=<conta do tt --email-enviar sem --conta (slug, nome ou
+                            endereço)>
     ~/.config/tt/maquinas   host  usuario  nome  [oculta]  (uma máquina por linha)
 
 ## Contas de IA
@@ -603,6 +605,43 @@ linha de comando); fica em `~/.config/tt/email/<conta>.assinatura`, entra no blo
 `signature-file` (uma `signature-cmd`/`signature-file` sua nas linhas extras tem prioridade) e viaja
 junto na propagação da conta.
 
+### Enviar pela linha de comando (sem tela)
+
+`tt --email-enviar` manda um e-mail por qualquer conta cadastrada, sem abrir o aerc: serve para scripts,
+agentes de IA e para mandar um arquivo rápido. O tt escolhe o caminho pela conta: **SMTP** (senha, senha
+por comando ou OAuth2/XOAUTH2) ou, nas contas Microsoft lidas pelo Graph, a **API do Outlook** (o app do
+Outlook Mobile, padrão do tt, só tem permissão de envio nela). Acentos, HTML e anexos funcionam nos dois.
+
+    tt --email-enviar --conta Pessoal --para ana@x.com,bia@y.com --cc chefe@x.com \
+       --assunto "Relatório de outubro" --corpo "Segue o relatório." --anexo ~/relatorio.pdf
+    echo "corpo vindo de um programa" | tt --email-enviar --conta trabalho --para eu@x.com --assunto Aviso
+    tt --email-enviar --conta Pessoal --para eu@x.com --assunto Teste --corpo oi --ensaio   # só mostra
+
+Os campos têm nome em português, como no resto do tt, e aceitam o equivalente em inglês:
+
+| Campo | Opção | Apelido em inglês | Vira o cabeçalho |
+|---|---|---|---|
+| conta que envia | `--conta CONTA` (slug, nome ou endereço; também `--de`) | `--account`, `--from` | `From` (nome de exibição + endereço da conta) |
+| destinatários | `--para END[,END…]` (repetível) | `--to` | `To` |
+| cópia | `--cc END[,END…]` | `--cc` | `Cc` |
+| cópia oculta | `--cco END[,END…]` | `--bcc` | (só no envelope; nunca nos cabeçalhos) |
+| assunto | `--assunto TEXTO` (obrigatório; `""` manda sem assunto) | `--subject` | `Subject` |
+| corpo (texto) | `--corpo TEXTO`, `--corpo-arquivo ARQ` ou o stdin | `--body`, `--body-file` | parte `text/plain` |
+| corpo (HTML) | `--html TEXTO` ou `--html-arquivo ARQ` (junto com o texto) | `--html-file` | parte `text/html` |
+| anexo | `--anexo ARQ` (repetível) | `--attach` | anexo com o nome do arquivo |
+| responder para | `--responder-para END` | `--reply-to` | `Reply-To` |
+| em resposta a | `--em-resposta-a MESSAGE-ID` | `--in-reply-to` | `In-Reply-To` e `References` |
+| sem assinatura | `--sem-assinatura` | `--no-signature` | (a assinatura da conta entra por padrão) |
+| só mostrar | `--ensaio` | `--dry-run` | nada é enviado |
+
+Sem `--conta`, vale a chave `email_padrao=` da configuração (`~/.config/tt/config`) ou a única conta
+cadastrada; com várias e sem padrão, o tt para e lista as contas. A cópia nos **enviados** fica com o
+provedor no Gmail, na Microsoft e no caminho da API do Outlook; nos outros, o tt grava a cópia pelo IMAP na
+pasta de enviados da conta. No fim imprime `✓ enviado … · Message-ID: <…>`. Código de saída: 0 enviado,
+1 falhou (servidor, login, rede; a mensagem diz por quê), 2 uso errado (conta, destinatário, assunto ou
+anexo faltando, opção desconhecida). No caminho da API do Outlook os anexos somam no máximo 3 MB e a
+resposta não se encadeia na conversa (a API não aceita `In-Reply-To`).
+
 ### Consulta mais rápida
 
 Por padrão o aerc guarda os cabeçalhos em disco (`cache-headers`, em `~/.cache/aerc`): abrir uma pasta
@@ -612,7 +651,7 @@ depender de nada além do próprio aerc.
 Para quem precisa de mais, cada conta pode manter um **espelho local completo** (opt-in, desligado por
 padrão), com o [`mbsync`](https://isync.sourceforge.io/) (pacote `isync`): o aerc passa a ler de um
 `maildir` em `~/.cache/tt/maildir/<conta>` (abertura instantânea, busca local, leitura offline do que
-já baixou), e o envio continua pelo SMTP normal. As marcas (lido, arquivado, apagado) e as mensagens
+já baixou), e o envio continua online (SMTP, ou a API do Outlook nas contas Graph). As marcas (lido, arquivado, apagado) e as mensagens
 novas sobem e descem no próximo sync. Ligue pela interface (`F2` → a conta → **🔄 Sync local**;
 sem o `mbsync`, o modal de pendências oferece instalá-lo), por `tt --email-sync-local CONTA 1`
 (`0` desliga; desligar volta ao IMAP direto sem apagar nada), ou já no cadastro:

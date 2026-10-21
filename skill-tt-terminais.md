@@ -1,6 +1,6 @@
 ---
 name: tt-terminais
-description: Referência completa do tt-terminais (central de terminais em Bash+tmux) para IAs operarem e evoluírem o projeto. Use ao trabalhar no repositório tt-terminais, ao diagnosticar a central/barra/sessões/fixadas/tarefas/e-mail/sync entre máquinas, ao TRABALHAR COM AS TAREFAS DO USUÁRIO (códigos e apelidos, registrar o que fez na descrição com `tt --tarefa-log`, atualizar, concluir, compartilhar por e-mail), ou ao usar os verbos `tt --...` por linha de comando. Cobre todos os verbos CLI, os ranges da barra e o roteamento de clique, os arquivos de perfil/estado/cache/pacote, o vigia e seus temporizadores, a sincronização por ssh e git, identidade de máquina/sessão/fixada, e-mail (aerc), celular/Termux, testes e as convenções de desenvolvimento. Use também quando o agente precisar AVISAR o usuário (pedir algo, dar retorno, avisar que uma rodada importante acabou): `tt --notificar-daqui` só notifica se ele não estiver olhando para a sessão, e o clique leva de volta a ela. E para pôr perguntas do AI-DLC no painel de tarefas, onde o usuário responde (`aidlc-tt`). E quando o agente precisar de um terminal interativo (sudo, ssh, prompts, instaladores): `tt --pty`.
+description: Referência completa do tt-terminais (central de terminais em Bash+tmux) para IAs operarem e evoluírem o projeto. Use ao trabalhar no repositório tt-terminais, ao diagnosticar a central/barra/sessões/fixadas/tarefas/e-mail/sync entre máquinas, ao TRABALHAR COM AS TAREFAS DO USUÁRIO (códigos e apelidos, registrar o que fez na descrição com `tt --tarefa-log`, atualizar, concluir, compartilhar por e-mail), ou ao usar os verbos `tt --...` por linha de comando. Cobre todos os verbos CLI, os ranges da barra e o roteamento de clique, os arquivos de perfil/estado/cache/pacote, o vigia e seus temporizadores, a sincronização por ssh e git, identidade de máquina/sessão/fixada, e-mail (aerc, contas e ENVIO sem tela com `tt --email-enviar`), celular/Termux, testes e as convenções de desenvolvimento. Use também quando o agente precisar AVISAR o usuário (pedir algo, dar retorno, avisar que uma rodada importante acabou): `tt --notificar-daqui` só notifica se ele não estiver olhando para a sessão, e o clique leva de volta a ela. E para pôr perguntas do AI-DLC no painel de tarefas, onde o usuário responde (`aidlc-tt`). E quando o agente precisar ENVIAR UM E-MAIL por uma conta do usuário (`tt --email-enviar`, campos `--para --assunto --corpo --anexo`, `--ensaio` antes). E quando o agente precisar de um terminal interativo (sudo, ssh, prompts, instaladores): `tt --pty`.
 ---
 
 # tt-terminais — central de terminais multi-máquina (Bash + tmux)
@@ -28,8 +28,12 @@ confirme no código antes de alterar contrato.
   `range=user|...`, mais o padrão visual Catppuccin Mocha.
 - `tema-terminal.sh`, `tema-agentes.sh`, `memoria-agentes.sh` — paleta do terminal, tema dos
   agentes de IA instalados, memória compartilhada dos agentes.
-- `email-tt.py` — utilitário de e-mail (só stdlib: descoberta de provedor, OAuth2, teste, pastas,
-  filtro HTML). Roda inclusive no Termux.
+- `email-tt.py` — utilitário de e-mail (só stdlib; roda inclusive no Termux): descoberta de provedor
+  (`descobrir`), OAuth2 (`oauth-autorizar`, `oauth-token`), testes (`testar`, `graph-testar`), envio (`enviar`,
+  o do `tt --email-enviar`; `graph-sendmail`, o sendmail do aerc nas contas Graph), Microsoft Graph (`graph-sync`,
+  `graph-classificar`), pastas e lixeira (`pastas`, `lixeira`), lote (`lote-pastas`, `lote-contar`, `lote-agir`),
+  leitura (`html`, `linkify`, `imagens`, `baixar-imagem`, `cabecalhos`), contatos (`contatos-indexar`) e demandas
+  (`demanda`). A lista com argumentos está no cabeçalho do próprio arquivo (`python3 email-tt.py` sem argumentos).
 - `nomeador-local.py` — modelo local (llama.cpp) opcional para nomear sessões.
 - `ia-conta`, `ia-rot`, `ia-login`, `contas-uso.py`, `skill-rodizio-de-contas.md` — rotação de
   contas de IA (ver a skill `rodizio-de-contas`).
@@ -78,7 +82,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - `tt --demanda-autorizar EMAIL [etiqueta] [auth|segredo|aberto] [segredo]` / `--demanda-remover EMAIL` /
   `--demandas` / `--demandas-pendentes` / `--demandas-processar [conta]` / `--demanda-aprovar ID` /
   `--demanda-recusar ID` / `--demandas-ui` — demandas por e-mail: e-mail de remetente autorizado (cadastro
-  `~/.config/tt/demandas`, propagado por `--receber/--propagar/--puxar-demandas`) com `[tt] título @prazo !prio
+  `~/.config/tt/demandas`, propagado por `--receber-demandas`/`--propagar-demandas`/`--puxar-demandas`) com `[tt] título @prazo !prio
   #tag` no assunto vira tarefa PENDENTE (estado novo no arquivo de tarefas) após o sync da conta; só vale com
   autenticação do provedor (padrão), segredo ou modo aberto; aba Entrada do painel aprova/recusa.
 - `tt --flutuante [status|on|off|alternar]` — painel de tarefas flutuante: com `painel_flutuante=1` e tmux
@@ -192,7 +196,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   [--tokens-ent N --tokens-sai N | --tokens N] [--usd V] [--brl V] [--conta C] [--email E] [--sessao S] [--sessao-codigo ID] [--maquina M]` acrescenta
   um bloco com instante de gravação UTC e período RFC 3339 (ambos os limites têm fuso explícito), código estável da sessão tmux, tokens e custos estimados em USD e BRL; `tt --tarefa-historico ID` mostra os
   blocos da tarefa e das subtarefas e os totais. Ver a seção "Tarefas: código, apelido, registro e e-mail".
-- E-mail de compartilhamento: `tt --tarefa-email ID [destinatário] [--abrir]` imprime Para/Assunto/corpo e um link `mailto:` (`--abrir` abre o e-mail pronto no compositor); `tt --tarefas-email DESTINO ID…` abre um por tarefa; recebido: `tt --demanda-diff|--demanda-merge|--demanda-aprovar [--recebida|--minha] ID`, `--demandas-aprovar-limpas`, `--demandas-recusar-todas`.
+- E-mail de compartilhamento: `tt --tarefa-email ID [destinatário] [--abrir]` imprime Para/Assunto/corpo e um link `mailto:` (`--abrir` abre o e-mail pronto no compositor); `tt --tarefas-email DESTINO ID…` abre um por tarefa; `tt --tarefa-email-ui [ID…]` escolhe as tarefas no fzf (lembra o último destinatário; `TT_EMAIL_PARA` preenche); recebido: `tt --demanda-diff|--demanda-merge|--demanda-aprovar [--recebida|--minha] ID`, `--demandas-aprovar-limpas`, `--demandas-recusar-todas`.
 - Conclusão (`tarefa_concluir`): mãe só conclui com todas as subtarefas feitas (senão imprime as
   que faltam e devolve 2; no painel vira a linha ⚠ `aviso=` do cabeçalho, mostrada uma vez; o
   `--tarefa-ok` sai 1 com a lista). A última subtarefa não conclui a mãe. Reabrir/criar subtarefa
@@ -590,8 +594,20 @@ e os instaladores da pasta do usuário ficam no `tt`.
 
 ### E-mail (aerc)
 - `tt --email [cliente]` — abre o cliente de e-mail (default `aerc`) numa subjanela popup.
-- `tt --email-contas` / `tt --email-conta` — gerenciador de contas; `tt --email-adicionar ...`
-  cadastra por CLI; `tt --email-listar`.
+- `tt --email-contas` / `tt --email-conta` — gerenciador de contas (a tela é `tt --email-contas-ui`; o
+  cadastro guiado, `tt --email-conta-nova-ui`); `tt --email-adicionar chave=valor… [--senha-stdin]` cadastra por
+  CLI (chaves em `EMAIL_CHAVES`; `provedor=gmail|microsoft|yahoo|icloud|fastmail|zoho|proton|outro`,
+  `auth=senha|comando|oauth`); `tt --email-listar` (TSV: slug, nome, endereço, provedor, auth, IMAP).
+- **Enviar sem tela:** `tt --email-enviar` (seção "Enviar e-mail pela linha de comando" abaixo). O aerc
+  envia pelo `outgoing` de cada conta: `smtps|smtp[+xoauth2]://…` (SMTP) ou, nas contas Graph,
+  `email-tt.py graph-sendmail CONF DEST…` (API REST do Outlook; mesmo conversor do `--email-enviar`).
+- **Microsoft pelo Graph** (`provedor=microsoft auth=oauth graph=1`, padrão do cadastro Microsoft): o
+  app OAuth padrão é o do Outlook Mobile (`EMAIL_OUTLOOK_MOBILE_ID`; apelidos em
+  `oauth_client_id=`: `outlook` = esse, `thunderbird` = `EMAIL_THUNDERBIRD_ID` (IMAP/SMTP), `tt` = `EMAIL_MICROSOFT_ID`), escopo `offline_access https://graph.microsoft.com/.default`. Leitura: `email-tt.py
+  graph-sync CONF BASE` espelha no maildir (por isso conta Graph tem `sync_local=1`; `tt --email-graph-migrar`
+  liga isso nas antigas); `classificar=1` organiza o INBOX no servidor (`graph-classificar`, precisa de
+  Mail.ReadWrite). Envio: API REST do Outlook (`/api/v2.0/me/sendmail`, token do recurso
+  `outlook.office.com`), porque o Mail.Send desse app existe no recurso do Outlook e não no do Graph.
 - `tt --email-testar NOME`, `tt --email-autorizar NOME` (OAuth2), `tt --email-pastas NOME`,
   `tt --email-regerar NOME`, `tt --email-assumir NOME`, `tt --email-remover NOME`.
 - `tt --email-propagar CONTA [máquina…] [--sobrescrever]` / `tt --email-receber SLUG [--sobrescrever|--sonda]`
@@ -612,7 +628,7 @@ e os instaladores da pasta do usuário ficam no `tt`.
   (`TT_VIM_SPELL_URL`; baixa em 2º plano na instalação/1º uso; sem ele spelllang=en); `tt
   --email-contatos TEXTO` lê `~/.config/tt/email/contatos.tsv` (manual) + `~/.cache/tt/email-contatos.tsv`
   (índice `email-tt.py contatos-indexar --sem=próprios MAILDIR…`, refeito por `email_contatos_indexar`
-  ao fim de cada sync completo ou em 2º plano se > 1 h); `tt --email-anexos-escolher ARQ` (fzf multi
+  ao fim de cada sync completo ou em 2º plano se > 1 h; refazer na hora: `tt --email-contatos-indexar`); `tt --email-anexos-escolher ARQ` (fzf multi
   sobre recebidos + $HOME, sem terminal lê stdin); assinatura em `~/.config/tt/email/<slug>.assinatura`
   (`email_assinatura_editar`, `tt --email-assinatura CONTA`, `assinatura=` no --email-adicionar, pergunta
   no assistente, item g na tela da conta; `email_bloco` emite `signature-file` salvo se extra_* já tem
@@ -886,6 +902,7 @@ soltar); menus agem no **MouseUp**. Um atalho de teclado deve ter a mesma ação
   - `fonte` — URL do repositório para `--atualizar` (seguir um fork).
   - `recebidos` — pasta onde chegam arquivos (default `~/Recebidos`; no WSL, `Downloads\Recebidos`).
   - `email` — binário do cliente de e-mail (default `aerc`).
+  - `email_padrao` — conta (slug, nome ou endereço) do `tt --email-enviar` sem `--conta`.
   - `tela_destino`, `tela_porta`, `tela_url` — túnel do botão `tela` (F5).
   - `tarefas_sync` — `p2p` (default) | `git` | `ambos` | `off` (menu ⋯ → 🔄 ou `--tarefas-sync`).
   - `tarefas_repo` — URL de um repositório git pessoal para sincronizar tarefas (conferido antes de gravar).
@@ -893,7 +910,7 @@ soltar); menus agem no **MouseUp**. Um atalho de teclado deve ter a mesma ação
 - `atalhos` — atalhos locais da barra (override de `atalhos-padrao` por ID; emoji `-` desativa).
 - `fixadas` (+ `.v` versão em ns, `.trava` lock) — `maquina\tsessao\tchave`.
 - `letreiro/NOME.conf` (+ `local/NOME.conf`, `.removidas`, `.migrado`) — fontes do letreiro (sem segredo; ver "Letreiro da faixa").
-- `tarefas` (+ `.v`, `.trava`) — `id\testado\tcriada\tmudada\ttexto[\tmeta]`, estado = `aberta|feita|removida` (+ `arquivada`, `pendente`); meta: desc prazo hora prio rep tags pai ord arq de upd scod sest.
+- `tarefas` (+ `.v`, `.trava`) — `id\testado\tcriada\tmudada\ttexto[\tmeta]`, estado = `aberta|feita|removida` (+ `arquivada`, `pendente`); meta (pares `chave=valor` separados por `|`, na ordem de `tarefas_meta_set`): desc prazo hora prio rep ant antsub ciclos feito tags pai ord arq de upd scod sest colide iest rem v2 base.
 - `precos` — `modelo\tUSD/Mtok entrada\tUSD/Mtok saída` (custo estimado do `--tarefa-log`); `cotacao_brl=` no `config` (padrão 5.50).
 - `contas-ia` — `provedor\temail\tapelido\thora` (cadastro comum das contas de IA).
 - `tmux.conf` — ajustes de tmux só desta máquina (carregado depois do pacote).
@@ -976,6 +993,12 @@ devolve o host assim mesmo (`maquinas_agora todas`) e sai 2, e quem chama diz "n
 - **Tarefas**: modos `p2p` (ssh como fixadas), `git` (repo pessoal `tarefas_repo`), `ambos`, `off`.
   O merge é **por tarefa**: por `id`, vence o maior `mudada`; empate favorece `removida` > `feita`
   > `aberta` (remoção vira lápide e nunca ressuscita). P2P e git interoperam sem perder tarefa.
+  Linha malformada não entra no merge (estado fora de `aberta|feita|arquivada|removida|pendente`, `criada`/`mudada`
+  não numéricos) e o meta só leva pares `chave=valor` (o lixo é limpo a cada merge). As fontes são passadas como
+  arquivos ao `tarefas_merge`, nunca concatenadas com `cat` (`tarefas_linhas` garante a quebra no fim), e cada
+  gravação usa temporário próprio (`mktemp`). Incidente de 21/10/2026: arquivo truncado sem quebra + `cat` grudou duas
+  tarefas, o texto caiu no meta e crescia a cada merge (9 MB, merges presos em todas as máquinas). Teste:
+  `tests/test_tarefas_linha_colada.sh`.
   Modo git (`tarefas_git_sincronizar` → `tarefas_git_volta`): o clone depth 1 em
   `$ESTADO_DIR/tarefas-git` é cache. Cada volta busca com refspec explícito (o clone de repo vazio
   nasce sem nenhum), realinha (`checkout -f -B` no remoto; repo vazio recomeça o ramo), junta na lista
@@ -999,6 +1022,47 @@ devolve o host assim mesmo (`maquinas_agora todas`) e sai 2, e quem chama diz "n
   do tmux tem limite de 15 bytes). O clique resolve a sessão pelo `@tt_session_id` para sobreviver a
   renomeações durante o sync.
 
+### Enviar e-mail pela linha de comando (`tt --email-enviar`)
+Envia por qualquer conta do tt, sem abrir tela, independentemente do provedor e da autenticação; a
+montagem e o envio são do `email-tt.py enviar CONF OPÇÕES…` (o `tt` só resolve a conta).
+
+    tt --email-enviar [--conta CONTA] --para END[,END…] [--cc END…] [--cco END…] --assunto TEXTO
+       [--corpo TEXTO | --corpo-arquivo ARQ | corpo no stdin] [--html TEXTO | --html-arquivo ARQ]
+       [--anexo ARQ]… [--responder-para END] [--em-resposta-a MESSAGE-ID] [--sem-assinatura] [--ensaio]
+
+- **Nomes dos campos** (canônicos em português; os apelidos em inglês valem igual, também na forma `--opção=valor`):
+
+  | Campo | Opção | Apelido | Cabeçalho |
+  |---|---|---|---|
+  | conta | `--conta` (ou `--de`): slug, nome ou endereço | `--account`, `--from` | `From` = `nome_exibicao` + `endereco` |
+  | destinatário | `--para` (vírgulas e/ou repetida) | `--to` | `To` |
+  | cópia | `--cc` | `--cc` | `Cc` |
+  | cópia oculta | `--cco` | `--bcc` | só no envelope (SMTP) / `BccRecipients` (Outlook) |
+  | assunto | `--assunto` (obrigatório; `""` = sem assunto) | `--subject` | `Subject` |
+  | corpo | `--corpo`, `--corpo-arquivo`, ou o stdin | `--body`, `--body-file` | `text/plain` (UTF-8) |
+  | corpo HTML | `--html`, `--html-arquivo` (alternativa ao texto) | `--html-file` | `text/html` |
+  | anexo | `--anexo` (repetível) | `--attach`, `--attachment` | anexo com o nome do arquivo |
+  | responder para | `--responder-para` | `--reply-to` | `Reply-To` |
+  | em resposta a | `--em-resposta-a` (com ou sem `<>`) | `--in-reply-to` | `In-Reply-To` + `References` |
+  | assinatura | entra a de `~/.config/tt/email/<slug>.assinatura`; `--sem-assinatura` tira | `--no-signature` | depois de `-- ` |
+  | ensaio | `--ensaio`: imprime a mensagem (cabeçalhos, corpo, anexos) e não envia | `--dry-run` | — |
+
+- **Conta:** `--conta` resolve por slug, `nome=` ou `endereco=` (sem diferença de caixa); sem ela, a chave
+  `email_padrao=` do `config`, ou a única conta; ambígua → rc 2 com a lista.
+- **Caminho** (`email-tt.py`): conta Graph (`provedor=microsoft graph=1`) → `outlook_json` + `outlook_postar`
+  (API REST do Outlook; `TT_EMAIL_OUTLOOK_API` troca a base, só nos testes; anexos até 3 MB no total; a API não
+  aceita `In-Reply-To`, então resposta não se encadeia lá). Demais → `smtp_enviar` (TLS, STARTTLS ou nenhuma;
+  `credencial`: senha de `~/.secrets/aerc-<slug>.txt`, `cred_cmd` ou XOAUTH2 com token renovado). Cópia nos
+  enviados: Gmail, Microsoft e Outlook guardam sozinhos; os outros recebem APPEND IMAP em `pasta_enviados`
+  (falha aqui só avisa: o e-mail já saiu).
+- **Saída:** `✓ enviado de A para B, C por SMTP host|Outlook (API REST) · Message-ID: <…>`; rc 0 enviado, 1
+  falhou (`✗ não enviado: motivo`), 2 uso errado (conta, destinatário, assunto, arquivo, opção). `--ajuda` mostra o uso.
+- **Agente de IA:** o verbo envia na hora, sem perguntar. Antes de mandar a terceiros, mostre ao usuário o
+  `--ensaio` e confirme; entre as contas do próprio usuário, só com o pedido dele. Nunca ponha senha, token ou
+  segredo no corpo. Para compartilhar uma tarefa use `tt --tarefa-email` (formato `[tt] … ~CÓDIGO`), não este verbo.
+- Testes: `tests/test_email_enviar.sh` (servidor SMTP e API do Outlook falsos; campos, apelidos, Cco, HTML,
+  anexo, resposta, stdin, conta, ensaio, erros e o `graph-sendmail` do aerc).
+
 ## E-mail (resumo)
 
 Cliente configurável (`email=`, default `aerc`), aberto numa subjanela `display-popup` (não cria
@@ -1006,9 +1070,10 @@ sessão de trabalho; roda numa sessão oculta `_tt-email` fora da central/seleto
 `~/.config/tt/email/<slug>.conf` (sem segredo); segredos em `~/.secrets` (600). O `accounts.conf` do
 aerc é gerado entre marcadores `# >>> tt e-mail: <slug> >>>` (blocos à mão ficam intactos).
 `email-tt.py` descobre provedor (autoconfig/MX, detecta Microsoft 365 e Google), faz OAuth2 (código
-no aparelho ou navegador), testa IMAP/SMTP, lista pastas e converte HTML — sempre sem imprimir
-senha/refresh token. Sync local opcional (`sync_local=1`) por mbsync em `~/.cache/tt/maildir/<slug>`;
-envio continua SMTP online.
+no aparelho ou navegador), testa IMAP/SMTP, lista pastas, converte HTML e envia (`tt --email-enviar`) —
+sempre sem imprimir senha/refresh token. Sync local opcional (`sync_local=1`) por mbsync em
+`~/.cache/tt/maildir/<slug>` (contas Graph: `graph-sync`). Envio online: SMTP, ou a API REST do Outlook nas
+contas Graph.
 
 ## Celular / Termux
 
@@ -1213,8 +1278,8 @@ Cada registro vira um bloco no fim da descrição da tarefa/subtarefa, em cinza 
 - O log só acrescenta (preserva `aidlc:` e as notas do dono). Testes: `tests/test_tarefas_codigo.sh`.
 
 ### 4. Compartilhar por e-mail = upsert pelo código, em três vias
-- **Enviar:** menu ⋯ → ✉ (ou `tt --tarefa-email ID [destinatário] [--abrir]`, `tt --tarefas-email DESTINO ID…`; `TT_EMAIL_MAILTO_CMD` troca o
-  compositor) gera `Assunto: [tt] título @prazo !prio #tag ~CÓDIGO` e o corpo: descrição **sem os blocos `⟡` do diário** (conta, e-mail,
+- **Enviar:** menu ⋯ → ✉ (ou `tt --tarefa-email ID [destinatário] [--abrir]`, `tt --tarefas-email DESTINO ID…`, `tt --tarefa-email-ui`;
+  `TT_EMAIL_MAILTO_CMD` troca o compositor; o e-mail sai pela revisão do compositor, não pelo `--email-enviar`) gera `Assunto: [tt] título @prazo !prio #tag ~CÓDIGO` e o corpo: descrição **sem os blocos `⟡` do diário** (conta, e-mail,
   máquina, tokens e custo não viajam), `- [CÓDIGO] [x]|[ ] texto` por subtarefa e, depois da assinatura `-- `, o rodapé do protocolo v2
   `tt:2 estado=aberta|feita removidas=COD,COD`. Um tt antigo ignora tudo depois da assinatura (continua válido para ele). Só tarefa de topo.
   Enviar grava a **base** (meta `base=`): a versão enviada.

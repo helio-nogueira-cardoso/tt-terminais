@@ -3,6 +3,21 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.5.0 · 21/10/2026
+- **✉️ Enviar e-mail sem abrir tela:** `tt --email-enviar --conta CONTA --para END --assunto "…" --corpo "…"` manda por qualquer conta do tt, seja
+  qual for o provedor e a forma de entrar (SMTP com senha, senha por comando ou OAuth; contas Microsoft pelo Graph saem pela API do Outlook). Aceita
+  `--cc`, `--cco`, `--anexo` (repetível), `--html`, corpo pelo stdin ou `--corpo-arquivo`, `--responder-para` e `--em-resposta-a`; `--ensaio` mostra a
+  mensagem sem enviar. Os campos têm nome em português e aceitam o equivalente em inglês (`--to`, `--subject`, `--body`, `--attach`…). Sem `--conta`,
+  vale `email_padrao=` da configuração. Feito para scripts e agentes de IA (que devem mostrar o ensaio e confirmar antes de mandar a terceiros).
+- **📤 Enviar pelo aerc numa conta Microsoft (Graph) voltou a funcionar:** o envio falhava sempre (erro interno) e, quando passasse, perderia anexos e HTML.
+  Agora usa o mesmo conversor do `--email-enviar`: HTML, anexos, Cco e Responder-para chegam.
+- **🧩 Tarefas: uma linha estragada não trava mais todas as máquinas:** um arquivo de tarefas truncado, juntado a outro, grudava duas tarefas numa linha, e a
+  sincronização repetia o texto dela a cada volta até passar de 9 MB e prender os merges em todas as máquinas. O merge agora descarta linha malformada, só
+  aceita `chave=valor` nos metadados (e limpa o lixo que já estiver lá), nunca concatena arquivos sem quebra de linha e cada gravação usa temporário próprio.
+- **🔑 `oauth_client_id=tt`** em conta Microsoft volta a significar o app do tt, como prometido na v2.2.0 (antes ia literalmente "tt" como ID).
+- **📚 Skill revisada:** seção nova "Enviar e-mail pela linha de comando", modo Graph documentado, verbos de e-mail que faltavam, e um teste que reprova verbo
+  citado na skill que não exista no tt (e verbo de e-mail sem documentação).
+
 ## v2.4.7 · 21/10/2026
 - **📨 E-mail no Maildir e no Graph:** atualização automática da lista a cada 2 minutos e verificação preservada nas demandas Graph, inclusive reavaliação das mensagens cujo cabeçalho de autenticação chega depois.
 

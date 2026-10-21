@@ -4,7 +4,8 @@
 #  - a skill do celular tem seções numeradas em sequência e toda referência "seção N" (dentro dela e vinda de outros
 #    documentos) aponta para uma seção que existe;
 #  - todo script do celular que o repositório traz (termux/) está citado na skill;
-#  - nenhum dado pessoal (máquinas, e-mails, IPs da tailnet) entrou nos documentos de um repositório PÚBLICO.
+#  - nenhum dado pessoal (máquinas, e-mails, IPs da tailnet) entrou nos documentos de um repositório PÚBLICO;
+#  - todo `tt --verbo` citado na skill do tt existe, e todo verbo de e-mail do tt está documentado nela.
 source "$(dirname "$0")/lib.sh"; isolar
 
 python3 -I - "$RAIZ" <<'FIM_PY' || falhou 'documentação inconsistente (acima)'
@@ -72,6 +73,20 @@ for arq in docs:
     for n, linha in enumerate(ler(arq).splitlines(), 1):
         m = proibidos.search(linha)
         if m: erros.append(f"{arq}:{n}: dado pessoal em repositório público ('{m.group(0)}')")
+
+# 5) verbos: todo `tt --verbo` citado na skill do tt existe no despacho do tt, e todo verbo de e-mail do tt está na skill
+#    (o que a skill diz que não existe, ou usa de exemplo, fica na lista de exceções).
+despacho = set()
+for l in ler("tt").splitlines():
+    m = re.match(r"\s+(--[a-z0-9][a-z0-9-]*(?:\s*\|\s*--[a-z0-9][a-z0-9-]*)*)\)", l)
+    if m: despacho.update(v.strip() for v in m.group(1).split("|"))
+skill = ler("skill-tt-terminais.md")
+ficticios = {"--spawn-agente", "--verbo", "--xyz", "--help"}
+for v in sorted(set(re.findall(r"\btt (--[a-z0-9][a-z0-9-]*[a-z0-9])", skill)) - despacho - ficticios):
+    erros.append(f"skill-tt-terminais.md cita `tt {v}`, que não existe no despacho do tt")
+for v in sorted(x for x in despacho if re.search(r"email|demanda|anexo", x)):
+    if not re.search(re.escape(v) + r"(?![a-z0-9-])", skill):
+        erros.append(f"skill-tt-terminais.md não documenta o verbo de e-mail {v}")
 
 if erros:
     print("\n".join(erros), file=sys.stderr); sys.exit(1)
