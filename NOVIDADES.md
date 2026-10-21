@@ -3,9 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.4.7 · 21/10/2026
+- **📨 E-mail no Maildir e no Graph:** atualização automática da lista a cada 2 minutos e verificação preservada nas demandas Graph, inclusive reavaliação das mensagens cujo cabeçalho de autenticação chega depois.
+
+## v2.4.6 · 21/10/2026
+- **📨 E-mail novo aparece sem atualização manual:** contas que usam Maildir agora mandam o aerc sincronizar e atualizar a lista a cada 2 minutos. A migração corrige contas já cadastradas; se o aerc estiver aberto, a configuração é carregada na próxima abertura, sem fechar um popup ativo.
+
 ## v2.4.5 · 21/10/2026
 - **📨 Demandas por e-mail no Graph:** o espelho preserva `Authentication-Results` e mantém mensagens `[tt]` aguardando quando os cabeçalhos ainda não chegaram; elas são reavaliadas no próximo sync, sem relaxar a autenticação.
-- **📨 E-mail novo aparece sem atualização manual:** contas que usam Maildir agora mandam o aerc sincronizar e atualizar a lista a cada 2 minutos. A migração corrige contas já cadastradas; se o aerc estiver aberto, a configuração é carregada na próxima abertura, sem fechar um popup ativo.
 
 ## v2.4.4 · 21/10/2026
 - **🕸️ Máquina sozinha não é ilha:** com nenhuma outra máquina cadastrada, `tt --malha` acusava "1 conexão quebrada" (a própria máquina "não respondeu") e o vigia
