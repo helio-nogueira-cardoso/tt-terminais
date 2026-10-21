@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.3.2 · 21/10/2026
+- **🛡️ A atualização não destrói mais o pacote quando duas acontecem juntas:** o vigia que se atualiza sozinho e um `--atualizar`/`--sincronizar` chamado de fora
+  trocavam o pacote ao mesmo tempo, apagavam a cópia um do outro e deixavam o `tt` sem arquivos (a `empresa` ficou com ele quebrado por alguns minutos). A troca agora é
+  uma por vez (trava com retomada se o processo morrer), quem espera confere de novo, e uma instalação mais velha nunca sobrescreve uma mais nova.
+
 ## v2.3.0 · 21/10/2026
 - **🗂️ Pastas e maildir de verdade nas contas Microsoft (Graph):** o espelho virou um maildir válido (cur/new/tmp) que o cliente abre — antes só criava `new/` e a caixa aparecia vazia. E a volta completa passa a trazer, além do INBOX, as pastas padrão **Enviados, Lixeira, Rascunhos, Spam e Arquivo** (sem elas não dá para apagar certo nem ver o enviado). Cada pasta é refeita do servidor a cada sync, sem acumular duplicata.
 

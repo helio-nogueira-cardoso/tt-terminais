@@ -3133,6 +3133,25 @@ rapido_cmd() {
     *) echo 'uso: tt --rapido [status|gerar|remover]' >&2; return 2 ;;
   esac
 }
+# Uma troca de pacote por vez. A troca usa nomes fixos (tt.novo, tt.velho) e apaga os dois no começo: o vigia que se atualiza sozinho e um
+# --atualizar/--sincronizar chamado de fora (ssh) ao mesmo tempo apagavam a cópia um do outro e deixavam ~/.local/share/tt SEM O PACOTE
+# (a empresa ficou com o tt quebrado às 12:28 do dia 21/10/2026). mkdir é atômico em qualquer sistema; trava de processo morto ou com
+# mais de 10 min é retomada.
+instalar_travar() {
+  local t="$DIR_TT.trava" i p
+  mkdir -p "$(dirname "$DIR_TT")"
+  for ((i = 0; i < ${TT_INSTALAR_TRAVA_TENTATIVAS:-240}; i++)); do
+    mkdir "$t" 2>/dev/null && { echo $$ >"$t/pid"; return 0; }
+    p=$(cat "$t/pid" 2>/dev/null)
+    if [[ -n $p ]] && ! kill -0 "$p" 2>/dev/null; then rm -rf "$t"; continue; fi        # o dono morreu
+    [[ -n $(find "$t" -maxdepth 0 -mmin +10 2>/dev/null) ]] && { rm -rf "$t"; continue; }
+    sleep 0.5
+  done
+  echo "tt: outra instalação não terminou em $(( ${TT_INSTALAR_TRAVA_TENTATIVAS:-240} / 2 )) s; nada foi trocado" >&2
+  return 1
+}
+instalar_destravar() { rm -rf "$DIR_TT.trava"; }
+
 instalar_aqui() {
   local origem nome=${TT_NOME:-} pidf pid
   origem=${EU%/*}
@@ -3159,13 +3178,19 @@ instalar_aqui() {
     completar_pacote "$origem"
     pacote_valido "$origem" || return 1
     pode_instalar "$(cat "$origem/VERSAO")" || return 1
-    rm -rf "$DIR_TT.novo" "$DIR_TT.velho"
-    mkdir -p "$(dirname "$DIR_TT")"
-    cp -a "$origem" "$DIR_TT.novo" || return 1
-    gerar_rapido "$DIR_TT.novo" >/dev/null 2>&1 # sem núcleo conferido, o tt novo roda inteiro (como sempre)
-    [[ -d $DIR_TT ]] && migrar_dados_do_pacote "$DIR_TT" && mv "$DIR_TT" "$DIR_TT.velho"
-    mv "$DIR_TT.novo" "$DIR_TT"
-    rm -rf "$DIR_TT.velho"
+    instalar_travar || return 1
+    # Com a trava na mão: outra instalação pode ter acabado enquanto esperávamos (mesmo pacote: nada a trocar; uma mais nova: não rebaixa).
+    if [[ -f $DIR_TT/VERSAO ]] && cmp -s "$origem/VERSAO" "$DIR_TT/VERSAO" && [[ -x $DIR_TT/tt ]]; then :
+    elif pode_instalar "$(cat "$origem/VERSAO")"; then
+      rm -rf "$DIR_TT.novo" "$DIR_TT.velho"
+      mkdir -p "$(dirname "$DIR_TT")"
+      cp -a "$origem" "$DIR_TT.novo" || { instalar_destravar; return 1; }
+      gerar_rapido "$DIR_TT.novo" >/dev/null 2>&1 # sem núcleo conferido, o tt novo roda inteiro (como sempre)
+      [[ -d $DIR_TT ]] && migrar_dados_do_pacote "$DIR_TT" && mv "$DIR_TT" "$DIR_TT.velho"
+      mv "$DIR_TT.novo" "$DIR_TT" || { [[ -d $DIR_TT.velho && ! -d $DIR_TT ]] && mv "$DIR_TT.velho" "$DIR_TT"; instalar_destravar; return 1; }
+      rm -rf "$DIR_TT.velho"
+    else instalar_destravar; return 1; fi
+    instalar_destravar
   fi
   chmod +x "$DIR_TT/tt" "$DIR_TT/tema-agentes.sh" "$DIR_TT/memoria-agentes.sh"
   instalar_politica_aidlc || return 1

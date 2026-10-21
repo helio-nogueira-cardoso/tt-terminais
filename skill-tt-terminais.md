@@ -1070,6 +1070,7 @@ volta ao PATH de origem (`_TT_PATH_ORIGEM`).
 - Uma mudança só está pronta quando o mesmo resultado funciona por todos os canais do elemento:
   CLI, teclado, mouse/toque, menu e barra.
 - Mudança que acrescenta arquivo ao pacote deve entrar em `ARQUIVOS_FONTE` no `tt`.
+- **A troca do pacote é uma por vez** (`instalar_travar`/`instalar_destravar`, `$DIR_TT.trava`, mkdir atômico; dono morto ou 10 min = retomada; `TT_INSTALAR_TRAVA_TENTATIVAS`): a troca usa `$DIR_TT.novo`/`.velho` e duas ao mesmo tempo (vigia que se atualiza + `--atualizar` por ssh) deixavam `~/.local/share/tt` sem pacote. Depois da trava reconfere (mesmo pacote: nada a fazer; versão mais nova instalada: não rebaixa). Não dispare `--atualizar --todas` enquanto os vigias das máquinas podem estar se atualizando: espere-os (`publicar.sh` agora espera). Teste: `tests/test_instalacao_concorrente.sh`.
 - Tecla lida byte a byte numa tela própria (`read -rsn1`): o resto de uma seta ou clique depois do ESC espera
   `-t "${TT_ESC_SEQ:-0.3}"`, nunca 30–50 ms. Sob carga, ssh ou mosh o resto chega depois, e a seta virava Esc (a tela
   de transferências fechava). O `email-tt.py` usa o mesmo prazo (`ESC_SEQ`) e espera também o `\e[` pela metade;
