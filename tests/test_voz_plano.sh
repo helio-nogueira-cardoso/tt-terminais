@@ -27,6 +27,8 @@ vc() { # vc 'JSON do plano' "frase": o cérebro falso devolve o plano; guarda o 
   VOZ_CEREBRO_CMD="cat > '$T/pedido.txt'; printf '%s' '$1'" v "$2"
 }
 tem() { tmux has-session -t "=$1" 2>/dev/null; }
+# espera até N s (padrão 20) que um comando passe: sob carga alta (a máquina de desenvolvimento chega a load 90) o que antes era "sleep 1" não basta
+ate() { local i; for ((i = 0; i < ${2:-20}; i++)); do eval "$1" && return 0; sleep 1; done; return 1; }
 nj() { tmux list-windows -t "=$1:" 2>/dev/null | wc -l | tr -d ' '; }
 mkdir -p "$EST"
 
@@ -202,9 +204,8 @@ saida=$(vc '{"fala":"","acoes":[{"acao":"achar_conversa","consulta":"conciliaç�
 IFS=$'\037' read -r m prov cod _ <<<"$(head -n 1 "$EST/conversas")"
 [[ $prov == claude && $cod == "$CL" ]] || falhou "lista guardada: $(cat "$EST/conversas" | tr '\037' '|')"
 vc '{"fala":"","acoes":[{"acao":"retomar_conversa","numero":1}]}' "abre a primeira" >/dev/null 2>&1 || true
-sleep 1
-grep -q "retomar claude $CL" "$T/ia-conta.log" 2>/dev/null || falhou "retomar_conversa não chamou o ia-conta retomar: $(cat "$T/ia-conta.log" 2>/dev/null)"
-tmux list-sessions -F '#S' | grep -q '^voz-claude-retomada-' || falhou 'a sessão da conversa retomada não foi criada'
+ate "grep -q 'retomar claude $CL' '$T/ia-conta.log' 2>/dev/null" 30 || falhou "retomar_conversa não chamou o ia-conta retomar: $(cat "$T/ia-conta.log" 2>/dev/null)"
+ate "tmux list-sessions -F '#S' | grep -q '^voz-claude-retomada-'" 10 || falhou 'a sessão da conversa retomada não foi criada'
 passou 'conversas antigas: indexa Claude, Codex e Kiro, busca por assunto, incremental, orçamento; a voz acha e retoma de verdade'
 
 # ---- 9) sessões que conversam: a mensagem vai, a resposta volta ----
