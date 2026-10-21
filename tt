@@ -5765,6 +5765,11 @@ abrir_url() {
   fi
   if command -v termux-open-url >/dev/null; then termux-open-url "$u" >/dev/null 2>&1 && return 0; fi
   if [[ -n ${BROWSER:-} ]]; then setsid "$BROWSER" "$u" >/dev/null 2>&1 </dev/null && return 0; fi
+  # macOS não tem xdg-open: delega ao LaunchServices, que abre o navegador padrão. Se não houver
+  # sessão gráfica/LaunchServices acessível (por exemplo, SSH), mantém o fallback de copiar abaixo.
+  if [[ $(uname -s 2>/dev/null) == Darwin ]] && command -v open >/dev/null 2>&1; then
+    open "$u" >/dev/null 2>&1 </dev/null && return 0
+  fi
   local t; t=$(mktemp) && printf '%s' "$u" >"$t" && copiar_local "$t"; rm -f "$t"
   return 0
 }
@@ -7594,6 +7599,9 @@ maquina_da_tela() {
 abrir_na_tela() {
   local qual=$1 u=$2 c om d
   [[ -z ${TT_ABRIR_AQUI:-} ]] || return 1
+  # No MacBook, "sistema" significa o navegador nativo desta máquina. Não encaminhe pelo TT_PONTE:
+  # a sessão pode ser remota (empresa), mas o usuário quer o LaunchServices local.
+  [[ $qual == sistema && $(uname -s 2>/dev/null) == Darwin ]] && return 1
   c=${TT_LINK_CLIENTE:-}
   [[ -n $c || -z ${TMUX:-} ]] || c=$(cliente_externo)
   om=$(maquina_da_tela "$c"); [[ -n $om ]] || return 1

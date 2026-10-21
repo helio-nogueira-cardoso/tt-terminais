@@ -10,6 +10,29 @@ export PATH="$B:$PATH"
 U=https://exemplo.com/muito/longo?a=1
 cfg() { printf 'nome=teste\n%s\n' "$1" >"$XDG_CONFIG_HOME/tt/config"; }
 
+# macOS sem xdg-open: LaunchServices (`open`) abre o navegador padrão; se falhar, o link continua copiável.
+if [[ $(uname -s) == Darwin ]]; then
+  BM=$T/macbin; mkdir -p "$BM"; : >"$T/open.log"; : >"$T/pbcopy.log"
+  cat >"$BM/open" <<'OPEN'
+#!/bin/sh
+printf '%s\n' "$*" >>"$OPEN_LOG"
+exit "${OPEN_RC:-0}"
+OPEN
+  cat >"$BM/pbcopy" <<'PBCOPY'
+#!/bin/sh
+cat >>"$PBCOPY_LOG"
+PBCOPY
+  chmod +x "$BM/open" "$BM/pbcopy"
+  BROWSER= OPEN_LOG=$T/open.log PBCOPY_LOG=$T/pbcopy.log PATH="$BM:$TT_PATH_SEM_TERMUX_OPEN" \
+    "$TT" --abrir-url "$U"
+  [[ $(cat "$T/open.log") == "$U" && ! -s $T/pbcopy.log ]] || falhou "macOS deveria passar a URL ao open, sem copiar: '$(cat "$T/open.log")'"
+  : >"$T/open.log"
+  BROWSER= OPEN_LOG=$T/open.log PBCOPY_LOG=$T/pbcopy.log OPEN_RC=1 PATH="$BM:$TT_PATH_SEM_TERMUX_OPEN" \
+    "$TT" --abrir-url "$U"
+  [[ $(cat "$T/open.log") == "$U" && $(cat "$T/pbcopy.log") == "$U" ]] || falhou "se open falha, deveria preservar cópia: open='$(cat "$T/open.log")' cópia='$(cat "$T/pbcopy.log")'"
+  passou "macOS: open LaunchServices e fallback de cópia quando falha"
+fi
+
 # 1) navegador=sistema chama o abridor do sistema com a URL inteira.
 cfg navegador=sistema; : >"$LOG"
 "$TT" --abrir-link "$U" </dev/null; sleep 0.3

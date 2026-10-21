@@ -2126,13 +2126,15 @@ cadastro de conta OAuth e Ctrl+B u abrem o mesmo seletor com três opções (mai
 - **Google Chrome interno**: o estável, extraído do .deb oficial sem sudo, janela gráfica (WSLg ou X11); atualiza sozinho, no máximo uma vez por dia. Acha a tela mesmo numa sessão do tmux que perdeu o `DISPLAY` (anexada por ssh ou mosh); se ainda assim não abrir, avisa o motivo, abre no navegador do sistema e guarda o erro em `~/.cache/tt/chrome.log`;
 - **Carbonyl embutido**: Chromium que desenha no terminal, num popup do tmux (Ctrl+Q ou Ctrl+C fecha). É um build
   de 2023 sem atualizações: use para ler, não para logins sensíveis;
-- **Navegador padrão do sistema**: `xdg-open`, que no WSL abre o do Windows.
+- **Navegador padrão do sistema**: `xdg-open` (ou `open` via LaunchServices no macOS); no WSL abre o navegador do Windows.
 
-O Chrome interno e o navegador do sistema abrem na máquina da tela em que você clicou, não na da sessão:
-vendo pelo book-hl uma sessão (ou o e-mail) do PC, o link abre no book-hl. O tt de lá descobre isso pela
-ponte (`TT_PONTE`, ou `TT_ORIGEM` no cliente do popup do e-mail) e manda `tt --abrir-aqui QUAL URL` por ssh
-para a máquina da tela; se ela não responder, abre onde está, como antes. O Carbonyl e o "só copiar"
-seguem no próprio terminal.
+O Chrome interno e, fora do macOS, o navegador do sistema abrem na máquina da tela em que você clicou,
+não na da sessão: vendo pelo book-hl uma sessão (ou o e-mail) do PC, o link abre no book-hl. O tt de lá
+descobre isso pela ponte (`TT_PONTE`, ou `TT_ORIGEM` no cliente do popup do e-mail) e manda
+`tt --abrir-aqui QUAL URL` por ssh para a máquina da tela; se ela não responder, abre onde está, como antes.
+No macOS, a opção **Navegador padrão do sistema** sempre usa o LaunchServices local (`open`) — mesmo numa
+sessão em ponte para `empresa` — porque é o navegador nativo do MacBook, não da máquina remota. O Carbonyl
+e o "só copiar" seguem no próprio terminal.
 
 Os dois primeiros são baixados sob demanda para `~/.local/share/tt-navegadores`, sem sudo, e só são
 instalados se o sha256 do pacote bater (o do Chrome, com o índice do repositório do Google; o do Carbonyl, com o fixado no `tt`). Só x86_64; no Termux ficam ocultos.
