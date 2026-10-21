@@ -3,14 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
-## v2.0.7 · 20/10/2026
+## v2.0.9 · 20/10/2026
 - **📧 E-mail em texto simples volta a abrir no aerc:** o corpo de uma mensagem só texto (sem HTML) aparecia como se fosse um anexo
   ("No filter configured for this mimetype ('text/plain') — Open using the system handler / Save to file"), enquanto o HTML aparecia bem. A
   seção `[filters]` que o tt escrevia só tinha `text/html` e apagava os filtros de fábrica do aerc. Agora o tt acrescenta os que faltam
   (`text/plain` com quebra na largura do terminal, cores e links clicáveis; `text/calendar`, `message/*`, `.headers`), no cadastro e no reparo que
   roda ao abrir o 📧 (quem já tem o `aerc.conf` antigo é consertado sozinho, e o aerc reinicia uma vez). Um filtro seu continua como está.
 
-## v2.0.6 · 20/10/2026
+## v2.0.8 · 20/10/2026
 - **Caminhos pela interface para o que a 2.0.0 trouxe:** `Ctrl+B S` abre os 📸 snapshots; a tela dos snapshots agora liga e desliga a
   funcionalidade (desligada, oferece ligar com ⏎; `^o` desliga, `^n` grava agora); o menu administrar ganhou **🔎 Busca na conversa
   inteira** (liga/desliga) e, no macOS, **🍎 Atalhos no Mac** (estado do Option, tabela Linux → Mac e ativar). Antes só dava pela linha de comando.
