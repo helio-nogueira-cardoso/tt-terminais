@@ -3228,6 +3228,7 @@ CONF
   configurar_zshenv
   mac_configurar_padrao || return 1
   configurar_aerc
+  demandas_migrar_relaxado
   "$DIR_TT/tema-agentes.sh" --aplicar
   "$DIR_TT/memoria-agentes.sh" --aplicar
   if tmux list-sessions >/dev/null 2>&1; then
@@ -8823,7 +8824,7 @@ sessoes_ia_cmd() {
 #
 # Remetentes autorizados (cadastro comum, propagado como o das contas de IA): "e-mail<TAB>etiqueta<TAB>modo<TAB>
 # segredo<TAB>hora". A identidade é o e-mail (minúsculo) e a mudança mais nova vence; modo "-" = removido.
-# Modos: auth (padrão — o PROVEDOR que recebeu tem de ter autenticado o remetente: dmarc, ou dkim/spf alinhado),
+# Modos: auth (padrão — autenticação do provedor, alinhada), relaxado (ausência de resultado aceita; falha explícita não),
 # segredo (o assunto leva [tt:SEGREDO]) e aberto (sem checagem: o From é forjável, use só onde isso não importa).
 # Um e-mail de remetente autorizado com assunto "[tt] título @sex 14h !alta *semanal #tag" vira uma tarefa
 # PENDENTE — estado novo no mesmo arquivo das tarefas: sincroniza, não aparece nas listas, só na aba Entrada.
@@ -8832,18 +8833,35 @@ sessoes_ia_cmd() {
 # sincronizam a mesma caixa criam a MESMA tarefa, e aprovar/recusar (hora de agora) vence uma recriação tardia.
 # O texto do e-mail é dado não confiável: nunca é executado.
 CONF_DEMANDAS=$CONF_DIR/demandas
+DEMANDAS_MIGRACAO_RELAXADO=$CONF_DIR/demandas-v2.5.1-relaxado
+# Migração única da v2.5.1: remetentes já autorizados deixam de ficar presos à prova auth
+# que certos espelhos Graph não expõem. Falha explícita continua recusada pelo processador.
+demandas_migrar_relaxado() { # [arquivo de entrada opcional]
+  [[ -e $DEMANDAS_MIGRACAO_RELAXADO ]] && return 0
+  local agora tmp f
+  mkdir -p "$CONF_DIR"; agora=$(hora_agora)
+  for f in "$CONF_DEMANDAS" "${1:-}"; do
+    [[ -n $f && -f $f ]] || continue
+    tmp=$(mktemp "$CONF_DIR/demandas-migracao.XXXXXX") || return 1
+    awk -F '\t' -v OFS='\t' -v agora="$agora" '$3 == "auth" { $3="relaxado"; $5=agora } { print }' "$f" >"$tmp" || { rm -f "$tmp"; return 1; }
+    chmod 600 "$tmp"; mv -f "$tmp" "$f"
+  done
+  : >"$DEMANDAS_MIGRACAO_RELAXADO"; chmod 600 "$DEMANDAS_MIGRACAO_RELAXADO"
+  (demandas_propagar >/dev/null 2>&1 &)
+}
 demandas_receber() { # stdin: linhas de outra máquina (ou a local); funde por e-mail, a hora mais nova vence
   local tmp t=$CONF_DEMANDAS.trava i
   mkdir -p "$CONF_DIR"; touch "$CONF_DEMANDAS"
   tmp=$(mktemp "$CONF_DEMANDAS.XXXXXX") || return 1
   cat >"$tmp.in"
+  if [[ ${TT_DEMANDAS_RECEBENDO_REMOTO:-} == 1 ]]; then demandas_migrar_relaxado "$tmp.in" || { rm -f "$tmp.in"; return 1; }; fi
   for ((i = 0; i < 200; i++)); do
     mkdir "$t" 2>/dev/null && break
     (($(idade_arquivo "$t") > 20)) && rmdir "$t" 2>/dev/null
     sleep 0.05
   done
   awk -F'\t' -v OFS='\t' '
-    NF >= 5 && $1 ~ /^[^ \t@]+@[^ \t@]+$/ && $3 ~ /^(auth|aberto|segredo|-)$/ && $5 ~ /^[0-9]+$/ {
+    NF >= 5 && $1 ~ /^[^ \t@]+@[^ \t@]+$/ && $3 ~ /^(auth|relaxado|aberto|segredo|-)$/ && $5 ~ /^[0-9]+$/ {
       k = tolower($1); l = k OFS $2 OFS $3 OFS $4 OFS $5
       if (!(k in ts) || $5 + 0 > ts[k] + 0 || ($5 + 0 == ts[k] + 0 && l > linha[k])) { ts[k] = $5; linha[k] = l }
     }
@@ -8857,15 +8875,15 @@ demandas_gravar() { # e-mail etiqueta modo segredo — grava aqui com a hora de 
   printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$(hora_agora)" | demandas_receber
   (demandas_propagar >/dev/null 2>&1 &)
 }
-demandas_autorizar() { # e-mail [etiqueta] [auth|segredo|aberto] [segredo]
+demandas_autorizar() { # e-mail [etiqueta] [auth|relaxado|segredo|aberto] [segredo]
   local e=${1:-} tag=${2:-} modo=${3:-auth} seg=${4:-}
   e=${e,,}; tag=${tag,,}; tag=${tag#\#}
   [[ $e =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || { echo "e-mail inválido: ${1:-}" >&2; return 2; }
   [[ -z $tag || $tag =~ ^[a-z0-9_-]+$ ]] || { echo "etiqueta inválida (letras, números, - e _): $2" >&2; return 2; }
   case $modo in
-    auth|aberto) seg=- ;;
+    auth|relaxado|aberto) seg=- ;;
     segredo) [[ $seg =~ ^[A-Za-z0-9._-]{4,}$ ]] || { echo "o modo segredo precisa de uma palavra de 4+ caracteres (letras, números, . _ -)" >&2; return 2; } ;;
-    *) echo "modo inválido: $modo (auth, segredo ou aberto)" >&2; return 2 ;;
+    *) echo "modo inválido: $modo (auth, relaxado, segredo ou aberto)" >&2; return 2 ;;
   esac
   demandas_gravar "$e" "${tag:--}" "$modo" "${seg:--}"
   echo "autorizado: $e (etiqueta ${tag:+#}${tag:-nenhuma}, modo $modo)"
@@ -8881,7 +8899,7 @@ demandas_remetente() { # e-mail -> "etiqueta<TAB>modo<TAB>segredo" (vazio se nã
   awk -F'\t' -v e="${1,,}" '$1 == e && $3 != "-" { print $2 "\t" $3 "\t" $4 }' "$CONF_DEMANDAS" 2>/dev/null
 }
 demandas_listar() {
-  demandas_ativas || { echo "nenhum remetente autorizado — tt --demanda-autorizar EMAIL [etiqueta] [auth|segredo|aberto] [segredo]"; return 0; }
+  demandas_ativas || { echo "nenhum remetente autorizado — tt --demanda-autorizar EMAIL [etiqueta] [auth|relaxado|segredo|aberto] [segredo]"; return 0; }
   awk -F'\t' '$3 != "-" { printf "%-36s etiqueta %-14s modo %s\n", $1, ($2 == "-" ? "(nenhuma)" : "#" $2), $3 }' "$CONF_DEMANDAS"
 }
 demandas_propagar() {
@@ -9279,6 +9297,9 @@ demandas_processar_conta() { # slug
         fi
         [[ $auth == pass ]] || { awk -F '\t' -v u="$u" '$1 != u' "$authwait" >"$authwait.tmp" 2>/dev/null || :; [[ -f $authwait.tmp ]] && mv -f "$authwait.tmp" "$authwait"; ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=autenticacao(%s)\n' "$(date '+%F %T')" "$de" "$auth" >>"$log"; continue; } ;;
       segredo) [[ $seg != - && $segmsg == "$seg" ]] || { ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=segredo\n' "$(date '+%F %T')" "$de" >>"$log"; continue; } ;;
+      relaxado)
+        # Aceita ausência de Authentication-Results (p.ex. Graph não o forneceu), nunca falha explícita.
+        [[ $auth != fail ]] || { ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=autenticacao(fail,modo=relaxado)\n' "$(date '+%F %T')" "$de" >>"$log"; continue; } ;;
       aberto) ;;
       *) continue ;;
     esac
@@ -9408,7 +9429,7 @@ demandas_ui() {
     case $r in
       a) read -rp 'e-mail do remetente: ' e || return 0
          read -rp 'etiqueta (opcional, sem #): ' tag || return 0
-         read -rp 'modo [auth = o provedor autenticou | segredo | aberto] (⏎ = auth): ' modo || return 0
+         read -rp 'modo [auth = autenticado | relaxado = sem resultado, não falha | segredo | aberto] (⏎ = auth): ' modo || return 0
          seg=""; [[ ${modo:-auth} == segredo ]] && { read -rp 'segredo (vai no assunto como [tt:SEGREDO]): ' seg || return 0; }
          demandas_autorizar "$e" "$tag" "${modo:-auth}" "$seg" || true
          read -rsn1 -p '(tecla continua)' _ ;;
@@ -20078,7 +20099,7 @@ case "${1:-}" in
   --demanda-diff)
     [[ -n ${2:-} ]] || { echo "uso: tt --demanda-diff ID-DA-ATUALIZACAO"; exit 2; }
     python3 -I "$MERGE_PY" texto "$CONF_TAREFAS" "$(tarefas_id_arg "$2")" $([[ -t 1 ]] && echo --cor); exit $? ;;
-  --receber-demandas) demandas_receber; exit 0 ;;
+  --receber-demandas) TT_DEMANDAS_RECEBENDO_REMOTO=1 demandas_receber; exit 0 ;;
   --propagar-demandas) demandas_propagar; exit 0 ;;
   --puxar-demandas) demandas_puxar; exit 0 ;;
   --flutuante) flutuante_cmd "${2:-status}" "${3:-}"; exit $? ;;

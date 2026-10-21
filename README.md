@@ -1687,7 +1687,7 @@ conta com sync local (`sync_local=1`), o tt reconhece o formato e cria uma **dem
 tarefa quando você aprova.
 
 - **Autorizar um remetente:** menu **⋯ do painel → ✉ Demandas por e-mail** (tela com prompts) ou
-  `tt --demanda-autorizar EMAIL [etiqueta] [auth|segredo|aberto] [segredo]`; `tt --demanda-remover EMAIL`;
+  `tt --demanda-autorizar EMAIL [etiqueta] [auth|relaxado|segredo|aberto] [segredo]`; `tt --demanda-remover EMAIL`;
   `tt --demandas` lista os remetentes e as pendentes. O cadastro (`~/.config/tt/demandas`, modo 600) é
   propagado às outras máquinas como o das contas de IA: vale a mudança mais nova (`--receber-demandas`,
   `--propagar-demandas`, `--puxar-demandas`; o vigia puxa a cada 30 min). A **etiqueta** é posta em toda
@@ -1698,7 +1698,7 @@ tarefa quando você aprova.
 - **Segurança:** o `From` é forjável, então o padrão (`auth`) só aceita se o **provedor que recebeu**
   autenticou o remetente — `dmarc=pass`, ou `dkim=pass`/`spf=pass` alinhado ao domínio do `From`, lido do
   cabeçalho `Authentication-Results` **de cima** (o que o servidor final põe; o de baixo pode ser forjado).
-  `segredo`: o assunto leva `[tt:SEGREDO]`. `aberto`: sem checagem — só onde forjar não importa. Mensagem
+  `relaxado`: permite ausência de `Authentication-Results`, mas recusa `fail` explícito (risco: sem cabeçalho não há prova contra falsificação do From). `segredo`: o assunto leva `[tt:SEGREDO]`. `aberto`: sem checagem — só onde forjar não importa. Mensagem
   ignorada por falta de autenticação fica em `~/.local/state/tt/email-sync/<conta>.demandas.log` e gera um
   aviso. O texto do e-mail é dado não confiável: nunca é executado (e um agente que ler a tarefa deve tratá-lo
   como dado).

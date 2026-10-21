@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Demandas por e-mail: remetentes autorizados (cadastro comum, mesclado por e-mail), e-mails com "[tt]" no
 # assunto viram tarefas PENDENTES (estado novo, fora das listas, na aba Entrada), só se o provedor autenticou o
-# remetente (ou segredo/aberto, por remetente); idempotentes (id do Message-ID); aprovar vira aberta com as
+# remetente (ou segredo/relaxado/aberto, por remetente); idempotentes (id do Message-ID); aprovar vira aberta com as
 # subtarefas, recusar deixa lápide, e nenhuma recriação tardia ressuscita nada. Isola HOME/XDG/TT_RT; usa uma
 # caixa de e-mail falsa (maildir) e um notify-send de mentira.
 source "$(dirname "$0")/lib.sh"; isolar
@@ -13,6 +13,7 @@ printf '#!/bin/sh\necho "NOTIF: $*" >>"%s/notifs.log"\n' "$T" >"$T/bin/notify-se
 printf '#!/bin/sh\nexit 1\n' >"$T/bin/tmux"; chmod +x "$T/bin/tmux"   # sem servidor tmux: nenhum aviso vai à tela real
 export PATH="$T/bin:$PATH"
 C="$XDG_CONFIG_HOME/tt/tarefas"; D="$XDG_CONFIG_HOME/tt/demandas"
+mkdir -p "$(dirname "$D")"; : >"$XDG_CONFIG_HOME/tt/demandas-v2.5.1-relaxado"
 UI="$TT_RT/tt-tarefas-ui-$(id -u)"
 INBOX="$HOME/.cache/tt/maildir/conta/INBOX"; mkdir -p "$INBOX/new" "$INBOX/cur"
 n=0
@@ -33,6 +34,7 @@ r=$(tt --demanda-autorizar chefe@empresa.com.br '#Juridico') || fail "autorizar 
 tt --demanda-autorizar seg@empresa.com.br prod segredo abcd1234 >/dev/null || fail "autorizar com segredo falhou"
 tt --demanda-autorizar seg2@empresa.com.br - segredo ab >/dev/null 2>&1 && fail "segredo curto demais deveria ser recusado"
 tt --demanda-autorizar livre@empresa.com.br - aberto >/dev/null || fail "autorizar aberto falhou"
+tt --demanda-autorizar relax@empresa.com.br relax relaxado >/dev/null || fail "autorizar relaxado falhou"
 [[ $(stat -c %a "$D") == 600 ]] || fail "o cadastro tem segredo: precisa ser 600 (está $(stat -c %a "$D"))"
 grep -q $'^chefe@empresa.com.br\tjuridico\tauth\t-\t' "$D" || fail "etiqueta deveria ser normalizada (#Juridico -> juridico): $(cat "$D")"
 printf 'chefe@empresa.com.br\tantiga\tauth\t-\t1000\nnovo@x.com\tt\tauth\t-\t5\n' | tt --receber-demandas
@@ -219,5 +221,27 @@ tt --demandas-processar conta
 grep -q $'\tpendente\t.*Chegou sem cabeçalho e foi recuperada' "$C" || fail "após o Graph trazer os cabeçalhos, a mensagem deveria entrar na Entrada"
 [[ ! -s "$HOME/.local/state/tt/email-sync/conta.demandas.auth-espera" ]] || fail "mensagem revalidada deveria sair da espera de autenticação"
 echo "ok: auth=none aguarda e é reprocessado quando Graph traz os cabeçalhos reais"
+
+# 16) modo relaxado: permite cabeçalho ausente, mas jamais uma falha explícita
+eml relax_none relax@empresa.com.br none '[tt] Remetente relaxado sem cabeçalho' 'teste' 'relax-none-id'
+eml relax_fail relax@empresa.com.br fail '[tt] Remetente relaxado com falha' 'teste' 'relax-fail-id'
+tt --demandas-processar conta
+grep -q 'Remetente relaxado sem cabeçalho' "$C" || fail "modo relaxado deveria aceitar auth=none"
+grep -q 'Remetente relaxado com falha' "$C" && fail "modo relaxado não pode aceitar auth=fail"
+grep -q 'autenticacao(fail,modo=relaxado)' "$HOME/.local/state/tt/email-sync/conta.demandas.log" || fail "falha explícita no modo relaxado deveria ser registrada"
+echo "ok: relaxado permite auth=none e continua recusando auth=fail"
+
+
+# 17) atualização v2.5.1 migra uma vez todos os auth existentes em cada máquina
+mv "$D" "$T/demandas.salvas"
+printf 'antigo@empresa.com.br\told\tauth\t-\t100\nprotegido@empresa.com.br\tp\tsegredo\tpass1234\t101\n' >"$D"
+rm -f "$XDG_CONFIG_HOME/tt/demandas-v2.5.1-relaxado"
+printf 'remoto@empresa.com.br\tr\tauth\t-\t99\n' | TT_DEMANDAS_RECEBENDO_REMOTO=1 tt --receber-demandas
+grep -q $'^antigo@empresa.com.br\told\trelaxado\t-\t' "$D" || fail "migração automática deveria converter auth existente"
+grep -q $'^remoto@empresa.com.br\tr\trelaxado\t-\t' "$D" || fail "migração deveria converter também auth recebido de outra máquina"
+grep -q $'^protegido@empresa.com.br\tp\tsegredo\tpass1234\t101$' "$D" || fail "migração não pode mudar outros modos"
+tt --demanda-autorizar futuro@empresa.com.br - auth >/dev/null
+grep -q $'^futuro@empresa.com.br\t-\tauth\t-\t' "$D" || fail "migração única não pode converter novos cadastros auth"
+mv "$T/demandas.salvas" "$D"
 
 echo "TODOS OS TESTES PASSARAM"

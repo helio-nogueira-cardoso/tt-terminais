@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.5.1 · 21/10/2026
+- **📨 Demandas por e-mail com autenticação ausente:** novo modo `relaxado`, que aceita mensagens quando o provedor não expõe `Authentication-Results`, mas continua recusando falhas explícitas. Na atualização, os remetentes já cadastrados em `auth` migram automaticamente uma única vez; novos cadastros mantêm a escolha de modo. Isso libera o e-mail do Felipe que estava sendo ignorado.
+
 ## v2.5.0 · 21/10/2026
 - **✉️ Enviar e-mail sem abrir tela:** `tt --email-enviar --conta CONTA --para END --assunto "…" --corpo "…"` manda por qualquer conta do tt, seja
   qual for o provedor e a forma de entrar (SMTP com senha, senha por comando ou OAuth; contas Microsoft pelo Graph saem pela API do Outlook). Aceita
