@@ -51,8 +51,11 @@ echo "ok: foco em outro lugar gera aviso com a ação de voltar à sessão"
 # 3) --sempre avisa mesmo com o usuário olhando; sem texto é erro
 rm -rf "$T/state/tt/notifs"; clientes '/dev/pts/1|agente|attached,focused,UTF-8|@7'
 [[ $(run --notificar-daqui "aprovar push" --sempre) == notificado ]] || fail "--sempre"
+rm -rf "$T/state/tt/notifs"; clientes '/dev/pts/1|agente|attached,focused,UTF-8|@7'
+[[ $(run --notificar-daqui --sempre "aprovar push") == notificado ]] || fail "--sempre antes do texto"
+notifs | grep -q $'🤖 agente · aprovar push\tsessao:A|agente|%3' || fail "a flag inicial não pode virar o texto: $(notifs)"
 if run --notificar-daqui 2>/dev/null; then fail "sem texto deveria falhar"; fi
-echo "ok: --sempre força o aviso; sem texto é erro"
+echo "ok: --sempre força o aviso antes ou depois do texto; sem texto é erro"
 
 # 4) o clique leva o cliente à sessão e ao painel de origem
 : >"$T/log"

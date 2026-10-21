@@ -11621,12 +11621,17 @@ usuario_olhando() { # sessão window_id
 # houver) — sem piscar no miolo da faixa. O aviso fica no contador até ser aberto (padrão 24 h; o
 # 2º argumento troca). Se o usuário já está olhando para esta janela, não avisa (imprime "vendo");
 # --sempre avisa assim mesmo. Fora do tmux, vira um aviso do 🔔 sem destino. Imprime "notificado" ou "vendo".
-notificar_daqui() { # texto [segundos (padrão 86400)] [--sempre]
-  local txt=${1:-} dura=86400 sempre=0 a p s w canal=""
-  for a in "${@:2}"; do
-    case $a in --sempre) sempre=1 ;; ''|*[!0-9]*) ;; *) dura=$a ;; esac
+notificar_daqui() { # [--sempre] texto [segundos (padrão 86400)] [--sempre]
+  local txt="" dura=86400 sempre=0 a p s w canal=""
+  local -a args=()
+  for a in "$@"; do
+    if [[ $a == --sempre ]]; then sempre=1; else args+=("$a"); fi
   done
-  [[ -n $txt ]] || { echo 'uso: tt --notificar-daqui "texto" [segundos] [--sempre]' >&2; return 1; }
+  txt=${args[0]:-}
+  for a in "${args[@]:1}"; do
+    case $a in ''|*[!0-9]*) ;; *) dura=$a ;; esac
+  done
+  [[ -n $txt ]] || { echo 'uso: tt --notificar-daqui [--sempre] "texto" [segundos] [--sempre]' >&2; return 1; }
   faixa_notif_ativa && canal=sino
   p=${TMUX_PANE:-}
   if [[ -z $p ]] || ! s=$(tmux display-message -p -t "$p" '#{session_name}' 2>/dev/null); then
@@ -11655,7 +11660,7 @@ uso: tt --pty AÇÃO [NOME] …    (NOME padrão: padrao; a sessão se chama ia-
   esperar [NOME] REGEX [SEG]     espera o REGEX (egrep) aparecer na tela; 0 achou, 1 acabou o tempo (padrão 30 s)
   entrar [NOME]                  leva o seu cliente à sessão (dentro do tmux: switch-client; fora: attach)
   fechar [NOME]                  encerra a sessão          listar    sessões ia-pty-* abertas
-Senha: o agente NUNCA a digita. Ao ver "Password:" (esperar 'assword'), avise com tt --notificar-daqui --sempre e peça
+Senha: o agente NUNCA a digita. Ao ver "Password:" (esperar 'assword'), avise com tt --notificar-daqui "preciso da senha do sudo" --sempre e peça
 ao usuário para rodar "tt --pty entrar NOME".
 FIM_USO
        return 1 ;;

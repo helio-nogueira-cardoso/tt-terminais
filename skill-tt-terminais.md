@@ -1277,7 +1277,7 @@ tt --pty fechar deploy                # encerra; tt --pty listar mostra as abert
 ```
 
 - NOME é opcional (`padrao`). A sessão aparece na central como as outras, e o usuário pode entrar a qualquer hora.
-- **Senha: o agente nunca a digita.** Ao ver `Password:`: `tt --notificar-daqui --sempre "preciso da senha do sudo"` e pedir
+- **Senha: o agente nunca a digita.** Ao ver `Password:`: `tt --notificar-daqui "preciso da senha do sudo" --sempre` e pedir
   ao usuário `tt --pty entrar NOME`; ele digita e volta com Ctrl-b d. Depois o agente segue com `esperar`/`ler`.
   Para o sudo, a saída durável é a regra `NOPASSWD` da pendência `sudo-sem-senha` (`tt --pedir-sudo sudo-sem-senha`), criada
   uma vez por esse caminho. No macOS o sudo guarda o tíquete por terminal (`tty_tickets`): um `sudo -v` do usuário em outro
