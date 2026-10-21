@@ -468,9 +468,8 @@ servidores são descobertos pelo domínio do endereço (base pública do Thunder
 - **senha / senha de app** — lida sem aparecer na tela, guardada em `~/.secrets/aerc-<conta>.txt` (600);
 - **comando externo** — `pass`, `secret-tool`, Bitwarden etc.: a senha nem chega ao disco;
 - **OAuth2 / SSO** — Microsoft pelo código no aparelho (abre-se o link em qualquer aparelho e digita-se o
-  código); Google e outros pelo navegador. Gmail e Microsoft funcionam de fábrica com os apps do próprio tt;
-  outros provedores pedem o ID de um app OAuth. O token de renovação fica em `~/.secrets` e o aerc renova o
-  acesso sozinho.
+  código) e leitura pelo Microsoft Graph; Google e outros pelo navegador. Gmail e Microsoft funcionam de
+  fábrica; outros provedores pedem o ID de um app OAuth. O token de renovação fica em `~/.secrets`.
 
 Em **ajustar** (ou ✏ editar): servidores IMAP/SMTP, portas, segurança (TLS, STARTTLS ou nenhuma, só
 para localhost), usuário de login diferente do endereço, nome de exibição e pasta inicial.
@@ -661,11 +660,12 @@ Gmail com OAuth2 funciona **de fábrica**: sem informar `client_id`, o cadastro 
 fluxo nativo do Google assume isso, e rclone e Thunderbird embutem os deles). Quem preferir o
 próprio app continua passando `oauth_client_id=`.
 
-Microsoft (Outlook, Hotmail, Microsoft 365) com OAuth2 também: sem `client_id`, o cadastro usa o app
-"tt-terminais" do tt no Microsoft Entra, que aceita contas pessoais e de trabalho e é um cliente público
-(sem segredo). O publicador não é verificado: conta pessoal entra com um aviso, e o tenant de uma empresa
-costuma pedir a aprovação do administrador. `oauth_client_id=thunderbird` usa o ID público do Thunderbird,
-que às vezes já está aprovado no tenant da empresa.
+Microsoft (Outlook, Hotmail, Microsoft 365) com OAuth2 também: sem `client_id`, o padrão é o app público
+**Outlook Mobile** e o escopo `https://graph.microsoft.com/.default`, que a Microsoft preautoriza para
+esse app de primeira parte e devolve os escopos de e-mail que a conta pode usar. Isso evita a tela de
+aprovação administrativa do app de terceiros em muitos tenants corporativos. `oauth_client_id=thunderbird`
+usa o ID público do Thunderbird (IMAP/SMTP), e `oauth_client_id=tt` volta ao app próprio do tt; para
+esses modos, informe os escopos de IMAP/SMTP correspondentes.
 
 ### Pendências de instalação 📦
 

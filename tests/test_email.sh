@@ -10,18 +10,20 @@ printf '\n[Antiga]\nsource        = imaps://a%%40gmail.com@imap.gmail.com:993\ns
 printf 'SEGREDO_ANTIGO' >"$HOME/.secrets/aerc-antiga.txt"
 
 echo 'SENHA_FICT_1' | "$TT" --email-adicionar nome=Pessoal endereco=eu@gmail.com provedor=gmail auth=senha --senha-stdin >/dev/null || falhou 'cadastro gmail'
-"$TT" --email-adicionar nome=Trabalho endereco=eu@empresa.com provedor=microsoft auth=oauth oauth_client_id=id-ficticio >/dev/null || falhou 'cadastro microsoft'
+"$TT" --email-adicionar nome=Trabalho endereco=eu@empresa.com provedor=microsoft auth=oauth graph=1 oauth_client_id=27922004-5251-4030-b22d-91ecd9a37ea4 >/dev/null || falhou 'cadastro microsoft graph'
 echo 'BRIDGE_FICT' | "$TT" --email-adicionar nome=Proton endereco=eu@proton.me provedor=proton auth=senha --senha-stdin >/dev/null || falhou 'cadastro proton'
 "$TT" --email-adicionar nome=Custom endereco=eu@x.com.br imap_host=mail.x.com.br imap_porta=143 imap_seg=starttls \
   smtp_host=mail.x.com.br smtp_porta=587 smtp_seg=starttls usuario=login-x auth=comando 'cred_cmd=pass email/x' >/dev/null || falhou 'cadastro manual'
 grep -q '^source *= imaps://eu%40gmail.com@imap.gmail.com:993$' "$A" || falhou 'gmail: URL IMAP'
 grep -q '^outgoing *= smtps://eu%40gmail.com@smtp.gmail.com:465$' "$A" || falhou 'gmail: URL SMTP'
-grep -q '^source *= imaps+xoauth2://eu%40empresa.com@outlook.office365.com:993?token_endpoint=.*client_id=id-ficticio' "$A" || falhou 'microsoft: URL OAuth2'
-grep -q '^outgoing *= smtp+xoauth2://eu%40empresa.com@smtp.office365.com:587?' "$A" || falhou 'microsoft: SMTP STARTTLS + OAuth2'
+grep -q '^source *= maildir://.*/tt/maildir/trabalho$' "$A" || falhou 'microsoft graph: leitura pelo maildir'
+grep -q '^check-mail-cmd *= .*/tt --email-sync trabalho$' "$A" || falhou 'microsoft graph: sync pelo tt'
+grep -qx 'graph=1' "$XDG_CONFIG_HOME/tt/email/trabalho.conf" || falhou 'microsoft: modo Graph ausente'
+grep -q '^outgoing *= .*email-tt.py graph-sendmail .*/email/trabalho.conf$' "$A" || falhou 'microsoft graph: envio REST pelo tt'
 grep -q '^source *= imap+insecure://eu%40proton.me@127.0.0.1:1143$' "$A" || falhou 'proton: bridge sem TLS'
 grep -q '^source *= imap://login-x@mail.x.com.br:143$' "$A" || falhou 'manual: STARTTLS e usuário próprio'
 grep -q '^source-cred-cmd *= pass email/x$' "$A" || falhou 'manual: comando externo'
-passou 'provedores e configuração avançada geram as URLs certas do aerc (TLS/STARTTLS/nenhuma, OAuth2, usuário)'
+passou 'provedores e configuração avançada geram as URLs certas do aerc (TLS/STARTTLS/nenhuma, OAuth2/Graph, usuário)'
 
 grep -q 'SENHA_FICT_1\|BRIDGE_FICT\|SEGREDO_ANTIGO' "$A" && falhou 'segredo vazou para o accounts.conf'
 [[ $(stat -c %a "$HOME/.secrets/aerc-pessoal.txt") == 600 ]] || falhou 'senha não está com permissão 600'

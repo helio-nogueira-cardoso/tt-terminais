@@ -23,10 +23,13 @@ grep -q '^oauth_client_id=meu.apps.googleusercontent.com$' "$HOME/.config/tt/ema
 [[ -e $HOME/.secrets/aerc-proprio.client_secret ]] && falhou 'segredo do tt gravado para client próprio'
 passou 'client_id próprio é respeitado, sem segredo do tt'
 
-# Microsoft sem client_id: o app do tt na Microsoft (sem segredo); "thunderbird" usa o ID público dele.
-"$TT" --email-adicionar nome=MsTT endereco=t@empresa.com provedor=microsoft auth=oauth >/dev/null || falhou 'cadastro microsoft oauth sem client_id'
-grep -qx 'oauth_client_id=fa7042a4-7b4f-4148-833b-ceb8ce1b8808' "$HOME/.config/tt/email/mstt.conf" || falhou "Microsoft sem client_id deveria usar o app do tt: $(grep oauth_client_id "$HOME/.config/tt/email/mstt.conf")"
-[[ -e $HOME/.secrets/aerc-mstt.client_secret ]] && falhou 'app da Microsoft é cliente público: nada de segredo'
+# Microsoft sem client_id: o padrão é Outlook Mobile + Microsoft Graph; "thunderbird" segue disponível.
+"$TT" --email-adicionar nome=MsOut endereco=t@empresa.com provedor=microsoft auth=oauth >/dev/null || falhou 'cadastro microsoft oauth sem client_id'
+c=$HOME/.config/tt/email/msout.conf
+grep -qx 'oauth_client_id=27922004-5251-4030-b22d-91ecd9a37ea4' "$c" || falhou "Microsoft sem client_id deveria usar Outlook Mobile: $(grep oauth_client_id "$c")"
+grep -qx 'graph=1' "$c" || falhou 'Microsoft padrão deveria usar Graph'
+grep -qx 'oauth_scope=offline_access https://graph.microsoft.com/.default' "$c" || falhou 'escopo Graph ausente'
+[[ -e $HOME/.secrets/aerc-msout.client_secret ]] && falhou 'app da Microsoft é cliente público: nada de segredo'
 "$TT" --email-adicionar nome=MsTb endereco=b@empresa.com provedor=microsoft auth=oauth oauth_client_id=thunderbird >/dev/null || falhou 'cadastro microsoft oauth thunderbird'
 grep -qx 'oauth_client_id=9e5f94bc-e8a4-4e73-b8be-63364c29d753' "$HOME/.config/tt/email/mstb.conf" || falhou '"thunderbird" deveria virar o ID público do Thunderbird'
 passou 'Microsoft: app do tt de fábrica, "thunderbird" ainda disponível'

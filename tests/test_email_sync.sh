@@ -68,7 +68,7 @@ fi
 passou 'Gmail: rótulos fora do espelho, arquivo limitado a 500 e sintaxe aceita pelo mbsync'
 
 # OAuth2: PassCmd usa o email-tt.py oauth-token (sem gravar token no rc)
-"$TT" --email-adicionar nome=LocalOA endereco=oa@empresa.com provedor=microsoft auth=oauth oauth_client_id=cid sync_local=1 >/dev/null || falhou 'cadastro oauth com sync_local'
+"$TT" --email-adicionar nome=LocalOA endereco=oa@empresa.com provedor=microsoft auth=oauth oauth_client_id=cid graph=0 sync_local=1 >/dev/null || falhou 'cadastro oauth com sync_local'
 rcoa=$(RC localoa)
 grep -q 'PassCmd "python3 .*email-tt.py oauth-token .*localoa.conf"' "$rcoa" || falhou "oauth: PassCmd não usa oauth-token: $(grep PassCmd "$rcoa")"
 grep -q '^AuthMechs XOAUTH2$' "$rcoa" || falhou 'oauth: faltou AuthMechs XOAUTH2'

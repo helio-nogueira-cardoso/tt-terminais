@@ -6,6 +6,8 @@
   email-tt.py oauth-autorizar CONF       -> fluxo OAuth2 (código no aparelho ou navegador); grava o token
   email-tt.py oauth-token CONF           -> imprime um access token novo (renova pelo refresh token)
   email-tt.py testar CONF                -> testa login IMAP e SMTP; imprime ✓/✗ por serviço (rc 0 se ambos ok)
+  email-tt.py graph-testar CONF          -> testa acesso e leitura pelo Microsoft Graph
+  email-tt.py graph-sendmail CONF DEST…  -> sendmail do aerc: envia stdin pela API REST do Outlook
   email-tt.py pastas CONF                -> pastas especiais pelo IMAP (SPECIAL-USE: todos, enviados, lixeira…)
   email-tt.py lixeira CONF [--esvaziar]  -> pasta= e mensagens= da lixeira da conta (a pasta \\Trash do servidor);
                                             com --esvaziar, apaga todas de vez e imprime apagadas= e restam=
@@ -29,6 +31,8 @@ CONF é o arquivo chave=valor da conta (~/.config/tt/email/<slug>.conf). Segredo
 programa nunca imprime senha nem refresh token (só o access token, quando pedido por oauth-token).
 """
 import base64, imaplib, json, os, smtplib, socket, ssl, subprocess, sys, time
+import email as email_lib
+import email.policy
 import urllib.parse, urllib.request, xml.etree.ElementTree as ET
 
 
@@ -1054,6 +1058,80 @@ def testar(c):
     return 0 if ok else 1
 
 
+def graph_token(c, recurso="https://graph.microsoft.com/.default"):
+    if c.get("auth") != "oauth" or c.get("graph") != "1":
+        raise RuntimeError("a conta não está configurada para Microsoft Graph")
+    rt = ler_arquivo(arq_segredo(c))
+    d = {**base_oauth(c), "grant_type": "refresh_token", "refresh_token": rt, "scope": "offline_access " + recurso}
+    return post(c["oauth_token_endpoint"], d)["access_token"]
+
+
+def graph_get(c, caminho):
+    req = urllib.request.Request("https://graph.microsoft.com/v1.0" + caminho,
+                                headers={"Authorization": "Bearer " + graph_token(c)})
+    with urllib.request.urlopen(req, timeout=TIMEOUT, context=contexto_ssl()) as r:
+        return json.load(r)
+
+
+def testar_graph(c):
+    try:
+        r = graph_get(c, "/me/mailFolders/inbox/messages?$top=1&$select=subject")
+        n = len(r.get("value", []))
+        print(f"✓ Graph (ler): autenticado, consulta do INBOX ok ({n} mensagem(ns) na amostra)")
+    except Exception as e:
+        print(f"✗ Graph (ler): {erro_curto(e)}")
+        return 1
+    return 0
+
+
+def graph_enviar(c, destinatarios, mensagem):
+    """Envia pela API REST do Outlook (Mail.Send preautorizado do Outlook Mobile)."""
+    m = email_lib.message_from_string(mensagem, policy=email_lib.policy.default)
+    def enderecos(campo):
+        return [{"EmailAddress": {"Address": a}} for _, a in email_lib.utils.getaddresses(m.get_all(field, []))]
+    corpo = {
+        "Message": {
+            "Subject": m.get("Subject", ""),
+            "Body": {"ContentType": "Text", "Content": m.get_body(preferencelist=("plain",)).get_content()},
+            "ToRecipients": destinatarios or enderecos("To"),
+            "CcRecipients": enderecos("Cc"),
+            "BccRecipients": enderecos("Bcc"),
+        },
+        "SaveToSentItems": "true",
+    }
+    token = graph_token(c, "https://outlook.office.com/.default")
+    req = urllib.request.Request("https://outlook.office365.com/api/v2.0/me/sendmail",
+                                data=json.dumps(corpo).encode("utf-8"),
+                                headers={"Authorization": "Bearer " + token,
+                                         "Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=TIMEOUT, context=contexto_ssl()) as r:
+        return r.status
+
+
+def graph_sync(c, saida, limite):
+    """Salva as últimas mensagens do INBOX como maildir new/."""
+    r = graph_get(c, f"/me/mailFolders/inbox/messages?$top={int(limite)}&$select=id,subject,from,receivedDateTime,isRead,bodyPreview")
+    os.makedirs(saida, exist_ok=True)
+    n = 0
+    for m in r.get("value", []):
+        ident = m.get("id", "")
+        if not ident:
+            continue
+        nome = ident.replace("/", "_").replace(":", "_")
+        arq = os.path.join(saida, "new", nome)
+        os.makedirs(os.path.dirname(arq), exist_ok=True)
+        de = m.get("from", {}).get("emailAddress", {})
+        texto = (f"From: {de.get('name', '')} <{de.get('address', '')}>\n"
+                 f"Subject: {m.get('subject', '')}\n"
+                 f"Date: {m.get('receivedDateTime', '')}\n"
+                 f"X-Graph-Id: {ident}\n\n{m.get('bodyPreview', '')}\n")
+        with open(arq, "w", encoding="utf-8") as f:
+            f.write(texto)
+        n += 1
+    print(f"mensagens={n}")
+    return 0
+
+
 # --- HTML → texto (filtro do aerc quando não há w3m/lynx) -----------------------------------------
 # --- Links clicáveis (OSC 8) ----------------------------------------------------------------------
 # Hyperlink de terminal: a URL fica no escape, o texto visível é o rótulo. O terminal abre a URL
@@ -1449,6 +1527,20 @@ def main(a):
             print(f"✗ {e}", file=sys.stderr); return 1
     if cmd == "testar":
         return testar(c)
+    if cmd == "graph-testar":
+        return testar_graph(c)
+    if cmd == "graph-sync":
+        try:
+            return graph_sync(c, a[2], a[3] if len(a) > 3 else 500)
+        except Exception as e:
+            print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
+    if cmd == "graph-sendmail":
+        try:
+            graph_enviar(c, [{"EmailAddress": {"Address": x}} for x in a[2:]],
+                       sys.stdin.read())
+            return 0
+        except Exception as e:
+            print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
     if cmd == "pastas":
         try:
             return pastas(c)

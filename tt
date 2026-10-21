@@ -17133,7 +17133,7 @@ EMAIL_CONTATOS_CACHE="$HOME/.cache/tt/email-contatos.tsv" # índice de destinat�
 EMAIL_CONTATOS_MANUAL="$EMAIL_DIR/contatos.tsv"            # contatos escritos à mão: endereço<TAB>nome
 declare -A E=() # conta em edição (as funções declaram a sua cópia local com local -A E)
 # Chaves de uma conta, na ordem em que são gravadas.
-EMAIL_CHAVES=(nome endereco usuario nome_exibicao provedor auth imap_host imap_porta imap_seg smtp_host smtp_porta smtp_seg
+EMAIL_CHAVES=(nome endereco usuario nome_exibicao provedor auth graph imap_host imap_porta imap_seg smtp_host smtp_porta smtp_seg
   pasta cred_cmd oauth_client_id oauth_auth_endpoint oauth_token_endpoint oauth_device_endpoint oauth_scope
   pasta_todos pasta_enviados pasta_lixeira pasta_rascunhos pasta_spam pasta_naoabre pasta_importantes pasta_estrela sync_local
   extra_1 extra_2 extra_3 extra_4 extra_5 extra_6 extra_7 extra_8)
@@ -17168,6 +17168,7 @@ email_provedor() { awk -F'|' -v k="$1" '$1 == k' <<<"$EMAIL_PROVEDORES"; }
 # público do Thunderbird (às vezes já aprovado no tenant da empresa); quem preferir informa o de um app seu.
 EMAIL_MICROSOFT_ID=fa7042a4-7b4f-4148-833b-ceb8ce1b8808
 EMAIL_THUNDERBIRD_ID=9e5f94bc-e8a4-4e73-b8be-63364c29d753
+EMAIL_OUTLOOK_MOBILE_ID=27922004-5251-4030-b22d-91ecd9a37ea4
 
 # App OAuth "Desktop" do próprio tt no Google: contas Gmail com auth=oauth funcionam de fábrica,
 # sem criar projeto no console. Num app instalado o client_secret NÃO é confidencial (o Google
@@ -17183,10 +17184,11 @@ email_gmail_secret() { printf 'GOCSPX-%s%s' 'vtcInea5Jcu3w6' 'ufZpm9b2WM_VOm'; }
 email_app_padrao_id() {
   [[ ${E[auth]:-} == oauth ]] || return 0
   [[ ${E[provedor]:-} == microsoft && ${E[oauth_client_id]:-} == [Tt]hunderbird ]] && E[oauth_client_id]=$EMAIL_THUNDERBIRD_ID
+  [[ ${E[provedor]:-} == microsoft && ${E[oauth_client_id]:-} == [Oo]utlook ]] && E[oauth_client_id]=$EMAIL_OUTLOOK_MOBILE_ID
   [[ -z ${E[oauth_client_id]:-} ]] || return 0
   case ${E[provedor]:-} in
     gmail) E[oauth_client_id]=$EMAIL_GMAIL_ID ;;
-    microsoft) E[oauth_client_id]=$EMAIL_MICROSOFT_ID ;;
+    microsoft) E[oauth_client_id]=$EMAIL_OUTLOOK_MOBILE_ID ;;
   esac
 }
 email_gmail_padrao_secret() {
@@ -17199,10 +17201,12 @@ email_gmail_padrao_secret() {
 email_oauth_padrao() { # provedor → atribui em E[...]
   case $1 in
     microsoft)
+      # 0 desliga o modo Graph (IMAP/SMTP explícito, usado por contas antigas/testes).
       E[oauth_device_endpoint]=https://login.microsoftonline.com/common/oauth2/v2.0/devicecode
       E[oauth_token_endpoint]=https://login.microsoftonline.com/common/oauth2/v2.0/token
       E[oauth_auth_endpoint]=https://login.microsoftonline.com/common/oauth2/v2.0/authorize
-      E[oauth_scope]="offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send" ;;
+      [[ ${E[graph]:-1} == 1 ]] && E[graph]=1
+      E[oauth_scope]="offline_access https://graph.microsoft.com/.default" ;;
     gmail)
       E[oauth_auth_endpoint]=https://accounts.google.com/o/oauth2/auth
       E[oauth_token_endpoint]=https://oauth2.googleapis.com/token
@@ -17210,6 +17214,10 @@ email_oauth_padrao() { # provedor → atribui em E[...]
       E[oauth_scope]=https://mail.google.com/ ;;
   esac
 }
+
+# Contas Microsoft com Graph=1 usam o Microsoft Graph para leitura; os campos IMAP/SMTP ficam
+# cadastrados apenas para diagnóstico/retorno. A tela do aerc lê o maildir espelhado.
+email_graph() { [[ ${E[provedor]:-} == microsoft && ${E[graph]:-} == 1 ]]; }
 
 email_conf_arq() { echo "$EMAIL_DIR/$1.conf"; }
 email_cred_arq() { echo "$SECRETS_DIR/aerc-$1.txt"; }
@@ -17330,17 +17338,29 @@ email_bloco() {
   local cmd; if [[ ${E[auth]} == comando ]]; then cmd=${E[cred_cmd]}; else cmd="cat $(printf %q "$cred")"; fi
   echo "# >>> tt e-mail: ${E[_slug]} >>>"
   printf '[%s]\n' "${E[nome]}"
-  printf 'source            = %s\n' "$(email_url imap)"
-  # Entrada por maildir (sync_local) não autentica: o mbsync é quem fala IMAP. Só o envio usa a credencial.
-  [[ ${E[sync_local]:-} == 1 ]] || printf 'source-cred-cmd   = %s\n' "$cmd"
+  if email_graph; then
+    # Sem IMAP direto: a leitura vem do maildir sincronizado pelo Graph.
+    printf 'source            = maildir://%s\n' "$(email_maildir "${E[_slug]}")"
+    printf 'check-mail-cmd    = %s --email-sync %s\n' "$HOME/.local/bin/tt" "${E[_slug]}"
+    printf 'check-mail-timeout = 120s\n'
+  else
+    printf 'source            = %s\n' "$(email_url imap)"
+    # Entrada por maildir (sync_local) não autentica: o mbsync é quem fala IMAP. Só o envio usa a credencial.
+    [[ ${E[sync_local]:-} == 1 ]] || printf 'source-cred-cmd   = %s\n' "$cmd"
+  fi
+  if email_graph; then
+    printf 'outgoing          = %s\n' "$EMAIL_PY graph-sendmail $(email_conf_arq "${E[_slug]}")"
+  else
+    printf 'outgoing          = %s\n' "$(email_url smtp)"
+    printf 'outgoing-cred-cmd = %s\n' "$cmd"
+  fi
+  # Graph já escreve check-mail acima; não repita quando sync_local também está em 1.
   # Com maildir, o :check-mail do aerc (F11, ⟳, abrir pelo aviso) só funciona com um comando que traga o
   # INBOX: sem ele o aerc responde "check-mail: no command specified". O mbsync pode passar dos 10 s padrão.
-  if [[ ${E[sync_local]:-} == 1 ]]; then
+  if [[ ${E[sync_local]:-} == 1 ]] && ! email_graph; then
     printf 'check-mail-cmd    = %s --email-sync %s\n' "$HOME/.local/bin/tt" "${E[_slug]}"
     printf 'check-mail-timeout = 120s\n'
   fi
-  printf 'outgoing          = %s\n' "$(email_url smtp)"
-  printf 'outgoing-cred-cmd = %s\n' "$cmd"
   if [[ -n ${E[nome_exibicao]:-} ]]; then printf 'from              = %s <%s>\n' "${E[nome_exibicao]}" "${E[endereco]}"
   else printf 'from              = %s\n' "${E[endereco]}"; fi
   printf 'default           = %s\n' "${E[pasta]:-INBOX}"
@@ -17421,6 +17441,15 @@ email_sync_local_definir() {
   else
     echo "✓ Sync local desligado em $slug; o aerc volta a ler direto do servidor."
   fi
+}
+
+# No modo Graph o flag sync_local é implícito: o aerc lê maildir gerado pelo tt.
+email_graph_migrar() {
+  local slug; local -A E=()
+  for slug in $(email_slugs); do
+    E=(); email_ler "$slug" 2>/dev/null || continue
+    if email_graph; then E[sync_local]=1; email_gravar; email_regerar "$slug"; fi
+  done
 }
 
 # ---- Sync local opcional (mbsync/isync) --------------------------------------------------------
@@ -17581,6 +17610,8 @@ email_mbsyncrc_migrar() {
 # na mesma conta), e insistir piorava. Só o vigia (QUEM=vigia) respeita a espera; à mão, sincroniza já.
 email_sync() { # slug [inbox|completo] [vigia]
   local slug=${1:?} modo=${2:-inbox} quem=${3:-} rc lock dir alvo teto ini fim st agora k esp base
+  local -A E=(); email_ler "$slug" 2>/dev/null || true
+  if email_graph; then [[ $modo == inbox ]] && email_graph_sync "$slug"; return $?; fi
   rc=$(email_mbsyncrc "$slug")
   command -v "$(mbsync_bin)" >/dev/null || return 0
   [[ -f $rc ]] || return 0
@@ -18054,15 +18085,17 @@ email_validar() {
   login=${E[usuario]:-${E[endereco]}}
   [[ -n $login && $login != *[[:space:]]* && $login != *://* && $login != *'<'* && $login != *'>'* ]] ||
     { echo "Usuário de login inválido: use o login técnico, sem espaços. Deixe vazio para usar ${E[endereco]}."; return 1; }
-  [[ -n ${E[imap_host]:-} && -n ${E[smtp_host]:-} && ${E[imap_host]} != *[[:space:]]* && ${E[smtp_host]} != *[[:space:]]* ]] ||
-    { echo "Servidores IMAP/SMTP inválidos ou vazios."; return 1; }
-  [[ ${E[imap_porta]:-} =~ ^[0-9]+$ && ${E[smtp_porta]:-} =~ ^[0-9]+$ ]] || { echo "Porta inválida."; return 1; }
-  ((10#${E[imap_porta]} >= 1 && 10#${E[imap_porta]} <= 65535 && 10#${E[smtp_porta]} >= 1 && 10#${E[smtp_porta]} <= 65535)) ||
-    { echo "Portas devem estar entre 1 e 65535."; return 1; }
-  [[ ${E[imap_seg]} =~ ^(tls|starttls|nenhuma)$ && ${E[smtp_seg]} =~ ^(tls|starttls|nenhuma)$ ]] || { echo "Segurança deve ser tls, starttls ou nenhuma."; return 1; }
-  if [[ ${E[imap_seg]} == nenhuma && ! ${E[imap_host]} =~ ^(127\.0\.0\.1|localhost|::1)$ ]] ||
-     [[ ${E[smtp_seg]} == nenhuma && ! ${E[smtp_host]} =~ ^(127\.0\.0\.1|localhost|::1)$ ]]; then
-    echo "Conexão sem criptografia só é permitida em localhost."; return 1
+  if ! email_graph; then
+    [[ -n ${E[imap_host]:-} && -n ${E[smtp_host]:-} && ${E[imap_host]} != *[[:space:]]* && ${E[smtp_host]} != *[[:space:]]* ]] ||
+      { echo "Servidores IMAP/SMTP inválidos ou vazios."; return 1; }
+    [[ ${E[imap_porta]:-} =~ ^[0-9]+$ && ${E[smtp_porta]:-} =~ ^[0-9]+$ ]] || { echo "Porta inválida."; return 1; }
+    ((10#${E[imap_porta]} >= 1 && 10#${E[imap_porta]} <= 65535 && 10#${E[smtp_porta]} >= 1 && 10#${E[smtp_porta]} <= 65535)) ||
+      { echo "Portas devem estar entre 1 e 65535."; return 1; }
+    [[ ${E[imap_seg]} =~ ^(tls|starttls|nenhuma)$ && ${E[smtp_seg]} =~ ^(tls|starttls|nenhuma)$ ]] || { echo "Segurança deve ser tls, starttls ou nenhuma."; return 1; }
+    if [[ ${E[imap_seg]} == nenhuma && ! ${E[imap_host]} =~ ^(127\.0\.0\.1|localhost|::1)$ ]] ||
+       [[ ${E[smtp_seg]} == nenhuma && ! ${E[smtp_host]} =~ ^(127\.0\.0\.1|localhost|::1)$ ]]; then
+      echo "Conexão sem criptografia só é permitida em localhost."; return 1
+    fi
   fi
   [[ ${E[auth]} =~ ^(senha|oauth|comando)$ ]] || { echo "Autenticação deve ser senha, oauth ou comando."; return 1; }
   auths=$(cut -d'|' -f5 <<<"$(email_provedor "${E[provedor]}")")
@@ -18099,7 +18132,10 @@ email_aplicar_provedor() {
     fi
   fi
   linha=$(email_provedor "${E[provedor]}"); IFS='|' read -r _ _ imap smtp auths _ <<<"$linha"
-  if [[ -n $imap ]]; then
+  if email_graph; then
+    read -r h p s <<<"$imap"; E[imap_host]=${E[imap_host]:-$h}; E[imap_porta]=${E[imap_porta]:-$p}; E[imap_seg]=${E[imap_seg]:-$s}
+    read -r h p s <<<"$smtp"; E[smtp_host]=${E[smtp_host]:-$h}; E[smtp_porta]=${E[smtp_porta]:-$p}; E[smtp_seg]=${E[smtp_seg]:-$s}
+  elif [[ -n $imap ]]; then
     read -r h p s <<<"$imap"; E[imap_host]=${E[imap_host]:-$h}; E[imap_porta]=${E[imap_porta]:-$p}; E[imap_seg]=${E[imap_seg]:-$s}
     read -r h p s <<<"$smtp"; E[smtp_host]=${E[smtp_host]:-$h}; E[smtp_porta]=${E[smtp_porta]:-$p}; E[smtp_seg]=${E[smtp_seg]:-$s}
   fi
@@ -18558,9 +18594,35 @@ email_detectar_pastas() {
 email_testar_slug() {
   command -v python3 >/dev/null || { echo "✗ precisa do python3 para testar"; return 1; }
   [[ -e $(email_conf_arq "$1") ]] || { echo "Conta não encontrada: $1"; return 1; }
-  python3 "$EMAIL_PY" testar "$(email_conf_arq "$1")" || return 1
+  local -A E=(); email_ler "$1" 2>/dev/null || true
+  if email_graph; then
+    python3 "$EMAIL_PY" graph-testar "$(email_conf_arq "$1")" || return 1
+  else
+    python3 "$EMAIL_PY" testar "$(email_conf_arq "$1")" || return 1
+  fi
   email_detectar_pastas "$1" && echo "✓ pastas especiais conferidas (arquivar, rascunhos, enviados)"
   return 0
+}
+
+# Graph de leitura: troca o INBOX local pelas mensagens do Microsoft Graph (as últimas
+# TT_EMAIL_GRAPH_MAX, 500 por padrão). O aerc continua lendo maildir; o vigia chama por aqui.
+email_graph_sync() { # slug
+  local slug=${1:?} conf dir ini fim st lock
+  conf=$(email_conf_arq "$slug"); [[ -f $conf ]] || return 1
+  dir="${ESTADO_DIR:?}/email-sync"; mkdir -p "$dir"
+  lock="$EMAIL_MBSYNC_DIR/$slug.lock"; mkdir -p "$EMAIL_MBSYNC_DIR"
+  exec 9>"$lock" 2>/dev/null || return 0
+  flock -n 9 || { printf 'pulada\t%s\t%s\t0\n' "$(date +%s)" "$(date +%s)" >>"$dir/$slug"; return 0; }
+  ini=$(date +%s); printf 'inbox\t%s\n' "$ini" >"$dir/$slug.andamento"
+  timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-sync "$conf" "$(email_maildir "$slug")/INBOX" "${TT_EMAIL_GRAPH_MAX:-500}" >"$dir/$slug.saida.tmp" 2>"$dir/$slug.erro.tmp"; st=$?
+  fim=$(date +%s); printf 'inbox\t%s\t%s\t%s\n' "$ini" "$fim" "$st" >>"$dir/$slug"
+  tail -n 200 "$dir/$slug" >"$dir/$slug.tmp" 2>/dev/null && mv "$dir/$slug.tmp" "$dir/$slug"
+  if ((st == 0)); then rm -f "$dir/$slug.erro" "$dir/$slug.erro.tmp" "$dir/$slug.espera" "$dir/$slug.falhas"
+  else { ((st == 124)) && echo "tempo esgotado (${TT_EMAIL_GRAPH_TETO:-240} s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } >"$dir/$slug.erro"; rm -f "$dir/$slug.erro.tmp"; fi
+  rm -f "$dir/$slug.andamento"
+  exec 9>&-
+  email_novos_avisar "$slug"; demandas_processar_conta "$slug"; atualizar_barras 2>/dev/null
+  return $st
 }
 
 email_autorizar_slug() {
@@ -18643,11 +18705,12 @@ email_pedir_segredo() {
     oauth)
       printf '\nOAuth2 precisa do ID de um app registrado (client_id).\n'
       if [[ ${E[provedor]} == microsoft ]]; then
-        printf 'Microsoft: ⏎ usa o app do próprio tt (recomendado); "thunderbird" usa o ID público do Thunderbird\n'
-        printf '(às vezes já aprovado no tenant da empresa); ou informe o client_id de um app seu (portal do Azure).\n'
-        email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-}"
+        printf 'Microsoft: ⏎ usa o app público Outlook Mobile (padrão; lê pelo Microsoft Graph);\n'
+        printf '"thunderbird" usa o ID público do Thunderbird; "tt" usa o app próprio em IMAP/SMTP;\n'
+        printf 'ou informe o client_id de um app seu (portal do Azure).\n'
+        email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-outlook}"
         email_app_padrao_id
-        [[ ${E[oauth_client_id]} == "$EMAIL_MICROSOFT_ID" ]] && printf '✓ App do tt: %s…\n' "${EMAIL_MICROSOFT_ID:0:13}"
+        [[ ${E[oauth_client_id]} == "$EMAIL_OUTLOOK_MOBILE_ID" ]] && printf '✓ Outlook Mobile: %s…\n' "${EMAIL_OUTLOOK_MOBILE_ID:0:13}"
       else
         [[ ${E[provedor]} == gmail ]] && printf 'Google: ⏎ usa o app do próprio tt (recomendado); ou informe o client_id de um app\n"Desktop" seu (console.cloud.google.com → APIs e serviços → Credenciais).\n'
         email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-}"
@@ -20005,6 +20068,7 @@ case "${1:-}" in
     email_saltar_novo "${E[nome]}"; exit ;;
   --barra-email) barra_email_fmt; exit 0 ;;
   --email-mbsync-migrar) email_mbsyncrc_migrar; exit 0 ;;
+  --email-graph-migrar) email_graph_migrar; exit 0 ;;
   --email-autorizar) s=$(email_achar "${2:?uso: tt --email-autorizar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_autorizar_slug "$s"; exit ;;
   --email-conta-nova-ui) email_conta_nova_ui; exit ;;
   --email-tela) email_tela "${2:-}"; exit 0 ;;
