@@ -7,6 +7,12 @@ painel (Claude, Codex, Kiro, lida pelo sessoes-ia.py) e o scrollback INTEIRO do 
   consultar TEXTO    sessões que casam, uma por linha: "sessão<TAB>pontuação<TAB>fonte<TAB>trecho" (melhor primeiro).
   trecho SESSÃO TEXTO   os trechos (com contexto, destacados em ANSI) onde o texto aparece na conversa/scrollback.
   estado             quantas fontes e quantos KB estão indexados.
+  conversas-indexar [--dias N] [--orcamento S]
+                     indexa TODAS as conversas antigas desta máquina (Claude, Codex e Kiro; todas as contas; dentro do proot do
+                     Termux também), não só as de painéis abertos: mais novas primeiro, só o que mudou, no máximo S segundos por
+                     volta (60), das últimas N dias (120). O vigia chama a cada volta até terminar.
+  conversas-consultar TEXTO [N]
+                     as N (8) conversas antigas que casam: "pontuação, provedor, código, quando, pasta, título, trecho" (TAB).
 
 TEXTO: palavras em qualquer ordem (E), sem acento nem caixa, com prefixo ("autent" acha "autenticação"); "frase exata"
 entre aspas; !palavra exclui. A pasta do índice é $TT_BUSCA_DB ou ~/.cache/tt/busca.db.
@@ -32,6 +38,7 @@ def abrir():
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA synchronous=NORMAL")
     c.execute("CREATE TABLE IF NOT EXISTS fontes(chave TEXT PRIMARY KEY, sessao TEXT, fonte TEXT, assinatura TEXT, kb INTEGER, quando INTEGER)")
+    c.execute("CREATE TABLE IF NOT EXISTS hist(chave TEXT PRIMARY KEY, prov TEXT, id TEXT, arquivo TEXT, cwd TEXT, quando INTEGER, titulo TEXT)")
     c.execute("CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(texto, chave UNINDEXED, tokenize='unicode61 remove_diacritics 2')")
     return c
 
@@ -179,7 +186,7 @@ def cmd_consultar(texto, limite=200):
     try:
         linhas = c.execute(
             "SELECT f.sessao, f.fonte, bm25(fts), snippet(fts, 0, '', '', '…', 12) "
-            "FROM fts JOIN fontes f ON f.chave = fts.chave WHERE fts MATCH ? ORDER BY bm25(fts) LIMIT ?", (q, limite * 4)).fetchall()
+            "FROM fts JOIN fontes f ON f.chave = fts.chave WHERE fts MATCH ? AND f.fonte != 'historico' ORDER BY bm25(fts) LIMIT ?", (q, limite * 4)).fetchall()
     except sqlite3.OperationalError as e:
         print("busca: %s" % e, file=sys.stderr)
         return 1
@@ -204,7 +211,7 @@ def cmd_trecho(sessao, texto):
     padrao = re.compile("|".join(re.escape(t) for t in termos), re.I)
     c = abrir()
     try:
-        fontes = c.execute("SELECT f.chave, f.fonte FROM fts JOIN fontes f ON f.chave = fts.chave WHERE fts MATCH ? AND f.sessao = ? ORDER BY bm25(fts)",
+        fontes = c.execute("SELECT f.chave, f.fonte FROM fts JOIN fontes f ON f.chave = fts.chave WHERE fts MATCH ? AND f.sessao = ? AND f.fonte != 'historico' ORDER BY bm25(fts)",
                            (q, sessao)).fetchall()
     except sqlite3.OperationalError:
         return 1
@@ -234,6 +241,132 @@ def sem_acento(s):
     return "".join(ch for ch in unicodedata.normalize("NFD", s) if unicodedata.category(ch) != "Mn")
 
 
+# ---------- conversas antigas (todas as contas, todas as conversas em disco) ----------
+MAX_CONVERSA = int(os.environ.get("TT_BUSCA_MAX_CONVERSA_MB", "40")) * 1024 * 1024
+
+
+def modulo_sessoes():
+    import importlib.util
+    esp = importlib.util.spec_from_file_location("sessoes_ia", os.path.join(HERE, "sessoes-ia.py"))
+    mod = importlib.util.module_from_spec(esp)
+    esp.loader.exec_module(mod)
+    return mod
+
+
+def listar_conversas(mod, dias):
+    """[(mtime, prov, id, arquivo, tamanho)] de todas as conversas em disco, das últimas DIAS, mais nova primeiro."""
+    limite = time.time() - dias * 86400
+    achadas = {}
+
+    def anota(prov, i, arq):
+        try:
+            st = os.stat(arq)
+        except OSError:
+            return
+        if st.st_mtime < limite or st.st_size > MAX_CONVERSA or st.st_size == 0:
+            return
+        k = (prov, i)
+        if k not in achadas or achadas[k][0] < st.st_mtime:
+            achadas[k] = (st.st_mtime, prov, i, arq, st.st_size)
+
+    for d in mod.todas(".claude"):
+        base = os.path.join(d, "projects")
+        if not os.path.isdir(base):
+            continue
+        for pasta in os.listdir(base):
+            pp = os.path.join(base, pasta)
+            if os.path.isdir(pp):
+                for fn in os.listdir(pp):
+                    if fn.endswith(".jsonl"):
+                        anota("claude", fn[:-6], os.path.join(pp, fn))
+    for d in mod.todas(".codex"):
+        for dp, _, fns in os.walk(os.path.join(d, "sessions")):
+            for fn in fns:
+                m = mod.Codex.RE_ID.search(fn)
+                if m and fn.startswith("rollout-") and fn.endswith(".jsonl"):
+                    anota("codex", m.group(1), os.path.join(dp, fn))
+    for d in mod.todas(".kiro"):
+        base = os.path.join(d, "sessions", "cli")
+        if os.path.isdir(base):
+            for fn in os.listdir(base):
+                if fn.endswith(".jsonl"):
+                    anota("kiro", fn[:-6], os.path.join(base, fn))
+    return sorted(achadas.values(), reverse=True)
+
+
+def texto_da_conversa(mod, prov, arq):
+    """(texto, pasta, título) de uma conversa, sem subprocesso. Resultados de ferramentas vêm cortados (como no exportar)."""
+    t = mod.Texto(400)
+    fn = {"claude": mod.exportar_claude, "codex": mod.exportar_codex, "kiro": mod.exportar_kiro}[prov]
+    meta = fn(arq, t) or {}
+    titulo = ""
+    pegar = False
+    for pedaco in t.out:
+        if "👤 Usuário" in pedaco:
+            pegar = True
+            continue
+        if pegar:
+            titulo = " ".join(pedaco.split())[:90]
+            break
+    return "".join(t.out), str(meta.get("cwd") or ""), titulo
+
+
+def cmd_conversas_indexar(dias, orcamento):
+    c = abrir()
+    mod = modulo_sessoes()
+    conhecidas = {r[0]: r[1] for r in c.execute("SELECT chave, assinatura FROM fontes WHERE fonte = 'historico'")}
+    inicio = time.time()
+    novas = feitas = 0
+    arquivos = listar_conversas(mod, dias)
+    vivas = set()
+    for mtime, prov, i, arq, tam in arquivos:
+        chave = "hist:%s:%s" % (prov, i)
+        vivas.add(chave)
+        assin = "%d:%d" % (mtime, tam)
+        if conhecidas.get(chave) == assin:
+            continue
+        if time.time() - inicio > orcamento:
+            feitas += 1  # fica para a próxima volta
+            continue
+        try:
+            txt, cwd, titulo = texto_da_conversa(mod, prov, arq)
+        except Exception:
+            continue
+        gravar(c, chave, "", "historico", assin, txt)
+        c.execute("INSERT OR REPLACE INTO hist VALUES(?,?,?,?,?,?,?)", (chave, prov, i, arq, mod.sem_raiz_proot(cwd) if cwd else "", int(mtime), titulo))
+        novas += 1
+        if novas % 20 == 0:
+            c.commit()
+    # esquece as conversas que saíram do disco ou da janela de dias
+    for chave in list(conhecidas):
+        if chave not in vivas:
+            c.execute("DELETE FROM fts WHERE chave = ?", (chave,))
+            c.execute("DELETE FROM fontes WHERE chave = ?", (chave,))
+            c.execute("DELETE FROM hist WHERE chave = ?", (chave,))
+    c.commit()
+    c.close()
+    print("conversas: %d indexadas agora, %d na fila, %d no total" % (novas, feitas, len(arquivos)))
+    return 0
+
+
+def cmd_conversas_consultar(texto, n):
+    q = consulta_fts(texto)
+    if not q or not os.path.exists(DB):
+        return 0
+    c = abrir()
+    try:
+        linhas = c.execute(
+            "SELECT bm25(fts), h.prov, h.id, h.quando, h.cwd, h.titulo, snippet(fts, 0, '', '', '…', 14) "
+            "FROM fts JOIN hist h ON h.chave = fts.chave WHERE fts MATCH ? ORDER BY bm25(fts) LIMIT ?", (q, n)).fetchall()
+    except sqlite3.OperationalError as e:
+        print("busca: %s" % e, file=sys.stderr)
+        return 1
+    for score, prov, i, quando, cwd, titulo, trecho in linhas:
+        print("\t".join(["%.3f" % score, prov, i, time.strftime("%Y-%m-%d %H:%M", time.localtime(quando)), cwd, titulo.replace("\t", " "),
+                         " ".join(trecho.split())]))
+    return 0
+
+
 def cmd_estado():
     if not os.path.exists(DB):
         print("sem índice ainda")
@@ -257,6 +390,17 @@ def main(a):
         return cmd_trecho(a[1], " ".join(a[2:]))
     if a[0] == "estado":
         return cmd_estado()
+    if a[0] == "conversas-indexar":
+        dias, orc = 120, 60
+        for k in range(1, len(a) - 1):
+            if a[k] == "--dias":
+                dias = int(a[k + 1])
+            elif a[k] == "--orcamento":
+                orc = float(a[k + 1])
+        return cmd_conversas_indexar(dias, orc)
+    if a[0] == "conversas-consultar" and len(a) >= 2:
+        n = int(a[-1]) if len(a) >= 3 and a[-1].isdigit() else 8
+        return cmd_conversas_consultar(" ".join(a[1:-1] if len(a) >= 3 and a[-1].isdigit() else a[1:]), n)
     print(__doc__.strip(), file=sys.stderr)
     return 2
 

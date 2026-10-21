@@ -29,6 +29,7 @@
 #                   -catalogo -ajustes; painel: menu ⋯ → 📰 Letreiro (README: "Letreiro: fontes")
 #   tt --tailscale-ws garantir|ativar|desativar|status|testar  fallback WebSocket local no macOS
 #   tt --snapshots [on|off|status]  histórico de até 50 snapshots do estado (abas, agentes de IA, fixadas); ⏎ restaura
+#   tt --busca-conversas T   conversas antigas (Claude, Codex, Kiro; todas as contas) que casam com T; tt --sessao-falar ORIG DEST "msg"  uma sessão fala com outra
 #   tt --busca [estado|agora|on|off|consultar T]  busca na conversa inteira e no scrollback (central: ^e → "conversa")
 #   tt --mac [status|ativar|atalhos]  atalhos no Mac: Option como Meta (Terminal.app, Ghostty, iTerm2) e a tabela Linux → Mac
 #
@@ -1619,6 +1620,8 @@ busca_indexar() {
     printf '%s\t%s\t%s\t%s\n' "$s" "$p" "$prov" "$id"
   done < <(tmux list-panes -a -F $'#{pane_floating_flag}\x1f#{session_name}\x1f#{pane_id}\x1f#{@ponte}' 2>/dev/null) >"$arq"
   nice -n 10 python3 -I "$DIR_TT/busca-tt.py" indexar "$arq"
+  # as conversas antigas de TODAS as contas (não só as dos painéis abertos): mais novas primeiro, por volta num orçamento de tempo
+  nice -n 10 python3 -I "$DIR_TT/busca-tt.py" conversas-indexar --dias "${TT_BUSCA_DIAS:-120}" --orcamento "${TT_BUSCA_ORCAMENTO:-60}" || true
   rm -f "$arq"; rmdir "$trava"
 }
 
@@ -19773,6 +19776,8 @@ case "${1:-}" in
   --snapshot-restaurar) snapshot_restaurar "${2:-}" "${3:-aditivo}" "${4:-}"; exit $? ;;
   --busca) shift; busca_cmd "$@"; exit $? ;;
   --busca-indexar) busca_indexar; exit 0 ;;
+  --busca-conversas) shift; busca_ativa && busca_py conversas-consultar "$*"; exit 0 ;;   # conversas antigas (todas as contas) que casam
+  --sessao-falar) shift; exec bash "$DIR_TT/voz" --sessao-falar "$@" ;;
   --busca-consulta) shift; busca_consulta "$*"; exit 0 ;;
   --listar-busca) listar_busca "${2:-}"; exit 0 ;;
   --busca-mudou) busca_mudou; exit 0 ;;

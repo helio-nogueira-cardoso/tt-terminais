@@ -498,6 +498,29 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   sistemas com `VOZ_SISTEMA=Darwin|WSL|Linux`, microfones com `pactl`/PowerShell falsos, medições e escolha com ssh
   falso e `VOZ_MOTOR_FALSO`, gravação, janela num tmux isolado, `@janela`, instalação).
 
+### 🎤 Voz 2.1: autonomia, planos de um ok, temas, conversas antigas e sessões que conversam
+- **Regras do cérebro** (`cerebro_regras`): bloco AUTONOMIA (o que o usuário não disse, o cérebro decide e conta em UMA frase; só pergunta se errar sai
+  caro; nunca "posso fazer?") e PLANO (todas as ações em ordem no mesmo turno; nunca confirmar por fala). Ações novas: `temas`, `juntar_sessoes`
+  (`origem` = lista), `achar_conversa` (`consulta`), `retomar_conversa` (`numero`, `maquina`, `texto`), `falar_com_sessao` (`origem` = `máquina:sessão`,
+  `maquina`+`sessao` = destino, `texto`, `rodadas`), `plano_tirar` (`nome`). `CEREBRO_PY` achata cada ação em colunas fixas (as 3 últimas: origem,
+  rodadas, consulta).
+- **Plano de um ok:** durante o laço do `cerebro()`, `PLANO_LOTE=1`; `fechar_sessao`, `tarefa_fazer apagar`, `notificacoes_limpar` e `juntar_sessoes`
+  chamam `lote_add DESCRIÇÃO AÇÃO ARGS…` (arquivo `$ST/lote`, campos 0x1F) em vez de `confirmar_pedir`. No fim do turno, `plano_perguntar` faz UMA
+  pergunta e grava `pergunta`=plano; `plano_resposta sim|nao|tirar X` (rotas `plano sim|nao|tirar` em `reescrever`/`comando`) executa só ações de
+  `PLANO_ACOES` (`fechar_sessao_ja tarefa_apagar_ja notifs_limpar_ja unir_ja`), em ordem. Fila sem aprovação em 5 min é descartada no próximo turno.
+  `simples()` manda ao cérebro a frase com conjunção + outro verbo de ação (`COMPOSTO_RE`).
+- **Juntar:** `unir_ja` = `tmux move-window -a -d -s =origem:N -t =destino:{end}` por aba; a origem some sozinha; a fixada órfã é desafixada.
+- **Temas:** `temas_analisar` pede ao cérebro `grupos` (nome → `máquina:sessão`), guarda em `$ST/temas` (30 min) e o contexto traz "temas da última análise".
+- **Conversas antigas:** `busca-tt.py conversas-indexar [--dias 120] [--orcamento 60]` (todas as conversas em disco: `todas(".claude"|".codex"|".kiro")` do
+  `sessoes-ia.py`, inclusive proot; extração em processo com `exportar_*`; chave `hist:PROV:ID`, tabela `hist`, fonte `historico`, fora das consultas por
+  sessão; só o que mudou; esquece o que saiu do disco) e `conversas-consultar TEXTO [N]` (`pontuação, provedor, código, quando, pasta, título, trecho`).
+  O vigia roda após o `indexar` normal (`busca_indexar`). `tt --busca-conversas`. Voz: `conversa_achar` (todas as máquinas em paralelo, guarda
+  `$ST/conversas`) e `conversa_retomar` (`ia-conta retomar` onde a conversa mora; noutra máquina, `tt --conversa-ia ID --de M --salvar` + `ia-conta abrir
+  --prompt-arquivo`). Env: `TT_BUSCA_DIAS`, `TT_BUSCA_ORCAMENTO`, `TT_BUSCA_MAX_CONVERSA_MB`.
+- **Sessões que conversam:** `conversa_entre ORIGEM_M ORIGEM_S DEST_M DEST_S TEXTO [RODADAS]` (`voz --sessao-falar`, `tt --sessao-falar`): `mandar_para` digita com o
+  prefixo "[Mensagem da sessão 'X' (M)]", `esperar_resposta_longa` (`VOZ_CONVERSA_ESPERA`=60 s), `extrair` a resposta e a entrega à origem; sem origem, a voz
+  lê a resposta. Teste: `tests/test_voz_plano.sh`; avaliação manual com o modelo de verdade (sem executar nada): `tests/avaliar_cerebro.sh`.
+
 ### Arquivos entre máquinas
 - `tt --enviar [arquivo... [destino[:pasta]]]` — navega e envia; `tt --trazer [maquina:caminho [pasta]]`
   traz. `tt --pasta-padrao [maquina:pasta]` define a pasta de recebidos.

@@ -115,7 +115,7 @@ O vigia reindexa a cada `TT_T_BUSCA` s (180; 0 desliga) só o que mudou (assinat
 tamanho do histórico e o fim da tela) e esquece painel e conversa que sumiram. Índice em `~/.cache/tt/busca.db`
 (`TT_BUSCA_DB`; teto de `TT_BUSCA_MAX_KB`=16384 KB por fonte). `busca_conversa=0` no config, `tt --busca off` ou o menu administrar → 🔎 desliga.
 
-`tt --busca [estado|agora|on|off|consultar TEXTO]`; `tt --busca-consulta TEXTO` (o que as outras máquinas respondem).
+`tt --busca [estado|agora|on|off|consultar TEXTO]`; `tt --busca-consulta TEXTO` (o que as outras máquinas respondem). O mesmo índice guarda também as **conversas antigas** de todas as contas (`tt --busca-conversas TEXTO`; veja a voz, abaixo).
 Teste: `tests/test_busca_conversa.sh`.
 
 ## Atalhos no Mac
@@ -2104,6 +2104,31 @@ A roda do mouse (ou o arrasto, no celular) sobre os dois primeiros chips da barr
 Uma rolagem longa manda vários eventos: a roda anda um passo por vez (o resto da rajada cai). No resto da
 barra, a roda continua com o padrão do tmux (janela anterior/seguinte). `TT_T_ROLAR` (s) muda a espera por
 uma máquina e `TT_ROLAR_FOLGA` (ms), a folga entre passos.
+
+### Voz com autonomia: planos, temas, conversas antigas e sessões que conversam (2.1)
+
+- **Autonomia.** O que você não disser (máquina, IA, pasta, sessão) o cérebro decide e segue, sem perguntar nem bloquear: "quero trabalhar na
+  conciliação do bimo" escolhe ou abre a sessão certa, manda o pedido já escrito com contexto e conta numa frase o que escolheu. Só pergunta
+  quando a dúvida muda o resultado e errar sai caro.
+- **Planos compostos, um ok só.** Um pedido grande vira todas as ações num turno: ler, resumir, fixar, desafixar, abrir, enviar… rodam direto. O
+  que destrói (fechar sessão, apagar tarefa, apagar avisos lidos, juntar sessões) o tt junta numa **fila** e faz **uma** pergunta com tudo
+  ("Vou fazer isto: 1, fechar a sessão a. 2, juntar as abas de b na c…"); você diz **sim** (executa tudo, em ordem), **tira o 2** ou **tira a b**
+  (tira um item), ou **não** (limpa). Nada da fila roda antes do sim, e sessão `_*` nunca entra. Frase com dois pedidos ("apaga a tarefa X **e**
+  fecha a sessão Y") vai ao cérebro, não a uma regra simples que faria só a primeira metade.
+- **Temas.** "Resuma por tema": lê todas as sessões, agrupa por assunto e fala cada grupo; os grupos ficam guardados e você age sobre eles
+  ("fixa as do deploy, fecha as do site"), o que vira ações por sessão no mesmo plano.
+- **Juntar sessões.** `juntar_sessoes` leva as abas das origens para a sessão que fica (`tmux move-window`, mesma máquina); as origens fecham
+  ao ficar sem abas e a fixada órfã sai da barra. Entra na fila do plano.
+- **Conversas antigas, de qualquer conta, em qualquer máquina.** "Aquela conversa sobre conciliação bancária": o `busca-tt.py` indexa **todas**
+  as conversas em disco (Claude, Codex e Kiro; todas as contas; dentro do proot do Termux também), das últimas `TT_BUSCA_DIAS` (120), mais novas
+  primeiro, num orçamento de `TT_BUSCA_ORCAMENTO` s por volta do vigia (60), só o que mudou. A voz procura em todas as máquinas ao mesmo tempo,
+  lê as melhores e **retoma** a escolhida: onde ela mora, na mesma conversa, sem pedir permissões (`ia-conta retomar`); noutra máquina, abre ali
+  uma IA que lê a conversa e segue de onde parou. `tt --busca-conversas TEXTO` faz a mesma busca na linha de comando.
+- **Sessões que conversam.** "Peça à sessão backend para validar o que a site fez": `voz --sessao-falar ORIGEM DESTINO "mensagem" [RODADAS]`
+  (`tt --sessao-falar`; ORIGEM e DESTINO = `máquina:sessão`; `-` = a voz) entrega a mensagem ao agente de destino, espera a resposta e a devolve à
+  origem; com RODADAS (1 a 6) segue indo e voltando. Mesma máquina ou máquinas diferentes. Se o destino demora mais que
+  `VOZ_CONVERSA_ESPERA` (60 s), a voz deixa a conversa acompanhando e avisa quando ele responder.
+- Teste: `tests/test_voz_plano.sh`; avaliação manual do modelo de verdade, sem executar nada: `tests/avaliar_cerebro.sh`.
 
 ## Atalhos da central
 

@@ -3,6 +3,17 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.1.0 · 21/10/2026
+- **🎤 A voz decide sozinha e faz planos:** o que você não disser (máquina, IA, sessão) ela escolhe e conta em uma frase. Pedidos grandes viram
+  vários passos de uma vez: o que não apaga nada roda direto, e o que fecha, apaga ou junta vira **uma pergunta só** com tudo ("sim" faz tudo,
+  "tira o 2" tira um item, "não" cancela). "Apaga a tarefa X e fecha a sessão Y" agora faz as duas coisas.
+- **🧩 Temas e juntar:** "resuma por tema" agrupa as sessões abertas por assunto e você age sobre o grupo ("fecha as do deploy"); "junta as abas
+  de a e b na c" leva as abas para uma sessão só.
+- **🕰️ Conversas antigas de qualquer conta:** "aquela conversa sobre conciliação" procura em todas as máquinas, em todas as conversas do Claude,
+  do Codex e do Kiro (não só as abertas), e reabre a escolhida **na mesma conversa**, sem pedir permissões. `tt --busca-conversas TEXTO`.
+- **💬 Sessões que conversam:** "peça à sessão backend para validar o que a site fez" entrega a mensagem ao agente de lá, espera a resposta e a
+  devolve, na mesma máquina ou em máquinas diferentes (`tt --sessao-falar`).
+
 ## v2.0.14 · 21/10/2026
 - **🌐 Chromium nativo no Mac:** “Chromium interno” agora abre Google Chrome/Chromium.app pelo LaunchServices,
   com perfil próprio do tt, inclusive quando a sessão está em ponte para outra máquina. Se o app falhar,
