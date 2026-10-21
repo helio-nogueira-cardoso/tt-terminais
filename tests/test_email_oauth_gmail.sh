@@ -32,7 +32,9 @@ grep -qx 'oauth_scope=offline_access https://graph.microsoft.com/.default' "$c" 
 [[ -e $HOME/.secrets/aerc-msout.client_secret ]] && falhou 'app da Microsoft é cliente público: nada de segredo'
 "$TT" --email-adicionar nome=MsTb endereco=b@empresa.com provedor=microsoft auth=oauth oauth_client_id=thunderbird >/dev/null || falhou 'cadastro microsoft oauth thunderbird'
 grep -qx 'oauth_client_id=9e5f94bc-e8a4-4e73-b8be-63364c29d753' "$HOME/.config/tt/email/mstb.conf" || falhou '"thunderbird" deveria virar o ID público do Thunderbird'
-passou 'Microsoft: app do tt de fábrica, "thunderbird" ainda disponível'
+"$TT" --email-adicionar nome=MsTt endereco=t@empresa.com provedor=microsoft auth=oauth oauth_client_id=tt >/dev/null || falhou 'cadastro microsoft oauth tt'
+grep -qx 'oauth_client_id=fa7042a4-7b4f-4148-833b-ceb8ce1b8808' "$HOME/.config/tt/email/mstt.conf" || falhou '"tt" deveria virar o ID do app do tt (EMAIL_MICROSOFT_ID)'
+passou 'Microsoft: app do tt de fábrica, "thunderbird" e "tt" ainda disponíveis'
 
 # Microsoft com o app do Thunderbird informado à mão; o padrão do Gmail não interfere.
 "$TT" --email-adicionar nome=Ms endereco=m@empresa.com provedor=microsoft auth=oauth oauth_client_id=9e5f94bc-e8a4-4e73-b8be-63364c29d753 >/dev/null || falhou 'cadastro microsoft oauth'

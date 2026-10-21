@@ -25,6 +25,8 @@
 #   tt --sessoes-ia conversas do Claude/Codex/Kiro iguais em todas as máquinas (status|on|off|agora)
 #   tt --conversa-ia C  a conversa de IA de código C em Markdown, para outra IA seguir (--de MÁQUINA, --salvar)
 #   tt --tarefas-sync [modo] [url]  como as tarefas vão às outras máquinas (p2p, git, ambos, off)
+#   tt --email-enviar --para END --assunto T --corpo T  envia por qualquer conta (SMTP/OAuth/Outlook), sem tela;
+#                   --conta --cc --cco --anexo --html --ensaio (apelidos em inglês: --to --subject --body…)
 #   tt --letreiro-listar  fontes (APIs) do letreiro da faixa: -add -editar -rm -testar -log -exportar -importar
 #                   -catalogo -ajustes; painel: menu ⋯ → 📰 Letreiro (README: "Letreiro: fontes")
 #   tt --tailscale-ws garantir|ativar|desativar|status|testar  fallback WebSocket local no macOS
@@ -17261,6 +17263,7 @@ email_app_padrao_id() {
   [[ ${E[auth]:-} == oauth ]] || return 0
   [[ ${E[provedor]:-} == microsoft && ${E[oauth_client_id]:-} == [Tt]hunderbird ]] && E[oauth_client_id]=$EMAIL_THUNDERBIRD_ID
   [[ ${E[provedor]:-} == microsoft && ${E[oauth_client_id]:-} == [Oo]utlook ]] && E[oauth_client_id]=$EMAIL_OUTLOOK_MOBILE_ID
+  [[ ${E[provedor]:-} == microsoft && ${E[oauth_client_id]:-} == [Tt][Tt] ]] && E[oauth_client_id]=$EMAIL_MICROSOFT_ID
   [[ -z ${E[oauth_client_id]:-} ]] || return 0
   case ${E[provedor]:-} in
     gmail) E[oauth_client_id]=$EMAIL_GMAIL_ID ;;
@@ -17537,7 +17540,7 @@ email_graph_migrar() {
 #
 # Opt-in estrito por conta (sync_local=1): o mbsync espelha o IMAP num maildir em
 # ~/.cache/tt/maildir/<slug> e o aerc lê de lá (abertura instantânea, busca local, offline
-# parcial). O envio continua pelo SMTP online. Desligado por padrão; sem o flag, nada muda
+# parcial). O envio continua online (SMTP; nas contas Graph, a API do Outlook). Desligado por padrão; sem o flag, nada muda
 # (a conta segue com source=imaps:// e o cache-headers do aerc). As flags (lido, arquivado,
 # apagado) e a chegada de mensagens novas sobem/descem no próximo sync (vigia ou --email-sync).
 EMAIL_MBSYNC_DIR="$CONF_DIR/mbsync"
@@ -18670,6 +18673,44 @@ email_detectar_pastas() {
   for k in todos enviados lixeira rascunhos spam naoabre importantes estrela; do E[pasta_$k]=""; done
   while IFS='=' read -r k v; do [[ -n $k && -z ${E[pasta_$k]:-} ]] && E[pasta_$k]=$v; done <<<"$saida"
   email_gravar; email_regerar "$slug"
+}
+
+# tt --email-enviar: envia sem abrir tela, por qualquer conta do tt (SMTP com senha, comando ou OAuth; Microsoft
+# em modo Graph pela API do Outlook). Campos em português (--para --cc --cco --assunto --corpo --anexo…), com os
+# apelidos em inglês (--to --bcc --subject --body --attach…); a montagem e o envio ficam no email-tt.py enviar.
+# A conta: --conta (ou --de/--account/--from) aceita slug, nome ou endereço; sem ela, a chave email_padrao= da
+# config ou a única conta. rc 0 enviado, 1 falhou, 2 uso errado (conta ambígua, opção desconhecida…).
+email_conta_resolver() { # slug|nome|endereço → slug
+  local q=${1,,} s; s=$(email_achar "$1" 2>/dev/null) && { echo "$s"; return 0; }
+  for s in $(email_slugs); do local -A E=(); email_ler "$s" 2>/dev/null || continue
+    [[ ${E[endereco],,} == "$q" || ${E[nome],,} == "$q" ]] && { echo "$s"; return 0; }
+  done
+  return 1
+}
+email_enviar_cli() {
+  local conta="" s padrao; local -a resto=()
+  while (($#)); do
+    case $1 in
+      --conta|--de|--account|--from) conta=${2:-}; shift 2 || { echo "✗ $1 pede um valor" >&2; return 2; } ;;
+      --conta=*|--de=*|--account=*|--from=*) conta=${1#*=}; shift ;;
+      *) resto+=("$1"); shift ;;
+    esac
+  done
+  case ${resto[0]:-} in -h|--help|--ajuda) python3 "$EMAIL_PY" enviar /dev/null --ajuda; return 0 ;; esac
+  command -v python3 >/dev/null || { echo "✗ precisa do python3 para enviar" >&2; return 1; }
+  if [[ -n $conta ]]; then
+    s=$(email_conta_resolver "$conta") || { echo "✗ conta não encontrada: $conta (tt --email-listar)" >&2; return 2; }
+  else
+    padrao=$(conf email_padrao)
+    if [[ -n $padrao ]]; then
+      s=$(email_conta_resolver "$padrao") || { echo "✗ email_padrao=$padrao não é uma conta (tt --email-listar)" >&2; return 2; }
+    else
+      local -a todas; mapfile -t todas < <(email_slugs)
+      ((${#todas[@]} == 1)) || { echo "✗ escolha a conta com --conta (${#todas[@]} contas: ${todas[*]}) ou defina email_padrao= na config" >&2; return 2; }
+      s=${todas[0]}
+    fi
+  fi
+  python3 "$EMAIL_PY" enviar "$(email_conf_arq "$s")" "${resto[@]}"
 }
 
 email_testar_slug() {
@@ -20136,6 +20177,7 @@ case "${1:-}" in
   --tarefas-barra) barra_tarefas_fmt; exit ;;
   --email-pastas) s=$(email_achar "${2:?uso: tt --email-pastas NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_detectar_pastas "$s" && echo "✔ pastas atualizadas"; exit ;;
   --email-remover) s=$(email_achar "${2:?uso: tt --email-remover NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_remover_slug "$s"; exit ;;
+  --email-enviar) shift; email_enviar_cli "$@"; exit ;;
   --email-testar) s=$(email_achar "${2:?uso: tt --email-testar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_testar_slug "$s"; exit ;;
   --email-sync) # [NOME] [--completo]: sem NOME, todas as contas com sync_local=1; padrão só o INBOX
     es_modo=inbox; es_nome=""; es_quem=""

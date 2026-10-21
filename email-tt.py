@@ -8,6 +8,7 @@
   email-tt.py testar CONF                -> testa login IMAP e SMTP; imprime ✓/✗ por serviço (rc 0 se ambos ok)
   email-tt.py graph-testar CONF          -> testa acesso e leitura pelo Microsoft Graph
   email-tt.py graph-sendmail CONF DEST…  -> sendmail do aerc: envia stdin pela API REST do Outlook
+  email-tt.py enviar CONF OPÇÕES…        -> tt --email-enviar: monta e envia (SMTP ou Outlook REST); --ensaio só mostra
   email-tt.py pastas CONF                -> pastas especiais pelo IMAP (SPECIAL-USE: todos, enviados, lixeira…)
   email-tt.py lixeira CONF [--esvaziar]  -> pasta= e mensagens= da lixeira da conta (a pasta \\Trash do servidor);
                                             com --esvaziar, apaga todas de vez e imprime apagadas= e restam=
@@ -1062,8 +1063,13 @@ def graph_token(c, recurso="https://graph.microsoft.com/.default"):
     if c.get("auth") != "oauth" or c.get("graph") != "1":
         raise RuntimeError("a conta não está configurada para Microsoft Graph")
     rt = ler_arquivo(arq_segredo(c))
+    if not rt:
+        raise RuntimeError("conta ainda não autorizada (tt --email-autorizar)")
     d = {**base_oauth(c), "grant_type": "refresh_token", "refresh_token": rt, "scope": "offline_access " + recurso}
-    return post(c["oauth_token_endpoint"], d)["access_token"]
+    t = post(c["oauth_token_endpoint"], d)
+    if "access_token" not in t:
+        raise RuntimeError(t.get("error_description") or t.get("error") or "falha ao renovar o token")
+    return t["access_token"]
 
 
 def graph_get(c, caminho):
@@ -1084,28 +1090,266 @@ def testar_graph(c):
     return 0
 
 
-def graph_enviar(c, destinatarios, mensagem):
-    """Envia pela API REST do Outlook (Mail.Send preautorizado do Outlook Mobile)."""
-    m = email_lib.message_from_string(mensagem, policy=email_lib.policy.default)
+# --- Envio (tt --email-enviar e o sendmail do aerc nas contas Graph) ------------------------------
+# Uma mensagem só (MIME, montada pelo email.message) e dois caminhos: SMTP (senha, comando ou XOAUTH2) ou, nas
+# contas Microsoft em modo Graph, a API REST do Outlook. O Graph /v1.0/me/sendMail exigiria Mail.Send no recurso
+# do Graph, que o app do Outlook Mobile (o padrão do tt) não tem; no recurso do Outlook ele tem.
+OUTLOOK_API = os.environ.get("TT_EMAIL_OUTLOOK_API") or "https://outlook.office365.com/api/v2.0"
+OUTLOOK_LIMITE_ANEXOS = 3 * 1024 * 1024  # o sendmail do Outlook REST aceita anexos de até ~3 MB por chamada
+
+
+def conta_graph(c):
+    return c.get("provedor") == "microsoft" and c.get("graph") == "1"
+
+
+def outlook_json(m, destinatarios=None):
+    """Mensagem MIME → corpo JSON do sendmail do Outlook REST (texto ou HTML, anexos, Reply-To)."""
     def enderecos(campo):
-        return [{"EmailAddress": {"Address": a}} for _, a in email_lib.utils.getaddresses(m.get_all(field, []))]
-    corpo = {
-        "Message": {
-            "Subject": m.get("Subject", ""),
-            "Body": {"ContentType": "Text", "Content": m.get_body(preferencelist=("plain",)).get_content()},
-            "ToRecipients": destinatarios or enderecos("To"),
-            "CcRecipients": enderecos("Cc"),
-            "BccRecipients": enderecos("Bcc"),
-        },
-        "SaveToSentItems": "true",
-    }
+        return [{"EmailAddress": {"Address": a, **({"Name": n} if n else {})}}
+                for n, a in email_lib.utils.getaddresses(m.get_all(campo, [])) if a]
+    corpo_html = m.get_body(preferencelist=("html",))
+    corpo_txt = m.get_body(preferencelist=("plain",))
+    if corpo_html is not None:
+        corpo = {"ContentType": "HTML", "Content": corpo_html.get_content()}
+    else:
+        corpo = {"ContentType": "Text", "Content": corpo_txt.get_content() if corpo_txt is not None else ""}
+    anexos, total = [], 0
+    for parte in m.iter_attachments():
+        dados = parte.get_payload(decode=True) or b""
+        total += len(dados)
+        anexos.append({"@odata.type": "#Microsoft.OutlookServices.FileAttachment",
+                       "Name": parte.get_filename() or "anexo", "ContentType": parte.get_content_type(),
+                       "ContentBytes": base64.b64encode(dados).decode()})
+    if total > OUTLOOK_LIMITE_ANEXOS:
+        raise RuntimeError(f"anexos somam {total // 1024} KB; o envio pela API do Outlook aceita até "
+                           f"{OUTLOOK_LIMITE_ANEXOS // 1024 // 1024} MB")
+    msg = {"Subject": str(m.get("Subject", "")), "Body": corpo,
+           "ToRecipients": destinatarios if destinatarios is not None else enderecos("To"),
+           "CcRecipients": enderecos("Cc") if destinatarios is None else [],
+           "BccRecipients": enderecos("Bcc") if destinatarios is None else []}
+    if m.get_all("Reply-To"):
+        msg["ReplyTo"] = enderecos("Reply-To")
+    if anexos:
+        msg["Attachments"] = anexos
+    return {"Message": msg, "SaveToSentItems": True}
+
+
+def graph_enviar(c, destinatarios, mensagem):
+    """sendmail do aerc nas contas Graph: o aerc passa a mensagem crua no stdin e os destinatários (To, Cc e Bcc
+    juntos) nos argumentos, que viram o envelope; os cabeçalhos ficam só como estão."""
+    if isinstance(mensagem, (bytes, bytearray)):
+        m = email_lib.message_from_bytes(mensagem, policy=email_lib.policy.default)
+    else:
+        m = email_lib.message_from_string(mensagem, policy=email_lib.policy.default)
+    corpo = outlook_json(m)
+    if destinatarios:  # o envelope manda: quem está nos argumentos e não aparece em To/Cc vai como Bcc
+        vistos = {r["EmailAddress"]["Address"].lower() for k in ("ToRecipients", "CcRecipients")
+                  for r in corpo["Message"][k]}
+        extras = [d for d in destinatarios if d["EmailAddress"]["Address"].lower() not in vistos]
+        corpo["Message"]["BccRecipients"] = extras
+    return outlook_postar(c, corpo)
+
+
+def outlook_postar(c, corpo):
     token = graph_token(c, "https://outlook.office.com/.default")
-    req = urllib.request.Request("https://outlook.office365.com/api/v2.0/me/sendmail",
-                                data=json.dumps(corpo).encode("utf-8"),
-                                headers={"Authorization": "Bearer " + token,
-                                         "Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=TIMEOUT, context=contexto_ssl()) as r:
-        return r.status
+    req = urllib.request.Request(OUTLOOK_API + "/me/sendmail", data=json.dumps(corpo).encode("utf-8"),
+                                 headers={"Authorization": "Bearer " + token,
+                                          "Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=contexto_ssl()) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        detalhe = e.read().decode("utf-8", "replace")
+        try:
+            detalhe = json.loads(detalhe).get("error", {}).get("message") or detalhe
+        except Exception:
+            pass
+        raise RuntimeError(f"a API do Outlook recusou o envio (http {e.code}): {detalhe[:300]}")
+
+
+def smtp_enviar(c, m, destinatarios):
+    tipo, segredo = credencial(c)
+    host, porta, seg = c["smtp_host"], int(c.get("smtp_porta") or 587), c.get("smtp_seg", "starttls")
+    ctx = contexto_ssl()
+    s = smtplib.SMTP_SSL(host, porta, context=ctx, timeout=60) if seg == "tls" else smtplib.SMTP(host, porta, timeout=60)
+    try:
+        s.ehlo()
+        if seg == "starttls":
+            s.starttls(context=ctx); s.ehlo()
+        usuario = c.get("usuario") or c.get("endereco")
+        if tipo == "oauth":
+            cod, resp = s.docmd("AUTH", "XOAUTH2 " + base64.b64encode(xoauth2(usuario, segredo).encode()).decode())
+            if cod != 235:
+                raise smtplib.SMTPAuthenticationError(cod, resp)
+        else:
+            s.login(usuario, segredo)
+        recusados = s.send_message(m, to_addrs=destinatarios)
+        if recusados:
+            raise RuntimeError("o servidor recusou: " + ", ".join(recusados))
+    finally:
+        try:
+            s.quit()
+        except Exception:
+            pass
+
+
+def copia_enviados(c, m):
+    """Gmail e Microsoft guardam sozinhos o que sai por SMTP; nos outros, grava a cópia na pasta de enviados."""
+    if c.get("provedor") in ("gmail", "microsoft") or not c.get("pasta_enviados"):
+        return ""
+    im = imap_conectar(c)
+    try:
+        st, _ = im.append(imap_nome(c["pasta_enviados"]), "\\Seen", imaplib.Time2Internaldate(time.time()),
+                          m.as_bytes(policy=email_lib.policy.SMTP))
+        return "" if st == "OK" else f"não gravei a cópia em {c['pasta_enviados']}"
+    finally:
+        try:
+            im.logout()
+        except Exception:
+            pass
+
+
+def imap_nome(pasta):
+    return '"' + pasta.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+ENVIAR_AJUDA = """uso: tt --email-enviar [--conta CONTA] --para END[,END…] [--cc END…] [--cco END…] --assunto TEXTO
+       [--corpo TEXTO | --corpo-arquivo ARQ | corpo no stdin] [--html TEXTO | --html-arquivo ARQ]
+       [--anexo ARQ]… [--responder-para END] [--em-resposta-a MESSAGE-ID] [--sem-assinatura] [--ensaio]
+apelidos em inglês: --account/--from, --to, --bcc, --subject, --body, --body-file, --html-file, --attach,
+       --reply-to, --in-reply-to, --no-signature, --dry-run"""
+ENVIAR_APELIDOS = {"--to": "--para", "--bcc": "--cco", "--subject": "--assunto", "--body": "--corpo",
+                   "--body-file": "--corpo-arquivo", "--html-file": "--html-arquivo", "--attach": "--anexo",
+                   "--attachment": "--anexo", "--reply-to": "--responder-para", "--in-reply-to": "--em-resposta-a",
+                   "--no-signature": "--sem-assinatura", "--dry-run": "--ensaio"}
+ENVIAR_LISTAS = ("--para", "--cc", "--cco", "--anexo")
+ENVIAR_VALORES = ("--assunto", "--corpo", "--corpo-arquivo", "--html", "--html-arquivo", "--responder-para",
+                  "--em-resposta-a")
+
+
+def enviar_args(args):
+    o = {k: [] for k in ENVIAR_LISTAS}
+    o.update({"--sem-assinatura": False, "--ensaio": False})
+    i = 0
+    while i < len(args):
+        a = ENVIAR_APELIDOS.get(args[i], args[i])
+        if "=" in a and a.startswith("--") and a.split("=", 1)[0] in ENVIAR_APELIDOS.keys() | set(ENVIAR_LISTAS + ENVIAR_VALORES):
+            k, v = a.split("=", 1); args = args[:i] + [ENVIAR_APELIDOS.get(k, k), v] + args[i + 1:]; continue
+        if a in ("--sem-assinatura", "--ensaio"):
+            o[a] = True; i += 1; continue
+        if a in ENVIAR_LISTAS + ENVIAR_VALORES:
+            if i + 1 >= len(args):
+                raise ValueError(f"{args[i]} pede um valor")
+            v = args[i + 1]
+            if a in ENVIAR_LISTAS:
+                o[a] += [x.strip() for x in v.split(",") if x.strip()] if a != "--anexo" else [v]
+            else:
+                o[a] = v
+            i += 2; continue
+        raise ValueError(f"opção desconhecida: {args[i]}")
+    return o
+
+
+def montar_mensagem(c, o, corpo):
+    from email.message import EmailMessage
+    from email.utils import formataddr, formatdate, make_msgid
+    import mimetypes
+    m = EmailMessage(policy=email_lib.policy.SMTP)
+    endereco = c.get("endereco", "")
+    m["From"] = formataddr((c.get("nome_exibicao") or "", endereco))
+    for campo, chave in (("To", "--para"), ("Cc", "--cc")):
+        if o[chave]:
+            m[campo] = ", ".join(o[chave])
+    m["Subject"] = o["--assunto"]
+    m["Date"] = formatdate(localtime=True)
+    m["Message-ID"] = make_msgid(domain=endereco.rpartition("@")[2] or None)
+    if o.get("--responder-para"):
+        m["Reply-To"] = o["--responder-para"]
+    if o.get("--em-resposta-a"):
+        mid = o["--em-resposta-a"].strip()
+        mid = mid if mid.startswith("<") else f"<{mid}>"
+        m["In-Reply-To"] = mid; m["References"] = mid
+    assinatura = "" if o["--sem-assinatura"] else ler_arquivo(
+        os.path.join(os.path.dirname(c["_conf"]), c["_slug"] + ".assinatura"))
+    texto = corpo + (("\n\n-- \n" + assinatura) if assinatura else "")
+    m.set_content(texto if texto.endswith("\n") else texto + "\n")
+    html = o.get("--html")
+    if o.get("--html-arquivo"):
+        with open(o["--html-arquivo"], encoding="utf-8") as f:
+            html = f.read()
+    if html:
+        m.add_alternative(html, subtype="html")
+    for caminho in o["--anexo"]:
+        with open(caminho, "rb") as f:
+            dados = f.read()
+        tipo = (mimetypes.guess_type(caminho)[0] or "application/octet-stream").split("/", 1)
+        m.add_attachment(dados, maintype=tipo[0], subtype=tipo[1], filename=os.path.basename(caminho))
+    return m
+
+
+def enviar(caminho_conf, args):
+    """tt --email-enviar: envia uma mensagem pela conta, sem abrir tela. rc 0 enviado, 1 falhou, 2 uso errado."""
+    if args[:1] in (["-h"], ["--help"], ["--ajuda"]):
+        print(ENVIAR_AJUDA); return 0
+    try:
+        o = enviar_args(args)
+    except ValueError as e:
+        print(f"✗ {e}\n{ENVIAR_AJUDA}", file=sys.stderr); return 2
+    destinatarios = o["--para"] + o["--cc"] + o["--cco"]
+    if not destinatarios:
+        print("✗ falta destinatário (--para, --cc ou --cco)", file=sys.stderr); return 2
+    if o.get("--assunto") is None:
+        print("✗ falta --assunto (use --assunto \"\" para mandar sem assunto)", file=sys.stderr); return 2
+    for chave in ("--corpo-arquivo", "--html-arquivo"):
+        if o.get(chave) and not os.path.isfile(o[chave]):
+            print(f"✗ {chave}: arquivo não encontrado: {o[chave]}", file=sys.stderr); return 2
+    for a in o["--anexo"]:
+        if not os.path.isfile(a):
+            print(f"✗ anexo não encontrado: {a}", file=sys.stderr); return 2
+    if o.get("--corpo") is not None:
+        corpo = o["--corpo"]
+    elif o.get("--corpo-arquivo"):
+        with open(o["--corpo-arquivo"], encoding="utf-8") as f:
+            corpo = f.read()
+    elif not sys.stdin.isatty():
+        corpo = sys.stdin.read()
+    else:
+        corpo = ""
+    c = ler_conf(caminho_conf); c["_conf"] = os.path.abspath(caminho_conf)
+    m = montar_mensagem(c, o, corpo)
+    if o["--cco"]:
+        m["Bcc"] = ", ".join(o["--cco"])  # só para o caminho do Outlook e para o ensaio; o SMTP o tira antes
+    caminho = "Outlook (API REST)" if conta_graph(c) else f"SMTP {c.get('smtp_host', '?')}"
+    if o["--ensaio"]:
+        print(f"# ensaio: nada foi enviado · conta {c['_slug']} · envio por {caminho}")
+        sem_anexos = email_lib.message_from_bytes(m.as_bytes(), policy=email_lib.policy.default)
+        for campo in ("From", "To", "Cc", "Bcc", "Reply-To", "Subject", "In-Reply-To", "Message-ID"):
+            if sem_anexos.get(campo):
+                print(f"{campo}: {sem_anexos[campo]}")
+        print()
+        print(m.get_body(preferencelist=("plain",)).get_content().rstrip("\n"))
+        if m.get_body(preferencelist=("html",)) is not None:
+            print("\n# + versão HTML")
+        for p in m.iter_attachments():
+            print(f"# anexo: {p.get_filename()} ({len(p.get_payload(decode=True) or b'')} bytes, {p.get_content_type()})")
+        return 0
+    try:
+        if conta_graph(c):
+            outlook_postar(c, outlook_json(m))
+            aviso = ""
+        else:
+            del m["Bcc"]
+            smtp_enviar(c, m, destinatarios)
+            try:
+                aviso = copia_enviados(c, m)
+            except Exception as e:
+                aviso = f"enviado, mas não gravei a cópia nos enviados: {erro_curto(e)}"
+    except Exception as e:
+        print(f"✗ não enviado: {erro_curto(e)}", file=sys.stderr); return 1
+    print(f"✓ enviado de {c.get('endereco')} para {', '.join(destinatarios)} por {caminho} · Message-ID: {m['Message-ID']}")
+    if aviso:
+        print(f"⚠ {aviso}", file=sys.stderr)
+    return 0
 
 
 GRAPH_PASTAS_EXTRA = [
@@ -1667,10 +1911,12 @@ def main(a):
             return graph_classificar(c, int(a[2]) if len(a) > 2 else 500)
         except Exception as e:
             print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
+    if cmd == "enviar":
+        return enviar(arg, a[2:])
     if cmd == "graph-sendmail":
         try:
             graph_enviar(c, [{"EmailAddress": {"Address": x}} for x in a[2:]],
-                       sys.stdin.read())
+                         sys.stdin.buffer.read())
             return 0
         except Exception as e:
             print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
