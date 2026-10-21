@@ -1159,6 +1159,90 @@ def graph_sync(c, base, limite, completo=False):
     return 0
 
 
+# --- Classificação automática (server-side, só com token de escrita Mail.ReadWrite) ---------------
+# Mantém o INBOX organizado na taxonomia do usuário movendo cada mensagem para a pasta da categoria.
+# Determinístico (regras por remetente/assunto); o que não casa fica no INBOX. Idempotente: já movido
+# não está mais no INBOX. Precisa de Mail.ReadWrite (criar pasta, mover); sem ele, sai sem erro fatal.
+TAXONOMIA = ["@ Ação", "@ Aguardando Resposta", "Automações", "Códigos", "Segurança", "Notificações", "Newsletters"]
+
+
+def classificar_email(frm, subj):
+    """(remetente, assunto) -> nome da categoria, ou None para deixar no INBOX."""
+    import re
+    a = (frm or "").lower()
+    d = a.split("@")[-1] if "@" in a else a
+    s = (subj or "").lower()
+    if d in ("itau.com.br", "itau-unibanco.com.br", "minhaclaro.com.br"):
+        if re.search(r'dispositivo autorizado', s):
+            return "Segurança"
+        if re.search(r'fatura|cart[aã]o|\bconta\b|boleto|cadastro', s) and not re.search(r'pix gr[aá]tis|isen|tarifa|promo', s):
+            return None
+        if re.search(r'pix gr[aá]tis|isen|tarifa|promo|oferta|conhe[cç]a|cuidado|desconto|\boff\b', s):
+            return "Newsletters"
+    if re.search(r'confirme seu (e-?mail|endere)|confirm your email', s):
+        return "Códigos"
+    if re.search(r'c[oó]digo|verif|verify|\botp\b|one-time|senha.*(reset|redefin)|password.*reset|security code', s):
+        return "Códigos"
+    if d in ("accounts.google.com", "accountprotection.microsoft.com", "acesso.gov.br", "id.apple.com") or \
+       re.search(r'nova entrada|novo login|new sign|senha.*alterad|password was|aplicativo.*conectad|security alert|dispositivo autorizado', s):
+        return "Segurança"
+    if re.search(r'a[cç][aã]o necess|action required|atribuiu|mencionou|assigned|mentioned|\balerta\b|anomalia|inconsist|\berro\b', s):
+        return "@ Ação"
+    if d in ("make.com", "us2.make.com") or re.search(r'triagem|resumo|relat[oó]rio|digest|reserva confirmada|pipeline|failed|fixed|voluntariado', s):
+        return "Automações"
+    if d in ("jetbrains.com", "discord.com", "onedrive.com", "paypal.com", "communications.paypal.com", "fly.io",
+             "email.fly.io", "calendly.com", "twitch.tv", "alerts.udemy.com", "e.udemymail.com", "amazonaws.com") or \
+       ("microsoft" in d and any(x in d for x in ("store", "notification", "communication", "info"))) or \
+       any(x in d for x in ("atlassian", "sharepoint", "wellhub", "gympass", "tldv", "sunsama", "zenklub", "feedz", "teams")):
+        return "Notificações"
+    if d in ("lumine.tv", "email.granado.com.br", "merchtraffic.com") or \
+       any(x in d for x in ("globo", "evangelizar", "estadao", "udemy")) or \
+       re.search(r'desconto|oferta|\boff\b|novidade|boletim|newsletter|unsubscribe', s):
+        return "Newsletters"
+    return None
+
+
+def graph_classificar(c, limite=500):
+    tok = graph_token(c)
+
+    def req(metodo, caminho, corpo=None):
+        data = json.dumps(corpo).encode() if corpo is not None else None
+        r = urllib.request.Request("https://graph.microsoft.com/v1.0" + caminho, data=data,
+                                   headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"},
+                                   method=metodo)
+        with urllib.request.urlopen(r, timeout=TIMEOUT, context=contexto_ssl()) as resp:
+            return json.load(resp)
+    fid = {f["displayName"]: f["id"] for f in req("GET", "/me/mailFolders?$top=100&$select=displayName,id").get("value", [])}
+    for nome in TAXONOMIA:
+        if nome not in fid:
+            try:
+                fid[nome] = req("POST", "/me/mailFolders", {"displayName": nome})["id"]
+            except urllib.error.HTTPError as e:
+                print(f"✗ classificação exige Mail.ReadWrite (criar pasta deu {e.code})", file=sys.stderr)
+                return 1
+    msgs = req("GET", f"/me/mailFolders/inbox/messages?$top={int(limite)}&$select=id,from,subject").get("value", [])
+    plano = []
+    for msg in msgs:
+        frm = (msg.get("from") or {}).get("emailAddress", {}).get("address", "")
+        cat = classificar_email(frm, msg.get("subject", ""))
+        if cat and cat in fid:
+            plano.append((msg["id"], fid[cat]))
+    movidos = 0
+    for i in range(0, len(plano), 20):
+        lote = plano[i:i + 20]
+        reqs = [{"id": str(j), "method": "POST", "url": f"/me/messages/{mid}/move",
+                 "body": {"destinationId": dst}, "headers": {"Content-Type": "application/json"}}
+                for j, (mid, dst) in enumerate(lote)]
+        try:
+            resp = req("POST", "/$batch", {"requests": reqs})
+            movidos += sum(1 for rr in resp.get("responses", []) if 200 <= rr.get("status", 0) < 300)
+        except urllib.error.HTTPError as e:
+            print(f"✗ mover falhou ({e.code})", file=sys.stderr)
+            break
+    print(f"classificadas={movidos}")
+    return 0
+
+
 # --- HTML → texto (filtro do aerc quando não há w3m/lynx) -----------------------------------------
 # --- Links clicáveis (OSC 8) ----------------------------------------------------------------------
 # Hyperlink de terminal: a URL fica no escape, o texto visível é o rótulo. O terminal abre a URL
@@ -1559,6 +1643,11 @@ def main(a):
     if cmd == "graph-sync":
         try:
             return graph_sync(c, a[2], int(a[3]) if len(a) > 3 else 500, len(a) > 4 and a[4] == "completo")
+        except Exception as e:
+            print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
+    if cmd == "graph-classificar":
+        try:
+            return graph_classificar(c, int(a[2]) if len(a) > 2 else 500)
         except Exception as e:
             print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
     if cmd == "graph-sendmail":

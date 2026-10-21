@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.4.0 · 21/10/2026
+- **🤖 Organização automática das contas Graph:** com `classificar=1` na conta, a cada sync o tt mantém o INBOX arrumado movendo cada mensagem para a pasta da categoria (@ Ação, Automações, Códigos, Segurança, Notificações, Newsletters) por regra de remetente/assunto; o que não casa fica no INBOX. É server-side (vale em todo cliente) e só roda em conta com token de escrita (Mail.ReadWrite).
+
 ## v2.3.2 · 21/10/2026
 - **🛡️ A atualização não destrói mais o pacote quando duas acontecem juntas:** o vigia que se atualiza sozinho e um `--atualizar`/`--sincronizar` chamado de fora
   trocavam o pacote ao mesmo tempo, apagavam a cópia um do outro e deixavam o `tt` sem arquivos (a `empresa` ficou com ele quebrado por alguns minutos). A troca agora é

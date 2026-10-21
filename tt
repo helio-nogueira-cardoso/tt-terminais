@@ -17164,7 +17164,7 @@ declare -A E=() # conta em edição (as funções declaram a sua cópia local co
 # Chaves de uma conta, na ordem em que são gravadas.
 EMAIL_CHAVES=(nome endereco usuario nome_exibicao provedor auth graph imap_host imap_porta imap_seg smtp_host smtp_porta smtp_seg
   pasta cred_cmd oauth_client_id oauth_auth_endpoint oauth_token_endpoint oauth_device_endpoint oauth_scope
-  pasta_todos pasta_enviados pasta_lixeira pasta_rascunhos pasta_spam pasta_naoabre pasta_importantes pasta_estrela sync_local
+  pasta_todos pasta_enviados pasta_lixeira pasta_rascunhos pasta_spam pasta_naoabre pasta_importantes pasta_estrela sync_local classificar
   extra_1 extra_2 extra_3 extra_4 extra_5 extra_6 extra_7 extra_8)
 
 # Nome de conta → slug seguro para nome de arquivo (minúsculas, só [a-z0-9_-]).
@@ -18643,6 +18643,9 @@ email_graph_sync() { # slug [inbox|completo]
   exec 9>"$lock" 2>/dev/null || return 0
   flock -n 9 || { printf 'pulada\t%s\t%s\t0\n' "$(date +%s)" "$(date +%s)" >>"$dir/$slug"; return 0; }
   ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
+  # Conta com classificar=1 (token de escrita Mail.ReadWrite): organiza o INBOX no servidor por regra
+  # ANTES de espelhar, para o maildir já vir organizado. Best-effort: nunca derruba o sync.
+  grep -q '^classificar=1' "$conf" && timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-classificar "$conf" "${TT_EMAIL_GRAPH_MAX:-500}" >"$dir/$slug.classif" 2>&1
   # Modo completo: além do INBOX, espelha Enviados/Lixeira/Rascunhos/Spam/Arquivo (o Python decide).
   timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-sync "$conf" "$(email_maildir "$slug")" "${TT_EMAIL_GRAPH_MAX:-500}" "$modo" >"$dir/$slug.saida.tmp" 2>"$dir/$slug.erro.tmp"; st=$?
   fim=$(date +%s); printf '%s\t%s\t%s\t%s\n' "$modo" "$ini" "$fim" "$st" >>"$dir/$slug"

@@ -98,6 +98,28 @@ assert not os.path.exists(os.path.join(base, "Enviados")), "inbox-só não devia
 PY
 passou 'Graph: completo espelha INBOX+Enviados+Lixeira+Rascunhos+Spam+Arquivo (cur/new/tmp); inbox-só traz só o INBOX'
 
+# Classificação automática: a regra manda cada caso para a categoria certa (sem rede)
+python3 - "$(dirname "$0")/../email-tt.py" <<'PYC' || falhou 'classificar_email não mapeou as categorias esperadas'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("emailtt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+casos = [
+  ("x@accountprotection.microsoft.com", "Nova entrada detectada", "Segurança"),
+  ("x@e.udemymail.com", "Login da Udemy: código de verificação", "Códigos"),
+  ("x@investimentosblue.atlassian.net", "Fulano mencionou você em TU-1", "@ Ação"),
+  ("x@investimentosblue.atlassian.net", "Novo comentário no quadro", "Notificações"),
+  ("x@lumine.tv", "Oferta imperdível 50% OFF", "Newsletters"),
+  ("noreply@build.com", "Failed pipeline for development", "Automações"),
+  ("x@itau.com.br", "A fatura do seu cartão fechou", None),
+  ("x@desconhecido.com", "assunto qualquer", None),
+]
+for frm, subj, esp in casos:
+    got = m.classificar_email(frm, subj)
+    assert got == esp, "%r / %r: esperava %r, deu %r" % (frm, subj, esp, got)
+PYC
+passou 'classificar_email: Códigos/Segurança/@ Ação/Notificações/Newsletters/Automações e resíduo no INBOX'
+
+
 # --email-sync roda o mbsync só das contas com flag: por padrão só o INBOX; --completo, o grupo
 : >"$T/mbsync.calls"
 "$TT" --email-sync >/dev/null 2>&1
