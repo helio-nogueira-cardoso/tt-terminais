@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.4.5 · 21/10/2026
+- **📨 Demandas por e-mail no Graph:** o espelho preserva `Authentication-Results` e mantém mensagens `[tt]` aguardando quando os cabeçalhos ainda não chegaram; elas são reavaliadas no próximo sync, sem relaxar a autenticação.
+
 ## v2.4.4 · 21/10/2026
 - **🕸️ Máquina sozinha não é ilha:** com nenhuma outra máquina cadastrada, `tt --malha` acusava "1 conexão quebrada" (a própria máquina "não respondeu") e o vigia
   avisava uma ilha que não existe. Agora diz "sem outras máquinas cadastradas" e a malha sai completa.

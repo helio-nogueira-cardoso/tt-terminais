@@ -81,16 +81,32 @@ import importlib.util, os, sys, shutil
 spec = importlib.util.spec_from_file_location("emailtt", sys.argv[1])
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 base = sys.argv[2]
-m.graph_get = lambda c, caminho: {"value": [
+consultas = []
+def graph_get(c, caminho):
+    consultas.append(caminho)
+    return {"value": [
     {"id": "A" + caminho, "subject": "a", "from": {"emailAddress": {"name": "N", "address": "n@x"}}, "isRead": True},
-    {"id": "B" + caminho, "subject": "b", "from": {"emailAddress": {"name": "M", "address": "m@x"}}, "isRead": False},
+    {"id": "B" + caminho, "subject": "b", "from": {"emailAddress": {"name": "M", "address": "m@x"}}, "isRead": False,
+     "internetMessageHeaders": [
+         {"name": "Authentication-Results", "value": "mx.example; dkim=pass header.i=@x"},
+         {"name": "Authentication-Results", "value": "forged; dmarc=fail"},
+         {"name": "X-Private-Test", "value": "not copied"},
+     ]},
 ]}
+m.graph_get = graph_get
 m.graph_sync({"_slug": "g"}, base, 50, True)   # completo
 for p in ("INBOX", "Enviados", "Lixeira", "Rascunhos", "Spam", "Arquivo"):
     for sub in ("cur", "new", "tmp"):
         assert os.path.isdir(os.path.join(base, p, sub)), "faltou %s/%s" % (p, sub)
     n = len(os.listdir(os.path.join(base, p, "cur"))) + len(os.listdir(os.path.join(base, p, "new")))
     assert n == 2, "%s: esperava 2 msgs, achou %d" % (p, n)
+    # Message IDs replace slash and colon before becoming maildir filenames.
+    b = next(os.path.join(base, p, "new", f) for f in os.listdir(os.path.join(base, p, "new")) if f.startswith("B"))
+    raw = open(b, encoding="utf-8").read()
+    assert "Authentication-Results: mx.example; dkim=pass header.i=@x" in raw, "faltou preservar Authentication-Results"
+    assert "Authentication-Results: forged; dmarc=fail" in raw, "a ordem dos resultados não foi preservada"
+    assert "X-Private-Test" not in raw, "cabeçalho não necessário foi copiado"
+assert all("internetMessageHeaders" in q for q in consultas), "Graph não pediu internetMessageHeaders"
 shutil.rmtree(base)
 m.graph_sync({"_slug": "g"}, base, 50, False)  # inbox só
 assert os.path.isdir(os.path.join(base, "INBOX")), "inbox-só não criou INBOX"

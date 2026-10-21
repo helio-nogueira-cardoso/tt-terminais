@@ -1122,7 +1122,7 @@ def graph_sync(c, base, limite, completo=False):
     total = 0
     for wk, nome_pasta in pastas:
         try:
-            r = graph_get(c, f"/me/mailFolders/{wk}/messages?$top={int(limite)}&$select=id,subject,from,receivedDateTime,isRead,bodyPreview")
+            r = graph_get(c, f"/me/mailFolders/{wk}/messages?$top={int(limite)}&$select=id,subject,from,receivedDateTime,isRead,bodyPreview,internetMessageHeaders")
         except urllib.error.HTTPError as e:
             if e.code == 404:   # pasta inexistente nesta conta: ignora
                 continue
@@ -1145,7 +1145,18 @@ def graph_sync(c, base, limite, completo=False):
             nome = ident.replace("/", "_").replace(":", "_")
             lido = bool(m.get("isRead"))
             de = m.get("from", {}).get("emailAddress", {})
-            texto = (f"From: {de.get('name', '')} <{de.get('address', '')}>\n"
+            # The local demand filter relies on the receiving provider's verdict. Graph omits these
+            # headers unless explicitly selected; preserve only Authentication-Results, in provider
+            # order, so the parser can continue trusting the first (newest) result.
+            auth_headers = []
+            for h in m.get("internetMessageHeaders", []) or []:
+                if str(h.get("name", "")).lower() != "authentication-results":
+                    continue
+                value = " ".join(str(h.get("value", "")).replace("\r", " ").replace("\n", " ").split())
+                if value:
+                    auth_headers.append(f"Authentication-Results: {value}\n")
+            texto = ("".join(auth_headers)
+                     + f"From: {de.get('name', '')} <{de.get('address', '')}>\n"
                      f"Subject: {m.get('subject', '')}\n"
                      f"Date: {m.get('receivedDateTime', '')}\n"
                      f"X-Graph-Id: {ident}\n\n{m.get('bodyPreview', '')}\n")

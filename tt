@@ -9205,13 +9205,14 @@ tarefa_aplicar_proposta() { # id-da-proposta [--padrao inc|cur] [--decisoes ARQ]
 # Olha as mensagens ainda não vistas de uma caixa com espelho local e cria as demandas. Sem remetente
 # cadastrado não faz nada (custo zero). Na 1ª vez numa caixa, o que chegou há mais de 1 dia já passou.
 demandas_processar_conta() { # slug
-  local slug=${1:?} md dir proc log u arq de msgid epoch auth asb dsb ssb assunto frase desc subs info tag modo seg segmsg
+  local slug=${1:?} md dir proc log authwait u arq de msgid epoch auth asb dsb ssb assunto frase desc subs info tag modo seg segmsg
   local n=0 criadas=0 ignoradas=0 esperando=0 quem="" id nome="" ultimo="" ext esb k k_criadas="" k_esperando="" k_ignoradas=""
   # Roda mesmo sem nenhum remetente autorizado: um e-mail [tt] que chega antes de a pessoa autorizar alguém
   # fica à espera (e ela é avisada). Antes, sem cadastro nada era lido, e ao autorizar depois a primeira
   # leitura dava como visto tudo o que tinha mais de 1 dia: a tarefa mandada por um colega se perdia calada.
   md=$(email_maildir "$slug")/INBOX; dir="$ESTADO_DIR/email-sync"; proc="$dir/$slug.demandas"; log="$dir/$slug.demandas.log"
-  local espera="$dir/$slug.demandas.espera" liberar
+  local espera="$dir/$slug.demandas.espera" liberar liberar_auth
+  authwait="$dir/$slug.demandas.auth-espera"
   [[ -d $md/new || -d $md/cur ]] || return 0
   mkdir -p "$dir"
   [[ -f $proc ]] || find "$md/new" "$md/cur" -type f -mmin +1440 -printf '%f\n' 2>/dev/null | sed 's/:2,.*//' | sort -u >"$proc"
@@ -9226,6 +9227,16 @@ demandas_processar_conta() { # slug
       awk -F'\t' 'FILENAME == ARGV[1] { l[$1] = 1; next } !($1 in l)' "$espera.lib" "$espera" >"$espera.tmp"; mv -f "$espera.tmp" "$espera"
       rm -f "$espera.lib"
       printf '%s liberadas %s (remetente autorizado depois da chegada)\n' "$(date '+%F %T')" "$(wc -l <<<"$liberar")" >>"$log"
+    fi
+  fi
+  # Mensagens Graph cujo espelho anterior não trazia Authentication-Results são reavaliadas
+  # após cada sync. Não afrouxamos o modo auth: sem prova válida, continuam aguardando.
+  if [[ -s $authwait ]]; then
+    liberar_auth=$(awk -F '\t' '{print $1}' "$authwait" | sort -u)
+    if [[ -n $liberar_auth ]]; then
+      printf '%s\n' "$liberar_auth" >"$authwait.ids"
+      grep -vxF -f "$authwait.ids" "$proc" >"$proc.tmp"; mv -f "$proc.tmp" "$proc"
+      rm -f "$authwait.ids"
     fi
   fi
   while IFS=$'\t' read -r u arq; do
@@ -9248,11 +9259,20 @@ demandas_processar_conta() { # slug
     fi
     IFS=$'\t' read -r tag modo seg <<<"$info"
     case $modo in
-      auth) [[ $auth == pass ]] || { ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=autenticacao(%s)\n' "$(date '+%F %T')" "$de" "$auth" >>"$log"; continue; } ;;
+      auth)
+        if [[ $auth == none ]]; then
+          if ! awk -F '\t' -v u="$u" '$1 == u { found=1 } END { exit !found }' "$authwait" 2>/dev/null; then
+            printf '%s\t%s\n' "$u" "${de,,}" >>"$authwait"
+            printf '%s aguardando cabeçalho de autenticação de=%s\n' "$(date '+%F %T')" "$de" >>"$log"
+          fi
+          continue
+        fi
+        [[ $auth == pass ]] || { awk -F '\t' -v u="$u" '$1 != u' "$authwait" >"$authwait.tmp" 2>/dev/null || :; [[ -f $authwait.tmp ]] && mv -f "$authwait.tmp" "$authwait"; ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=autenticacao(%s)\n' "$(date '+%F %T')" "$de" "$auth" >>"$log"; continue; } ;;
       segredo) [[ $seg != - && $segmsg == "$seg" ]] || { ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=segredo\n' "$(date '+%F %T')" "$de" >>"$log"; continue; } ;;
       aberto) ;;
       *) continue ;;
     esac
+    if [[ -s $authwait ]]; then awk -F '\t' -v u="$u" '$1 != u' "$authwait" >"$authwait.tmp" && mv -f "$authwait.tmp" "$authwait"; fi
     [[ $dsb == - ]] && dsb=""; [[ $ssb == - ]] && ssb=""; [[ ${esb:--} == - ]] && esb=""
     desc=$(printf '%s' "$dsb" | base64 -d 2>/dev/null); subs=$(printf '%s' "$ssb" | base64 -d 2>/dev/null)
     ext=$(printf '%s' "$esb" | base64 -d 2>/dev/null)

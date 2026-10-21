@@ -208,4 +208,16 @@ grep -q 'Tarefa do colega' "$C" || fail "autorizado, o e-mail que esperava dever
 cp "$T/demandas.antes" "$D"
 echo "ok: sem nenhum remetente autorizado, o e-mail [tt] fica à espera, avisa, e entra quando autorizado"
 
+# 15) mensagens Graph sem Authentication-Results aguardam prova e são reavaliadas depois do próximo sync
+eml authwait chefe@empresa.com.br none '[tt] Chegou sem cabeçalho e foi recuperada' 'teste' 'authwait-id'
+tt --demandas-processar conta
+grep -Fq $'authwait\tchefe@empresa.com.br' "$HOME/.local/state/tt/email-sync/conta.demandas.auth-espera" || fail "a mensagem sem cabeçalho deveria ficar aguardando revalidação"
+grep -q 'Chegou sem cabeçalho e foi recuperada' "$C" && fail "sem Authentication-Results ainda não pode virar tarefa"
+awk 'NR == 1 { print "Authentication-Results: mx; dkim=pass header.i=@empresa.com.br; dmarc=pass" } { print }' "$INBOX/new/authwait" >"$INBOX/new/authwait.tmp"
+mv "$INBOX/new/authwait.tmp" "$INBOX/new/authwait"
+tt --demandas-processar conta
+grep -q $'\tpendente\t.*Chegou sem cabeçalho e foi recuperada' "$C" || fail "após o Graph trazer os cabeçalhos, a mensagem deveria entrar na Entrada"
+[[ ! -s "$HOME/.local/state/tt/email-sync/conta.demandas.auth-espera" ]] || fail "mensagem revalidada deveria sair da espera de autenticação"
+echo "ok: auth=none aguarda e é reprocessado quando Graph traz os cabeçalhos reais"
+
 echo "TODOS OS TESTES PASSARAM"
