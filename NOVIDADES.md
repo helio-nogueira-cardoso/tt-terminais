@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.1.2 · 21/10/2026
+- **🩺 O vigia não trava mais quando a pasta de onde foi lançado some:** ele herdava o diretório de quem o lançou. Apagada essa pasta (um worktree, uma
+  pasta temporária), toda sonda de atualização falhava com "getcwd: impossível acessar os diretórios pais" e era acusada como "rede": um Mac ficou 16 sondas
+  seguidas sem se atualizar. Agora o vigia vai para a pasta pessoal ao começar, e quem o religa já o lança de lá.
+
 ## v2.1.0 · 21/10/2026
 - **🎤 A voz decide sozinha e faz planos:** o que você não disser (máquina, IA, sessão) ela escolhe e conta em uma frase. Pedidos grandes viram
   vários passos de uma vez: o que não apaga nada roda direto, e o que fecha, apaga ou junta vira **uma pergunta só** com tudo ("sim" faz tudo,

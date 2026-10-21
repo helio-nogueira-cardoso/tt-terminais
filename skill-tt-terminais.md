@@ -944,6 +944,7 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
 - Hora confiável a cada `TT_T_HORA` s (21600; 15 min enquanto não houver medida): `--hora --sincronizar`.
 - A cada 300 s (e ao iniciar): `--checar-auto` — versão nova instalada → um agente confere e corrige o tt (ver `tt --checar`).
 - A cada 300 s (junto de `--reforcar-padrao`): `reforcar_agentes` — skill `tt-terminais`, regras `agentes-regras-tt.md` e `aidlc-tt` em todas as IAs (também na instalação).
+- O vigia faz `cd "$HOME"` ao começar (`vigiar`) e `vigia_garantir` o lança com `tmux run-shell -b -c "$HOME"`: ele vive dias e herda o diretório de quem o lançou; se esse diretório é apagado (worktree, pasta temporária), todo git falhava com `getcwd` e a sonda acusava "rede" (`tests/test_vigia_cwd.sh`).
 - Toda volta: fecha sessões paradas, pontes ociosas, Claude duplicados, janelas vazias abandonadas.
 - Nomeação automática por sessão (título do Claude; primeiro nome; revisão por pontos).
 

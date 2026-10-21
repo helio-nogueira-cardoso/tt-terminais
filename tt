@@ -488,7 +488,7 @@ vigia_garantir() {
   [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null && cmdline_do_pid "$pid" | grep -q -- '--vigia' && return 0
   tmux list-sessions >/dev/null 2>&1 || return 0
   { mkdir -p "$HOME/.cache"; echo "$(date '+%F %T') vigia parado: religado por quem usa a barra (vigia_garantir)" >>"$HOME/.cache/tt-vigia.log"; } 2>/dev/null
-  tmux run-shell -b "$HOME/.local/bin/tt --vigia"
+  tmux run-shell -b -c "$HOME" "$HOME/.local/bin/tt --vigia"
 }
 
 # Vigia: roda em segundo plano enquanto o tmux existir (iniciado pelo ~/.tmux.conf) e vai
@@ -501,6 +501,10 @@ vigia_garantir() {
 #           nunca. No Claude o Haiku lê os últimos pedidos, e o nome acompanha a tarefa atual.
 vigiar() {
   local pidf="$RT/tt-vigia-$UID.pid" log="$HOME/.cache/tt-vigia.log" outro
+  # O vigia vive dias e herda o diretório de quem o lançou (o servidor do tmux, um clique, um worktree). Se esse diretório for apagado,
+  # todo git e todo subprocesso falham com "getcwd: impossível acessar os diretórios pais" e a sonda de atualização acusava "rede"
+  # para sempre. Vive na pasta pessoal.
+  cd "$HOME" 2>/dev/null || cd / || true
   mkdir -p "$HOME/.cache"
   # Uma instância só: se o PID registrado ainda é um vigia vivo, sai.
   outro=$(cat "$pidf" 2>/dev/null)
@@ -3218,7 +3222,7 @@ CONF
       if [[ -n $pid ]] && cmdline_do_pid "$pid" | grep -q -- '--vigia'; then kill "$pid"; fi
       rm -f "$pidf"
     done
-    tmux run-shell -b "$HOME/.local/bin/tt --vigia"
+    tmux run-shell -b -c "$HOME" "$HOME/.local/bin/tt --vigia"
   fi
   garantir_navegadores_em_segundo_plano
   echo "$(conf nome): $(versao)"
