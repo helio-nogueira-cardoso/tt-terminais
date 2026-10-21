@@ -8902,7 +8902,7 @@ demandas_puxar() { nas_maquinas cat_remoto '~/.config/tt/demandas' 6 | demandas_
 #  - foi removida aqui: ignorada (remoção nunca ressuscita).
 # Subtarefas chegam como linhas "cod<TAB>estado<TAB>texto" (cod/estado "-" quando faltam).
 demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas [extras do protocolo v2: linhas k=v]
-  local de=$1 msgid=$2 epoch=$3 tag=$4 frase=$5 desc=$6 subs=$7 ext=${8:-} id now t meta tags i=0 scod sest sub sid sm cod est upd="" se vistos=" " v2="" iest="" rem="" d descartada=0
+  local de=$1 msgid=$2 epoch=$3 tag=$4 frase=$5 desc=$6 subs=$7 ext=${8:-} id now t meta tags i=0 scod sest sub sid sm cod est upd="" se vistos=" " v2="" iest="" rem="" d descartada=0 tmp
   id=$(printf 'demanda\0%s' "$msgid" | sha256sum | cut -c1-12)
   tarefas_frase_ler "$frase" || return 1
   cod=$TT_F_COD
@@ -8942,8 +8942,9 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas [extras
   fi
   tarefas_travar || return 1
   mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
+  tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
   {
-    cat "$CONF_TAREFAS"
+    tarefas_linhas
     printf '%s\tpendente\t%s\t%s\t%s\t%s\n' "$id" "$t" "$t" "$TT_F_TXT" "$meta"
     while IFS=$'\t' read -r scod sest sub; do
       sub=$(tarefas_limpa_texto "$sub"); [[ -n $sub ]] || continue
@@ -8967,8 +8968,8 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas [extras
       case $sest in f) sm=$(tarefas_meta_set "$sm" sest f) ;; a) [[ -n $v2 ]] && sm=$(tarefas_meta_set "$sm" sest a) ;; esac
       printf '%s\tpendente\t%s\t%s\t%s\t%s\n' "$sid" "$t" "$t" "$sub" "$sm"
     done <<<"$subs"
-  } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
-  mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
+  } | tarefas_merge /dev/stdin >"$tmp"
+  mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
   # Triagem das atualizações: sem diferença em relação à tarefa daqui, superada por uma mais nova do mesmo
   # remetente, ou que substitui as velhas dele. A nova que não traz nada de novo não vira demanda (nem aviso).
@@ -9065,11 +9066,12 @@ tarefa_email() { # id [destinatário]
 # houver uma de mesmo texto. Alvo que sumiu/removido: não cria nada.
 # Grava de uma vez linhas de tarefa novas (stdin, TSV de 6 campos): para cada id vale a de "mudada" mais nova.
 tarefas_aplicar_linhas() {
-  local novas; novas=$(cat); [[ -n $novas ]] || return 0
+  local novas tmp; novas=$(cat); [[ -n $novas ]] || return 0
   tarefas_travar || return 1
   mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
-  { cat "$CONF_TAREFAS"; printf '%s\n' "$novas"; } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
-  mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
+  { tarefas_linhas; printf '%s\n' "$novas"; } | tarefas_merge /dev/stdin >"$tmp"
+  mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
   atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
@@ -9572,6 +9574,9 @@ hora_cmd() {
 tarefas_sync_modo() { local m; m=$(conf tarefas_sync); echo "${m:-p2p}"; }
 tarefas_repo_url()  { conf tarefas_repo; }
 
+# O arquivo de tarefas linha a linha, sempre com quebra no fim: um arquivo truncado sem quebra, concatenado
+# com cat a outra fonte, grudava a linha seguinte nele (incidente de 21/10/2026, linha de 9 MB).
+tarefas_linhas() { [[ -f $CONF_TAREFAS ]] && awk 1 "$CONF_TAREFAS"; return 0; }
 # Todas as linhas válidas do arquivo (inclui lápides). Sanitiza silenciosamente linhas quebradas.
 tarefas_raw() {
   [[ -f $CONF_TAREFAS ]] || return 0
@@ -9725,13 +9730,23 @@ marcar_tarefas()   { date +%s%N >"$CONF_TAREFAS.v"; }
 tarefas_merge() {
   awk -F'\t' -v OFS='\t' '
     function rank(e){ return e=="removida"?4:(e=="arquivada"?3:(e=="feita"?2:(e=="aberta"?1:0))) }
-    function unir(base, outra,    n, i, par, k, ma, ex, r) {
-      n = split(outra, ma, "|"); r = base
-      for (i = 1; i <= n; i++) { par = ma[i]; k = par; sub(/=.*/, "", k)
-        if (k != "" && index("|" base, "|" k "=") == 0) r = (r == "" ? par : r "|" par) }
+    # Meta só com pares chave=valor: um pedaço sem "=" (texto que caiu na coluna de meta numa linha colada)
+    # era tratado como chave nova e voltava a ser acrescentado a cada merge, sem limite.
+    function limpo(meta,    n, i, ma, r) {
+      n = split(meta, ma, "|"); r = ""
+      for (i = 1; i <= n; i++) if (ma[i] ~ /^[a-z0-9_]+=/) r = (r == "" ? ma[i] : r "|" ma[i])
       return r
     }
-    NF >= 5 && $1 ~ /^[0-9a-f]{6,}$/ {
+    function unir(base, outra,    n, i, par, k, ma, r) {
+      n = split(outra, ma, "|"); r = base
+      for (i = 1; i <= n; i++) { par = ma[i]; if (par !~ /^[a-z0-9_]+=/) continue; k = par; sub(/=.*/, "", k)
+        if (index("|" r, "|" k "=") == 0) r = (r == "" ? par : r "|" par) }
+      return r
+    }
+    # Linha malformada (estado desconhecido, datas não numéricas) não entra: uma linha truncada colada
+    # na seguinte tinha id válido e "mudada" maior que a versão boa, e vencia o merge.
+    NF >= 5 && $1 ~ /^[0-9a-f]{6,}$/ && $2 ~ /^(aberta|feita|arquivada|removida|pendente)$/ && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ {
+      if (NF >= 6) { mt = limpo($6); $0 = $1 OFS $2 OFS $3 OFS $4 OFS $5 (mt == "" ? "" : OFS mt) }
       id=$1
       if (!(id in m) || $4+0 > md[id]+0 || ($4+0==md[id]+0 && rank($2) > rank(st[id]))) {
         m[id]=$0; md[id]=$4; st[id]=$2
@@ -9779,7 +9794,7 @@ tarefas_compactar() {
 # Grava (cria ou substitui) uma tarefa com id/estado/texto/meta dados, sem mexer em mais nada. A hora
 # de mudança nunca recua (no mínimo 1 s depois da anterior), senão o merge preferiria a linha velha.
 tarefas_gravar_linha() { # id estado texto meta
-  local id=$1 est=$2 txt=$3 meta=$4 now old c m4
+  local id=$1 est=$2 txt=$3 meta=$4 now old c m4 tmp
   txt=$(tarefas_limpa_texto "$txt"); [[ -n $txt ]] || return 1
   now=$(hora_agora)
   tarefas_travar || return 1
@@ -9787,21 +9802,23 @@ tarefas_gravar_linha() { # id estado texto meta
   old=$(awk -F'\t' -v id="$id" '$1==id{print $3 "\t" $4; exit}' "$CONF_TAREFAS")
   if [[ -n $old ]]; then c=${old%%$'\t'*}; m4=${old##*$'\t'}; else c=$now; m4=0; fi
   ((now <= m4)) && now=$((m4 + 1))
-  { cat "$CONF_TAREFAS"; printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$est" "$c" "$now" "$txt" "$meta"; } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
-  mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
+  { tarefas_linhas; printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$est" "$c" "$now" "$txt" "$meta"; } | tarefas_merge /dev/stdin >"$tmp"
+  mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
   atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
 }
 
 tarefa_add() {
-  local txt id now
+  local txt id now tmp
   txt=$(tarefas_limpa_texto "$1"); [[ -n $txt ]] || return 1
   id=$(tarefas_novo_id "$txt"); now=$(hora_agora)
   tarefas_travar || return 1
   mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
-  { cat "$CONF_TAREFAS"; printf '%s\t%s\t%s\t%s\t%s\n' "$id" aberta "$now" "$now" "$txt"; } | tarefas_merge /dev/stdin >"$CONF_TAREFAS.tmp"
-  mv "$CONF_TAREFAS.tmp" "$CONF_TAREFAS"; marcar_tarefas
+  tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
+  { tarefas_linhas; printf '%s\t%s\t%s\t%s\t%s\n' "$id" aberta "$now" "$now" "$txt"; } | tarefas_merge /dev/stdin >"$tmp"
+  mv "$tmp" "$CONF_TAREFAS"; marcar_tarefas
   tarefas_destravar
   atualizar_barras_pedir 2>/dev/null
   ("$EU" --tarefas-espelhar >/dev/null 2>&1 &)
@@ -10545,7 +10562,7 @@ tarefas_git_ramo() { # clone
 
 # Uma volta completa (buscar, juntar, gravar, enviar), com até 3 tentativas se o envio for recusado.
 tarefas_git_volta() {
-  local url dir err ramo tent antes junto corte remoto
+  local url dir err ramo tent antes junto corte remoto; local -a fontes
   url=$(tarefas_repo_url)
   [[ -n $url ]] || { tarefas_git_falhou "falta o endereço do repositório (tarefas_repo)"; return 1; }
   command -v git >/dev/null || { tarefas_git_falhou "o git não está instalado nesta máquina"; return 1; }
@@ -10583,7 +10600,8 @@ tarefas_git_volta() {
     rm -f "$antes"
     # No repo: a junção das duas (se a lista local estiver atrás, nada some do repo).
     junto=$(mktemp)
-    cat "$CONF_TAREFAS" "$dir/tarefas" 2>/dev/null | tarefas_merge /dev/stdin | tarefas_sem_lapide_velha "$corte" >"$junto"
+    fontes=("$CONF_TAREFAS"); [[ -f $dir/tarefas ]] && fontes+=("$dir/tarefas")
+    tarefas_merge "${fontes[@]}" | tarefas_sem_lapide_velha "$corte" >"$junto"
     if ((remoto)) && [[ -f $dir/tarefas ]]; then
       cmp -s "$junto" "$dir/tarefas" && { rm -f "$junto" "$err"; tarefas_git_ok; return 0; }
     elif [[ ! -s $junto ]]; then
