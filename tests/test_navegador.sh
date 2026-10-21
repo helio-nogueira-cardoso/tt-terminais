@@ -33,6 +33,33 @@ PBCOPY
   passou "macOS: open LaunchServices e fallback de cópia quando falha"
 fi
 
+# O Chromium interno no Mac é o Chrome.app nativo, com perfil isolado do tt. Simulamos o bundle e
+# LaunchServices também no Linux via TT_SO=macos para cobrir o contrato sem abrir uma janela real.
+MACAPP="$HOME/Applications/Google Chrome.app"
+mkdir -p "$MACAPP/Contents/MacOS" "$T/macbin"
+: >"$MACAPP/Contents/Info.plist"
+cat >"$T/macbin/open" <<'MACOPEN'
+#!/bin/sh
+printf '<%s>\n' "$@" >>"$MAC_OPEN_LOG"
+exit "${MAC_OPEN_RC:-0}"
+MACOPEN
+chmod +x "$T/macbin/open"
+MAC_OPEN_LOG=$T/mac-open.log; export MAC_OPEN_LOG
+cfg navegador=chromium
+TT_SO=macos PATH="$T/macbin:$TT_PATH_SEM_TERMUX_OPEN" "$TT" --abrir-link "$U" </dev/null
+grep -Fq '<-a>' "$MAC_OPEN_LOG" && grep -Fq "<$MACAPP>" "$MAC_OPEN_LOG" &&
+  grep -Fq "<--user-data-dir=$HOME/.local/share/tt-navegadores/perfil-chrome-macos>" "$MAC_OPEN_LOG" &&
+  grep -Fq "<$U>" "$MAC_OPEN_LOG" || falhou "Mac não iniciou o Chrome.app com perfil tt e URL: $(cat "$MAC_OPEN_LOG")"
+[[ ! -s $LOG ]] || falhou "Chromium interno no Mac caiu silenciosamente no navegador padrão: $(cat "$LOG")"
+passou "macOS: Chromium interno abre Chrome.app local com perfil tt separado, sem passar pelo navegador padrão"
+
+# Uma falha do LaunchServices precisa ficar explícita e não deve redirecionar para Safari/xdg-open.
+: >"$MAC_OPEN_LOG"; : >"$LOG"
+MAC_OPEN_RC=1 TT_SO=macos PATH="$T/macbin:$TT_PATH_SEM_TERMUX_OPEN" "$TT" --abrir-link "$U" </dev/null 2>"$T/mac-erro.log"
+grep -q 'falha ao abrir' "$T/mac-erro.log" || falhou "falha do Chrome no Mac ficou invisível: $(cat "$T/mac-erro.log")"
+[[ ! -s $LOG ]] || falhou "falha do Chrome no Mac abriu o navegador padrão: $(cat "$LOG")"
+passou "macOS: falha do Chrome é informada e nunca vira Safari/navegador padrão"
+
 # 1) navegador=sistema chama o abridor do sistema com a URL inteira.
 cfg navegador=sistema; : >"$LOG"
 "$TT" --abrir-link "$U" </dev/null; sleep 0.3

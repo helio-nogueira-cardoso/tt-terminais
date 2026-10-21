@@ -100,7 +100,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `~/.secrets`). Vigia: `--checar-auto` a cada 300 s (versão instalada > `checagens/versao-checada`; instalação nova só marca;
   sem conta repete a cada `TT_CHECAGEM_REPETIR`=1800 s até 3 vezes; `checagem_auto=0` desliga). `TT_IA_ROT` troca o rotador (`-` = nenhum; testes).
   Teste: `tests/test_checagem.sh`.
-- `tt --novidades [--todas]` — a tela de novidades (`NOVIDADES.md` formatado por `novidades_fmt`: negrito, código,
+- `tt --novidades [--todas]` — a tela de novidades (novo = seções ACIMA do título guardado em `~/.local/state/tt/novidades-visto`, que é o do título mais novo visto, não o rótulo instalado: o rótulo anda com commits sem entrada e quem publica ao mesmo tempo; estado antigo, que não é título, cai na comparação numérica; o aviso `novidades_avisar` leva o código `novidades-v<título mais novo>`) (`NOVIDADES.md` formatado por `novidades_fmt`: negrito, código,
   subitens, quebra na largura até 100 colunas); `tt --novidades-fmt LARGURA` (interno) formata o Markdown do stdin.
 - `tt --help` (`-h`, `ajuda`) — os verbos do dia a dia, a versão e onde está o resto. Uma opção
   desconhecida (`tt --xyz`) sai com código 2 e aponta para a ajuda (não abre a central).

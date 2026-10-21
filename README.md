@@ -2121,24 +2121,24 @@ Claude guarda as conversas e qual `claude` usar, inclusive no Termux, com o Clau
 ## Links: escolha do navegador
 
 Clique num link em qualquer painel, Enter (ou `ESC M`) num link no leitor de e-mail, ⏎ no link do
-cadastro de conta OAuth e Ctrl+B u abrem o mesmo seletor com três opções (mais "📋 Só copiar o link"):
+cadastro de conta OAuth e Ctrl+B u abrem o mesmo seletor com as opções disponíveis (mais "📋 Só copiar o link"):
 
-- **Google Chrome interno**: o estável, extraído do .deb oficial sem sudo, janela gráfica (WSLg ou X11); atualiza sozinho, no máximo uma vez por dia. Acha a tela mesmo numa sessão do tmux que perdeu o `DISPLAY` (anexada por ssh ou mosh); se ainda assim não abrir, avisa o motivo, abre no navegador do sistema e guarda o erro em `~/.cache/tt/chrome.log`;
+- **Chromium interno**: no Linux/WSL, Google Chrome estável extraído do .deb oficial sem sudo; no macOS, usa Google Chrome (app universal) ou um Chromium compatível com a arquitetura do Mac, pelo LaunchServices e em perfil próprio do tt (`~/.local/share/tt-navegadores/perfil-chrome-macos`). A URL abre localmente no Mac mesmo quando a sessão está em ponte para outra máquina. Se o app não existir ou falhar, avisa e copia o link — nunca troca silenciosamente para Safari/navegador padrão;
 - **Carbonyl embutido**: Chromium que desenha no terminal, num popup do tmux (Ctrl+Q ou Ctrl+C fecha). É um build
   de 2023 sem atualizações: use para ler, não para logins sensíveis;
 - **Navegador padrão do sistema**: `xdg-open` (ou `open` via LaunchServices no macOS); no WSL abre o navegador do Windows.
 
-O Chrome interno e, fora do macOS, o navegador do sistema abrem na máquina da tela em que você clicou,
+No Linux/WSL, o Chrome interno e o navegador do sistema abrem na máquina da tela em que você clicou,
 não na da sessão: vendo pelo book-hl uma sessão (ou o e-mail) do PC, o link abre no book-hl. O tt de lá
 descobre isso pela ponte (`TT_PONTE`, ou `TT_ORIGEM` no cliente do popup do e-mail) e manda
 `tt --abrir-aqui QUAL URL` por ssh para a máquina da tela; se ela não responder, abre onde está, como antes.
-No macOS, a opção **Navegador padrão do sistema** sempre usa o LaunchServices local (`open`) — mesmo numa
-sessão em ponte para `empresa` — porque é o navegador nativo do MacBook, não da máquina remota. O Carbonyl
-e o "só copiar" seguem no próprio terminal.
+No macOS, **Chromium interno** e **Navegador padrão do sistema** sempre usam o LaunchServices local — mesmo
+numa sessão em ponte para `empresa` — porque a tela está no MacBook, não na máquina que hospeda a sessão.
+O Carbonyl e o "só copiar" seguem no próprio terminal.
 
-Os dois primeiros são baixados sob demanda para `~/.local/share/tt-navegadores`, sem sudo, e só são
-instalados se o sha256 do pacote bater (o do Chrome, com o índice do repositório do Google; o do Carbonyl, com o fixado no `tt`). Só x86_64; no Termux ficam ocultos.
-Máquina nova (`instalar.sh`) e máquina atualizada (`tt --sincronizar`, `tt --atualizar`) já deixam os dois prontos em segundo plano: baixam o Carbonyl e, havendo ambiente gráfico, o Chrome (o que já está instalado é pulado; o log fica em `~/.cache/tt/navegadores.log`). Se faltar `curl`/`unzip` (ou as bibliotecas do sistema que os navegadores pedem), eles entram nas [pendências de instalação](#pendências-de-instalação-): o vigia avisa (📦) e o modal instala com o `sudo` pedindo a senha ali, sem o tt vê-la; quem disse "não" a um deles não tem o download em segundo plano. A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`
+No Linux/WSL, os dois primeiros são baixados sob demanda para `~/.local/share/tt-navegadores`, sem sudo, e só são
+instalados se o sha256 do pacote bater (o do Chrome, com o índice do repositório do Google; o do Carbonyl, com o fixado no `tt`). Esses builds são x86_64; no Termux ficam ocultos. No macOS, o seletor oferece o Chromium interno quando encontra Google Chrome.app ou Chromium.app em `/Applications` ou `~/Applications`; usa o app nativo compatível já instalado, sem baixar binário Linux.
+Em Linux/WSL, máquina nova (`instalar.sh`) e máquina atualizada (`tt --sincronizar`, `tt --atualizar`) já deixam os dois prontos em segundo plano: baixam o Carbonyl e, havendo ambiente gráfico, o Chrome (o que já está instalado é pulado; o log fica em `~/.cache/tt/navegadores.log`). Se faltar `curl`/`unzip` (ou as bibliotecas do sistema que os navegadores pedem), eles entram nas [pendências de instalação](#pendências-de-instalação-): o vigia avisa (📦) e o modal instala com o `sudo` pedindo a senha ali, sem o tt vê-la; quem disse "não" a um deles não tem o download em segundo plano. A escolha mais recente aparece marcada. Para pular o seletor, ponha `navegador=chromium|carbonyl|sistema`
 no `~/.config/tt/config` (o padrão é `perguntar`). O navegador sobe pelo servidor do tmux, fora do
 isolamento de rede do leitor de e-mail.
 

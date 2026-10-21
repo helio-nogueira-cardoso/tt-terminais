@@ -5814,6 +5814,44 @@ navegadores_graficos_ok() {
   pacotes_lib 2>/dev/null || { [[ $(uname -m) == x86_64 && $(uname -s) == Linux ]] && ! tem_cmd termux-open-url; return; }
   [[ $(pk_so) == linux && $(pk_arch) == x86_64 && $(pk_libc) == glibc ]] && [[ $(pk_ambiente) != termux ]] && ! tem_cmd termux-open-url
 }
+# No macOS, o Chrome estável é um app nativo universal, não o .deb Linux que o tt baixa para WSL/Linux.
+# Procuramos nos dois locais usuais de instalação (sistema e usuário); o perfil continua dentro do espaço
+# do tt e separado do perfil pessoal do Chrome. A busca não inicia o app nem usa Spotlight/rede.
+mac_chromium_app() {
+  local app
+  for app in "$HOME/Applications/Google Chrome.app" /Applications/Google\ Chrome.app \
+             "$HOME/Applications/Chromium.app" /Applications/Chromium.app; do
+    [[ -d $app/Contents/MacOS && -f $app/Contents/Info.plist ]] || continue
+    printf '%s\n' "$app"
+    return 0
+  done
+  return 1
+}
+navegador_so() { case ${TT_SO:-$(uname -s 2>/dev/null)} in Darwin|macos) echo macos ;; *) echo outro ;; esac; }
+navegador_link_grafico_ok() {
+  if [[ $(navegador_so) == macos ]]; then [[ -n $(mac_chromium_app) && -x $(command -v open 2>/dev/null) ]]; return; fi
+  navegadores_graficos_ok
+}
+chromium_macos_abrir() {
+  local u=$1 app log=${HOME}/.cache/tt/chrome-mac.log c=${TT_LINK_CLIENTE:-}
+  app=$(mac_chromium_app) || {
+    tmux display-message ${c:+-c "$c"} -d 7000 'Chromium interno: Google Chrome não encontrado no Mac; instale-o ou escolha Navegador do sistema.' 2>/dev/null || true
+    echo 'Chromium interno: Google Chrome/Chromium não encontrado em /Applications ou ~/Applications.' >&2
+    link_copiar "$c" "$u"
+    return 1
+  }
+  mkdir -p "${log%/*}" 2>/dev/null || log=/dev/null
+  # LaunchServices inicia/endereça o app gráfico mesmo quando o pedido veio de SSH, tmux ou do popup do e-mail.
+  # Um user-data-dir próprio reproduz o Chrome interno do WSL sem tocar no perfil pessoal nem no Safari.
+  if open -a "$app" --args "--user-data-dir=$DIR_NAVEGADORES/perfil-chrome-macos" \
+      --no-first-run --no-default-browser-check "$u" >>"$log" 2>&1; then
+    return 0
+  fi
+  tmux display-message ${c:+-c "$c"} -d 7000 'Chromium interno: o Google Chrome do Mac não abriu; consulte ~/.cache/tt/chrome-mac.log. O link foi copiado.' 2>/dev/null || true
+  echo "Chromium interno: falha ao abrir $app; consulte $log." >&2
+  link_copiar "$c" "$u"
+  return 1
+}
 bin_chromium() { echo "$DIR_NAVEGADORES/chrome/opt/google/chrome/chrome"; }
 bin_carbonyl() { echo "$DIR_NAVEGADORES/carbonyl/carbonyl-0.0.3/carbonyl"; }
 
@@ -6821,13 +6859,23 @@ pendencias_status() {
 # o vigia avisa uma vez por versão nova, e o clique no aviso abre esta tela.
 novidades_visto() { cat "$ESTADO_DIR/novidades-visto" 2>/dev/null || echo 0; }
 
-# Seções do NOVIDADES.md com versão MAIOR da que foi vista (a chave de versao_chave), da mais nova para a
-# mais velha. Título "## v1.7.0": a ordem vem dos três números, não do nº de commits.
-novidades_texto() { # desde (rótulo ou nº antigo; 0 = tudo) -> seções
-  awk -v desde="$(versao_chave "$1")" '
-    /^## v/ { n = $2; sub(/^v/, "", n); m = split(n, a, "."); v = (m == 3) ? a[1] * 1e10 + a[2] * 1e6 + a[3] : 0; mostra = (v > desde + 0) }
+# Versão do título mais novo (o 1º "## v…") do NOVIDADES.md. É ela, e não o rótulo instalado, que `novidades-visto` guarda: o rótulo
+# sai da contagem de commits da main e quem publica ao mesmo tempo o faz andar sem entrada no NOVIDADES.md; os títulos podem ficar
+# abaixo do rótulo instalado, e aí nada contava como novo (a tela caía em "as 3 mais recentes" e o aviso nunca saía).
+novidades_topo() { awk '/^## v/ { n = $2; sub(/^v/, "", n); print n; exit }' "${1:-$DIR_TT/NOVIDADES.md}" 2>/dev/null; }
+
+# Seções novas desde o que foi visto, da mais nova para a mais velha. Se o marcador é o título de uma seção ("## v2.0.9"), são as que estão
+# ACIMA dela no arquivo (a ordem do arquivo não depende de número nenhum). Senão (rótulo ou nº de commits de um estado antigo, 0 = tudo),
+# as de versão MAIOR (a chave de versao_chave); título "## v1.7.0": a ordem vem dos três números.
+novidades_texto() { # desde (título, rótulo ou nº antigo; 0 = tudo) -> seções
+  local arq=${2:-$DIR_TT/NOVIDADES.md}
+  awk -v desde="$(versao_chave "$1")" -v marca="$1" '
+    NR == FNR { if ($0 ~ /^## v/) { n = $2; sub(/^v/, "", n); if (n == marca) existe = 1 } next }
+    /^## v/ { n = $2; sub(/^v/, "", n)
+      if (existe) { if (n == marca) parou = 1; mostra = !parou }
+      else { m = split(n, a, "."); v = (m == 3) ? a[1] * 1e10 + a[2] * 1e6 + a[3] : 0; mostra = (v > desde + 0) } }
     /^# / && !/^## / { next }
-    mostra { print }' "${2:-$DIR_TT/NOVIDADES.md}" 2>/dev/null
+    mostra { print }' "$arq" "$arq" 2>/dev/null
 }
 
 # O Markdown do NOVIDADES.md para o terminal: **negrito** em negrito, `código` em ciano (sem as crases),
@@ -6968,7 +7016,8 @@ novidades_ver() { # [--todas]
     txt=$(awk '/^## v/ { c++ } /^# / && !/^## / { next } c >= 1 && c <= 3 { print }' "$DIR_TT/NOVIDADES.md" 2>/dev/null)
   fi
   [[ -n $txt ]] || { echo "Sem novidades registradas."; return 0; }
-  mkdir -p "$ESTADO_DIR"; echo "$atual" >"$ESTADO_DIR/novidades-visto"
+  mkdir -p "$ESTADO_DIR"; echo "$(novidades_topo || true)" >"$ESTADO_DIR/novidades-visto"
+  [[ -s $ESTADO_DIR/novidades-visto ]] || echo "$atual" >"$ESTADO_DIR/novidades-visto"
   if [[ -t 1 ]] && command -v less >/dev/null 2>&1; then
     # Sem -F: com pouco texto o less saía sozinho e o popup piscava e fechava. q ou Esc fecham.
     local w=""; { read -r _ w; } < <(stty size </dev/tty 2>/dev/null); [[ $w =~ ^[0-9]+$ ]] && ((w >= 20)) || w=$(tput cols 2>/dev/null)
@@ -6977,17 +7026,20 @@ novidades_ver() { # [--todas]
   else printf '%s\n' "$txt"; fi
 }
 
-# Vigia: uma vez por versão nova com entrada em NOVIDADES.md, um aviso na faixa (clique abre).
+# Vigia: uma vez por novidade nova (seção nova no NOVIDADES.md acima do último título visto), um aviso na faixa (clique abre).
+# O código do aviso é o do título mais novo: o mesmo texto não vira vários avisos mesmo que o rótulo instalado ande com outros commits.
 novidades_avisar() {
-  local atual visto marca=$ESTADO_DIR/novidades-avisada; atual=$(versao_disp)
-  [[ $(cat "$marca" 2>/dev/null || echo 0) == "$atual" ]] && return 0
-  mkdir -p "$ESTADO_DIR"; echo "$atual" >"$marca"
+  local atual visto topo marca=$ESTADO_DIR/novidades-avisada; atual=$(versao_disp); topo=$(novidades_topo)
+  [[ -n $topo ]] || return 0
+  [[ $(cat "$marca" 2>/dev/null || echo 0) == "$topo" ]] && return 0
+  mkdir -p "$ESTADO_DIR"
   visto=$(novidades_visto)
-  (( $(versao_chave "$atual") > $(versao_chave "$visto") )) && [[ -n $(novidades_texto "$visto") ]] || return 0
+  [[ -n $(novidades_texto "$visto") ]] || return 0
+  echo "$topo" >"$marca"
   # Máquina que acabou de ser instalada (nada visto): só marca; o aviso é para quem atualizou.
-  [[ -f $ESTADO_DIR/novidades-visto ]] || { echo "$atual" >"$ESTADO_DIR/novidades-visto"; return 0; }
-  # Código por versão: cada máquina que se atualiza cria o seu aviso, e a rede guarda um só (o primeiro).
-  notificar "📰 tt atualizado para a v$atual — veja o que há de novo (clique)" 3600 novidades "" "novidades-v$atual"
+  [[ -f $ESTADO_DIR/novidades-visto ]] || { echo "$topo" >"$ESTADO_DIR/novidades-visto"; return 0; }
+  # Código por título: cada máquina que se atualiza cria o seu aviso, e a rede guarda um só (o primeiro).
+  notificar "📰 tt atualizado para a v$atual — veja o que há de novo (clique)" 3600 novidades "" "novidades-v$topo"
 }
 
 # --- Checagem pós-atualização (tt --checar, --checar-agente, --checar-handoff) ---------------------------
@@ -7599,9 +7651,9 @@ maquina_da_tela() {
 abrir_na_tela() {
   local qual=$1 u=$2 c om d
   [[ -z ${TT_ABRIR_AQUI:-} ]] || return 1
-  # No MacBook, "sistema" significa o navegador nativo desta máquina. Não encaminhe pelo TT_PONTE:
-  # a sessão pode ser remota (empresa), mas o usuário quer o LaunchServices local.
-  [[ $qual == sistema && $(uname -s 2>/dev/null) == Darwin ]] && return 1
+  # No Mac, tanto o navegador do sistema quanto o Chromium interno pertencem à tela local. A sessão
+  # pode estar em ponte para empresa; não mande o clique de volta para a máquina que hospeda a sessão.
+  [[ $(navegador_so) == macos && ( $qual == sistema || $qual == chromium ) ]] && return 1
   c=${TT_LINK_CLIENTE:-}
   [[ -n $c || -z ${TMUX:-} ]] || c=$(cliente_externo)
   om=$(maquina_da_tela "$c"); [[ -n $om ]] || return 1
@@ -7618,6 +7670,7 @@ abrir_com() {
     samsung) abrir_samsung_internet "$u" ;;
     copiar) link_copiar "${TT_LINK_CLIENTE:-}" "$u" ;;
     chromium)
+      if [[ $(navegador_so) == macos ]]; then chromium_macos_abrir "$u"; return $?; fi
       garantir_navegador chromium || return 1
       garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
       (chrome_atualizar_se_velho >/dev/null 2>&1 &)
@@ -7643,7 +7696,11 @@ abrir_link() {
   local u=${1:-} esc pref ultimo c
   [[ -n $u ]] || return 0
   pref=$(conf navegador); pref=${pref:-perguntar}
-  if ! navegadores_graficos_ok; then
+  if [[ $(navegador_so) == macos ]]; then
+    if tem_cmd termux-open-url; then
+      [[ $pref == samsung ]] && samsung_internet_disponivel || pref=sistema
+    elif [[ $pref == samsung ]]; then pref=sistema; fi
+  elif ! navegadores_graficos_ok; then
     if [[ $pref == samsung || $pref == perguntar ]]; then samsung_internet_disponivel || pref=sistema
     else pref=sistema; fi
   fi
@@ -7651,10 +7708,14 @@ abrir_link() {
     if [[ -t 0 ]]; then
       ultimo=$(cat "$ESTADO_DIR/navegador-ultimo" 2>/dev/null)
       local -a opcoes=(
-        chromium "Google Chrome interno (janela gráfica)"
-        carbonyl "Carbonyl embutido (no terminal · Chromium de 2023, sem atualizações)"
         sistema "Navegador padrão do sistema"
       )
+      if [[ $(navegador_so) == macos ]]; then
+        if navegador_link_grafico_ok; then opcoes=(chromium "Chromium interno (Google Chrome · perfil do tt)" "${opcoes[@]}"); fi
+      else
+        opcoes=(chromium "Google Chrome interno (janela gráfica)"
+          carbonyl "Carbonyl embutido (no terminal · Chromium de 2023, sem atualizações)" "${opcoes[@]}")
+      fi
       samsung_internet_disponivel && opcoes+=(samsung "Samsung Internet")
       opcoes+=(copiar "📋 Só copiar o link (inteiro)")
       esc=$(printf '%s\t%s\n' "${opcoes[@]}" |
@@ -7694,7 +7755,11 @@ link_abrir() {
     [[ $(tmux display -p -t "$p" '#{pane_in_mode}' 2>/dev/null) == 0 ]] || return 0
   fi
   pref=$(conf navegador); pref=${pref:-perguntar}
-  if ! navegadores_graficos_ok; then
+  if [[ $(navegador_so) == macos ]]; then
+    if tem_cmd termux-open-url; then
+      [[ $pref == samsung ]] && samsung_internet_disponivel || pref=sistema
+    elif [[ $pref == samsung ]]; then pref=sistema; fi
+  elif ! navegadores_graficos_ok; then
     if [[ $pref == samsung || $pref == perguntar ]]; then samsung_internet_disponivel || pref=sistema
     else pref=sistema; fi
   fi

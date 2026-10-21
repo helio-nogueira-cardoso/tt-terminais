@@ -54,6 +54,9 @@ B=$T/bin; mkdir -p "$B"; LOG=$T/aberto.log; CLIP=$T/clip.txt
 printf '#!/bin/sh\necho "$1" >> %s\n' "$LOG" >"$B/xdg-open"
 printf '#!/bin/sh\ncat > %s\n' "$CLIP" >"$B/clip.exe"   # nunca a área de transferência real
 printf '#!/bin/sh\ncat\n' >"$B/iconv"
+if [[ $(uname -s) == Darwin ]]; then
+  printf '#!/bin/sh\necho "$*" >> %s/open.log\n' "$T" >"$B/open" # não lançar GUI real durante a suíte
+fi
 chmod +x "$B"/*
 export PATH="$B:$PATH"
 cfg() { printf 'nome=teste\ncopia_entre_maquinas=0\n%s\n' "$1" >"$XDG_CONFIG_HOME/tt/config"; }
@@ -154,10 +157,14 @@ passou "Ctrl+B u lista os links do painel"
 cfg navegador=perguntar; : >"$LOG"
 clicar 20 "$y2"; sleep 2.5
 if [[ $(uname -s) == Darwin ]]; then
-  # macOS: o Chrome e o Carbonyl baixados são só para Linux x86_64 (navegadores_graficos_ok falha), então não há o que
-  # perguntar: o clique abre direto no navegador do sistema, com a URL inteira.
+  # macOS: o app nativo do Chrome habilita o seletor sem usar os builds Linux/Carbonyl.
+  tela=$(fora capture-pane -p -t v)
+  grep -q 'abrir link' <<<"$tela" && grep -q 'Chromium interno' <<<"$tela" &&
+    grep -q 'Navegador padrão do sistema' <<<"$tela" || falhou "macOS: seletor deveria oferecer Chromium nativo e sistema: $tela"
+  fora send -t v Escape; sleep 1; cfg navegador=sistema; : >"$LOG"
+  clicar 20 "$y2"
   esperar 'abriu "$U"' 6 || falhou "macOS: o clique deveria abrir a URL inteira no navegador do sistema: '$(cat "$LOG")'"
-  passou "macOS, sem navegadores gráficos: com navegador=perguntar o clique abre direto o navegador do sistema, com a URL inteira"
+  passou "macOS: o seletor oferece Chromium nativo e o sistema recebe a URL inteira"
 else
 tela=$(fora capture-pane -p -t v)
 grep -q 'abrir link' <<<"$tela" && grep -q 'Google Chrome interno' <<<"$tela" && grep -q 'Carbonyl' <<<"$tela" &&

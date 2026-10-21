@@ -51,6 +51,36 @@ echo 'codigo=novidades-v1.7.2' >"$ES/notifs/1000000000000000007.apagada"
 n=$(ls "$ES"/notifs | grep -cE '^[0-9]{18,20}$' || true); ((n == 0)) || falhou "aviso apagado pelo usuário voltou ($n)"
 passou 'código por versão: um aviso só na rede; apagado não volta'
 
+# O rótulo instalado sai da contagem de commits e anda com commits sem entrada no NOVIDADES.md (e com quem publica ao mesmo tempo): os
+# títulos ficam ABAIXO do rótulo (aqui 1.7.9 instalado, títulos até 1.7.2). O que vale é a ordem do arquivo: novo = o que está acima do
+# último título visto. Antes, nada contava como novo e o aviso nunca saía.
+echo "320 teste 2099-01-01 1.7.9" >"$TT_DIR/VERSAO"
+rm -rf "$ES/notifs" "$ES/novidades-avisada"; echo 1.7.0 >"$ES/novidades-visto"
+saida=$("$TT" --novidades)
+grep -q 'coisa nova C' <<<"$saida" && grep -q 'coisa nova B' <<<"$saida" && ! grep -q 'coisa velha A' <<<"$saida" || falhou "título abaixo do rótulo: $saida"
+[[ $(cat "$ES/novidades-visto") == 1.7.2 ]] || falhou "deveria marcar o título mais novo (1.7.2), marcou $(cat "$ES/novidades-visto")"
+saida=$("$TT" --novidades); grep -q 'coisa nova C' <<<"$saida" || true   # nada novo: cai nas 3 mais recentes, sem marcar nada além do topo
+[[ $(cat "$ES/novidades-visto") == 1.7.2 ]] || falhou 'rever sem novidade mexeu no marcador'
+# aviso: sai com texto novo, mesmo com rótulo maior que os títulos; e só um, mesmo com o rótulo andando (commits sem novidade)
+rm -rf "$ES/notifs" "$ES/novidades-avisada"; echo 1.7.0 >"$ES/novidades-visto"
+"$TT" --novidades-avisar
+echo "321 teste 2099-01-01 1.7.10" >"$TT_DIR/VERSAO"; "$TT" --novidades-avisar
+echo "322 teste 2099-01-01 1.7.11" >"$TT_DIR/VERSAO"; "$TT" --novidades-avisar
+n=$(grep -lE $'\tnovidades(\t|$)' "$ES"/notifs/* 2>/dev/null | wc -l || true); ((n == 1)) || falhou "rótulo andando sem novidade nova: esperava 1 aviso, vi $n"
+grep -q $'\tnovidades\t-\tnovidades-v1.7.2$' "$ES"/notifs/* || falhou 'o código do aviso deveria ser o do título mais novo (novidades-v1.7.2)'
+# visto o texto, o rótulo andar não avisa de novo
+rm -rf "$ES/notifs" "$ES/novidades-avisada"; "$TT" --novidades >/dev/null; "$TT" --novidades-avisar
+[[ -z $(ls "$ES/notifs" 2>/dev/null) ]] || falhou 'avisou de novo o que já foi visto'
+# título novo entra ACIMA mesmo com número menor que o rótulo e até menor que um título abaixo (quem publica ao mesmo tempo escolhe números diferentes)
+{ printf '# Novidades\n## v1.7.1 · 01/01/2099\n- coisa nova D, com título fora de ordem\n'; sed '1d' "$TT_DIR/NOVIDADES.md"; } >"$TT_DIR/NOVIDADES.novo" && mv "$TT_DIR/NOVIDADES.novo" "$TT_DIR/NOVIDADES.md"
+echo 1.7.2 >"$ES/novidades-visto"
+# (o marcador 1.7.2 é o 2º título agora: o que está acima dele é novo)
+saida=$("$TT" --novidades); grep -q 'coisa nova D' <<<"$saida" || falhou "título fora de ordem não apareceu: $saida"
+passou 'novidades: vale a ordem do arquivo (títulos abaixo do rótulo e fora de ordem aparecem; um aviso só)'
+# volta o arquivo do teste ao que os testes seguintes esperam
+sed -i.bak '2,3d' "$TT_DIR/NOVIDADES.md" && rm -f "$TT_DIR/NOVIDADES.md.bak"
+echo "312 teste 2099-01-01 1.7.2" >"$TT_DIR/VERSAO"
+
 # Estado antigo (só o nº de commits) vale como 1.6.N: não reabre o que já passou, mas mostra a série nova.
 echo 999 >"$ES/novidades-visto"; saida=$("$TT" --novidades)
 grep -q 'coisa nova C' <<<"$saida" && ! grep -q 'coisa legada Z' <<<"$saida" || falhou "estado numérico antigo: $saida"

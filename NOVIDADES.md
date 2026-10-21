@@ -3,6 +3,17 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.0.14 · 21/10/2026
+- **🌐 Chromium nativo no Mac:** “Chromium interno” agora abre Google Chrome/Chromium.app pelo LaunchServices,
+  com perfil próprio do tt, inclusive quando a sessão está em ponte para outra máquina. Se o app falhar,
+  o tt avisa e copia o link; não troca silenciosamente para Safari.
+
+## v2.0.13 · 21/10/2026
+- **📰 As novidades voltam a aparecer:** a tela de novidades e o aviso na faixa não mostravam as seções novas. O rótulo da versão sai da
+  contagem de commits e anda com commits que não têm texto aqui, então os títulos ficavam abaixo do rótulo instalado e nada contava como
+  novo (a tela mostrava só "as 3 mais recentes" e o aviso nunca saía). Agora vale a **ordem do arquivo**: novo é o que está acima do último
+  título que você viu, e o aviso sai uma vez por título novo, mesmo que o rótulo ande com outros commits.
+
 ## v2.0.9 · 20/10/2026
 - **📧 E-mail em texto simples volta a abrir no aerc:** o corpo de uma mensagem só texto (sem HTML) aparecia como se fosse um anexo
   ("No filter configured for this mimetype ('text/plain') — Open using the system handler / Save to file"), enquanto o HTML aparecia bem. A

@@ -37,6 +37,22 @@ c_ponte=$(cli 100) c_local=$(cli 90) c_email=$(cli 80)
 espera() { local i; for ((i = 0; i < 30; i++)); do [[ -s $1 ]] && return 0; sleep 0.1; done; return 1; }
 limpa() { rm -f "$T/xdg.log" "$T/ssh.log"; }
 
+# Mesmo com a tela em ponte para outra máquina, no macOS o Chromium é o Chrome.app local.
+# Simulação independente do host: app bundle e LaunchServices são falsos, nenhuma GUI é aberta.
+MACAPP="$HOME/Applications/Google Chrome.app"
+mkdir -p "$MACAPP/Contents/MacOS"; : >"$MACAPP/Contents/Info.plist"
+cat >"$B/open" <<EOF
+#!/bin/sh
+printf '<%s>\\n' "\$@" >>$T/mac-open.log
+EOF
+chmod +x "$B/open"
+printf 'nome=teste\nnavegador=chromium\n' >"$XDG_CONFIG_HOME/tt/config"
+limpa; TT_SO=macos TT_LINK_CLIENTE=$c_ponte "$TT" --abrir-link "$U" </dev/null
+espera "$T/mac-open.log" && grep -Fq "<$U>" "$T/mac-open.log" && ! [[ -s $T/ssh.log ]] ||
+  falhou "Chromium do Mac foi encaminhado à máquina da sessão ou não abriu localmente (open=$(cat "$T/mac-open.log" 2>/dev/null), ssh=$(cat "$T/ssh.log" 2>/dev/null))"
+passou 'Chromium interno: cliente em ponte abre o Chrome.app local do Mac, não na máquina remota'
+
+printf 'nome=teste\nnavegador=sistema\n' >"$XDG_CONFIG_HOME/tt/config"
 limpa; TT_LINK_CLIENTE=$c_ponte "$TT" --abrir-link "$U" </dev/null
 if [[ $(uname -s) == Darwin ]]; then
   espera "$local_log" && [[ $(cat "$local_log") == "$U" && ! -s $T/ssh.log ]] || falhou 'no MacBook o navegador nativo não deveria ser encaminhado à máquina TT_PONTE'
