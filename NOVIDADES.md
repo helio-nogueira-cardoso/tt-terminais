@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.4.4 · 21/10/2026
+- **🕸️ Máquina sozinha não é ilha:** com nenhuma outra máquina cadastrada, `tt --malha` acusava "1 conexão quebrada" (a própria máquina "não respondeu") e o vigia
+  avisava uma ilha que não existe. Agora diz "sem outras máquinas cadastradas" e a malha sai completa.
+- **⚙️ Partida rápida gerada com o bash certo:** o `tt` gerava o núcleo da partida rápida com o `bash` do PATH, que no Mac pode ser o 3.2 do sistema; passa a usar o próprio bash que o executa.
+
 ## v2.4.0 · 21/10/2026
 - **🤖 Organização automática das contas Graph:** com `classificar=1` na conta, a cada sync o tt mantém o INBOX arrumado movendo cada mensagem para a pasta da categoria (@ Ação, Automações, Códigos, Segurança, Notificações, Newsletters) por regra de remetente/assunto; o que não casa fica no INBOX. É server-side (vale em todo cliente) e só roda em conta com token de escrita (Mail.ReadWrite).
 
