@@ -4326,15 +4326,21 @@ UI
   email_mbsyncrc_migrar 2>/dev/null || true
   email_checkmail_migrar 2>/dev/null || true
 }
-# Contas espelhadas gravadas antes do check-mail-cmd: regrava o bloco (o :check-mail do aerc dava
-# "no command specified" no F11, no ⟳ e ao abrir pelo aviso).
+# Contas espelhadas gravadas antes do check-mail automático: regrava o bloco se faltar o comando
+# ou o intervalo (sem intervalo, o aerc não atualiza a lista Maildir em segundo plano).
 email_checkmail_migrar() {
   local slug; local -A E=()
   [[ -f $AERC_CONTAS ]] || return 0
   for slug in $(email_slugs); do
     E=(); email_ler "$slug" || continue
-    [[ ${E[sync_local]:-} == 1 ]] || continue
-    awk -v a="# >>> tt e-mail: $slug >>>" -v z="# <<< tt e-mail: $slug <<<" '$0 == a { d = 1 } d && /^check-mail-cmd/ { ok = 1 } $0 == z { d = 0 } END { exit !ok }' "$AERC_CONTAS" && continue
+    [[ ${E[sync_local]:-} == 1 ]] || email_graph || continue
+    awk -v a="# >>> tt e-mail: $slug >>>" -v z="# <<< tt e-mail: $slug <<<" '
+      $0 == a { d = 1 }
+      d && /^[[:space:]]*check-mail-cmd[[:space:]]*=/ { cmd = 1 }
+      d && /^[[:space:]]*check-mail[[:space:]]*=/ { intervalo = 1 }
+      $0 == z { d = 0 }
+      END { exit !(cmd && intervalo) }
+    ' "$AERC_CONTAS" && continue
     email_regerar "$slug"
   done
   return 0
@@ -16680,20 +16686,19 @@ email_popup_abrir() { # cliente comando
 # (largo/estreito) mudou. Nela, q desanexa em vez de sair (binds próprios, gerados do binds.conf).
 EMAIL_SESSAO=_tt-email
 email_sessao() {
-  local cmd=$1 modo=$2 b="$HOME/.config/aerc/binds.conf" bo="$HOME/.cache/tt-aerc-binds-oculto.conf" pane_cmd
-  # Versão dos binds da sessão: a do tt + a soma do binds.conf (um cadastro de conta Gmail muda os
-  # binds por conta; a sessão de antes, com o aerc de antes, é recriada na próxima abertura).
-  # Mais a soma das pastas do espelho: o aerc aberto não enxerga pasta que nasce depois (não aplica o
-  # folder-map a ela e o ✕ Apagar falhava com "could not move message: rename … no such file", mesmo
-  # com a lixeira já criada); pasta nova no espelho recria a sessão na próxima abertura.
+  local cmd=$1 modo=$2 b="$HOME/.config/aerc/binds.conf" contas="$HOME/.config/aerc/accounts.conf" bo="$HOME/.cache/tt-aerc-binds-oculto.conf" pane_cmd
+  # Versão da sessão: binds, contas e pastas. O aerc não recarrega accounts.conf; inclui sua soma para
+  # recriar a sessão quando a configuração muda. Pastas locais novas também pedem recriação (senão o
+  # folder-map e ações como apagar não as enxergam). Se a sessão estiver anexada, aplica na próxima
+  # abertura para não interromper uma resposta em andamento.
   local base="$EMAIL_BINDS_VER:$( [[ -f $b ]] && cksum <"$b" | cut -d' ' -f1 || echo 0)" ver atual
-  ver="$base:$(email_pastas_soma)"
+  ver="$base:$( [[ -f $contas ]] && cksum <"$contas" | cut -d' ' -f1 || echo 0):$(email_pastas_soma)"
   if tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
     pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
     atual=$(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_binds)
-    # Aberta em outra tela (popup anexado), pasta nova sozinha não a derruba: fecharia o e-mail lá, com uma
-    # resposta pela metade. Fica para a próxima abertura com ninguém nela.
-    [[ $atual != "$ver" && ${atual%:*} == "$base" &&
+    # Aberta em outra tela (popup anexado), mudança só de contas/pastas não a derruba: fecharia o e-mail
+    # lá, possivelmente com uma resposta pela metade. Fica para a próxima abertura desanexada.
+    [[ $atual != "$ver" && $atual == "$base:"* &&
        $(tmux display -p -t "=$EMAIL_SESSAO:" '#{session_attached}' 2>/dev/null) =~ ^[1-9] ]] && atual=$ver
     if [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo) == "$modo" && $pane_cmd == aerc* &&
           $atual == "$ver" &&
@@ -17394,6 +17399,9 @@ email_bloco() {
   if email_graph; then
     # Sem IMAP direto: a leitura vem do maildir sincronizado pelo Graph.
     printf 'source            = maildir://%s\n' "$(email_maildir "${E[_slug]}")"
+    # Maildir não acompanha mudanças externas sozinho: o intervalo faz o aerc chamar o sync e
+    # atualizar a lista, além do vigia que mantém o espelho local.
+    printf 'check-mail        = 2m\n'
     printf 'check-mail-cmd    = %s --email-sync %s\n' "$HOME/.local/bin/tt" "${E[_slug]}"
     printf 'check-mail-timeout = 120s\n'
   else
@@ -17411,6 +17419,7 @@ email_bloco() {
   # Com maildir, o :check-mail do aerc (F11, ⟳, abrir pelo aviso) só funciona com um comando que traga o
   # INBOX: sem ele o aerc responde "check-mail: no command specified". O mbsync pode passar dos 10 s padrão.
   if [[ ${E[sync_local]:-} == 1 ]] && ! email_graph; then
+    printf 'check-mail        = 2m\n'
     printf 'check-mail-cmd    = %s --email-sync %s\n' "$HOME/.local/bin/tt" "${E[_slug]}"
     printf 'check-mail-timeout = 120s\n'
   fi
@@ -17449,7 +17458,8 @@ email_bloco() {
         archive) [[ -n ${E[pasta_todos]:-} ]] && continue ;;
         postpone) [[ -n ${E[pasta_rascunhos]:-} ]] && continue ;;
         folder-map|folders-exclude) [[ -n $mae ]] && continue ;;
-        check-mail-cmd|check-mail-timeout) [[ ${E[sync_local]:-} == 1 ]] && continue ;;
+        check-mail|check-mail-cmd|check-mail-timeout)
+          if [[ ${E[sync_local]:-} == 1 ]] || email_graph; then continue; fi ;;
       esac
     fi
     printf '%s\n' "${E[extra_$i]}"

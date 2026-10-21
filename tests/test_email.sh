@@ -17,6 +17,7 @@ echo 'BRIDGE_FICT' | "$TT" --email-adicionar nome=Proton endereco=eu@proton.me p
 grep -q '^source *= imaps://eu%40gmail.com@imap.gmail.com:993$' "$A" || falhou 'gmail: URL IMAP'
 grep -q '^outgoing *= smtps://eu%40gmail.com@smtp.gmail.com:465$' "$A" || falhou 'gmail: URL SMTP'
 grep -q '^source *= maildir://.*/tt/maildir/trabalho$' "$A" || falhou 'microsoft graph: leitura pelo maildir'
+grep -qx 'check-mail        = 2m' "$A" || falhou 'microsoft graph: aerc sem atualização automática do maildir'
 grep -q '^check-mail-cmd *= .*/tt --email-sync trabalho$' "$A" || falhou 'microsoft graph: sync pelo tt'
 grep -qx 'graph=1' "$XDG_CONFIG_HOME/tt/email/trabalho.conf" || falhou 'microsoft: modo Graph ausente'
 grep -q '^outgoing *= .*email-tt.py graph-sendmail .*/email/trabalho.conf$' "$A" || falhou 'microsoft graph: envio REST pelo tt'

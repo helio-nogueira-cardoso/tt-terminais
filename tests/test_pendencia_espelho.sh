@@ -64,8 +64,10 @@ passou 'aceitar liga o espelho das contas que faltavam e a pendência some'
 A=$HOME/.config/aerc/accounts.conf
 bloco() { awk -v a="# >>> tt e-mail: $1 >>>" -v z="# <<< tt e-mail: $1 <<<" '$0 == a { d = 1 } d; $0 == z { d = 0 }' "$A"; }
 grep -qx "check-mail-cmd    = $HOME/.local/bin/tt --email-sync b" <<<"$(bloco b)" || falhou "conta espelhada sem check-mail-cmd: $(bloco b)"
+grep -qx 'check-mail        = 2m' <<<"$(bloco b)" || falhou "conta espelhada sem intervalo de atualização: $(bloco b)"
 grep -q '^check-mail-timeout' <<<"$(bloco b)" || falhou 'sem check-mail-timeout (o mbsync passa dos 10 s padrão)'
-sed -i '/^check-mail-/d' "$A"
+sed -i '/^check-mail[[:space:]]*=/d' "$A"
 PATH="$B:$PATH" TT_COMPLETO=1 bash -c 'TT_SO_CARREGAR=1 source "$1"; email_checkmail_migrar' _ "$TT"
 grep -qx "check-mail-cmd    = $HOME/.local/bin/tt --email-sync b" <<<"$(bloco b)" || falhou "a migração não regravou a conta antiga: $(bloco b)"
-passou 'conta espelhada ganha check-mail-cmd no aerc, e a migração conserta as antigas'
+grep -qx 'check-mail        = 2m' <<<"$(bloco b)" || falhou "a migração não ativou a atualização automática: $(bloco b)"
+passou 'conta espelhada ganha check-mail automático no aerc, e a migração conserta as antigas'

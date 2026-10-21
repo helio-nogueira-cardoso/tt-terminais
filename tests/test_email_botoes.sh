@@ -92,6 +92,11 @@ echo '# mudou' >>~/.config/aerc/binds.conf
 antes=$(tmux show -qv -t =_tt-email: @tt_email_binds)
 bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao após mudança'
 [[ $(tmux show -qv -t =_tt-email: @tt_email_binds) != "$antes" ]] || falhou 'binds.conf mudado deveria recriar a sessão (soma nova)'
+# accounts.conf também é carregado só ao iniciar o aerc; mudança na conta exige nova sessão.
+echo '# conta mudou' >>~/.config/aerc/accounts.conf
+antes=$(tmux show -qv -t =_tt-email: @tt_email_binds)
+bash -c "source <(sed -n '/^tt_largura()/,/^}/p' '$TT'); source <(sed -n '/^EMAIL_SESSAO=/,/^# ─── Cadastro e gerência de contas de e-mail/p' '$TT' | sed '\$d'); email_sessao 'aerc' largo" || falhou 'email_sessao após mudança em accounts.conf'
+[[ $(tmux show -qv -t =_tt-email: @tt_email_binds) != "$antes" ]] || falhou 'accounts.conf mudado deveria recriar a sessão do aerc'
 # pasta nova no espelho (a lixeira criada pelo conserto): o aerc aberto antes não a enxergava e o ✕ Apagar
 # dava "could not move message: rename … no such file"; a sessão é recriada
 mkdir -p ~/.cache/tt/maildir/conta/INBOX/cur
@@ -116,9 +121,10 @@ script -qfc "tmux attach -t =_tt-email" "$T/anexo.log" <>"$T/anexo.in" >/dev/nul
 for ((i = 0; i < 50; i++)); do [[ $(tmux display -p -t =_tt-email: '#{session_attached}') == 1 ]] && break; sleep 0.1; done
 [[ $(tmux display -p -t =_tt-email: '#{session_attached}') == 1 ]] || falhou 'o cliente de teste não anexou à sessão do e-mail'
 mkdir -p ~/.cache/tt/maildir/conta/'Nova etiqueta'/{cur,new,tmp}
+echo '# conta mudou com popup aberto' >>~/.config/aerc/accounts.conf
 sessao_dorme
 [[ $(tmux display -p -t =_tt-email: '#{pane_pid} #{session_attached}') == "$pid 1" ]] ||
-  falhou "aberta em outra tela, pasta nova não deveria derrubar a sessão: $(tmux display -p -t =_tt-email: '#{pane_pid} #{session_attached}') (antes $pid 1)"
+  falhou "aberta em outra tela, conta/pasta nova não deveria derrubar a sessão: $(tmux display -p -t =_tt-email: '#{pane_pid} #{session_attached}') (antes $pid 1)"
 tmux detach-client -s =_tt-email 2>/dev/null; wait "$anexo" 2>/dev/null || true   # (o script pode sair com erro ao perder o cliente)
 sessao_dorme
 [[ $(tmux display -p -t =_tt-email: '#{pane_pid}') != "$pid" && $(tmux show -qv -t =_tt-email: @tt_email_binds) != "$antes" ]] ||
