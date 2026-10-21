@@ -74,6 +74,30 @@ grep -q 'PassCmd "python3 .*email-tt.py oauth-token .*localoa.conf"' "$rcoa" || 
 grep -q '^AuthMechs XOAUTH2$' "$rcoa" || falhou 'oauth: faltou AuthMechs XOAUTH2'
 passou 'OAuth2: PassCmd via email-tt.py oauth-token e AuthMechs XOAUTH2'
 
+# Graph (graph=1): a volta completa espelha INBOX + pastas padrão como maildir válido (cur/new/tmp),
+# refeitas do servidor a cada sync; o modo inbox traz só o INBOX. Sem rede: stub do graph_get.
+python3 - "$(dirname "$0")/../email-tt.py" "$T/graphmd" <<'PY' || falhou 'graph_sync (completo/inbox) não espelhou as pastas certas'
+import importlib.util, os, sys, shutil
+spec = importlib.util.spec_from_file_location("emailtt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+base = sys.argv[2]
+m.graph_get = lambda c, caminho: {"value": [
+    {"id": "A" + caminho, "subject": "a", "from": {"emailAddress": {"name": "N", "address": "n@x"}}, "isRead": True},
+    {"id": "B" + caminho, "subject": "b", "from": {"emailAddress": {"name": "M", "address": "m@x"}}, "isRead": False},
+]}
+m.graph_sync({"_slug": "g"}, base, 50, True)   # completo
+for p in ("INBOX", "Enviados", "Lixeira", "Rascunhos", "Spam", "Arquivo"):
+    for sub in ("cur", "new", "tmp"):
+        assert os.path.isdir(os.path.join(base, p, sub)), "faltou %s/%s" % (p, sub)
+    n = len(os.listdir(os.path.join(base, p, "cur"))) + len(os.listdir(os.path.join(base, p, "new")))
+    assert n == 2, "%s: esperava 2 msgs, achou %d" % (p, n)
+shutil.rmtree(base)
+m.graph_sync({"_slug": "g"}, base, 50, False)  # inbox só
+assert os.path.isdir(os.path.join(base, "INBOX")), "inbox-só não criou INBOX"
+assert not os.path.exists(os.path.join(base, "Enviados")), "inbox-só não devia criar Enviados"
+PY
+passou 'Graph: completo espelha INBOX+Enviados+Lixeira+Rascunhos+Spam+Arquivo (cur/new/tmp); inbox-só traz só o INBOX'
+
 # --email-sync roda o mbsync só das contas com flag: por padrão só o INBOX; --completo, o grupo
 : >"$T/mbsync.calls"
 "$TT" --email-sync >/dev/null 2>&1

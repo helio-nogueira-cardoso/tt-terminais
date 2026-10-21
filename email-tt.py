@@ -1108,27 +1108,54 @@ def graph_enviar(c, destinatarios, mensagem):
         return r.status
 
 
-def graph_sync(c, saida, limite):
-    """Salva as últimas mensagens do INBOX como maildir new/."""
-    r = graph_get(c, f"/me/mailFolders/inbox/messages?$top={int(limite)}&$select=id,subject,from,receivedDateTime,isRead,bodyPreview")
-    os.makedirs(saida, exist_ok=True)
-    n = 0
-    for m in r.get("value", []):
-        ident = m.get("id", "")
-        if not ident:
-            continue
-        nome = ident.replace("/", "_").replace(":", "_")
-        arq = os.path.join(saida, "new", nome)
-        os.makedirs(os.path.dirname(arq), exist_ok=True)
-        de = m.get("from", {}).get("emailAddress", {})
-        texto = (f"From: {de.get('name', '')} <{de.get('address', '')}>\n"
-                 f"Subject: {m.get('subject', '')}\n"
-                 f"Date: {m.get('receivedDateTime', '')}\n"
-                 f"X-Graph-Id: {ident}\n\n{m.get('bodyPreview', '')}\n")
-        with open(arq, "w", encoding="utf-8") as f:
-            f.write(texto)
-        n += 1
-    print(f"mensagens={n}")
+GRAPH_PASTAS_EXTRA = [
+    ("sentitems", "Enviados"), ("deleteditems", "Lixeira"), ("drafts", "Rascunhos"),
+    ("junkemail", "Spam"), ("archive", "Arquivo"),
+]
+
+
+def graph_sync(c, base, limite, completo=False):
+    """Espelha o INBOX como maildir; no modo completo, também Enviados/Lixeira/Rascunhos/Spam/
+    Arquivo. Cada pasta é reconstruída do servidor a cada sync (o id do Graph é a verdade: evita
+    duplicar quando o cliente renomeia arquivos ao marcar lido/arquivar)."""
+    pastas = [("inbox", "INBOX")] + (GRAPH_PASTAS_EXTRA if completo else [])
+    total = 0
+    for wk, nome_pasta in pastas:
+        try:
+            r = graph_get(c, f"/me/mailFolders/{wk}/messages?$top={int(limite)}&$select=id,subject,from,receivedDateTime,isRead,bodyPreview")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:   # pasta inexistente nesta conta: ignora
+                continue
+            raise
+        destino = os.path.join(base, nome_pasta)
+        # Reconstrói a pasta (só é lida pelo cliente com cur/new/tmp; limpar evita duplicatas).
+        for sub in ("cur", "new", "tmp"):
+            d = os.path.join(destino, sub)
+            if os.path.isdir(d):
+                for f in os.listdir(d):
+                    try:
+                        os.remove(os.path.join(d, f))
+                    except OSError:
+                        pass
+            os.makedirs(d, exist_ok=True)
+        for m in r.get("value", []):
+            ident = m.get("id", "")
+            if not ident:
+                continue
+            nome = ident.replace("/", "_").replace(":", "_")
+            lido = bool(m.get("isRead"))
+            de = m.get("from", {}).get("emailAddress", {})
+            texto = (f"From: {de.get('name', '')} <{de.get('address', '')}>\n"
+                     f"Subject: {m.get('subject', '')}\n"
+                     f"Date: {m.get('receivedDateTime', '')}\n"
+                     f"X-Graph-Id: {ident}\n\n{m.get('bodyPreview', '')}\n")
+            tmp = os.path.join(destino, "tmp", nome)
+            dst = os.path.join(destino, "cur", nome + ":2,S") if lido else os.path.join(destino, "new", nome)
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(texto)
+            os.replace(tmp, dst)
+            total += 1
+    print(f"mensagens={total}")
     return 0
 
 
@@ -1531,7 +1558,7 @@ def main(a):
         return testar_graph(c)
     if cmd == "graph-sync":
         try:
-            return graph_sync(c, a[2], a[3] if len(a) > 3 else 500)
+            return graph_sync(c, a[2], int(a[3]) if len(a) > 3 else 500, len(a) > 4 and a[4] == "completo")
         except Exception as e:
             print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
     if cmd == "graph-sendmail":

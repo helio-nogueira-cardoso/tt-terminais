@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.3.0 · 21/10/2026
+- **🗂️ Pastas e maildir de verdade nas contas Microsoft (Graph):** o espelho virou um maildir válido (cur/new/tmp) que o cliente abre — antes só criava `new/` e a caixa aparecia vazia. E a volta completa passa a trazer, além do INBOX, as pastas padrão **Enviados, Lixeira, Rascunhos, Spam e Arquivo** (sem elas não dá para apagar certo nem ver o enviado). Cada pasta é refeita do servidor a cada sync, sem acumular duplicata.
+
 ## v2.2.0 · 21/10/2026
 - **📧 Outlook, Hotmail e Microsoft 365 entram com menos atrito:** sem `client_id`, o cadastro agora usa o app público **Outlook Mobile** e lê o e-mail pelo
   **Microsoft Graph** (escopo `https://graph.microsoft.com/.default`, que a Microsoft já preautoriza para esse app e devolve os escopos de e-mail que a conta

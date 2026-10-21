@@ -17615,7 +17615,7 @@ email_mbsyncrc_migrar() {
 email_sync() { # slug [inbox|completo] [vigia]
   local slug=${1:?} modo=${2:-inbox} quem=${3:-} rc lock dir alvo teto ini fim st agora k esp base
   local -A E=(); email_ler "$slug" 2>/dev/null || true
-  if email_graph; then [[ $modo == inbox ]] && email_graph_sync "$slug"; return $?; fi
+  if email_graph; then email_graph_sync "$slug" "$modo"; return $?; fi
   rc=$(email_mbsyncrc "$slug")
   command -v "$(mbsync_bin)" >/dev/null || return 0
   [[ -f $rc ]] || return 0
@@ -18610,16 +18610,17 @@ email_testar_slug() {
 
 # Graph de leitura: troca o INBOX local pelas mensagens do Microsoft Graph (as últimas
 # TT_EMAIL_GRAPH_MAX, 500 por padrão). O aerc continua lendo maildir; o vigia chama por aqui.
-email_graph_sync() { # slug
-  local slug=${1:?} conf dir ini fim st lock
+email_graph_sync() { # slug [inbox|completo]
+  local slug=${1:?} modo=${2:-inbox} conf dir ini fim st lock
   conf=$(email_conf_arq "$slug"); [[ -f $conf ]] || return 1
   dir="${ESTADO_DIR:?}/email-sync"; mkdir -p "$dir"
   lock="$EMAIL_MBSYNC_DIR/$slug.lock"; mkdir -p "$EMAIL_MBSYNC_DIR"
   exec 9>"$lock" 2>/dev/null || return 0
   flock -n 9 || { printf 'pulada\t%s\t%s\t0\n' "$(date +%s)" "$(date +%s)" >>"$dir/$slug"; return 0; }
-  ini=$(date +%s); printf 'inbox\t%s\n' "$ini" >"$dir/$slug.andamento"
-  timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-sync "$conf" "$(email_maildir "$slug")/INBOX" "${TT_EMAIL_GRAPH_MAX:-500}" >"$dir/$slug.saida.tmp" 2>"$dir/$slug.erro.tmp"; st=$?
-  fim=$(date +%s); printf 'inbox\t%s\t%s\t%s\n' "$ini" "$fim" "$st" >>"$dir/$slug"
+  ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
+  # Modo completo: além do INBOX, espelha Enviados/Lixeira/Rascunhos/Spam/Arquivo (o Python decide).
+  timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-sync "$conf" "$(email_maildir "$slug")" "${TT_EMAIL_GRAPH_MAX:-500}" "$modo" >"$dir/$slug.saida.tmp" 2>"$dir/$slug.erro.tmp"; st=$?
+  fim=$(date +%s); printf '%s\t%s\t%s\t%s\n' "$modo" "$ini" "$fim" "$st" >>"$dir/$slug"
   tail -n 200 "$dir/$slug" >"$dir/$slug.tmp" 2>/dev/null && mv "$dir/$slug.tmp" "$dir/$slug"
   if ((st == 0)); then rm -f "$dir/$slug.erro" "$dir/$slug.erro.tmp" "$dir/$slug.espera" "$dir/$slug.falhas"
   else { ((st == 124)) && echo "tempo esgotado (${TT_EMAIL_GRAPH_TETO:-240} s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } >"$dir/$slug.erro"; rm -f "$dir/$slug.erro.tmp"; fi
