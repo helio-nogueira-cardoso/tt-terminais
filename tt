@@ -8824,7 +8824,7 @@ sessoes_ia_cmd() {
 #
 # Remetentes autorizados (cadastro comum, propagado como o das contas de IA): "e-mail<TAB>etiqueta<TAB>modo<TAB>
 # segredo<TAB>hora". A identidade é o e-mail (minúsculo) e a mudança mais nova vence; modo "-" = removido.
-# Modos: auth (padrão — autenticação do provedor, alinhada), relaxado (ausência de resultado aceita; falha explícita não),
+# Modos: auth (padrão — autenticação do provedor, alinhada), relaxado (remetente permitido passa sem depender do resultado auth),
 # segredo (o assunto leva [tt:SEGREDO]) e aberto (sem checagem: o From é forjável, use só onde isso não importa).
 # Um e-mail de remetente autorizado com assunto "[tt] título @sex 14h !alta *semanal #tag" vira uma tarefa
 # PENDENTE — estado novo no mesmo arquivo das tarefas: sincroniza, não aparece nas listas, só na aba Entrada.
@@ -9297,9 +9297,7 @@ demandas_processar_conta() { # slug
         fi
         [[ $auth == pass ]] || { awk -F '\t' -v u="$u" '$1 != u' "$authwait" >"$authwait.tmp" 2>/dev/null || :; [[ -f $authwait.tmp ]] && mv -f "$authwait.tmp" "$authwait"; ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=autenticacao(%s)\n' "$(date '+%F %T')" "$de" "$auth" >>"$log"; continue; } ;;
       segredo) [[ $seg != - && $segmsg == "$seg" ]] || { ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=segredo\n' "$(date '+%F %T')" "$de" >>"$log"; continue; } ;;
-      relaxado)
-        # Aceita ausência de Authentication-Results (p.ex. Graph não o forneceu), nunca falha explícita.
-        [[ $auth != fail ]] || { ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=autenticacao(fail,modo=relaxado)\n' "$(date '+%F %T')" "$de" >>"$log"; continue; } ;;
+      relaxado) ;;  # o usuário autorizou este endereço; não exige prova auth, mesmo com fail explícito
       aberto) ;;
       *) continue ;;
     esac

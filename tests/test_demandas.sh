@@ -222,14 +222,13 @@ grep -q $'\tpendente\t.*Chegou sem cabeçalho e foi recuperada' "$C" || fail "ap
 [[ ! -s "$HOME/.local/state/tt/email-sync/conta.demandas.auth-espera" ]] || fail "mensagem revalidada deveria sair da espera de autenticação"
 echo "ok: auth=none aguarda e é reprocessado quando Graph traz os cabeçalhos reais"
 
-# 16) modo relaxado: permite cabeçalho ausente, mas jamais uma falha explícita
+# 16) modo relaxado: aceita sem cabeçalho e com falha explícita para remetente previamente autorizado
 eml relax_none relax@empresa.com.br none '[tt] Remetente relaxado sem cabeçalho' 'teste' 'relax-none-id'
 eml relax_fail relax@empresa.com.br fail '[tt] Remetente relaxado com falha' 'teste' 'relax-fail-id'
 tt --demandas-processar conta
 grep -q 'Remetente relaxado sem cabeçalho' "$C" || fail "modo relaxado deveria aceitar auth=none"
-grep -q 'Remetente relaxado com falha' "$C" && fail "modo relaxado não pode aceitar auth=fail"
-grep -q 'autenticacao(fail,modo=relaxado)' "$HOME/.local/state/tt/email-sync/conta.demandas.log" || fail "falha explícita no modo relaxado deveria ser registrada"
-echo "ok: relaxado permite auth=none e continua recusando auth=fail"
+grep -q 'Remetente relaxado com falha' "$C" || fail "modo relaxado deve aceitar auth=fail para remetente autorizado"
+echo "ok: relaxado aceita auth=none e auth=fail somente de remetente autorizado"
 
 
 # 17) atualização v2.5.1 migra uma vez todos os auth existentes em cada máquina

@@ -84,7 +84,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `--demanda-recusar ID` / `--demandas-ui` — demandas por e-mail: e-mail de remetente autorizado (cadastro
   `~/.config/tt/demandas`, propagado por `--receber-demandas`/`--propagar-demandas`/`--puxar-demandas`) com `[tt] título @prazo !prio
   #tag` no assunto vira tarefa PENDENTE (estado novo no arquivo de tarefas) após o sync da conta; só vale com
-  autenticação do provedor (padrão), modo relaxado (aceita auth ausente, não falha explícita), segredo ou modo aberto; aba Entrada do painel aprova/recusa.
+  autenticação do provedor (padrão), modo relaxado (não exige auth; aceita auth ausente ou fail explícito), segredo ou modo aberto; aba Entrada do painel aprova/recusa.
 - `tt --flutuante [status|on|off|alternar]` — painel de tarefas flutuante: com `painel_flutuante=1` e tmux
   3.8+ (detecta `new-pane -O -C -K`), `--tarefas`/📋 abrem um painel modal da janela que fecha ao clicar
   fora; desligado (padrão) ou sem suporte, é o popup de sempre. Item 🪟 no menu ⋯ do painel.

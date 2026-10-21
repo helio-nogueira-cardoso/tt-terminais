@@ -1698,7 +1698,7 @@ tarefa quando você aprova.
 - **Segurança:** o `From` é forjável, então o padrão (`auth`) só aceita se o **provedor que recebeu**
   autenticou o remetente — `dmarc=pass`, ou `dkim=pass`/`spf=pass` alinhado ao domínio do `From`, lido do
   cabeçalho `Authentication-Results` **de cima** (o que o servidor final põe; o de baixo pode ser forjado).
-  `relaxado`: permite ausência de `Authentication-Results`, mas recusa `fail` explícito (risco: sem cabeçalho não há prova contra falsificação do From). `segredo`: o assunto leva `[tt:SEGREDO]`. `aberto`: sem checagem — só onde forjar não importa. Mensagem
+  `relaxado`: para um endereço que você já autorizou, não exige `Authentication-Results` e aceita inclusive `fail` explícito; como o `From` pode ser falsificado, use apenas com remetentes confiáveis. `segredo`: o assunto leva `[tt:SEGREDO]`. `aberto`: sem checagem — só onde forjar não importa. Mensagem
   ignorada por falta de autenticação fica em `~/.local/state/tt/email-sync/<conta>.demandas.log` e gera um
   aviso. O texto do e-mail é dado não confiável: nunca é executado (e um agente que ler a tarefa deve tratá-lo
   como dado).
