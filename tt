@@ -1550,7 +1550,8 @@ snapshot_perguntar() { # id [sessão-em-uso]
   read -rsn1 -p '  (tecla fecha) '
 }
 
-# A tela: lista com data e hora, motivo e contagens; a prévia mostra a árvore do snapshot; ⏎ restaura.
+# A tela: lista com data e hora, motivo e contagens; a prévia mostra a árvore do snapshot;
+# botão ↩ Restaurar no cabeçalho, Ctrl+R e ⏎ restauram o item selecionado.
 snapshots_ui() {
   local sel id atual lista
   atual=$(tmux display-message -p '#{session_name}' 2>/dev/null)
@@ -1558,7 +1559,8 @@ snapshots_ui() {
     lista=$(snap_py listar | awk -F'\t' '{ printf "%s\t%s  %-40.40s \033[90m%s sessões · %s painéis · %s IA · %s fixadas\033[0m\n", $1, $2, $3, $4, $5, $6, $7 }')
     [[ -n $lista ]] || { echo "Nenhum snapshot ainda. Ligue com: tt --snapshots on"; read -rsn1 -p '(tecla fecha)'; return 0; }
     sel=$(fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse --exact --prompt='📸 ' --pointer='▶' \
-      --header='snapshots do estado · ⏎ restaurar (pergunta o modo) · esc sai' \
+      --header='↩ Restaurar · Ctrl+R · ⏎' \
+      --bind='ctrl-r:accept,click-header:accept' \
       --preview="$EU --snapshot-ver {1}" --preview-window='right,55%,wrap' <<<"$lista") || return 0
     id=${sel%%$'\t'*}
     snapshot_perguntar "$id" "$atual"

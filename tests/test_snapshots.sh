@@ -9,6 +9,9 @@ export TT_SNAP_DIR="$T/snaps" TT_SNAP_ESPERA=1 TT_SNAP_MAX=5
 B=$T/bin; mkdir -p "$B" "$HOME/.local/bin"
 nlist() { "$TT" --snapshots-listar | wc -l | tr -d ' '; }
 
+grep -Fq -- "--header='↩ Restaurar · Ctrl+R · ⏎'" "$TT" || falhou 'painel de snapshots sem botão Restaurar no cabeçalho'
+grep -Fq -- "--bind='ctrl-r:accept,click-header:accept'" "$TT" || falhou 'botão Restaurar sem rota de clique ou Ctrl+R'
+
 # --- o tmux.conf do pacote liga os ganchos (índice fixo: recarregar não acumula)
 tmux new-session -d -s hk -x 80 -y 24
 tmux source-file "$RAIZ/tmux.conf" >/dev/null 2>&1 || true; tmux source-file "$RAIZ/tmux.conf" >/dev/null 2>&1 || true
