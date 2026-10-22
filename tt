@@ -1651,13 +1651,13 @@ listar_busca() { # texto
     timeout "${TT_T_BUSCA_REMOTA:-5}" ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --busca-consulta $(q "$q")" >"$tmp/q.$i" 2>/dev/null </dev/null & pids+=($!)
   done < <(maquinas)
   esperar ${pids[@]+"${pids[@]}"}
+  # O trecho já vem cortado pelo busca-tt.py (por caractere: o substr do mawk e do awk do macOS é por byte e partia o "ç").
   for n in $(seq 0 "$i"); do
     [[ -s $tmp/q.$n ]] || continue
     read -r rot <"$tmp/r.$n"; c=$(cache_lista "$rot")
     [[ -s $c ]] || continue
     awk -F'\t' -v OFS='\t' 'NR == FNR { sc[$1] = $2; tr[$1] = $4; next }
-      ($2 in sc) { t = tr[$2]; if (length(t) > 70) t = substr(t, 1, 70) "…"
-                   printf "%s\t%s\n", sc[$2], $1 OFS $2 OFS $3 "  \033[90m‹" t "›\033[0m" OFS $4 }' "$tmp/q.$n" "$c"
+      ($2 in sc) { printf "%s\t%s\n", sc[$2], $1 OFS $2 OFS $3 "  \033[90m‹" tr[$2] "›\033[0m" OFS $4 }' "$tmp/q.$n" "$c"
   done | LC_ALL=C sort -t$'\t' -k1,1n | cut -f2-
   rm -rf "$tmp"
 }
@@ -1926,7 +1926,8 @@ maquinas() {
   cat "$cache" 2>/dev/null || maquinas_agora
 }
 # Consulta todas as outras máquinas ao mesmo tempo e guarda "quantas-sessões versão" de cada uma
-# ("? ?" se não responder). Demora até TT_T_INFO (8 s): chame sempre em segundo plano.
+# ("? ?" se não responder). Demora até TT_T_INFO_SSH (8 s): chame sempre em segundo plano. Não é o TT_T_INFO:
+# esse é o intervalo do vigia entre duas consultas (300 s).
 atualizar_info() {
   local -a pids=()
   local dest rot f r
@@ -1935,7 +1936,7 @@ atualizar_info() {
     {
       # PATH_REMOTO na frente: o tmux do sistema (3.5/3.6) não conversa com um servidor 3.8 ("server exited
       # unexpectedly"), e a contagem de sessões da máquina saía sempre 0 no menu de máquinas.
-      r=$(timeout "${TT_T_INFO:-8}" ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0, \$4}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null) || r="? ?"
+      r=$(timeout "${TT_T_INFO_SSH:-8}" ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0, \$4}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null) || r="? ?"
       echo "$r" >"$f.$$" && mv "$f.$$" "$f"
     } & pids+=($!)
   done < <(maquinas)
@@ -1969,10 +1970,13 @@ cat_remoto() { timeout "$4" ssh "${SSH_OPC[@]}" "$1" "cat $3 2>/dev/null" </dev/
 # Lê ~/.config/tt/maquinas; com o Tailscale, pula as desligadas e usa o nome completo
 # (host.tailnet.ts.net: o nome curto pode coincidir com o desta máquina — por exemplo, um WSL
 # com o mesmo hostname do Windows que o hospeda).
-# Desligada é a que o Tailscale dá como fora, sem tráfego recente com ela (Active) e vista pela última vez há
-# mais de TT_TS_TOLERANCIA s (padrão 300). Só a marca Online não basta: ela é a visão do servidor de
-# coordenação e oscila. Em 16/10/2026 a empresa viu o Dell "desligado" por mais de um minuto com o túnel ssh
-# de pé, e o clique numa fixada dele dizia "máquina não cadastrada ou desligada" sem nem tentar.
+# Desligada é a que o Tailscale dá como fora, sem túnel respondendo (Active com handshake há até
+# TT_TS_TOLERANCIA s, padrão 300) e vista pela última vez há mais de TT_TS_TOLERANCIA s. Só a marca Online não
+# basta: ela é a visão do servidor de coordenação e oscila. Em 16/10/2026 a empresa viu o Dell "desligado" por mais
+# de um minuto com o túnel ssh de pé, e o clique numa fixada dele dizia "máquina não cadastrada ou desligada" sem
+# nem tentar. Active sozinho não prova nada: ele só diz que ESTA ponta mandou pacote, e o próprio vigia tentando o
+# ssh o mantém ligado. Em 21/10/2026 o book-hl, fora havia um dia (rx 0), seguia "Active" e a malha acusava ilha
+# a cada volta. Os horários vêm com fuso ("…-03:00"), não só em UTC.
 # "maquinas_agora todas": as cadastradas, mesmo as dadas como desligadas (dest_ir).
 maquinas_agora() {
   [[ -f $CONF_MAQ ]] || return 0
@@ -1987,20 +1991,32 @@ try:
     tolerancia = float(sys.argv[4])
 except (IndexError, ValueError):
     tolerancia = 300.0
-def desligada(p):
-    if p.get("Online") or p.get("Active"):
-        return False
-    try:  # "2026-10-16T19:10:00.1Z"; o valor zero (0001-01-01) é "nunca vista": desligada
-        visto = calendar.timegm(time.strptime((p.get("LastSeen") or "")[:19], "%Y-%m-%dT%H:%M:%S"))
+def instante(v):
+    # "2026-10-16T19:10:00.1Z" ou "2026-10-21T22:01:47.85-03:00"; o valor zero (0001-01-01) é "nunca": None
+    try:
+        t = calendar.timegm(time.strptime((v or "")[:19], "%Y-%m-%dT%H:%M:%S"))
     except ValueError:
-        return True
-    return visto < 86400 or time.time() - visto > tolerancia
-pares = {}
+        return None
+    fuso = (v or "")[19:].lstrip(".0123456789")
+    if len(fuso) == 6 and fuso[0] in "+-" and fuso[3] == ":":
+        t -= (1 if fuso[0] == "+" else -1) * (int(fuso[1:3]) * 3600 + int(fuso[4:6]) * 60)
+    return t if t >= 86400 else None
+def recente(v):
+    t = instante(v)
+    return t is not None and time.time() - t <= tolerancia
+def desligada(p):
+    if p.get("Online") or (p.get("Active") and recente(p.get("LastHandshake"))):
+        return False
+    return not recente(p.get("LastSeen"))
+pares, ips = {}, {}
 for p in (d.get("Peer") or {}).values():
     dns = p.get("DNSName", "").rstrip(".")
     for nome in {dns, dns.split(".")[0], p.get("HostName", "")}:
         if nome:
             pares[nome] = p
+    # cadastrada pelo IP da tailnet (100.x): o estado vale igual, mas o endereço fica o IP
+    for ip in p.get("TailscaleIPs") or []:
+        ips[ip] = p
 for linha in open(sys.argv[1]):
     c = linha.split()
     # A 4ª coluna "oculta" preserva host, usuário e rótulo, mas tira a máquina dos menus.
@@ -2015,6 +2031,8 @@ for linha in open(sys.argv[1]):
         if not todas and desligada(p):
             continue
         host = p.get("DNSName", "").rstrip(".") or host
+    elif not todas and host in ips and desligada(ips[host]):
+        continue
     print(f"{usuario}@{host} {rotulo}")
 ' "$CONF_MAQ" "$(id -un)" "${1:-}" "${TT_TS_TOLERANCIA:-300}" 2>/dev/null
 }
@@ -2035,6 +2053,8 @@ except OSError:
     pass
 for p in (d.get("Peer") or {}).values():
     host = p.get("DNSName", "").split(".")[0]
+    if cad & set(p.get("TailscaleIPs") or []):  # cadastrada pelo IP da tailnet
+        continue
     if host and p.get("Online") and host not in cad and p.get("OS") in ("linux",):
         print(host, p.get("OS"))
 ' "$CONF_MAQ" 2>/dev/null
@@ -2094,7 +2114,8 @@ ssh_retry() {
 }
 
 # Classifica por que o SSH para um destino falhou, separando as camadas. Ecoa um rotulo:
-#   ok | offline | sem-rota | porta-fechada | precisa-aprovar | policy-nega | sem-chave | timeout | erro
+#   ok | offline | sem-rota | porta-fechada | precisa-aprovar | policy-nega | sem-chave | ssh-limitado | dns | ssh-travado |
+#   timeout | conexao-interrompida | mtu | erro
 # 0 se o par responde a um ping do Tailscale (direto ou por relay/DERP); ver o comentário em diagnosticar_conexao.
 tailscale_alcanca() {
   local o
@@ -2104,7 +2125,7 @@ tailscale_alcanca() {
 }
 
 diagnosticar_conexao() {
-  local dest=$1 host=${1#*@} err estado
+  local dest=$1 host=${1#*@} err estado rc
   # 1) Tailscale conhece e esta online?
   if command -v tailscale >/dev/null; then
     estado=$(tailscale status --json 2>/dev/null | python3 -c '
@@ -2130,16 +2151,45 @@ for p in (d.get("Peer") or {}).values():
   fi
   # 2) Autenticacao: tenta um comando trivial e classifica o erro.
   err=$(timeout 15 ssh "${SSH_OPC[@]}" "$dest" true 2>&1 </dev/null) && { echo ok; return; }
+  rc=$?
+  # A conexão mestra (ControlMaster) pode estar meio morta: responde ao keepalive, mas lá a sessão nova não abre, e o
+  # ssh sai 1 na hora, sem mensagem (a da mestra vai para o /dev/null). Ela não caía nunca (cada sondagem renovava os
+  # 12 h) e o diagnóstico ficava em "falha não classificada". Vale o erro de uma conexão nova (o ControlPath=none
+  # vem antes do SSH_OPC: no ssh, o primeiro -o de cada opção é o que vale); se ela entra, a quebrada era a mestra,
+  # que para de aceitar sessões (as abertas nela seguem) e a próxima chamada abre outra.
+  if ssh "${SSH_OPC[@]}" -O check "$dest" >/dev/null 2>&1; then
+    if err=$(timeout 15 ssh -o ControlPath=none -o ControlMaster=no "${SSH_OPC[@]}" "$dest" true 2>&1 </dev/null); then
+      ssh "${SSH_OPC[@]}" -O stop "$dest" >/dev/null 2>&1
+      echo ok; return
+    else
+      rc=$?
+    fi
+  fi
   if grep -q 'login.tailscale.com' <<<"$err"; then echo precisa-aprovar
   elif grep -qi 'tailnet policy does not permit' <<<"$err"; then echo policy-nega
   elif grep -qi 'permission denied' <<<"$err"; then echo sem-chave
   elif grep -qiE 'not allowed at this time|exceeded maxstartups' <<<"$err"; then echo ssh-limitado
   elif grep -qiE 'could not resolve hostname|name or service not known|no address associated with hostname' <<<"$err"; then echo dns
-  elif grep -qiE 'timed out|connection timed out' <<<"$err"; then echo timeout
+  # aceita a conexão e não manda o "SSH-2.0-…": o sshd (ou o Tailscale SSH) de lá travou; a rede está boa
+  elif grep -qi 'banner exchange' <<<"$err"; then echo ssh-travado
+  elif grep -qiE 'timed out|connection timed out' <<<"$err" || [[ $rc == 124 && -z $err ]]; then mtu_quebrada "$host" && echo mtu || echo timeout
   elif grep -qi 'connection refused' <<<"$err"; then echo porta-fechada
-  elif grep -qiE 'connection reset|connection closed' <<<"$err"; then echo conexao-interrompida
+  elif grep -qiE 'no route to host|network is unreachable' <<<"$err"; then echo sem-rota
+  elif grep -qiE 'connection reset|connection closed' <<<"$err"; then mtu_quebrada "$host" && echo mtu || echo conexao-interrompida
   else echo "erro"
   fi
+}
+
+# 0 se os pacotes pequenos chegam ao HOST pela tailnet e os do tamanho do túnel não: o caminho por baixo tem MTU menor
+# que o do Tailscale (1280 + o cabeçalho do UDP). O ping do Tailscale (pequeno) responde, o ssh conecta e para na troca
+# de chaves, o primeiro pacote grande; o sshd de lá segura a conexão até o LoginGraceTime e acaba recusando esta
+# máquina. Visto no book-hl (WSL com eth0 em 1280: o NAT do Windows descarta o UDP fragmentado). Só no Linux (-M do).
+mtu_quebrada() {
+  local m
+  [[ $(uname -s) == Linux ]] || return 1
+  m=$(cat /sys/class/net/tailscale0/mtu 2>/dev/null) && [[ $m =~ ^[0-9]+$ ]] || m=1280
+  timeout 8 ping -c 2 -W 2 -M do -s 1000 "$1" >/dev/null 2>&1 || return 1
+  ! timeout 8 ping -c 2 -W 2 -M do -s $((m - 28)) "$1" >/dev/null 2>&1
 }
 
 # Mensagem humana para cada rotulo do diagnostico.
@@ -2155,7 +2205,9 @@ explicar_diagnostico() {
   ssh-limitado) echo "o servidor SSH recusou temporariamente novas conexoes; verifique limites e logs do sshd antes de tentar novamente." ;;
   dns) echo "o nome nao foi resolvido; verifique DNS/MagicDNS ou use um endereco Tailscale conhecido." ;;
   conexao-interrompida) echo "a conexao SSH foi interrompida; verifique rede, limites e logs do servidor." ;;
+  mtu) echo "pacotes pequenos chegam e os do tamanho do tunel (1280) nao: o ssh para na troca de chaves. MTU da rede de uma das pontas abaixo do Tailscale (WSL: veja o MTU do eth0; docs/malha-interoperabilidade.md)." ;;
   timeout) echo "tempo esgotado; rede instavel ou maquina sobrecarregada." ;;
+  ssh-travado) echo "rota e porta ok, mas o ssh de la aceita a conexao e nao responde (sshd ou Tailscale SSH travado la); reinicie-o naquela maquina." ;;
   *) echo "falha nao classificada." ;;
   esac
 }
@@ -2173,6 +2225,17 @@ diagnosticar() {
     est=$(diagnosticar_conexao "$dest")
     printf '%-16s %-14s %s\n' "$rot" "$est" "$(explicar_diagnostico "$est")"
   done < <(maquinas)
+  # As desligadas no Tailscale daqui também, como "offline": na malha, uma ilha que só uma máquina acusa, com a visão
+  # velha do Tailscale, cai quando outra a dá como desligada (ver malha_estado).
+  while read -r rot; do
+    printf '%-16s %-14s %s\n' "$rot" offline "$(explicar_diagnostico offline)"
+  done < <(maquinas_desligadas)
+}
+
+# As cadastradas que o maquinas pulou (desligadas no Tailscale daqui), um rótulo por linha.
+maquinas_desligadas() {
+  maquinas | awk 'f == 1 { on[$2] = 1; next }
+    !/^#/ && NF && $2 != "-" && $4 != "oculta" { r = $3; if (r == "") { r = $1; sub(/\..*/, "", r) } if (!(r in on) && !(r in dito)) { dito[r] = 1; print r } }' f=1 - f=2 "$CONF_MAQ" 2>/dev/null
 }
 
 # tt --saude: igual ao diagnostico de todas, mas marca em vermelho as que estao online sem auth.
@@ -2253,14 +2316,44 @@ reparar() {
   esac
 }
 
-# Grava/tira uma máquina de ~/.config/tt/maquinas (troca a linha do mesmo host, se houver).
+# Grava/tira uma máquina de ~/.config/tt/maquinas: uma linha por máquina, trocando a do mesmo host ou do mesmo
+# rótulo, se houver. A marca "oculta" é escolha local e passa para a linha nova.
 registrar() {
-  local host=$1 usuario=$2 rot=$3
+  local host=$1 usuario=$2 rot=$3 marca
   mkdir -p "$(dirname "$CONF_MAQ")"
   [[ -f $CONF_MAQ ]] || echo '# host  usuario  rótulo   (gerenciado por tt --cadastrar / --descadastrar)' >"$CONF_MAQ"
+  marca=$(awk -v h="$host" -v r="$rot" 'function curto(x) { if (x !~ /^[0-9.]+$/ && x !~ /:/) sub(/\..*/, "", x); return x }
+    !/^#/ && NF && $4 == "oculta" && (($3 ? $3 : $1) == r || $1 == h || curto($1) == curto(h)) { print "  oculta"; exit }' "$CONF_MAQ")
   desregistrar "$host"
-  echo "$host  $usuario  $rot" >>"$CONF_MAQ"
+  awk -v r="$rot" '/^#/ || !NF || ($3 ? $3 : $1) != r' "$CONF_MAQ" >"$CONF_MAQ.novo" && mv "$CONF_MAQ.novo" "$CONF_MAQ"
+  echo "$host  $usuario  $rot$marca" >>"$CONF_MAQ"
   case $(estado_de "$rot") in removida*) estado_set "$rot" ativa ;; esac # quem se cadastra de novo volta a valer
+  limpar_cache_maquinas
+}
+# tt --registrar HOST USUÁRIO RÓTULO: a máquina RÓTULO se apresenta (malha ou cadastro feito lá). Já conhecida por
+# outro endereço, fica o que esta guardou (a volta da malha troca um endereço que deixou de conectar). Só pelo host,
+# o celular sem o MagicDNS, ao reaprender uma máquina, se apresentava a ela pelo IP da tailnet e ganhava uma 2ª
+# linha (aparecia duas vezes nos menus e no tt --malha); e uma oculta, que a --malha-lista não anuncia, voltava à vista.
+apresentada() {
+  local host=$1 usuario=$2 rot=$3
+  [[ -n $(awk -v h="$host" -v r="$rot" 'function curto(x) { if (x !~ /^[0-9.]+$/ && x !~ /:/) sub(/\..*/, "", x); return x }
+    !/^#/ && NF && ($3 ? $3 : $1) == r && $1 != h && curto($1) != curto(h) { print 1; exit }' "$CONF_MAQ" 2>/dev/null) ]] && return 0
+  registrar "$host" "$usuario" "$rot"
+}
+# Uma linha por rótulo: as repetidas que versões antigas deixaram (ver apresentada) saem; vale a primeira.
+maquinas_sem_repetidas() {
+  [[ -f $CONF_MAQ ]] || return 0
+  local tiradas
+  tiradas=$(awk '!/^#/ && NF { r = ($3 ? $3 : $1); if (r in visto) print r " (" $1 ")"; visto[r] = 1 }' "$CONF_MAQ")
+  [[ -n $tiradas ]] || return 0
+  # Fica a primeira, com a marca "oculta" se alguma das repetidas a tinha: a oculta pelo nome e a cópia à vista pelo IP
+  # (o book-hl no dell, 21/10/2026) seguiam como máquina ligada e a malha acusava ilha com ela desligada.
+  awk 'NR == FNR { if (!/^#/ && NF && $4 == "oculta") oc[$3 ? $3 : $1] = 1; next }
+    /^#/ || !NF { print; next } { r = ($3 ? $3 : $1) }
+    !(r in visto) { if ((r in oc) && $4 != "oculta" && $2 != "-") print $1 "  " $2 "  " r "  oculta"; else print }
+    { visto[r] = 1 }' "$CONF_MAQ" "$CONF_MAQ" >"$CONF_MAQ.novo" &&
+    mv "$CONF_MAQ.novo" "$CONF_MAQ" || return 0
+  log_malha "tirei linha repetida do cadastro: ${tiradas//$'\n'/, }"
   limpar_cache_maquinas
 }
 desregistrar() {
@@ -2382,16 +2475,26 @@ sys.exit(1)
 # "usuario porta" do que serviu; a porta 8022 é a do sshd do Termux, e entra no ~/.ssh/config para que
 # todo ssh dali em diante (inclusive o das pontes) a use sem ninguém ter de saber.
 malha_provar() { # rótulo host usuário-sugerido
-  local rot=$1 host=$2 sug=$3 u porta nome_la
+  local rot=$1 host=$2 sug=$3 u porta nome_la rc errf
+  errf=$(mktemp "${TMPDIR:-/tmp}/tt-provar.XXXXXX" 2>/dev/null) || errf=/dev/null
   for porta in "" 8022; do
     for u in "$sug" "$(id -un)" ""; do
-      nome_la=$(timeout 25 ssh "${SSH_OPC[@]}" ${porta:+-p "$porta"} "${u:+$u@}$host" "$TT_REMOTO --malha-lista" </dev/null 2>/dev/null | awk -F'\t' '$1 == "EU" { print $4; exit }') || nome_la=""
+      nome_la=$(timeout 25 ssh "${SSH_OPC[@]}" ${porta:+-p "$porta"} "${u:+$u@}$host" "$TT_REMOTO --malha-lista" </dev/null 2>"$errf" |
+        awk -F'\t' '$1 == "EU" { print $4; exit }'; exit "${PIPESTATUS[0]}") && rc=0 || rc=$?
       if [[ $nome_la == "$rot" ]]; then
+        [[ $errf == /dev/null ]] || rm -f "$errf"
         [[ -n $porta ]] && ssh_porta_garantir "$host" "$porta"
         printf '%s\n' "${u:-$(id -un)}"; return 0
       fi
+      # Outro usuário só muda algo quando o sshd de lá respondeu (recusou a chave, ou entrou e não era o tt dela).
+      # Rede parada, porta fechada, sshd que aceita e não autentica, recusa temporária: são da porta. As 3 tentativas
+      # por porta ficavam presas no sshd do celular até o LoginGraceTime (120 s), lotavam o MaxStartups dele, e o
+      # PerSourcePenalties castigava esta máquina e recusava as outras: a ilha se alimentava sozinha (book-hl, 20/10).
+      ((rc == 124)) && break
+      grep -qiE 'timed out|connection refused|connection reset|connection closed|banner exchange|kex_exchange_identification|not allowed at this time|could not resolve|no route to host|network is unreachable' "$errf" 2>/dev/null && break
     done
   done
+  [[ $errf == /dev/null ]] || rm -f "$errf"
   return 1
 }
 # Acrescenta "Host HOST / Port N" ao ~/.ssh/config se nenhum Host já cobre HOST (idempotente).
@@ -2496,6 +2599,7 @@ malha_completar() {
   trap 'rmdir "$trava" 2>/dev/null; trap - RETURN' RETURN
   local dest rot out tipo a b c h r temme ip ok cands="" alts="" falhos="" conhecidos hosts_conhecidos u novos=0 eu_rot est
   local listas=""
+  maquinas_sem_repetidas
   # As listas de todas as máquinas chegam ao mesmo tempo (antes, uma por vez, até 25 s cada); o que se faz
   # com elas continua em ordem, uma máquina depois da outra.
   listas=$(mktemp -d "$RT/tt-malha.XXXXXX") || return 0
@@ -2555,6 +2659,8 @@ malha_completar() {
     [[ -n $dest ]] || continue
     est=$(diagnosticar_conexao "$dest")
     [[ $est == ok || $est == offline ]] && continue
+    # recusa temporária do sshd de lá (MaxStartups, PerSourcePenalties): mais tentativas agora só renovam o castigo
+    if [[ $est == ssh-limitado ]]; then log_malha "ILHA: $rot ($dest) recusa conexões por ora ($est); tento na próxima volta"; continue; fi
     ok=""
     while IFS=$'\t' read -r r a b; do
       [[ $r == "$rot" ]] || continue
@@ -2579,8 +2685,7 @@ malha_estado() {
   local d dest rot quebrados=0 de para est expl desligadas
   # As cadastradas que o maquinas pulou estão desligadas no Tailscale daqui. A outra ponta pode não saber (o
   # Termux do celular não tem o tailscale) e acusava "timeout" para sempre: vista de qualquer uma, não é ilha.
-  desligadas=" $(maquinas | awk 'f == 1 { on[$2] = 1; next }
-    !/^#/ && NF && $2 != "-" && $4 != "oculta" { r = $3; if (r == "") { r = $1; sub(/\..*/, "", r) } if (!(r in on)) printf "%s ", r }' f=1 - f=2 "$CONF_MAQ" 2>/dev/null)"
+  desligadas=" $(maquinas_desligadas | tr '\n' ' ')"
   # Pasta própria de cada rodada: o tt --malha à mão que coincidia com a volta do vigia apagava a pasta da outra
   # (era fixa por usuário), e cada uma lia as respostas ainda vazias da outra: ilha falsa ("não respondeu").
   [[ -d $RT ]] || mkdir -p "$RT"; d=$(mktemp -d "$RT/tt-malha-estado.XXXXXX") || return 1
@@ -2589,6 +2694,22 @@ malha_estado() {
     ( timeout 120 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --diagnosticar" </dev/null >"$d/$rot" 2>/dev/null ) & pids+=($!)
   done < <(maquinas)
   esperar ${pids[@]+"${pids[@]}"}
+  # Desligada vista de OUTRA máquina também não é ilha, se ninguém a alcança: o Tailscale de uma pode ficar com a visão
+  # velha do servidor de coordenação. Em 21/10/2026 o dell dava o s23 como ligado 4 h depois de o celular sair da tailnet
+  # (o DERP já não o conhecia; a empresa e o Mac o viam desligado), e a malha acusava "s23:✗(sem-rota)" a noite toda. Se
+  # alguma a alcança (ou ela mesma respondeu ao diagnóstico), a falha das outras é ilha de verdade.
+  local alcancadas=" " vistas_fora=" "
+  for de in "$d"/*; do
+    [[ -s $de ]] || continue
+    alcancadas+="$(basename "$de") "
+    while read -r para est expl; do
+      case $est in ok) alcancadas+="$para " ;; offline) vistas_fora+="$para " ;; esac
+    done <"$de"
+  done
+  for para in $vistas_fora; do
+    [[ $alcancadas == *" $para "* || $desligadas == *" $para "* ]] && continue
+    desligadas+="$para "; log_malha "$para: desligada para outra máquina e ninguém a alcança; o Tailscale daqui a dá como ligada"
+  done
   printf '%-14s %s\n' "de \\ para" "(ok = conecta; ○ = desligada; ✗ = ilha)"
   for de in "$d"/*; do
     [[ -f $de ]] || continue
@@ -2601,11 +2722,10 @@ malha_estado() {
         printf ' %s:✗(%s)' "$para" "$est"; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não alcança $para ($est)" ;;
       esac
     done <"$de"
-    if [[ ! -s $de ]]; then
-      # Sozinha na malha: o diagnóstico local não tem par a listar, e vazio é o certo (não é ilha).
-      if [[ $(basename "$de") == "$MAQUINA" && -z $(maquinas) ]]; then printf ' (sem outras máquinas cadastradas)'
-      else printf ' (sem resposta: não foi possível consultá-la)'; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não respondeu ao diagnóstico"; fi
-    fi
+    if [[ ! -s $de && $desligadas == *" $(basename "$de") "* ]]; then printf ' (desligada para outra máquina: não consultada)'
+    # Sozinha na malha: o diagnóstico local não tem par a listar, e vazio é o certo (não é ilha).
+    elif [[ ! -s $de && $(basename "$de") == "$MAQUINA" && -z $(maquinas) ]]; then printf ' (sem outras máquinas cadastradas)'
+    elif [[ ! -s $de ]]; then printf ' (sem resposta: não foi possível consultá-la)'; quebrados=$((quebrados + 1)); log_malha "ILHA: $(basename "$de") não respondeu ao diagnóstico"; fi
     echo
   done
   rm -rf "$d"
@@ -2781,7 +2901,7 @@ mac_atalhos_tabela() {
 Atalho no tt (Linux)            No Mac                                   Observação
 ------------------------------  ---------------------------------------  ----------------------------------------
 Ctrl+B …                        Control+B …                              igual (o prefixo é a tecla Control)
-Ctrl+arrastar / duplo / triplo  Option+arrastar / duplo / triplo clique  Ctrl+clique vira botão direito no macOS
+Ctrl+arrastar / duplo / triplo  Ctrl (terminal deve transmiti-lo)         Option não autoriza cópia
 Ctrl+clique num link            Option+clique (ou Ctrl+B u)              abre a escolha do navegador
 Alt+…                           Option+…                                 precisa de "Option como Meta": tt --mac ativar
 Ctrl+Shift+V (colar)            Cmd+V                                    colar do próprio terminal
@@ -2807,7 +2927,7 @@ mac_atalhos() {
         wezterm) echo "WezTerm: no wezterm.lua, use send_composed_key_when_left_alt_is_pressed = false (o tt não edita o arquivo)" ;;
         *) echo "terminal não reconhecido: defina TT_MAC_TERMINAL=terminal|ghostty|iterm|wezterm ou veja tt --mac atalhos" ;;
       esac
-      echo "Ctrl+clique no Mac é botão direito; use Option+clique/arrastar. Tabela completa: tt --mac atalhos" ;;
+      echo "Cópia com mouse exige Ctrl; se o terminal o converter em botão direito, use Ctrl+B [, v, y. Tabela: tt --mac atalhos" ;;
     ativar)
       case $term in
         terminal) meta=$(mac_terminal_meta gravar)
@@ -3229,6 +3349,7 @@ CONF
   mac_configurar_padrao || return 1
   configurar_aerc
   demandas_migrar_relaxado
+  demandas_tags_migrar || return 1
   "$DIR_TT/tema-agentes.sh" --aplicar
   "$DIR_TT/memoria-agentes.sh" --aplicar
   if tmux list-sessions >/dev/null 2>&1; then
@@ -4605,7 +4726,8 @@ assinatura_local() {
 SESSOES_IA_CAB='maquina	sessao	anexada	ocioso_s	janelas	cmd_1oplano	agente	fixada	papel	rascunho	titulo	ultima_linha'
 sessoes_ia_agentes() {
   { if [[ -n ${PS_SIA:-} ]]; then echo "$PS_SIA"; else ps -e -o pid=,ppid=,comm= 2>/dev/null; fi; } | awk -v raiz="$1" '
-    { n=$3; sub(/.*\//, "", n); sub(/^-/, "", n); pai[$1]=$2; nome[$1]=n }  # (macOS: comm vem com o caminho inteiro)
+    { nm=$3; sub(/.*\//, "", nm); sub(/^-/, "", nm); pai[$1]=$2; nome[$1]=nm }  # (macOS: comm vem com o caminho inteiro)
+    # (nm, não n: o n é o contador do END; com o nome do último processo nele, o mawk punha "," antes do 1º agente)
     END { for (p in pai) { q=p; while (q in pai && q!=raiz && q>1) q=pai[q]
             if (q==raiz && p!=raiz && nome[p] ~ /^(claude|codex|kiro|kiro-cli|aerc|node|ssh|vim|nvim|python3?)$/) v[nome[p]]=1 }
           for (k in v) printf "%s%s", (n++?",":""), k }'
@@ -5391,10 +5513,11 @@ origem_ponte() {
 # usa troca de verdade, sem encadear ponte dentro de ponte.
 # Pede à máquina OM (a de origem da ponte, que mostra esta tela) que rode "tt VERBO ARGS…" lá. 0 só se ela respondeu
 # que fez: vale o "tt-ok" impresso lá, não o código de saída (o Tailscale SSH do macOS devolve sempre 0, o "não" de lá
-# chegava como "sim"). Com prazo: numa rede que trava, desiste em TT_T_PONTE s (padrão 10) e devolve 2 ("não
-# respondeu"); o pedido que chegar lá depois do prazo (TT_PRAZO, ver prazo_vencido) não faz mais nada.
+# chegava como "sim"). Com prazo: numa rede que trava, desiste em TT_T_PONTE_SSH s (padrão 10) e devolve 2 ("não
+# respondeu"); o pedido que chegar lá depois do prazo (TT_PRAZO, ver prazo_vencido) não faz mais nada. O nome é próprio:
+# o TT_T_PONTE (1800) é o tempo para fechar a ponte ociosa, e ajustar um mudava o outro.
 pedir_na_origem() { # máquina verbo args…
-  local om=$1 d t=${TT_T_PONTE:-10} prazo r rc
+  local om=$1 d t=${TT_T_PONTE_SSH:-10} prazo r rc
   shift
   d=$(dest_ir "$om")
   [[ -n $d ]] || return 1
@@ -5888,7 +6011,9 @@ chromium_macos_abrir() {
   mkdir -p "${log%/*}" 2>/dev/null || log=/dev/null
   # LaunchServices inicia/endereça o app gráfico mesmo quando o pedido veio de SSH, tmux ou do popup do e-mail.
   # Um user-data-dir próprio reproduz o Chrome interno do WSL sem tocar no perfil pessoal nem no Safari.
-  if open -a "$app" --args "--user-data-dir=$DIR_NAVEGADORES/perfil-chrome-macos" \
+  # Sem -n, LaunchServices só ativa um Chrome já aberto e ignora --args (inclusive a URL).
+  # A nova invocação entrega a URL à instância do MESMO perfil pelo singleton do Chromium.
+  if open -n -a "$app" --args "--user-data-dir=$DIR_NAVEGADORES/perfil-chrome-macos" \
       --no-first-run --no-default-browser-check "$u" >>"$log" 2>&1; then
     return 0
   fi
@@ -6086,13 +6211,15 @@ tem_conta_email() { compgen -G "$EMAIL_DIR/*.conf" >/dev/null 2>&1; }
 PEND_SEMPRE=" email-espelho "
 pend_sempre() { [[ $PEND_SEMPRE == *" $1 "* ]]; }
 
-# Contas com entrada IMAP e sync_local desligado, uma por linha (o slug); com "oauth", só as de login OAuth.
+# Contas com entrada IMAP e sync_local desligado, uma por linha (o slug); com "oauth", só as de login OAuth. A conta OAuth
+# ainda sem token fica de fora: ligar o espelho dela só daria erro de login (o --checar manda autorizá-la antes).
 email_sem_espelho() { # [oauth]
   local slug; local -A E=()
   for slug in $(email_slugs 2>/dev/null); do
     E=(); email_ler "$slug" 2>/dev/null || continue
     [[ -n ${E[imap_host]:-} && ${E[sync_local]:-} != 1 ]] || continue
     [[ ${1:-} == oauth && ${E[auth]:-} != oauth ]] && continue
+    email_sem_token "$slug" && continue
     printf '%s\n' "$slug"
   done
 }
@@ -7103,7 +7230,7 @@ checar_linha() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:--}"; } # id esta
 
 # Uma linha por checagem (TSV). Só lê: nada aqui corrige, e uma checagem que falha não derruba as outras.
 checar_coletar() {
-  local agora pid cpu f x n m slug st erro d desde mot inst ativas
+  local agora pid cpu f x n m slug st erro d desde mot inst ativas boa
   local -a falta=() extra=() codigo=() lst=()
   local -A NO_PACOTE=() E=()
   printf -v agora '%(%s)T' -1
@@ -7159,6 +7286,11 @@ checar_coletar() {
   for slug in $(email_slugs); do
     E=(); email_ler "$slug" 2>/dev/null || continue
     n=$((n + 1))
+    # Conta OAuth sem token aqui: espelho e lixeira dependem do login, então a linha é uma só e o conserto é autorizar
+    if email_sem_token "$slug"; then
+      checar_linha "email:$slug" aviso "conta ainda não autorizada nesta máquina (OAuth sem token): não recebe, não envia e fica sem espelho e sem lixeira" "tt --email-autorizar $slug"
+      continue
+    fi
     # Os comandos (✕ Apagar, ▤ Arquivar) têm para onde mandar a mensagem?
     IFS=$'\t' read -r st erro m < <(email_cmds_estado "$slug")
     [[ -n $st ]] && checar_linha "email-cmd:$slug" "$st" "$erro" "$m"
@@ -7167,13 +7299,13 @@ checar_coletar() {
       continue
     fi
     st=$(email_sync_resumo "$slug")
-    erro=$(head -c 300 "$ESTADO_DIR/email-sync/$slug.erro" 2>/dev/null | tr '\n\t' '  ')
+    erro=$(email_sem_segredo 2>/dev/null <"$ESTADO_DIR/email-sync/$slug.erro" | head -c 300 | tr '\n\t' '  ')
     # INBOX em dia não basta: a volta completa (as outras pastas) falhando seguidas vezes também é aviso
     d=$(awk -F'\t' '$1 == "completo" { n = ($4 == 0 ? 0 : n + 1) } END { print n + 0 }' "$ESTADO_DIR/email-sync/$slug" 2>/dev/null)
     [[ $st == ok ]] && ((${d:-0} >= 2)) && st=completo
     case $st in
       ok) checar_linha "email:$slug" ok "espelho em dia" ;;
-      completo) checar_linha "email:$slug" aviso "INBOX em dia, mas a volta completa falhou $d vezes seguidas: $(head -c 300 "$ESTADO_DIR/email-sync/$slug.erro-completo" 2>/dev/null | tr '\n\t' '  ')" \
+      completo) checar_linha "email:$slug" aviso "INBOX em dia, mas a volta completa falhou $d vezes seguidas: $(email_sem_segredo 2>/dev/null <"$ESTADO_DIR/email-sync/$slug.erro-completo" | head -c 300 | tr '\n\t' '  ')" \
         "tt --email-sync $slug --completo; \"box … cannot be opened anymore\" = pasta que sumiu do servidor e ficou no espelho: mova-a de $(email_maildir "$slug")/ para fora" ;;
       erro|parado) checar_linha "email:$slug" falha "sync $st${erro:+: $erro}" "tt --email-sync-estado (a dica diz a causa); tt --email-sync $slug; OAuth vencido: tt --email-autorizar $slug" ;;
       *) checar_linha "email:$slug" aviso "sync $st" "tt --email-sync $slug" ;;
@@ -7191,12 +7323,29 @@ checar_coletar() {
   done
   esp=$(sort -u <<<"$esp" | grep . | head -3 | paste -sd, - | sed 's/,/, /g')
   desde7=$(date -d '-7 days' +%F 2>/dev/null || echo 0000)
-  ign=$(cat "$ESTADO_DIR"/email-sync/*.demandas.log 2>/dev/null | awk -v d="$desde7" '$1 >= d && $3 == "ignorada" { print $4 " " $5 }' | tail -1)
+  # O ignorado que depois foi lido de novo (o cadastro do remetente mudou) ou virou demanda, do mesmo remetente na
+  # mesma caixa, já se resolveu: não fica de aviso pelos 7 dias. Ignorado de novo, volta a ser.
+  ign=$(awk -v d="$desde7" '
+    $1 < d { next }
+    { de = ""; if (match($0, /de=[^ ]+/)) de = substr($0, RSTART, RLENGTH); k = FILENAME SUBSEP de }
+    $3 == "ignorada" { ult[k] = $4 " " $5; ord[k] = ++n; next }
+    $3 == "criada" || $3 == "reavaliada" { delete ult[k] }
+    END { m = 0; for (k in ult) if (ord[k] > m) { m = ord[k]; r = ult[k] } if (m) print r }' "$ESTADO_DIR"/email-sync/*.demandas.log 2>/dev/null)
+  # Compatibilidade com logs antigos sem ID: o modo atual dispensa a prova auth.
+  if [[ $ign == *motivo=autenticacao* ]]; then
+    local remetente_ign modo_ign
+    remetente_ign=${ign%% *}; remetente_ign=${remetente_ign#de=}
+    modo_ign=$(awk -F'\t' -v e="$remetente_ign" '$1==e {print $3; exit}' "$CONF_DEMANDAS" 2>/dev/null)
+    case $modo_ign in relaxado|aberto|segredo) ign="" ;; esac
+  fi
   naut=$(awk -F'\t' '$3 != "-"' "$CONF_DEMANDAS" 2>/dev/null | wc -l)
   npend=$(awk -F'\t' '$2 == "pendente"' "$CONF_TAREFAS" 2>/dev/null | wc -l)
-  if ((n && !espelhadas)); then checar_linha demandas aviso "nenhuma conta com espelho local: tarefas mandadas por e-mail ([tt]) não chegam" "tt --pedir-sudo email-espelho"
+  if ((n && !espelhadas)); then
+    if [[ -n $(email_sem_espelho) ]]; then m="tt --pedir-sudo email-espelho"; else m="autorize a conta antes: tt --email-autorizar CONTA"; fi
+    checar_linha demandas aviso "nenhuma conta com espelho local: tarefas mandadas por e-mail ([tt]) não chegam" "$m"
   elif ((nesp)); then checar_linha demandas aviso "$nesp e-mail(s) [tt] aguardando você autorizar o remetente: $esp" "tt --demanda-autorizar EMAIL (decisão do usuário: só remetente em quem ele confia)"
-  elif [[ -n $ign ]]; then checar_linha demandas aviso "e-mail [tt] de remetente autorizado ignorado nos últimos 7 dias: $ign" "autenticação (SPF/DKIM) do remetente falhou: autorizá-lo com segredo (tt --demanda-autorizar EMAIL - segredo XXXX) é decisão do usuário"
+  elif [[ $ign == *motivo=segredo* ]]; then checar_linha demandas aviso "e-mail [tt] de remetente autorizado ignorado nos últimos 7 dias: $ign" "o assunto não trouxe o segredo certo ([tt:SEGREDO]): confira com o remetente"
+  elif [[ -n $ign ]]; then checar_linha demandas aviso "e-mail [tt] de remetente autorizado ignorado nos últimos 7 dias: $ign" "o provedor não autenticou o remetente (none = o espelho não trouxe o cabeçalho; fail = o cabeçalho não prova o remetente): mudar o modo dele (relaxado: passa sem depender do resultado, só para quem é confiável; ou segredo: tt --demanda-autorizar EMAIL - segredo XXXX) é decisão do usuário, e o e-mail ignorado é lido de novo"
   elif ((n)); then checar_linha demandas ok "caixa de entrada de tarefas pronta: $naut remetente(s) autorizado(s), $npend aguardando na aba Entrada"
   fi
 
@@ -7277,8 +7426,9 @@ elif est: print("ok\t" + (d.get("Self") or {}).get("DNSName", "").split(".")[0])
     for f in "$ESTADO_DIR"/sessoes-ia/maquinas/*; do
       [[ -f $f ]] || continue
       [[ $ativas == *" ${f##*/} "* ]] || continue
-      read -r x st _ <"$f"
-      [[ $st == ok && $x =~ ^[0-9]+$ ]] && ((agora - x < 172800)) && continue
+      IFS=$'\t' read -r x st _ _ _ _ boa <"$f"
+      [[ $st == ok ]] && boa=$x
+      [[ $boa =~ ^[0-9]+$ ]] && ((agora - boa < 172800)) && continue   # a última volta pode ter falhado no meio
       [[ $st == pulada ]] && continue   # a outra estava fora da rede: não é defeito daqui
       lst+=("${f##*/}")
     done
@@ -7427,6 +7577,7 @@ import os, re, sys
 pad = [
   (re.compile(r"(?i)\b(refresh_token|access_token|id_token|client_secret|password|passwd|senha|secret|token|api[_-]?key|authorization)(\"?\s*[:=]\s*\"?)(?:Bearer\s+)?[^\s\"'"'"',;]+"), r"\1\2***"),
   (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer ***"),
+  (re.compile(r"(?i)(\bAUTHENTICATE\s+[A-Z0-9_-]+\s+)[A-Za-z0-9+/=]{8,}"), r"\1***"),
   (re.compile(r"\b(sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{12,}|xox[abpr]-[A-Za-z0-9-]{8,}|ya29\.[A-Za-z0-9._-]{8,}|1//[A-Za-z0-9_-]{16,}|AKIA[A-Z0-9]{12,})"), "***"),
   (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S), "*** chave privada ***"),
   (re.compile(r"\b([A-Za-z0-9])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})"), r"\1***@\2"),
@@ -7691,20 +7842,28 @@ maquina_da_tela() {
 
 # Navegador gráfico (o do sistema ou o Chrome) abre na máquina em que se clicou, não na da sessão: vendo
 # pelo book-hl uma sessão do PC, o link abre no book-hl. Vai pelo servidor do tmux (rodar_fora: o w3m do
-# e-mail roda sem rede) e por ssh; se a de lá não responder (ou for de uma versão sem --abrir-aqui),
-# abre aqui, como antes. Devolve 1 se a tela é desta máquina.
+# e-mail roda sem rede) e por ssh. Falha nunca muda o destino. Devolve 1 só se a tela é desta máquina.
+abrir_na_tela_falhou() { # cliente máquina
+  local c=${1:-} om=${2:-origem}
+  tmux display-message ${c:+-c "$c"} -d 7000 "🌐 $om não confirmou a abertura. O link não foi aberto em outra máquina; tente novamente." 2>/dev/null || true
+  echo "Navegador: $om não confirmou a abertura; nenhum destino alternativo foi usado." >&2
+}
+
 abrir_na_tela() {
   local qual=$1 u=$2 c om d
   [[ -z ${TT_ABRIR_AQUI:-} ]] || return 1
-  # No Mac, tanto o navegador do sistema quanto o Chromium interno pertencem à tela local. A sessão
-  # pode estar em ponte para empresa; não mande o clique de volta para a máquina que hospeda a sessão.
-  [[ $(navegador_so) == macos && ( $qual == sistema || $qual == chromium ) ]] && return 1
   c=${TT_LINK_CLIENTE:-}
   [[ -n $c || -z ${TMUX:-} ]] || c=$(cliente_externo)
+  if [[ -n $c && ! $(do_cliente "$c" '#{client_pid}') =~ ^[0-9]+$ ]]; then
+    abrir_na_tela_falhou "$c" origem; return 0
+  fi
   om=$(maquina_da_tela "$c"); [[ -n $om ]] || return 1
-  d=$(dest_ir "$om"); [[ -n $d && $d != . ]] || return 1
+  d=$(dest_ir "$om")
+  [[ -n $d && $d != . ]] || { abrir_na_tela_falhou "$c" "$om"; return 0; }
   [[ -n $c ]] && tmux display-message -c "$c" -d 2500 "🌐 abrindo em $om" 2>/dev/null
-  rodar_fora 0 "timeout 20 ssh $(q "${SSH_OPC[@]}") $(q "$d") $(q "$TT_REMOTO --abrir-aqui $(q "$qual" "$u")") </dev/null >/dev/null 2>&1 || TT_ABRIR_AQUI=1 $(q "$EU") --abrir-aqui $(q "$qual" "$u")"
+  # O Tailscale SSH do Mac pode devolver 0 mesmo quando o comando remoto falhou: exige recibo.
+  rodar_fora 0 "r=\$(timeout 20 ssh $(q "${SSH_OPC[@]}") $(q "$d") $(q "$TT_REMOTO --abrir-aqui $(q "$qual" "$u") && printf '\\ntt-abriu\\n'") </dev/null 2>/dev/null); case \$r in *tt-abriu) : ;; *) $(q "$EU") --abrir-na-tela-falhou $(q "$c" "$om") ;; esac"
+  return 0
 }
 
 abrir_com() {
@@ -7738,13 +7897,16 @@ abrir_com() {
 # tt --abrir-link URL: aplica a chave navegador= ou pergunta (fzf no terminal de quem chamou; se não
 # houver terminal, num popup do tmux; sem nenhum dos dois, navegador do sistema).
 abrir_link() {
-  local u=${1:-} esc pref ultimo c
+  local u=${1:-} esc pref ultimo c rem
   [[ -n $u ]] || return 0
   pref=$(conf navegador); pref=${pref:-perguntar}
-  if [[ $(navegador_so) == macos ]]; then
+  case $pref in sistema|chromium) abrir_na_tela "$pref" "$u" && return 0 ;; esac
+  rem=$(maquina_da_tela "${TT_LINK_CLIENTE:-}")
+  if [[ -n $rem ]]; then : # a capacidade gráfica da sessão não é a do aparelho da tela
+  elif [[ $(navegador_so) == macos ]]; then
     if tem_cmd termux-open-url; then
       [[ $pref == samsung ]] && samsung_internet_disponivel || pref=sistema
-    elif [[ $pref == samsung ]]; then pref=sistema; fi
+    elif [[ $pref == samsung || $pref == carbonyl ]]; then pref=sistema; fi # o Carbonyl que o tt baixa é do Linux
   elif ! navegadores_graficos_ok; then
     if [[ $pref == samsung || $pref == perguntar ]]; then samsung_internet_disponivel || pref=sistema
     else pref=sistema; fi
@@ -7770,8 +7932,8 @@ abrir_link() {
       [[ -n $esc ]] || return 0
       mkdir -p "$ESTADO_DIR" && echo "$esc" >"$ESTADO_DIR/navegador-ultimo"
       abrir_com "$esc" "$u"; return
-    elif [[ -n ${TMUX:-} ]] && c=$(cliente_externo) && [[ -n $c ]]; then
-      tmux display-popup -c "$c" -E $(dim_popup "$c" 80 12) -b rounded -T ' 🌐 abrir link ' "$EU --abrir-link $(q "$u")"; return
+    elif [[ -n ${TMUX:-} ]] && { c=${TT_LINK_CLIENTE:-}; [[ -n $c ]] || c=$(cliente_externo); } && [[ -n $c ]]; then
+      tmux display-popup -c "$c" -E $(dim_popup "$c" 80 12) -b rounded -T ' 🌐 abrir link ' "TT_LINK_CLIENTE=$(q "$c") $EU --abrir-link $(q "$u")"; return
     fi
     pref=sistema
   fi
@@ -7791,7 +7953,7 @@ LINKS_PY=$DIR_TT/links-tt.py
 # tt --link-abrir ID CLIENTE PAINEL URL (do links-tt.py). Com ID, é um clique (simples ou com Ctrl): espera o tempo
 # de um duplo clique e desiste se veio o 2º clique ou um arrasto (o tmux.conf limpa @tt_link_id).
 link_abrir() {
-  local id=$1 c=$2 p=$3 u=$4 pref
+  local id=$1 c=$2 p=$3 u=$4 pref rem
   [[ $u == http://* || $u == https://* ]] || return 0
   if [[ -n $id ]]; then
     sleep 0.35
@@ -7800,10 +7962,13 @@ link_abrir() {
     [[ $(tmux display -p -t "$p" '#{pane_in_mode}' 2>/dev/null) == 0 ]] || return 0
   fi
   pref=$(conf navegador); pref=${pref:-perguntar}
-  if [[ $(navegador_so) == macos ]]; then
+  case $pref in sistema|chromium) TT_LINK_CLIENTE=$c abrir_na_tela "$pref" "$u" && return 0 ;; esac
+  rem=$(maquina_da_tela "$c")
+  if [[ -n $rem ]]; then :
+  elif [[ $(navegador_so) == macos ]]; then
     if tem_cmd termux-open-url; then
       [[ $pref == samsung ]] && samsung_internet_disponivel || pref=sistema
-    elif [[ $pref == samsung ]]; then pref=sistema; fi
+    elif [[ $pref == samsung || $pref == carbonyl ]]; then pref=sistema; fi # o Carbonyl que o tt baixa é do Linux
   elif ! navegadores_graficos_ok; then
     if [[ $pref == samsung || $pref == perguntar ]]; then samsung_internet_disponivel || pref=sistema
     else pref=sistema; fi
@@ -8757,7 +8922,7 @@ sessoes_ia_lotes() { # lista função dest
 # tt --sessoes-ia-sync [rótulo…]: troca as conversas com as máquinas cadastradas (todas, ou as dadas).
 sessoes_ia_sync() {
   sessoes_ia_ativo || { echo "conversas das IAs: sincronização desligada nesta máquina (sessoes_ia_sync=0)"; return 0; }
-  local trava=$RT/tt-sessoes-ia-$UID.trava dest rot inv lista r_p r_e np ne st
+  local trava=$RT/tt-sessoes-ia-$UID.trava dest rot inv lista r_p r_e np ne st est boa t0 st0
   mkdir -p "$SESSOES_IA_DIR/maquinas" "$RT"
   if ! mkdir "$trava" 2>/dev/null; then
     (($(idade_arquivo "$trava") > 3600)) && rmdir "$trava" 2>/dev/null && mkdir "$trava" 2>/dev/null ||
@@ -8785,7 +8950,16 @@ sessoes_ia_sync() {
         r_e=$(sessoes_ia_lotes "$lista" sessoes_ia_enviar_lote "$dest") || st=falhou
       fi
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$st" "$np" "$ne" "${r_p:--}" "${r_e:--}" >"$SESSOES_IA_DIR/maquinas/$rot"
+    # 7º campo: a hora da última troca boa. Sem ele, uma volta que falha no meio (o Mac que volta a dormir)
+    # apagava a lembrança da boa de minutos antes, e o --checar acusava "sem troca boa há mais de 2 dias".
+    est=$SESSOES_IA_DIR/maquinas/$rot boa=-
+    if [[ $st == ok ]]; then boa=$(date +%s)
+    elif [[ -f $est ]]; then
+      IFS=$'\t' read -r t0 st0 _ _ _ _ boa <"$est"
+      [[ $st0 == ok ]] && boa=$t0
+      [[ $boa =~ ^[0-9]+$ ]] || boa=-
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$st" "$np" "$ne" "${r_p:--}" "${r_e:--}" "$boa" >"$est"
     printf '%-12s %-7s trazidas %-4s levadas %-4s %s\n' "$rot" "$st" "$np" "$ne" "${r_p:+aqui: $r_p}"
   done < <(maquinas)
   rm -f "$inv"; rmdir "$trava" 2>/dev/null
@@ -8794,7 +8968,7 @@ sessoes_ia_sync() {
 
 # tt --sessoes-ia [status|on|off|agora]
 sessoes_ia_cmd() {
-  local acao=${1:-status} novo="" f rot t st np ne
+  local acao=${1:-status} novo="" f rot t st np ne boa
   case $acao in
     on | ligar) novo=1 ;;
     off | desligar) novo=0 ;;
@@ -8813,8 +8987,10 @@ sessoes_ia_cmd() {
   echo "Última troca com cada máquina:"
   for f in "$SESSOES_IA_DIR"/maquinas/*; do
     [[ -f $f ]] || { echo "  (nenhuma ainda)"; break; }
-    IFS=$'\t' read -r t st np ne _ <"$f"
-    printf '  %-12s %s  %-7s trazidas %s, levadas %s\n' "${f##*/}" "$(date -d "@$t" '+%d/%m %H:%M' 2>/dev/null || echo "$t")" "$st" "$np" "$ne"
+    IFS=$'\t' read -r t st np ne _ _ boa <"$f"
+    printf '  %-12s %s  %-7s trazidas %s, levadas %s' "${f##*/}" "$(date -d "@$t" '+%d/%m %H:%M' 2>/dev/null || echo "$t")" "$st" "$np" "$ne"
+    [[ $st != ok && $boa =~ ^[0-9]+$ ]] && printf ' (última boa: %s)' "$(date -d "@$boa" '+%d/%m %H:%M' 2>/dev/null || echo "$boa")"
+    echo
   done
   [[ -d $SESSOES_IA_DIR/conflitos ]] && echo "Versões guardadas de conflitos: $SESSOES_IA_DIR/conflitos"
   return 0
@@ -8826,6 +9002,7 @@ sessoes_ia_cmd() {
 # segredo<TAB>hora". A identidade é o e-mail (minúsculo) e a mudança mais nova vence; modo "-" = removido.
 # Modos: auth (padrão — autenticação do provedor, alinhada), relaxado (remetente permitido passa sem depender do resultado auth),
 # segredo (o assunto leva [tt:SEGREDO]) e aberto (sem checagem: o From é forjável, use só onde isso não importa).
+# O e-mail ignorado (autenticação ou segredo) é lido de novo quando o cadastro do remetente muda (<conta>.demandas.ignoradas).
 # Um e-mail de remetente autorizado com assunto "[tt] título @sex 14h !alta *semanal #tag" vira uma tarefa
 # PENDENTE — estado novo no mesmo arquivo das tarefas: sincroniza, não aparece nas listas, só na aba Entrada.
 # Linhas "- texto" do corpo viram subtarefas e o resto, a descrição. Aprovar a torna aberta (com as subtarefas);
@@ -8834,16 +9011,37 @@ sessoes_ia_cmd() {
 # O texto do e-mail é dado não confiável: nunca é executado.
 CONF_DEMANDAS=$CONF_DIR/demandas
 DEMANDAS_MIGRACAO_RELAXADO=$CONF_DIR/demandas-v2.5.1-relaxado
+DEMANDAS_RELAXADO_CORTE=1792620604
 # Migração única da v2.5.1: remetentes já autorizados deixam de ficar presos à prova auth
-# que certos espelhos Graph não expõem. Falha explícita continua recusada pelo processador.
+# que certos espelhos Graph não expõem. No modo relaxado, até falha explícita é aceita.
+demandas_tags_migrar() {
+  [[ -s $CONF_TAREFAS && -s $CONF_DEMANDAS ]] || return 0
+  local tmp backup rc=0
+  tarefas_travar || return 1
+  tmp=$(mktemp "$CONF_TAREFAS.XXXXXX") || { tarefas_destravar; return 1; }
+  if ! python3 -I "$DIR_TT/tarefas-merge.py" tags-migrar "$CONF_TAREFAS" "$CONF_DEMANDAS" >"$tmp"; then
+    rc=1
+  elif ! cmp -s "$tmp" "$CONF_TAREFAS"; then
+    mkdir -p "$ESTADO_DIR/migracoes"
+    backup=$(mktemp "$ESTADO_DIR/migracoes/tarefas-tags-locais.XXXXXX")
+    if [[ -n $backup ]] && cp "$CONF_TAREFAS" "$backup" && chmod 600 "$backup" && mv "$tmp" "$CONF_TAREFAS"; then
+      marcar_tarefas
+    else
+      rc=1
+    fi
+  fi
+  rm -f "$tmp"; tarefas_destravar
+  return "$rc"
+}
+
 demandas_migrar_relaxado() { # [arquivo de entrada opcional]
   [[ -e $DEMANDAS_MIGRACAO_RELAXADO ]] && return 0
-  local agora tmp f
-  mkdir -p "$CONF_DIR"; agora=$(hora_agora)
+  local tmp f
+  mkdir -p "$CONF_DIR"
   for f in "$CONF_DEMANDAS" "${1:-}"; do
     [[ -n $f && -f $f ]] || continue
     tmp=$(mktemp "$CONF_DIR/demandas-migracao.XXXXXX") || return 1
-    awk -F '\t' -v OFS='\t' -v agora="$agora" '$3 == "auth" { $3="relaxado"; $5=agora } { print }' "$f" >"$tmp" || { rm -f "$tmp"; return 1; }
+    awk -F '\t' -v OFS='\t' -v corte="$DEMANDAS_RELAXADO_CORTE" '$3 == "auth" && $5 ~ /^[0-9]+$/ && $5 + 0 < corte + 0 { $3="relaxado" } { print }' "$f" >"$tmp" || { rm -f "$tmp"; return 1; }
     chmod 600 "$tmp"; mv -f "$tmp" "$f"
   done
   : >"$DEMANDAS_MIGRACAO_RELAXADO"; chmod 600 "$DEMANDAS_MIGRACAO_RELAXADO"
@@ -8880,6 +9078,11 @@ demandas_autorizar() { # e-mail [etiqueta] [auth|relaxado|segredo|aberto] [segre
   e=${e,,}; tag=${tag,,}; tag=${tag#\#}
   [[ $e =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || { echo "e-mail inválido: ${1:-}" >&2; return 2; }
   [[ -z $tag || $tag =~ ^[a-z0-9_-]+$ ]] || { echo "etiqueta inválida (letras, números, - e _): $2" >&2; return 2; }
+  if [[ -n $tag && $tag != - ]]; then
+    while [[ $tag == _* ]]; do tag=${tag#_}; done
+    [[ -n $tag ]] || { echo 'a etiqueta de recebimento precisa de um nome depois de _' >&2; return 2; }
+    tag=_$tag
+  fi
   case $modo in
     auth|relaxado|aberto) seg=- ;;
     segredo) [[ $seg =~ ^[A-Za-z0-9._-]{4,}$ ]] || { echo "o modo segredo precisa de uma palavra de 4+ caracteres (letras, números, . _ -)" >&2; return 2; } ;;
@@ -8922,9 +9125,9 @@ demandas_puxar() { nas_maquinas cat_remoto '~/.config/tt/demandas' 6 | demandas_
 #  - foi removida aqui: ignorada (remoção nunca ressuscita).
 # Subtarefas chegam como linhas "cod<TAB>estado<TAB>texto" (cod/estado "-" quando faltam).
 demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas [extras do protocolo v2: linhas k=v]
-  local de=$1 msgid=$2 epoch=$3 tag=$4 frase=$5 desc=$6 subs=$7 ext=${8:-} id now t meta tags i=0 scod sest sub sid sm cod est upd="" se vistos=" " v2="" iest="" rem="" d descartada=0 tmp
+  local de=$1 msgid=$2 epoch=$3 tag=$4 frase=$5 desc=$6 subs=$7 ext=${8:-} id now t meta tags i=0 scod sest sub sid sm cod est upd="" se vistos=" " v2="" iest="" rem="" d descartada=0 tmp rico k v par
   id=$(printf 'demanda\0%s' "$msgid" | sha256sum | cut -c1-12)
-  tarefas_frase_ler "$frase" || return 1
+  TT_TAGS_RECEBIDAS=1 tarefas_frase_ler "$frase" || return 1
   cod=$TT_F_COD
   # Código é identidade: o de uma SUBTAREFA nunca é o de uma tarefa. Um "~código" que aponta para uma subtarefa
   # daqui (de qualquer tarefa) não vale; a mensagem é tratada como demanda nova, sem código.
@@ -8943,7 +9146,20 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas [extras
   now=$(hora_agora); t=$epoch
   [[ $t =~ ^[0-9]+$ ]] && ((t > 0 && t <= now)) || t=$now
   [[ $tag == - ]] && tag=""
-  tags=$(printf '%s\n' "$tag" "${TT_F_TAGS//,/$'\n'}" | awk 'NF && !v[$0]++' | paste -sd, -)
+  [[ -z $tag || $tag == _* ]] || tag=_$tag
+  if [[ $ext == *v3=1* ]]; then
+    TT_F_PRAZO="" TT_F_HORA="" TT_F_PRIO="" TT_F_REP="" TT_F_TAGS=""
+    # chave=${par%%=*}, não IFS='=' read: o read tira o "=" final do valor (o padding do base64)
+    while IFS= read -r par; do
+      k=${par%%=*} v=${par#*=}
+      case $k in
+        titulo) TT_F_TXT=$(tarefas_unb64 "$v") ;;
+        prazo) TT_F_PRAZO=$v ;; hora) TT_F_HORA=$v ;; prio) TT_F_PRIO=$v ;; rep) TT_F_REP=$v ;; tags) TT_F_TAGS=$v ;;
+      esac
+    done <<<"$ext"
+  fi
+  tags=$(printf '%s\n' "${TT_F_TAGS//,/$'\n'}" | awk 'NF && $0 !~ /^_/ && !v[$0]++' | paste -sd, -)
+  [[ -n $tag ]] && tags="${tags:+$tags,}$tag"
   meta=""
   [[ -n $desc ]] && meta=$(tarefas_meta_set "$meta" desc "$(tarefas_b64 "$desc")")
   [[ -n $TT_F_PRAZO ]] && meta=$(tarefas_meta_set "$meta" prazo "$TT_F_PRAZO")
@@ -8952,6 +9168,7 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas [extras
   [[ -n $TT_F_REP ]] && meta=$(tarefas_meta_set "$meta" rep "$TT_F_REP")
   [[ -n $tags ]] && meta=$(tarefas_meta_set "$meta" tags "$tags")
   meta=$(tarefas_meta_set "$meta" de "${de//[^A-Za-z0-9._%+@-]/}")
+  [[ $ext == *v3=1* ]] && meta=$(tarefas_meta_set "$meta" v3 1)
   [[ -n $upd ]] && meta=$(tarefas_meta_set "$meta" upd "$upd")
   # Protocolo v2 (rodapé "tt:2 …" do e-mail): estado da tarefa na origem e subtarefas que ela removeu.
   if [[ $ext == *v2=1* ]]; then
@@ -8966,10 +9183,16 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas [extras
   {
     tarefas_linhas
     printf '%s\tpendente\t%s\t%s\t%s\t%s\n' "$id" "$t" "$t" "$TT_F_TXT" "$meta"
-    while IFS=$'\t' read -r scod sest sub; do
+    while IFS=$'\t' read -r scod sest sub rico; do
       sub=$(tarefas_limpa_texto "$sub"); [[ -n $sub ]] || continue
       i=$((i + 1)); sid=$(printf 'demanda\0%s\0sub\0%s' "$msgid" "$i" | sha256sum | cut -c1-12)
       sm=$(tarefas_meta_set "" pai "$id"); sm=$(tarefas_meta_set "$sm" ord "$i")
+      if [[ $ext == *v3=1* && -n $rico ]]; then
+        while IFS= read -r par; do
+          k=${par%%=*} v=${par#*=}
+          case $k in desc|prazo|hora|prio|rep|tags|v3) sm=$(tarefas_meta_set "$sm" "$k" "$v") ;; esac
+        done <<<"${rico//|/$'\n'}"
+      fi
       if [[ $scod =~ ^[0-9a-f]{6,16}$ ]]; then
         if [[ -n $upd ]]; then sm=$(tarefas_meta_set "$sm" scod "$scod")
         else
@@ -9056,27 +9279,21 @@ tarefas_email_ui() { # [id…]
 # O diário de trabalho (blocos "⟡ …": máquina, sessão, conta e e-mail, tokens, custo) é do dono e não viaja.
 tarefa_desc_sem_log() { awk '/^⟡ /{ l = 1 } l && /^$/ { l = 0; next } !l { print }' | cat -s; }
 tarefa_email() { # id [destinatário]
-  local id=$1 dest=${2:-} frase desc corpo si sest stxt rem est
+  local id=$1 dest=${2:-} frase corpo
+  tarefa_email_dados "$id" || return 1
+  frase=$TAREFA_EMAIL_ASSUNTO; corpo=$TAREFA_EMAIL_CORPO
+  printf 'Para: %s\nAssunto: %s\n\n%s\n' "$dest" "$frase" "$corpo"
+  printf '%s' "$corpo" | python3 -I -c 'import sys,urllib.parse as u; print("mailto:"+u.quote(sys.argv[1])+"?subject="+u.quote(sys.argv[2])+"&body="+u.quote(sys.stdin.read()))' "$dest" "$frase"
+  tarefa_base_gravar "$id" "$TAREFA_EMAIL_BASE" 2>/dev/null || true
+}
+tarefa_email_dados() { # id → TAREFA_EMAIL_ASSUNTO / TAREFA_EMAIL_CORPO
+  local id=$1 frase dados assunto corpo
   [[ -n $(tarefas_pai_de "$id") ]] && { echo "é subtarefa: compartilhe a tarefa mãe ($(tarefa_slug "$(tarefas_pai_de "$id")"))" >&2; return 1; }
   frase=$(tarefas_frase_de "$id") || { echo "tarefa $id não existe" >&2; return 1; }
-  desc=$(tarefa_get_desc "$id" | tarefa_desc_sem_log | sed -E 's/^([[:space:]]*)[-*•][[:space:]]/\1– /')
-  corpo=${desc:+$desc$'\n\n'}
-  while IFS=$'\t' read -r si sest stxt; do
-    [[ -n $si ]] || continue
-    corpo+="- [$si] [$([[ $sest == feita ]] && echo x || echo ' ')] $stxt"$'\n'
-  done < <(tarefas_filhas "$id")
-  # Protocolo v2: depois da assinatura ("-- ", que um tt antigo e qualquer leitor ignoram) vai o estado da tarefa
-  # e os códigos das subtarefas que foram removidas aqui, para quem recebe poder propor a mesma remoção.
-  est=$(tarefas_estado_de "$id"); [[ $est == feita ]] || est=aberta
-  rem=$(tarefas_raw | awk -F'\t' -v p="$id" '
-    function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
-    $2 == "removida" && mv($6, "pai") == p { print $4 "\t" $1 }' | sort -rn | head -30 | cut -f2 | paste -sd, -)
-  corpo+=$'\n-- \n'"tt:2 estado=$est${rem:+ removidas=$rem}"$'\n'
-  frase="[tt] $frase ~$id"
-  printf 'Para: %s\nAssunto: %s\n\n%s\n' "$dest" "$frase" "$corpo"
-  python3 -I -c 'import sys,urllib.parse as u; print("mailto:"+u.quote(sys.argv[1])+"?subject="+u.quote(sys.argv[2])+"&body="+u.quote(sys.argv[3]))' "$dest" "$frase" "$corpo"
-  # a versão enviada é a base do próximo confronto
-  tarefa_base_gravar "$id" 2>/dev/null || true
+  dados=$(python3 -I "$MERGE_PY" email "$CONF_TAREFAS" "$id" "$frase") || return $?
+  IFS=$'\t' read -r assunto corpo TAREFA_EMAIL_BASE <<<"$dados"
+  TAREFA_EMAIL_ASSUNTO=$(tarefas_unb64 "$assunto")
+  TAREFA_EMAIL_CORPO=$(tarefas_unb64 "$corpo")
 }
 
 # Aplica uma proposta de atualização (linha pendente com upd=CÓDIGO) na tarefa alvo; não mexe na
@@ -9175,7 +9392,7 @@ tarefas_merge_prompt() { # plano decisoes
 }
 # Grava a "base" da tarefa (o estado de agora) para o próximo confronto em três vias.
 tarefa_base_gravar() { # id
-  local linha; linha=$(python3 -I "$MERGE_PY" base "$CONF_TAREFAS" "$1" --agora "$(hora_agora)" 2>/dev/null) || return 1
+  local linha; linha=$(printf '%s' "${2:-}" | python3 -I "$MERGE_PY" base "$CONF_TAREFAS" "$1" --agora "$(hora_agora)" --snapshot-stdin 2>/dev/null) || return 1
   tarefas_aplicar_linhas <<<"$linha"
 }
 tarefa_aplicar_proposta_antiga() { # (substituída por tarefa_aplicar_proposta; mantida só para consulta) id-da-proposta
@@ -9230,16 +9447,28 @@ tarefa_aplicar_proposta() { # id-da-proposta [--padrao inc|cur] [--decisoes ARQ]
   tarefas_aplicar_linhas <<<"$linhas"
 }
 
+# O e-mail ignorado (autenticação ou segredo) fica em <slug>.demandas.ignoradas: id<TAB>remetente<TAB>o cadastro dele
+# naquela hora ("hora|modo", nunca o segredo). Mudou o cadastro (o modo, o segredo; a v2.5.1 passou os "auth" para
+# "relaxado"), o e-mail é lido de novo com a regra nova: antes ficava visto para sempre, e mudar o modo do remetente
+# não liberava nada do que já tinha chegado.
+demandas_cadastro_marca() { # e-mail -> "hora|modo" do cadastro (vazio sem cadastro)
+  awk -F'\t' -v e="${1,,}" '$1 == e { print $5 "|" $3; exit }' "$CONF_DEMANDAS" 2>/dev/null
+}
+demandas_ignorada_guardar() { # arquivo id remetente
+  { awk -F'\t' -v u="$2" '$1 != u' "$1" 2>/dev/null; printf '%s\t%s\t%s\n' "$2" "${3,,}" "$(demandas_cadastro_marca "$3")"; } >"$1.tmp" &&
+    mv -f "$1.tmp" "$1"
+}
+
 # Olha as mensagens ainda não vistas de uma caixa com espelho local e cria as demandas. Sem remetente
 # cadastrado não faz nada (custo zero). Na 1ª vez numa caixa, o que chegou há mais de 1 dia já passou.
 demandas_processar_conta() { # slug
   local slug=${1:?} md dir proc log authwait u arq de msgid epoch auth asb dsb ssb assunto frase desc subs info tag modo seg segmsg
-  local n=0 criadas=0 ignoradas=0 esperando=0 quem="" id nome="" ultimo="" ext esb k k_criadas="" k_esperando="" k_ignoradas=""
+  local desde agora n=0 criadas=0 ignoradas=0 esperando=0 quem="" id nome="" ultimo="" ext esb k k_criadas="" k_esperando="" k_ignoradas=""
   # Roda mesmo sem nenhum remetente autorizado: um e-mail [tt] que chega antes de a pessoa autorizar alguém
   # fica à espera (e ela é avisada). Antes, sem cadastro nada era lido, e ao autorizar depois a primeira
   # leitura dava como visto tudo o que tinha mais de 1 dia: a tarefa mandada por um colega se perdia calada.
   md=$(email_maildir "$slug")/INBOX; dir="$ESTADO_DIR/email-sync"; proc="$dir/$slug.demandas"; log="$dir/$slug.demandas.log"
-  local espera="$dir/$slug.demandas.espera" liberar liberar_auth
+  local espera="$dir/$slug.demandas.espera" liberar liberar_auth ign="$dir/$slug.demandas.ignoradas" reler motivo
   authwait="$dir/$slug.demandas.auth-espera"
   [[ -d $md/new || -d $md/cur ]] || return 0
   mkdir -p "$dir"
@@ -9257,14 +9486,28 @@ demandas_processar_conta() { # slug
       printf '%s liberadas %s (remetente autorizado depois da chegada)\n' "$(date '+%F %T')" "$(wc -l <<<"$liberar")" >>"$log"
     fi
   fi
-  # Mensagens Graph cujo espelho anterior não trazia Authentication-Results são reavaliadas
-  # após cada sync. Não afrouxamos o modo auth: sem prova válida, continuam aguardando.
+  # Mensagens cujo espelho não trazia Authentication-Results (o do Graph antes da v2.4.5) são reavaliadas
+  # após cada sync. Não afrouxamos o modo auth: sem prova válida, aguardam até o prazo e então são ignoradas.
   if [[ -s $authwait ]]; then
     liberar_auth=$(awk -F '\t' '{print $1}' "$authwait" | sort -u)
     if [[ -n $liberar_auth ]]; then
       printf '%s\n' "$liberar_auth" >"$authwait.ids"
       grep -vxF -f "$authwait.ids" "$proc" >"$proc.tmp"; mv -f "$proc.tmp" "$proc"
       rm -f "$authwait.ids"
+    fi
+  fi
+  # Ignorado de remetente cujo cadastro mudou (e que segue autorizado): sai dos vistos e é lido de novo nesta volta.
+  if [[ -s $ign && -f $CONF_DEMANDAS ]]; then
+    reler=$(awk -F'\t' 'FILENAME == ARGV[1] { if ($3 != "-") c[tolower($1)] = $5 "|" $3; next }
+                        ($2 in c) && c[$2] != $3 { print $1 "\t" $2 }' "$CONF_DEMANDAS" "$ign")
+    if [[ -n $reler ]]; then
+      cut -f1 <<<"$reler" >"$ign.ids"
+      grep -vxF -f "$ign.ids" "$proc" >"$proc.tmp"; mv -f "$proc.tmp" "$proc"
+      awk -F'\t' 'FILENAME == ARGV[1] { l[$1] = 1; next } !($1 in l)' "$ign.ids" "$ign" >"$ign.tmp"; mv -f "$ign.tmp" "$ign"
+      rm -f "$ign.ids"
+      while IFS=$'\t' read -r u de; do
+        printf '%s reavaliada de=%s (o cadastro do remetente mudou)\n' "$(date '+%F %T')" "$de" >>"$log"
+      done <<<"$reler"
     fi
   fi
   while IFS=$'\t' read -r u arq; do
@@ -9286,21 +9529,35 @@ demandas_processar_conta() { # slug
       continue
     fi
     IFS=$'\t' read -r tag modo seg <<<"$info"
+    motivo=""
     case $modo in
       auth)
         if [[ $auth == none ]]; then
-          if ! awk -F '\t' -v u="$u" '$1 == u { found=1 } END { exit !found }' "$authwait" 2>/dev/null; then
-            printf '%s\t%s\n' "$u" "${de,,}" >>"$authwait"
-            printf '%s aguardando cabeçalho de autenticação de=%s\n' "$(date '+%F %T')" "$de" >>"$log"
+          # Espera com prazo (TT_DEMANDAS_AUTH_ESPERA s, desde a 1ª vez; 3ª coluna) e depois é ignorada com o
+          # aviso, como antes da espera: sem prazo, o e-mail que nunca traz o cabeçalho (o que a conta Gmail
+          # manda para ela mesma) esperava calado para sempre, sem aviso e com o --checar em ✓.
+          desde=$(awk -F '\t' -v u="$u" '$1 == u { print ($3 ~ /^[0-9]+$/ ? $3 : "-"); exit }' "$authwait" 2>/dev/null)
+          printf -v agora '%(%s)T' -1
+          if [[ -z $desde || $desde == - ]]; then
+            [[ -z $desde ]] && printf '%s aguardando cabeçalho de autenticação de=%s\n' "$(date '+%F %T')" "$de" >>"$log"
+            { awk -F '\t' -v u="$u" '$1 != u' "$authwait" 2>/dev/null; printf '%s\t%s\t%s\n' "$u" "${de,,}" "$agora"; } >"$authwait.tmp" && mv -f "$authwait.tmp" "$authwait"
+            continue
           fi
-          continue
+          ((agora - desde < ${TT_DEMANDAS_AUTH_ESPERA:-1800})) && continue
         fi
-        [[ $auth == pass ]] || { awk -F '\t' -v u="$u" '$1 != u' "$authwait" >"$authwait.tmp" 2>/dev/null || :; [[ -f $authwait.tmp ]] && mv -f "$authwait.tmp" "$authwait"; ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=autenticacao(%s)\n' "$(date '+%F %T')" "$de" "$auth" >>"$log"; continue; } ;;
-      segredo) [[ $seg != - && $segmsg == "$seg" ]] || { ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"; printf '%s ignorada de=%s motivo=segredo\n' "$(date '+%F %T')" "$de" >>"$log"; continue; } ;;
+        [[ $auth == pass ]] || motivo="autenticacao($auth)" ;;
+      segredo) [[ $seg != - && $segmsg == "$seg" ]] || motivo=segredo ;;
       relaxado) ;;  # o usuário autorizou este endereço; não exige prova auth, mesmo com fail explícito
       aberto) ;;
       *) continue ;;
     esac
+    if [[ -n $motivo ]]; then
+      if [[ -s $authwait ]]; then awk -F '\t' -v u="$u" '$1 != u' "$authwait" >"$authwait.tmp" && mv -f "$authwait.tmp" "$authwait"; fi
+      demandas_ignorada_guardar "$ign" "$u" "$de"
+      ignoradas=$((ignoradas + 1)); k_ignoradas+="${k_ignoradas:+,}$k"
+      printf '%s ignorada de=%s motivo=%s\n' "$(date '+%F %T')" "$de" "$motivo" >>"$log"
+      continue
+    fi
     if [[ -s $authwait ]]; then awk -F '\t' -v u="$u" '$1 != u' "$authwait" >"$authwait.tmp" && mv -f "$authwait.tmp" "$authwait"; fi
     [[ $dsb == - ]] && dsb=""; [[ $ssb == - ]] && ssb=""; [[ ${esb:--} == - ]] && esb=""
     desc=$(printf '%s' "$dsb" | base64 -d 2>/dev/null); subs=$(printf '%s' "$ssb" | base64 -d 2>/dev/null)
@@ -9312,6 +9569,7 @@ demandas_processar_conta() { # slug
            awk -F'\t' -v p="$proc" 'FILENAME == p { v[$1] = 1; next } { u = $1; sub(/:2,.*/, "", u); if (!(u in v)) print u "\t" $2 }' "$proc" -)
   [[ -f $log ]] && (($(wc -l <"$log") > 300)) && { tail -n 150 "$log" >"$log.c" && mv -f "$log.c" "$log"; }
   [[ -f $espera ]] && (($(wc -l <"$espera") > 500)) && { tail -n 300 "$espera" >"$espera.c" && mv -f "$espera.c" "$espera"; }
+  [[ -f $ign ]] && (($(wc -l <"$ign") > 500)) && { tail -n 300 "$ign" >"$ign.c" && mv -f "$ign.c" "$ign"; }
   # Toda máquina que espelha a caixa lê o mesmo e-mail: os avisos são de lote (código com a chave de cada
   # mensagem), um só no 🔔 da rede.
   if ((criadas > 0)); then
@@ -9343,7 +9601,7 @@ tarefas_demanda_mudar_linhas() { # aprovar|recusar ID...
   tmp=$(mktemp "$CONF_TAREFAS.XXXXXX")
   awk -F'\t' -v OFS='\t' -v op="$op" -v now="$now" -v ids="$ids" '
     function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
-    function limpa(m,   n, a, i, o) { n = split(m, a, "|"); o = ""; for (i = 1; i <= n; i++) if (a[i] !~ /^(sest|iest|rem|v2|colide|scod)=/) o = o (o == "" ? "" : "|") a[i]; return o }
+    function limpa(m,   n, a, i, o) { n = split(m, a, "|"); o = ""; for (i = 1; i <= n; i++) if (a[i] !~ /^(sest|iest|rem|v2|v3|colide|scod)=/) o = o (o == "" ? "" : "|") a[i]; return o }
     NR == FNR {
       if (NF >= 5 && $2 == "pendente") {
         p = mv($6, "pai")
@@ -9718,7 +9976,7 @@ tarefas_meta_set() { # meta chave valor -> meta nova (ordem estável desc|prazo|
   local meta=$1 chave=$2 valor=$3 k out="" par; local -A M=(); local IFS='|'
   for par in $meta; do [[ $par == *=* ]] && M[${par%%=*}]=${par#*=}; done
   M[$chave]=$valor
-  for k in desc prazo hora prio rep ant antsub ciclos feito tags pai ord arq de upd scod sest colide iest rem v2 base; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
+  for k in desc prazo hora prio rep ant antsub ciclos feito tags pai ord arq de upd scod sest colide iest rem v2 v3 base; do [[ -n ${M[$k]:-} ]] && out+="${out:+|}$k=${M[$k]}"; done
   printf '%s' "$out"
 }
 tarefas_b64()   { printf '%s' "$1" | base64 | tr -d '\n'; }
@@ -9791,6 +10049,7 @@ receber_tarefas() {
   tarefas_merge "$CONF_TAREFAS" "$tmp_in" >"$tmp_out"
   if cmp -s "$tmp_out" "$CONF_TAREFAS"; then rm -f "$tmp_out"; else mv "$tmp_out" "$CONF_TAREFAS"; marcar_tarefas; fi
   tarefas_destravar; rm -f "$tmp_in"
+  demandas_tags_migrar || return 1
   atualizar_barras 2>/dev/null
   return 0
 }
@@ -9918,7 +10177,13 @@ tarefas_frase_ler() { # frase
           if hh=$(tarefas_token_hora "${toks[j]:-}"); then hora=$hh; i=$j; fi
           continue; }
         resto+=("$tok") ;;
-      '#'?*) local tg=${tok#\#}; tg=${tg,,}; tags="${tags:+$tags,}$tg" ;;
+      '#'?*) local tg=${tok#\#}; tg=${tg,,}
+        if [[ $tg == _* ]]; then
+          [[ ${TT_TAGS_RECEBIDAS:-0} == 1 ]] && continue
+          echo 'Etiquetas #_ são reservadas ao recebimento; use uma etiqueta sem _ no início.' >&2
+          return 2
+        fi
+        tags="${tags:+$tags,}$tg" ;;
       '!'alta|'!'1) prio=1 ;;
       '!'media|'!'méd*|'!'med|'!'2) prio=2 ;;
       '!'baixa|'!'3) prio="" ;;
@@ -9983,7 +10248,9 @@ tarefas_frase_de() { # id
   fi
   case $(tarefas_meta_get "$m" prio) in 1) f+=' !alta' ;; 2) f+=' !media' ;; esac
   case $(tarefas_meta_get "$m" rep) in d) f+=' *diaria' ;; w) f+=' *semanal' ;; m) f+=' *mensal' ;; esac
-  tgs=$(tarefas_meta_get "$m" tags); [[ -n $tgs ]] && f+=" #${tgs//,/ #}"
+  tgs=$(tarefas_meta_get "$m" tags)
+  local tg; local -a ts=(); IFS=, read -ra ts <<<"$tgs"
+  for tg in "${ts[@]}"; do [[ -n $tg && $tg != _* ]] && f+=" #$tg"; done
   printf '%s\n' "$f"
 }
 
@@ -9995,11 +10262,13 @@ tarefas_frase_de() { # id
 # Subtarefa: só o texto muda (na criação dela a frase também não é lida). Mãe, ordem, estado e
 # arquivo ficam. Falha (1) sem texto.
 tarefa_editar() { # id frase [--desc]
-  local id=$1 frase=$2 forca_desc=${3:-} meta now tmp
+  local id=$1 frase=$2 forca_desc=${3:-} meta now tmp tg; local -a ts=()
   [[ -n $id && -f $CONF_TAREFAS ]] || return 1
   meta=$(tarefas_meta_de "$id")
   if [[ -n $(tarefas_meta_get "$meta" pai) ]]; then tarefa_renomear "$id" "${frase%%$'\n'*}"; return; fi
   tarefas_frase_ler "$frase" || return 1
+  IFS=, read -ra ts <<<"$(tarefas_meta_get "$meta" tags)"
+  for tg in "${ts[@]}"; do [[ $tg == _* ]] && TT_F_TAGS+="${TT_F_TAGS:+,}$tg"; done
   meta=$(tarefas_meta_set "$meta" prazo "$TT_F_PRAZO")
   meta=$(tarefas_meta_set "$meta" hora "${TT_F_PRAZO:+$TT_F_HORA}")
   meta=$(tarefas_meta_set "$meta" prio "$TT_F_PRIO")
@@ -13350,6 +13619,7 @@ tarefas_menu_linhas() { # id
   _op desc "$t✎ Descrição…" "$([[ -n $(tarefas_meta_get "$m" desc) ]] && echo 'editar · ^e' || echo 'escrever · ^e')"
   [[ -z $pai ]] && _op sub "$t↳ Adicionar subtarefa…" '^s'
   [[ -z $pai ]] && _op email "$t✉ Enviar por e-mail…" 'a tarefa e as subtarefas, já com os códigos (quem recebe atualiza em vez de duplicar)'
+  [[ -z $pai ]] && _op enviar "$t📨 Enviar pela conta do tt…" 'escolher conta e destinatário, revisar e enviar'
   if [[ -z $pai ]]; then
     pr=$([[ -n $prazo ]] && tarefas_prazo_texto "$prazo" "$(tarefas_meta_get "$m" hora)")
     _op prazo "$t◷ Prazo e horário…" "${pr:-sem prazo} · ^d"
@@ -13610,6 +13880,8 @@ tarefa_acao_() { # evento chave (o despachante; tarefa_acao trata as recargas)
     desc) echo "execute($EU --tarefa-desc-prompt $id)+$rl" ;;
     email) [[ -n $pai ]] && id=$pai
            echo "execute($EU --tarefa-email-ui $id)+$rl+$hd" ;;
+    enviar) [[ -n $pai ]] && id=$pai
+            echo "execute($EU --email-enviar --tarefas-ui --tarefa $id)+$rl+$hd" ;;
     prazo) [[ -n $pai ]] && id=$pai; echo "execute($EU --tarefa-prazo-prompt $id)+$rl+$hd" ;;
     editar|renomear) echo "execute($EU --tarefa-editar-prompt $id)+$rl+$hd" ;;
     prio) [[ -n $pai ]] && id=$pai; tarefa_prio_ciclar "$id"; echo "$rl" ;;
@@ -14417,6 +14689,7 @@ t	📋 Abrir o painel de tarefas	$EU --tarefas $(q "$c")
 a	▦ Agenda (calendário do mês)	$EU --clique relogio $(q "$c") x "$HOME" 0
 n	+ Nova tarefa…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 14) -b rounded -T ' + nova tarefa ' $(q "$EU --tarefa-add-ui")
 e	✉ Enviar tarefas por e-mail…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 90 24) -b rounded -T ' ✉ enviar tarefas ' $(q "TT_CLIENTE=$(q "$c") $EU --tarefa-email-ui")
+v	📨 Enviar tarefas diretamente…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 90 24) -b rounded -T ' 📨 enviar tarefas ' $(q "TT_CLIENTE=$(q "$c") $EU --email-enviar --tarefas-ui")
 s	🔄 Sincronização: $(tarefas_sync_rotulo)…	$(popup_tt "$c" "🔄 sincronização das tarefas" "$EU --tarefas-sync-ui")
 l	▤ Arquivar ou apagar as tarefas feitas…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 13) -b rounded $(q "$EU --tarefa-limpar-prompt")
 ITENS
@@ -15269,6 +15542,9 @@ menu_email() {
   [[ -n $pend ]] && linha=$(printf 'p\t📦 Instalar o que falta para o e-mail (%s)…\t%s' "$pend" "$(popup_tt "$c" "📦 pendências do e-mail" "$EU --pedir-sudo $pend")")
   itens=$(cat <<ITENS
 e	📧 Abrir o e-mail	$EU --email $(q "$c")
+t	📨 Enviar tarefas…	$(popup_tt "$c" "📨 enviar tarefas" "$EU --email-enviar --tarefas-ui")
+d	📥 Tarefas recebidas / Entrada	$EU --clique entrada $(q "$c") x $(q "$HOME") 0
+w	✉ Remetentes autorizados…	$(popup_tt "$c" "✉ remetentes autorizados" "$EU --demandas-ui")
 r	⟳ Sincronizar agora (consulta as contas; útil esperando um código)	$EU --email-sync-agora $(q "$c")
 c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
 n	＋ Cadastrar uma conta…	$EU --popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
@@ -15868,7 +16144,8 @@ agente_no_painel() { # painel
 
 # "provedor pid código" da conversa do agente no painel P. O Claude registra o código pelo pid; o Kiro e o Codex
 # são achados pelo sessoes-ia.py (trava do Kiro com o pid; conversa do Codex na mesma pasta, mexida desde que o
-# agente começou, desempatada pela tela do painel).
+# agente começou, desempatada pela tela do painel). Sem registro (o Claude parado na pergunta "confia nesta pasta?"),
+# o sessoes-ia.py usa o código da linha de comando (--resume) e nunca a conversa de outro Claude vivo.
 conversa_do_painel() { # painel
   local p=$1 prov pid pids id="" tela
   read -r prov pid pids < <(agente_no_painel "$p") || return 1
@@ -15896,9 +16173,10 @@ conversa_ia() { # id [--de máquina] [--salvar]
   [[ $id =~ ^[0-9A-Za-z][0-9A-Za-z_-]{6,}$ ]] || { echo "uso: tt --conversa-ia CÓDIGO [--de MÁQUINA] [--salvar]" >&2; return 2; }
   [[ $de == "$MAQUINA" ]] && de=""
   if [[ -n $salvar ]]; then
-    mkdir -p "$HOME/.cache/tt/conversas"; f=$HOME/.cache/tt/conversas/$id.md
+    # A conversa inteira só para o dono, como o Claude grava as dele (era 644 numa pasta 755): pasta 700 e arquivo 600.
+    mkdir -p "$HOME/.cache/tt/conversas" && chmod 700 "$HOME/.cache/tt/conversas"; f=$HOME/.cache/tt/conversas/$id.md
     printf '⟳ buscando a conversa %s%s…\n' "$id" "${de:+ em $de}"
-    if conversa_ia "$id" ${de:+--de "$de"} >"$f.$$" && [[ -s $f.$$ ]]; then
+    if (umask 077; conversa_ia "$id" ${de:+--de "$de"} >"$f.$$") && [[ -s $f.$$ ]]; then
       mv -f "$f.$$" "$f"; printf '✓ %s (%d KB)\n' "$f" $(($(wc -c <"$f") / 1024)); return 0
     fi
     rm -f "$f.$$"; echo "⚠ não consegui a conversa $id${de:+ de $de}" >&2; return 1
@@ -15954,10 +16232,10 @@ seguir_abrir() { # origem provedor código pasta [painel pasta-do-painel]
   [[ $id =~ ^[0-9A-Za-z][0-9A-Za-z_-]{6,}$ ]] || return 1
   aqui=$(expandir "$la"); [[ -d $aqui ]] || aqui=$HOME
   [[ $la == '~'* && $o != "$MAQUINA" ]] && la="$la (na home de $o)"
-  mkdir -p "$HOME/.cache/tt/seguir" || return 1
+  mkdir -p "$HOME/.cache/tt/seguir" && chmod 700 "$HOME/.cache/tt/seguir" || return 1
   conv=$HOME/.cache/tt/conversas/$id.md
   arq=$HOME/.cache/tt/seguir/$id-$(date +%Y%m%d-%H%M%S).md
-  seguir_pedido "$o" "$prov" "$id" "$la" "$aqui" "$conv" >"$arq" || return 1
+  (umask 077; seguir_pedido "$o" "$prov" "$id" "$la" "$aqui" "$conv" >"$arq") || return 1
   # A conversa vem antes da IA (do próprio Termux/PC, fora do ambiente do agente): a IA já começa com ela no disco.
   script="$(q "$EU") --conversa-ia $(q "$id") --de $(q "$o") --salvar"$'\n'"$(sem_marcas "${cmd//\{prompt\}/--prompt-arquivo $(q "$arq")}" tudo)"
   if [[ -n $p ]]; then
@@ -16694,7 +16972,7 @@ botao_email() {
 # que no tmux parecem subir em cascata e acabam fechando o cliente.
 # "TT_ORIGEM=máquina " para o cliente de dentro do popup do e-mail quando o cliente de fora é uma ponte de
 # outra máquina: um link aberto no e-mail vai para a tela de lá (abrir_na_tela). O q já termina em espaço.
-email_origem() { local o; o=$(origem_ponte "$1"); o=${o%%|*}; [[ -n $o ]] && printf 'TT_ORIGEM=%s' "$(q "$o")"; return 0; }
+email_origem() { local o; o=$(maquina_da_tela "$1"); [[ -n $o ]] && printf 'TT_ORIGEM=%s' "$(q "$o")"; return 0; }
 email_popup_abrir() { # cliente comando
   local cliente=$1 comando=$2 fd; local -a geo
   local trava="${XDG_RUNTIME_DIR:-/tmp}/tt-email-popup.lock"
@@ -17258,14 +17536,16 @@ outro|Outro (descobrir pelo domínio ou configurar à mão)|||senha oauth comand
 
 email_provedor() { awk -F'|' -v k="$1" '$1 == k' <<<"$EMAIL_PROVEDORES"; }
 
-# Padrões de OAuth2 por provedor. Microsoft: o app "tt-terminais" do próprio tt no Microsoft Entra (contas
-# pessoais e de trabalho, cliente público: código no aparelho ou retorno em http://localhost, sem segredo;
-# permissões delegadas de IMAP, SMTP e offline_access). Publicador não verificado: conta pessoal entra com um
-# aviso; tenant de empresa costuma pedir a aprovação do administrador. "thunderbird" no client_id usa o ID
-# público do Thunderbird (às vezes já aprovado no tenant da empresa); quem preferir informa o de um app seu.
+# Padrões de OAuth2 por provedor. Microsoft: o padrão é o app público Outlook Mobile, que lê pelo Microsoft
+# Graph (escopo .default, preautorizado). "tt" no client_id usa o app "tt-terminais" do próprio tt no Microsoft
+# Entra (cliente público, sem segredo; permissões delegadas de IMAP, SMTP e offline_access; publicador não
+# verificado) e "thunderbird" o ID público do Thunderbird (às vezes já aprovado no tenant da empresa): os dois só
+# têm IMAP/SMTP. Quem preferir informa o de um app seu.
 EMAIL_MICROSOFT_ID=fa7042a4-7b4f-4148-833b-ceb8ce1b8808
 EMAIL_THUNDERBIRD_ID=9e5f94bc-e8a4-4e73-b8be-63364c29d753
 EMAIL_OUTLOOK_MOBILE_ID=27922004-5251-4030-b22d-91ecd9a37ea4
+EMAIL_MS_ESCOPO_GRAPH="offline_access https://graph.microsoft.com/.default"
+EMAIL_MS_ESCOPO_IMAP="offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send"
 
 # App OAuth "Desktop" do próprio tt no Google: contas Gmail com auth=oauth funcionam de fábrica,
 # sem criar projeto no console. Num app instalado o client_secret NÃO é confidencial (o Google
@@ -17275,14 +17555,20 @@ EMAIL_OUTLOOK_MOBILE_ID=27922004-5251-4030-b22d-91ecd9a37ea4
 EMAIL_GMAIL_ID=647119475915-epqt1iu158sq5b5jjv8a7v32qgpru0be.apps.googleusercontent.com
 email_gmail_secret() { printf 'GOCSPX-%s%s' 'vtcInea5Jcu3w6' 'ufZpm9b2WM_VOm'; }
 
-# Aplica o app do tt quando a conta Gmail OAuth não traz um client_id próprio; e garante o
-# arquivo do client_secret (que o email-tt.py já lê) quando o app em uso é o do tt.
-# Sem client_id (ou com "thunderbird"), Gmail e Microsoft usam o app do próprio tt.
+# Aplica o app padrão quando a conta OAuth não traz um client_id próprio (Gmail: o app do tt; Microsoft: o
+# Outlook Mobile) e traduz os apelidos da Microsoft; e garante o arquivo do client_secret (que o email-tt.py já
+# lê) quando o app em uso é o do tt no Google.
 email_app_padrao_id() {
   [[ ${E[auth]:-} == oauth ]] || return 0
-  [[ ${E[provedor]:-} == microsoft && ${E[oauth_client_id]:-} == [Tt]hunderbird ]] && E[oauth_client_id]=$EMAIL_THUNDERBIRD_ID
-  [[ ${E[provedor]:-} == microsoft && ${E[oauth_client_id]:-} == [Oo]utlook ]] && E[oauth_client_id]=$EMAIL_OUTLOOK_MOBILE_ID
-  [[ ${E[provedor]:-} == microsoft && ${E[oauth_client_id]:-} == [Tt][Tt] ]] && E[oauth_client_id]=$EMAIL_MICROSOFT_ID
+  # O apelido escolhe também o modo: o Thunderbird e o app do tt só têm IMAP/SMTP, e com o Graph (o padrão da
+  # v2.2.0) o "tt" ia literal para a Microsoft (AADSTS50059) e o "thunderbird" pedia um token do Graph sem e-mail.
+  if [[ ${E[provedor]:-} == microsoft ]]; then
+    case ${E[oauth_client_id]:-} in
+      [Tt]hunderbird) E[oauth_client_id]=$EMAIL_THUNDERBIRD_ID; email_microsoft_modo imap ;;
+      [Tt][Tt]) E[oauth_client_id]=$EMAIL_MICROSOFT_ID; email_microsoft_modo imap ;;
+      [Oo]utlook) E[oauth_client_id]=$EMAIL_OUTLOOK_MOBILE_ID; email_microsoft_modo graph ;;
+    esac
+  fi
   [[ -z ${E[oauth_client_id]:-} ]] || return 0
   case ${E[provedor]:-} in
     gmail) E[oauth_client_id]=$EMAIL_GMAIL_ID ;;
@@ -17296,6 +17582,14 @@ email_gmail_padrao_secret() {
   mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR" 2>/dev/null
   ( umask 077; email_gmail_secret >"$f" )
 }
+# Microsoft: graph|imap, com o escopo padrão do modo (um escopo próprio informado no cadastro fica).
+email_microsoft_modo() {
+  if [[ $1 == graph ]]; then E[graph]=1; else E[graph]=0; fi
+  case ${E[oauth_scope]:-} in
+    "" | "$EMAIL_MS_ESCOPO_GRAPH" | "$EMAIL_MS_ESCOPO_IMAP")
+      if [[ $1 == graph ]]; then E[oauth_scope]=$EMAIL_MS_ESCOPO_GRAPH; else E[oauth_scope]=$EMAIL_MS_ESCOPO_IMAP; fi ;;
+  esac
+}
 email_oauth_padrao() { # provedor → atribui em E[...]
   case $1 in
     microsoft)
@@ -17304,7 +17598,7 @@ email_oauth_padrao() { # provedor → atribui em E[...]
       E[oauth_token_endpoint]=https://login.microsoftonline.com/common/oauth2/v2.0/token
       E[oauth_auth_endpoint]=https://login.microsoftonline.com/common/oauth2/v2.0/authorize
       [[ ${E[graph]:-1} == 1 ]] && E[graph]=1
-      E[oauth_scope]="offline_access https://graph.microsoft.com/.default" ;;
+      if email_graph; then email_microsoft_modo graph; else email_microsoft_modo imap; fi ;;
     gmail)
       E[oauth_auth_endpoint]=https://accounts.google.com/o/oauth2/auth
       E[oauth_token_endpoint]=https://oauth2.googleapis.com/token
@@ -17319,6 +17613,12 @@ email_graph() { [[ ${E[provedor]:-} == microsoft && ${E[graph]:-} == 1 ]]; }
 
 email_conf_arq() { echo "$EMAIL_DIR/$1.conf"; }
 email_cred_arq() { echo "$SECRETS_DIR/aerc-$1.txt"; }
+# Conta OAuth cadastrada e ainda sem token nesta máquina (o login pelo navegador não terminou): até autorizar, nem o
+# espelho nem a busca da lixeira entram no servidor, e o primeiro passo é tt --email-autorizar.
+email_sem_token() { # slug
+  local -A E=(); email_ler "$1" 2>/dev/null || return 1
+  [[ ${E[auth]:-} == oauth && ! -s $(email_cred_arq "$1") ]]
+}
 
 # Carrega a conta SLUG no array associativo global E.
 email_ler() {
@@ -17702,6 +18002,20 @@ email_mbsyncrc_migrar() {
   return 0
 }
 
+# Depois de uma rodada ruim a conta espera mais (<slug>.espera: 2×, 4×… o intervalo, até 15 min; zera no
+# 1º sucesso). Cota do Gmail estourada (banda ou comandos do dia): 2 h, porque insistir só prolonga o bloqueio.
+email_sync_esperar() { # slug fim
+  local dir="$ESTADO_DIR/email-sync" k base esp
+  k=$(( $(cat "$dir/$1.falhas" 2>/dev/null || echo 0) + 1 )); echo "$k" >"$dir/$1.falhas"
+  base=${TT_EMAIL_SYNC:-120}; ((base > 0)) || base=120
+  esp=$((base << (k < 4 ? k : 4))); ((esp > 900)) && esp=900
+  grep -qiE 'OVERQUOTA|bandwidth limits' "$dir/$1.erro" 2>/dev/null && esp=${TT_EMAIL_ESPERA_COTA:-7200}
+  echo $(($2 + esp)) >"$dir/$1.espera"
+}
+# O mbsync põe no erro o comando IMAP inteiro, e o "AUTHENTICATE XOAUTH2 …" leva o token de acesso: o
+# .erro é lido pelo --checar, pelo --email-sync-estado e pela checagem, então o token sai dele.
+email_sem_segredo() { sed -E 's#(AUTHENTICATE [A-Z0-9_-]+) [A-Za-z0-9+/=]{8,}#\1 [omitido]#g; s#(Bearer) [A-Za-z0-9._~+/=-]{8,}#\1 [omitido]#g'; }
+
 # Roda o mbsync de uma conta: MODO "inbox" (só o INBOX — segundos; teto 240 s, e a trava impede
 # que a rodada seguinte comece antes de esta acabar) ou "completo" (o grupo inteiro; teto
 # TT_EMAIL_SYNC_TETO=600 s). Trava por conta (nunca duas ao mesmo tempo).
@@ -17712,9 +18026,10 @@ email_mbsyncrc_migrar() {
 # até 15 min; zera no 1º sucesso) — o Gmail responde devagar quando é muito procurado (4 aparelhos
 # na mesma conta), e insistir piorava. Só o vigia (QUEM=vigia) respeita a espera; à mão, sincroniza já.
 email_sync() { # slug [inbox|completo] [vigia]
-  local slug=${1:?} modo=${2:-inbox} quem=${3:-} rc lock dir alvo teto ini fim st agora k esp base
+  local slug=${1:?} modo=${2:-inbox} quem=${3:-} rc lock dir alvo teto ini fim st agora
   local -A E=(); email_ler "$slug" 2>/dev/null || true
-  if email_graph; then email_graph_sync "$slug" "$modo"; return $?; fi
+  # Conta do Microsoft Graph: inbox ou completo (o INBOX e as pastas padrão); lixeira própria não há.
+  if email_graph; then [[ $modo == lixeira ]] && return 0; email_graph_sync "$slug" "$modo" "$quem"; return $?; fi
   rc=$(email_mbsyncrc "$slug")
   command -v "$(mbsync_bin)" >/dev/null || return 0
   [[ -f $rc ]] || return 0
@@ -17733,7 +18048,8 @@ email_sync() { # slug [inbox|completo] [vigia]
   # O plugin XOAUTH2 só entra para contas OAuth: visível a uma conta de senha (app password), o
   # mbsync o escolhe como "melhor" mecanismo e manda a senha como token — o Gmail recusa.
   local saslp=""; grep -q '^auth=oauth' "$EMAIL_DIR/$slug.conf" 2>/dev/null && saslp=$(xoauth2_ambiente)
-  SASL_PATH=${saslp:-${SASL_PATH:-}} timeout "$teto" "$(mbsync_bin)" -c "$rc" "$alvo" >/dev/null 2>"$dir/$slug.erro.tmp"; st=$?
+  (umask 077; : >"$dir/$slug.erro.tmp"; chmod 600 "$dir/$slug.erro.tmp"
+    SASL_PATH=${saslp:-${SASL_PATH:-}} timeout "$teto" "$(mbsync_bin)" -c "$rc" "$alvo" >/dev/null 2>"$dir/$slug.erro.tmp"); st=$?
   fim=$(date +%s)
   # Volta completa derrubada pelo ⟳ sincronizar agora (marca de email_sync_manual, ou morte por
   # SIGTERM): não é erro — fica registrada como "interrompida", sem .erro nem espera; o vigia a
@@ -17751,18 +18067,11 @@ email_sync() { # slug [inbox|completo] [vigia]
   if ((st == 0)); then rm -f "${dir:?}/${slug:?}.erro" "${dir:?}/${slug:?}.erro.tmp" "${dir:?}/${slug:?}.espera" "${dir:?}/${slug:?}.falhas"
     [[ $modo == completo ]] && rm -f "${dir:?}/${slug:?}.erro-completo"
   else
-    { ((st == 124)) && echo "tempo esgotado ($teto s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } >"$dir/$slug.erro"; rm -f "${dir:?}/${slug:?}.erro.tmp"
+    { ((st == 124)) && echo "tempo esgotado ($teto s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } | email_sem_segredo >"$dir/$slug.erro"; rm -f "${dir:?}/${slug:?}.erro.tmp"
     [[ $modo == completo ]] && cp -f "$dir/$slug.erro" "$dir/$slug.erro-completo"
     # Volta completa que só estourou o teto (caixa grande, 1ª vez) não é o Gmail recusando: não
     # empurra o INBOX para a espera.
-    if [[ $modo != completo || $st != 124 ]]; then
-      k=$(( $(cat "$dir/$slug.falhas" 2>/dev/null || echo 0) + 1 )); echo "$k" >"$dir/$slug.falhas"
-      base=${TT_EMAIL_SYNC:-120}; ((base > 0)) || base=120
-      esp=$((base << (k < 4 ? k : 4))); ((esp > 900)) && esp=900
-      # Cota do Gmail estourada (banda ou comandos do dia): insistir só prolonga o bloqueio.
-      grep -qiE 'OVERQUOTA|bandwidth limits' "$dir/$slug.erro" && esp=${TT_EMAIL_ESPERA_COTA:-7200}
-      echo $((fim + esp)) >"$dir/$slug.espera"
-    fi
+    [[ $modo != completo || $st != 124 ]] && email_sync_esperar "$slug" "$fim"
   fi
   rm -f "${dir:?}/${slug:?}.andamento"
   email_novos_avisar "$slug"
@@ -18092,7 +18401,7 @@ email_sync_estado() { # [curto]
       if [[ -z ${fim:-} ]]; then printf '  %-9s nunca\n' "$modo"; continue; fi
       printf '  %-9s há %s · levou %s · %s\n' "$modo" "$(_dur $((agora - fim)))" "$(_dur $((fim - ini)))" "$( ((st == 0)) && echo ok || echo "✗ erro $st")"
     done
-    if [[ -s $dir/$slug.erro ]]; then sed 's/^/    /' "$dir/$slug.erro"; email_erro_dica "$dir/$slug.erro"; fi
+    if [[ -s $dir/$slug.erro ]]; then email_sem_segredo <"$dir/$slug.erro" | sed 's/^/    /'; email_erro_dica "$dir/$slug.erro"; fi
   done
   return 0
 }
@@ -18495,6 +18804,16 @@ email_listar() {
 email_cmds_estado() { # slug
   local slug=$1 g=0 l md b=$HOME/.config/aerc/binds.conf; local -A E=()
   email_ler "$slug" || return 1
+  if email_sem_token "$slug"; then
+    printf 'aviso\tconta ainda não autorizada nesta máquina (OAuth sem token): a lixeira é procurada no servidor depois do login\ttt --email-autorizar %s\n' "$slug"
+    return 0
+  fi
+  # Microsoft Graph: cada pasta do espelho é refeita do servidor a cada sync e nada volta para lá; o IMAP não
+  # aceita o token do Graph, então procurar a lixeira lá (--corrigir) só daria erro de login.
+  if email_graph; then
+    printf 'aviso\tMicrosoft Graph: o espelho é refeito do servidor e ✕ Apagar tira só a cópia local (a mensagem volta no próximo sync)\tapagar e arquivar no Outlook (web ou celular)\n'
+    return 0
+  fi
   [[ ${E[provedor]:-} == gmail || ${E[imap_host]:-} == imap.gmail.com ]] && g=1
   l=${E[pasta_lixeira]:-}
   if [[ -z $l ]]; then
@@ -18522,7 +18841,11 @@ email_cmds_estado() { # slug
 email_cmds_corrigir() { # slug
   local s=$1 l md; local -A E=()
   email_ler "$s" || return 1
-  if [[ -z ${E[pasta_lixeira]:-} && -z ${TT_EMAIL_SEM_REDE:-} ]]; then
+  if [[ -z ${E[pasta_lixeira]:-} ]] && email_graph; then
+    echo "  · $s é Graph: as pastas especiais são as do espelho (Lixeira, Enviados, Rascunhos, Spam)"
+    email_detectar_pastas "$s"
+    E=(); email_ler "$s"
+  elif [[ -z ${E[pasta_lixeira]:-} && -z ${TT_EMAIL_SEM_REDE:-} ]]; then
     echo "  · procurando as pastas especiais de $s no servidor…"
     email_detectar_pastas "$s" || echo "  ✗ não consegui consultar o servidor (rede ou login: tt --email-testar $s)"
     E=(); email_ler "$s"
@@ -18560,7 +18883,7 @@ email_conferir() {
   ((${#slugs[@]})) || { echo "Nenhuma conta de e-mail cadastrada."; return 0; }
   for s in "${slugs[@]}"; do
     IFS=$'\t' read -r st res cor < <(email_cmds_estado "$s")
-    if ((corr)) && [[ $st != ok ]]; then
+    if ((corr)) && [[ $st != ok ]] && ! email_sem_token "$s"; then
       email_cmds_corrigir "$s"
       IFS=$'\t' read -r st res cor < <(email_cmds_estado "$s")
     fi
@@ -18684,11 +19007,14 @@ email_lote() {
 }
 
 # Pergunta ao servidor as pastas especiais e regrava o bloco. Sem rede/credencial: mantém o que havia.
+# Conta Microsoft em modo Graph não tem IMAP para perguntar: o espelho dela tem nomes fixos (os do
+# GRAPH_PASTAS_EXTRA do email-tt.py), e o --corrigir acusava "não consegui consultar o servidor" para sempre.
 email_detectar_pastas() {
   local slug=$1 k v saida; local -A E=()
   command -v python3 >/dev/null || return 1
   email_ler "$slug" || return 1
-  saida=$(timeout 40 python3 "$EMAIL_PY" pastas "$(email_conf_arq "$slug")" 2>/dev/null) || return 1
+  if email_graph; then saida=$'enviados=Enviados\nlixeira=Lixeira\nrascunhos=Rascunhos\nspam=Spam'
+  else saida=$(timeout 40 python3 "$EMAIL_PY" pastas "$(email_conf_arq "$slug")" 2>/dev/null) || return 1; fi
   for k in todos enviados lixeira rascunhos spam naoabre importantes estrela; do E[pasta_$k]=""; done
   while IFS='=' read -r k v; do [[ -n $k && -z ${E[pasta_$k]:-} ]] && E[pasta_$k]=$v; done <<<"$saida"
   email_gravar; email_regerar "$slug"
@@ -18707,15 +19033,38 @@ email_conta_resolver() { # slug|nome|endereço → slug
   return 1
 }
 email_enviar_cli() {
-  local conta="" s padrao; local -a resto=()
+  local conta="" s padrao ensaio=0 ui=0 proprio=0 destino=0 arg id rc n enviados=0
+  local -a resto=() tarefas=() assuntos=() corpos=() bases=()
   while (($#)); do
     case $1 in
-      --conta|--de|--account|--from) conta=${2:-}; shift 2 || { echo "✗ $1 pede um valor" >&2; return 2; } ;;
+      -h|--help|--ajuda) python3 "$EMAIL_PY" enviar /dev/null --ajuda; return $? ;;
+      --conta|--de|--account|--from) [[ -n ${2:-} ]] || { echo "✗ $1 pede um valor" >&2; return 2; }; conta=$2; shift 2 ;;
       --conta=*|--de=*|--account=*|--from=*) conta=${1#*=}; shift ;;
+      --tarefa|--task) [[ -n ${2:-} ]] || { echo "✗ $1 pede um valor" >&2; return 2; }; tarefas+=("$2"); shift 2 ;;
+      --tarefa=*|--task=*) tarefas+=("${1#*=}"); shift ;;
+      --tarefas-ui) ui=1; shift ;;
+      --ensaio|--dry-run) ensaio=1; resto+=("$1"); shift ;;
+      --sem-assinatura|--no-signature) resto+=("$1"); shift ;;
+      --*)
+        arg=${1%%=*}
+        case $arg in --assunto|--subject|--corpo|--body|--corpo-arquivo|--body-file|--html|--html-arquivo|--html-file) proprio=1 ;; esac
+        case $arg in --para|--to) destino=1 ;; esac
+        case $arg in
+          --para|--to|--cc|--cco|--bcc|--assunto|--subject|--corpo|--body|--corpo-arquivo|--body-file|--html|--html-arquivo|--html-file|--anexo|--attach|--attachment|--responder-para|--reply-to|--em-resposta-a|--in-reply-to)
+            if [[ $1 == *=* ]]; then resto+=("$1"); shift
+            else (($# >= 2)) || { echo "✗ $1 pede um valor" >&2; return 2; }; resto+=("$1" "$2"); shift 2; fi ;;
+          *) echo "✗ opção desconhecida: $1" >&2; return 2 ;;
+        esac ;;
       *) resto+=("$1"); shift ;;
     esac
   done
-  case ${resto[0]:-} in -h|--help|--ajuda) python3 "$EMAIL_PY" enviar /dev/null --ajuda; return 0 ;; esac
+  if ((proprio && (ui || ${#tarefas[@]}))); then
+    echo '✗ com tarefas, assunto e corpo vêm da tarefa; não combine com --assunto, --corpo ou --html' >&2; return 2
+  fi
+  if ((ui)); then
+    tarefas_email_enviar_ui "$conta" "$ensaio" "$destino" "${#tarefas[@]}" "${tarefas[@]}" "${resto[@]}"
+    return $?
+  fi
   command -v python3 >/dev/null || { echo "✗ precisa do python3 para enviar" >&2; return 1; }
   if [[ -n $conta ]]; then
     s=$(email_conta_resolver "$conta") || { echo "✗ conta não encontrada: $conta (tt --email-listar)" >&2; return 2; }
@@ -18729,7 +19078,81 @@ email_enviar_cli() {
       s=${todas[0]}
     fi
   fi
-  python3 "$EMAIL_PY" enviar "$(email_conf_arq "$s")" "${resto[@]}"
+  if ((${#tarefas[@]} == 0)); then
+    python3 "$EMAIL_PY" enviar "$(email_conf_arq "$s")" "${resto[@]}"
+    return $?
+  fi
+  ((destino)) || { echo '✗ envio de tarefa exige --para ENDEREÇO' >&2; return 2; }
+  local -a ids=(); local vistos=' '
+  for arg in "${tarefas[@]}"; do
+    id=$(tarefas_resolver "$arg") || { echo "✗ tarefa não encontrada ou ambígua: $arg" >&2; return 2; }
+    [[ $vistos == *" $id "* ]] && continue
+    vistos+="$id "; ids+=("$id")
+    tarefa_email_dados "$id" || return 2
+    assuntos+=("$TAREFA_EMAIL_ASSUNTO"); corpos+=("$TAREFA_EMAIL_CORPO"); bases+=("${TAREFA_EMAIL_BASE:-}")
+    # Valida todo o lote antes de transmitir a primeira mensagem.
+    printf '%s' "$TAREFA_EMAIL_CORPO" | python3 "$EMAIL_PY" enviar "$(email_conf_arq "$s")" "${resto[@]}" --assunto "$TAREFA_EMAIL_ASSUNTO" --ensaio >/dev/null || return $?
+  done
+  if [[ ${TT_EMAIL_REVISAR:-} == 1 ]] && ((!ensaio)); then
+    local previa confirma
+    previa=$(for ((n = 0; n < ${#ids[@]}; n++)); do
+      printf '%s' "${corpos[n]}" | python3 "$EMAIL_PY" enviar "$(email_conf_arq "$s")" "${resto[@]}" --assunto "${assuntos[n]}" --ensaio || exit $?
+    done) || return $?
+    if [[ -t 0 && -t 1 ]] && command -v less >/dev/null; then
+      printf '%s\n' "$previa" | LESSCHARSET=utf-8 less -FX -P 'Prévia dos e-mails · setas/PgUp/PgDn rolam · q volta para confirmar'
+    else printf '%s\n' "$previa"; fi
+    email_pergunta confirma "Enviar os ${#ids[@]} e-mail(s) acima? [s/N]" n || return 0
+    [[ ${confirma,,} == s || ${confirma,,} == sim ]] || { echo 'Envio cancelado; nenhum e-mail foi enviado.'; return 0; }
+  fi
+  for ((n = 0; n < ${#ids[@]}; n++)); do
+    printf '\nTarefa %s (%s/%s)\n' "$(tarefa_slug "${ids[n]}")" "$((n + 1))" "${#ids[@]}"
+    printf '%s' "${corpos[n]}" | python3 "$EMAIL_PY" enviar "$(email_conf_arq "$s")" "${resto[@]}" --assunto "${assuntos[n]}" || {
+      rc=$?; echo "✗ lote interrompido: $enviados e-mail(s) já enviado(s); falhou na tarefa ${ids[n]}." >&2; return "$rc";
+    }
+    if ((!ensaio)); then
+      enviados=$((enviados + 1))
+      tarefa_base_gravar "${ids[n]}" "${bases[n]}" || echo "⚠ e-mail enviado; não consegui guardar a base da tarefa ${ids[n]}" >&2
+    fi
+  done
+  return 0
+}
+
+# Seletor do utilitário: mostra ensaio de cada e-mail e pede confirmação antes de enviar.
+tarefas_email_enviar_ui() {
+  local conta=$1 ensaio=$2 destino=$3 qtd=$4; shift 4
+  local -a ids=("${@:1:qtd}"); shift "$qtd"
+  local -a base=("$@") todas=() lote=(); local id dest confirma opcoes='' s
+  if ((${#ids[@]} == 0)); then
+    command -v fzf >/dev/null || { echo '✗ precisa do fzf para selecionar tarefas' >&2; return 1; }
+    mapfile -t ids < <(tarefas_topo_ordenadas | awk -F'\t' '$2 == "aberta" || $2 == "feita" { print $1 }' | while read -r id; do
+    printf '%s\t%s  %s\n' "$id" "$(tarefa_slug "$id")" "$(tarefas_raw | awk -F'\t' -v i="$id" '$1 == i { print $5; exit }')"; done |
+    fzf --multi --delimiter=$'\t' --with-nth=2 --prompt='tarefas a enviar (Tab marca, ⏎ confirma) > ' --height=100% --reverse | cut -f1)
+  fi
+  ((${#ids[@]})) || return 0
+  if [[ -z $conta ]]; then
+    mapfile -t todas < <(email_slugs)
+    ((${#todas[@]})) || { echo '✗ cadastre uma conta no menu do 📧 → Contas'; return 2; }
+    if ((${#todas[@]} == 1)); then conta=${todas[0]}
+    else
+      for s in "${todas[@]}"; do
+        local -A E=(); email_ler "$s" || continue
+        opcoes+="$s"$'\t'"${E[nome]:-$s} · ${E[endereco]:-}"$'\n'
+      done
+      email_escolher conta 'Conta de envio' "$(email_conta_resolver "$(conf email_padrao)" 2>/dev/null)" "$opcoes" || return 0
+    fi
+  fi
+  base+=(--conta "$conta")
+  if ((!destino)); then
+    email_pergunta dest 'Para (endereços separados por vírgula; vazio cancela)' "$(cat "$ESTADO_DIR/tarefas-email-ultimo" 2>/dev/null)" || return 0
+    [[ -n $dest ]] || return 0
+    mkdir -p "$ESTADO_DIR"; printf '%s' "$dest" >"$ESTADO_DIR/tarefas-email-ultimo"
+    base+=(--para "$dest")
+  fi
+  for id in "${ids[@]}"; do lote+=(--tarefa "$id"); done
+  local rc=0
+  TT_EMAIL_REVISAR=1 email_enviar_cli "${base[@]}" "${lote[@]}" || rc=$?
+  [[ -t 0 && -t 1 ]] && email_pausa
+  return "$rc"
 }
 
 email_testar_slug() {
@@ -18746,24 +19169,34 @@ email_testar_slug() {
 }
 
 # Graph de leitura: troca o INBOX local pelas mensagens do Microsoft Graph (as últimas
-# TT_EMAIL_GRAPH_MAX, 500 por padrão). O aerc continua lendo maildir; o vigia chama por aqui.
-email_graph_sync() { # slug [inbox|completo]
-  local slug=${1:?} modo=${2:-inbox} conf dir ini fim st lock
+# TT_EMAIL_GRAPH_MAX, 500 por padrão). O aerc continua lendo maildir; o vigia chama por aqui e, como
+# no mbsync, respeita a espera depois de uma rodada ruim. Conta sem token nesta máquina não vai à rede:
+# a causa fica no .erro (pedir um token com o refresh token vazio dava só "'access_token'" a cada volta).
+email_graph_sync() { # slug [inbox|completo] [vigia]
+  local slug=${1:?} modo=${2:-inbox} quem=${3:-} conf dir ini fim st lock
   conf=$(email_conf_arq "$slug"); [[ -f $conf ]] || return 1
   dir="${ESTADO_DIR:?}/email-sync"; mkdir -p "$dir"
+  [[ $quem == vigia ]] && (($(date +%s) < $(cat "$dir/$slug.espera" 2>/dev/null || echo 0))) && return 0
   lock="$EMAIL_MBSYNC_DIR/$slug.lock"; mkdir -p "$EMAIL_MBSYNC_DIR"
   exec 9>"$lock" 2>/dev/null || return 0
   flock -n 9 || { printf 'pulada\t%s\t%s\t0\n' "$(date +%s)" "$(date +%s)" >>"$dir/$slug"; return 0; }
   ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
-  # Conta com classificar=1 (token de escrita Mail.ReadWrite): organiza o INBOX no servidor por regra
-  # ANTES de espelhar, para o maildir já vir organizado. Best-effort: nunca derruba o sync.
-  grep -q '^classificar=1' "$conf" && timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-classificar "$conf" "${TT_EMAIL_GRAPH_MAX:-500}" >"$dir/$slug.classif" 2>&1
   # Modo completo: além do INBOX, espelha Enviados/Lixeira/Rascunhos/Spam/Arquivo (o Python decide).
-  timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-sync "$conf" "$(email_maildir "$slug")" "${TT_EMAIL_GRAPH_MAX:-500}" "$modo" >"$dir/$slug.saida.tmp" 2>"$dir/$slug.erro.tmp"; st=$?
+  if email_sem_token "$slug"; then echo "conta ainda não autorizada nesta máquina: tt --email-autorizar $slug" >"$dir/$slug.erro.tmp"; st=1
+  else
+    # Conta com classificar=1 (token de escrita Mail.ReadWrite): organiza o INBOX no servidor por regra
+    # ANTES de espelhar, para o maildir já vir organizado. Best-effort: nunca derruba o sync. Sem token, nem tenta
+    # (ia à Microsoft a cada volta só para falhar, e o .classif guardava o erro de login como se fosse da classificação).
+    grep -q '^classificar=1' "$conf" && timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-classificar "$conf" "${TT_EMAIL_GRAPH_MAX:-500}" >"$dir/$slug.classif" 2>&1
+    timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-sync "$conf" "$(email_maildir "$slug")" "${TT_EMAIL_GRAPH_MAX:-500}" "$modo" >"$dir/$slug.saida.tmp" 2>"$dir/$slug.erro.tmp"; st=$?
+  fi
   fim=$(date +%s); printf '%s\t%s\t%s\t%s\n' "$modo" "$ini" "$fim" "$st" >>"$dir/$slug"
   tail -n 200 "$dir/$slug" >"$dir/$slug.tmp" 2>/dev/null && mv "$dir/$slug.tmp" "$dir/$slug"
   if ((st == 0)); then rm -f "$dir/$slug.erro" "$dir/$slug.erro.tmp" "$dir/$slug.espera" "$dir/$slug.falhas"
-  else { ((st == 124)) && echo "tempo esgotado (${TT_EMAIL_GRAPH_TETO:-240} s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } >"$dir/$slug.erro"; rm -f "$dir/$slug.erro.tmp"; fi
+    [[ $modo == completo ]] && rm -f "$dir/$slug.erro-completo"
+  else { ((st == 124)) && echo "tempo esgotado (${TT_EMAIL_GRAPH_TETO:-240} s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } | email_sem_segredo >"$dir/$slug.erro"; rm -f "$dir/$slug.erro.tmp"
+    [[ $modo == completo ]] && cp -f "$dir/$slug.erro" "$dir/$slug.erro-completo"
+    email_sync_esperar "$slug" "$fim"; fi
   rm -f "$dir/$slug.andamento"
   exec 9>&-
   email_novos_avisar "$slug"; demandas_processar_conta "$slug"; atualizar_barras 2>/dev/null
@@ -18855,7 +19288,11 @@ email_pedir_segredo() {
         printf 'ou informe o client_id de um app seu (portal do Azure).\n'
         email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-outlook}"
         email_app_padrao_id
-        [[ ${E[oauth_client_id]} == "$EMAIL_OUTLOOK_MOBILE_ID" ]] && printf '✓ Outlook Mobile: %s…\n' "${EMAIL_OUTLOOK_MOBILE_ID:0:13}"
+        case ${E[oauth_client_id]} in
+          "$EMAIL_OUTLOOK_MOBILE_ID") printf '✓ Outlook Mobile: %s… (Microsoft Graph)\n' "${EMAIL_OUTLOOK_MOBILE_ID:0:13}" ;;
+          "$EMAIL_MICROSOFT_ID") printf '✓ App do tt: %s… (IMAP/SMTP)\n' "${EMAIL_MICROSOFT_ID:0:13}" ;;
+          "$EMAIL_THUNDERBIRD_ID") printf '✓ Thunderbird: %s… (IMAP/SMTP)\n' "${EMAIL_THUNDERBIRD_ID:0:13}" ;;
+        esac
       else
         [[ ${E[provedor]} == gmail ]] && printf 'Google: ⏎ usa o app do próprio tt (recomendado); ou informe o client_id de um app\n"Desktop" seu (console.cloud.google.com → APIs e serviços → Credenciais).\n'
         email_pergunta 'E[oauth_client_id]' 'client_id' "${E[oauth_client_id]:-}"
@@ -20004,7 +20441,7 @@ case "${1:-}" in
   --diagnosticar) shift; diagnosticar "${1:-}"; exit ;;
   --reparar) shift; reparar "${1:-}"; exit ;;
   --saude) saude; exit ;;
-  --registrar) registrar "$2" "$3" "$4"; exit ;;
+  --registrar) apresentada "$2" "$3" "$4"; exit ;;
   --malha-lista) malha_lista; exit ;;
   --estado-maquina) estado_aplicar "$2" "$3" "$4"; exit ;;
   --malha-completar) malha_completar; exit ;;
@@ -20043,6 +20480,7 @@ case "${1:-}" in
   --abrir-url) abrir_url "${2:-}"; exit 0 ;;
   --abrir-link) abrir_link "${2:-}"; exit 0 ;;
   --abrir-aqui) TT_ABRIR_AQUI=1 abrir_com "${2:?uso: tt --abrir-aqui sistema|chromium URL}" "${3:?uso: tt --abrir-aqui sistema|chromium URL}"; exit ;;
+  --abrir-na-tela-falhou) abrir_na_tela_falhou "${2:-}" "${3:-}"; exit ;;
   --chrome-falhou) chrome_falhou "${2:-}" "${3:-}"; exit 0 ;;
   --link-abrir) link_abrir "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit 0 ;;
   --link-copiar) link_copiar "${2:-}" "${3:-}"; exit 0 ;;

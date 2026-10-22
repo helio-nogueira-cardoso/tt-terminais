@@ -18,7 +18,10 @@ esac
 TS
 chmod +x "$T/bin/tailscale"
 export PATH="$T/bin:$PATH"
-eval "$(sed -n '/^tailscale_alcanca() {/,/^}/p; /^diagnosticar_conexao() {/,/^}/p' "$TT")"
+eval "$(sed -n '/^tailscale_alcanca() {/,/^}/p; /^diagnosticar_conexao() {/,/^}/p; /^mtu_quebrada() {/,/^}/p' "$TT")"
+# ping falso: PING_MODO=mtu, só o pequeno (-s 1000) volta; senão nenhum (o diagnóstico não acusa MTU sem o pequeno)
+ping() { [[ ${PING_MODO:-} == mtu && " $* " == *" -s 1000 "* ]]; }
+uname() { echo Linux; }
 SSH_OPC=()
 ssh() { return 0; }   # a autenticação não é o assunto aqui
 sleep() { :; }
@@ -35,3 +38,14 @@ r=$(SSH_ERRO='Not allowed at this time' diagnosticar_conexao u@desconhecido); [[
 r=$(SSH_ERRO='Could not resolve hostname host' diagnosticar_conexao u@desconhecido); [[ $r == dns ]] || falhou "falha DNS: '$r'"
 r=$(SSH_ERRO='Connection reset by peer port 22' diagnosticar_conexao u@desconhecido); [[ $r == conexao-interrompida ]] || falhou "reset não é porta fechada: '$r'"
 passou 'recusa temporária SSH e erro DNS têm diagnósticos distintos'
+r=$(SSH_ERRO='ssh: connect to host h port 22: No route to host' diagnosticar_conexao u@desconhecido); [[ $r == sem-rota ]] || falhou "sem rota: '$r'"
+passou 'No route to host é sem-rota (não "falha não classificada")'
+# Rota com MTU menor que o túnel (WSL com eth0 em 1280): o ping pequeno passa, o de 1280 some; o ssh para no KEX e
+# o sshd de lá reseta (castigo) ou o timeout mata o ssh calado.
+r=$(PING_MODO=mtu SSH_ERRO='kex_exchange_identification: read: Connection reset by peer' diagnosticar_conexao u@desconhecido)
+[[ $r == mtu ]] || falhou "reset com o ping grande sumindo deveria dar mtu, deu '$r'"
+r=$(PING_MODO=mtu SSH_ERRO='Connection timed out' diagnosticar_conexao u@desconhecido); [[ $r == mtu ]] || falhou "timeout + MTU: '$r'"
+r=$(PING_MODO=nenhum SSH_ERRO='Connection timed out' diagnosticar_conexao u@desconhecido); [[ $r == timeout ]] || falhou "timeout sem ping nenhum: '$r'"
+uname() { echo Darwin; }
+r=$(PING_MODO=mtu SSH_ERRO='Connection reset by peer' diagnosticar_conexao u@desconhecido); [[ $r == conexao-interrompida ]] || falhou "fora do Linux não sonda o MTU: '$r'"
+passou 'ping pequeno passa e o do tamanho do túnel não: mtu (só no Linux)'

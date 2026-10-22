@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tt-teste: sozinho (mede tempo: roda sem outros testes disputando a máquina)
-# Interface real (tmux.conf instalado, cliente anexado): Alt+arrastar copia sobre app que captura o mouse,
+# Interface real (tmux.conf instalado, cliente anexado): só Ctrl+arrastar copia sobre app que captura o mouse,
 # central que fecha rápido no Esc mesmo com máquina lenta, pino 📍/📌 e ✕ das fixadas.
 source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado
 echo copia_entre_maquinas=0 >>"$XDG_CONFIG_HOME/tt/config"
@@ -11,22 +11,32 @@ tmux -f "$HOME/.tmux.conf" new -d -s app -x 100 -y 20 "bash $T/app.sh" 2>/dev/nu
 anexar v 100 22 app; sleep 2
 [[ $(tmux display -p -t '=app:' '#{mouse_any_flag}') == 1 ]] || falhou 'app de teste não capturou o mouse'
 fora send -t v -l $'\e[<8;1;2M\e[<40;8;2M\e[<40;20;2M\e[<8;20;2m'; sleep 1.5
-[[ $(tmux save-buffer - 2>/dev/null) == "copiar isto"* ]] || falhou "Alt+arrastar sobre app com mouse não copiou: '$(tmux save-buffer - 2>/dev/null)'"
+[[ -z $(tmux save-buffer - 2>/dev/null) ]] || falhou 'Alt+arrastar copiou sem Ctrl'
+fora send -t v -l $'\e[<16;1;2M\e[<48;8;2M\e[<48;20;2M\e[<16;20;2m'; sleep 1.5
+[[ $(tmux save-buffer - 2>/dev/null) == "copiar isto"* ]] || falhou "Ctrl+arrastar sobre app com mouse não copiou: '$(tmux save-buffer - 2>/dev/null)'"
 [[ -n $(ls "$HOME/.cache/tt-copias" 2>/dev/null) ]] || falhou 'cópia não entrou no histórico'
-passou 'Alt+arrastar copia mesmo sobre app que captura o mouse, e entra no histórico'
+passou 'só Ctrl+arrastar copia sobre app que captura o mouse, e entra no histórico'
 
 # Central com uma máquina que não responde: o Esc fecha o quadro na hora.
 printf '192.0.2.1 ninguem lenta\n' >"$XDG_CONFIG_HOME/tt/maquinas"
 c=$(tmux list-clients -F '#{client_name}' | head -1)
 aberto() { fora capture-pane -p -t v | grep -c '╭'; }
 for espera in 0.3 1.5; do
-  tmux display-popup -c "$c" -E -w 90% -h 80% "TT_CLIENTE='$c' $TT" & sleep "$espera"
-  [[ $(aberto) -ge 1 ]] || falhou 'central não abriu'
+  tmux display-popup -c "$c" -E -w 90% -h 80% "TT_CLIENTE='$c' $TT" & popup_pid=$!
+  # A borda do popup aparece antes do fzf. No Mac, mandar Esc após 0,3 s atingia a
+  # inicialização, antes de haver leitor de teclado; espere a lista, não só a borda.
+  pronta=0
+  for ((i = 0; i < 80; i++)); do
+    if fora capture-pane -p -t v | grep '│' | grep -q 'app'; then pronta=1; break; fi
+    sleep 0.1
+  done
+  ((pronta)) || falhou 'central não mostrou a lista de sessões'
+  sleep "$espera"
   fora send -t v Escape; t0=$(date +%s%N)
   while (( $(aberto) > 0 )); do sleep 0.05; (( ($(date +%s%N) - t0) / 1000000 > 3000 )) && break; done
   ms=$(( ($(date +%s%N) - t0) / 1000000 ))
   (( ms < 1000 )) || falhou "central com máquina lenta levou ${ms} ms para fechar (Esc após ${espera}s)"
-  wait 2>/dev/null || true
+  wait "$popup_pid" 2>/dev/null || true
 done
 passou "Esc fecha a central em menos de 1 s mesmo com máquina sem resposta"
 : >"$XDG_CONFIG_HOME/tt/maquinas"

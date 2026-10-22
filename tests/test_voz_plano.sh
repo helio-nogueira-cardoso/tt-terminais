@@ -179,6 +179,11 @@ r=$("$TT" --busca-conversas "migração legado")
 [[ -z $("$TT" --busca-conversas "assunto-que-nao-existe-xyz") ]] || falhou 'busca sem resultado devia ficar vazia'
 # a busca por SESSÃO da central não mistura as conversas antigas (sessão vazia)
 [[ -z $(python3 -I "$RAIZ/busca-tt.py" consultar "zebralaranja") ]] || falhou 'o histórico não pode virar sessão na central'
+# a volta dos painéis (o vigia a roda a cada 180 s, antes da das conversas antigas) não esquece as conversas antigas: apagava
+# todas, e a busca ficava vazia até a volta seguinte reindexar (60 s de CPU a cada 3 min, sem nunca terminar)
+printf 'site\t%s\t\t\n' "$(tmux display-message -p -t =site: '#{pane_id}')" >"$T/paineis.tsv"
+python3 -I "$RAIZ/busca-tt.py" indexar "$T/paineis.tsv" >/dev/null
+[[ -n $("$TT" --busca-conversas "conciliacao zebralaranja") ]] || falhou 'a volta dos painéis apagou as conversas antigas do índice'
 # incremental: segunda volta não reindexa nada; conversa anexada volta; conversa apagada sai
 out=$(python3 -I "$RAIZ/busca-tt.py" conversas-indexar --dias 365 --orcamento 120); [[ $out == "conversas: 0 indexadas agora"* ]] || falhou "incremental: $out"
 echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"novidade PAPAGAIOROXO"}]}}' >> "$HOME/.claude/projects/-tmp-bimo/$CL.jsonl"

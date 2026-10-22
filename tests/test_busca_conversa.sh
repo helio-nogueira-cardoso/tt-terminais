@@ -74,4 +74,24 @@ est=$("$RAIZ/tt" --busca estado); [[ $est == *"ligada"* && $est != *"desligada"*
 "$RAIZ/tt" --cabecalho 2>/dev/null | grep -q 'conversa' || true
 grep -q 'change:transform(\$EU --busca-mudou)' "$RAIZ/tt" || falhou 'a central não liga o change ao índice'
 grep -q 'busca-tt.py' "$RAIZ/tt" || falhou 'busca-tt.py fora do pacote'
+
+# o índice copia as conversas inteiras: só o dono lê (o Claude grava as dele com 600), e um índice antigo com 644 se fecha
+modo() { ls -ln "$1" | cut -c1-10; }
+[[ $(modo "$TT_BUSCA_DB") == -rw------- ]] || falhou "índice com modo aberto: $(modo "$TT_BUSCA_DB")"
+chmod 644 "$TT_BUSCA_DB"; $BU estado >/dev/null
+[[ $(modo "$TT_BUSCA_DB") == -rw------- ]] || falhou "índice antigo com 644 deveria virar 600: $(modo "$TT_BUSCA_DB")"
+
+# o trecho ao lado do nome na central é cortado por caractere, no busca-tt.py: o substr do mawk (e do awk do macOS) é por
+# byte e partia o "ç" ou o "…" ao meio (a lista mostrava "�"); "informação" repetida passa dos 70 caracteres
+tmux send-keys -t =outra: -l "echo '$(printf 'informação %.0s' $(seq 1 20))fim'"; tmux send-keys -t =outra: Enter
+sleep 0.5
+printf 'outra\t%s\t\t\n' "$P2" >>"$TSV"; $BU indexar "$TSV" >/dev/null
+tr=$($BU consultar informacao | cut -f4)
+[[ -n $tr ]] && (( $(printf '%s' "$tr" | python3 -c 'import sys; print(len(sys.stdin.buffer.read().decode("utf-8")))') <= 71 )) ||
+  falhou "trecho deveria vir cortado em 70 caracteres: '$tr'"
+"$RAIZ/tt" --listar-tudo >/dev/null 2>&1
+l=$("$RAIZ/tt" --listar-busca informacao)
+[[ $l == *"‹$tr›"* ]] || falhou "a central deveria mostrar o trecho como o índice o deu: '$l'"
+printf '%s' "$l" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null ||
+  falhou "trecho da central com caractere partido: '$l'"
 echo 'ok: busca na conversa inteira e no scrollback inteiro (FTS5), reindexação incremental e verbos do tt'

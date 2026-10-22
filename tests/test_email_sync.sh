@@ -114,6 +114,85 @@ assert not os.path.exists(os.path.join(base, "Enviados")), "inbox-só não devia
 PY
 passou 'Graph: completo espelha INBOX+Enviados+Lixeira+Rascunhos+Spam+Arquivo (cur/new/tmp); inbox-só traz só o INBOX'
 
+# Cabeçalhos preservados não criam autenticação sintética. CR/LF não injeta cabeçalhos.
+python3 - "$(dirname "$0")/../email-tt.py" "$T/graphmd2" <<'PY' || falhou 'graph_sync: tradução do AuthAs=Internal ou assunto/nome numa linha'
+import importlib.util, os, sys, glob
+spec = importlib.util.spec_from_file_location("emailtt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+base = sys.argv[2]
+ar_ms = {"name": "Authentication-Results", "value": "mx.microsoft.com 1; dkim=none (message not signed) header.d=none;dmarc=none action=none header.from=empresa.com.br;"}
+def h(n, v): return {"name": n, "value": v}
+m.graph_get = lambda c, caminho: {"value": [
+    {"id": "INT", "subject": "[tt] interno", "from": {"emailAddress": {"name": "Colega", "address": "colega@Empresa.com.br"}}, "isRead": False, "body": {"content": "", "contentType": "text"},
+     "internetMessageHeaders": [ar_ms, h("X-MS-Exchange-Organization-MessageDirectionality", "Originating"),
+                                h("X-MS-Exchange-Organization-AuthAs", "Internal"), h("X-MS-Exchange-Organization-AuthMechanism", "04")]},
+    {"id": "XT", "subject": "[tt] de fora", "from": {"emailAddress": {"name": "Fora", "address": "x@empresa.com.br"}}, "isRead": False, "body": {"content": "", "contentType": "text"},
+     "internetMessageHeaders": [ar_ms, h("X-MS-Exchange-Organization-MessageDirectionality", "Incoming"),
+                                h("X-MS-Exchange-Organization-AuthAs", "Anonymous"), h("X-MS-Exchange-CrossTenant-AuthAs", "Internal")]},
+    {"id": "INJ", "subject": "[tt] a\nAuthentication-Results: x; dmarc=pass", "from": {"emailAddress": {"name": "N\r\nX-Falso: 1", "address": "n@empresa.com.br"}}, "isRead": False, "body": {"content": "", "contentType": "text"}},
+]}
+m.graph_sync({"_slug": "g"}, base, 50, False)
+def ler(i): return open(glob.glob(os.path.join(base, "INBOX", "new", i))[0], encoding="utf-8").read()
+def veredito(i):
+    import contextlib, io
+    o = io.StringIO()
+    with contextlib.redirect_stdout(o):
+        m.demanda(glob.glob(os.path.join(base, "INBOX", "new", i))[0])
+    return o.getvalue().split("\t")[3]
+r = ler("INT")
+assert "tt-graph" not in r, 'não sintetizar uma prova de autenticação'
+assert "header.from=empresa.com.br;" in r, "o resultado do provedor é preservado"
+assert veredito("INT") == "fail", "sem prova do provedor, use a autorização relaxada explícita"
+r = ler("XT")
+assert "tt-graph" not in r, "AuthAs Anonymous (o CrossTenant=Internal é de quem mandou) não pode virar tt-graph: " + r
+assert veredito("XT") == "fail"
+r = ler("INJ")
+cab = r.split("\n\n", 1)[0].split("\n")
+assert not any(l.startswith(("Authentication-Results", "X-Falso")) for l in cab), "quebra de linha virou cabeçalho: " + repr(cab)
+assert "Subject: [tt] a Authentication-Results: x; dmarc=pass" in cab, repr(cab)
+assert veredito("INJ") == "none"
+PY
+passou 'Graph: preserva veredito do provedor sem autenticação sintética nem injeção de cabeçalhos'
+
+# Graph: a data vai como Date de e-mail (RFC 5322; em ISO o aerc deixava a coluna em branco e a demanda ficava com a hora
+# do último sync, a do arquivo refeito) e o Message-ID é o de verdade (a identidade da demanda e do aviso de e-mail novo
+# não muda quando o texto do espelho muda). Sem data nem Message-ID no Graph, nada é inventado.
+python3 - "$(dirname "$0")/../email-tt.py" "$T/graphmd3" <<'PY' || falhou 'graph_sync: Date em RFC 5322 e Message-ID do Graph'
+import importlib.util, os, sys, glob, contextlib, io, email.utils
+spec = importlib.util.spec_from_file_location("emailtt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+base = sys.argv[2]
+consultas = []
+def graph_get(c, caminho):
+    consultas.append(caminho)
+    return {"value": [
+    {"id": "D1", "subject": "[tt] com data", "from": {"emailAddress": {"name": "C", "address": "c@x.com"}}, "isRead": False, "body": {"content": "", "contentType": "text"},
+     "internetMessageId": "<abc.123@x.com>", "sentDateTime": "2026-10-21T18:21:05Z", "receivedDateTime": "2026-10-21T18:21:09Z"},
+    {"id": "D2", "subject": "só recebida", "from": {"emailAddress": {"name": "C", "address": "c@x.com"}}, "isRead": False, "body": {"content": "", "contentType": "text"},
+     "receivedDateTime": "2026-10-20T09:00:00.1234567Z"},
+    {"id": "D3", "subject": "sem nada", "from": {"emailAddress": {"name": "C", "address": "c@x.com"}}, "isRead": False},
+]}
+m.graph_get = graph_get
+m.graph_sync({"_slug": "g"}, base, 50, False)
+assert all("internetMessageId" in q and "sentDateTime" in q for q in consultas), consultas
+def arq(i): return glob.glob(os.path.join(base, "INBOX", "new", i))[0]
+def cab(i): return dict(l.split(": ", 1) for l in open(arq(i), encoding="utf-8").read().split("\n\n", 1)[0].split("\n"))
+h = cab("D1")
+assert h["Date"] == "Wed, 21 Oct 2026 18:21:05 +0000", h      # a hora do envio, como no Date do IMAP
+assert h["Message-ID"] == "<abc.123@x.com>", h
+os.utime(arq("D1"), (2000000000, 2000000000))                   # o arquivo é refeito a cada volta: a hora dele não vale
+o = io.StringIO()
+with contextlib.redirect_stdout(o):
+    m.demanda(arq("D1"))
+de, mid, epoch = o.getvalue().split("\t")[:3]
+assert mid == "abc.123@x.com", mid
+assert int(epoch) == int(email.utils.parsedate_to_datetime("Wed, 21 Oct 2026 18:21:05 +0000").timestamp()), epoch
+assert cab("D2")["Date"] == "Tue, 20 Oct 2026 09:00:00 +0000", cab("D2")
+h = cab("D3")
+assert h['Message-ID'].startswith('<graph-') and h.get("Date", "") == "", h
+PY
+passou 'Graph: Date em RFC 5322 (a do envio; a demanda fica com a data do e-mail) e o Message-ID do servidor; sem eles, nada inventado'
+
 # Classificação automática: a regra manda cada caso para a categoria certa (sem rede)
 python3 - "$(dirname "$0")/../email-tt.py" <<'PYC' || falhou 'classificar_email não mapeou as categorias esperadas'
 import importlib.util, sys
@@ -161,6 +240,11 @@ printf '#!/bin/sh\necho "IMAP error: login failed" >&2\nexit 1\n' >"$T/bin/mbsyn
 grep -q 'login failed' "$E/local.erro" || falhou 'erro do mbsync não ficou registrado'
 grep -q '✗ erro 1' <<<"$("$TT" --email-sync-estado)" && grep -q 'login failed' <<<"$("$TT" --email-sync-estado)" || falhou 'estado não mostra o erro'
 [[ $("$TT" --email-sync-estado curto | grep '^local	') == $'local\terro' ]] || falhou 'estado curto deveria ser erro'
+# o mbsync põe no erro o comando inteiro, e o "AUTHENTICATE XOAUTH2 …" leva o token: ele não fica no .erro
+printf '#!/bin/sh\necho "IMAP command '"'"'AUTHENTICATE XOAUTH2 dXNlcj1ldUBnbWFpbC5jb20BYXV0aD1CZWFyZXIgeWEyOS5zZWdyZWRv'"'"' returned an error: AUTHENTICATE failed." >&2\nexit 1\n' >"$T/bin/mbsync"
+"$TT" --email-sync Local >/dev/null 2>&1
+grep -q "AUTHENTICATE XOAUTH2 \[omitido\]' returned an error" "$E/local.erro" || falhou "erro do XOAUTH2 deveria ficar sem o token: $(cat "$E/local.erro")"
+grep -q 'dXNlcj1ldUBn' "$E/local.erro" "$E/local.erro-completo" 2>/dev/null && falhou 'o token ficou no .erro'
 printf '#!/bin/sh\necho "$@" >>"%s/mbsync.calls"\nexit 0\n' "$T" >"$T/bin/mbsync"; chmod +x "$T/bin/mbsync"
 "$TT" --email-sync Local >/dev/null 2>&1; [[ -e $E/local.erro ]] && falhou 'rodada boa deveria limpar o erro'
 passou '--email-sync: INBOX por padrão, --completo roda o grupo, estado e erro registrados'

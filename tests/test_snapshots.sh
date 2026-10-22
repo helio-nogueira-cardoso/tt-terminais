@@ -29,7 +29,6 @@ grep -q "📸 Snapshots do estado (histórico e restaurar)" "$RAIZ/tt" || falhou
 grep -q "🔎 Busca na conversa inteira: " "$RAIZ/tt" || falhou 'menu administrar sem o item da busca (ligar/desligar)'
 grep -q "🍎 Atalhos no Mac" "$RAIZ/tt" || falhou 'menu administrar sem o item dos atalhos do Mac'
 grep -q -- '--expect=ctrl-o,ctrl-n' "$RAIZ/tt" || falhou 'tela dos snapshots sem ^o/^n'
-cli=$(tmux list-clients -F '#{client_name}' 2>/dev/null | head -1); : "${cli:=}"
 
 # --- desligado por padrão: evento não grava nada
 st=$("$TT" --snapshots status); [[ $st == *desligados* ]] || falhou 'deveria nascer desligado'
@@ -40,8 +39,10 @@ tmux new-session -d -s alfa -x 120 -y 40 -c "$T"
 # --- um agente de mentira: um processo chamado "claude" no painel, com a conversa registrada pelo pid
 mkdir -p "$T/proj" "$HOME/.claude/sessions"
 CONV=0aaa1111-2222-4333-8444-555566667777
-printf '#!/usr/bin/env bash\nsleep 600\n' >"$B/claude-falso"; chmod +x "$B/claude-falso"; nomear_script "$B/claude-falso" claude
-tmux new-session -d -s beta -x 120 -y 40 -c "$T/proj" "$B/claude-falso"
+# No Linux o processo leva o nome do script só com o interpretador direto no #! (o "env bash" troca o nome para "bash"):
+# o script se chama claude, numa pasta própria ($B/claude é outro falso, mais abaixo).
+mkdir -p "$T/agente"; printf '#!/bin/sh\nsleep 600\n' >"$T/agente/claude"; chmod +x "$T/agente/claude"; nomear_script "$T/agente/claude" claude
+tmux new-session -d -s beta -x 120 -y 40 -c "$T/proj" "$T/agente/claude"
 PIDB=$(tmux list-panes -t =beta: -F '#{pane_pid}' | head -1)
 printf '{"sessionId":"%s","status":"idle"}\n' "$CONV" >"$HOME/.claude/sessions/$PIDB.json"
 tmux split-window -t =alfa: -c "$T"; tmux new-window -t =alfa: -n segunda -c "$T"; tmux split-window -t =alfa:segunda -h -c "$T"
@@ -109,6 +110,31 @@ ID2=$("$TT" --snapshots-listar | sed -n 1p | cut -f1)
 printf '%s\talfa\tc1\n%s\tzeta\tc9\n' "$("$TT" --nome)" "$("$TT" --nome)" >"$FIX"
 "$TT" --snapshot-restaurar "$ID2" substituir gama >/dev/null 2>&1
 [[ $(cut -f2 "$FIX" | tr '\n' ' ') == "alfa beta " ]] || falhou "substituir deveria deixar as fixadas do snapshot: $(cat "$FIX")"
+
+# --- agente recém-retomado, ainda sem o sessions/<pid>.json: o Claude só o grava depois da pergunta "confia nesta pasta?", que na
+# home ele faz toda vez. Vale o código da linha de comando (o ia-conta retomar do snapshot), e a conversa de OUTRO Claude vivo da
+# mesma pasta nunca é a dele (era a mais nova da pasta: o snapshot guardava o código do vizinho). O Codex retomado, parado no
+# aviso de atualização, não mexe no arquivo da conversa: também vale o código da linha de comando.
+mkdir -p "$T/casa" "$T/ag2"; PJ=$HOME/.claude/projects/$(printf '%s' "$T/casa" | sed 's/[^A-Za-z0-9]/-/g'); mkdir -p "$PJ"
+RET=0fff1111-2222-4333-8444-555566667777; VIZ=0eee1111-2222-4333-8444-555566667777; CXR=0aab1111-2222-4333-8444-555566667777
+printf '{"type":"user"}\n' >"$PJ/$RET.jsonl"; touch -t 202610010000 "$PJ/$RET.jsonl"
+mkdir -p "$HOME/.codex/sessions/2026/10/19"; RO=$HOME/.codex/sessions/2026/10/19/rollout-2026-10-19T10-00-00-$CXR.jsonl
+printf '{"type":"session_meta","payload":{"cwd":"/outra/pasta"}}\n' >"$RO"; touch -t 202610010000 "$RO"
+printf '#!/bin/sh\nsleep 600\n' >"$T/ag2/claude"; printf '#!/bin/sh\nsleep 600\n' >"$T/ag2/codex"; chmod +x "$T/ag2/claude" "$T/ag2/codex"
+nomear_script "$T/ag2/claude" claude; nomear_script "$T/ag2/codex" codex
+sleep 60 </dev/null >/dev/null 2>&1 & VIZPID=$!   # o Claude vizinho: vivo, registrado, conversa na mesma pasta e mexida agora
+printf '{"sessionId":"%s","status":"busy"}\n' "$VIZ" >"$HOME/.claude/sessions/$VIZPID.json"
+tmux new-session -d -s eta -x 120 -y 40 -c "$T/casa" "$T/ag2/claude --dangerously-skip-permissions --resume $RET"
+tmux new-session -d -s teta -x 120 -y 40 -c "$T/casa" "$T/ag2/claude --dangerously-skip-permissions"
+tmux new-session -d -s iota -x 120 -y 40 -c "$T/casa" "$T/ag2/codex resume $CXR --dangerously-bypass-approvals-and-sandbox"
+sleep 1; printf '{"type":"user"}\n' >"$PJ/$VIZ.jsonl"
+"$TT" --snapshot-agora >/dev/null
+ver=$("$TT" --snapshot-ver "$("$TT" --snapshots-listar | sed -n 1p | cut -f1)")
+[[ $ver == *"claude 0fff1111"* ]] || falhou "o Claude retomado sem sessions/<pid>.json deveria ser a conversa do --resume: $ver"
+[[ $ver != *0eee1111* ]] || falhou "a conversa de outro Claude vivo da mesma pasta não pode ir para o snapshot: $ver"
+[[ $ver == *"codex 0aab1111"* ]] || falhou "o Codex retomado (sem mexer na conversa) deveria ser a conversa do resume: $ver"
+kill "$VIZPID" 2>/dev/null; wait "$VIZPID" 2>/dev/null || true
+tmux kill-session -t =eta; tmux kill-session -t =teta; tmux kill-session -t =iota
 
 # --- ia-conta retomar: cada provedor com o jeito certo de retomar e SEMPRE sem pedir permissões
 mkdir -p "$HOME/.claude/projects/-p" "$HOME/.codex/sessions/2026/10/20" "$HOME/.kiro/sessions/cli"

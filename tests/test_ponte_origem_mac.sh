@@ -2,12 +2,11 @@
 # Vendo uma máquina de outra (ponte), o clique numa sessão pede à máquina de origem que troque a tela (--ir-ponte). Em
 # 17/10/2026, do Mac vendo o Dell: (1) o Tailscale SSH do macOS devolve sempre 0, então o "não" de lá chegava como "sim"
 # e o Dell nem abria a ponte daqui; (2) numa rede travada o ssh ficou preso ~2 min sem aviso e os seis cliques chegaram
-# juntos ao Mac, trocando a tela seis vezes. Agora vale o "tt-ok" impresso lá, o pedido tem prazo (TT_T_PONTE) com aviso
+# juntos ao Mac, trocando a tela seis vezes. Agora vale o "tt-ok" impresso lá, o pedido tem prazo (TT_T_PONTE_SSH) com aviso
 # na tela, e o pedido atrasado (TT_PRAZO vencido) não troca nada.
 # ssh e tmux falsos: o ssh roda o comando "de lá" aqui mesmo e sai sempre 0, como o do Mac.
 source "$(dirname "$0")/lib.sh"; isolar
 B=$T/bin; mkdir -p "$B"
-ln -s "$BASH" "$B/bash" # bash -c precisa usar o mesmo executável da suíte, não um wrapper do PATH da máquina
 cat >"$B/tailscale" <<'FIM'
 #!/bin/sh
 echo '{}'
@@ -19,6 +18,7 @@ while ((i < ${#args[@]})); do case ${args[i]} in -o) i=$((i + 2)) ;; -*) i=$((i 
 cmd=${args[*]:i+1}
 printf '%s\n' "$cmd" >>"$T/ssh.log"
 [[ -e $T/ssh-trava ]] && sleep 30 >/dev/null 2>&1
+[[ -e $T/ssh-lento ]] && sleep 2
 # o tt "de lá" é um falso que anota e sai com o código de $T/remoto-rc
 TT_FALSO_REMOTO=1 bash -c "${cmd//\~\/.local\/bin\/tt/$T/remoto-tt}" >/dev/null 2>&1 &&
   [[ $cmd == *'&& echo tt-ok'* ]] && echo tt-ok
@@ -44,6 +44,9 @@ esac
 exit 0
 FIM
 chmod +x "$B"/* "$T/remoto-tt"
+# bash -c precisa usar o mesmo executável da suíte, não um wrapper do PATH da máquina. O link vem DEPOIS do chmod: o chmod
+# segue o link, e no Linux o /bin/bash é do root ("Operation not permitted" e, com o set -e, o teste saía 1 sem dizer nada).
+ln -s "$BASH" "$B/bash"
 mkdir -p "$HOME/.local/bin"
 ln -s "$B/tmux" "$HOME/.local/bin/tmux" # o comando remoto prepara este PATH antes de consultar a sessão
 export T PATH="$B:$TT_PATH_BASE"
@@ -80,13 +83,22 @@ passou 'ponte vinda do Mac: vale o "tt-ok" de lá, não o código de saída do s
 
 # --- a origem não responde (rede travada): avisa que espera, desiste no prazo, não troca nada
 echo 0 >"$T/remoto-rc"; touch "$T/ssh-trava"
-a=$(date +%s); TT_T_PONTE=3 clicar || true; dt=$(($(date +%s) - a))
+a=$(date +%s); TT_T_PONTE_SSH=3 clicar || true; dt=$(($(date +%s) - a))
 rm -f "$T/ssh-trava"
 ((dt <= 6)) || falhou "o clique ficou preso ${dt}s (prazo de 3 s)"
 grep -q 'esperando maq-o (a máquina desta tela) responder' "$T/tmux.log" || falhou "sem o aviso de espera: $(locais)"
 grep -q 'maq-o (a máquina desta tela) não respondeu; a tela não trocou' "$T/tmux.log" || falhou "sem o aviso de desistência: $(locais)"
 locais | grep -q 'new-session\|switch-client' && falhou "sem resposta da origem, a tela não pode trocar: $(locais)"
 passou 'origem que não responde: aviso de espera, desistência no prazo, nenhuma troca'
+
+# --- o TT_T_PONTE é o tempo para fechar a ponte ociosa (1800 s), não o prazo do clique: com ele em 1 s, a origem que
+# responde em 2 s ainda troca a tela (na v1.28.14 o prazo lia o TT_T_PONTE e desistia em 1 s)
+echo 0 >"$T/remoto-rc"; touch "$T/ssh-lento"
+TT_T_PONTE=1 clicar || true
+rm -f "$T/ssh-lento"
+grep -q -- "--ir-ponte ponte-o maq-o sessao-x" "$T/remoto.log" 2>/dev/null || falhou "com TT_T_PONTE=1, o pedido à origem lenta não chegou: $(locais)"
+grep -q 'não respondeu' "$T/tmux.log" && falhou "o TT_T_PONTE (ponte ociosa) cortou o prazo do clique: $(locais)"
+passou 'o prazo do clique tem nome próprio (TT_T_PONTE_SSH): o TT_T_PONTE da ponte ociosa não o corta'
 
 # --- do lado de lá: o pedido que chega depois do prazo não troca a tela; no prazo, troca
 eu=$(TT_SO_CARREGAR=1 "$BASH" -c 'source "$1"; echo "$MAQUINA"' _ "$TT")

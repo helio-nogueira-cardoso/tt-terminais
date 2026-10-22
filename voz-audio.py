@@ -1112,7 +1112,7 @@ def ssh_cmd(dest, comando, espera=3):
     if re.match(r"^[a-z0-9.-]+$", m):  # o modelo escolhido aqui vale na máquina que transcreve
         comando = "VOZ_MODELO=%s %s" % (m, comando)
     return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=%d" % espera, "-o", "ServerAliveInterval=10",
-            "-o", "ControlPath=%s/.cache/tt-ssh-%%r@%%h" % CASA, dest,
+            "-o", "ControlPath=%s/.cache/tt-ssh-%%C" % CASA, dest,
             'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ' + comando]
 
 

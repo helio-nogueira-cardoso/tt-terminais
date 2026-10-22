@@ -31,10 +31,23 @@ grep -qx 'graph=1' "$c" || falhou 'Microsoft padrão deveria usar Graph'
 grep -qx 'oauth_scope=offline_access https://graph.microsoft.com/.default' "$c" || falhou 'escopo Graph ausente'
 [[ -e $HOME/.secrets/aerc-msout.client_secret ]] && falhou 'app da Microsoft é cliente público: nada de segredo'
 "$TT" --email-adicionar nome=MsTb endereco=b@empresa.com provedor=microsoft auth=oauth oauth_client_id=thunderbird >/dev/null || falhou 'cadastro microsoft oauth thunderbird'
-grep -qx 'oauth_client_id=9e5f94bc-e8a4-4e73-b8be-63364c29d753' "$HOME/.config/tt/email/mstb.conf" || falhou '"thunderbird" deveria virar o ID público do Thunderbird'
-"$TT" --email-adicionar nome=MsTt endereco=t@empresa.com provedor=microsoft auth=oauth oauth_client_id=tt >/dev/null || falhou 'cadastro microsoft oauth tt'
-grep -qx 'oauth_client_id=fa7042a4-7b4f-4148-833b-ceb8ce1b8808' "$HOME/.config/tt/email/mstt.conf" || falhou '"tt" deveria virar o ID do app do tt (EMAIL_MICROSOFT_ID)'
-passou 'Microsoft: app do tt de fábrica, "thunderbird" e "tt" ainda disponíveis'
+c=$HOME/.config/tt/email/mstb.conf
+grep -qx 'oauth_client_id=9e5f94bc-e8a4-4e73-b8be-63364c29d753' "$c" || falhou '"thunderbird" deveria virar o ID público do Thunderbird'
+# Thunderbird e o app do tt só têm IMAP/SMTP: com o Graph (o padrão da v2.2.0), o "tt" ia literal para a Microsoft
+# (AADSTS50059) e o "thunderbird" pedia um token do Graph que não lê e-mail.
+imap='oauth_scope=offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send'
+grep -qx 'graph=0' "$c" && grep -qxF "$imap" "$c" || falhou "\"thunderbird\" deveria ficar em IMAP/SMTP: $(grep -E '^(graph|oauth_scope)=' "$c" | tr '\n' ' ')"
+"$TT" --email-adicionar nome=MsTt endereco=c@empresa.com provedor=microsoft auth=oauth oauth_client_id=tt >/dev/null || falhou 'cadastro microsoft oauth tt'
+c=$HOME/.config/tt/email/mstt.conf
+grep -qx 'oauth_client_id=fa7042a4-7b4f-4148-833b-ceb8ce1b8808' "$c" || falhou "\"tt\" deveria virar o ID do app do tt: $(grep oauth_client_id "$c")"
+grep -qx 'graph=0' "$c" && grep -qxF "$imap" "$c" || falhou "\"tt\" deveria ficar em IMAP/SMTP: $(grep -E '^(graph|oauth_scope)=' "$c" | tr '\n' ' ')"
+grep -q '^source *= imaps+xoauth2://' "$HOME/.config/aerc/accounts.conf" || falhou 'conta IMAP do app do tt sem o IMAP no aerc'
+# Escopo próprio informado no cadastro fica; graph=0 sem apelido também pede os escopos de IMAP/SMTP.
+"$TT" --email-adicionar nome=MsEsc endereco=d@empresa.com provedor=microsoft auth=oauth oauth_client_id=tt oauth_scope='offline_access https://outlook.office.com/IMAP.AccessAsUser.All' >/dev/null || falhou 'cadastro com escopo próprio'
+grep -qx 'oauth_scope=offline_access https://outlook.office.com/IMAP.AccessAsUser.All' "$HOME/.config/tt/email/msesc.conf" || falhou 'escopo próprio foi sobrescrito'
+"$TT" --email-adicionar nome=MsZero endereco=e@empresa.com provedor=microsoft auth=oauth graph=0 >/dev/null || falhou 'cadastro graph=0'
+grep -qxF "$imap" "$HOME/.config/tt/email/mszero.conf" || falhou "graph=0 deveria pedir os escopos de IMAP/SMTP: $(grep oauth_scope "$HOME/.config/tt/email/mszero.conf")"
+passou 'Microsoft: Outlook Mobile + Graph de fábrica; "thunderbird" e "tt" em IMAP/SMTP com os escopos certos'
 
 # Microsoft com o app do Thunderbird informado à mão; o padrão do Gmail não interfere.
 "$TT" --email-adicionar nome=Ms endereco=m@empresa.com provedor=microsoft auth=oauth oauth_client_id=9e5f94bc-e8a4-4e73-b8be-63364c29d753 >/dev/null || falhou 'cadastro microsoft oauth'

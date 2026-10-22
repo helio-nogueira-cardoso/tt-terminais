@@ -24,7 +24,7 @@ teto ia-rot "$PROC" 2 "$MSG_PROC"
 teto gatilho-tt.sh "$PROC" 2 "$MSG_PROC"
 teto letreiro-tt.py "$PROC" 6 "$MSG_PROC"
 teto links-tt.py "$PROC" 3 "$MSG_PROC"
-teto sessoes-ia.py "$PROC" 4 "$MSG_PROC"
+teto sessoes-ia.py "$PROC" 5 "$MSG_PROC" # 5º: args_processo (/proc/PID/cmdline, com o ps de retorno no macOS)
 teto voz-audio.py "$PROC" 2 "$MSG_PROC"
 teto nomeador-local.py "$PROC" 1 "$MSG_PROC"
 for f in email-tt.py contas-uso.py tarefas-merge.py letreiro-fontes.py telas-agentes.py aidlc-tt ia-login; do teto "$f" "$PROC" 0 "$MSG_PROC"; done
@@ -39,6 +39,8 @@ passou 'sem C.UTF-8 novo'
 #    ("_tt-email not found"). Em string de comando use $(q "=$sessao") ou '=sessao' entre aspas.
 teto tt "(attach|attach-session|switch-client)[^'\"]* -t =[A-Za-z_\$]" 3 \
   'um =alvo sem aspas dentro de um comando que o tmux roda pelo shell quebra no zsh: use -t $(q "=$sessao").'
+teto voz "printf '%q' \"=" 0 \
+  'no voz o comando vai pelo ssh, e o shell do ssh no Mac é o zsh: o printf %q não protege o "=" do começo; use $(q "=$sessao").'
 passou 'sem =alvo novo fora de aspas em comandos de painel'
 
 # 4) tmux.conf: o tmux expande $nome no arquivo (vira vazio antes do shell ver). Em if-shell/run-shell evite $variável;

@@ -22,6 +22,8 @@ case ${MODO_SSH:-} in
   cai) [[ $cmd == *--sessoes-ia-aplicar* ]] && { n=$(($(cat "$SSH_LOG.cai" 2>/dev/null || echo 0) + 1)); echo $n >"$SSH_LOG.cai"
          ((n >= 2)) && { cat >/dev/null; echo "Connection reset" >&2; exit 255; }; } ;;
   antigo) echo "tt: opção desconhecida: ${cmd##* } (tt --help mostra as principais)" >&2; exit 2 ;;
+  # o inventário responde e a puxada cai (o Mac que acorda um instante e volta a dormir)
+  caipuxa) [[ $cmd == *--sessoes-ia-empacotar* ]] && { echo "Connection reset" >&2; exit 255; } ;;
 esac
 exec env HOME="$DEST" XDG_CONFIG_HOME="$DEST/.config" bash -c "$cmd"
 EOF
@@ -123,6 +125,26 @@ out=$("$TT" --sessoes-ia-sync 2>&1)
 grep -q 'em uso' "$PD/$U1.jsonl" && falhou 'conversa em uso (mexida agora) foi copiada'
 passou 'conversa em uso fica para a próxima volta'
 
+# --- volta que falha no meio: a hora da última boa fica, e o --checar não acusa -----------------
+est=$HOME/.local/state/tt/sessoes-ia/maquinas/outra
+IFS=$'\t' read -r t_ok st_ok _ _ _ _ boa <"$est"
+[[ $st_ok == ok && $boa == "$t_ok" ]] || falhou "volta boa deveria gravar a hora dela no 7º campo: $(cat "$est")"
+U2=33333333-3333-4333-8333-333333333333
+printf '{"type":"user","cwd":"%s/proj","sessionId":"%s","message":"nova la"}\n' "$D" "$U2" >"$PD/$U2.jsonl"; velho "$PD/$U2.jsonl"
+out=$(MODO_SSH=caipuxa "$TT" --sessoes-ia-sync 2>&1)
+grep -q 'outra .*falhou' <<<"$out" || falhou "a puxada que cai deveria dar falha: $out"
+IFS=$'\t' read -r _ st _ _ _ _ boa <"$est"
+[[ $st == falhou && $boa == "$t_ok" ]] || falhou "a falha apagou a hora da última boa: $(cat "$est")"
+grep -q 'outra .*falhou.*(última boa: ' <<<"$("$TT" --sessoes-ia)" || falhou "o estado não mostra a última boa: $("$TT" --sessoes-ia)"
+linha=$( ("$TT" --checar --tsv || true) | grep $'^sessoes-ia\t')   # sai 1 se outra checagem falha aqui
+[[ $linha == $'sessoes-ia\tok\t'* ]] || falhou "uma falha logo depois de uma troca boa não é aviso: $linha"
+printf '%s\tfalhou\t1\t0\t-\t-\t%s\n' "$(date +%s)" "$(($(date +%s) - 3 * 86400))" >"$est"
+linha=$( ("$TT" --checar --tsv || true) | grep $'^sessoes-ia\t')   # sai 1 se outra checagem falha aqui
+[[ $linha == $'sessoes-ia\taviso\t'*outra* ]] || falhou "sem troca boa há 3 dias deveria ser aviso: $linha"
+out=$("$TT" --sessoes-ia-sync 2>&1); grep -q 'outra .*ok' <<<"$out" || falhou "a volta seguinte deveria trazer a conversa nova: $out"
+[[ -f $PA/$U2.jsonl ]] || falhou 'a conversa que ficou para trás não chegou na volta seguinte'
+passou 'volta que falha no meio: a última boa fica guardada, o --checar só acusa depois de 2 dias'
+
 # --- desligada lá e tt antigo: pulada, sem erro --------------------------------------------------
 echo 'sessoes_ia_sync=0' >>"$D/.config/tt/config"
 out=$("$TT" --sessoes-ia-sync 2>&1) || falhou "falhou com a outra desligada: $out"
@@ -137,6 +159,6 @@ out=$("$TT" --sessoes-ia off 2>&1); grep -q 'desligada' <<<"$out" || falhou "off
 out=$("$TT" --sessoes-ia-sync); grep -q 'desligada' <<<"$out" || falhou "desligado aqui ainda sincronizou: $out"
 "$TT" --sessoes-ia on >/dev/null
 out=$("$TT" --sessoes-ia)
-grep -q 'sincronizadas entre as máquinas' <<<"$out" && grep -q 'claude .*1 conversas' <<<"$out" && grep -q 'outra ' <<<"$out" ||
+grep -q 'sincronizadas entre as máquinas' <<<"$out" && grep -q 'claude .*2 conversas' <<<"$out" && grep -q 'outra ' <<<"$out" ||
   falhou "estado incompleto: $out"
 passou 'tt --sessoes-ia on/off/status'

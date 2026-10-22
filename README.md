@@ -29,7 +29,7 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
   toque ou clique, foco na janela, girar o celular ou abrir o teclado passam a sessão para ele na
   hora, e o outro toma de volta assim que for usado. Quem só está olhando vê ⤢ na barra (um toque
   encaixa nele). A janela nunca fica presa num tamanho fixo.
-- **Copiar e colar iguais em todo lugar**: segure **Ctrl** (ou **Alt**) para copiar com o mouse —
+- **Copiar e colar iguais em todo lugar**: segure **Ctrl** para copiar com o mouse —
   arrastar copia a seleção (também sobre o Claude Code, o Codex e sessões de outra máquina), duplo clique
   a palavra, triplo a linha; sem a tecla, arrastar e clicar vão ao programa e nada é copiado (sem cópias
   por acidente poluindo o histórico). Sempre com o aviso
@@ -41,7 +41,7 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
   do terminal (essa não passa pelo tt).
 - **Links clicáveis em qualquer painel**: clique num endereço (http/https) abre a mesma escolha de
   navegador do e-mail (veja "Links: escolha do navegador"), com a URL inteira mesmo quando ela está
-  quebrada em várias linhas; Ctrl ou Alt + duplo clique copia o link inteiro; Ctrl+B u (ou ⋯ → 🔗 Links da tela)
+  quebrada em várias linhas; Ctrl + duplo clique copia o link inteiro; Ctrl+B u (ou ⋯ → 🔗 Links da tela)
   lista os links do painel e do histórico. Vale também sobre programas que usam o mouse (Claude
   Code, aerc): fora de um link, o clique continua indo para eles.
 - **Painéis com outras sessões**: `^v` ao lado, `^o` embaixo, `^p` troca — inclusive sessões de
@@ -619,6 +619,25 @@ Outlook Mobile, padrão do tt, só tem permissão de envio nela). Acentos, HTML 
        --assunto "Relatório de outubro" --corpo "Segue o relatório." --anexo ~/relatorio.pdf
     echo "corpo vindo de um programa" | tt --email-enviar --conta trabalho --para eu@x.com --assunto Aviso
     tt --email-enviar --conta Pessoal --para eu@x.com --assunto Teste --corpo oi --ensaio   # só mostra
+    tt --email-enviar --conta Trabalho --para netto@x.com --tarefa kito47  # árvore completa da tarefa
+    tt --email-enviar --tarefas-ui  # escolhe várias, ensaia cada e-mail e pede confirmação
+
+`--tarefa ID` pode repetir-se: cada tarefa principal vira um e-mail próprio, com assunto `[tt] … ~CÓDIGO`, descrição,
+prazo/prioridade/tags, IDs, estados e descrições das subtarefas e rodapé do protocolo de atualização. Os atributos próprios das filhas
+(prazo/hora, prioridade, repetição e etiquetas) também viajam. O diário privado `⟡` de mães e filhas não é enviado.
+Use apelido, código ou prefixo aceito pelos verbos de tarefas; subtarefa isolada é recusada (envie a mãe). O envio direto usa
+a mesma conta/transporte SMTP ou Outlook deste utilitário; `--ensaio` mostra sem enviar. No menu do 📋, **📨 Enviar tarefas
+diretamente…** abre a seleção, permite escolher a conta, mostra o ensaio de cada mensagem e só transmite após confirmação explícita. O compositor
+`tt --tarefas-email` continua disponível para revisar/editar manualmente antes de enviar.
+
+O menu do 📧 também oferece **Enviar tarefas**, **Tarefas recebidas / Entrada** e **Remetentes autorizados**. O menu ⋯ de uma tarefa
+oferece envio direto daquela tarefa. No receptor, um remetente autorizado cria uma demanda pendente na Entrada: aprovar cria a tarefa com
+os mesmos IDs; reenviar gera uma proposta de atualização, com revisão dos conflitos, inclusive nas descrições das subtarefas.
+
+O lote é validado antes do primeiro envio, tarefas repetidas são deduplicadas e a base registra a versão efetivamente enviada. Se a rede
+falhar no meio, o utilitário informa quantas mensagens já saíram e em qual tarefa parou. Há limites explícitos de 1 MB de corpo e 1000
+subtarefas/remoções por tarefa; excedê-los dá erro, sem cortar dados. O Outlook/Graph recebe o corpo completo, em páginas menores, preservando
+acentos, identidade e autenticação da mensagem. As mensagens continuam legíveis por versões antigas; os atributos ricos das filhas exigem tt 2.6+.
 
 Os campos têm nome em português, como no resto do tt, e aceitam o equivalente em inglês:
 
@@ -1694,7 +1713,11 @@ tarefa quando você aprova.
   `tt --demandas` lista os remetentes e as pendentes. O cadastro (`~/.config/tt/demandas`, modo 600) é
   propagado às outras máquinas como o das contas de IA: vale a mudança mais nova (`--receber-demandas`,
   `--propagar-demandas`, `--puxar-demandas`; o vigia puxa a cada 30 min). A **etiqueta** é posta em toda
-  demanda desse remetente.
+  demanda desse remetente como etiqueta local reservada: `netto` vira `#_netto`. Etiquetas iniciadas por `_`
+  não podem ser criadas manualmente nem recebidas de outro usuário, e nunca seguem no e-mail de devolução
+  (nem nos dados de comparação). As demais etiquetas viajam normalmente. A edição e a revisão preservam
+  as etiquetas locais. Na atualização, etiquetas antigas são migradas somente em tarefas cuja origem
+  corresponde ao remetente cadastrado, inclusive arquivadas; a migração é idempotente e guarda backup local.
 - **Formato do e-mail:** assunto `[tt] título @sex 14h !alta *semanal #tag [~CÓDIGO]` — a mesma sintaxe de
   `tt --tarefa-add-natural`; com `~CÓDIGO` o e-mail cria/atualiza **aquela** tarefa (ver a seção de códigos acima). No corpo, linhas `- texto` (ou `* texto`) viram **subtarefas** e o resto vira a
   **descrição**; citação (`>`) e assinatura (`-- `) são ignoradas.
@@ -2190,17 +2213,16 @@ Claude guarda as conversas e qual `claude` usar, inclusive no Termux, com o Clau
 Clique num link em qualquer painel, Enter (ou `ESC M`) num link no leitor de e-mail, ⏎ no link do
 cadastro de conta OAuth e Ctrl+B u abrem o mesmo seletor com as opções disponíveis (mais "📋 Só copiar o link"):
 
-- **Chromium interno**: no Linux/WSL, Google Chrome estável extraído do .deb oficial sem sudo; no macOS, usa Google Chrome (app universal) ou um Chromium compatível com a arquitetura do Mac, pelo LaunchServices e em perfil próprio do tt (`~/.local/share/tt-navegadores/perfil-chrome-macos`). A URL abre localmente no Mac mesmo quando a sessão está em ponte para outra máquina. Se o app não existir ou falhar, avisa e copia o link — nunca troca silenciosamente para Safari/navegador padrão;
+- **Chromium interno**: no Linux/WSL, Google Chrome estável extraído do .deb oficial sem sudo; no macOS, usa Google Chrome (app universal) ou um Chromium compatível com a arquitetura do Mac, pelo LaunchServices e em perfil próprio do tt (`~/.local/share/tt-navegadores/perfil-chrome-macos`). A URL segue a máquina da tela que originou o clique. Se o app não existir ou falhar, avisa e copia o link — nunca troca silenciosamente para Safari/navegador padrão;
 - **Carbonyl embutido**: Chromium que desenha no terminal, num popup do tmux (Ctrl+Q ou Ctrl+C fecha). É um build
   de 2023 sem atualizações: use para ler, não para logins sensíveis;
 - **Navegador padrão do sistema**: `xdg-open` (ou `open` via LaunchServices no macOS); no WSL abre o navegador do Windows.
 
-No Linux/WSL, o Chrome interno e o navegador do sistema abrem na máquina da tela em que você clicou,
+No Linux/WSL e no macOS, o Chrome interno e o navegador do sistema abrem na máquina da tela em que você clicou,
 não na da sessão: vendo pelo book-hl uma sessão (ou o e-mail) do PC, o link abre no book-hl. O tt de lá
 descobre isso pela ponte (`TT_PONTE`, ou `TT_ORIGEM` no cliente do popup do e-mail) e manda
-`tt --abrir-aqui QUAL URL` por ssh para a máquina da tela; se ela não responder, abre onde está, como antes.
-No macOS, **Chromium interno** e **Navegador padrão do sistema** sempre usam o LaunchServices local — mesmo
-numa sessão em ponte para `empresa` — porque a tela está no MacBook, não na máquina que hospeda a sessão.
+`tt --abrir-aqui QUAL URL` por ssh para a máquina da tela; se ela não confirmar, avisa sem abrir em outra máquina.
+No macOS, o Chromium usa `open -n` e perfil exclusivo: o link chega mesmo com o Chrome já aberto.
 O Carbonyl e o "só copiar" seguem no próprio terminal.
 
 No Linux/WSL, os dois primeiros são baixados sob demanda para `~/.local/share/tt-navegadores`, sem sudo, e só são
@@ -2214,8 +2236,8 @@ hyperlink OSC 8 sob o mouse, se o programa mandou um). Ele junta a linha clicada
 quando o que chega na borda direita continua, sem espaço, no começo da linha de baixo — seja a
 quebra do próprio terminal, seja a de um programa que recua a continuação (Claude Code) ou a desenha
 dentro de uma caixa. Um endereço curto que só termina na borda não gruda no texto da linha de baixo.
-O clique (simples ou com Ctrl) espera o tempo de um duplo clique antes de abrir (o Ctrl/Alt + duplo clique copia, e o
-arrasto, que com Alt ou Ctrl copia, cancela a abertura). No Windows Terminal, o Ctrl+clique numa linha que ele mesmo reconhece como URL é
+O clique (simples ou com Ctrl) espera o tempo de um duplo clique antes de abrir (Ctrl + duplo clique copia, e o
+arrasto, que só com Ctrl copia, cancela a abertura). No Windows Terminal, o Ctrl+clique numa linha que ele mesmo reconhece como URL é
 tratado por ele, que só enxerga aquela linha: prefira o clique simples. Hyperlinks OSC 8 chegam
 inteiros ao terminal de fora (recurso `hyperlinks` do tmux), então nesses o Ctrl+clique do próprio
 terminal também pega a URL toda, inclusive dentro de popups.

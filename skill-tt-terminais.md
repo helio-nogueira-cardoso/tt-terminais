@@ -818,7 +818,7 @@ F4→`dbn`, F5→`tela`, F6→`sair`, F7→`ant`, F8→`zm`, F9→`jn`, F10→`d
   tela partiu na borda (`links-tt.py desquebrar`).
 - Links: `links-tt.py clique|copiar` (chamados pelo tmux.conf no clique/duplo clique; 0 = havia
   link), `tt --link-abrir ID CLIENTE PAINEL URL`, `tt --link-copiar CLIENTE URL`,
-  `tt --links-tela CLIENTE PAINEL` (Ctrl+B u), `tt --abrir-link URL` (seletor de navegador), `tt --abrir-aqui sistema|chromium URL` (abre nesta máquina; a máquina da sessão manda por ssh para a máquina da tela clicada, exceto o navegador padrão do macOS, que sempre abre localmente no MacBook via LaunchServices).
+  `tt --links-tela CLIENTE PAINEL` (Ctrl+B u), `tt --abrir-link URL` (seletor de navegador), `tt --abrir-aqui sistema|chromium URL` (abre nesta máquina; a máquina da sessão manda por ssh para a máquina da tela clicada; falha de conexão nunca redireciona para outra máquina).
 - `tt --conta-propagar [nome] [alvos...]` / `tt --conta-receber [nome]` — move os arquivos próprios
   da conta Claude de forma transacional. `--receber-contas-ia`/`--propagar-contas-ia`/
   `--puxar-contas-ia` sincronizam o cadastro `contas-ia`. `--registrar`/`--desregistrar`/
@@ -877,7 +877,7 @@ na ordem da 1ª aparição, estável; sem mudança não grava nem propaga).
 
 Binds de teclado (prefixo `Ctrl+B`): `s` central, `t` tarefas, `|` split horizontal, `-` split
 vertical, `c` janela nova, `r` recarrega config, `m` menu do painel, `y` histórico de cópias, `N`
-renomear sessão, `F1..F10` botões. Mouse: Ctrl ou Alt + arrastar/duplo/triplo clique copiam (sem modificador vão ao programa; o Ctrl+arrastar = painel flutuante do tmux 3.8 fica desligado); botão do meio cola;
+renomear sessão, `F1..F10` botões. Mouse: Ctrl + arrastar/duplo/triplo clique copiam (sem modificador vão ao programa; o Ctrl+arrastar = painel flutuante do tmux 3.8 fica desligado); botão do meio cola;
 `MouseDown/Up1Status*` → `--clique` (o 6º argumento é o evento, `d` ao pressionar e `u` ao soltar: o 📌 `fixar` ignora o `u`; sem ele, CLI e testes, age sempre); `MouseUp3Status*` → `--clique-direito`; `WheelUp/DownStatus` em `maquina`/`sessao` →
 `tt --rolar RANGE ±1 CLIENTE` (`rolar_sessao`: ordem do tmux, sem pontes/ocultas; `rolar_maquina_cliente`: ordem de
 `rotulos`, 1ª sessão do `--listar-leve` de lá, pula quem não responde em `TT_T_ROLAR` s e lembra 60 s; de uma ponte,
@@ -1024,7 +1024,7 @@ devolve o host assim mesmo (`maquinas_agora todas`) e sai 2, e quem chama diz "n
 
 ### Enviar e-mail pela linha de comando (`tt --email-enviar`)
 Envia por qualquer conta do tt, sem abrir tela, independentemente do provedor e da autenticação; a
-montagem e o envio são do `email-tt.py enviar CONF OPÇÕES…` (o `tt` só resolve a conta).
+montagem e o envio são do `email-tt.py enviar CONF OPÇÕES…` (o `tt` resolve a conta e, com `--tarefa`, prepara o compartilhamento).
 
     tt --email-enviar [--conta CONTA] --para END[,END…] [--cc END…] [--cco END…] --assunto TEXTO
        [--corpo TEXTO | --corpo-arquivo ARQ | corpo no stdin] [--html TEXTO | --html-arquivo ARQ]
@@ -1059,7 +1059,12 @@ montagem e o envio são do `email-tt.py enviar CONF OPÇÕES…` (o `tt` só res
   falhou (`✗ não enviado: motivo`), 2 uso errado (conta, destinatário, assunto, arquivo, opção). `--ajuda` mostra o uso.
 - **Agente de IA:** o verbo envia na hora, sem perguntar. Antes de mandar a terceiros, mostre ao usuário o
   `--ensaio` e confirme; entre as contas do próprio usuário, só com o pedido dele. Nunca ponha senha, token ou
-  segredo no corpo. Para compartilhar uma tarefa use `tt --tarefa-email` (formato `[tt] … ~CÓDIGO`), não este verbo.
+  segredo no corpo. Para compartilhar tarefas pelo transporte configurado, use `--tarefa ID` (repetível; também `--task`):
+  assunto e corpo são gerados no formato `[tt] … ~CÓDIGO`, uma mensagem por tarefa. Não combine com assunto/corpo/HTML próprios.
+- **Fluxo visual:** menus do 📧 e do 📋 → 📨 Enviar tarefas, ou menu ⋯ da tarefa → 📨 Enviar pela conta do tt;
+  `tt --email-enviar --tarefas-ui [--tarefa ID]` seleciona tarefas, conta, destinatários e pede confirmação após a prévia.
+  `--ensaio` nunca transmite nem muda a base. O lote inteiro é validado antes do primeiro envio e IDs repetidos são deduplicados.
+  Falha de transporte interrompe o lote e informa quantas mensagens já saíram; não reenviar o lote inteiro automaticamente.
 - Testes: `tests/test_email_enviar.sh` (servidor SMTP e API do Outlook falsos; campos, apelidos, Cco, HTML,
   anexo, resposta, stdin, conta, ensaio, erros e o `graph-sendmail` do aerc).
 
@@ -1278,12 +1283,22 @@ Cada registro vira um bloco no fim da descrição da tarefa/subtarefa, em cinza 
 - O log só acrescenta (preserva `aidlc:` e as notas do dono). Testes: `tests/test_tarefas_codigo.sh`.
 
 ### 4. Compartilhar por e-mail = upsert pelo código, em três vias
-- **Enviar:** menu ⋯ → ✉ (ou `tt --tarefa-email ID [destinatário] [--abrir]`, `tt --tarefas-email DESTINO ID…`, `tt --tarefa-email-ui`;
-  `TT_EMAIL_MAILTO_CMD` troca o compositor; o e-mail sai pela revisão do compositor, não pelo `--email-enviar`) gera `Assunto: [tt] título @prazo !prio #tag ~CÓDIGO` e o corpo: descrição **sem os blocos `⟡` do diário** (conta, e-mail,
+- **Enviar:** `tt --email-enviar --para DESTINO --tarefa ID [--ensaio]` usa SMTP/Outlook; `--tarefas-ui` abre seleção e revisão.
+  O compositor manual segue em menu ⋯ → ✉ (ou `tt --tarefa-email ID [destinatário] [--abrir]`, `tt --tarefas-email DESTINO ID…`, `tt --tarefa-email-ui`;
+  `TT_EMAIL_MAILTO_CMD` troca o compositor). Ambos geram `Assunto: [tt] título @prazo !prio #tag ~CÓDIGO` e o corpo: descrição **sem os blocos `⟡` do diário** (conta, e-mail,
   máquina, tokens e custo não viajam), `- [CÓDIGO] [x]|[ ] texto` por subtarefa e, depois da assinatura `-- `, o rodapé do protocolo v2
   `tt:2 estado=aberta|feita removidas=COD,COD`. Um tt antigo ignora tudo depois da assinatura (continua válido para ele). Só tarefa de topo.
   Enviar grava a **base** (meta `base=`): a versão enviada.
+- **Extensão rica v3:** conserva o rodapé v2 e acrescenta dados tipados de todas as subtarefas (descrição, prazo/hora, prioridade,
+  repetição e etiquetas), com descrição principal exata. O diário é retirado de mães e filhas. O pacote acompanha o corpo legível;
+  se alguém editar o corpo no compositor, passa a valer a leitura do texto. Limites explícitos: 1 MB no corpo e 1000 subtarefas/remoções,
+  com erro antes de enviar (sem truncamento silencioso). O receptor valida IDs, tipos e atributos; a revisão em três vias inclui cada atributo
+  das filhas, mantém o diário local e entende mensagens antigas. Graph guarda corpo completo em MIME UTF-8, Message-ID e autenticação do provedor.
 - **Receber** (remetente autorizado, ver verbos de demandas; mesmas regras de segurança):
+  - A etiqueta do remetente é local e reservada (`netto` → `#_netto`). O prefixo `_` é recusado na criação/edição
+    manual e descartado em mensagens externas. Exportação e bases de comparação não levam essas etiquetas;
+    aprovação de atualizações e edição preservam as locais. A instalação migra etiquetas antigas apenas quando
+    `de=` identifica o remetente cadastrado (inclui arquivadas, com backup e sem alterar etiquetas manuais homônimas).
   - `~CÓDIGO` ausente → demanda nova como sempre (id do Message-ID; reenviar duas vezes cria duas — por isso o código).
   - código que **não existe** aqui (ou ainda é pendente) → nasce PENDENTE **com o mesmo código** (e subtarefas com os códigos do remetente,
     se livres); `[x]` e o estado da tarefa chegam como estavam; um e-mail mais novo do mesmo remetente substitui a pendente.

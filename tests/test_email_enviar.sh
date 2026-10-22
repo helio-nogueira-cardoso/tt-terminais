@@ -144,7 +144,90 @@ done
 [[ $(ls "$SRV/caixa" | wc -l) == "$antes" ]] || falhou 'erro de uso enviou algo'
 passou '--ensaio não envia; conta padrão, ambígua e inexistente; destinatário, assunto, anexo e opção inválidos dão rc 2'
 
-# 6) falha do servidor vira rc 1 com mensagem curta
+# 6) integração com tarefas: protocolo completo (código, subtarefa e rodapé v2) pelo mesmo transporte SMTP
+TIT='Demanda completa por e-mail'; SUB='Subtarefa com prazo'
+"$TT" --tarefa-add "$TIT" >/dev/null
+TID=$(awk -F'\t' -v t="$TIT" '$5==t && $2!="removida"{print $1; exit}' "$HOME/.config/tt/tarefas")
+"$TT" --tarefa-desc "$TID" 'Descrição íntegra da tarefa.' >/dev/null
+"$TT" --tarefa-sub-add "$TID" "$SUB" >/dev/null
+SID=$(awk -F'\t' -v t="$SUB" '$5==t && $2!="removida"{print $1; exit}' "$HOME/.config/tt/tarefas")
+"$TT" --tarefa-desc "$SID" $'Descrição da subtarefa.\n- detalhe que não é outra subtarefa' >/dev/null
+antes=$(ls "$SRV/caixa"/smtp-*.json 2>/dev/null | wc -l)
+cp "$HOME/.config/tt/tarefas" "$T/antes-ensaio"
+"$TT" --email-enviar --conta pessoal --para=netto@x.com --tarefa "$TID" --dry-run >"$T/previa"
+cmp -s "$HOME/.config/tt/tarefas" "$T/antes-ensaio" || falhou 'ensaio alterou tarefa/base'
+[[ $(ls "$SRV/caixa"/smtp-*.json | wc -l) == "$antes" ]] || falhou 'ensaio de tarefa enviou'
+grep -q '^tt:3 ' "$T/previa" && falhou 'prévia visual expôs o pacote técnico'
+rc=0; "$TT" --email-enviar --conta pessoal --para=netto@x.com --tarefa "$TID" --tarefa inexistente >/dev/null 2>&1 || rc=$?
+[[ $rc == 2 && $(ls "$SRV/caixa"/smtp-*.json | wc -l) == "$antes" ]] || falhou 'lote inválido enviou parcialmente'
+for conflito in --corpo=manual --body=manual --subject=manual --html=manual; do
+  rc=0; "$TT" --email-enviar --conta pessoal --para=netto@x.com --tarefa "$TID" "$conflito" >/dev/null 2>&1 || rc=$?
+  [[ $rc == 2 ]] || falhou "campo manual aceito com tarefa: $conflito"
+done
+"$TT" --email-enviar --conta pessoal --para=netto@x.com --assunto literal --corpo --tarefa --ensaio | grep -q '^--tarefa$' || falhou 'valor literal de corpo foi interpretado como opção'
+"$TT" --email-enviar --conta pessoal --para netto@x.com --tarefa "$TID" >/dev/null || falhou 'envio integrado de tarefa falhou'
+[[ $(ls "$SRV/caixa"/smtp-*.json 2>/dev/null | wc -l) == $((antes + 1)) ]] || falhou 'uma tarefa deve gerar exatamente um e-mail'
+eml=$(ultimo smtp); eml=${eml%.json}.eml
+python3 - "$eml" "$TID" "$SID" <<'EOF' || falhou 'e-mail de tarefa não preservou protocolo e árvore'
+import email, email.policy, sys
+m = email.message_from_bytes(open(sys.argv[1], "rb").read(), policy=email.policy.default)
+body = m.get_body(("plain",)).get_content().replace("\r\n", "\n")
+assert m["To"] == "netto@x.com" and m["Subject"].endswith("~" + sys.argv[2]), (m["To"], m["Subject"])
+assert "Descrição íntegra da tarefa." in body and f"- [{sys.argv[3]}] [ ] Subtarefa com prazo" in body, body
+assert "tt:2 estado=aberta" in body, body
+assert "Descrição da subtarefa." in body
+EOF
+passou 'tt --email-enviar --tarefa: tarefa completa com IDs e subtarefas pelo transporte SMTP'
+
+# O receptor usa seu próprio perfil: só o remetente autorizado entra, e a atualização exige aprovação.
+mkdir -p "$T/receptor/.config/tt" "$T/receptor/.cache/tt/maildir/recebida/INBOX/new" "$T/receptor/rt"
+printf 'nome=receptor\n' >"$T/receptor/.config/tt/config"
+: >"$T/receptor/.config/tt/maquinas"
+B() { HOME="$T/receptor" XDG_CONFIG_HOME="$T/receptor/.config" TT_RT="$T/receptor/rt" "$TT" "$@"; }
+CB="$T/receptor/.config/tt/tarefas"
+cp "$eml" "$T/receptor/.cache/tt/maildir/recebida/INBOX/new/primeira"
+B --demandas-processar recebida
+[[ ! -s $CB ]] || falhou 'remetente não autorizado criou tarefa'
+B --demanda-autorizar eu@exemplo.com - relaxado >/dev/null
+B --demandas-processar recebida
+[[ $(awk -F'\t' -v i="$TID" '$1==i{print $2}' "$CB") == pendente ]] || falhou 'não apareceu na Entrada'
+B --demanda-aprovar "$TID" >/dev/null
+B --tarefa-ia-prompt "$SID" >"$T/sub-recebida"
+grep -q 'detalhe que não é outra subtarefa' "$T/sub-recebida" || falhou 'descrição da subtarefa não chegou'
+"$TT" --tarefa-desc "$SID" 'Descrição atualizada pelo remetente.' >/dev/null
+B --tarefa-desc "$SID" 'Descrição alterada pelo destinatário.' >/dev/null
+"$TT" --email-enviar --conta pessoal --para netto@x.com --tarefa "$TID" >/dev/null
+eml=$(ultimo smtp); eml=${eml%.json}.eml
+cp "$eml" "$T/receptor/.cache/tt/maildir/recebida/INBOX/new/atualizacao"
+B --demandas-processar recebida
+PROP=$(awk -F'\t' '$2=="pendente" && $6 ~ /(^|\|)upd=/{print $1; exit}' "$CB")
+[[ -n $PROP ]] || falhou 'atualização não gerou proposta'
+grep -q 'descrição' <<<"$(B --demanda-diff "$PROP")" || falhou 'revisão não mostra descrição da subtarefa'
+rc=0; B --demanda-aprovar "$PROP" >/dev/null 2>&1 || rc=$?
+[[ $rc == 4 ]] || falhou 'conflito foi aplicado sem escolha'
+grep -q 'alterada pelo destinatário' <<<"$(B --tarefa-ia-prompt "$SID")" || falhou 'conflito alterou tarefa local'
+B --demanda-aprovar --recebida "$PROP" >/dev/null
+grep -q 'atualizada pelo remetente' <<<"$(B --tarefa-ia-prompt "$SID")" || falhou 'escolha recebida não aplicou descrição'
+passou 'SMTP → Entrada → aprovação; atualização rica mostra conflito e respeita escolha do destinatário'
+
+# Fluxo visual: conta escolhida, destinatário, revisão e cancelamento/confirmar; IDs repetidos não duplicam.
+antes=$(ls "$SRV/caixa"/smtp-*.json | wc -l)
+printf 'pessoal\nnetto@x.com\nn\n' | "$TT" --email-enviar --tarefas-ui --tarefa "$TID" >"$T/ui-cancelada"
+[[ $(ls "$SRV/caixa"/smtp-*.json | wc -l) == "$antes" ]] || falhou 'cancelar na tela enviou'
+printf 'pessoal\nnetto@x.com\nsim\n' | "$TT" --email-enviar --tarefas-ui --tarefa "$TID" --tarefa "$TID" >"$T/ui-enviada"
+[[ $(ls "$SRV/caixa"/smtp-*.json | wc -l) == $((antes + 1)) ]] || falhou 'tela não enviou uma única cópia'
+grep -q 'conta pessoal' "$T/ui-enviada" || falhou 'tela não mostrou conta escolhida'
+passou 'tela integrada: escolhe conta, mostra prévia, cancela ou confirma; tarefa repetida deduplicada'
+
+# O mesmo seletor fzf usado pelos menus (sem ID antecipado), em modo de filtro sem tela.
+antes=$(ls "$SRV/caixa"/smtp-*.json | wc -l)
+printf 'pessoal\nnetto@x.com\nn\n' | FZF_DEFAULT_OPTS='--filter=Demanda' "$TT" --email-enviar --tarefas-ui >"$T/ui-selecao"
+grep -q "~$TID" "$T/ui-selecao" || falhou 'seletor não levou a tarefa escolhida à prévia'
+grep -q 'Envio cancelado' "$T/ui-selecao" || falhou 'seletor não passou pela confirmação'
+[[ $(ls "$SRV/caixa"/smtp-*.json | wc -l) == "$antes" ]] || falhou 'cancelamento depois do seletor enviou'
+passou 'seletor dos menus: encontra a tarefa, prepara a prévia e respeita o cancelamento'
+
+# 7) falha do servidor vira rc 1 com mensagem curta
 kill $PID_SRV 2>/dev/null; wait $PID_SRV 2>/dev/null || true
 rc=0; err=$("$TT" --email-enviar --conta pessoal --para a@x.com --assunto a --corpo b 2>&1) || rc=$?
 [[ $rc == 1 && $err == "✗ não enviado:"* ]] || falhou "servidor fora deveria dar rc 1 e ✗ (rc $rc: $err)"

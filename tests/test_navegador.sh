@@ -47,11 +47,15 @@ chmod +x "$T/macbin/open"
 MAC_OPEN_LOG=$T/mac-open.log; export MAC_OPEN_LOG
 cfg navegador=chromium
 TT_SO=macos PATH="$T/macbin:$TT_PATH_SEM_TERMUX_OPEN" "$TT" --abrir-link "$U" </dev/null
-grep -Fq '<-a>' "$MAC_OPEN_LOG" && grep -Fq "<$MACAPP>" "$MAC_OPEN_LOG" &&
+grep -Fq '<-n>' "$MAC_OPEN_LOG" && grep -Fq '<-a>' "$MAC_OPEN_LOG" && grep -Fq "<$MACAPP>" "$MAC_OPEN_LOG" &&
   grep -Fq "<--user-data-dir=$HOME/.local/share/tt-navegadores/perfil-chrome-macos>" "$MAC_OPEN_LOG" &&
   grep -Fq "<$U>" "$MAC_OPEN_LOG" || falhou "Mac não iniciou o Chrome.app com perfil tt e URL: $(cat "$MAC_OPEN_LOG")"
 [[ ! -s $LOG ]] || falhou "Chromium interno no Mac caiu silenciosamente no navegador padrão: $(cat "$LOG")"
 passou "macOS: Chromium interno abre Chrome.app local com perfil tt separado, sem passar pelo navegador padrão"
+# Sem -n, com o Chrome já aberto (o pessoal, ou o do tt depois do 1º link), o open só traz o app para a frente e descarta os
+# --args: o link não abria. Com -n, a instância nova com o perfil do tt entrega a URL à janela do tt que já está aberta.
+grep -Fxq '<-n>' "$MAC_OPEN_LOG" || falhou "Chrome do Mac aberto sem -n: com ele já aberto, o open descarta a URL: $(cat "$MAC_OPEN_LOG")"
+passou "macOS: Chromium interno com open -n (abre o link também com o Chrome já aberto)"
 
 # Uma falha do LaunchServices precisa ficar explícita e não deve redirecionar para Safari/xdg-open.
 : >"$MAC_OPEN_LOG"; : >"$LOG"
@@ -59,6 +63,17 @@ MAC_OPEN_RC=1 TT_SO=macos PATH="$T/macbin:$TT_PATH_SEM_TERMUX_OPEN" "$TT" --abri
 grep -q 'falha ao abrir' "$T/mac-erro.log" || falhou "falha do Chrome no Mac ficou invisível: $(cat "$T/mac-erro.log")"
 [[ ! -s $LOG ]] || falhou "falha do Chrome no Mac abriu o navegador padrão: $(cat "$LOG")"
 passou "macOS: falha do Chrome é informada e nunca vira Safari/navegador padrão"
+
+# navegador=carbonyl no Mac (chave antiga ou escrita à mão): o Carbonyl que o tt baixa é do Linux, e o link vai para o navegador do
+# sistema, como até a v2.0.12. O xdg-open falso segura o Linux (o abrir_url olha o uname, não o TT_SO); no Mac de verdade, vai pelo open.
+: >"$MAC_OPEN_LOG"; : >"$LOG"; cp "$B/xdg-open" "$T/macbin/xdg-open"; cfg navegador=carbonyl
+TT_SO=macos TT_CARBONYL_URL="file://$T/sem-carbonyl.zip" PATH="$T/macbin:$TT_PATH_SEM_TERMUX_OPEN" \
+  timeout 30 "$TT" --abrir-link "$U" </dev/null >/dev/null 2>&1; sleep 0.3
+{ [[ $(cat "$LOG") == "$U" ]] || [[ $(cat "$MAC_OPEN_LOG") == "<$U>" ]]; } && ! grep -Fq '<-a>' "$MAC_OPEN_LOG" ||
+  falhou "navegador=carbonyl no Mac deveria ir para o navegador do sistema: xdg='$(cat "$LOG")' open='$(cat "$MAC_OPEN_LOG")'"
+[[ ! -e $HOME/.local/share/tt-navegadores/carbonyl ]] || falhou "navegador=carbonyl no Mac tentou instalar o Carbonyl do Linux"
+rm -f "$T/macbin/xdg-open"
+passou "macOS: navegador=carbonyl cai no navegador do sistema (o Carbonyl é do Linux)"
 
 # 1) navegador=sistema chama o abridor do sistema com a URL inteira.
 cfg navegador=sistema; : >"$LOG"

@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.6.0 · 22/10/2026
+- **Etiquetas de recebimento locais:** remetentes usam `#_nome`; o prefixo `_` é reservado e não pode ser criado manualmente. Essas etiquetas não viajam no e-mail e ficam preservadas ao receber atualizações. Tarefas antigas identificadas pelo remetente migram com backup.
+- **Cópia só com Ctrl:** Alt não autoriza copiar. O arraste reinicia a seleção por caractere, sem herdar palavra/linha anterior nem expandir ao soltar. Soltar Ctrl antes do mouse não copia; os atalhos explícitos de teclado continuam funcionando.
+- **Links no aparelho certo:** Chromium e navegador do sistema seguem a origem do clique, inclusive no Mac. Falha remota não abre em outra máquina. Chrome do Mac recebe a URL mesmo já aberto, com perfil separado do tt.
+- **Correções das checagens consolidadas:** malha distingue máquinas desligadas, respeita ocultas e evita rajadas de SSH; demandas recusadas são reavaliadas quando o cadastro muda; avisos resolvidos não persistem. Busca preserva históricos e UTF-8; snapshots identificam a conversa retomada; voz não perde passos remotos. Erros de e-mail ocultam tokens, Graph renova credenciais e respeita espera após falhas. Testes isolados deixam de mascarar erros.
+- **📨 Envio e recebimento de tarefas integrados:** menus do 📧, do 📋 e da tarefa oferecem envio com seleção de conta, destinatários, prévia e confirmação. `tt --email-enviar --tarefa ID` envia uma mensagem por tarefa, com IDs, estados, descrições, prazos, prioridades e etiquetas de mães e filhas. O lote é validado inteiro, sem duplicar tarefas repetidas. Atualizações chegam à Entrada para aprovação e revisão de conflitos por campo; o diário privado não viaja.
+- **📧 Outlook recebe o conteúdo completo:** o espelho Graph passa a guardar o corpo inteiro em UTF-8 e a identidade original da mensagem, com paginação. Descrições longas e subtarefas deixam de depender da prévia resumida do e-mail.
+
 ## v2.5.3 · 21/10/2026
 - **🍎 Contas de IA no Mac não aparecem mais como "sem login" por engano:** no macOS o Claude Code guarda a credencial no Keychain, não no
   `.credentials.json`. O `ia-conta listar`, a abertura da conta e o `ia-login --faltas` passam a reconhecer o login por lá (também por ssh), então

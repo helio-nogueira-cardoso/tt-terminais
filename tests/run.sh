@@ -103,16 +103,18 @@ for t in "${todos[@]}"; do
   if grep -q '^# tt-teste: sozinho' "$t"; then sozinhos+=("$t"); else juntos+=("$t"); fi
 done
 # (vazio, de uma rodada interrompida, o NR == FNR do awk engolia a lista inteira e nenhum teste rodava)
-[[ -s $duracoes ]] && mapfile -t juntos < <(printf '%s\n' "${juntos[@]}" |
+[[ -s $duracoes && ${#juntos[@]} -gt 0 ]] && mapfile -t juntos < <(printf '%s\n' "${juntos[@]}" |
   awk -F'\t' 'NR == FNR { d[$1] = $2; next } { n = $0; sub(/.*\//, "", n); print ((n in d) ? d[n] : 1e9) "\t" $0 }' "$duracoes" - |
   sort -t$'\t' -k1,1gr | cut -f2-)
 inicio=$EPOCHREALTIME ativos=0
+pids_testes=()
 for t in "${juntos[@]}"; do
   if ((ativos >= j)); then wait -n || true; ativos=$((ativos - 1)); fi
   rodar_teste "$t" &
+  pids_testes+=("$!")
   ativos=$((ativos + 1))
 done
-wait || true
+for pid_teste in "${pids_testes[@]}"; do wait "$pid_teste" || true; done
 for t in "${sozinhos[@]}"; do rodar_teste "$t"; done
 for t in "${todos[@]}"; do
   n=${t##*/}; rc=$(cat "$res/$n.rc" 2>/dev/null || echo 99)
@@ -216,6 +218,11 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/tt-test.XXXXXX")
 sock=$tmp/tmux.sock
 limpar() { tmux -S "$sock" kill-server >/dev/null 2>&1 || true; rm -rf "$tmp"; }
 trap limpar EXIT
+# Daqui em diante (os testes de comportamento já rodaram, cada um com o seu), o tt chamado direto usa um runtime só da
+# suíte. Sem TT_RT, o assistente de conta de e-mail lá embaixo, com o HOME isolado e sem cadastro de máquinas, gravava a
+# lista vazia no cache do /run/user/UID de verdade, e o vigia, a central e a malha de quem roda a suíte ficavam 20 s sem
+# máquina nenhuma a cada make test (no dell, em 21/10/2026, o tt --malha logo depois só tinha a linha da própria).
+export TT_RT=$tmp/rt; mkdir -p "$TT_RT"
 
 # Fluxo de administração de máquinas em isolamento completo. TT_RT existe para que nenhum cache
 # da sessão do usuário seja lido ou removido; o teste exercita os mesmos comandos CLI dos popups.
@@ -548,6 +555,9 @@ rg -q 'SecondClick1Pane .*@tt_link_id' "$tmp/keys" && rg -q 'MouseDrag1Pane .*@t
 rg -q -- ' u .*--links-tela' "$tmp/prefix-keys" || falha 'Ctrl+B u não lista os links da tela'
 (( $(rg -c 'copy-pipe-and-cancel "#\{E:@tt_copiar\}"' "$conf") >= 12 )) && rg -q -- '@tt_copiar .*--copiar --tela' "$conf" ||
   falha 'há cópia por seleção que não passa pelo tt --copiar --tela'
+if rg '^(bind -n|bind -T copy-mode(-vi)?) (M-)?(MouseDrag|DoubleClick|TripleClick).*copy-pipe' "$conf"; then
+  falha 'cópia por mouse sem Ctrl'
+fi
 ((falhas == base)) && ok 'links: clique, duplo clique, arrasto e Ctrl+B u ligados; cópias passam pela correção da tela' || true
 rg -q 'MouseUp3Status.*--clique-direito' "$conf" && rg -q 'MouseUp3Pane.*--menu-painel' "$conf" && ok 'botão direito alcança menus de status e painel' ||
   falha 'botão direito não tem rota completa'

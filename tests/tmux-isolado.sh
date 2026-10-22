@@ -20,6 +20,8 @@ mkdir -p "$TMUX_TMPDIR/run" && chmod 700 "$TMUX_TMPDIR/run" && export XDG_RUNTIM
 [[ -n ${DISPLAY:-} ]] && export DISPLAY=:99999
 _tmux_isolado_fim() { tmux kill-server 2>/dev/null || true; rm -rf "$TMUX_TMPDIR"; }
 eval "_tmux_isolado_ant=$(trap -p EXIT | sed 's/^trap -- //; s/ EXIT$//')"
-trap "set +e; ${_tmux_isolado_ant:+$_tmux_isolado_ant;} _tmux_isolado_fim" EXIT
+# O código de saída passa adiante: com "set +e" na frente, o $? que a limpeza anterior lia era o do set (0), e
+# o limpar_isolado do lib.sh, que sai com ele, fazia um teste que falhou sair 0 (test_mac_atalhos, 20/10/2026).
+trap "_tmux_isolado_st=\$?; set +e; ${_tmux_isolado_ant:+(exit \$_tmux_isolado_st); $_tmux_isolado_ant;} _tmux_isolado_fim; exit \$_tmux_isolado_st" EXIT
 # nem notificações do sistema de verdade (notify-send/termux-notification): veja sem-notificacao-real.sh
 source "$(dirname "${BASH_SOURCE[0]}")/sem-notificacao-real.sh"; sem_notificacao_real "$TMUX_TMPDIR"

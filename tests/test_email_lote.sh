@@ -163,6 +163,18 @@ grep -q '✓ pessoal' <<<"$("$TT" --email-conferir pessoal 2>&1)" || falhou "com
 rm -f "$XDG_CONFIG_HOME/tt/email/velha.conf"
 passou 'conferir: Gmail sem lixeira e lixeira fora do espelho são acusados (também no tt --checar)'
 
+# Microsoft em modo Graph: sem IMAP para perguntar, o --corrigir usa os nomes fixos do espelho (sem rede)
+printf 'nome=Firma\nendereco=f@empresa.com\nprovedor=microsoft\nauth=oauth\ngraph=1\nimap_host=outlook.office365.com\nsync_local=1\n' >"$XDG_CONFIG_HOME/tt/email/firma.conf"
+mkdir -p "$HOME/.cache/tt/maildir/firma/"{INBOX,Lixeira}/{cur,new,tmp}
+mkdir -p "$HOME/.secrets"; echo falso >"$HOME/.secrets/aerc-firma.txt"
+grep -q 'Microsoft Graph' <<<"$("$TT" --email-conferir firma 2>&1)" || falhou 'Graph deveria explicar que o espelho é somente leitura'
+saida=$("$TT" --email-conferir firma --corrigir 2>&1)
+grep -q 'não consegui consultar' <<<"$saida" && falhou "Graph não tem IMAP para consultar: $saida"
+grep -qx 'pasta_lixeira=Lixeira' "$XDG_CONFIG_HOME/tt/email/firma.conf" || falhou "Graph: lixeira do espelho: $(cat "$XDG_CONFIG_HOME/tt/email/firma.conf")"
+grep -q 'Microsoft Graph' <<<"$("$TT" --email-conferir firma 2>&1)" || falhou 'Graph não pode prometer apagar a mensagem no servidor'
+rm -f "$XDG_CONFIG_HOME/tt/email/firma.conf"
+passou 'conferir: conta Graph ganha a lixeira do espelho no --corrigir, sem consultar IMAP'
+
 # --- 5) ☑ Tudo: marca e desmarca pelo IPC do aerc; botão e rota ---------------------------------------------
 mkdir -p "$T/rt-x" "$T/bin"; export XDG_RUNTIME_DIR=$T/rt-x AERC_IPC_LOG=$T/ipc.log
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"$AERC_IPC_LOG"\n' >"$T/bin/aerc"; chmod +x "$T/bin/aerc"; export PATH=$T/bin:$PATH

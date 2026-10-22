@@ -84,6 +84,9 @@ PY
 [[ $r == "$pid" ]] || falhou "links-tt.py não falou com o servidor (esperado pid $pid, veio '$r')"
 passou 'links-tt.py usa o tmux do servidor (pelo $TMUX)'
 "$NOVO" kill-server 2>/dev/null
+# O servidor só sai depois de despachar os ganchos do fechamento (session-closed e window-unlinked, um run-shell por sessão e
+# aba): até lá o socket é dele, e o cliente velho do 5) dava "server exited unexpectedly" e não criava a sessão "trabalho".
+for _ in $(seq 1 100); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
 
 # 5) o inverso: servidor velho, PATH achando o novo (clientes novos falam com servidores velhos)
 tm=$(sobe "$VELHO")

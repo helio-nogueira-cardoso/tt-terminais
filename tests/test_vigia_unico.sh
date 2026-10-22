@@ -2,6 +2,10 @@
 # tt-teste: sozinho (mede tempo/tela: roda sem outros testes disputando a máquina)
 # Vigia: uma instância só, mesmo lançando várias juntas; quem perde o pidfile sai; sem tmux, sai.
 source "$(dirname "$0")/lib.sh"; isolar
+# Sem o letreiro: o "(ticker_atualizar_fontes &)" de cada volta é um subshell do vigia (mesmo "bash tt --vigia")
+# que fica órfão (ppid 1) enquanto busca as fontes na rede; com a rede lenta ele passava dos 6 s e contava como
+# um 2º vigia principal.
+mkdir -p "$XDG_CONFIG_HOME/tt"; echo ticker_ligado=0 >>"$XDG_CONFIG_HOME/tt/config"
 tmux -f /dev/null new -d -s s 'sleep 600'
 vivos() { local n=0 p; for p in $(pgrep -f "$TT --vigia"); do [[ $(ps -o args= -p "$p") == "bash $TT --vigia" ]] && n=$((n+1)); done; echo $n; }
 pid() { cat "$TT_RT/tt-vigia-$(id -u).pid" 2>/dev/null; }

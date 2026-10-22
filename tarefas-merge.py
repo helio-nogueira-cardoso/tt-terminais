@@ -32,11 +32,44 @@ import sys
 import time
 
 META_ORDEM = ["desc", "prazo", "hora", "prio", "rep", "ant", "antsub", "ciclos", "feito", "tags", "pai", "ord", "arq", "de", "upd", "scod", "sest",
-              "colide", "iest", "rem", "v2", "base"]
+              "colide", "iest", "rem", "v2", "v3", "base"]
 CAMPOS = [("texto", "Título"), ("prazo", "Prazo"), ("prio", "Prioridade"), ("rep", "Repetição"),
           ("tags", "Etiquetas"), ("desc", "Descrição"), ("estado", "Situação")]
 ROTULO = dict(CAMPOS)
 HEX = re.compile(r"^[0-9a-f]{6,}$")
+SUB_CAMPOS = ("desc", "prazo", "hora", "prio", "rep", "tags")
+
+
+def tags_publicas(tags):
+    return ",".join(dict.fromkeys(t for t in (tags or "").split(",") if t and not t.startswith("_")))
+
+
+def tags_com_locais(publicas, *locais):
+    return ",".join(dict.fromkeys([t for t in tags_publicas(publicas).split(",") if t] +
+                                  [t for tags in locais for t in (tags or "").split(",") if t.startswith("_")]))
+
+
+def desc_publica(texto):
+    """O diário local nunca viaja, nem na extensão estruturada."""
+    saida, log = [], False
+    for linha in texto.splitlines():
+        if linha.startswith("⟡ "):
+            log = True
+        if log and not linha:
+            log = False
+            continue
+        if not log:
+            saida.append(linha)
+    return "\n".join(saida).strip()
+
+
+def sub_atributos(meta):
+    return {k: b64d(meta.get(k, "")) if k == "desc" else tags_publicas(meta.get(k, "")) if k == "tags" else meta.get(k, "") for k in SUB_CAMPOS}
+
+
+def desc_com_diario(nova, anterior):
+    logs = re.findall(r"(?ms)^⟡ .*?(?=\n\n|\Z)", anterior or "")
+    return "\n\n".join(p for p in [nova or "", *logs] if p)
 
 
 # ---------------------------------------------------------------------------------------------- arquivo
@@ -108,13 +141,13 @@ def ficha_atual(linhas, tid):
     if est == "arquivada":
         est = "aberta" if arq.endswith(":a") else "feita"
     f = {"texto": L[4], "prazo": m.get("prazo", ""), "hora": m.get("hora", ""), "prio": m.get("prio", ""),
-         "rep": m.get("rep", ""), "tags": m.get("tags", ""), "desc": b64d(m.get("desc", "")),
+         "rep": m.get("rep", ""), "tags": tags_publicas(m.get("tags", "")), "desc": b64d(m.get("desc", "")),
          "estado": est, "arquivada": L[1] == "arquivada", "subs": {}}
     for _o, _c, sid, SL, _sm in filhas(linhas, tid, ("aberta", "feita", "arquivada")):
         e = SL[1]
         if e == "arquivada":
             e = "aberta" if meta_ler(SL[5]).get("arq", "").endswith(":a") else "feita"
-        f["subs"][sid] = {"texto": SL[4], "estado": "f" if e == "feita" else "a"}
+        f["subs"][sid] = {"texto": SL[4], "estado": "f" if e == "feita" else "a", **sub_atributos(_sm)}
     return f
 
 
@@ -122,14 +155,16 @@ def ficha_entrada(linhas, pid):
     L = linhas[pid]
     m = meta_ler(L[5])
     f = {"texto": L[4], "prazo": m.get("prazo", ""), "hora": m.get("hora", ""), "prio": m.get("prio", ""),
-         "rep": m.get("rep", ""), "tags": m.get("tags", ""),
-         "desc": b64d(m["desc"]) if m.get("desc") else None,
+         "rep": m.get("rep", ""), "tags": tags_publicas(m.get("tags", "")),
+         "desc": b64d(m.get("desc", "")) if m.get("desc") or m.get("v3") else None,
          "estado": {"f": "feita", "a": "aberta"}.get(m.get("iest", "")), "subs": {}, "sem_codigo": [],
          "rem": {c for c in m.get("rem", "").split(",") if c}, "v2": m.get("v2") == "1", "de": m.get("de", "")}
     for _o, _c, sid, SL, sm in filhas(linhas, pid, ("pendente",)):
         cod = sm.get("scod", "")
         e = {"f": "f", "a": "a"}.get(sm.get("sest", ""))
         item = {"texto": SL[4], "estado": e, "colide": sm.get("colide", ""), "pid": sid}
+        if sm.get("v3") == "1":
+            item.update(sub_atributos(sm))
         if cod and HEX.match(cod):
             f["subs"][cod] = item
         else:
@@ -143,8 +178,47 @@ def h12(t):
 
 def snapshot(f):
     return {"t": f["texto"], "prazo": f["prazo"], "hora": f["hora"], "prio": f["prio"], "rep": f["rep"],
-            "tags": f["tags"], "d": h12(f["desc"] or ""), "e": f["estado"],
-            "s": {c: [s["texto"], s["estado"]] for c, s in f["subs"].items()}}
+            "tags": tags_publicas(f["tags"]), "d": h12(desc_publica(f["desc"] or "")), "e": f["estado"],
+            "s": {c: [s["texto"], s["estado"], {k: h12(desc_publica(s.get(k, ""))) if k == "desc" else tags_publicas(s.get(k, "")) if k == "tags" else s.get(k, "")
+                                               for k in SUB_CAMPOS}] for c, s in f["subs"].items()}}
+
+
+def cmd_email(arq, tid, frase):
+    linhas = ler(arq)
+    if tid not in linhas or linhas[tid][1] not in ("aberta", "feita") or meta_ler(linhas[tid][5]).get("pai"):
+        print("tarefa indisponível para envio (use uma tarefa principal aberta ou concluída)", file=sys.stderr)
+        return 2
+    ficha = ficha_atual(linhas, tid)
+    if len(ficha["subs"]) > 1000:
+        print("tarefa excede o limite de 1000 subtarefas por e-mail", file=sys.stderr)
+        return 2
+    ficha["desc"] = desc_publica(ficha["desc"])
+    partes = [re.sub(r"(?m)^(\s*)[-*•]\s", r"\1– ", ficha["desc"])] if ficha["desc"] else []
+    for cod, sub in ficha["subs"].items():
+        sub["desc"] = desc_publica(sub["desc"])
+        partes.append(f"- [{cod}] [{'x' if sub['estado'] == 'f' else ' '}] {sub['texto']}")
+        for campo in ("prazo", "prio", "rep", "tags"):
+            if sub[campo]:
+                partes.append(f"  {ROTULO[campo]}: {mostra(campo, comp_prazo(sub) if campo == 'prazo' else sub[campo])}")
+        if sub["desc"]:
+            partes.extend("  │ " + ln for ln in sub["desc"].splitlines())
+    humano = "\n".join(partes)
+    removidas = [L[0] for L in linhas.values() if L[1] == "removida" and meta_ler(L[5]).get("pai") == tid]
+    if len(removidas) > 1000:
+        print("tarefa excede o limite de 1000 remoções por e-mail", file=sys.stderr)
+        return 2
+    frase = " ".join(t for t in frase.split() if not t.startswith("#_"))
+    assunto = "[tt] " + frase + " ~" + tid
+    pacote = {"id": tid, "assunto": assunto, "tarefa": {k: ficha[k] for k in ("texto", "prazo", "hora", "prio", "rep", "tags")},
+              "desc": ficha["desc"], "subs": ficha["subs"], "removidas": removidas,
+              "sha256": hashlib.sha256(humano.rstrip().encode()).hexdigest()}
+    rodape = "tt:2 estado=" + ficha["estado"] + (" removidas=" + ",".join(removidas) if removidas else "")
+    corpo = humano + "\n\n-- \n" + rodape + "\ntt:3 " + b64e(json.dumps(pacote, ensure_ascii=False, separators=(",", ":"))) + "\n"
+    if len(corpo.encode()) > 1_000_000:
+        print("tarefa excede o limite de 1 MB para compartilhamento por e-mail", file=sys.stderr)
+        return 2
+    print("\t".join((b64e(assunto), b64e(corpo), base_fmt(snapshot(ficha)))))
+    return 0
 
 
 def base_ler(linhas, tid):
@@ -152,7 +226,12 @@ def base_ler(linhas, tid):
     if not b:
         return None
     try:
-        return json.loads(b64d(b))
+        base = json.loads(b64d(b))
+        base["tags"] = tags_publicas(base.get("tags", ""))
+        for sub in base.get("s", {}).values():
+            if len(sub) > 2 and isinstance(sub[2], dict):
+                sub[2]["tags"] = tags_publicas(sub[2].get("tags", ""))
+        return base
     except Exception:
         return None
 
@@ -232,7 +311,7 @@ def itens(linhas, pid):
             vc, vi = comp_prazo(cur), comp_prazo(inc)
             vb = None if base is None else (f"{base['prazo']}|{base['hora']}" if base["prazo"] else "")
         elif campo == "desc":
-            vc, vi = cur["desc"], inc["desc"]
+            vc, vi = desc_publica(cur["desc"]), inc["desc"]
             vb = None
         elif campo == "estado":
             vc, vi = cur["estado"], inc["estado"]
@@ -304,13 +383,33 @@ def itens(linhas, pid):
             nome = {"f": "concluída", "a": "aberta"}
             add(f"sub:{cod}:estado", "sub", rot + " — situação", "estado", st2, nome[c["estado"]], nome[s["estado"]],
                 None if be is None else nome[be], ["inc", "cur"])
+        # v3: cada atributo da subtarefa participa da mesma revisão em três vias.
+        for campo in ("desc", "prazo", "prio", "rep", "tags"):
+            if campo not in s:
+                continue  # e-mail legado não apaga atributos que não transportava
+            vc, vi = c.get(campo, ""), s[campo]
+            extras = b[2] if b is not None and len(b) > 2 else {}
+            vb = extras.get(campo)
+            if campo == "prazo":
+                vc, vi = comp_prazo(c), comp_prazo(s)
+                vb = (extras["prazo"] + "|" + extras.get("hora", "") if extras["prazo"] else "") if "prazo" in extras else None
+            if campo == "desc":
+                vc = desc_publica(vc)
+                st3 = classificar(h12(vc) if vc else "", h12(vi) if vi else "", vb if vb != h12("") else "")
+            else:
+                st3 = classificar(vc, vi, vb)
+            if st3 != "igual":
+                opc = ["inc", "cur"] + (["ambas", "manual"] if campo in ("desc", "tags") else [])
+                add(f"sub:{cod}:{campo}", "sub", rot + " — " + ROTULO[campo].lower(), campo, st3, vc, vi, None, opc)
     # remoções explícitas (v2)
     for cod in sorted(inc["rem"]):
         c = cur["subs"].get(cod)
         if c is None or cod in inc["subs"]:
             continue
         b = None if base is None else base.get("s", {}).get(cod)
-        st = "entrada" if (b is not None and b[0] == c["texto"] and b[1] == c["estado"]) else "conflito"
+        igual_meta = b is not None and len(b) > 2 and all(
+            b[2].get(k, "") == (h12(desc_publica(c.get(k, ""))) if k == "desc" else c.get(k, "")) for k in SUB_CAMPOS)
+        st = "entrada" if (b is not None and b[0] == c["texto"] and b[1] == c["estado"] and (len(b) < 3 or igual_meta)) else "conflito"
         add(f"sub:{cod}:remover", "sub", f"Subtarefa «{c['texto']}»", "remover", st, c["texto"], "(removida na origem)", None,
             ["inc", "cur"])
     # sem código: casa pelo texto
@@ -347,7 +446,7 @@ def cmd_plano(arq, pid):
         return 1
     print("\t".join(["#", "alvo", alvo, esc(linhas[alvo][4]), esc(linhas[pid][5] and meta_ler(linhas[pid][5]).get("de", ""))]))
     for it in its:
-        mv = lambda v: esc(mostra(it["campo"], v) if it["grupo"] == "campo" else (v if v is not None else ""))
+        mv = lambda v: esc(mostra(it["campo"], v) if it["grupo"] == "campo" or it["campo"] in SUB_CAMPOS else (v if v is not None else ""))
         print("\t".join([it["id"], it["grupo"], esc(it["rotulo"]), it["status"], mv(it["cur"]), mv(it["inc"]),
                          mv(it["base"]) if it["base"] is not None else "", it["padrao"], ",".join(it["opcoes"])]))
     return 0
@@ -367,7 +466,7 @@ def cmd_texto(arq, pid, cor):
         return 0
     nome = {"conflito": ("31", "⚡ conflito"), "entrada": ("32", "← entra")}
     plano = lambda t: " ⏎ ".join(str(t).split("\n"))[:300]
-    mv = lambda it, v: plano(mostra(it["campo"], v) if it["grupo"] == "campo" else (v if v is not None else ""))
+    mv = lambda it, v: plano(mostra(it["campo"], v) if it["grupo"] == "campo" or it["campo"] in SUB_CAMPOS else (v if v is not None else ""))
     minhas = []
     for it in its:
         if it["status"] == "minha":
@@ -435,6 +534,12 @@ def cmd_aplicar(arq, pid, agora, decisoes, padrao):
     if pend:
         print("conflitos sem decisão: " + " ".join(pend), file=sys.stderr)
         return 3
+    for it in its:
+        escolha, manual = esc_item[it["id"]]
+        if escolha == "manual" and it["campo"] == "tags" and any(
+                t.startswith("_") for t in re.split(r"[,\s#]+", manual) if t):
+            print("etiquetas #_ são reservadas à origem de recebimento", file=sys.stderr)
+            return 2
 
     saida = {}  # id -> linha (lista)
 
@@ -469,7 +574,8 @@ def cmd_aplicar(arq, pid, agora, decisoes, padrao):
                 return a if a == b or not b else (b if not a else a + "\n\n──── recebida ────\n\n" + b)
         if ch == "manual":
             if it["campo"] == "tags":      # "a, #b c" → a,b,c
-                return ",".join(dict.fromkeys(t.lower() for t in re.split(r"[,\s#]+", manual) if t))
+                ts = [t.lower() for t in re.split(r"[,\s#]+", manual) if t]
+                return ",".join(dict.fromkeys(ts))
             return manual
         return it["cur"]
 
@@ -486,13 +592,19 @@ def cmd_aplicar(arq, pid, agora, decisoes, padrao):
             if not ep:
                 mm["prazo"] = ""
         elif campo == "desc":
+            v = desc_com_diario(v, b64d(mm.get("desc", "")))
             mm["desc"] = b64e(v) if v else ""
         elif campo == "estado":
             if M[1] != "arquivada":
                 M[1] = v if v in ("aberta", "feita") else M[1]
+        elif campo == "tags":
+            mm[campo] = tags_com_locais(v, mm.get("tags", ""))
         else:
             mm[campo] = v or ""
 
+    # A etiqueta de quem enviou é local, não participa do conflito de etiquetas públicas.
+    mm["tags"] = tags_com_locais(mm.get("tags", ""), mm.get("tags", ""),
+                                 meta_ler(linhas[pid][5]).get("tags", ""))
     usados = set()
     ord_prox = max([o for o, *_ in filhas(linhas, alvo, ("aberta", "feita", "arquivada", "removida"))] + [0]) + 1
     for iid, it in it_por.items():
@@ -515,6 +627,10 @@ def cmd_aplicar(arq, pid, agora, decisoes, padrao):
             texto = re.sub(r"\s+☑$", "", it["inc"] or "")
             feita = (it["inc"] or "").endswith("☑")
             sm = {"pai": alvo, "ord": str(ord_prox)}
+            for k in SUB_CAMPOS:
+                v = inc["subs"].get(cod, {}).get(k, "")
+                if v:
+                    sm[k] = b64e(v) if k == "desc" else v
             ord_prox += 1
             if novo in linhas:
                 L = tocar(novo)
@@ -540,6 +656,20 @@ def cmd_aplicar(arq, pid, agora, decisoes, padrao):
             if ch == "inc":
                 L[1] = "removida"
                 mudada(L)
+        elif tipo in SUB_CAMPOS:
+            sm = meta_ler(L[5])
+            v = valor(iid)
+            if tipo == "prazo":
+                sm["prazo"], _, sm["hora"] = (v or "").partition("|")
+            elif tipo == "desc":
+                v = desc_com_diario(v, b64d(sm.get("desc", "")))
+                sm["desc"] = b64e(v) if v else ""
+            elif tipo == "tags":
+                sm[tipo] = tags_com_locais(v, sm.get("tags", ""))
+            else:
+                sm[tipo] = v or ""
+            L[5] = meta_fmt(sm)
+            mudada(L)
     # regra: mãe concluída com subtarefa aberta volta a ficar aberta
     vivas = {}
     for cod, s in cur["subs"].items():
@@ -567,17 +697,19 @@ def inc_para_base(inc, cur):
          "tags": inc["tags"], "desc": inc["desc"] if inc["desc"] is not None else cur["desc"],
          "estado": inc["estado"] or cur["estado"], "subs": {}}
     for c, s in inc["subs"].items():
-        f["subs"][c] = {"texto": s["texto"], "estado": s["estado"] or (cur["subs"].get(c) or {}).get("estado", "a")}
+        antiga = cur["subs"].get(c) or {}
+        f["subs"][c] = {"texto": s["texto"], "estado": s["estado"] or antiga.get("estado", "a"),
+                        **{k: s.get(k, antiga.get(k, "")) for k in SUB_CAMPOS}}
     return f
 
 
-def cmd_base(arq, tid, agora):
+def cmd_base(arq, tid, agora, enviada=""):
     linhas = ler(arq)
     if tid not in linhas:
         return 1
     L = list(linhas[tid])
     mm = meta_ler(L[5])
-    mm["base"] = base_fmt(snapshot(ficha_atual(linhas, tid)))
+    mm["base"] = enviada or base_fmt(snapshot(ficha_atual(linhas, tid)))
     L[5] = meta_fmt(mm)
     try:
         antigo = int(L[3])
@@ -620,6 +752,43 @@ def cmd_triagem(arq, pid):
     return 0
 
 
+def cmd_tags_migrar(arq, cadastro, agora):
+    """Converte só a etiqueta associada ao remetente comprovado; preserva linhas desconhecidas."""
+    remetentes = {}
+    with open(cadastro, encoding="utf-8") as f:
+        for linha in f:
+            p = linha.rstrip("\n").split("\t")
+            if len(p) >= 5 and p[2] != "-" and p[1] not in ("", "-"):
+                remetentes[p[0].lower()] = p[1].lstrip("_")
+    with open(arq, encoding="utf-8") as f:
+        for linha in f:
+            p = linha.rstrip("\n").split("\t")
+            if len(p) != 6:
+                sys.stdout.write(linha)
+                continue
+            m = meta_ler(p[5])
+            tag = remetentes.get(m.get("de", "").lower())
+            if not tag or tag not in m.get("tags", "").split(","):
+                sys.stdout.write(linha)
+                continue
+            m["tags"] = ",".join(dict.fromkeys("_" + tag if t == tag else t for t in m["tags"].split(",")))
+            if m.get("base"):
+                try:
+                    base = json.loads(b64d(m["base"]))
+                    base["tags"] = ",".join(t for t in base.get("tags", "").split(",") if t != tag and not t.startswith("_"))
+                    m["base"] = base_fmt(base)
+                except (ValueError, TypeError, AttributeError):
+                    pass  # base desconhecida não autoriza perda de dados
+            p[5] = meta_fmt(m)
+            try:
+                p[3] = str(max(agora, int(p[3]) + 1))
+            except ValueError:
+                sys.stdout.write(linha)
+                continue
+            print("\t".join(p))
+    return 0
+
+
 def main(a):
     if len(a) < 3:
         print(__doc__)
@@ -630,8 +799,12 @@ def main(a):
     def val(nome, padrao=None):
         return opc[opc.index(nome) + 1] if nome in opc and opc.index(nome) + 1 < len(opc) else padrao
 
+    if cmd == "tags-migrar":
+        return cmd_tags_migrar(arq, alvo, int(val("--agora", str(int(time.time())))))
     if cmd == "plano":
         return cmd_plano(arq, alvo)
+    if cmd == "email":
+        return cmd_email(arq, alvo, opc[0])
     if cmd == "texto":
         return cmd_texto(arq, alvo, "--cor" in opc)
     if cmd == "estado":
@@ -641,7 +814,7 @@ def main(a):
         txt = sys.stdin.read() if dec == "-" else (open(dec, encoding="utf-8").read() if dec else "")
         return cmd_aplicar(arq, alvo, int(val("--agora", str(int(time.time())))), txt, val("--padrao"))
     if cmd == "base":
-        return cmd_base(arq, alvo, int(val("--agora", str(int(time.time())))))
+        return cmd_base(arq, alvo, int(val("--agora", str(int(time.time())))), sys.stdin.read() if "--snapshot-stdin" in opc else "")
     if cmd == "triagem":
         return cmd_triagem(arq, alvo)
     print(__doc__)

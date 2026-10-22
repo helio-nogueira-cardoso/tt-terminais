@@ -114,7 +114,7 @@ tem 2 4 && grep -q 'Port 8022' "$T/m2/home/.ssh/config" 2>/dev/null && ok "m4 (s
 # --- 9) o nome não resolve só nesta máquina (celular sem o MagicDNS) e as outras usam o mesmo nome: religa pelo IP
 #        da tailnet que outra anuncia; uma cadastrada por IP (m4) não esconde o IP alternativo (era cortado em "10")
 reg 1 2 3 4; reg 3 1 2 4; reg 4 1 2 3; rm -f "$T"/m*/config/tt/maquinas-estado "$T/m4/PORTA8022" "$T/m2/home/.ssh/config"
-printf '# h\nh1 u m1\nh3 u m3\n10.0.0.4 u m4\n' >"$T/m2/config/tt/maquinas"
+printf '# h\nh1 u m1\n10.0.0.4 u m4\n' >"$T/m2/config/tt/maquinas"
 como 2 --registrar 10.0.0.3 u m3 >/dev/null
 grep -qE '^10\.0\.0\.4 +u +m4$' "$T/m2/config/tt/maquinas" && grep -qE '^10\.0\.0\.3 +u +m3$' "$T/m2/config/tt/maquinas" &&
   ok "cadastrar uma pelo IP não apaga as outras guardadas por IP (era o corte no 1º ponto)" || erro "registrar por IP: $(grep -v '^#' "$T/m2/config/tt/maquinas" | tr '\n' ';')"
@@ -152,6 +152,60 @@ sleep 0.7; SIM_LENTO=2 como 1 --malha >"$T/malha-b"; rb=$?; wait "$a"; ra=$?
 [[ $ra == 0 && $rb == 0 ]] && ! grep -q "sem resposta" "$T/malha-a" "$T/malha-b" && grep -q "Malha completa" "$T/malha-a" &&
   grep -q "Malha completa" "$T/malha-b" && grep -q "^m3 " "$T/malha-a" && grep -q "^m3 " "$T/malha-b" && ok "duas rodadas do tt --malha ao mesmo tempo não se atrapalham" ||
   erro "rodadas simultâneas viram ilha (rc $ra/$rb): $(cat "$T/malha-a" "$T/malha-b")"
+
+# --- 13) o Tailscale de m1 ficou com a visão velha (m4 "Online", o s23 em 21/10/2026, 4 h depois de sair da tailnet) e o
+# de m2 já a dá como desligada: ninguém alcança m4, então ela é ○ em todas as linhas e não conta como ilha
+reg 1 2 3 4; reg 2 1 3 4; reg 3 1 2 4; reg 4 1 2 3; rm -f "$T"/m*/config/tt/maquinas-estado; touch "$T/m4/DESLIGADA"
+echo '{"Peer": {"p4": {"HostName": "h4", "DNSName": "h4.tail.ts.net.", "Online": true}}}' >"$T/m1/home/tailscale.json"
+echo '{"Peer": {"p4": {"HostName": "h4", "DNSName": "h4.tail.ts.net.", "Online": false}}}' >"$T/m2/home/tailscale.json"
+grep -qE '^m4 +offline ' <<<"$(como 2 --diagnosticar)" && ok "tt --diagnosticar lista a desligada daqui como offline" || erro "diagnosticar sem a desligada: $(como 2 --diagnosticar)"
+saida=$(como 1 --malha); rc=$?
+[[ $rc == 0 && $saida == *"m4:○"* && $saida != *"m4:✗"* && $saida != *"sem resposta"* && $saida == *"desligada para outra máquina"* ]] &&
+  ok "tt --malha: a ligada só na visão velha de m1, desligada para m2 e que ninguém alcança, não é ilha" || erro "visão velha virou ilha (rc=$rc): $saida"
+rm -f "$T/m4/DESLIGADA"
+
+# --- 14) ...mas se alguma a alcança, a falha das outras segue ilha (m2 com a visão velha ao contrário; m1 não resolve h4)
+reg 1 2 3 4; reg 2 1 3 4; reg 3 1 2 4; reg 4 1 2 3; rm -f "$T"/m*/config/tt/maquinas-estado "$T/m1/home/tailscale.json"
+echo h4 >"$T/m1/home/naoresolve"
+saida=$(como 1 --malha); rc=$?
+[[ $rc != 0 && $saida == *"m4:✗(dns)"* ]] && ok "tt --malha: m3 alcança m4, então m1 sem chegar a ela é ilha (a visão desligada de m2 não esconde)" ||
+  erro "ilha escondida pela visão de m2 (rc=$rc): $saida"
+rm -f "$T/m1/home/naoresolve" "$T/m2/home/tailscale.json"
+
+# --- 15) uma linha por máquina. O celular sem o MagicDNS (m2) reaprende m1 pelo IP da tailnet e se apresenta a ela
+#         pelo IP; m1, que já a guardava pelo nome, ganhava uma 2ª linha (o s23 duas vezes no tt --malha do book-hl)
+reg 1 2 3 4; reg 3 1 2 4; reg 4 1 2 3; rm -f "$T"/m*/config/tt/maquinas-estado
+printf '# h\nh3 u m3\nh4 u m4\n' >"$T/m2/config/tt/maquinas"
+echo h1 >"$T/m2/home/naoresolve"
+echo '{"Peer": {"p1": {"HostName": "h1", "DNSName": "h1.tail.ts.net.", "Online": true, "TailscaleIPs": ["10.0.0.1"]}}}' >"$T/m3/home/tailscale.json"
+como 2 --malha-completar >/dev/null
+n=$(grep -c ' m2$' "$T/m1/config/tt/maquinas")
+grep -qE '^10\.0\.0\.1 +u +m1$' "$T/m2/config/tt/maquinas" && [[ $n == 1 ]] && grep -qE '^h2 +u +m2$' "$T/m1/config/tt/maquinas" &&
+  ok "m2 reaprende m1 pelo IP e se apresenta: m1 continua com uma linha só para m2 (a que já tinha)" ||
+  erro "apresentação duplicou: m1='$(grep -v '^#' "$T/m1/config/tt/maquinas" | tr '\n' ';')' m2='$(grep -v '^#' "$T/m2/config/tt/maquinas" | tr '\n' ';')'"
+rm -f "$T/m2/home/naoresolve" "$T/m3/home/tailscale.json"
+# a oculta (a --malha-lista não a anuncia, então ela se apresenta a cada volta) continua oculta e única
+printf '# h\nh1 u m1\nh3 u m3 oculta\nh4 u m4\n' >"$T/m2/config/tt/maquinas"
+como 2 --registrar 10.0.0.3 u m3 >/dev/null
+[[ $(grep -c ' m3' "$T/m2/config/tt/maquinas") == 1 ]] && grep -qE '^h3 +u +m3 +oculta$' "$T/m2/config/tt/maquinas" &&
+  ok "a oculta que se apresenta continua oculta, numa linha só" || erro "oculta: $(grep -v '^#' "$T/m2/config/tt/maquinas" | tr '\n' ';')"
+# trocar o endereço de uma conhecida (cadastro, conserto da malha) troca a linha dela e mantém a marca oculta
+env HOME="$T/m2/home" XDG_CONFIG_HOME="$T/m2/config" TT_RT="$T/m2/rt" TT_COMPLETO=1 TT_SO_CARREGAR=1 PATH="$T/bin:$PATH" TMUX= bash -c \
+  'source "$1"; registrar 10.0.0.3 u m3' _ "$TT" >/dev/null 2>&1
+[[ $(grep -c ' m3' "$T/m2/config/tt/maquinas") == 1 ]] && grep -qE '^10\.0\.0\.3 +u +m3 +oculta$' "$T/m2/config/tt/maquinas" &&
+  ok "registrar troca a linha do mesmo rótulo (endereço novo) e preserva a marca oculta" || erro "troca: $(grep -v '^#' "$T/m2/config/tt/maquinas" | tr '\n' ';')"
+# o cadastro que versões antigas deixaram com o mesmo rótulo duas vezes se arruma na volta da malha (fica a primeira)
+reg 1 2 3 4; reg 2 1 3 4; reg 3 1 2 4; reg 4 1 2 3; echo "10.0.0.2 u m2" >>"$T/m1/config/tt/maquinas"
+como 1 --malha-completar >/dev/null
+[[ $(grep -c ' m2$' "$T/m1/config/tt/maquinas") == 1 ]] && grep -qE '^h2 +u +m2$' "$T/m1/config/tt/maquinas" &&
+  ok "linha repetida do mesmo rótulo sai na volta da malha (fica a primeira)" || erro "repetida: $(grep -v '^#' "$T/m1/config/tt/maquinas" | tr '\n' ';')"
+# a repetida à vista (aprendida pelo IP) de uma oculta: fica uma linha, oculta (o book-hl no dell em 21/10/2026: oculta pelo
+# nome, à vista pelo IP, desligada há 1 dia e acusada de ilha em cada volta)
+reg 1 2 3 4; reg 2 1 3 4; reg 3 1 2 4; reg 4 1 2 3
+printf '# h\nh2 u m2\nh3 u m3\n10.0.0.4 u m4\nh4 u m4 oculta\n' >"$T/m1/config/tt/maquinas"
+como 1 --malha-completar >/dev/null
+[[ $(grep -c ' m4' "$T/m1/config/tt/maquinas") == 1 ]] && grep -qE '^10\.0\.0\.4 +u +m4 +oculta$' "$T/m1/config/tt/maquinas" &&
+  ok "repetida de uma oculta sai e a que fica continua oculta" || erro "oculta repetida: $(grep -v '^#' "$T/m1/config/tt/maquinas" | tr '\n' ';')"
 
 echo
 if ((falhas == 0)); then echo "TODOS OS TESTES PASSARAM"; else echo "$falhas FALHA(S)"; fi

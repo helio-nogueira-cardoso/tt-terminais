@@ -64,9 +64,10 @@ fi
 ST=$HOME/.local/state/tt-voz; CF=$HOME/.config/tt-voz; SD=${VOZ_SDCARD:-/sdcard}
 AQUI=$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd); AUDIO=$AQUI/voz-audio.py
 mkdir -p "$ST" "$CF"; touch "$CF/permitidas"
-# a conexão de cada máquina fica aberta e é a mesma do tt (ControlPath): um comando lá custa ~0,35 s, não ~0,75 s
+# a conexão de cada máquina fica aberta e é a mesma do tt (o ControlPath tem de ser igual ao do SSH_OPC do tt):
+# um comando lá custa ~0,35 s, não ~0,75 s
 SSHO=(-o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ControlMaster=auto
-  -o "ControlPath=$HOME/.cache/tt-ssh-%r@%h" -o ControlPersist=12h)
+  -o "ControlPath=$HOME/.cache/tt-ssh-%C" -o ControlPersist=12h)
 TG=${VOZ_TELEGRAM:-$HOME/.secrets/tt-voz/telegram}; TG_API=${VOZ_TG_API:-https://api.telegram.org}; CANAL=; JUNTAR=
 
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }  # GNU e BSD (macOS)
@@ -173,10 +174,17 @@ local_rotulo() {
 }
 maquinas() { tt_maquinas | awk '{print $2}'; local_rotulo; }
 destino() { local r=$1; [[ $r == "$(local_rotulo)" ]] && { echo local; return; }; tt_maquinas | awk -v l="$r" '$2==l{print $1}'; }
+q() { # q ARG...: como o printf %q, e com a barra no "=" do começo: o shell do ssh no Mac é o zsh, que lê "=nome" como o
+  # caminho do comando "nome" ("zsh: nome not found") e não roda a linha inteira (o mesmo q do tt)
+  local a o
+  for a in "$@"; do printf -v o '%q' "$a"; [[ $o == =* ]] && o="\\$o"; printf '%s ' "$o"; done
+}
 em() { # em ROTULO comando...  (roda lá, local ou por ssh; EM_TEMPO segundos no máximo, padrão 40)
+  # sem stdin (ssh -n): o ssh lê o stdin inteiro de quem o chama, e dentro de um "while read" (o plano do cérebro, o sim
+  # do plano) comia as linhas seguintes: só o 1º passo numa outra máquina rodava, e o resto sumia calado
   local d; d=$(destino "$1"); shift
-  if [[ $d == local || -z $d ]]; then timeout "${EM_TEMPO:-40}" bash -c "$*"; else
-    timeout "${EM_TEMPO:-40}" ssh "${SSHO[@]}" "$d" "PATH=\"\$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:\$PATH\"; TMUX_TMPDIR=\"\${TMUX_TMPDIR:-\$([ -d \"\${PREFIX:-/x}/var/run\" ] && echo \"\$PREFIX/var/run\")}\"; export TMUX_TMPDIR; $*"; fi
+  if [[ $d == local || -z $d ]]; then timeout "${EM_TEMPO:-40}" bash -c "$*" </dev/null; else
+    timeout "${EM_TEMPO:-40}" ssh -n "${SSHO[@]}" "$d" "PATH=\"\$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:\$PATH\"; TMUX_TMPDIR=\"\${TMUX_TMPDIR:-\$([ -d \"\${PREFIX:-/x}/var/run\" ] && echo \"\$PREFIX/var/run\")}\"; export TMUX_TMPDIR; $*"; fi
 }
 achar() { # achar "termo" lista... -> melhor item (todas as palavras do termo contidas, senão a 1ª que contém)
   local termo=$1 it n w ok; shift
@@ -909,7 +917,7 @@ cerebro() { # cerebro "FRASE(S)": executa o plano do modelo; 1 = sem cérebro ou
   [[ $(pergunta) == plano ]] || rm -f "$LOTE"   # plano que ninguém aprovou a tempo não volta
   PLANO_LOTE=1
   [[ -n $fala ]] && falar "$fala"
-  while IFS=$'\x1f' read -r a mq se tx te tm ia qt nm nu fl sg dp po pz og rd cs; do
+  while IFS=$'\x1f' read -r -u 9 a mq se tx te tm ia qt nm nu fl sg dp po pz og rd cs; do
     case $a in
       maquinas|status|contas|repetir) comando "$a" ;;
       tarefas) tarefas_ler "${fl:-abertas}" ;;
@@ -968,7 +976,7 @@ cerebro() { # cerebro "FRASE(S)": executa o plano do modelo; 1 = sem cérebro ou
       ajuda) ajuda "$tm" ;;
       encerrar) encerra=1 ;;
     esac
-  done < <(tail -n +2 <<<"$plano")
+  done 9< <(tail -n +2 <<<"$plano")
   PLANO_LOTE=; plano_perguntar   # as destrutivas do turno (fila) viram UMA pergunta
   JUNTAR=; dito=$(sed 's/ *$//' "$ST/turno" 2>/dev/null); antes=$(sed 's/ *$//' "$ST/turno.dito" 2>/dev/null)
   rm -f "$ST/turno" "$ST/turno.dito"
@@ -1020,12 +1028,12 @@ plano_resposta() { # sim | nao | tirar ARGUMENTO (número ou parte do nome)
   # sim: executa em ordem (só ações conhecidas); cada uma fala o que fez
   rm -f "$ST/pergunta"
   local -a feitas=()
-  while IFS=$'\x1f' read -r acao desc rest; do
+  while IFS=$'\x1f' read -r -u 9 acao desc rest; do
     [[ -n $acao ]] || continue
     [[ $PLANO_ACOES == *" $acao "* ]] || { falar "Não sei executar $acao."; continue; }
     local -a args=(); IFS=$'\x1f' read -r -a args <<<"$rest"
     "$acao" "${args[@]}"
-  done < <(cat "$LOTE")
+  done 9< <(cat "$LOTE")
   rm -f "$LOTE"
 }
 
@@ -1055,16 +1063,16 @@ juntar_sessoes() { # MÁQUINA DESTINO "origem1,origem2": entra na fila do plano 
 unir_ja() { # MÁQUINA DESTINO "origem1,origem2": tmux move-window de cada aba, no fim da destino
   local m=$1 d=$2 lista=$3 o w movidas=0 falhas=0 q
   local -a origens=() janelas=()
-  em "$m" "tmux has-session -t $(printf '%q' "=$d") 2>/dev/null" || { falar "A sessão $(falavel "$d") não existe mais em $m."; return 0; }
+  em "$m" "tmux has-session -t $(q "=$d") 2>/dev/null" || { falar "A sessão $(falavel "$d") não existe mais em $m."; return 0; }
   IFS=',' read -r -a origens <<<"$lista"
   for o in "${origens[@]}"; do
-    mapfile -t janelas < <(em "$m" "tmux list-windows -t $(printf '%q' "=$o") -F '#{window_index}' 2>/dev/null")
+    mapfile -t janelas < <(em "$m" "tmux list-windows -t $(q "=$o") -F '#{window_index}' 2>/dev/null")
     for w in "${janelas[@]}"; do
       [[ -n $w ]] || continue
-      if em "$m" "tmux move-window -a -d -s $(printf '%q' "=$o:$w") -t $(printf '%q' "=$d:{end}")" >/dev/null 2>&1; then movidas=$((movidas + 1)); else falhas=$((falhas + 1)); fi
+      if em "$m" "tmux move-window -a -d -s $(q "=$o:$w") -t $(q "=$d:{end}")" >/dev/null 2>&1; then movidas=$((movidas + 1)); else falhas=$((falhas + 1)); fi
     done
     # a sessão sem abas some sozinha; a fixada dela, se ficou órfã, sai da barra
-    if ! em "$m" "tmux has-session -t $(printf '%q' "=$o") 2>/dev/null"; then
+    if ! em "$m" "tmux has-session -t $(q "=$o") 2>/dev/null"; then
       q=$(printf '%q' "$o")
       em "$m" "tt --fixadas 2>/dev/null | awk -F'\t' -v o=$q '\$2 == o { f = 1 } END { exit !f }' && tt --fixar $q >/dev/null 2>&1" >/dev/null 2>&1
       grep -vxF "$m:$o" "$CF/permitidas" > "$CF/p.tmp" 2>/dev/null; mv "$CF/p.tmp" "$CF/permitidas" 2>/dev/null
@@ -1175,10 +1183,10 @@ conversa_entre() { # ORIGEM_M ORIGEM_S DEST_M DEST_S TEXTO [RODADAS]: ORIGEM vaz
   [[ $rod =~ ^[1-6]$ ]] || rod=1
   [[ -n $txt ]] || { falar "Diga o que mandar para a sessão $(falavel "$ds")."; return 0; }
   IFS=$'\t' read -r drm drs < <(real_de "$dm" "$ds")
-  em "$drm" "tmux has-session -t $(printf '%q' "=$drs") 2>/dev/null" || { falar "A sessão $(falavel "$ds") não existe em $dm."; return 0; }
+  em "$drm" "tmux has-session -t $(q "=$drs") 2>/dev/null" || { falar "A sessão $(falavel "$ds") não existe em $dm."; return 0; }
   if [[ -n $os ]]; then
     IFS=$'\t' read -r orm ors < <(real_de "$om" "$os")
-    em "$orm" "tmux has-session -t $(printf '%q' "=$ors") 2>/dev/null" || { falar "A sessão $(falavel "$os") não existe em $om."; return 0; }
+    em "$orm" "tmux has-session -t $(q "=$ors") 2>/dev/null" || { falar "A sessão $(falavel "$os") não existe em $om."; return 0; }
   fi
   liberar "$dm" "$ds"
   msg="$txt"
@@ -1203,7 +1211,7 @@ conversa_entre() { # ORIGEM_M ORIGEM_S DEST_M DEST_S TEXTO [RODADAS]: ORIGEM vaz
 }
 mandar_para() { # MAQ SESSÃO TEXTO: digita o texto no agente da sessão e dá Enter (várias linhas viram uma só, o Enter vai no fim)
   local m=$1 s=$2 txt; txt=$(tr '\n' ' ' <<<"$3" | sed 's/  */ /g')
-  em "$m" "tmux send-keys -t $(printf '%q' "=$s:") -l -- $(printf '%q' "$txt"); sleep 0.4; tmux send-keys -t $(printf '%q' "=$s:") Enter"
+  em "$m" "tmux send-keys -t $(q "=$s:") -l -- $(printf '%q' "$txt"); sleep 0.4; tmux send-keys -t $(q "=$s:") Enter"
 }
 esperar_resposta_longa() { # SESSÃO MAQ: como esperar_resposta, mas até VOZ_CONVERSA_ESPERA segundos (60) entre as sessões
   local s=$1 m=$2 ant="" igual=0 ocup i limite=$(( ${VOZ_CONVERSA_ESPERA:-60} / 2 ))
@@ -2181,8 +2189,8 @@ fechar_sessao() { # [NOME]: confirma antes; a escolhida ou uma que trabalha pede
   fi
 }
 fechar_uma() { # MAQ SESSÃO: fecha pelo tt de lá (que solta a fixada); 0 = fechou
-  em "$1" "if command -v tt >/dev/null; then tt --fechar . $(printf '%q' "$2"); else tmux kill-session -t $(printf '%q' "=$2"); fi" >/dev/null 2>&1
-  em "$1" "tmux has-session -t $(printf '%q' "=$2") 2>/dev/null" && return 1
+  em "$1" "if command -v tt >/dev/null; then tt --fechar . $(printf '%q' "$2"); else tmux kill-session -t $(q "=$2"); fi" >/dev/null 2>&1
+  em "$1" "tmux has-session -t $(q "=$2") 2>/dev/null" && return 1
   if [[ $1 == "$(alvo_m)" && $2 == "$(alvo_s)" ]]; then rm -f "$ST/alvo_s"; fi
   grep -vxF "$1:$2" "$CF/permitidas" > "$CF/p.tmp" 2>/dev/null; mv "$CF/p.tmp" "$CF/permitidas"
   return 0
@@ -2259,7 +2267,7 @@ limpeza_fechar() { # fecha as da lista (conferindo antes que ninguém voltou a u
   [[ -s $ST/limpeza ]] || { falar "Não há lista de limpeza agora. Diga limpeza."; return; }
   rm -f "$ST/pergunta"; agora=$(date +%s)
   while IFS=$'\t' read -r m s mot; do
-    read -r at act < <(em "$m" "tmux display-message -p -t $(printf '%q' "=$s:") '#{session_attached} #{session_activity}'" 2>/dev/null)
+    read -r at act < <(em "$m" "tmux display-message -p -t $(q "=$s:") '#{session_attached} #{session_activity}'" 2>/dev/null)
     if [[ -z $at ]]; then continue; fi  # já não existe
     if ((at > 0)) || { [[ $act =~ ^[0-9]+$ ]] && ((agora - act < ${VOZ_LIMPEZA_RECENTE:-120})); }; then pulei+=("$(falavel "$s")"); continue; fi
     if fechar_uma "$m" "$s"; then ok+=("$(falavel "$s")"); else falhou+=("$(falavel "$s")"); fi

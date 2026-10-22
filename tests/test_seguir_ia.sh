@@ -175,4 +175,9 @@ passou "noutra máquina: ela abre a nova IA com o @seguir dela, o agente daqui f
 HOME=$D XDG_CONFIG_HOME=$D/.config TT_RT=$D/rt "$TT" --conversa-ia "$U2" --de teste --salvar >/dev/null
 grep -q 'Implemente a rolagem' "$D/.cache/tt/conversas/$U2.md" 2>/dev/null || falhou 'a outra máquina não buscou a conversa pela rede do tt'
 grep -q "^origem-host .*--conversa-ia $U2" "$SSH_LOG" || falhou "a busca não foi à máquina de origem: $(cat "$SSH_LOG")"
+# A conversa inteira e o pedido só para o dono (o Claude grava as conversas com 600; a cópia saía 644 numa pasta 755).
+modo() { ls -ldn "$1" | cut -c1-10; }
+[[ $(modo "$D/.cache/tt/conversas/$U2.md") == -rw------- ]] || falhou "conversa salva com modo aberto: $(modo "$D/.cache/tt/conversas/$U2.md")"
+[[ $(modo "$D/.cache/tt/conversas") == drwx------ ]] || falhou "pasta das conversas aberta: $(modo "$D/.cache/tt/conversas")"
+[[ $(modo "$pedido") == -rw------- && $(modo "$D/.cache/tt/seguir") == drwx------ ]] || falhou "pedido da ⏩ aberto: $(modo "$pedido") $(modo "$D/.cache/tt/seguir")"
 passou 'tt --conversa-ia --de: a outra máquina busca a conversa na de origem e salva'

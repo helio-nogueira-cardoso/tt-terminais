@@ -59,6 +59,12 @@ grep -qx 'sync_local=1' "$HOME/.config/tt/email/a.conf" || falhou 'mexeu na cont
 [[ $(estado) == na ]] || falhou "depois de ligar a pendência deveria sumir, veio [$(estado)]"
 passou 'aceitar liga o espelho das contas que faltavam e a pendência some'
 
+# 5b) Conta OAuth ainda sem token (o login não terminou) não vira pendência: ligar o espelho dela só daria erro de login.
+conta c $'auth=oauth\n'
+[[ $(estado) == na ]] || falhou "conta OAuth sem token não deveria ser pendência, veio [$(estado)]"
+rm -f "$HOME/.config/tt/email/c.conf"
+passou 'conta OAuth sem token não vira pendência do espelho'
+
 # 6) Conta espelhada (maildir) tem check-mail-cmd no aerc: sem ele o :check-mail (F11, ⟳, abrir pelo aviso)
 #    respondia "no command specified". Conta antiga sem a linha é regravada pela migração da instalação.
 A=$HOME/.config/aerc/accounts.conf

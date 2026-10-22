@@ -1062,19 +1062,15 @@ def testar(c):
 def graph_token(c, recurso="https://graph.microsoft.com/.default"):
     if c.get("auth") != "oauth" or c.get("graph") != "1":
         raise RuntimeError("a conta não está configurada para Microsoft Graph")
-    rt = ler_arquivo(arq_segredo(c))
-    if not rt:
-        raise RuntimeError("conta ainda não autorizada (tt --email-autorizar)")
-    d = {**base_oauth(c), "grant_type": "refresh_token", "refresh_token": rt, "scope": "offline_access " + recurso}
-    t = post(c["oauth_token_endpoint"], d)
-    if "access_token" not in t:
-        raise RuntimeError(t.get("error_description") or t.get("error") or "falha ao renovar o token")
-    return t["access_token"]
+    # O mesmo caminho do IMAP: conta sem token diz que falta autorizar, a recusa traz a causa da Microsoft
+    # (e não só "'access_token'") e o refresh token que ela devolve a cada renovação fica guardado.
+    return access_token({**c, "oauth_scope": "offline_access " + recurso})
 
 
 def graph_get(c, caminho):
     req = urllib.request.Request("https://graph.microsoft.com/v1.0" + caminho,
-                                headers={"Authorization": "Bearer " + graph_token(c)})
+                                headers={"Authorization": "Bearer " + graph_token(c),
+                                         "Prefer": 'outlook.body-content-type="text"'})
     with urllib.request.urlopen(req, timeout=TIMEOUT, context=contexto_ssl()) as r:
         return json.load(r)
 
@@ -1216,6 +1212,9 @@ def imap_nome(pasta):
 ENVIAR_AJUDA = """uso: tt --email-enviar [--conta CONTA] --para END[,END…] [--cc END…] [--cco END…] --assunto TEXTO
        [--corpo TEXTO | --corpo-arquivo ARQ | corpo no stdin] [--html TEXTO | --html-arquivo ARQ]
        [--anexo ARQ]… [--responder-para END] [--em-resposta-a MESSAGE-ID] [--sem-assinatura] [--ensaio]
+       tt --email-enviar [--conta CONTA] --para END --tarefa ID [--tarefa ID…]
+       tt --email-enviar [--conta CONTA] --tarefas-ui
+       --tarefa envia uma mensagem por tarefa, com descrição, subtarefas e códigos; --tarefas-ui seleciona, ensaia e pede confirmação.
 apelidos em inglês: --account/--from, --to, --bcc, --subject, --body, --body-file, --html-file, --attach,
        --reply-to, --in-reply-to, --no-signature, --dry-run"""
 ENVIAR_APELIDOS = {"--to": "--para", "--bcc": "--cco", "--subject": "--assunto", "--body": "--corpo",
@@ -1316,7 +1315,10 @@ def enviar(caminho_conf, args):
     else:
         corpo = ""
     c = ler_conf(caminho_conf); c["_conf"] = os.path.abspath(caminho_conf)
-    m = montar_mensagem(c, o, corpo)
+    try:
+        m = montar_mensagem(c, o, corpo)
+    except (ValueError, OSError) as e:
+        print(f"✗ mensagem inválida: {erro_curto(e)}", file=sys.stderr); return 2
     if o["--cco"]:
         m["Bcc"] = ", ".join(o["--cco"])  # só para o caminho do Outlook e para o ensaio; o SMTP o tira antes
     caminho = "Outlook (API REST)" if conta_graph(c) else f"SMTP {c.get('smtp_host', '?')}"
@@ -1327,7 +1329,11 @@ def enviar(caminho_conf, args):
             if sem_anexos.get(campo):
                 print(f"{campo}: {sem_anexos[campo]}")
         print()
-        print(m.get_body(preferencelist=("plain",)).get_content().rstrip("\n"))
+        previa = m.get_body(preferencelist=("plain",)).get_content().rstrip("\n")
+        if demanda_rica(previa.replace("\r", ""), str(m["Subject"])):
+            import re
+            previa = re.split(r"\n-- \ntt:2 ", previa)[0].rstrip()
+        print(previa)
         if m.get_body(preferencelist=("html",)) is not None:
             print("\n# + versão HTML")
         for p in m.iter_attachments():
@@ -1362,11 +1368,34 @@ def graph_sync(c, base, limite, completo=False):
     """Espelha o INBOX como maildir; no modo completo, também Enviados/Lixeira/Rascunhos/Spam/
     Arquivo. Cada pasta é reconstruída do servidor a cada sync (o id do Graph é a verdade: evita
     duplicar quando o cliente renomeia arquivos ao marcar lido/arquivar)."""
+    from email.message import EmailMessage
+    from email.utils import formataddr, format_datetime
+    from datetime import datetime
+    import hashlib
     pastas = [("inbox", "INBOX")] + (GRAPH_PASTAS_EXTRA if completo else [])
     total = 0
     for wk, nome_pasta in pastas:
         try:
-            r = graph_get(c, f"/me/mailFolders/{wk}/messages?$top={int(limite)}&$select=id,subject,from,receivedDateTime,isRead,bodyPreview,internetMessageHeaders")
+            teto = max(1, min(int(limite), 1000))
+            caminho = f"/me/mailFolders/{wk}/messages?$top={min(teto, 50)}&$select=id,subject,from,receivedDateTime,sentDateTime,isRead,body,bodyPreview,internetMessageId,internetMessageHeaders"
+            mensagens, paginas = [], set()
+            while caminho and len(mensagens) < teto:
+                if caminho in paginas:
+                    raise RuntimeError("Graph repetiu uma página; espelho anterior preservado")
+                paginas.add(caminho)
+                r = graph_get(c, caminho)
+                mensagens.extend(r.get("value", [])[:teto - len(mensagens)])
+                proxima = r.get("@odata.nextLink", "")
+                if proxima and not proxima.startswith("https://graph.microsoft.com/v1.0/"):
+                    raise RuntimeError("Graph devolveu paginação fora do endpoint esperado")
+                caminho = proxima[len("https://graph.microsoft.com/v1.0"):] if proxima else ""
+            for mensagem in mensagens:
+                if str(mensagem.get("subject", "")).lower().startswith(("[tt]", "[tt:")) and "content" not in (mensagem.get("body") or {}):
+                    mid = urllib.parse.quote(mensagem["id"], safe="")
+                    detalhe = graph_get(c, f"/me/messages/{mid}?$select=body,internetMessageId")
+                    if "content" not in (detalhe.get("body") or {}):
+                        raise RuntimeError("Graph não entregou o corpo completo da tarefa; tente sincronizar novamente")
+                    mensagem.update(detalhe)
         except urllib.error.HTTPError as e:
             if e.code == 404:   # pasta inexistente nesta conta: ignora
                 continue
@@ -1382,7 +1411,7 @@ def graph_sync(c, base, limite, completo=False):
                     except OSError:
                         pass
             os.makedirs(d, exist_ok=True)
-        for m in r.get("value", []):
+        for m in mensagens:
             ident = m.get("id", "")
             if not ident:
                 continue
@@ -1392,22 +1421,29 @@ def graph_sync(c, base, limite, completo=False):
             # The local demand filter relies on the receiving provider's verdict. Graph omits these
             # headers unless explicitly selected; preserve only Authentication-Results, in provider
             # order, so the parser can continue trusting the first (newest) result.
-            auth_headers = []
+            mensagem = EmailMessage(policy=email_lib.policy.SMTP)
+            limpo = lambda v: " ".join(str(v or "").splitlines())
             for h in m.get("internetMessageHeaders", []) or []:
                 if str(h.get("name", "")).lower() != "authentication-results":
                     continue
                 value = " ".join(str(h.get("value", "")).replace("\r", " ").replace("\n", " ").split())
                 if value:
-                    auth_headers.append(f"Authentication-Results: {value}\n")
-            texto = ("".join(auth_headers)
-                     + f"From: {de.get('name', '')} <{de.get('address', '')}>\n"
-                     f"Subject: {m.get('subject', '')}\n"
-                     f"Date: {m.get('receivedDateTime', '')}\n"
-                     f"X-Graph-Id: {ident}\n\n{m.get('bodyPreview', '')}\n")
+                    mensagem["Authentication-Results"] = value
+            mensagem["From"] = formataddr((limpo(de.get("name")), limpo(de.get("address"))))
+            mensagem["Subject"] = limpo(m.get("subject"))
+            mensagem["Message-ID"] = limpo(m.get("internetMessageId")) or "<graph-" + hashlib.sha256(ident.encode()).hexdigest()[:32] + "@tt.invalid>"
+            try:
+                mensagem["Date"] = format_datetime(datetime.fromisoformat((m.get("sentDateTime") or m.get("receivedDateTime", "")).replace("Z", "+00:00")))
+            except ValueError:
+                pass
+            mensagem["X-Graph-Id"] = limpo(ident)
+            body = m.get("body") or {}
+            mensagem.set_content(body.get("content", m.get("bodyPreview", "")),
+                                 subtype="html" if body.get("contentType", "").lower() == "html" else "plain")
             tmp = os.path.join(destino, "tmp", nome)
             dst = os.path.join(destino, "cur", nome + ":2,S") if lido else os.path.join(destino, "new", nome)
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(texto)
+            with open(tmp, "wb") as f:
+                f.write(mensagem.as_bytes())
             os.replace(tmp, dst)
             total += 1
     print(f"mensagens={total}")
@@ -1771,6 +1807,66 @@ def autenticacao(msg, de):
     return "fail"
 
 
+def demanda_rica(corpo, assunto):
+    """Extensão v3 opcional do texto v2. Só aceita dados tipados vinculados ao corpo visível."""
+    import base64, hashlib, json, re
+    marcas = list(re.finditer(r"(?m)^-- \n(tt:2 [^\n]*)\ntt:3 ([A-Za-z0-9+/=]+)$", corpo))
+    if not marcas:
+        return None
+    m = marcas[-1]
+    try:
+        p = json.loads(base64.b64decode(m[2], validate=True))
+        if not isinstance(p, dict) or not re.fullmatch(r"[0-9a-f]{6,16}", p.get("id", "")):
+            return None
+        if not re.search(r"(?:^|\s)~" + p["id"] + r"(?:\s|$)", assunto):
+            return None
+        if p.get("assunto") != assunto:
+            return None
+        if p.get("sha256") != hashlib.sha256(corpo[:m.start()].rstrip().encode()).hexdigest():
+            return None  # o compositor editou o corpo: o texto visível passa a valer
+        desc, filhos, rem = p["desc"], p["subs"], p["removidas"]
+        if not isinstance(desc, str) or "\0" in desc or not isinstance(filhos, dict) or len(filhos) > 1000:
+            return None
+        if not isinstance(rem, list) or len(rem) > 1000 or any(not isinstance(c, str) or not re.fullmatch(r"[0-9a-f]{6,16}", c) for c in rem):
+            return None
+        def atributos(sub):
+            meta = ["v3=1"]
+            for k, regex in (("prazo", r"[0-9]{0,12}"), ("hora", r"1?"), ("prio", r"[12]?"),
+                             ("rep", r"[dwm]?"), ("tags", r"[^\s|=\x00-\x1f]*")):
+                v = sub.get(k, "")
+                if not isinstance(v, str) or not re.fullmatch(regex, v):
+                    raise ValueError("atributo inválido")
+                if k == "tags":
+                    v = ",".join(t for t in v.split(",") if t and not t.startswith("_"))
+                if v:
+                    meta.append(k + "=" + v)
+            sd = sub.get("desc", "")
+            if not isinstance(sd, str) or "\0" in sd:
+                raise ValueError("descrição inválida")
+            if sd:
+                meta.append("desc=" + base64.b64encode(sd.encode()).decode())
+            return meta
+
+        pai = p["tarefa"]
+        if not isinstance(pai, dict) or not isinstance(pai.get("texto"), str) or not pai["texto"].strip() or any(c in pai["texto"] for c in "\r\n\t\0"):
+            return None
+        pm = atributos(pai)
+        pm = [v for v in pm if not v.startswith(("desc=", "v3="))]
+        pm.append("titulo=" + base64.b64encode(pai["texto"].encode()).decode())
+        subs = []
+        for cod, sub in filhos.items():
+            if not re.fullmatch(r"[0-9a-f]{6,16}", cod) or cod == p["id"] or not isinstance(sub, dict):
+                return None
+            titulo, estado = sub["texto"], sub["estado"]
+            if not isinstance(titulo, str) or not titulo.strip() or any(c in titulo for c in "\r\n\t\0") or estado not in ("a", "f"):
+                return None
+            meta = atributos(sub)
+            subs.append("\t".join((cod, estado, titulo, "|".join(meta))))
+        return desc, subs, m[1][5:], rem, pm
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
 def demanda(caminho):
     """Uma linha TSV: de, message-id, epoch, auth, assunto, descrição, subtarefas — os três últimos em
     base64 (podem ter TAB e quebras de linha). Nada do conteúdo é executado; subtarefa = linha '- texto'."""
@@ -1828,6 +1924,9 @@ def demanda(caminho):
         else:
             desc.append(ln.rstrip())
     descricao = "\n".join(desc).strip()   # sem corte: a tarefa chega inteira (um handoff passa de 10 mil caracteres)
+    rica = demanda_rica(corpo.replace("\r", ""), assunto)
+    if rica:
+        descricao, subs, trailer, removidas, pai_meta = rica
     # "-" no lugar de vazio: o read do Bash com IFS=TAB juntaria os campos vazios vizinhos.
     b = lambda t: base64.b64encode(t.encode("utf-8")).decode("ascii") or "-"
     # só valores conhecidos passam do rodapé (é dado não confiável): estado aberta|feita e até 30 códigos hex
@@ -1840,6 +1939,10 @@ def demanda(caminho):
     rem = [c for c in kv.get("removidas", "").lower().split(",") if re.fullmatch(r"[0-9a-f]{6,16}", c)][:30]
     ext = ("estado=" + est + "\n" if est in ("aberta", "feita") else "") + ("removidas=" + ",".join(rem) + "\n" if rem else "")
     ext = ("v2=1\n" + ext) if trailer != "" or ext else ""
+    if rica:
+        ext = "v2=1\nv3=1\n" + ("estado=" + est + "\n" if est in ("aberta", "feita") else "")
+        ext += "removidas=" + ",".join(removidas) + "\n"
+        ext += "\n".join(pai_meta) + "\n"
     print("\t".join([de or "-", mid, str(epoch), autenticacao(msg, de), b(assunto), b(descricao), b("\n".join(subs)), b(ext) if ext else "-"]))
     return 0
 

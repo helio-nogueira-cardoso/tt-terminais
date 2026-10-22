@@ -96,6 +96,21 @@ l=$(grep '^email:trab' <<<"$("$TT" --checar --tsv)")
 rm -rf "$XDG_CONFIG_HOME/tt/email" "$ES/email-sync"
 passou 'e-mail: INBOX em dia com a volta completa falhando é aviso, com a causa'
 
+# Conta OAuth cadastrada sem token (o login pelo navegador não terminou): uma linha só, e o conserto é autorizar, não o
+# "tt --pedir-sudo email-espelho" (ligar o espelho de uma conta sem login só dá erro) nem a busca da lixeira no servidor
+mkdir -p "$XDG_CONFIG_HOME/tt/email"
+printf 'nome=Nova\nendereco=n@exemplo.com\nprovedor=microsoft\nauth=oauth\nimap_host=imap.exemplo.com\n' >"$XDG_CONFIG_HOME/tt/email/nova.conf"
+saida=$("$TT" --checar --tsv) || true
+[[ $(grep -c ':nova' <<<"$saida") == 1 ]] || falhou "conta sem token deveria dar uma linha só: $(grep ':nova' <<<"$saida")"
+[[ $(grep '^email:nova' <<<"$saida") == $'email:nova\taviso\t'*$'\ttt --email-autorizar nova' ]] || falhou "conta sem token sem o autorizar: $(grep ':nova' <<<"$saida")"
+[[ $(TT_EMAIL_SEM_REDE=1 "$TT" --email-conferir nova --corrigir) == *'tt --email-autorizar nova'* ]] || falhou 'o --email-conferir não mandou autorizar'
+mkdir -p "$HOME/.secrets"; printf 'token' >"$HOME/.secrets/aerc-nova.txt"
+saida=$("$TT" --checar --tsv) || true
+[[ $(grep '^email:nova' <<<"$saida") == *'sem espelho local'*'email-espelho' ]] || falhou "com o token, a conta volta ao aviso do espelho: $(grep ':nova' <<<"$saida")"
+grep -q '^email-cmd:nova' <<<"$saida" || falhou 'com o token, a linha da lixeira volta'
+rm -rf "$XDG_CONFIG_HOME/tt/email" "$HOME/.secrets/aerc-nova.txt"
+passou 'e-mail: conta OAuth sem token pede autorização (e não o espelho)'
+
 # --- Agente ----------------------------------------------------------------------------------------------
 cat >"$TT_DIR/NOVIDADES.md" <<'N'
 # Novidades
@@ -164,9 +179,10 @@ mkdir -p "$HOME/.secrets" "$HOME/.cache"
 echo SEGREDO-DO-ARQUIVO >"$HOME/.secrets/aerc-trab.txt"
 printf 'conta fulano@exemplo.com refresh_token=abc123SEGREDO\nsenha: hunter2xyz\nAuthorization: Bearer ey.SEGREDOJWT123\n' >>"$HOME/.cache/tt-vigia.log"
 echo 'token ghp_ABCDEFGHIJKLMNOPQRST' >>"$(ls -dt "$CK"/*/ | head -1)relatorio.md"
+printf 'IMAP error: AUTHENTICATE XOAUTH2 dG9rZW5Eby1UZXN0ZQ==\nimap: authenticate plain U2VncmVkb0RlVGVzdGU=\n' >>"$HOME/.cache/tt-vigia.log"
 "$TT" --checar-handoff "$T/h.tar.gz" >"$T/handoff.out" || falhou "handoff falhou: $(cat "$T/handoff.out")"
 mkdir "$T/h"; tar -xzf "$T/h.tar.gz" -C "$T/h"
-for s in SEGREDO-DO-ARQUIVO abc123SEGREDO hunter2xyz SEGREDOJWT123 ghp_ABCDEFGHIJKLMNOPQRST fulano@exemplo.com; do
+for s in SEGREDO-DO-ARQUIVO abc123SEGREDO hunter2xyz SEGREDOJWT123 ghp_ABCDEFGHIJKLMNOPQRST fulano@exemplo.com dG9rZW5Eby1UZXN0ZQ U2VncmVkb0RlVGVzdGU; do
   grep -rq -- "$s" "$T/h" && falhou "handoff vazou: $s"
 done
 grep -rq 'f\*\*\*@exemplo.com' "$T/h" || falhou 'e-mail deveria aparecer mascarado'

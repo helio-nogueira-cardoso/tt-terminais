@@ -826,11 +826,61 @@ def cwd_codex(arq):
     return None
 
 
+def args_processo(pid):
+    """Argumentos do processo: /proc no Linux; sem /proc (macOS), o ps (separados por espaço). [] se não achar."""
+    try:
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            return [x.decode("utf-8", "replace") for x in f.read().split(b"\0") if x]
+    except OSError:
+        pass
+    return _saida("ps", "-ww", "-o", "args=", "-p", str(pid)).split()
+
+
+def vivo(pid):
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:  # de outro usuário, mas vivo
+        return True
+    except (OverflowError, ValueError):
+        return False
+    return True
+
+
+RE_CODIGO = re.compile(r"^[0-9A-Za-z][0-9A-Za-z_-]{6,}$")
+
+
+def conversa_da_linha(prov, args):
+    """O código que o agente recebeu na linha de comando para continuar uma conversa (o `ia-conta retomar` de um snapshot
+    restaurado, ou o --resume de quem o abriu à mão): claude --resume/-r/--session-id, codex resume, kiro-cli --resume-id.
+    "" se não há."""
+    for k, a in enumerate(args):
+        v = ""
+        if (prov == "claude" and a in ("--resume", "-r", "--session-id")) or (prov == "kiro" and a == "--resume-id"):
+            v = args[k + 1] if k + 1 < len(args) else ""
+        elif (prov == "claude" and a.startswith(("--resume=", "--session-id="))) or (prov == "kiro" and a.startswith("--resume-id=")):
+            v = a.split("=", 1)[1]
+        elif prov == "codex" and a == "resume":
+            v = next((x for x in args[k + 1:] if not x.startswith("-")), "")
+        if v and RE_CODIGO.match(v):
+            return v
+    return ""
+
+
 def cmd_achar(a):
     """achar --provedor codex|kiro|claude --pid PID [--pids P,P…] [--cwd D] [--tela ARQ]: o código da conversa que o
     agente PID (aberto num painel) está usando. Kiro: o <uuid>.lock dele leva o pid. Claude: sessions/<pid>.json.
-    Codex (e o resto): a conversa da mesma pasta mexida desde que o agente começou; se houver mais de uma, a que tem
-    mais linhas da tela do painel."""
+    Sem esse registro, o código que o agente recebeu na linha de comando (claude --resume, codex resume, kiro-cli
+    --resume-id). Senão (e o resto): a conversa da mesma pasta mexida desde que o agente começou; se houver mais de uma,
+    a que tem mais linhas da tela do painel. A conversa registrada por OUTRO Claude vivo nunca é candidata.
+
+    O Claude só grava o sessions/<pid>.json depois da pergunta "confia nesta pasta?", que ele faz a cada vez na home
+    (nunca guarda essa resposta para ela): o Claude retomado por um snapshot, parado nela, virava a conversa mais nova
+    da pasta, a de outro Claude aberto ali. O snapshot seguinte guardava a conversa errada, e restaurá-lo abria o
+    mesmo código em dois painéis (medido no dell em 20/10/2026)."""
     op = {}
     i = 0
     while i < len(a):
@@ -852,23 +902,42 @@ def cmd_achar(a):
     desde = (inicio_processo(pid) or 0) - 5 if pid else 0
     tela = linhas_tela(op["tela"]) if op.get("tela") else []
     cands = []  # (id, caminho, cwd, mtime)
+    linha, arq_linha = "", None  # código da linha de comando do agente e o arquivo dele
+    for p in [pid] + sorted(pids - {pid}):
+        args = args_processo(p) if p > 0 else []
+        if p != pid and not any(os.path.basename(x).startswith(prov) for x in args[:2]):
+            continue
+        linha = conversa_da_linha(prov, args)
+        if linha:
+            break
     if prov == "claude":
+        outros = set()  # conversas registradas por outro Claude vivo
         for d in todas(".claude"):
-            for p in pids:
+            sd = os.path.join(d, "sessions")
+            for fn in (os.listdir(sd) if os.path.isdir(sd) else []):
+                if not (fn.endswith(".json") and fn[:-5].isdigit()):
+                    continue
                 try:
-                    with open(os.path.join(d, "sessions", "%d.json" % p), encoding="utf-8") as f:
+                    with open(os.path.join(sd, fn), encoding="utf-8") as f:
                         i = json.load(f).get("sessionId")
                 except (OSError, ValueError, AttributeError):
                     continue
-                if i:
+                if not i:
+                    continue
+                if int(fn[:-5]) in pids:
                     print("claude\t%s" % i)
                     return 0
+                if vivo(int(fn[:-5])):
+                    outros.add(i)
+        if linha:
+            print("claude\t%s" % linha)
+            return 0
         for d in todas(".claude"):
             for vc in (variantes_pasta(cwd) if cwd else []):
                 pasta = os.path.join(d, "projects", enc_claude(vc))
                 if os.path.isdir(pasta):
                     for fn in os.listdir(pasta):
-                        if fn.endswith(".jsonl"):
+                        if fn.endswith(".jsonl") and fn[:-6] not in outros:
                             c = os.path.join(pasta, fn)
                             cands.append((fn[:-6], c, cwd, os.path.getmtime(c)))
     elif prov == "kiro":
@@ -893,6 +962,8 @@ def cmd_achar(a):
                     except (OSError, ValueError, AttributeError):
                         continue
                     j = c[:-5] + ".jsonl"
+                    if fn[:-5] == linha:
+                        arq_linha = j if os.path.exists(j) else c
                     cands.append((fn[:-5], j if os.path.exists(j) else c, kc, os.path.getmtime(j if os.path.exists(j) else c)))
     elif prov == "codex":
         for d in todas(".codex"):
@@ -902,6 +973,8 @@ def cmd_achar(a):
                     if not (m and fn.startswith("rollout-")):
                         continue
                     c = os.path.join(dp, fn)
+                    if m.group(1) == linha:
+                        arq_linha = c
                     mt = os.path.getmtime(c)
                     if mt >= desde:
                         cands.append((m.group(1), c, cwd_codex(c) or "", mt))
@@ -909,9 +982,14 @@ def cmd_achar(a):
     if cwd:
         mesma = [x for x in cands if mesma_pasta(x[2], cwd)]
         cands = mesma or cands
+    cands.sort(key=lambda x: (pontos(x[1], tela), x[3]), reverse=True)
+    # A da linha de comando vale, a não ser que a tela mostre outra conversa (um /new depois do resume, no Codex): quem
+    # acabou de retomar, ainda num aviso (atualização do Codex), não tem conversa na tela e não mexeu no arquivo.
+    if linha and arq_linha and not (cands and cands[0][0] != linha and pontos(cands[0][1], tela) > pontos(arq_linha, tela)):
+        print("%s\t%s" % (prov, linha))
+        return 0
     if not cands:
         return 1
-    cands.sort(key=lambda x: (pontos(x[1], tela), x[3]), reverse=True)
     print("%s\t%s" % (prov, cands[0][0]))
     return 0
 

@@ -35,6 +35,13 @@ ESC = "\033"
 def abrir():
     os.makedirs(os.path.dirname(DB), exist_ok=True)
     c = sqlite3.connect(DB, timeout=30)
+    # O índice copia as conversas inteiras, e o Claude grava as dele só para o dono (600): o banco também (o -wal e o -shm
+    # nascem com o modo dele). O umask do main cobre o banco novo; isto, o que já existia com 644.
+    for arq in (DB, DB + "-wal", DB + "-shm"):
+        try:
+            os.chmod(arq, 0o600)
+        except OSError:
+            pass
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA synchronous=NORMAL")
     c.execute("CREATE TABLE IF NOT EXISTS fontes(chave TEXT PRIMARY KEY, sessao TEXT, fonte TEXT, assinatura TEXT, kb INTEGER, quando INTEGER)")
@@ -110,7 +117,9 @@ def cmd_indexar(arq):
     novas = 0
     with open(arq, encoding="utf-8") as f:
         linhas = [l.rstrip("\n").split("\t") for l in f if l.strip()]
-    conhecidas = {r[0]: (r[1], r[2]) for r in c.execute("SELECT chave, sessao, assinatura FROM fontes")}
+    # as conversas antigas (fonte "historico") são do conversas-indexar: a volta dos painéis não as conta como vivas e,
+    # se as visse, apagava todas a cada volta (e a seguinte gastava o orçamento inteiro reindexando o que já tinha)
+    conhecidas = {r[0]: (r[1], r[2]) for r in c.execute("SELECT chave, sessao, assinatura FROM fontes WHERE fonte != 'historico'")}
     for l in linhas:
         l += [""] * (4 - len(l))
         sessao, painel, prov, cod = l[:4]
@@ -195,7 +204,12 @@ def cmd_consultar(texto, limite=200):
         if sessao in vistas:
             continue
         vistas.add(sessao)
-        print("%s\t%.3f\t%s\t%s" % (sessao, score, fonte, " ".join(trecho.split())))
+        # O corte do trecho é aqui, por caractere: no awk da central (mawk, awk do macOS) o substr é por byte e partia o
+        # "ç" e o "ã" ao meio (a lista mostrava "�").
+        trecho = " ".join(trecho.split())
+        if len(trecho) > 70:
+            trecho = trecho[:70] + "…"
+        print("%s\t%.3f\t%s\t%s" % (sessao, score, fonte, trecho))
         if len(vistas) >= limite:
             break
     return 0
@@ -226,8 +240,8 @@ def cmd_trecho(sessao, texto):
         achou = [i for i, l in enumerate(linhas) if padrao.search(l) or padrao.search(sem_acento(l))]
         if not achou:
             continue
-        onde = "conversa" if fonte == "conversa" else "scrollback do painel"
-        print("%s[90m🔎 %d ocorrência(s) na %s inteira · mostrando as últimas%s[0m" % (ESC, len(achou), onde, ESC))
+        onde = "na conversa inteira" if fonte == "conversa" else "no scrollback inteiro do painel"
+        print("%s[90m🔎 %d ocorrência(s) %s · mostrando as últimas%s[0m" % (ESC, len(achou), onde, ESC))
         for i in achou[-3:]:
             print("%s[90m── linha %d de %d ──%s[0m" % (ESC, i + 1, len(linhas), ESC))
             for l in linhas[max(0, i - 4): i + 5]:
@@ -379,6 +393,7 @@ def cmd_estado():
 
 
 def main(a):
+    os.umask(0o077)  # banco, -wal e -shm novos só para o dono (veja abrir)
     if not a:
         print(__doc__.strip())
         return 2

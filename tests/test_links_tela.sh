@@ -100,15 +100,14 @@ passou "clique na última linha e na quebra do próprio terminal também abrem a
 [[ ! -s $LOG ]] || falhou "clique fora de link abriu algo: $(cat "$LOG")"
 passou "clique fora de link não abre nada"
 
-# Alt+duplo clique: copia o link inteiro e não abre.
+# Alt+duplo clique não autoriza cópia, nem abre o link.
 : >"$LOG"; : >"$CLIP"
 clicar 30 "$y2" 8; sleep 0.08; clicar 30 "$y2" 8
-esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "duplo clique não copiou o link inteiro: '$(cat "$CLIP")'"
-[[ $(tmux show-buffer) == "$U" ]] || falhou "buffer do tmux sem o link inteiro: '$(tmux show-buffer)'"
+sleep 1; [[ ! -s $CLIP ]] || falhou 'Alt+duplo clique copiou sem Ctrl'
 sleep 0.6; [[ ! -s $LOG ]] || falhou "duplo clique também abriu o link: $(cat "$LOG")"
-passou "duplo clique num link copia o link inteiro (tmux e área de transferência) e não abre"
+passou 'Alt+duplo clique não copia sem Ctrl'
 
-# Ctrl+duplo clique faz o mesmo que o Alt (o 2º clique com Ctrl também cancela a abertura) e
+# Ctrl+duplo clique cancela a abertura e copia o link inteiro;
 # Ctrl+triplo clique copia a linha.
 : >"$LOG"; : >"$CLIP"
 clicar 30 "$y2" 16; sleep 0.08; clicar 30 "$y2" 16
@@ -118,7 +117,7 @@ sleep 0.6; [[ ! -s $LOG ]] || falhou "Ctrl+duplo clique também abriu o link: $(
 clicar 3 "$ys" 16; sleep 0.08; clicar 3 "$ys" 16; sleep 0.08; clicar 3 "$ys" 16
 esperar '[[ $(cat "$CLIP" 2>/dev/null) == "texto sem link nenhum" ]]' 6 || falhou "Ctrl+triplo clique não copiou a linha: '$(cat "$CLIP")'"
 sleep 1.5 # as cópias do duplo e do triplo clique terminam em segundo plano: não podem cair no teste seguinte
-passou "Ctrl+duplo clique copia o link inteiro (sem abrir) e Ctrl+triplo clique copia a linha, como com Alt"
+passou "Ctrl+duplo clique copia o link inteiro (sem abrir) e Ctrl+triplo clique copia a linha"
 
 # Arrastar do começo do link até o fim da 3ª linha: a cópia vem sem a quebra e sem o recuo.
 : >"$CLIP"; : >"$LOG"
@@ -128,12 +127,11 @@ fora send -t v -l $'\e[<40;'"$((x0 + 5));$y1"$'M'; sleep 0.1
 fora send -t v -l $'\e[<40;30;'"$y2"$'M'; sleep 0.1
 fora send -t v -l $'\e[<40;'"$((3 + ${#U} - 187));$y3"$'M'; sleep 0.1
 soltar "$((3 + ${#U} - 187))" "$y3" 8
-esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "arrasto não religou o link: '$(cat "$CLIP" | cat -A | head -5)'"
-[[ $(tmux show-buffer) == "$U" ]] || falhou "buffer do tmux ficou com a cópia partida: '$(tmux show-buffer | cat -A | head -3)'"
+sleep 1; [[ ! -s $CLIP ]] || falhou 'Alt+arrastar copiou sem Ctrl'
 sleep 0.6; [[ ! -s $LOG ]] || falhou "arrastar a partir de um link abriu o link: $(cat "$LOG")"
-passou "arrastar sobre um link partido copia a URL inteira, sem quebra nem recuo (e não abre)"
+passou 'Alt+arrastar não copia sem Ctrl nem abre o link'
 
-# Ctrl+arrastar copia como o Alt+arrastar; não abre o link de onde partiu nem desenha um painel
+# Ctrl+arrastar copia; não abre o link de onde partiu nem desenha um painel
 # flutuante (o padrão do tmux 3.8 para Ctrl+arrastar é new-pane -M).
 : >"$CLIP"; : >"$LOG"; paineis=$(tmux list-panes -a | wc -l)
 apertar "$x0" "$y1" 16; sleep 0.1
@@ -144,7 +142,34 @@ soltar "$((3 + ${#U} - 187))" "$y3" 16
 esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "Ctrl+arrastar não copiou o link inteiro: '$(cat "$CLIP" | cat -A | head -5)'"
 sleep 0.6; [[ ! -s $LOG ]] || falhou "Ctrl+arrastar a partir de um link abriu o link: $(cat "$LOG")"
 (( $(tmux list-panes -a | wc -l) == paineis )) || falhou "Ctrl+arrastar criou painel: $(tmux list-panes -a)"
-passou "Ctrl+arrastar copia como o Alt (URL inteira), sem abrir o link nem criar painel flutuante"
+passou "Ctrl+arrastar copia a URL inteira, sem abrir o link nem criar painel flutuante"
+
+# A seleção anterior não pode expandir a seguinte para palavra/linha inteira.
+# Soltar Ctrl antes do mouse também não autoriza copiar.
+for modo in emacs vi; do
+  tmux set-window-option -t minha mode-keys "$modo"
+  for anterior in select-word select-line; do
+    tmux copy-mode -t minha
+    tmux send -t minha -X cursor-up
+    tmux send -t minha -X "$anterior"
+    : >"$CLIP"
+    apertar 3 "$ys" 16; sleep 0.1
+    fora send -t v -l $'\e[<48;5;'"$ys"$'M'; sleep 0.1
+    fora send -t v -l $'\e[<48;8;'"$ys"$'M'; sleep 0.1
+    soltar 8 "$ys" 16
+    esperado='xto s'; [[ $modo == vi ]] && esperado='xto se'
+    esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$esperado" ]]' 3 ||
+      falhou "$modo/$anterior expandiu seleção: $(cat "$CLIP")"
+    sleep 0.5
+  done
+  : >"$CLIP"
+  apertar 3 "$ys" 16; sleep 0.1
+  fora send -t v -l $'\e[<48;8;'"$ys"$'M'; sleep 0.1
+  soltar 8 "$ys" 0; sleep 0.5
+  [[ ! -s $CLIP ]] || falhou "$modo: copiou depois de soltar Ctrl"
+  tmux send -t minha -X cancel
+done
+passou 'seleção parcial exata nos modos emacs/vi, sem cópia ao soltar Ctrl antes do mouse'
 
 # Ctrl+B u: os links da tela num popup.
 fora send -t v C-b u; sleep 2

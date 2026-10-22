@@ -22,6 +22,8 @@ eml() { # nome from auth assunto corpo [message-id]
   {
     [[ $3 == pass ]] && echo "Authentication-Results: mx.exemplo.net; dkim=pass header.i=@${2#*@} header.s=s; spf=pass smtp.mailfrom=$2; dmarc=pass header.from=${2#*@}"
     [[ $3 == fail ]] && echo "Authentication-Results: mx.exemplo.net; dkim=fail; spf=softfail smtp.mailfrom=spam@outro.net; dmarc=fail"
+    [[ $3 == semveredito || $3 == interno ]] && { [[ $3 == interno ]] && echo "Authentication-Results: tt-graph; x-ms-exchange-authas=internal header.from=${2#*@}"
+      echo "Authentication-Results: mx.microsoft.com 1; dkim=none (message not signed) header.d=none;dmarc=none action=none header.from=${2#*@};"; }
     echo "From: Fulano <$2>"; echo "Date: Fri, 09 Oct 2026 14:00:00 -0300"; echo "Message-ID: <${6:-id-$1@teste}>"
     echo "Subject: $4"; echo "Content-Type: text/plain; charset=utf-8"; echo; printf '%s\n' "$5"
   } >"$f"
@@ -30,15 +32,15 @@ eml() { # nome from auth assunto corpo [message-id]
 # 1) cadastro: valida, grava com 600, mescla por e-mail (hora mais nova vence), remove, e propaga a quem pede
 tt --demanda-autorizar 'invalido' >/dev/null 2>&1 && fail "e-mail inválido deveria ser recusado"
 r=$(tt --demanda-autorizar chefe@empresa.com.br '#Juridico') || fail "autorizar falhou"
-[[ $r == 'autorizado: chefe@empresa.com.br (etiqueta #juridico, modo auth)' ]] || fail "confirmação do cadastro com a etiqueta repetida ou errada: [$r]"
+[[ $r == 'autorizado: chefe@empresa.com.br (etiqueta #_juridico, modo auth)' ]] || fail "confirmação do cadastro com a etiqueta repetida ou errada: [$r]"
 tt --demanda-autorizar seg@empresa.com.br prod segredo abcd1234 >/dev/null || fail "autorizar com segredo falhou"
 tt --demanda-autorizar seg2@empresa.com.br - segredo ab >/dev/null 2>&1 && fail "segredo curto demais deveria ser recusado"
 tt --demanda-autorizar livre@empresa.com.br - aberto >/dev/null || fail "autorizar aberto falhou"
 tt --demanda-autorizar relax@empresa.com.br relax relaxado >/dev/null || fail "autorizar relaxado falhou"
 [[ $(stat -c %a "$D") == 600 ]] || fail "o cadastro tem segredo: precisa ser 600 (está $(stat -c %a "$D"))"
-grep -q $'^chefe@empresa.com.br\tjuridico\tauth\t-\t' "$D" || fail "etiqueta deveria ser normalizada (#Juridico -> juridico): $(cat "$D")"
+grep -q $'^chefe@empresa.com.br\t_juridico\tauth\t-\t' "$D" || fail "etiqueta deveria ser normalizada (#Juridico -> _juridico): $(cat "$D")"
 printf 'chefe@empresa.com.br\tantiga\tauth\t-\t1000\nnovo@x.com\tt\tauth\t-\t5\n' | tt --receber-demandas
-grep -q $'^chefe@empresa.com.br\tjuridico\t' "$D" || fail "linha mais velha não pode vencer: $(cat "$D")"
+grep -q $'^chefe@empresa.com.br\t_juridico\t' "$D" || fail "linha mais velha não pode vencer: $(cat "$D")"
 grep -q '^novo@x.com' "$D" || fail "remetente novo vindo de outra máquina deveria entrar"
 printf 'novo@x.com\t-\t-\t-\t99999999999\n' | tt --receber-demandas
 tt --demandas | grep -q 'novo@x.com' && fail "remetente removido (modo -) não pode aparecer na lista"
@@ -54,7 +56,14 @@ v=$(python3 -I "$T/pkg/email-tt.py" demanda "$INBOX/new/a1" | cut -f1,2,4); [[ $
 [[ $(python3 -I "$T/pkg/email-tt.py" demanda "$T/dom.eml" | cut -f4) == pass ]] || fail "spf=pass com domínio alinhado (subdomínio) deveria valer"
 { echo "Authentication-Results: mx; dmarc=fail"; echo "Authentication-Results: falso; dmarc=pass"; echo "From: x@y.com"; echo "Subject: [tt] a"; echo; echo b; } >"$T/dom.eml"
 [[ $(python3 -I "$T/pkg/email-tt.py" demanda "$T/dom.eml" | cut -f4) == fail ]] || fail "só o Authentication-Results de cima vale (o de baixo pode ser forjado)"
-echo "ok: analisador (dmarc/dkim/spf alinhados, só o cabeçalho de cima, citação e assinatura ignoradas)"
+# tt-graph (o graph_sync traduz o AuthAs=Internal do Exchange: colega do mesmo tenant, sem DKIM/DMARC): só no topo e alinhado
+{ echo "Authentication-Results: tt-graph; x-ms-exchange-authas=internal header.from=empresa.com.br"; echo "Authentication-Results: mx.microsoft.com 1; dkim=none (message not signed) header.d=none;dmarc=none action=none header.from=empresa.com.br;"; echo "From: x@empresa.com.br"; echo "Subject: [tt] a"; echo; echo b; } >"$T/dom.eml"
+[[ $(python3 -I "$T/pkg/email-tt.py" demanda "$T/dom.eml" | cut -f4) == fail ]] || fail "cabeçalho tt-graph não pode autenticar um e-mail por si só"
+{ echo "Authentication-Results: tt-graph; x-ms-exchange-authas=internal header.from=outro.net"; echo "From: x@empresa.com.br"; echo "Subject: [tt] a"; echo; echo b; } >"$T/dom.eml"
+[[ $(python3 -I "$T/pkg/email-tt.py" demanda "$T/dom.eml" | cut -f4) == fail ]] || fail "tt-graph de OUTRO domínio não pode autenticar o From"
+{ echo "Authentication-Results: mx; dkim=none; dmarc=none"; echo "Authentication-Results: tt-graph; x-ms-exchange-authas=internal header.from=empresa.com.br"; echo "From: x@empresa.com.br"; echo "Subject: [tt] a"; echo; echo b; } >"$T/dom.eml"
+[[ $(python3 -I "$T/pkg/email-tt.py" demanda "$T/dom.eml" | cut -f4) == fail ]] || fail "tt-graph fora do topo (forjável por quem manda) não pode valer"
+echo "ok: analisador (dmarc/dkim/spf alinhados, tt-graph, só o cabeçalho de cima, citação e assinatura ignoradas)"
 
 # 3) a caixa: o que vira demanda e o que é ignorado
 rm -f "$INBOX/new/a1"
@@ -242,5 +251,87 @@ grep -q $'^protegido@empresa.com.br\tp\tsegredo\tpass1234\t101$' "$D" || fail "m
 tt --demanda-autorizar futuro@empresa.com.br - auth >/dev/null
 grep -q $'^futuro@empresa.com.br\t-\tauth\t-\t' "$D" || fail "migração única não pode converter novos cadastros auth"
 mv "$T/demandas.salvas" "$D"
+
+# 18) a espera tem prazo: sem o cabeçalho até TT_DEMANDAS_AUTH_ESPERA, é ignorada com o aviso (antes esperava calada para sempre)
+AW="$HOME/.local/state/tt/email-sync/conta.demandas.auth-espera"
+eml semcab chefe@empresa.com.br none '[tt] Nunca traz o cabeçalho' 'teste' 'semcab-id'
+TT_DEMANDAS_AUTH_ESPERA=0 tt --demandas-processar conta
+awk -F'\t' '$1 == "semcab" && $3 ~ /^[0-9]+$/' "$AW" | grep -q . || fail "a 1ª vez sem cabeçalho espera e guarda a hora: $(cat "$AW")"
+grep -q 'Nunca traz o cabeçalho' "$C" && fail "sem Authentication-Results não pode virar tarefa"
+: >"$T/notifs.log"
+TT_DEMANDAS_AUTH_ESPERA=0 tt --demandas-processar conta
+grep -q 'ignorada de=chefe@empresa.com.br motivo=autenticacao(none)' "$HOME/.local/state/tt/email-sync/conta.demandas.log" || fail "vencido o prazo, deveria ser ignorada pela autenticação"
+grep -q '^semcab' "$AW" && fail "ignorada, deveria sair da espera: $(cat "$AW")"
+grep -q 'ignorado' "$T/notifs.log" || fail "ignorada, deveria avisar: $(cat "$T/notifs.log")"
+grep -q 'Nunca traz o cabeçalho' "$C" && fail "vencido o prazo, continua sem virar tarefa"
+eml semcab2 chefe@empresa.com.br none '[tt] Espera da v2.4.5' 'teste' 'semcab2-id'
+tt --demandas-processar conta
+awk -F'\t' '$1 != "semcab2" { print; next } { print $1 "\t" $2 }' "$AW" >"$AW.t" && mv "$AW.t" "$AW"   # como a v2.4.5 gravava
+TT_DEMANDAS_AUTH_ESPERA=0 tt --demandas-processar conta
+awk -F'\t' '$1 == "semcab2" && $3 ~ /^[0-9]+$/' "$AW" | grep -q . || fail "espera sem hora (v2.4.5) passa a contar dali, sem ignorar na hora: $(cat "$AW")"
+rm -f "$INBOX/new/semcab" "$INBOX/new/semcab2"
+echo "ok: a espera pelo cabeçalho tem prazo e, vencido, ignora com o aviso"
+
+# 19) no auth (o padrão dos cadastros novos), o e-mail interno do Exchange (o do Felipe: só dkim=none e dmarc=none) passa pelo
+# tt-graph do topo; o mesmo cabeçalho sem o tt-graph (de fora, ou o domínio sem DKIM/SPF/DMARC) continua fail
+eml sv1 chefe@empresa.com.br semveredito '[tt] De fora sem veredito' 'teste' 'sv1-id'
+eml sv2 chefe@empresa.com.br interno '[tt] Interno pelo tt-graph' 'teste' 'sv2-id'
+tt --demandas-processar conta
+grep -q 'De fora sem veredito' "$C" && fail "no auth, o cabeçalho sem veredito não entra"
+grep -q $'\tpendente\t.*Interno pelo tt-graph' "$C" && fail "no auth, cabeçalho tt-graph sem prova do provedor não entra"
+echo "ok: no auth, cabeçalho sintético não substitui o veredito do provedor"
+
+# 20) mudou o cadastro do remetente, o e-mail que tinha sido ignorado é lido de novo com a regra nova (na v2.5.1 a migração
+# para o relaxado não liberava nada: o e-mail ignorado ficava visto para sempre)
+IGN="$HOME/.local/state/tt/email-sync/conta.demandas.ignoradas"
+printf 'muda@empresa.com.br\tm\tauth\t-\t1000\n' | tt --receber-demandas
+eml muda1 muda@empresa.com.br none '[tt] Ignorada e depois liberada' 'teste' 'muda1-id'
+TT_DEMANDAS_AUTH_ESPERA=0 tt --demandas-processar conta   # 1ª vez: espera o cabeçalho
+TT_DEMANDAS_AUTH_ESPERA=0 tt --demandas-processar conta   # prazo vencido: ignorada, como a do Felipe às 15:22
+grep -q 'ignorada de=muda@empresa.com.br motivo=autenticacao(none)' "$HOME/.local/state/tt/email-sync/conta.demandas.log" || fail "no auth, sem o cabeçalho e com o prazo vencido, é ignorada"
+grep -q 'Ignorada e depois liberada' "$C" && fail "no auth, sem o cabeçalho ainda não entra"
+grep -Fq $'muda1\tmuda@empresa.com.br\t' "$IGN" || fail "o e-mail ignorado deveria ficar guardado para ser lido de novo: $(cat "$IGN" 2>/dev/null)"
+n1=$(grep -c 'de=muda@empresa.com.br' "$HOME/.local/state/tt/email-sync/conta.demandas.log")
+tt --demandas-processar conta
+[[ $(grep -c 'de=muda@empresa.com.br' "$HOME/.local/state/tt/email-sync/conta.demandas.log") == "$n1" ]] || fail "sem mudar o cadastro, o ignorado não é lido de novo a cada volta"
+printf 'muda@empresa.com.br\tm\trelaxado\t-\t1000\n' | tt --receber-demandas   # mesma hora: o relaxado vence o auth no empate
+tt --demandas-processar conta
+grep -q $'\tpendente\t.*Ignorada e depois liberada' "$C" || fail "com o remetente no relaxado, o e-mail ignorado deveria virar demanda: $(tail -3 "$HOME/.local/state/tt/email-sync/conta.demandas.log")"
+grep -q 'reavaliada de=muda@empresa.com.br' "$HOME/.local/state/tt/email-sync/conta.demandas.log" || fail "a releitura deveria ficar no log"
+grep -Fq $'muda1\t' "$IGN" && fail "lido de novo, sai dos ignorados"
+# remetente removido: o ignorado dele não vai para a espera de autorização
+printf 'muda@empresa.com.br\tm\tauth\t-\t1500\n' | tt --receber-demandas
+eml muda2 muda@empresa.com.br fail '[tt] Ignorada de quem saiu' 'teste' 'muda2-id'
+tt --demandas-processar conta
+grep -Fq $'muda2\t' "$IGN" || fail "o fail no auth fica guardado: $(cat "$IGN" 2>/dev/null)"
+printf 'muda@empresa.com.br\tm\t-\t-\t2000\n' | tt --receber-demandas
+tt --demandas-processar conta
+grep -q 'muda@empresa.com.br' "$HOME/.local/state/tt/email-sync/conta.demandas.espera" 2>/dev/null && fail "remetente removido: o ignorado dele não vai para a espera"
+grep -Fq $'muda2\t' "$IGN" || fail "remetente removido: o ignorado continua guardado (se ele voltar, é lido de novo)"
+# o tt --checar não fica 7 dias avisando do ignorado que depois virou demanda
+L="$HOME/.local/state/tt/email-sync/conta.demandas.log"; cp "$L" "$T/log.antes"
+ESP="$HOME/.local/state/tt/email-sync/conta.demandas.espera"; [[ -f $ESP ]] && mv "$ESP" "$T/espera.antes"   # a espera vem antes no --checar
+grep -v 'ignorada' "$T/log.antes" >"$L"
+printf '%s ignorada de=muda@empresa.com.br motivo=autenticacao(none)\n%s reavaliada de=muda@empresa.com.br (o cadastro do remetente mudou)\n%s criada id=abc de=muda@empresa.com.br\n' "$(date '+%F %T')" "$(date '+%F %T')" "$(date '+%F %T')" >>"$L"
+grep -q $'^demandas\taviso\t.*muda@empresa.com.br' <<<"$(tt --checar --tsv)" && fail "o ignorado que virou demanda depois não é mais aviso do --checar"
+printf '%s ignorada de=muda@empresa.com.br motivo=autenticacao(fail,modo=relaxado)\n' "$(date '+%F %T')" >>"$L"
+grep -q $'^demandas\taviso\t.*muda@empresa.com.br' <<<"$(tt --checar --tsv)" || fail "ignorado de novo, volta a ser aviso do --checar"
+cp "$T/log.antes" "$L"; [[ -f $T/espera.antes ]] && mv "$T/espera.antes" "$ESP"
+echo "ok: o ignorado é lido de novo quando o cadastro do remetente muda; o --checar não avisa do que já foi resolvido"
+
+# 21) a migração da v2.5.1 só converte o cadastro de antes dela, e com a hora dele: uma remoção feita em outra máquina depois
+# do cadastro continua valendo e o auth escolhido depois da v2.5.1 fica (a linha migrada ganhava a hora da instalação, e a
+# máquina que instalasse depois, como a que estava desligada, ressuscitava o remetente removido)
+mv "$D" "$T/demandas.salvas2"
+printf 'velho@empresa.com.br\tv\tauth\t-\t100\nsaiu@empresa.com.br\ts\tauth\t-\t100\ndepois@empresa.com.br\td\tauth\t-\t1792620700\n' >"$D"
+rm -f "$XDG_CONFIG_HOME/tt/demandas-v2.5.1-relaxado"
+printf 'saiu@empresa.com.br\ts\t-\t-\t150\n' | tt --receber-demandas
+grep -q $'^velho@empresa.com.br\tv\trelaxado\t-\t100$' "$D" || fail "a migração muda o modo e mantém a hora do cadastro: $(cat "$D")"
+grep -q $'^saiu@empresa.com.br\ts\t-\t-\t150$' "$D" || fail "a remoção feita depois do cadastro não pode ser desfeita pela migração: $(cat "$D")"
+grep -q $'^depois@empresa.com.br\td\tauth\t-\t1792620700$' "$D" || fail "o auth escolhido depois da v2.5.1 não é migrado: $(cat "$D")"
+printf 'velho@empresa.com.br\tv\tauth\t-\t100\n' | tt --receber-demandas   # a máquina ainda na v2.5.0 manda o auth da mesma hora
+grep -q $'^velho@empresa.com.br\tv\trelaxado\t-\t100$' "$D" || fail "no empate da mescla, o relaxado migrado vence o auth antigo: $(cat "$D")"
+mv "$T/demandas.salvas2" "$D"
+echo "ok: a migração mantém a hora do cadastro e não desfaz o que foi decidido depois"
 
 echo "TODOS OS TESTES PASSARAM"

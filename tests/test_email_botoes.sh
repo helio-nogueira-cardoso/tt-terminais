@@ -4,7 +4,7 @@
 # por ação (range user|em_<ação>), roteada pelo mesmo caminho dos botões da barra (tt --clique) e
 # traduzida na tecla do aerc; em tela estreita ficam só os ícones; aplicada também a uma sessão
 # oculta antiga; duplo clique no painel do e-mail abre a mensagem (Enter) e nas outras sessões segue
-# copiando a palavra. tmux isolado; o "aerc" é um programa que registra o que recebe.
+# copiando a palavra só com Ctrl. tmux isolado; o "aerc" é um programa que registra o que recebe.
 source "$(dirname "$0")/lib.sh"; isolar
 mkdir -p "$T/bin"
 # aerc falso: põe o terminal em modo cru e grava cada byte recebido, na hora (sem buffer)
@@ -21,6 +21,9 @@ PY
 chmod +x "$T/bin/aerc"
 export PATH="$T/bin:$PATH"
 mkdir -p ~/.config/aerc; printf '[Teste]\nsource = maildir://%s/m\nfrom = a@x\noutgoing = /bin/true\n' "$T" >~/.config/aerc/accounts.conf
+# Os ganchos do tmux.conf chamam o pacote instalado. Sem ele, erros de run-shell abrem
+# view-mode e interceptam o duplo clique que deveria chegar ao aerc.
+instalar_isolado
 tmux -f /dev/null new -d -s base -x 150 -y 40 'sleep 600'
 tmux set -g mouse on >/dev/null
 tt() { "$TT" "$@"; }
@@ -163,7 +166,12 @@ anexar cli 150 40 _tt-email; sleep 2
 fora send -t cli Escape; sleep 0.5
 : >"$T/aerc.in"
 fora send -t cli -l $'\e[<0;30;10M'; fora send -t cli -l $'\e[<0;30;10m'; sleep 0.08; fora send -t cli -l $'\e[<0;30;10M'; fora send -t cli -l $'\e[<0;30;10m'; sleep 1
-grep -q '\^M' <<<"$(cat -v "$T/aerc.in")" || falhou "duplo clique no popup do e-mail deveria mandar Enter: $(cat -v "$T/aerc.in")"
+grep -q '\^M' <<<"$(cat -v "$T/aerc.in")" || {
+  tmux list-clients -F '#{client_name} #{session_name} #{client_width}x#{client_height}'
+  tmux list-panes -a -F '#{session_name} #{pane_current_command} modo=#{pane_in_mode} mouse=#{mouse_any_flag}'
+  fora capture-pane -p -t cli
+  falhou "duplo clique no popup do e-mail deveria mandar Enter: $(cat -v "$T/aerc.in")"
+}
 fora kill-session -t cli 2>/dev/null
 passou 'duplo clique no painel do e-mail abre a mensagem (Enter)'
 
