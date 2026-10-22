@@ -8,7 +8,9 @@ source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado
 tt() { "$TT" "$@"; }
 frase='Alfa bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november oscar papa'
 mkdir -p "$HOME/.cache/tt-ticker"; printf '%s\n' "$frase" >"$HOME/.cache/tt-ticker/frases"
-printf 'indicadores=frases\nticker_rolagem=continua\nticker_veloc=0.25\n' >>"$XDG_CONFIG_HOME/tt/config"
+# Velocidade padrão (1 coluna por quadro, 6 quadros/s): com uma velocidade mais lenta o tt reduz os quadros ao
+# que muda (test_letreiro_fps.sh), e aqui se mede a máquina de 6 quadros (pintor + 5 gatilhos).
+printf 'indicadores=frases\nticker_rolagem=continua\n' >>"$XDG_CONFIG_HOME/tt/config"
 export TT_NOTIF_SLOT=4   # exportado ANTES do servidor: o tmux entrega o ambiente dele aos #() da barra
 tmux -f "$HOME/.tmux.conf" new -d -s s -x 120 -y 30 'sleep 600' 2>/dev/null; sleep 2
 grep -q 'letreiro-tt.py fluxo #{client_tty} #{client_pid}' <<<"$(tmux show -gqv @barra_notifs)" ||
