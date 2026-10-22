@@ -2338,7 +2338,9 @@ O coordenador Python é único por socket tmux/pacote, com socket Unix privado e
 do cliente (tty, PID e nascimento). Reaproveita o multiplexador SSH do tt. O protocolo remoto é pequeno,
 só stdlib, executado em memória via SSH: basta Python 3 e tmux, sem instalar arquivos ou exigir uma
 versão nova do tt no destino. Não usa servidor TCP nem serviço novo do sistema. Estado local em
-`~/.local/state/tt/precarregamento/`; runtime privado em `/tmp/tt-pre-UID-HASH/`.
+`~/.local/state/tt/precarregamento/`; runtime privado em `/tmp/tt-pre-UID-HASH/`
+(no Termux, na pasta temporária privada do Android). Sem servidor tmux, o status informa que
+aguarda uma sessão; não abre um servidor nem cria sessões só para consultar.
 `TT_PRECARREGAR=0` impede preparação automática (usado pelos testes isolados).
 
 ## Partida rápida

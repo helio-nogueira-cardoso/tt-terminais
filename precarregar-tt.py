@@ -130,16 +130,24 @@ def decode_ticket(output, token):
     return remote
 
 
+class TmuxUnavailable(RuntimeError):
+    """Sem servidor tmux: não há tela para preparar, mas o status continua disponível."""
+
+
 def runtime():
     socket_name = os.environ.get("TMUX", "").split(",")[0]
     if not socket_name:
         rc, socket_name = tmux("display-message", "-p", "#{socket_path}")
         if rc:
-            raise RuntimeError("tmux indisponível")
+            raise TmuxUnavailable("tmux indisponível")
     key = "|".join([str(Path.home()), os.environ.get("TT_RT", ""), socket_name.strip(), str(HERE)])
     digest = hashlib.sha256(key.encode()).hexdigest()[:16]
-    # AF_UNIX no macOS aceita ~104 bytes: TMPDIR pode por si só ocupar quase tudo.
-    folder = Path("/tmp") / ("tt-pre-%d-%s" % (os.getuid(), digest))
+    # AF_UNIX no macOS aceita ~104 bytes: prefere /tmp curto. No Android essa
+    # pasta não é gravável; o TMPDIR privado do Termux também cabe no socket.
+    root = Path("/tmp")
+    if not root.is_dir() or not os.access(root, os.W_OK | os.X_OK):
+        root = Path(tempfile.gettempdir())
+    folder = root / ("tt-pre-%d-%s" % (os.getuid(), digest))
     folder.mkdir(mode=0o700, exist_ok=True)
     st = folder.lstat()
     if folder.is_symlink() or st.st_uid != os.getuid() or st.st_mode & 0o077:
@@ -773,6 +781,8 @@ def format_status(data):
     mode = {"auto": "automático", "economico": "econômico", "off": "desligado"}.get(data["modo"], data["modo"])
     lines = ["Modo: " + mode]
     if data.get("coordenador") == "parado":
+        if data.get("motivo") and data["modo"] != "off":
+            return "\n".join(lines + ["Coordenador parado: " + data["motivo"] + "."])
         return "\n".join(lines + ["Coordenador parado." if data["modo"] == "off" else "Coordenador parado; inicia ao usar o tt."])
     lines.append("Limite: %s preparações no total · %s por tela" % (data["limite_total"], data["por_tela"]))
     metrics = data.get("metricas", {})
@@ -806,7 +816,14 @@ def main(argv):
         return protocol.main(argv)
     if op == "transporte" and len(argv) == 7:
         return subprocess.call(["ssh", "-tt", *SSH_ARGS, argv[1], remote_command("remoto", *argv[2:])])
-    folder = runtime()
+    try:
+        folder = runtime()
+    except TmuxUnavailable:
+        if op == "status":
+            mode = "off" if os.environ.get("TT_PRECARREGAR") == "0" else read_config().get("precarregar", "auto")
+            response = {"modo": mode, "coordenador": "parado", "motivo": "aguardando sessão tmux"}
+            print(format_status(response) if human else json.dumps(response, ensure_ascii=False))
+        return 0 if op in ("status", "stop", "cancel", "evento", "focus") else 1
     if op == "daemon":
         os.umask(0o077)
         Coordinator(folder).run()

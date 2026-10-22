@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 import base64
+import io
 import json
 from pathlib import Path
 import sys
@@ -86,7 +87,35 @@ class Heuristica(unittest.TestCase):
             folder = pre.runtime()
             self.assertLess(len(str(folder / "socket")), 100)
             self.assertEqual(folder.stat().st_mode & 0o077, 0)
+            with pre.socket.socket(pre.socket.AF_UNIX, pre.socket.SOCK_STREAM) as listener:
+                listener.bind(str(folder / "socket"))
+            (folder / "socket").unlink()
             folder.rmdir()
+
+    def test_runtime_sem_tmp_global_usa_temporario_do_sistema(self):
+        with tempfile.TemporaryDirectory() as d, \
+                patch.dict(pre.os.environ, {"TMUX": "/socket-termux,1,0"}), \
+                patch.object(pre.os, "access", return_value=False), \
+                patch.object(pre.tempfile, "gettempdir", return_value=d):
+            folder = pre.runtime()
+            self.assertEqual(folder.parent, Path(d))
+            self.assertEqual(folder.stat().st_mode & 0o077, 0)
+
+    def test_status_sem_tmux_nao_inicia_servidor_nem_coordenador(self):
+        with patch.object(pre, "runtime", side_effect=pre.TmuxUnavailable), \
+                patch.dict(pre.os.environ, {"TT_PRECARREGAR": "1"}), \
+                patch.object(pre, "read_config", return_value={"precarregar": "auto"}), \
+                patch.object(pre.subprocess, "Popen") as spawn:
+            with patch("sys.stdout", new_callable=io.StringIO) as out:
+                self.assertEqual(pre.main(["status"]), 0)
+                self.assertEqual(json.loads(out.getvalue())["coordenador"], "parado")
+            with patch("sys.stdout", new_callable=io.StringIO) as out:
+                self.assertEqual(pre.main(["status-text"]), 0)
+                self.assertIn("aguardando sessão tmux", out.getvalue())
+            self.assertEqual(pre.main(["stop"]), 0)
+            self.assertEqual(pre.main(["evento"]), 0)
+            self.assertEqual(pre.main(["navigate", "tela", "dell", "sessão"]), 1)
+            spawn.assert_not_called()
 
     def test_reordenar_fixadas_muda_prioridade_sem_mudar_identidade(self):
         other = dict(self.target, name="outra", id="b" * 32)

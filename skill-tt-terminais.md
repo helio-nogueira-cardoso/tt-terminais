@@ -174,7 +174,8 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - Pontes `tt-pre-*` têm `@ponte`, `@tt_pre_owner`, `@tt_pre_token`, `@tt_pre_estado=espera|ativa`.
   `criar_ponte` e `fechar_pontes_ociosas` ignoram as de espera (gerenciadas pelo coordenador).
   Histórico privado em `~/.local/state/tt/precarregamento/`, 500 transições/7 dias; não sincroniza conteúdo.
-  Runtime `/tmp/tt-pre-UID-HASH` modo 700. Internos: `--precarregar-evento`, `--precarregar-ponte`,
+  Runtime `/tmp/tt-pre-UID-HASH` modo 700 (Termux: no TMPDIR privado). Status sem tmux informa que aguarda sessão.
+  Internos: `--precarregar-evento`, `--precarregar-ponte`,
   `--precarregar-remoto`, `--precarregar-confirmar`. Ganchos tmux `[22]`, vigia e mudança de fixadas
   acordam o coordenador. CLI/barra/central e pedidos vindos de pontes convergem na máquina da tela.
   Testes `test_precarregar.sh` e `test_precarregar_modelo.py`.

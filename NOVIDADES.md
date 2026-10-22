@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.7.1 · 22/10/2026
+- **Pré-carregamento no Android:** o coordenador usa a pasta temporária privada do Termux quando `/tmp` não é gravável, mantendo o isolamento. Sem servidor tmux ativo, o status mostra que aguarda uma sessão, sem erro e sem abrir sessões por conta própria.
+
 ## v2.7.0 · 22/10/2026
 - **Próximas sessões preparadas por tela:** conexões SSH ficam prontas sem anexar ao tmux remoto. Fixadas mais à esquerda têm prioridade, combinada com uso recente/frequente, alternância entre sessões e foco estabilizado no seletor. Só o clique ativa a sessão, com identidade e primeira tela confirmadas; um pedido antigo não ganha de outro clique. Cada tela tem suas pontes; rede caída ou sessão substituída preservam a tela atual.
 - **Recursos limitados e controle local:** até 3 candidatos por tela e 6 no total, duas preparações simultâneas, expiração e espera progressiva após falhas. Modo econômico e bateria baixa reduzem o orçamento; suspensão cancela pedidos antigos. Menu Administrar → ⚡ Pré-carregamento e `tt --precarregar status|json|auto|economico|off`. Desligar preserva pontes em uso. O protocolo roda em memória no destino, sem exigir atualizar todas as máquinas juntas.
