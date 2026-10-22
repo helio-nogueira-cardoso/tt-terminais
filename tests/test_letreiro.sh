@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (mede quadros/s e aviso com slot de 4 s; concorrência falseia a janela)
 # Letreiro fluido: o miolo da faixa é UM #() persistente por cliente (letreiro-tt.py fluxo). A barra
 # rola sem redesenhar a tela inteira (nenhum set-option por passo: só a status line, ≤ 1 vez/s), cada
 # cliente vê o recorte da própria largura, o aviso fresco toma a vez e devolve sozinho, e quem olha

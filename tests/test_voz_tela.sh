@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (áudio/PTY simulados com prazos; não disputar CPU com outros fluxos)
 # 🎤 nos computadores: o voz no pacote, o canal da janela (voz --turno com VOZ_TELA_FD), o cérebro padrão, a escolha do
 # gravador e da voz em Linux, macOS e WSL (voz-audio.py com VOZ_SISTEMA e programas falsos), a gravação até o silêncio,
 # a janela da conversa num tmux isolado (microfone, transcrição e voz falsos) e o atalho @janela do tt (Ctrl+B v).

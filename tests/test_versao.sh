@@ -7,7 +7,7 @@ cd "$T"
 g() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false -C "$1" "${@:2}"; }
 fail() { echo "FALHOU: $1" >&2; exit 1; }
 git init -q dev; g dev checkout -q -B main 2>/dev/null
-for f in tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
+for f in tt precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
          atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py \
          skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf; do
   [[ -e $RAIZ/$f ]] && cp "$RAIZ/$f" dev/
@@ -16,6 +16,11 @@ printf 'nome=teste\nrepo=%s\n' "$T/dev" >"$XDG_CONFIG_HOME/tt/config"
 rotulo() { "$TT" --pacote | tar -xOf - VERSAO | awk '{ print $4 }'; }
 ordem()  { "$TT" --pacote | tar -xOf - VERSAO | awk '{ print $1 }'; }
 echo 1.6 >dev/MARCO; g dev add -A; g dev commit -qm base
+"$TT" --pacote >"$T/pacote.tar"
+membros=$(tar -tf "$T/pacote.tar")
+for f in precarregar-tt.py precarregar_remoto.py; do
+  grep -qxF "$f" <<<"$membros" || fail "o pacote não levou $f"
+done
 [[ $(rotulo) == 1.6.0 ]] || fail "o commit que abre a série é PATCH 0 (veio $(rotulo))"
 for i in 1 2 3; do echo "x$i" >>dev/README.md; g dev commit -qam "c$i"; done
 [[ $(rotulo) == 1.6.3 ]] || fail "3 commits depois: 1.6.3 (veio $(rotulo))"

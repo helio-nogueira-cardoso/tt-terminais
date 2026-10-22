@@ -160,6 +160,25 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   `--menu-painel`, `--menu-tmux`, `--menu-sessao`, `--menu-maquinas`, `--menu-admin`,
   `--menu-arquivos`, `--menu-atalhos`, `--menu-popup-ui`, `--avisar`.
 
+### Pré-carregamento de sessões
+- `tt --precarregar [status|json|auto|economico|off]`: estado legível, diagnóstico JSON ou modo local.
+  Administrar → ⚡ abre `--precarregar-ui` (`a`/`e`/`d`, `q`/Esc). Desligar mantém pontes em uso.
+- `precarregar-tt.py`: coordenador por socket tmux/pacote; prioridade de fixadas/esquerda + recência,
+  frequência, alternância e foco no fzf (300 ms). 3 candidatos/tela, 6 no total, duas preparações em paralelo;
+  econômico/Termux/bateria ≤20%: 1/tela, 2 total; bateria <10%: sem especulação. Ajustes locais
+  `precarregar`, `precarregar_total`, `precarregar_por_tela`; `TT_PRECARREGAR=0` desliga nos testes.
+- `precarregar_remoto.py`: protocolo stdlib enviado em memória pelo SSH, sem instalação no destino.
+  Espera bilhete de uso único, sem anexar usuário ao tmux. Clique valida ID estável + servidor/sessão e
+  primeira tela antes de trocar apenas o cliente correto. Pedidos anteriores são cancelados; sleep,
+  renomeação, sessão substituída, rede caída e cliente desconectado não provocam troca tardia.
+- Pontes `tt-pre-*` têm `@ponte`, `@tt_pre_owner`, `@tt_pre_token`, `@tt_pre_estado=espera|ativa`.
+  `criar_ponte` e `fechar_pontes_ociosas` ignoram as de espera (gerenciadas pelo coordenador).
+  Histórico privado em `~/.local/state/tt/precarregamento/`, 500 transições/7 dias; não sincroniza conteúdo.
+  Runtime `/tmp/tt-pre-UID-HASH` modo 700. Internos: `--precarregar-evento`, `--precarregar-ponte`,
+  `--precarregar-remoto`, `--precarregar-confirmar`. Ganchos tmux `[22]`, vigia e mudança de fixadas
+  acordam o coordenador. CLI/barra/central e pedidos vindos de pontes convergem na máquina da tela.
+  Testes `test_precarregar.sh` e `test_precarregar_modelo.py`.
+
 ### Fixadas (2ª linha da barra)
 - `tt --fixar [maquina:]sessao` — fixa/desafixa a sessão.
 - `tt --fixadas` — lista as fixadas; `tt --barra-fixadas` (interno) formata a faixa.

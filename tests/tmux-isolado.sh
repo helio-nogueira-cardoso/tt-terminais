@@ -13,6 +13,7 @@ TMUX_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tt-teste-tmux.XXXXXX"); export TMUX_TMP
 # O runtime do tt (caches, estado dos painéis, travas) também é do teste: sem isto o tt de um teste caía
 # no /run/user/UID de verdade, o de quem roda a suíte, e dois testes em paralelo disputavam os arquivos.
 export TT_SEM_VIGIA_AUTO=1 # o tt de um teste não religa o vigia sozinho (test_vigia_garantir.sh esvazia)
+export TT_PRECARREGAR=0
 [[ -n ${TT_RT:-} ]] || { TT_RT=$TMUX_TMPDIR/rt; mkdir -p "$TT_RT"; export TT_RT; }
 # Nem a tela gráfica (área de transferência) de quem roda a suíte: ver sem_tela_real no lib.sh.
 mkdir -p "$TMUX_TMPDIR/run" && chmod 700 "$TMUX_TMPDIR/run" && export XDG_RUNTIME_DIR=$TMUX_TMPDIR/run

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (sequências de teclado em PTY: carga concorrente fragmenta setas)
 # Tela de transferências (⇅): causa da falha em português, rolagem com muitos trabalhos, seleção por
 # setas, confirmação de cancelar passando de 50 %, "r" tenta de novo (com cópia real local), "x" limpa
 # as terminadas, log inteiro com "l". Roda numa tmux isolada (socket próprio) com HOME/RT temporários.

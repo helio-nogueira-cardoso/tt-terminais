@@ -23,6 +23,7 @@
 #   tt --checar     confere se o tt funciona aqui (--checar-agente: um agente confere e corrige; --checar-ver
 #                   o último relatório; --checar-handoff: pacote de logs, sem segredos, para quem mantém o tt)
 #   tt --sessoes-ia conversas do Claude/Codex/Kiro iguais em todas as máquinas (status|on|off|agora)
+#   tt --precarregar [status|json|auto|economico|off]  preparação inteligente das próximas sessões, por tela
 #   tt --conversa-ia C  a conversa de IA de código C em Markdown, para outra IA seguir (--de MÁQUINA, --salvar)
 #   tt --tarefas-sync [modo] [url]  como as tarefas vão às outras máquinas (p2p, git, ambos, off)
 #   tt --email-enviar --para END --assunto T --corpo T  envia por qualquer conta (SMTP/OAuth/Outlook), sem tela;
@@ -545,6 +546,7 @@ vigiar() {
     proximo=$pausa sondar=""
     _TEM_CMD_PATH="" # o vigia vive dias: a cada volta, pergunta de novo que comandos existem (tem_cmd)
     atualizar_barras
+    (precarregar_evento evento >/dev/null 2>&1 &)
     [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || { echo "$(date '+%F %T') vigia $$ saiu: há outro" >>"$log"; exit 0; }
     agora=$(date +%s)
     # Acordou de um sleep? O laço anda no tempo em que a máquina está acordada, e o relógio dá o salto: se esta volta
@@ -2962,7 +2964,7 @@ mac_configurar_padrao() {
 }
 
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
-ARQUIVOS_FONTE=(tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
+ARQUIVOS_FONTE=(tt precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
   checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf)
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
@@ -5354,7 +5356,7 @@ criar_ponte() {
     while IFS=$'\x1f' read -r nome anexada dono a_alvo; do
       [[ $dono == "$cliente" ]] && { ponte=$nome p_dono=$dono p_alvo=$a_alvo; break; }
       [[ -z $ponte && $anexada == 0 ]] && { ponte=$nome p_dono=$dono p_alvo=$a_alvo; }
-    done < <(tmux list-sessions -F "#{session_name}"$'\t'"#{session_attached}"$'\t'"#{@ponte_dono}"$'\t'"#{@ponte_alvo}" 2>/dev/null |
+    done < <(tmux list-sessions -f '#{!=:#{@tt_pre_estado},espera}' -F "#{session_name}"$'\t'"#{session_attached}"$'\t'"#{@ponte_dono}"$'\t'"#{@ponte_alvo}" 2>/dev/null |
       awk -F'\t' -v a="$alvo" -v b="$base" '$4 == a || ($4 == "" && $1 == b) { print $1 "\037" $2 "\037" $3 "\037" $4 }')
     if [[ -n $ponte ]]; then
       [[ $p_dono == "$cliente" ]] || lote_add lote set-option -t "=$ponte:" @ponte_dono "$cliente"
@@ -5425,8 +5427,77 @@ fechar_pontes_ociosas() {
         fi ;;
       *) : ;; # destino mudo: transitório, preserva
     esac
-  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{?session_last_attached,#{session_last_attached},#{session_created}}|#{@ponte}|#{@ponte_id}|#{@ponte_srv}|#{@ponte_sumiu}|#{@ponte_alvo}' -f '#{@ponte}' 2>/dev/null)
+  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{?session_last_attached,#{session_last_attached},#{session_created}}|#{@ponte}|#{@ponte_id}|#{@ponte_srv}|#{@ponte_sumiu}|#{@ponte_alvo}' -f '#{&&:#{@ponte},#{!=:#{@tt_pre_estado},espera}}' 2>/dev/null)
   return 0
+}
+
+# Preparação passiva, sempre na máquina da tela. Não roda nos testes sem opt-in explícito.
+precarregar_ativo() {
+  [[ ${TT_PRECARREGAR:-} != 0 && -f $DIR_TT/precarregar-tt.py ]] || return 1
+  local modo; conf_em modo precarregar
+  [[ $modo != off ]]
+}
+
+precarregar_py() {
+  TT_PRE_TT="$EU" TT_PRE_MACHINE="$MAQUINA" TT_PRE_PATH_REMOTO="$PATH_REMOTO" TT_RT="$RT" \
+    python3 "$DIR_TT/precarregar-tt.py" "$@" --ssh-args "${SSH_OPC[@]}"
+}
+
+precarregar_evento() {
+  precarregar_ativo || return 0
+  precarregar_py "${1:-evento}" "${@:2}" >/dev/null 2>&1 || true
+}
+
+precarregar_trocar() { # cliente destino sessão [identidade]
+  precarregar_ativo && [[ -n $1 ]] || return 1
+  precarregar_py navigate "$@" >/dev/null 2>&1
+}
+
+precarregar_cancelar() {
+  precarregar_ativo || return 0
+  precarregar_py cancel "${1:-}" >/dev/null 2>&1 || true
+}
+
+# O único texto enviado a este terminal em espera é o bilhete de uso único. Se o processo
+# remoto sair antes da ativação, o painel fica morto; jamais vira um shell que executaria o bilhete.
+precarregar_ponte() { # destino sessão id token ponte
+  local dest=$1 s=$2 id=$3 token=$4 p=$5 st=0
+  precarregar_py transporte "$dest" "$token" "$s" "$id" "$MAQUINA|$p" 180 || st=$?
+  if [[ $(tmux show-options -qv -t "=$p:" @tt_pre_estado 2>/dev/null) == ativa ]]; then
+    printf '\nA conexão terminou (código %s). Enter para reconectar; Ctrl+B d para voltar. ' "$st"
+    read -r || return 0
+    exec "$EU" --ponte "$dest" "$s" "$p"
+  fi
+  return "$st"
+}
+
+precarregar_cmd() {
+  case ${1:-status} in
+    auto|on|economico|off)
+      local modo=$1; [[ $modo == on ]] && modo=auto
+      conf_gravar precarregar "$modo"
+      if [[ $modo == off ]]; then precarregar_py stop >/dev/null 2>&1 || true
+      else precarregar_evento evento; fi
+      echo "pré-carregamento: $modo" ;;
+    status) precarregar_py status-text ;;
+    json) precarregar_py status ;;
+    *) echo 'uso: tt --precarregar [status|json|auto|economico|off]' >&2; return 2 ;;
+  esac
+}
+
+precarregar_ui() {
+  local tecla
+  while :; do
+    clear
+    printf 'Pré-carregamento de sessões\n\n'
+    precarregar_cmd status
+    printf '\n[a] automático  [e] econômico  [d] desligar  [q/Esc] voltar\n'
+    read -rsn1 tecla || return 0
+    case $tecla in
+      a) precarregar_cmd auto >/dev/null ;; e) precarregar_cmd economico >/dev/null ;;
+      d) precarregar_cmd off >/dev/null ;; q|$'\e') return 0 ;;
+    esac
+  done
 }
 
 # Entra na sessão S de outra máquina. Fora do tmux (celular), é um ssh direto e, ao sair
@@ -5437,6 +5508,10 @@ entrar_remoto() {
   if [[ -z ${TMUX:-} ]]; then
     eval "$(cmd_ver "$dest" "$s")"
     return
+  fi
+  if precarregar_trocar "${TT_CLIENTE:-}" "$dest" "$s" "${TT_PRE_IDENTIDADE:-}"; then
+    sair_menu
+    return 0
   fi
   # (_remota_confirmada: quem chamou acabou de achar a sessão lá pelo id, ver ir_fixada)
   if [[ ${_remota_confirmada:-} != "$dest" ]] && ! sessao_remota_existe "$dest" "$s"; then
@@ -5574,6 +5649,7 @@ ir_para() {
     fi
   fi
   if [[ $dest != . ]]; then entrar_remoto "$dest" "$s"; return; fi
+  precarregar_cancelar "${TT_CLIENTE:-}"
   sair_menu
   if [[ -n ${TMUX:-} ]]; then log_troca ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$s"; exec "$TT_TMUX_BIN" switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$s"; fi
   tmux attach-session -t "=$s"
@@ -5589,13 +5665,14 @@ ir_ponte() {
   # aí troca só o que agiu por último (quem clicou ou teclou na barra de lá).
   c=$(tmux list-clients -t "=$p" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
   [[ -n $c ]] || return 1
-  if [[ $r == "$MAQUINA" ]]; then alvo=$s
+  if [[ $r == "$MAQUINA" ]]; then precarregar_cancelar "$c"; alvo=$s
   else
     dest=$(dest_ir "$r")
     if [[ -z $dest ]]; then
       tmux display-message -c "$c" "⚠ $r: máquina não cadastrada; sessão $s não aberta"
       return 1
     fi
+    precarregar_trocar "$c" "$dest" "$s" && return 0
     alvo=$(criar_ponte "$dest" "$s" "$c") || return 1
   fi
   fecha_ciclo "$alvo" "$(contem_cliente "$c")" && return 1
@@ -5766,7 +5843,10 @@ clique_seletor() {
 
 # O seletor em si (roda dentro do popup aberto por seletor_em).
 seletor() {
-  local saida dest alvo nome prev=()
+  local saida dest alvo nome prev=() pre_bind=()
+  if precarregar_ativo; then
+    pre_bind=("--bind=focus:execute-silent($EU --precarregar-evento focus $(q "${TT_CLIENTE:-}") {1} {2} >/dev/null 2>&1 &)")
+  fi
   estado_por maquina "${TT_SEL_MAQ:-$MAQUINA}"
   [[ -n ${TT_PREVIA:-} ]] && prev=(--preview="$EU --previa-em {1} {2}" --preview-window='right,55%,border-left,follow')
   export TT_COMX=seletor TT_MOUSE="$TT_ESTADO.mouse"
@@ -5777,6 +5857,7 @@ seletor() {
     "${prev[@]}" \
     --bind="start:reload($EU --lista-seletor)" \
     --bind="load:transform($EU --pos-atual)" \
+    "${pre_bind[@]}" \
     --bind="left-click:transform($EU --clique-linha {1} {2})" \
     --bind='double-click:ignore' \
     --bind="ctrl-x:execute-silent($EU --fechar {1} {2})+reload($EU --lista-seletor)" \
@@ -8640,6 +8721,7 @@ menu_admin() {
     [[ $n != '?' ]] && ((${v:-0} < vl)) && atras=1
   done < <(maquinas)
   {
+    printf 'P\t  ⚡ Pré-carregamento de sessões…\t%s\n' "$(popup_tt "$c" 'pré-carregamento' "$EU --precarregar-ui")"
     printf 'e\t  📤 Enviar arquivos…\t%s\n' "$(popup_tt "$c" "📤 enviar" "TT_CLIENTE=$c TT_PANE=$p $EU --enviar")"
     printf 'r\t  📥 Trazer arquivos…\t%s\n' "$(popup_tt "$c" "📥 trazer" "TT_CLIENTE=$c TT_PANE=$p $EU --trazer")"
     printf 'f\t  ⇅ Acompanhar as transferências…\t%s\n' "$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")"
@@ -8804,7 +8886,7 @@ destravar_fixadas() { rmdir "$CONF_FIX.trava" 2>/dev/null; return 0; }
 
 # Versão da lista: a hora (ns) da última mudança, em ~/.config/tt/fixadas.v.
 versao_fixadas() { local v; v=$(cat "$CONF_FIX.v" 2>/dev/null); echo "${v:-0}"; }
-marcar_fixadas() { date +%s%N >"$CONF_FIX.v"; snapshot_evento fixadas; }
+marcar_fixadas() { date +%s%N >"$CONF_FIX.v"; snapshot_evento fixadas; precarregar_evento evento; }
 
 # Recebe a lista de outra máquina (stdin) com a versão V. Só aceita se for mais nova que a daqui:
 # uma máquina que volta atrasada nunca desfaz uma mudança mais recente.
@@ -15330,6 +15412,9 @@ ir_fixada() {
   # Dada como desligada pelo Tailscale (fora=2), vai assim mesmo: a marca dele oscila com a máquina de pé
   d=$(dest_ir "$r"); fora=$?
   if [[ -z $d ]]; then tmux display-message -c "$c" "📌 $r: máquina não cadastrada"; return 0; fi
+  # O protocolo passivo resolve a identidade no destino; não paga outro SSH só para confirmar
+  # o que o bilhete já confere. Clientes de ponte (aninhados) são recusados pelo coordenador.
+  if [[ $d != . ]] && precarregar_trocar "$c" "$d" "$s" "$id"; then return 0; fi
   ((fora == 2)) && tmux display-message -c "$c" -d 4000 "⟳ $r: o Tailscale a dá como desligada; tentando assim mesmo…"
   if [[ -n $id ]]; then
     if [[ $d == . ]]; then
@@ -20276,7 +20361,10 @@ clique_linha() {
 }
 
 escolher() {
-  local rotulo_borda=" 🖥  terminais · $MAQUINA " borda=rounded prev_janela='down,55%,border-top,follow'
+  local rotulo_borda=" 🖥  terminais · $MAQUINA " borda=rounded prev_janela='down,55%,border-top,follow' pre_bind=()
+  if precarregar_ativo; then
+    pre_bind=("--bind=focus:execute-silent($EU --precarregar-evento focus $(q "${TT_CLIENTE:-}") {1} {2} >/dev/null 2>&1 &)")
+  fi
   if compacto; then
     export TT_COMPACTO=1
     borda=none prev_janela='down,50%,border-top,follow,hidden'
@@ -20298,6 +20386,7 @@ escolher() {
     --header="$(cabecalho)" \
     --color='bg:#282a36,fg:#f8f8f2,border:#bd93f9,label:#bd93f9:bold,header:#f8f8f2,pointer:#ff79c6,prompt:#bd93f9,hl:#f1fa8c,hl+:#ffb86c,fg+:#f8f8f2,bg+:#44475a,info:#6272a4' \
     --preview="$EU --previa-em {1} {2} {q}" --preview-window="$prev_janela" \
+    "${pre_bind[@]}" \
     --bind='ctrl-/:toggle-preview' \
     --bind="ctrl-x:execute-silent($EU --fechar {1} {2})+reload($EU --listar-tudo)" \
     --bind="ctrl-n:print(nova)+accept,ctrl-r:print(renomear)+accept,ctrl-a:print(nomear)+accept" \
@@ -20850,6 +20939,12 @@ case "${1:-}" in
              trap limpar_estado EXIT; seletor; exit ;;
   --ir-ponte) ir_ponte "$2" "$3" "$4"; exit ;;
   --janela-ponte) janela_ponte "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit ;;
+  --precarregar) precarregar_cmd "${2:-status}"; exit $? ;;
+  --precarregar-ui) precarregar_ui; exit ;;
+  --precarregar-evento) precarregar_evento "${2:-evento}" "${@:3}"; exit 0 ;;
+  --precarregar-ponte) precarregar_ponte "${@:2}"; exit $? ;;
+  --precarregar-remoto) precarregar_py remoto "${@:2}"; exit $? ;;
+  --precarregar-confirmar) precarregar_py confirmar "${@:2}"; exit $? ;;
   --ponte) ponte "$2" "$3" "$4"; exit ;;
   --focar) focar "$2"; exit ;;
   --soltar) soltar_painel "$2"; exit ;;

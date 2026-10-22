@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.7.0 · 22/10/2026
+- **Próximas sessões preparadas por tela:** conexões SSH ficam prontas sem anexar ao tmux remoto. Fixadas mais à esquerda têm prioridade, combinada com uso recente/frequente, alternância entre sessões e foco estabilizado no seletor. Só o clique ativa a sessão, com identidade e primeira tela confirmadas; um pedido antigo não ganha de outro clique. Cada tela tem suas pontes; rede caída ou sessão substituída preservam a tela atual.
+- **Recursos limitados e controle local:** até 3 candidatos por tela e 6 no total, duas preparações simultâneas, expiração e espera progressiva após falhas. Modo econômico e bateria baixa reduzem o orçamento; suspensão cancela pedidos antigos. Menu Administrar → ⚡ Pré-carregamento e `tt --precarregar status|json|auto|economico|off`. Desligar preserva pontes em uso. O protocolo roda em memória no destino, sem exigir atualizar todas as máquinas juntas.
+
 ## v2.6.2 · 22/10/2026
 - **📧 Fim do aviso vermelho do aerc nas contas Graph:** o espelho do Outlook deixou de apagar e refazer a pasta a cada sync. Cada mensagem mantém o mesmo arquivo; só a marca de lida e o conteúdo mudam quando o servidor muda, e sai só o que sumiu dele. Acaba o `could not read previous flags … key …`, as marcas do aerc (sinalizada, respondida) ficam e o sync não regrava o que não mudou.
 

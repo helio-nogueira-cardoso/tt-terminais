@@ -28,7 +28,7 @@ isolar() {
   T=$(mktemp -d)
   mkdir -p "$T/pkg" "$T/home/.config/tt" "$T/tmux" "$T/rt"
   local f
-  for f in tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
+  for f in tt precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
            atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf; do
     [[ -e $RAIZ/$f ]] && cp "$RAIZ/$f" "$T/pkg/"
   done
@@ -71,6 +71,7 @@ isolar() {
   export TT_LETREIRO_SEM_PADRAO=1 # a suíte começa com o cadastro vazio; o perfil de fábrica tem teste próprio
   export TT_EMAIL_SEM_REDE=1 TT_T_ATUALIZACAO=999999 TT_ATALHOS_PADRAO=$T/pkg/atalhos-padrao
   export TT_SEM_VIGIA_AUTO=1 # o tt de um teste não religa o vigia sozinho (test_vigia_garantir.sh esvazia)
+  export TT_PRECARREGAR=0 # preparar conexões requer opt-in do teste; nunca rede/daemon real
   export TT_MAC_AUTO=0 TT_TAILSCALE_WS_AUTO=0 # nenhum teste administra os LaunchDaemons reais
   export TT_SEM_SOLTOS=1 # as janelas de terminal soltas (fora do tmux) desta máquina não entram nas listagens dos testes
   export TT_SEM_NAVEGADORES=1 # instalar no HOME temporário não baixa Chrome/Carbonyl em segundo plano

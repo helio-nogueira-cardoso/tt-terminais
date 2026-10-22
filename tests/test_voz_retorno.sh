@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (prazo de 2 s durante agente de 12 s; carga paralela muda o cenário)
 # voz: o modo retorno. Os ganchos dos agentes nas sessões da voz (ia-conta passa o Stop/Notification ao Claude e o notify
 # ao Codex; voz --evento grava o aviso com a última mensagem, só na sessão da voz); o modo (microfone fechado, o pedido não
 # espera ouvindo, a sessão chama quando responde, pede uma decisão ou fecha; a conferência de reserva para o agente sem

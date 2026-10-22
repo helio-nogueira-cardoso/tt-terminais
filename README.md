@@ -2308,6 +2308,39 @@ Os popups de tamanho fixo (fixadas `+N ▾`, 🔔 notificações, renomear, nova
 pendências) encolhem até caber na tela: o tmux recusa popup maior que a tela, e num celular com 63
 colunas o toque não fazia nada.
 
+## Pré-carregamento inteligente de sessões
+
+O tt prepara passivamente conexões para prováveis próximos destinos remotos. As fixadas ganham
+prioridade, especialmente as mais à esquerda, mas isso é só parte da decisão: recência, frequência,
+alternância com a sessão atual e foco por pelo menos 300 ms no seletor também contam. Sessões locais
+já trocam diretamente, sem transporte extra. O histórico registra apenas transições reais de tela,
+não conteúdo de conversas nem preparações, com até 500 eventos dos últimos sete dias, só nesta máquina.
+
+A preparação autentica o SSH e confere a identidade, mas **não anexa um cliente ao tmux remoto**:
+não cria presença humana, não redimensiona a sessão e não recebe saída dos programas. No clique,
+um bilhete de uso único libera a anexação. Só depois da confirmação do destino e da primeira tela
+o cliente de origem troca. Renomear preserva a identidade; apagar e recriar com o mesmo nome não.
+Um novo clique cancela o anterior. Outra tela anexada à mesma sessão continua independente.
+
+Padrão: até **3 candidatos por tela e 6 no total**, com duas preparações simultâneas em segundo plano,
+margem contra trocas excessivas, validade de 150 s e espera progressiva após falhas. Cliques reais
+têm prioridade sobre esse trabalho especulativo. Termux, modo econômico ou bateria ≤20% sem carregar:
+até 2 candidatos no total, 1 por tela; abaixo de 10%, sem especulação. Tela sem atividade há 10 min
+deixa de preparar. Suspender/retomar cancela pedidos antigos e dá 5 s para a rede recuperar.
+
+Em **Administrar → ⚡ Pré-carregamento**, `a` liga o automático, `e` o econômico, `d` desliga e `q`/Esc volta.
+Também: `tt --precarregar status` mostra o estado, os motivos e a última duração; `json` fornece métricas
+e amostras de preparação/troca para diagnóstico; `auto`, `economico` e `off` escolhem o modo.
+`~/.config/tt/config` aceita `precarregar_total=6` e `precarregar_por_tela=3` (tetos 12 e 6).
+Desligar descarta só transportes especulativos: não derruba uma sessão em uso.
+
+O coordenador Python é único por socket tmux/pacote, com socket Unix privado e pontes por identidade
+do cliente (tty, PID e nascimento). Reaproveita o multiplexador SSH do tt. O protocolo remoto é pequeno,
+só stdlib, executado em memória via SSH: basta Python 3 e tmux, sem instalar arquivos ou exigir uma
+versão nova do tt no destino. Não usa servidor TCP nem serviço novo do sistema. Estado local em
+`~/.local/state/tt/precarregamento/`; runtime privado em `/tmp/tt-pre-UID-HASH/`.
+`TT_PRECARREGAR=0` impede preparação automática (usado pelos testes isolados).
+
 ## Partida rápida
 
 O `tt` é um script só, de ~850 KB, e cada clique na barra, tecla num painel ou recarga do fzf chama um `tt`
