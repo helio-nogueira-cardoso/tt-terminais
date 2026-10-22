@@ -33,7 +33,8 @@ fmt() { grep "^set -g 'status-format\\[$1\\]'" "$tema"; }
 grep -q 'range=left' <<<"$(fmt 1)" || falhou 'linha 1 não é a das janelas'
 l=$(fmt 2); grep -q 'fill=#181825' <<<"$l" && grep -q 'set-default' <<<"$l" || falhou "linha 2 (fixadas) sem fill/set-default: ${l:0:120}"
 l=$(fmt 3); grep -q 'fill=#232838' <<<"$l" && grep -q 'set-default' <<<"$l" && grep -q 'barra_faixa_dir' <<<"$l" || falhou "linha 3 (faixa) sem fill/set-default: ${l:0:120}"
-! grep -q '▁▁▁\|▔▔▔\|───\|usstyle\|underscore' "$tema" "$TT_DIR/tmux.conf" || falhou 'a barra não leva réguas nem sublinhado'
+# (o terminal-features do tmux.conf declara o que o terminal SABE desenhar, ex.: usstyle no Ghostty; não estiliza a barra)
+! grep -v '^set -s terminal-features' "$tema" "$TT_DIR/tmux.conf" | grep -q '▁▁▁\|▔▔▔\|───\|usstyle\|underscore' || falhou 'a barra não leva réguas nem sublinhado'
 passou 'barra: linhas coladas e preenchidas, sem réguas (só o fundo distingue as faixas)'
 
 

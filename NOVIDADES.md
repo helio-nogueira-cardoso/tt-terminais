@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.8.2 · 22/10/2026
+- **📰 Letreiro mais leve:** quando a velocidade do letreiro é mais lenta que uma coluna por quadro, o tt deixa de redesenhar a barra nos quadros em que nada muda. Exemplo: 20 quadros por segundo com o texto andando 2 colunas por segundo viram 2 quadros, com a mesma tela, no mesmo instante, em todos os clientes. Menos processos por terminal e menos tráfego nas pontes. Dica: para o texto deslizar contínuo, use uma coluna por quadro (por exemplo, velocidade 0,125 s com 8 quadros por segundo).
+
 ## v2.8.1 · 22/10/2026
 - **🖥 Ghostty, o terminal padrão do tt:** onde cabe (Mac e Linux com área de trabalho), o tt passa a recomendar o Ghostty como pendência de instalação, que dá para adiar mas não para recusar de vez: no Mac pelo Homebrew, no Linux pelo snap. Com o Ghostty presente, o tt o deixa configurado: tema Catppuccin Mocha, Option esquerdo como Alt (o direito segue digitando símbolos), terminfo e variáveis levados no ssh e janela que fecha sem perguntar (a sessão continua no tmux). Seus ajustes ficam abaixo do bloco do tt e prevalecem. Janelas do Ghostty abrem direto no tt, e o tmux liga nele cores reais, teclas estendidas e sublinhado colorido. `tt --ghostty` mostra o estado. Os outros terminais seguem como antes.
 
