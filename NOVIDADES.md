@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.8.9 · 22/10/2026
+- **🔄 Passagem de tarefa no Mac:** o `ia-rot --passar` rodado por SSH ou fora do Claude não morre mais com "CLAUDE_CONFIG_DIR: unbound variable"; sem essa variável a conta da sessão só fica desconhecida. As datas também deixaram de depender do `date` do Linux: no Mac aparecia "date: illegal option -- d" e sumia a hora em que a primeira conta volta. A hora do reset lida na mensagem de limite ("try again at…", "resets 3pm") agora é entendida no Mac também.
+
 ## v2.8.8 · 22/10/2026
 - **🖥 Ghostty sem linhas duplicadas:** a tela não rola mais sozinha de vez em quando, com linhas repetidas e barras deslocadas até o redesenho seguinte. A causa era o letreiro, que recortava o texto caractere a caractere e partia ao meio as bandeiras das cotações (🇦🇷 🇺🇸 🇨🇳) quando passavam pela borda. Meia bandeira ocupa 1 coluna para o tmux e 2 para o Ghostty, e a coluna a mais na última linha da tela fazia o terminal rolar. Agora o recorte anda de grafema em grafema: bandeira, emoji com tom de pele, sequência com ZWJ e keycap ficam inteiros, e a largura de cada um é a que o tmux e o Ghostty medem igual (conferido nos dois, caractere a caractere).
 - **Ícones que não invadem o texto:** símbolos como 🕰 ⏱ ✏ ⚙ ✉ ❤ aparecem no letreiro e nos menus na forma de emoji, com 2 colunas. Na forma de texto, o Ghostty os desenhava com a fonte de emoji por cima da letra seguinte ("🕰2022", "⚙tmux…"). No menu ⋯ do painel o texto dos itens voltou a ficar alinhado. Na saída dos programas, ☝ ✌ ✍ ⛹ 🏋 🏌 🕴 🕵 🖐 sem seletor passam a ocupar 1 coluna no tmux, como no Ghostty: antes o tmux dava 2 e o resto da linha (até um popup por cima) andava para a esquerda.
