@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.6.1 · 22/10/2026
+- **📧 Lida no aerc vale no Outlook (contas Graph):** marcar uma mensagem como lida ou não lida no aerc chega ao servidor no próximo sync, antes de a pasta ser refeita. Antes a marcação sumia na volta seguinte e a mensagem reaparecia como não lida. Vai pela API REST do Outlook (no Graph o app padrão do tt só lê); sem permissão, avisa e a marcação fica só no cliente. A primeira volta depois de atualizar só registra o estado, sem enviar nada.
+
 ## v2.6.0 · 22/10/2026
 - **Etiquetas de recebimento locais:** remetentes usam `#_nome`; o prefixo `_` é reservado e não pode ser criado manualmente. Essas etiquetas não viajam no e-mail e ficam preservadas ao receber atualizações. Tarefas antigas identificadas pelo remetente migram com backup.
 - **Cópia só com Ctrl:** Alt não autoriza copiar. O arraste reinicia a seleção por caractere, sem herdar palavra/linha anterior nem expandir ao soltar. Soltar Ctrl antes do mouse não copia; os atalhos explícitos de teclado continuam funcionando.

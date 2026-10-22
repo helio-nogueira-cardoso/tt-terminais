@@ -270,6 +270,46 @@ mkdir -p "$(MD local)/INBOX/cur"
 grep -q '^\[Local\]$' "$A" && falhou 'remover não tirou o bloco do accounts.conf'
 passou 'remover a conta apaga bloco, .mbsyncrc e maildir'
 
+# Lida/não lida marcada no cliente volta ao Graph antes da reconstrução da pasta; primeira volta sem
+# manifesto não devolve nada; sem permissão (403) a marcação fica local e o sync segue.
+python3 - "$(dirname "$0")/../email-tt.py" "$T/graphlidos" <<'PY' || falhou 'graph_sync: lida/não lida do cliente não voltou ao Graph'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("emailtt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+base = sys.argv[2]
+servidor = {"A/1": False, "B:2": True, "C": False}
+def graph_get(c, caminho):
+    return {"value": [{"id": i, "subject": i, "from": {"emailAddress": {"address": "x@y"}}, "isRead": l}
+                      for i, l in servidor.items()]}
+patches, status = [], [200]
+def outlook_marcar_lido(c, mid, lido):
+    patches.append((mid, lido))
+    if status[0] < 300:
+        servidor[mid] = lido
+    return status[0]
+m.graph_get, m.outlook_marcar_lido = graph_get, outlook_marcar_lido
+inbox = os.path.join(base, "INBOX")
+m.graph_sync({}, base, 50)
+assert patches == [], "primeira volta não pode devolver nada ao servidor"
+# o cliente lê A/1 (new/X → cur/X:2,S) e marca B:2 como não lida (cur/X:2,S → cur/X:2,)
+os.rename(os.path.join(inbox, "new", "A_1"), os.path.join(inbox, "cur", "A_1:2,S"))
+os.rename(os.path.join(inbox, "cur", "B_2:2,S"), os.path.join(inbox, "cur", "B_2:2,"))
+m.graph_sync({}, base, 50)
+assert dict(patches) == {"A/1": True, "B:2": False}, patches
+assert servidor == {"A/1": True, "B:2": False, "C": False}, servidor
+assert os.path.exists(os.path.join(inbox, "cur", "A_1:2,S")), "A/1 devia voltar lida"
+assert os.path.exists(os.path.join(inbox, "new", "B_2")), "B:2 devia voltar não lida"
+patches.clear(); m.graph_sync({}, base, 50)
+assert patches == [], "sem mudança local não há PATCH: %r" % patches
+# sem permissão de escrita: avisa, não quebra o sync e o arquivo volta como o servidor diz
+status[0] = 403
+os.rename(os.path.join(inbox, "new", "C"), os.path.join(inbox, "cur", "C:2,S"))
+m.graph_sync({}, base, 50)
+assert len(patches) == 1 and servidor["C"] is False, (patches, servidor)
+assert os.path.exists(os.path.join(inbox, "new", "C")), "sem permissão, C segue como no servidor"
+PY
+passou 'Graph: lida/não lida do cliente volta ao servidor (PATCH IsRead no Outlook REST); 1ª volta e sem mudança não enviam; 403 não quebra'
+
 # --- Liga/desliga depois do cadastro (o botão 🔄 da tela de contas chama isto) -------------------
 "$TT" --email-sync-local Online 1 >/dev/null || falhou 'ligar sync local numa conta existente'
 grep -q "^source *= maildir://$HOME/.cache/tt/maildir/online$" "$A" || falhou 'ligar não trocou a conta para maildir'

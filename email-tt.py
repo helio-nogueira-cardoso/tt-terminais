@@ -1364,6 +1364,66 @@ GRAPH_PASTAS_EXTRA = [
 ]
 
 
+GRAPH_MANIFESTO = ".tt-graph-lidos.json"  # na raiz da pasta: o aerc só lê cur/new/tmp
+
+
+def graph_lidos_locais(destino):
+    """Mudanças de lida/não lida feitas no cliente desde o último sync: {id do Graph: lido}.
+    Compara o que o sync gravou (manifesto) com a flag S de cada arquivo agora. Sem manifesto
+    (primeira vez nesta versão) não há base para comparar: nada é devolvido ao servidor."""
+    try:
+        with open(os.path.join(destino, GRAPH_MANIFESTO), encoding="utf-8") as f:
+            gravado = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    mudancas = {}
+    for sub in ("cur", "new"):
+        d = os.path.join(destino, sub)
+        if not os.path.isdir(d):
+            continue
+        for arq in os.listdir(d):
+            nome, _, info = arq.partition(":2,")
+            antes = gravado.get(nome)
+            if not antes:
+                continue
+            lido = "S" in info
+            if lido != bool(antes.get("lido")):
+                mudancas[antes["id"]] = lido
+    return mudancas
+
+
+def outlook_marcar_lido(c, mid, lido):
+    """PATCH IsRead pela API REST do Outlook: no recurso do Graph o app padrão do tt (Outlook Mobile) só lê
+    (403 ErrorAccessDenied), no do Outlook ele escreve, como no envio. Devolve o status HTTP."""
+    req = urllib.request.Request(OUTLOOK_API + "/me/messages/" + urllib.parse.quote(mid, safe=""),
+                                 data=json.dumps({"IsRead": bool(lido)}).encode(),
+                                 headers={"Authorization": "Bearer " + graph_token(c, "https://outlook.office.com/.default"),
+                                          "Content-Type": "application/json"}, method="PATCH")
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=contexto_ssl()) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def graph_devolver_lidos(c, mudancas):
+    """Leva ao servidor a lida/não lida marcada no cliente. Devolve {id: lido} do que o servidor aceitou;
+    sem permissão (401/403) avisa e para: a marcação fica só no cliente e o espelho segue de leitura."""
+    aceitos = {}
+    for mid, lido in mudancas.items():
+        try:
+            st = outlook_marcar_lido(c, mid, lido)
+        except Exception as e:
+            print(f"✗ não devolvi lida/não lida ao servidor: {erro_curto(e)}", file=sys.stderr)
+            break
+        if 200 <= st < 300:
+            aceitos[mid] = lido
+        elif st in (401, 403):
+            print("✗ o servidor recusou marcar lida (sem permissão de escrita); a marcação fica só no cliente", file=sys.stderr)
+            break
+    return aceitos
+
+
 def graph_sync(c, base, limite, completo=False):
     """Espelha o INBOX como maildir; no modo completo, também Enviados/Lixeira/Rascunhos/Spam/
     Arquivo. Cada pasta é reconstruída do servidor a cada sync (o id do Graph é a verdade: evita
@@ -1375,6 +1435,10 @@ def graph_sync(c, base, limite, completo=False):
     pastas = [("inbox", "INBOX")] + (GRAPH_PASTAS_EXTRA if completo else [])
     total = 0
     for wk, nome_pasta in pastas:
+        destino = os.path.join(base, nome_pasta)
+        # Antes de ler: lida/não lida que o usuário mudou no cliente vai ao servidor, senão a reconstrução
+        # abaixo desfaz a marcação e o Outlook nunca a vê.
+        devolvidos = graph_devolver_lidos(c, graph_lidos_locais(destino)) if os.path.isdir(destino) else {}
         try:
             teto = max(1, min(int(limite), 1000))
             caminho = f"/me/mailFolders/{wk}/messages?$top={min(teto, 50)}&$select=id,subject,from,receivedDateTime,sentDateTime,isRead,body,bodyPreview,internetMessageId,internetMessageHeaders"
@@ -1400,7 +1464,6 @@ def graph_sync(c, base, limite, completo=False):
             if e.code == 404:   # pasta inexistente nesta conta: ignora
                 continue
             raise
-        destino = os.path.join(base, nome_pasta)
         # Reconstrói a pasta (só é lida pelo cliente com cur/new/tmp; limpar evita duplicatas).
         for sub in ("cur", "new", "tmp"):
             d = os.path.join(destino, sub)
@@ -1411,12 +1474,14 @@ def graph_sync(c, base, limite, completo=False):
                     except OSError:
                         pass
             os.makedirs(d, exist_ok=True)
+        manifesto = {}
         for m in mensagens:
             ident = m.get("id", "")
             if not ident:
                 continue
             nome = ident.replace("/", "_").replace(":", "_")
-            lido = bool(m.get("isRead"))
+            lido = devolvidos.get(ident, bool(m.get("isRead")))  # o Graph pode ainda não refletir o PATCH
+            manifesto[nome] = {"id": ident, "lido": lido}
             de = m.get("from", {}).get("emailAddress", {})
             # The local demand filter relies on the receiving provider's verdict. Graph omits these
             # headers unless explicitly selected; preserve only Authentication-Results, in provider
@@ -1446,6 +1511,10 @@ def graph_sync(c, base, limite, completo=False):
                 f.write(mensagem.as_bytes())
             os.replace(tmp, dst)
             total += 1
+        tmp = os.path.join(destino, GRAPH_MANIFESTO + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(manifesto, f)
+        os.replace(tmp, os.path.join(destino, GRAPH_MANIFESTO))
     print(f"mensagens={total}")
     return 0
 
