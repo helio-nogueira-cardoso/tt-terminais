@@ -79,7 +79,12 @@ Configuração não equivale a autenticação: conclua login do Kiro e OAuth do 
 oferecido pelo cliente. No Kiro CLI 2.32.0, foi verificado: ele avisa que o Figma exige OAuth e
 `/mcp` apresenta o link nativo `https://www.figma.com/oauth/mcp?...`, sem depender do Claude.
 Mantenha essa sessão aberta; o retorno do link verificado depende de um receptor local ativo.
-Isso não valida colar o callback manualmente após uma falha. Se o navegador não abrir,
+Para retorno manual quando o navegador está fora do WSL, use o auxiliar
+`scripts/figma_oauth_retorno.py` no lado do Kiro: ele recebe o callback em campo oculto e entrega
+à tentativa original, validando destino e state. Com tt, `--sessao NOME` lê o link OAuth da
+sessão sem pedir que o usuário o copie. Isso é um auxiliar Python, não uma entrada manual nativa
+comprovada do Kiro. Siga o procedimento e confira o resultado em
+[acesso e autenticação](references/acesso-autenticacao.md). Se o navegador não abrir,
 use a URL que o cliente apresentar; não invente
 callback, não copie tokens de outro agente. Se isso bloquear, o fluxo `ler URL` continua disponível
 pelo script REST/cache. Não alegue equivalência de autenticação com o Claude sem testar.

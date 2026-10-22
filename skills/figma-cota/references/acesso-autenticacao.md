@@ -200,6 +200,58 @@ Figma ofereça device flow no seu OAuth.
 O MCP desktop usa `http://127.0.0.1:3845/mcp` e depende de app/assento compatíveis. Seleção ao vivo
 só é uma opção quando esse servidor está disponível no ambiente onde o cliente o acessa.
 
+## Retorno manual com código: navegador fora do WSL
+
+O link de autorização e a URL de retorno são coisas diferentes. `/mcp` apresenta o primeiro;
+para o segundo, não foi encontrada uma entrada manual nativa na interface Classic verificada.
+O auxiliar `scripts/figma_oauth_retorno.py` oferece essa entrada, sem depender de Claude ou de
+outro modelo. É código Python com biblioteca padrão, complementar ao cliente Kiro.
+
+Ele não é um servidor OAuth alternativo e não troca o código por token. Recebe a URL final e
+faz um único GET ao receptor que o próprio Kiro abriu. O Kiro continua responsável pelo fluxo
+OAuth, incluindo PKCE. O auxiliar valida `state`, host, porta e caminho da mesma tentativa antes
+de conectar. Não segue redirecionamentos, não usa proxy, não mostra a URL recebida e não grava
+códigos ou tokens em arquivo. Em falha de rede, não repete uma entrega potencialmente consumida.
+
+### Procedimento
+
+1. Inicie Kiro no WSL em terminal persistente e mantenha a sessão aberta. Se usar o tt:
+   `tt --pty abrir figma-retorno-wsl PASTA`, depois envie o comando do Kiro para essa sessão.
+2. Digite `/mcp` na sessão. Abra no navegador do Windows/Mac o link OAuth que o Kiro mostrou.
+3. Na **mesma máquina/WSL do Kiro**, inicie o auxiliar em outro terminal:
+
+   ```bash
+   python3 scripts/figma_oauth_retorno.py --sessao figma-retorno-wsl
+   ```
+
+   `--sessao` lê o link OAuth da tela desse terminal `tt --pty`, somente em memória. Sem o tt,
+   execute o auxiliar sem argumentos e cole primeiro o link OAuth no campo oculto. URLs nunca
+   são argumentos de linha de comando.
+4. Autorize a conta no Figma. Se o navegador não conseguir abrir o retorno no localhost, copie
+   **a URL completa da barra de endereço**, com `code`, `state` e demais parâmetros. Não copie
+   apenas o código: a URL permite conferir destino e tentativa sem reconstruir o protocolo.
+5. Cole essa URL no campo oculto do auxiliar. Não a cole no chat, num comando shell ou em log.
+6. O auxiliar informa se o receptor aceitou a entrega. Isso ainda não comprova a troca de token:
+   confira `/mcp` no Kiro e aguarde o servidor Figma aparecer carregado.
+7. Se o Kiro original encerrou ou a tentativa expirou, inicie nova tentativa. Não use a URL de
+   um login anterior com um processo novo, mesmo que a porta seja a mesma.
+
+Para terminal remoto via SSH, use um tty (`ssh -t`) dentro de `tt --pty`: a entrada oculta ocorre
+no WSL e o texto viaja pelo canal SSH. Não exponha o receptor OAuth na rede nem copie tokens do
+Mac para o WSL. O helper deve rodar do lado do CLI, pois `127.0.0.1` precisa designar o Kiro.
+
+### Escopo da verificação
+
+Os testes automatizados cobrem retorno entregue a receptor HTTP local, preservação de parâmetros,
+rejeição de outra tentativa/destino, ausência de conexão para URL inválida e ausência de follow
+em resposta 302. Eles usam códigos sintéticos e não fazem chamadas ao Figma.
+
+Na rodada de 22/10/2026, foi preparado um workspace temporário em `empresa` (WSL, Kiro 2.33.1),
+com configuração Figma somente nesse workspace e navegador no Mac. O login Organização do Kiro
+no WSL foi concluído. A autorização do MCP e a entrega manual estão em verificação; só atualizar
+este registro como sucesso quando o próprio Kiro confirmar o servidor carregado após a entrega.
+Não houve instalação permanente da skill no WSL nessa preparação.
+
 ## Validação do acesso Figma sem desperdício
 
 A configuração deve ser verificada em camadas:
