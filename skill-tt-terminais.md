@@ -1390,6 +1390,15 @@ tt --notificar-daqui "Preciso da sua aprovação para o push" --sempre      # av
 - Fora do tmux (sem `$TMUX_PANE`) vira um `tt --notificar` comum. Notificação de outra máquina
   fica na faixa daquela máquina.
 
+## Figma e login do Kiro
+
+O clone versiona `skills/figma-cota/` (skill, script REST/cache, referência de autenticação e testes).
+Para ler frames por URL ou recuperar login do Kiro, consulte o `SKILL.md` dessa pasta e
+`references/acesso-autenticacao.md`. O instalador/reforço do tt ainda não distribui essa pasta.
+Erro no callback `127.0.0.1:PORTA`: confira o receptor e mantenha o login num terminal persistente.
+No Kiro CLI 2.32.0, `kiro-cli login --use-device-flow` foi validado para Organização usando
+`tt --pty`; o login Kiro não substitui o OAuth MCP do Figma. Teste: `tests/test_figma_cota.sh`.
+
 ## Terminal interativo para agentes (`tt --pty`)
 
 O Bash de um agente não tem tty (`tty` diz "not a tty"): `sudo`, `ssh`, `vim`, instaladores e qualquer "Password:" ficam fora de

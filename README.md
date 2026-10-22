@@ -321,6 +321,15 @@ Tudo isso também está no menu de máquinas (clique no nome da máquina na barr
                             endereço)>
     ~/.config/tt/maquinas   host  usuario  nome  [oculta]  (uma máquina por linha)
 
+## Figma: skill e recuperação de login
+
+A [skill figma-cota](skills/figma-cota/SKILL.md) e seu script estão versionados neste clone.
+Recebe links de frames, consulta o cache REST e reserva MCP para detalhes. A referência
+[acesso e autenticação](skills/figma-cota/references/acesso-autenticacao.md) explica o erro de
+callback local do Kiro, o login Organização por dispositivo e a validação separada do OAuth Figma.
+São recursos do repositório; a instalação e o reforço automático do tt ainda não os distribuem.
+Teste isolado: `tests/test_figma_cota.sh`; também faz parte de `make test`.
+
 ## Contas de IA
 
 O tt instala um seletor e um rotator de contas para os agentes de linha de comando: `ia-conta` e
