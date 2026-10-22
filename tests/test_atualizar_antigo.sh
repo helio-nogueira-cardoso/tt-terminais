@@ -17,7 +17,7 @@ mkdir -p "$T/clone"; git -C "$REPO" archive "$VELHO" | tar -x -C "$T/clone"
 
 # "GitHub": a versão atual (arquivos do pacote em teste), dois commits → versão 2.
 mkdir -p "$T/gh"; "${G[@]}" -C "$T/gh" init -q; "${G[@]}" -C "$T/gh" commit -q --allow-empty -m a
-for f in "$T"/pkg/*; do [[ ${f##*/} == VERSAO ]] || cp "$f" "$T/gh/"; done
+for f in "$T"/pkg/*; do [[ ${f##*/} == VERSAO ]] || cp -R "$f" "$T/gh/"; done  # -R: o pacote tem pastas (skills/)
 "${G[@]}" -C "$T/gh" add -A; "${G[@]}" -C "$T/gh" commit -qm b
 echo "fonte=$T/gh" >>"$XDG_CONFIG_HOME/tt/config"
 
