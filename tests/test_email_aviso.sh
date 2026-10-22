@@ -8,7 +8,9 @@ source "$(dirname "$0")/lib.sh"; isolar
 mkdir -p "$T/bin"; printf '#!/bin/sh\nexit 0\n' >"$T/bin/aerc"; chmod +x "$T/bin/aerc"
 export PATH="$T/bin:$TT_PATH_BASE"
 # notify-send é chamado como "notify-send -a tt TÍTULO CORPO": guarda "TÍTULO|CORPO"
-printf '#!/bin/sh\nshift 2; printf "%%s|%%s\\n" "$1" "$2" >>"%s/notif.log"\n' "$T" >"$T/bin/notify-send"; chmod +x "$T/bin/notify-send"
+printf '#!/bin/sh\nshift 2; printf "%%s|%%s\\n" "$1" "$2" >>"%s/notif.log"\npython3 -c "import time; time.sleep(30)" "%s/fd-herdado" </dev/null >/dev/null 2>&1 &\n' "$T" "$T" >"$T/bin/notify-send"; chmod +x "$T/bin/notify-send"
+# O notificador deixa um filho vivo com os descritores herdados. A próxima rodada deve
+# rodar mesmo assim: só exec 9>&- no pai não libera a trava compartilhada com esse filho.
 # mbsync falso: "entrega" no INBOX do espelho os arquivos que estiverem em $T/chegando (um por rodada)
 cat >"$T/bin/mbsync" <<MB
 #!/bin/sh

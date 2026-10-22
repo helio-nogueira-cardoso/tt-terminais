@@ -86,7 +86,7 @@ printf '[filters]\ntext/html=! html\n' > "$conf"; before=$(cat "$conf"); aerc_re
 # "Can't load" com a URL cortada) migra para abrir o link no navegador; idempotente depois.
 # O aerc_filtro_html usa o aerc_html_tt_garantir (filtro html do aerc tolerante a unshare quebrado): vem junto, com
 # o filtro "html" do aerc falso, para não depender do que a máquina do teste tem instalado.
-eval "$(sed -n '/^aerc_html_tt_garantir() {/,/^}/p;/^aerc_filtro_html() {/,/^}/p;/^aerc_reparar_se_preciso() {/,/^}/p' "$raiz/tt")"
+eval "$(sed -n '/^aerc_filtro_texto() /p;/^aerc_filtros_basicos() {/,/^}/p;/^aerc_html_tt_garantir() {/,/^}/p;/^aerc_filtro_html() {/,/^}/p;/^aerc_reparar_se_preciso() {/,/^}/p' "$raiz/tt")"
 printf '#!/bin/sh\nexit 0\n' >"$TH/aerc-html"; chmod +x "$TH/aerc-html"; export TT_AERC_FILTRO_HTML=$TH/aerc-html
 mk w3m
 printf '[filters]\ntext/html=! html | colorize | python3 /x/email-tt.py linkify\n' > "$conf"; aerc_reparar_se_preciso

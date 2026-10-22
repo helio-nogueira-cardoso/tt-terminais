@@ -87,7 +87,7 @@ grep -q '"gama"' "$HOME/.cache/claude-rot.uso.json" || falhou 'renomear não lev
 ia-conta renomear gama beta 2>/dev/null && falhou 'renomear por cima de conta existente'
 ia-conta renomear gama codex 2>/dev/null && falhou 'renomear para nome reservado'
 # Conta aberta (processo com CLAUDE_CONFIG_DIR dela) não muda de nome.
-CLAUDE_CONFIG_DIR=$R/beta sleep 30 &
+CLAUDE_CONFIG_DIR=$R/beta python3 -c 'import time; time.sleep(600)' "$T/conta-aberta" &
 aberta=$!
 sleep 0.2
 ia-conta renomear beta delta 2>"$T/err" && falhou 'renomeou conta aberta'
@@ -118,12 +118,14 @@ passou 'remover guarda a pasta em claude-contas.removidas'
 # Passagem de tarefa dentro do tmux: abre janela nova na mesma sessão com a próxima conta.
 mkdir -p "$T/proj"
 printf '# Passagem: teste\n## Próximo passo\nnada\n' >"$T/passagem.md"
-tmux -f /dev/null new-session -d -s trabalho -c "$T/proj" -x 120 -y 30
+tmux -f /dev/null new-session -d -s trabalho -c "$T/proj" -x 120 -y 30 "env PS1='tt-pronto$ ' bash --norc -i"
+for _ in {1..120}; do tmux capture-pane -p -t trabalho | grep -qF 'tt-pronto$' && break; sleep 0.25; done
+tmux capture-pane -p -t trabalho | grep -qF 'tt-pronto$' || falhou 'shell da passagem não ficou pronto'
 tmux send-keys -t trabalho "cd $(printf '%q' "$T/proj") && IA_CONTA=principal $(printf "%q" "$B/ia-rot") --passar $(printf '%q' "$T/passagem.md") > $(printf '%q' "$T/passar.out") 2>&1; echo fim-passar" Enter
-for _ in $(seq 50); do grep -q 'passada' "$T/passar.out" 2>/dev/null && break; sleep 0.1; done
+for _ in $(seq 300); do grep -q 'passada' "$T/passar.out" 2>/dev/null && break; sleep 0.1; done
 grep -q "tarefa passada para 'beta'" "$T/passar.out" || falhou "passagem: $(cat "$T/passar.out" 2>/dev/null)"
 [[ $(tmux list-windows -t trabalho | wc -l) == 2 ]] || falhou 'passagem não abriu janela nova na sessão'
-for _ in $(seq 50); do grep -q 'passagem.md' "$HOME/claude.log" && break; sleep 0.1; done
+for _ in $(seq 300); do grep -q 'passagem.md' "$HOME/claude.log" && break; sleep 0.1; done
 linha=$(grep 'passagem.md' "$HOME/claude.log") || falhou 'próxima conta não recebeu o arquivo de passagem'
 [[ $linha == "$R/beta"* && $linha == *"$T/proj"* ]] || falhou "passagem: conta/pasta erradas: $linha"
 passou 'ia-rot --passar abre a próxima conta numa janela da mesma aba, lendo a passagem'

@@ -15,7 +15,6 @@ case "\$1" in capture-pane) [ -n "\${TT_LENTO:-}" ] && sleep "\$TT_LENTO" ;; esa
 exec $real "\$@"
 EOF
 chmod +x "$T/bin/tmux"
-cp "$(command -v sleep)" "$T/bin/claude"
 export PATH="$T/bin:$PATH"
 nova() { tmux new -d -s "$1" -x 120 -y 30 "${@:2}"; }
 nova alfa 'bash --norc --noprofile'; tmux send-keys -t alfa 'echo um; echo dois; echo tres; echo quatro' Enter
@@ -25,8 +24,12 @@ tmux select-pane -t beta.1 -T 'titulo do painel'
 nova vazia1 'bash --norc --noprofile'; nova vazia2 'bash --norc --noprofile'
 nova _oculta 'sleep 3600'; nova ponte-x 'sleep 3600'; tmux set -t ponte-x @ponte 'outra:x'
 nova 'gama dois' 'bash --norc --noprofile' # como na vida real: o Claude roda num shell interativo
-tmux send-keys -t 'gama dois' "$T/bin/claude 3600" Enter
-for _ in 1 2 3 4 5 6 7 8 9 10; do pid=$(pgrep -f "^$T/bin/claude 3600") && break; sleep 0.2; done
+printf -v comando 'bash -c %q' "$(exec_como claude sleep 3600)"
+tmux send-keys -t 'gama dois' "$comando" Enter
+pai=$(tmux display -p -t 'gama dois' '#{pane_pid}')
+pid=""
+for _ in {1..50}; do pid=$(pgrep -P "$pai" -x claude) && break; sleep 0.1; done
+[[ $pid =~ ^[0-9]+$ ]] || falhou 'processo Claude simulado não iniciou'
 mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/projects/-tmp"
 printf '{"pid":%s,"sessionId":"abc-123","status":"idle","name":"conversa"}\n' "$pid" >"$HOME/.claude/sessions/$pid.json"
 printf '{"type":"user"}\n{"type":"ai-title","aiTitle":"Titulo da conversa falsa"}\n' >"$HOME/.claude/projects/-tmp/abc-123.jsonl"

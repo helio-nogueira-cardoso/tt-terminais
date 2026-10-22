@@ -2,6 +2,7 @@
 # Vigia numa aba do Claude: o primeiro nome vem do título da conversa; depois, mesmo com o título
 # parado (o aiTitle não muda ao longo da conversa), o nome acompanha os pedidos mais recentes. Sem
 # pedido novo, o Claude trabalhando sozinho (tela mudando) não troca o nome.
+# tt-teste: sozinho
 source "$(dirname "$0")/lib.sh"; isolar
 
 # Um "claude" falso em duas partes. A tela: um link chamado claude para o bash (o vigia acha o
@@ -24,6 +25,10 @@ case $(grep '^- ' | tail -1) in
 esac
 EOF
 chmod +x "$HOME/.local/bin/claude"
+# O reforço do vigia instala claude-rot; preserve o mesmo nomeador falso nessa rota,
+# sem depender da ordem entre o reforço e a primeira revisão da conversa.
+cp "$HOME/.local/bin/claude" "$HOME/.local/bin/claude-rot"
+printf 'nomeador=claude\n' >>"$XDG_CONFIG_HOME/tt/config"
 dizer() { printf '{"type":"user","message":{"role":"user","content":"%s"}}\n' "$1" >>"$conversa"; }
 titulo() { printf '{"type":"ai-title","aiTitle":"%s","sessionId":"conversa-1"}\n' "$1" >>"$conversa"; }
 dizer 'PEDIDO-A primeiro assunto'

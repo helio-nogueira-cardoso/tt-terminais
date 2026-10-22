@@ -9,6 +9,12 @@ RAIZ=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # Linux: `exec -a` (o tmux lê o argv[0]). macOS: o tmux lê o nome do executável, então roda uma cópia do binário com o nome.
 exec_como() {
   local nome=$1 cmd=$2; shift 2
+  # sleep pode ser um applet (uutils/BusyBox): outro argv[0] procura o applet "aerc".
+  if [[ $(uname -s) == Linux && ${cmd##*/} == sleep ]]; then
+    local programa='import ctypes,sys,time; ctypes.CDLL(None).prctl(15,sys.argv[1].encode(),0,0,0); time.sleep(float(sys.argv[2]))'
+    printf 'exec -a %q %q -c %q %q' "$nome" "$(command -v python3)" "$programa" "$nome"
+    printf ' %q' "$@"; return 0
+  fi
   if [[ $(uname -s) != Darwin ]]; then printf 'exec -a %q %q' "$nome" "$cmd"; (($#)) && printf ' %q' "$@"; return; fi
   mkdir -p "$T/nomes/$nome"; [[ -x $T/nomes/$nome/$nome ]] || cp "$(command -v "$cmd")" "$T/nomes/$nome/$nome"
   printf 'exec %q' "$T/nomes/$nome/$nome"; (($#)) && printf ' %q' "$@"; return 0
@@ -108,6 +114,10 @@ sem_tela_real() { # pasta-de-runtime
   mkdir -p "$1" && chmod 700 "$1" && export XDG_RUNTIME_DIR=$1
   [[ -n ${WAYLAND_DISPLAY:-} ]] && export WAYLAND_DISPLAY=wayland-tt-teste
   [[ -n ${DISPLAY:-} ]] && export DISPLAY=:99999
+  # WSL também procura clip.exe por caminho absoluto; macOS tem pbcopy sem DISPLAY.
+  # O receptor só encaminha para substitutos dentro da pasta isolada.
+  source "$(dirname "${BASH_SOURCE[0]}")/sem-clipboard-real.sh"
+  sem_clipboard_real "${1%/*}"
   return 0
 }
 

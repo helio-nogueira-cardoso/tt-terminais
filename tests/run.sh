@@ -45,7 +45,7 @@ suite_dir=$(cd "$(dirname "$0")" && pwd)
 # é reprovado. Cada teste também precisa se isolar sozinho (lib.sh ou tmux-isolado.sh): rodado
 # fora da suíte, não há sentinela.
 #
-# Em paralelo: TT_TESTES_J testes ao mesmo tempo (padrão: o nº de CPUs, até 8; TT_TESTES_J=1 = em fila),
+# Em paralelo: TT_TESTES_J testes ao mesmo tempo (padrão: nº de CPUs até 8, limitado pela RAM no Mac; 1 = em fila),
 # cada um com a sua sentinela. Os que medem tempo levam a marca "# tt-teste: sozinho" e rodam no fim, um
 # por vez, sem disputar a máquina. A fila começa pelos mais demorados da última rodada
 # (~/.cache/tt-testes/duracoes); a saída de cada teste sai inteira quando ele termina.
@@ -94,7 +94,18 @@ rodar_teste() { # teste — com a sentinela própria; grava em $res o log, o sta
 }
 j=${TT_TESTES_J:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)}
 [[ $j =~ ^[1-9][0-9]*$ ]] || j=2
-[[ -n ${TT_TESTES_J:-} ]] || ((j <= 8)) || j=8
+if [[ -z ${TT_TESTES_J:-} ]]; then
+  ((j <= 8)) || j=8
+  # Em Macs de 8 GB, oito árvores de processos junto da IDE provocam swap e falsos
+  # timeouts de teclado/CLI. Reserva 4 GB por teste; a escolha explícita prevalece.
+  if [[ $(uname -s) == Darwin ]]; then
+    teste_ram=$(sysctl -n hw.memsize 2>/dev/null || true)
+    [[ $teste_ram =~ ^[0-9]+$ ]] || teste_ram=8589934592
+    teste_j_mem=$((teste_ram / 4294967296))
+    ((teste_j_mem > 0)) || teste_j_mem=1
+    ((j <= teste_j_mem)) || j=$teste_j_mem
+  fi
+fi
 todos=("$suite_dir"/test_*.sh) juntos=() sozinhos=()
 # TT_TESTES=regex roda só os testes cujo nome casa (ex.: TT_TESTES='letreiro|listar'); as checagens estáticas rodam sempre.
 if [[ -n ${TT_TESTES:-} ]]; then

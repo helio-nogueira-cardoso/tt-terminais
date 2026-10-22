@@ -1144,7 +1144,8 @@ volta ao PATH de origem (`_TT_PATH_ORIGEM`).
   na máquina) e o `run.sh` põe uma sentinela por teste que reprova o teste que ainda chegar ao de verdade. Teste que
   quer conferir o aviso põe o próprio stub em `$T/bin`. O `notify-send` dos AGENTES (`--notificar-daqui`)
   nunca é suprimido no uso real: vai ao 🔔 e ao sistema (regra do usuário; `test_notificar_daqui` item 9).
-- Paralelo: `TT_TESTES_J` testes ao mesmo tempo (padrão nº de CPUs, até 8; `1` = em fila), cada um com a sua
+- Paralelo: `TT_TESTES_J` testes ao mesmo tempo (padrão nº de CPUs, até 8; no Mac, no máximo um por 4 GB de RAM;
+  `1` = em fila; valor explícito prevalece), cada um com a sua
   sentinela (`TMUX_TMPDIR` próprio); fila pelos mais demorados (`~/.cache/tt-testes/duracoes`); a saída de cada
   teste sai inteira quando ele termina. Teste que mede tempo ou depende de tela/teclas sob carga leva
   `# tt-teste: sozinho` (roda no fim, um por vez). `TT_TESTES=regex` filtra; `TT_TESTE_TEMPO_MAX` (1800 s).
@@ -1152,6 +1153,37 @@ volta ao PATH de origem (`_TT_PATH_ORIGEM`).
   inalcançável (`sem_tela_real`: `XDG_RUNTIME_DIR` do teste, `WAYLAND_DISPLAY`/`DISPLAY` existentes com valor
   morto — o tt acha o compositor sozinho e escrevia na área de transferência de verdade). Ao paralelizar, não
   use `pkill`/`kill` por padrão amplo (ex.: `tests/run.sh`): pega a suíte dos outros.
+  Rode uma suíte por máquina: `sozinho` sequencia testes dentro de uma rodada, sem coordenar duas rodadas
+  independentes. Outra suíte ou teste gráfico simultâneo invalida essa reserva de CPU. Confira carga e swap
+  antes de atribuir falhas de prazo ao produto; no Mac de 8 GB o padrão passa a ser dois testes paralelos.
+- `TT_RT` explícito é criado ao iniciar; caminho inválido encerra com erro. Ao simular outra
+  máquina mudando HOME, mantenha o runtime dentro da pasta isolada, inclusive nos comandos SSH.
+- Clipboard de teste: os dois isoladores interceptam `clip.exe`, inclusive no Mac. O receptor
+  `tests/clipboard-isolado.py` recebe UTF-16LE e só encaminha UTF-8 para substitutos dentro da
+  pasta isolada (por exemplo, `$T/bin/wl-copy`); sem substituto, grava no próprio ambiente.
+  Isso impede que o caminho absoluto do clipboard do WSL alcance o Windows real.
+- Processos simulados: use `exec_como`/`nomear_script`. Renomear o executável sleep pode quebrar
+  applets uutils/BusyBox. Para sleep no Linux, `exec_como` usa um processo ocioso com nome explícito;
+  no Mac preserva o nome do executável. Espere o processo ou a tela ficar pronto antes de enviar
+  teclas; use sinais observáveis em vez de pausas fixas. Teste: `tests/test_ambiente_isolado.sh`.
+- Mouse da central: transforms demorados fazem o fzf pausar o terminal; nas versões 0.67 e
+  0.74.5, a retomada parcial não religa os modos 1000/1002/1006. `fzf_repor_mouse` os repõe no
+  tty dos callbacks da central, sem imprimir escapes na CLI. `test_central_pino.sh` segura a
+  trava por 3 s e verifica o próximo clique, além do toque duplo.
+- Sync de e-mail: avisos e demandas podem criar filhos que herdam o fd da trava. Depois do
+  processamento protegido, `flock -u 9` libera a trava antes de fechar o descritor; fechar só
+  no pai não basta. Regressões: `test_email_aviso.sh` mantém um filho vivo e exige a rodada
+  seguinte; `test_flock_portavel.sh` confere o fallback sem flock nativo, inclusive -u e -s.
+- Reabertura do e-mail: `test_email_sessao.sh` exige a mesma sessão, painel e processo do aerc,
+  além de medir a resposta (menos de 1,5 s no Linux e 2,5 s no Mac). A identidade preservada
+  verifica o reaproveitamento; pequenas variações de agendamento não significam reinício.
+- Nomeação simulada: instalação e reforço podem criar `~/.local/bin/claude-rot`, escolhido antes
+  do `claude` no PATH. Substitua também essa rota por um arquivo próprio no HOME isolado, escolha
+  `nomeador=claude` e espere o resultado; nunca deixe o teste depender de contas autenticadas.
+  Cenários: `tests/test_redesenho_eventos.sh` e `tests/test_vigia_claude.sh`.
+- Fonte para testes em outra máquina: grave o branch local e transfira com `git archive HEAD`.
+  O tar do macOS pode levar `._*` (AppleDouble) e invalidar amostras/documentação. Não trate
+  esses artefatos de transporte como falhas do catálogo.
 - `run.sh` faz: testes de comportamento, asserts estáticos (`bash -n`, Python da ponte de mouse,
   vigia exige versão publicada, etc.), tmux isolado, e o **contrato de rotas** (cada `range=user|X`
   tem `X)` em `clique()`), botões 📧/📋 (range + rota + verbo + posição), guardrails de segredo do

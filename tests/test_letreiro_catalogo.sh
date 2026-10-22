@@ -138,27 +138,29 @@ passou 'desligada não busca nada; migrar o indicadores= antigo só mexe nas que
 zerar
 export TT_DIR=$T/pkg
 cap() { tmux capture-pane -p -t "$1" 2>/dev/null; }
+source "$RAIZ/tests/fzf-esperar.sh"
 espera() { local alvo=$1 padrao=$2 i; for i in $(seq 1 60); do [[ $(cap "$alvo") == *"$padrao"* ]] && return 0; sleep 0.2; done; falhou "esperava ver [$padrao] no painel $alvo: $(cap "$alvo" | tail -14)"; }
-tmux new -d -s ui -x 160 -y 48 "$TT_DIR/tt --letreiro-ui"; espera ui 'Nova fonte'; espera ui 'Na roda (3)'
+tmux new -d -s ui -x 160 -y 48 "$FZF_UI_ENV $TT_DIR/tt --letreiro-ui"; espera ui 'Nova fonte'; espera ui 'Na roda (3)'
 tela=$(cap ui)
 contem "$tela" 'Na roda (3)' 'seção das ligadas'; contem "$tela" 'Disponíveis e desligadas' 'seção das disponíveis'; contem "$tela" 'Moedas (' 'categoria com a contagem'
 contem "$tela" 'Vista: todas' 'a vista atual'
-tmux send-keys -t ui Tab; sleep 1.2; tela=$(cap ui)
+fzf_recarregar Tab; espera ui 'Vista: só as que estão na roda'; tela=$(cap ui)
 contem "$tela" 'Vista: só as que estão na roda' 'Tab alterna para "na roda"'; nao_contem "$tela" 'Disponíveis e desligadas' 'e esconde as disponíveis'
-tmux send-keys -t ui Tab; sleep 1.2; tela=$(cap ui)
+fzf_recarregar Tab; espera ui 'Vista: só as disponíveis'; tela=$(cap ui)
 contem "$tela" 'Vista: só as disponíveis' 'Tab de novo: só as disponíveis'; nao_contem "$tela" 'Na roda (' 'sem a seção das ligadas'
-tmux send-keys -t ui Tab; sleep 1.2; contem "$(cap ui)" 'Vista: todas' 'e volta a todas'
-tmux send-keys -t ui "'xkcd"; sleep 1
+fzf_recarregar Tab; espera ui 'Vista: todas'
+tmux send-keys -t ui "'xkcd"; espera ui 'Como aparece'; espera ui '🎨 xkcd:'
 tela=$(cap ui); contem "$tela" 'Como aparece' 'a prévia mostra como a fonte aparece'; contem "$tela" '🎨 xkcd:' 'com o exemplo validado'
-tmux send-keys -t ui C-a; sleep 1.5; igual "$(ativa xkcd)" 1 '^a liga uma fonte de fábrica pelo painel'
-tmux send-keys -t ui C-u; sleep 1.2; contem "$(cap ui)" 'Na roda (4)' 'e ela sobe para a seção das ligadas'
-tmux send-keys -t ui "'xkcd"; sleep 1
-tmux send-keys -t ui C-a; sleep 1.5; igual "$(ativa xkcd)" 0 '^a de novo desliga'
-tmux send-keys -t ui C-x; espera ui 'tirar da lista'; tmux send-keys -t ui s Enter; sleep 1.5
+fzf_recarregar C-a; igual "$(ativa xkcd)" 1 '^a liga uma fonte de fábrica pelo painel'
+tmux send-keys -t ui C-u; espera ui 'Na roda (4)'
+tmux send-keys -t ui "'xkcd"; espera ui '🎨 xkcd:'
+fzf_recarregar C-a; igual "$(ativa xkcd)" 0 '^a de novo desliga'
+tmux send-keys -t ui C-x; espera ui 'tirar da lista'; fzf_recarregar s Enter
 py listar --tsv --todas | cut -f1 | grep -qx xkcd && falhou '^x numa fonte de fábrica a tira da lista'
 tmux send-keys -t ui C-u; sleep 0.3
 tmux send-keys -t ui C-b; espera ui 'catálogo ›'; espera ui '↩ xkcd'   # o catálogo oferece a que foi tirada
-tmux send-keys -t ui "xkcd"; sleep 0.5; tmux send-keys -t ui Enter; sleep 2
+tmux send-keys -t ui "xkcd"; sleep 0.5; tmux send-keys -t ui Enter
+for _ in {1..60}; do [[ $(ativa xkcd) == 1 ]] && break; sleep 0.2; done
 igual "$(ativa xkcd)" 1 'e traz de volta (ligada) pelo painel'
 tmux kill-session -t ui 2>/dev/null
 passou 'painel: seções e categorias, Tab alterna a vista, prévia com o exemplo, ^a liga/desliga, ^x tira da lista, catálogo traz de volta'

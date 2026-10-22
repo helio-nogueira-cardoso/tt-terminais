@@ -202,9 +202,9 @@ printf '{"pid": %s, "sessionId": "abcdef12-3456-7890-abcd-ef1234567890", "status
   >"$HOME/.claude/sessions/$cpid.json"
 i=$(ids | tr ' ' '\n' | grep -n '^ia-aqui$' | cut -d: -f1)
 "$TT" --clique "at$i" cliente-falso "$pane" "$HOME" 2>/dev/null || true
-for _ in $(seq 30); do [[ -s $T/aqui.out ]] && break; sleep 0.2; done
+for _ in $(seq 120); do [[ -s $T/aqui.out ]] && break; sleep 0.25; done
 [[ $(cat "$T/aqui.out" 2>/dev/null) == '[--retomar abcdef12-3456-7890-abcd-ef1234567890]' ]] ||
-  falhou "@aqui não retomou a conversa do painel: '$(cat "$T/aqui.out" 2>/dev/null)' (pane=$pane pid=$pid claude=$cpid; ps=$(ps -p "$pid,$cpid" -o pid=,ppid=,comm=); sess=$(cat "$HOME/.claude/sessions/$cpid.json" 2>/dev/null))"
+  falhou "@aqui não retomou a conversa do painel: '$(cat "$T/aqui.out" 2>/dev/null)' (pane=$pane pid=$pid claude=$cpid; ps=$(ps -p "$pid,$cpid" -o pid=,ppid=,comm=); tela=$(tmux capture-pane -p -t "$pane"); sess=$(cat "$HOME/.claude/sessions/$cpid.json" 2>/dev/null))"
 kill -0 "$cpid" 2>/dev/null && falhou '@aqui não fechou o agente que estava no painel'
 [[ $(tmux list-sessions -F '#{session_name}' | wc -l) == 1 ]] || falhou '@aqui abriu sessão nova em vez de usar o painel'
 [[ $(tmux display-message -p -t "$pane" '#{pane_current_path}') -ef "$T" ]] || falhou '@aqui mudou a pasta do painel'
@@ -213,6 +213,6 @@ passou '@aqui: fecha o agente do painel e abre o novo ali mesmo, na mesma pasta,
 # Painel só com shell: {retomar} some.
 rm -f "$T/aqui.out"; sleep 0.6  # o clique ignora repetição em menos de 0,5 s
 "$TT" --clique "at$i" cliente-falso "$pane" "$HOME" 2>/dev/null || true
-for _ in $(seq 30); do [[ -s $T/aqui.out ]] && break; sleep 0.2; done
+for _ in $(seq 120); do [[ -s $T/aqui.out ]] && break; sleep 0.25; done
 [[ $(cat "$T/aqui.out" 2>/dev/null) == '[]' ]] || falhou "@aqui sem Claude: '$(cat "$T/aqui.out" 2>/dev/null)'"
 passou '@aqui num painel sem Claude: abre sem retomar'

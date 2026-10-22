@@ -5,6 +5,7 @@
 # código), o botão "Autorizar" abaixo da dobra, o Termux voltando à frente entre as chamadas, conexão que cai,
 # tela apagada/bloqueada, reserva ocupada, senha/2FA, outra conta, página de erro, ensaio e tempo esgotado.
 # O código de login nunca pode aparecer na saída nem no registro de chamadas.
+# tt-teste: sozinho
 source "$(dirname "$0")/lib.sh"; isolar
 
 # ───────────── a função, tal como está na skill ─────────────
@@ -149,7 +150,7 @@ else eval "$cmd"; fi
 FAKE
 chmod +x "$T/fake/bin/ssh"
 export PATH=$T/fake/bin:$PATH FAKE_DIR=$T/fake/estado
-export PAUSA=0.05 CEL=fakecel LIMITE=20 # leituras rápidas; o cliente de exemplo do celular chama-se fakecel aqui
+export PAUSA=0.05 CEL=fakecel LIMITE=60 # dezenas de chamadas simuladas; não mede a velocidade do host
 
 EMAIL=conta.certa@exemplo.com
 ESTADO_LINK='ZI1hD_0wy5_EZUnrvvfDtg'

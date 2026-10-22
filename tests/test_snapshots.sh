@@ -2,6 +2,7 @@
 # Snapshots do estado: ligam/desligam, gravam a cada evento (com debounce), não repetem estado igual, guardam no máximo TT_SNAP_MAX,
 # mostram data/hora, restauram (aditivo e substituir) recriando abas, painéis, layout, fixadas e RETOMANDO a conversa de cada agente
 # do jeito da máquina (direto, ou no Debian do proot do Termux), sempre sem pedir permissões (ia-conta retomar).
+# tt-teste: sozinho
 source "$(dirname "$0")/lib.sh"; isolar
 source "$(dirname "$0")/tmux-isolado.sh"
 TT="$RAIZ/tt"

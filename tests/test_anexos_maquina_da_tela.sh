@@ -117,6 +117,17 @@ n=${A##*/}; [[ -f "$D/${n%.*} (2).${n##*.}" ]] && cmp -s "$A" "$D/${n%.*} (2).${
 [[ ! -s $T/ssh.log ]] || falhou "S local: não deveria usar ssh ($(cat "$T/ssh.log"))"
 passou 'S desta máquina: salva na pasta pedida, sem sobrescrever (nome (2))'
 
+# A descoberta da pasta padrão (cmd.exe no WSL) não pode consumir a pasta recebida pelo stdin.
+mkdir -p "$HOME/.cache/tt-anexos/salvar"; cp "$A" "$HOME/.cache/tt-anexos/salvar/"
+(
+  TT_SO_CARREGAR=1 source "$TT"
+  dest_da_tela() { :; }
+  pasta_recebidos() { cat >"$T/entrada-consumida"; echo "$T/padrao"; }
+  printf '%s\n' "$T/destino-explicito" | anexo_salvar
+) >"$T/salvar-explicito.out" 2>&1 || falhou "salvar com destino explícito: $(cat "$T/salvar-explicito.out")"
+cmp -s "$A" "$T/destino-explicito/${A##*/}" && [[ ! -e $T/entrada-consumida ]] || falhou 'descoberta do destino consumiu a entrada explícita'
+passou 'pasta explícita pelo stdin dispensa a descoberta do padrão'
+
 # E: o seletor de máquina começa pela da tela.
 src=$(sed -n '/^escolher_maquina() {/,/^}/p' "$TT")
 lista=$(MAQUINA=aqui bash -c 'maquinas() { printf "outra-x\tOutra\n192.0.2.7\tbook-x\n"; }

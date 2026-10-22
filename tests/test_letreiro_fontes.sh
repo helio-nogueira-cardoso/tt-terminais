@@ -753,15 +753,28 @@ sed -i '/^ticker_rolagem=continua/d;/^ticker_veloc=0.2/d;/^ticker_fps=6/d' "$XDG
 cap() { tmux capture-pane -p -t "$1" 2>/dev/null; }
 espera() { local alvo=$1 padrao=$2 i; for i in $(seq 1 60); do [[ $(cap "$alvo") == *"$padrao"* ]] && return 0; sleep 0.2; done; falhou "esperava ver [$padrao] no painel $alvo: $(cap "$alvo" | tail -12)"; }
 ativa() { py listar --tsv | awk -F'\t' -v n="$1" '$1==n{print $2}'; }
-tmux new -d -s ui -x 150 -y 40 "$TT_DIR/tt --letreiro-ui" ; espera ui 'Nova fonte'; espera ui 'cl3'
+source "$RAIZ/tests/fzf-esperar.sh"
+aguardar_ui() {
+  local i
+  for i in {1..60}; do eval "$1" && return 0; sleep 0.2; done
+  falhou "$2: $(cap ui | head -20)"
+}
+cl2_selecionada() { cap ui | grep -Eq '^[[:space:]]*▌.* cl2([[:space:]]|$)'; }
+tmux new -d -s ui -x 150 -y 40 "$FZF_UI_ENV $TT_DIR/tt --letreiro-ui" ; espera ui 'Nova fonte'; espera ui 'cl3'
 contem "$(cap ui)" 'Catálogo' 'painel: catálogo'; contem "$(cap ui)" 'Ajustes globais' 'painel: ajustes'; contem "$(cap ui)" 'Pré-visualizar' 'painel: prévia'
 contem "$(cap ui)" 'cl3' 'painel lista as fontes'; contem "$(cap ui)" 'ok' 'com o estado de cada uma'
-tmux send-keys -t ui "'cl2"; sleep 0.8   # aspa simples = casamento exato no fzf (o difuso pegaria cl1 também)
-tmux send-keys -t ui C-a; sleep 1.2; [[ $(ativa cl2) == 0 ]] || falhou "teclado ^a desliga a fonte sob o cursor: ativa=$(ativa cl2) tela: $(cap ui | head -20)"
-tmux send-keys -t ui C-a; sleep 1.2; igual "$(ativa cl2)" 1 'e liga de novo'
-tmux send-keys -t ui C-j; sleep 1.2; [[ $(py listar --tsv | awk -F'\t' '$2==1{print $1}' | paste -sd,) == cl1,cl3,cl2,* ]] || falhou "^j desce a fonte na roda: $(py listar --tsv | cut -f1,7 | paste -sd,)"
-tmux send-keys -t ui C-k; sleep 1.2; [[ $(py listar --tsv | awk -F'\t' '$2==1{print $1}' | paste -sd,) == cl1,cl2,cl3,* ]] || falhou "^k sobe a fonte"
-tmux send-keys -t ui C-d; sleep 1.5; [[ -f $HOME/.config/tt/letreiro/cl2-2.conf ]] || falhou '^d duplica a fonte'
+tmux send-keys -t ui "'cl2 !cl2-" # casamento exato, excluindo a cópia que será criada abaixo
+aguardar_ui 'cl2_selecionada' 'filtro não selecionou cl2'
+fzf_recarregar C-a
+aguardar_ui '[[ $(ativa cl2) == 0 ]] && cl2_selecionada && cap ui | grep -Eq "▌.*○.* cl2([[:space:]]|$)"' '^a não desligou a fonte e recarregou a lista'
+fzf_recarregar C-a
+aguardar_ui '[[ $(ativa cl2) == 1 ]] && cl2_selecionada && cap ui | grep -Eq "▌.*●.* cl2([[:space:]]|$)"' '^a não religou a fonte e recarregou a lista'
+fzf_recarregar C-j
+aguardar_ui '[[ $(py listar --tsv | awk -F"\t" '\''$2==1{print $1}'\'' | paste -sd,) == cl1,cl3,cl2,* ]] && cl2_selecionada' '^j não desceu a fonte na roda'
+fzf_recarregar C-k
+aguardar_ui '[[ $(py listar --tsv | awk -F"\t" '\''$2==1{print $1}'\'' | paste -sd,) == cl1,cl2,cl3,* ]] && cl2_selecionada' '^k não subiu a fonte na roda'
+fzf_recarregar C-d
+aguardar_ui '[[ -f $HOME/.config/tt/letreiro/cl2-2.conf ]] && cl2_selecionada' '^d não duplicou a fonte'
 tmux send-keys -t ui F2; espera ui 'url'; contem "$(cap ui)" 'salvar' 'F2 abre o formulário de todos os campos'; contem "$(cap ui)" 'https://x.example' 'com os valores atuais'; nao_contem "$(cap ui)" '|| https' 'sem lixo na lista'
 tmux send-keys -t ui Escape; sleep 1
 tmux send-keys -t ui C-u; sleep 0.3; tmux send-keys -t ui Escape; sleep 1; tmux has-session -t ui 2>/dev/null && { tmux send-keys -t ui Escape; sleep 1; }
@@ -770,7 +783,7 @@ passou 'painel por teclado: ^a liga/desliga, ^j/^k reordenam, ^d duplica, F2 abr
 # mouse no painel: duplo clique numa fonte abre o menu de ações (SGR, como o fzf recebe do terminal)
 tmux new -d -s ui2 -x 150 -y 40 "$TT_DIR/tt --letreiro-ui"; espera ui2 'Nova fonte'; espera ui2 'cl3'
 y=$(cap ui2 | grep -n ' cl3 ' | head -1 | cut -d: -f1); [[ -n $y ]] || falhou 'não achei a linha da fonte cl3 para clicar'
-tmux send-keys -t ui2 -l "$(printf '\033[<0;12;%dM\033[<0;12;%dm\033[<0;12;%dM\033[<0;12;%dm' "$y" "$y" "$y" "$y")"; sleep 1.5
+tmux send-keys -t ui2 -l "$(printf '\033[<0;12;%dM\033[<0;12;%dm\033[<0;12;%dM\033[<0;12;%dm' "$y" "$y" "$y" "$y")"; espera ui2 'Testar agora'
 contem "$(cap ui2)" 'Testar agora' 'duplo clique numa fonte abre o menu de ações (Testar agora, Editar, Duplicar…)'
 tmux kill-session -t ui2 2>/dev/null
 passou 'painel por mouse: duplo clique abre o menu da fonte'
@@ -791,13 +804,23 @@ tmux kill-session -t as 2>/dev/null
 passou 'criar uma fonte só pela tela (assistente), testando ao vivo antes de salvar, sem editar arquivo'
 # o formulário de edição (todos os campos): editar texto, ligar/desligar, escolher uma opção, testar e salvar
 tmux new -d -s fm -x 150 -y 45 "$TT_DIR/tt --letreiro-editar wiz1; sleep 20"; espera fm 'wiz1 ›'
-tmux send-keys -t fm "'ttl" ; sleep 0.5; tmux send-keys -t fm Enter; espera fm 'ttl ='
+espera_item() {
+  local i
+  for i in {1..60}; do cap "$1" | grep -Eq "^[[:space:]]*[▌>][[:space:]]+$2([[:space:]]|$)" && return 0; sleep 0.2; done
+  falhou "item $2 não ficou selecionado: $(cap "$1")"
+}
+campo_selecionado() {
+  tmux send-keys -t fm C-u
+  tmux send-keys -t fm "'$1"
+  espera_item fm "$1"
+}
+campo_selecionado ttl; tmux send-keys -t fm Enter; espera fm 'ttl ='
 tmux send-keys -t fm C-u; tmux send-keys -t fm 45 Enter; espera fm 'ttl             45'
-tmux send-keys -t fm C-u; sleep 0.3; tmux send-keys -t fm "'tls_verificar" ; sleep 0.5; tmux send-keys -t fm Enter; espera fm 'tls_verificar   0'
-tmux send-keys -t fm C-u; sleep 0.3; tmux send-keys -t fm "'metodo" ; sleep 0.5; tmux send-keys -t fm Enter; sleep 0.8; tmux send-keys -t fm POST; sleep 0.4; tmux send-keys -t fm Enter; espera fm 'metodo          POST'
+campo_selecionado tls_verificar; tmux send-keys -t fm Enter; espera fm 'tls_verificar   0'
+campo_selecionado metodo; tmux send-keys -t fm Enter; espera fm 'metodo ›'; tmux send-keys -t fm POST; espera_item fm POST; tmux send-keys -t fm Enter; espera fm 'metodo          POST'
 contem "$(cap fm)" 'metodo          POST' 'campo com opções abre a lista e grava a escolha'
 [[ $(py ler wiz1 --campos | awk -F'\t' '$1=="ttl"{print $2}') == 300 ]] || falhou 'nada vale antes de salvar (o formulário trabalha num rascunho)'
-tmux send-keys -t fm C-t; espera fm 'continua'; tmux send-keys -t fm Enter; sleep 0.8
+tmux send-keys -t fm C-t; espera fm 'continua'; tmux send-keys -t fm Enter; espera fm 'wiz1 ›'
 tmux send-keys -t fm C-s; espera fm 'continua'; tmux send-keys -t fm Enter; sleep 1.5
 c=$(py ler wiz1 --campos | cut -f1,2); contem "$c" $'ttl\t45' 'ttl salvo pelo formulário'; contem "$c" $'metodo\tPOST' 'método salvo'; contem "$c" $'tls_verificar\t0' 'tls_verificar salvo'
 tmux kill-session -t fm 2>/dev/null

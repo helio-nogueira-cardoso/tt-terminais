@@ -1788,12 +1788,15 @@ if ! command -v flock >/dev/null 2>&1; then
   flock() {
     python3 -I - "$@" <<'PYFLOCK'
 import fcntl, os, subprocess, sys, time
-a = sys.argv[1:]; nb = False; espera = None
+a = sys.argv[1:]; nb = False; espera = None; modo = fcntl.LOCK_EX
 while a and a[0].startswith("-") and a[0] != "-":
     o = a.pop(0)
     if o in ("-n", "--nb", "--nonblock"): nb = True
     elif o in ("-w", "--wait", "--timeout"): espera = float(a.pop(0))
-    elif o in ("-x", "-e", "--exclusive", "-s", "--shared", "-u", "--unlock", "-o", "--close", "-E"): 
+    elif o in ("-u", "--unlock"): modo = fcntl.LOCK_UN
+    elif o in ("-s", "--shared"): modo = fcntl.LOCK_SH
+    elif o in ("-x", "-e", "--exclusive"): modo = fcntl.LOCK_EX
+    elif o in ("-o", "--close", "-E"):
         if o == "-E": a.pop(0)
     else: pass
 if not a: sys.exit(64)
@@ -1804,7 +1807,7 @@ else:
     except OSError: sys.exit(1)
 limite = time.monotonic() + (espera or 0)
 while True:
-    try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); break
+    try: fcntl.flock(fd, modo | fcntl.LOCK_NB); break
     except OSError:
         if nb and espera is None or (espera is not None and time.monotonic() >= limite): sys.exit(1)
         time.sleep(0.05)
@@ -1862,7 +1865,12 @@ TT_REMOTO='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" TMUX_T
 # mesmo diretório, venha o processo do tmux, de um popup, do ssh ou do vigia. Não depende de
 # XDG_RUNTIME_DIR, que uns têm e outros não (a barra e a tela olhavam pastas diferentes).
 RT=${TT_RT:-/run/user/$UID}
-[[ -d $RT && -w $RT ]] || RT=${TMPDIR:-/tmp}
+if [[ -n ${TT_RT:-} ]]; then
+  [[ -d $RT ]] || mkdir -p "$RT" || { echo 'tt: não consegui criar TT_RT' >&2; exit 1; }
+  [[ -w $RT ]] || { echo 'tt: TT_RT não permite escrita' >&2; exit 1; }
+else
+  [[ -d $RT && -w $RT ]] || RT=${TMPDIR:-/tmp}
+fi
 
 # Existe o comando? O mesmo que `command -v NOME >/dev/null`, sem pagar a procura de quem não existe a cada
 # chamada. No WSL o PATH herda as pastas do Windows (/mnt/c/…), lidas pela ponte de arquivos: cada comando
@@ -15926,8 +15934,9 @@ anexo_salvar() {
     fi
     echo "$om não respondeu: salvo nesta máquina."
   fi
-  destino=$(expandir "$(pasta_recebidos)")
-  if [[ -t 0 ]]; then read -r -e -p "Salvar em: " -i "$destino/" destino || { rm -rf "$lote"; return 0; }
+  if [[ -t 0 ]]; then
+    destino=$(expandir "$(pasta_recebidos)")
+    read -r -e -p "Salvar em: " -i "$destino/" destino || { rm -rf "$lote"; return 0; }
   else IFS= read -r destino || true; [[ -n $destino ]] || destino=$(expandir "$(pasta_recebidos)"); fi
   destino=$(expandir "${destino%/}"); mkdir -p "$destino" || { echo "Não consegui criar $destino"; read -rsn1 -t 4; return 1; }
   for n in "${nomes[@]}"; do
@@ -16818,7 +16827,7 @@ pasta_recebidos() {
   local p u
   p=$(conf recebidos)
   if [[ -z $p ]] && grep -qi microsoft /proc/version 2>/dev/null; then
-    u=$(cd /mnt/c 2>/dev/null && timeout 5 /mnt/c/Windows/System32/cmd.exe /c 'echo %USERNAME%' 2>/dev/null | tr -d '\r')
+    u=$(cd /mnt/c 2>/dev/null && timeout 5 /mnt/c/Windows/System32/cmd.exe /c 'echo %USERNAME%' </dev/null 2>/dev/null | tr -d '\r')
     if [[ -n $u && -d /mnt/c/Users/$u/Downloads ]]; then
       p="/mnt/c/Users/$u/Downloads/Recebidos"
       mkdir -p "$CONF_DIR"; echo "recebidos=$p" >>"$CONF"
@@ -18361,6 +18370,9 @@ email_sync() { # slug [inbox|completo] [vigia]
   rm -f "${dir:?}/${slug:?}.andamento"
   email_novos_avisar "$slug"
   demandas_processar_conta "$slug"
+  # Avisos e demandas podem deixar filhos em segundo plano com o fd herdado. Só fechar
+  # o descritor no pai manteria a trava até esses filhos saírem; a rodada já terminou.
+  flock -u 9; exec 9>&-
   atualizar_barras 2>/dev/null
   # Volta completa boa: refaz o índice de destinatários (quem já escreveu / para quem já se escreveu).
   [[ $modo == completo && $st == 0 ]] && email_contatos_indexar
@@ -18370,7 +18382,7 @@ email_sync() { # slug [inbox|completo] [vigia]
   if [[ $modo == completo && $st == 0 ]]; then
     local l md; local -A E=()
     email_ler "$slug" 2>/dev/null; l=${E[pasta_lixeira]:-}; md=$(email_maildir "$slug")
-    if [[ -n $l && -d $md && ! -d $md/$l && ! -d $md/${l//.//} ]]; then exec 9>&-; email_cmds_corrigir "$slug" >/dev/null 2>&1; fi
+    if [[ -n $l && -d $md && ! -d $md/$l && ! -d $md/${l//.//} ]]; then email_cmds_corrigir "$slug" >/dev/null 2>&1; fi
   fi
   return $st
 }
@@ -20524,6 +20536,14 @@ for linha in sys.stdin:
 # fzf como left-click, left-click e, ao soltar o 2º, double-click, cujo padrão é aceitar a linha: o 2º toque rápido
 # no pino (fixar e desafixar) ou no ✕ (confirmar) fechava a central e entrava na sessão. Os dois toques já são os
 # dois left-click; quem usa este clique liga double-click:ignore.
+fzf_repor_mouse() {
+  # Um transform de mais de 1 s faz o fzf pausar o terminal. Resume(false, false)
+  # restaura o modo raw, mas não religa 1000/1002/1006 (fzf 0.67 e 0.74.5).
+  # A central usa com_mouse: restaure no mesmo tty, depois de terminar a ação.
+  [[ -n ${TT_MOUSE:-} && -n ${FZF_COLUMNS:-} ]] &&
+    printf '\e[?1000h\e[?1002h\e[?1006h' >/dev/tty 2>/dev/null || true
+}
+
 clique_linha() {
   local dest=$1 chave=$2 g w ini xc yc lista
   [[ $TT_COMX == central ]] && lista="$EU --listar-tudo" || lista="$EU --lista-seletor"
@@ -21027,6 +21047,7 @@ case "${1:-}" in
   --lista-rapida-central) lista_rapida_central; exit ;;
   --atualizar-uma-vez) # 1º "load" da central (lista rápida): troca pela fresca; depois, nada.
     [[ -n ${TT_ESTADO:-} && ! -e $TT_ESTADO.fresca ]] && { : >"$TT_ESTADO.fresca"; echo "reload($EU --listar-tudo)"; }
+    fzf_repor_mouse
     exit 0 ;;
   --previa) previa "$2" "${3:-}"; exit ;;
   --previa-em) previa_em "$2" "$3" "${4:-}"; exit ;;
@@ -21042,7 +21063,7 @@ case "${1:-}" in
   --descongelar) descongelar "${2:-}"; exit 0 ;;
   --fechar-vazias) fechar_vazias "${2:-}"; exit ;;
   --bordas) bordas "${2:-}"; exit ;;
-  --clique-linha) clique_linha "${2:-}" "${3:-}"; exit ;;
+  --clique-linha) clique_linha "${2:-}" "${3:-}"; fzf_repor_mouse; exit ;;
   --barra-fixadas) barra_fixadas "${2:-}"; exit ;;
   --aplicar-fixadas | --barras) aplicar_fixadas; exit ;;
   --receber-fixadas) receber_fixadas "${2:-0}"; exit ;;

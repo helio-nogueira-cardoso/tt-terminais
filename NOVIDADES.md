@@ -3,6 +3,14 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.8.7 · 22/10/2026
+- **Salvar anexos com destino informado no WSL:** a descoberta da pasta de recebidos não consome mais a entrada que informa onde salvar. Arquivos existentes continuam preservados.
+- **Clique cancelado não reabre o link:** a intenção é registrada antes da captura do painel e conferida depois dela. Duplo clique, arrasto ou um clique mais novo continuam cancelando uma abertura cuja leitura demorou.
+- **Mouse da central após ação lenta:** ao retomar de uma ação que pausou o fzf, o tt religa o mouse. O pino continua respondendo ao segundo clique mesmo quando a gravação aguardou a trava.
+- **Consulta de e-mail sem trava herdada:** ao concluir a rodada, a trava é liberada mesmo se um aviso deixou filhos em segundo plano. A consulta seguinte não é pulada por esses filhos; o fallback de flock do Mac respeita liberação e leitura compartilhada.
+- **Runtime explícito respeitado:** `TT_RT` é criado quando necessário; caminho inválido informa erro, sem cair silenciosamente no temporário compartilhado.
+- **Testes isolados no Mac e WSL:** processos simulados funcionam também com sleep multicall, a seleção do e-mail espera o aerc iniciar e o clipboard fica restrito aos substitutos de teste. O teste da faixa usa um quadro estável; a transferência de fontes para testes evita metadados do macOS.
+
 ## v2.8.6 · 22/10/2026
 - **🔌 Ponte fechada não deixa cliente preso na outra máquina:** a ponte e o painel remoto passam a abrir uma conexão ssh própria, em vez de um canal da conexão compartilhada. No Tailscale SSH, fechar um canal dessa conexão não encerrava o tmux do outro lado, que ficava preso horas animando a barra para ninguém (eram 9 no PC da empresa). Agora fechar a ponte fecha a conexão, e o cliente de lá sai junto. Abrir uma ponte nova custa uns 0,1 a 0,3 s a mais; a pré-carregada já vem conectada. Os comandos rápidos seguem na conexão compartilhada.
 

@@ -19,6 +19,7 @@ export TT_PRECARREGAR=0
 mkdir -p "$TMUX_TMPDIR/run" && chmod 700 "$TMUX_TMPDIR/run" && export XDG_RUNTIME_DIR=$TMUX_TMPDIR/run
 [[ -n ${WAYLAND_DISPLAY:-} ]] && export WAYLAND_DISPLAY=wayland-tt-teste
 [[ -n ${DISPLAY:-} ]] && export DISPLAY=:99999
+source "$(dirname "${BASH_SOURCE[0]}")/sem-clipboard-real.sh"; sem_clipboard_real "$TMUX_TMPDIR"
 _tmux_isolado_fim() { tmux kill-server 2>/dev/null || true; rm -rf "$TMUX_TMPDIR"; }
 eval "_tmux_isolado_ant=$(trap -p EXIT | sed 's/^trap -- //; s/ EXIT$//')"
 # O código de saída passa adiante: com "set +e" na frente, o $? que a limpeza anterior lia era o do set (0), e

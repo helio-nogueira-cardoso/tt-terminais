@@ -24,6 +24,7 @@ case $host in
   origem-host) H=$ORIG ;;
   *) exit 255 ;;
 esac
+mkdir -p "$H/rt"
 exec env HOME="$H" XDG_CONFIG_HOME="$H/.config" TT_RT="$H/rt" bash -c "$cmd"
 EOF
 chmod +x "$B/ssh"
@@ -89,7 +90,7 @@ c3=$(tmux list-clients -F '#{client_width} #{client_name}' | awk '$1 == 90 { pri
 : >"$SSH_LOG"
 HOME=$D XDG_CONFIG_HOME=$D/.config TT_RT=$D/rt TT_ROLAR_FOLGA=0 "$TT" --rolar maquina +1 "$c2"
 grep -q '^origem-host .*--rolar-ponte pp outra 1' "$SSH_LOG" || falhou "a outra máquina não pediu a troca à da tela: $(cat "$SSH_LOG")"
-[[ $(sessao_de "$c3") == recente ]] || falhou "o aparelho na ponte deveria ir a esta máquina (recente): $(sessao_de "$c3")"
+[[ $(sessao_de "$c3") == recente ]] || falhou "o aparelho na ponte deveria ir a esta máquina (recente): $(sessao_de "$c3"); ssh: $(cat "$SSH_LOG"); trocas: $(cat "$ORIG/.cache/tt-troca.log" 2>/dev/null); clientes: $(tmux list-clients -F '#{client_name} #{session_name}')"
 [[ $(sessao_de "$c2") == aa ]] ||
   falhou "o cliente da ponte (o ssh) foi trocado em vez do aparelho: c2=$c2 c3=$c3; $(tmux list-clients -F '#{client_width} #{client_name} #{session_name}' | tr '\n' ' ')"
 passou 'ponte: a roda na barra da outra máquina troca o aparelho da tela, na ordem de máquinas da tela'

@@ -13,7 +13,7 @@ resultado funciona pelos canais que o elemento expõe: CLI, teclado, mouse/toque
    `source "$(dirname "$0")/tmux-isolado.sh"` logo depois do seu `trap EXIT`. O `tests/run.sh`
    reprova teste sem isso e, com uma sentinela no tmux padrão, o teste que falar com ele.
 4. Rode `tests/run.sh` após cada alteração de comportamento. Ele roda os testes em paralelo
-   (`TT_TESTES_J`, padrão nº de CPUs até 8) e `TT_TESTES=regex` roda só alguns; um teste que mede tempo
+   (`TT_TESTES_J`, padrão nº de CPUs até 8, também limitado pela RAM no Mac) e `TT_TESTES=regex` roda só alguns; um teste que mede tempo
    ou depende de tela sob carga leva a marca `# tt-teste: sozinho` e roda no fim, sem concorrência.
 5. Para mudança em interface, atualize a matriz de `tests/INTERACTIONS.md` e acrescente ao menos
    uma verificação executável que cubra a rota modificada.
@@ -76,6 +76,11 @@ não `…:/usr/bin:/bin`. Não dependa do que a máquina tem (`/var/lib/apt/list
 verdade): ponha um falso no PATH do teste. Espere pelo que importa (o texto na tela) em vez de `sleep` fixo.
 `tests/test_portabilidade.sh` reprova o código que reintroduz estes padrões (tetos de `/proc`, `C.UTF-8`, `=alvo` sem aspas…);
 **rode-o sempre**. Se ele reprovar, a mensagem diz o que usar. Subir um teto só com um retorno para o macOS e dito no commit.
+
+Ao transferir uma revisão para testes em outra máquina, use `git archive HEAD` após gravar os arquivos
+no branch local. Isso preserva somente as fontes versionadas e evita metadados AppleDouble (`._*`)
+que o tar do macOS pode acrescentar. Metadados nas pastas de amostras invalidam o catálogo e a
+checagem de documentação; não são falhas desses componentes.
 
 ## Contratos de interação
 

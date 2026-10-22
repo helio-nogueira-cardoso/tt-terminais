@@ -50,7 +50,7 @@ if [[ $(uname -s) == Darwin ]]; then
   st=$("$TT" --mac status); [[ $st == *DESLIGADO* ]] || falhou "Ghostty deveria estar desligado: $st"
   "$TT" --mac ativar >/dev/null || falhou 'ativar (Ghostty)'
   "$TT" --mac ativar >/dev/null
-  [[ $(grep -c '^macos-option-as-alt = true' "$T/cfg/ghostty/config") == 1 ]] || falhou 'macos-option-as-alt gravado mais de uma vez'
+  [[ $(grep -c '^macos-option-as-alt = true' "$T/cfg/ghostty/config.ghostty") == 1 ]] || falhou 'macos-option-as-alt gravado mais de uma vez'
   st=$("$TT" --mac status); [[ $st == *"ligado"* && $st != *DESLIGADO* ]] || falhou "status não vê o Ghostty ligado: $st"
 else
   st=$("$TT" --mac status); [[ $st == *"só faz sentido no macOS"* ]] || falhou "fora do Mac deveria avisar: $st"

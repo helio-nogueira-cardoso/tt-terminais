@@ -4,6 +4,7 @@
 # esperando o navegador: copiar e abrir o link inteiro, colar o endereço de volta (digitado, colado
 # com marcação ou clicando na opção) e o fluxo de código no aparelho (copiar o código, aprovação
 # chegando sozinha). Também: as perguntas s/N e o "Enter volta" do cadastro usam read -e.
+# tt-teste: sozinho
 source "$(dirname "$0")/lib.sh"; isolar
 B=$T/bin; mkdir -p "$B"; LOG=$T/aberto.log; CLIP=$T/clip.txt
 printf '#!/bin/sh\necho "$1" >> %s\n' "$LOG" >"$B/xdg-open"
@@ -33,7 +34,10 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 s = http.server.HTTPServer(("127.0.0.1", 0), H); print(s.server_address[1], flush=True); s.serve_forever()
 EOF
-python3 "$T/oauth.py" >"$T/porta" 2>/dev/null & sleep 1; P=$(cat "$T/porta")
+python3 "$T/oauth.py" >"$T/porta" 2>/dev/null &
+for _ in {1..100}; do [[ -s $T/porta ]] && break; sleep 0.1; done
+P=$(cat "$T/porta")
+[[ $P =~ ^[0-9]+$ ]] || falhou 'provedor OAuth falso não informou uma porta'
 conta() { # slug [device]
   printf 'nome=%s\nendereco=eu@x.test\nauth=oauth\noauth_client_id=cid\noauth_auth_endpoint=http://127.0.0.1:%s/auth\noauth_token_endpoint=http://127.0.0.1:%s/token\noauth_scope=mail\n' "$1" "$P" "$P" >"$T/$1.conf"
   [[ -n ${2:-} ]] && printf 'oauth_device_endpoint=http://127.0.0.1:%s/device\n' "$P" >>"$T/$1.conf"

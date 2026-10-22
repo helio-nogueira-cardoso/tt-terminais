@@ -68,13 +68,24 @@ tt --tarefas "$c"; sleep 0.5
 passou "tt --tarefas de novo fecha o painel"
 
 # Teclado dentro do painel (como no popup): ? abre a ajuda, Esc volta, Esc na lista fecha o painel.
+esperar_ui() {
+  local texto=$1 i
+  for i in {1..50}; do
+    grep -q "$texto" <<<"$(tmux capture-pane -p -t "$fp" 2>/dev/null)" && return 0
+    [[ $(flt) == 1 ]] || return 1
+    sleep 0.1
+  done
+  return 1
+}
 tt --tarefas "$c"; sleep 1
 fp=$(tmux list-panes -a -F '#{pane_floating_flag} #{pane_id}' | awk '$1 == 1 { print $2 }')
-tmux send-keys -t "$fp" '?'; sleep 0.8
-grep -q 'Como usar' <<<"$(tmux capture-pane -p -t "$fp")" || falhou "? não abriu a ajuda dentro do painel"
-tmux send-keys -t "$fp" Escape; sleep 0.8
-grep -q 'Hoje' <<<"$(tmux capture-pane -p -t "$fp")" && [[ $(flt) == 1 ]] || falhou "Esc na ajuda deveria voltar à lista sem fechar o painel"
-tmux send-keys -t "$fp" Escape; sleep 1.2
+esperar_ui Hoje || falhou 'lista não ficou pronta antes de abrir a ajuda'
+tmux send-keys -t "$fp" '?'
+esperar_ui 'Como usar' || falhou "? não abriu a ajuda dentro do painel"
+tmux send-keys -t "$fp" Escape
+esperar_ui Hoje && [[ $(flt) == 1 ]] || falhou "Esc na ajuda deveria voltar à lista sem fechar o painel: $(tmux capture-pane -p -t "$fp" 2>/dev/null)"
+tmux send-keys -t "$fp" Escape
+for _ in {1..50}; do [[ $(flt) == 0 ]] && break; sleep 0.1; done
 [[ $(flt) == 0 ]] || falhou "Esc na lista deveria fechar o painel"
 passou "teclado: ? abre a ajuda, Esc volta, Esc na lista fecha o painel"
 

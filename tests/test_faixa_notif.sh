@@ -72,6 +72,8 @@ rm -f "$HOME/.local/state/tt/notifs"/*; tt --barras >/dev/null 2>&1
 grep -q 'range=user|notifs.* 🔔' <<<"$(tmux show -gqv @barra_faixa)" || falhou 'sininho não está ancorado à esquerda (junto aos chips)'
 grep -q 'letreiro-tt.py fluxo #{client_tty} #{client_pid}' <<<"$(tmux show -gqv @barra_notifs)" || falhou 'slot central não liga o letreiro por #() (letreiro-tt.py fluxo)'
 printf 'indicadores=frases
+ticker_rolagem=paginas
+ticker_veloc=3600
 ' >>"$XDG_CONFIG_HOME/tt/config"
 "$TT" --ticker-fontes >/dev/null 2>&1
 [[ -s $HOME/.cache/tt-ticker/frases ]] || falhou 'fonte frases não escreveu cache'

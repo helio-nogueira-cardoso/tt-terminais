@@ -15,7 +15,11 @@ rc=$2; alvo=$3; slug=${alvo%-inbox}
 md=$(sed -n 's/^Path \(.*\)\/$/\1/p' "$rc")
 # lento (a volta completa de verdade): morre no SIGTERM como o mbsync, em vez de esperar o sleep
 # (o sleep fecha o fd 9 da trava e morre junto: senão ele a seguraria depois do mbsync falso cair)
-if [[ -n ${MBSYNC_LENTO:-} ]]; then trap 'kill $! 2>/dev/null; exit 143' TERM; sleep "$MBSYNC_LENTO" 9>&- & wait $!; fi
+if [[ -n ${MBSYNC_LENTO:-} ]]; then
+  trap 'kill $! 2>/dev/null; exit 143' TERM
+  [[ -n ${MBSYNC_INICIO:-} ]] && touch "$MBSYNC_INICIO"
+  sleep "$MBSYNC_LENTO" 9>&- & wait $!
+fi
 n=$(date +%s%N)
 printf 'From: a@x\nSubject: chegou %s\n\ncorpo\n' "$n" >"$md/INBOX/new/$n"
 echo "$alvo" >>"${MBSYNC_LOG:-/dev/null}"
@@ -43,9 +47,9 @@ passou 'sincronizar agora: INBOX das contas com espelho, em paralelo, e "N novos
 # 3) volta completa segurando a trava: a manual derruba o mbsync dela e consulta mesmo assim
 lock=$HOME/.config/tt/mbsync/um.lock; rc=$HOME/.config/tt/mbsync/um.mbsyncrc
 printf 'completo\t%s\n' "$(date +%s)" >"$HOME/.local/state/tt/email-sync/um.andamento"
-flock "$lock" bash -c "exec -a 'mbsync -c $rc um' sleep 300" &
-sleep 0.5
-pgrep -f "mbsync -c $rc um" >/dev/null || falhou 'a completa falsa não está rodando'
+MBSYNC_LENTO=300 MBSYNC_INICIO="$T/completa-falsa-pronta" flock "$lock" "$T/bin/mbsync" -c "$rc" um >/dev/null 2>&1 &
+for _ in {1..100}; do [[ -f $T/completa-falsa-pronta ]] && break; sleep 0.1; done
+[[ -f $T/completa-falsa-pronta ]] || falhou 'a completa falsa não iniciou sob a trava'
 : >"$MBSYNC_LOG"
 ini=$(date +%s); out=$(tt --email-sync-agora) || falhou "com a completa na frente: $out"
 (( $(date +%s) - ini < 90 )) || falhou 'demorou demais com a completa na frente'
@@ -58,11 +62,12 @@ passou 'volta completa segurando a trava: derrubada, e o INBOX é consultado'
 # 3b) a completa derrubada (uma rodada de verdade, pelo tt) fica registrada como "interrompida": sem
 #     erro, sem espera, e o estado da conta segue ok; o vigia a refaz depois
 log=$HOME/.local/state/tt/email-sync/um; : >"$log"; rm -f "$log.erro" "$log.falhas" "$log.espera"
-MBSYNC_LENTO=120 tt --email-sync Um --completo >/dev/null 2>&1 &
-sleep 1.5; [[ -f $log.andamento ]] || falhou 'a completa de verdade não começou'
+MBSYNC_LENTO=120 MBSYNC_INICIO="$T/completa-pronta" tt --email-sync Um --completo >/dev/null 2>&1 &
+for _ in {1..100}; do [[ -f $log.andamento && -f $T/completa-pronta ]] && break; sleep 0.1; done
+[[ -f $log.andamento && -f $T/completa-pronta ]] || falhou 'a completa de verdade não começou'
 : >"$MBSYNC_LOG"
 out=$(tt --email-sync-agora) || falhou "manual com a completa de verdade: $out"
-sleep 1
+for _ in {1..100}; do grep -q $'^interrompida\t' "$log" && break; sleep 0.1; done
 grep -q $'^interrompida\t' "$log" || falhou "a completa derrubada deveria ficar como interrompida: $(cat "$log")"
 grep -q $'^completo\t' "$log" && falhou "a completa derrubada não deveria constar como completo (erro): $(cat "$log")"
 [[ -e $log.erro || -e $log.falhas || -e $log.espera ]] && falhou 'completa derrubada não pode deixar erro/falhas/espera'
@@ -87,7 +92,8 @@ grep -q 'Sincronizar agora.*--email-sync-agora' "$TT" || falhou 'item do menu do
 grep -q "'sync|⟳|Sincronizar|'" "$TT" || falhou 'botão ⟳ ausente de EMAIL_BOTOES'
 # clique no botão: rota em_sync chama a consulta (em segundo plano) — a marca aparece
 tmux set -qu -t =_tt-email: @tt_email_sync; : >"$MBSYNC_LOG"
-tt --clique em_sync base '' "$HOME" 0; sleep 3
+tt --clique em_sync base '' "$HOME" 0
+for _ in {1..100}; do grep -q -- '-inbox$' "$MBSYNC_LOG" && break; sleep 0.1; done
 grep -q -- '-inbox$' "$MBSYNC_LOG" || falhou "clique em ⟳ deveria consultar: $(cat "$MBSYNC_LOG")"
 passou 'retorno no cliente e no botão ⟳ (estado), Ctrl+s/F11 nos binds, item no menu, clique em ⟳ consulta'
 

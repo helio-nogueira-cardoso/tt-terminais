@@ -4,6 +4,7 @@
 # dentro o levava à sessão que contém o próprio painel e a tela se desenhava dentro de si até o tmux cair; outra
 # vista aninhada que passa a mostrar a sessão onde ela mesma está (ciclo) é desanexada; cliente de verdade
 # (terminal) trocando de sessão não chama o tt.
+# tt-teste: sozinho
 source "$(dirname "$0")/lib.sh"; isolar
 instalar_isolado
 T_TMUX=$(command -v tmux)

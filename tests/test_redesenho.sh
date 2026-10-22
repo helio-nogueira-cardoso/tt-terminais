@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Cursor piscando: todo set-option (até de opção @) redesenha a tela inteira de todos os clientes.
 # Em regime, nada pode gravar opções periodicamente; a barra não roda processos.
+# tt-teste: sozinho
 source "$(dirname "$0")/lib.sh"; isolar
 grep -q '#(' "$T/pkg/tmux.conf" "$T/pkg/tema-tmux.conf" && falhou 'barra roda processos (#())'
 iv=$(awk '/^set -g status-interval/ { print $4 }' "$T/pkg/tmux.conf" "$T/pkg/tema-tmux.conf" | tail -1)

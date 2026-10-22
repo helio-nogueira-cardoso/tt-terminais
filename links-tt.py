@@ -232,16 +232,22 @@ def soltar(*args):
                      stderr=subprocess.DEVNULL, start_new_session=True)
 
 
-def clique(cliente, painel, x, y, largura, altura, ctrl, hiperlink):
+def clique(cliente, painel, x, y, largura, altura, ctrl, hiperlink, ident=None):
+    # O bind registra a intenção antes de iniciar Python. Um duplo clique pode cancelá-la
+    # enquanto ainda estamos capturando o painel; nunca recrie a intenção depois da captura.
+    if ident is None:  # compatibilidade com configurações anteriores
+        ident = str(time.time_ns())
+        tmux("set", "-g", "@tt_link_id", ident)
+    if tmux("show", "-gqv", "@tt_link_id").strip() != ident:
+        return 0
     u = url_no_painel(painel, x, y, largura, altura, hiperlink)
     if not u:
         return 1
     # O clique espera o tempo de um duplo clique (o duplo copia, não abre): o tmux.conf limpa
     # @tt_link_id no 2º clique e no arrasto. O Ctrl+clique também espera, porque Ctrl+arrastar
     # copia e o arrasto que começa num link não pode abri-lo.
-    ident = str(time.time_ns())
-    tmux("set", "-g", "@tt_link_id", ident)
-    soltar("--link-abrir", ident, cliente, painel, u)
+    if tmux("show", "-gqv", "@tt_link_id").strip() == ident:
+        soltar("--link-abrir", ident, cliente, painel, u)
     return 0
 
 
@@ -340,8 +346,8 @@ def main(a):
     if a[:1] == ["com-ctrl-q"] and len(a) >= 2:
         return com_ctrl_q(a[1:])
     try:
-        if a[:1] == ["clique"] and len(a) in (8, 9):
-            return clique(a[1], a[2], int(a[3]), int(a[4]), int(a[5]), int(a[6]), a[7] == "ctrl", "".join(a[8:]))
+        if a[:1] == ["clique"] and len(a) in (8, 9, 10):
+            return clique(a[1], a[2], int(a[3]), int(a[4]), int(a[5]), int(a[6]), a[7] == "ctrl", a[8] if len(a) >= 9 else "", a[9] if len(a) == 10 else None)
         if a[:1] == ["copiar"] and len(a) in (7, 8):
             return copiar(a[1], a[2], int(a[3]), int(a[4]), int(a[5]), int(a[6]), "".join(a[7:]))
         if a[:1] == ["todos"] and len(a) == 2:
