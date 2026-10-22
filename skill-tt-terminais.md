@@ -958,8 +958,10 @@ tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padra
 README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
 skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py
 tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf` (a
-lista dos testes, em `tests/lib.sh` e `tests/test_repo_em_dia.sh`, acompanha). `ARQUIVOS_PACOTE` = `ARQUIVOS_FONTE` + `VERSAO`. Mudança que acrescenta um
-arquivo ao pacote PRECISA entrar em `ARQUIVOS_FONTE`, senão a autoatualização instala um pacote
+lista dos testes, em `tests/lib.sh` e `tests/test_repo_em_dia.sh`, acompanha). `ARQUIVOS_PACOTE` = `ARQUIVOS_FONTE` + `VERSAO`.
+`skills/figma-cota/{SKILL.md,scripts/figma_rest.py,scripts/figma_oauth_retorno.py,references/acesso-autenticacao.md}`
+também faz parte da lista (`ARQUIVOS_SKILL_FIGMA`). Caminhos relativos são preservados ao montar,
+completar e espelhar o pacote no proot. Arquivo novo do pacote PRECISA entrar em `ARQUIVOS_FONTE`, senão a autoatualização instala um pacote
 incompleto.
 
 ## O vigia (`tt --vigia`)
@@ -1357,7 +1359,8 @@ Cada registro vira um bloco no fim da descrição da tarefa/subtarefa, em cinza 
     nos perfis o `~/.claude/CLAUDE.md` (ancestral de todo projeto em `~`) desligava o `AGENTS.md` de projeto.
   - Travas `<perfil>.lock` paradas há mais de 10 min são apagadas (viva, o Claude a renova a cada poucos segundos); pasta que não
     tem nome de perfil não recebe nada. Só entra em IA que já existe.
-  `instalar_ferramentas_agentes` também copia esta skill para `skills/tt-terminais/SKILL.md` e liga o `aidlc-tt`. Teste:
+  `instalar_ferramentas_agentes` também copia esta skill para `skills/tt-terminais/SKILL.md`,
+  distribui os quatro recursos da `figma-cota` (fonte compartilhada e agentes) e liga o `aidlc-tt`. Testes:
   `tests/test_agentes_md.sh`.
 - Quando roda: em **toda instalação/atualização** (`instalar_aqui`, que cada máquina faz sozinha ao ver versão nova) e **a cada ~5 min
   pelo vigia** (`reforcar_padrao` → `reforcar_agentes`), inclusive dentro dos proots do celular. `tt --reforcar-agentes` roda na hora.
@@ -1392,12 +1395,34 @@ tt --notificar-daqui "Preciso da sua aprovação para o push" --sempre      # av
 
 ## Figma e login do Kiro
 
-O clone versiona `skills/figma-cota/` (skill, script REST/cache, referência de autenticação e testes).
-Para ler frames por URL ou recuperar login do Kiro, consulte o `SKILL.md` dessa pasta e
-`references/acesso-autenticacao.md`. O instalador/reforço do tt ainda não distribui essa pasta.
-Erro no callback `127.0.0.1:PORTA`: confira o receptor e mantenha o login num terminal persistente.
-No Kiro CLI 2.32.0, `kiro-cli login --use-device-flow` foi validado para Organização usando
-`tt --pty`; o login Kiro não substitui o OAuth MCP do Figma. Teste: `tests/test_figma_cota.sh`.
+A instalação e `tt --reforcar-agentes` distribuem a skill **figma-cota completa**: `SKILL.md`,
+`scripts/figma_rest.py`, `scripts/figma_oauth_retorno.py` e `references/acesso-autenticacao.md`.
+Fonte instalada: `~/.agents/skills/figma-cota/`, com cópias para os agentes existentes (Claude,
+Codex e Kiro; perfis Claude compartilham skills). O vigia reforça a cada ~5 min, inclusive nos
+proots que já têm tt. Compara antes de gravar, preserva links/arquivos extras e não replica credenciais.
+
+Antes de consultar Figma, leia a skill. Receba o link do frame, resolva chave/nó e procure no cache
+REST; MCP fica para o detalhe necessário. `uso` é contagem local, não saldo oficial. Nunca use
+MCP para procurar páginas inteiras nem trate sonda de versão como gratuita (ela é Tier 1).
+
+**Distinga os três fluxos de acesso:**
+- Login do Kiro (Organização): em CLI 2.32.0, `kiro-cli login --use-device-flow` funcionou em
+  `tt --pty`, evitando o callback local recusado. Isso não autentica o Figma.
+- OAuth do MCP Figma: o Kiro mostra a URL nativa em `/mcp`. Mantenha a sessão aberta; URL de
+  autorização não equivale a uma entrada nativa para colar o callback. Não use Claude como ponte.
+- Token REST: usado só pelo script e pela conta autorizada, nunca impresso nem transportado pelo tt.
+
+**Navegador fora do WSL:** `figma_oauth_retorno.py`, rodando no WSL, aceita a URL final em campo
+oculto e a entrega ao receptor original, conferindo state/host/porta/caminho. Não troca token,
+não segue redirect e não depende de outro modelo. Prepare a entrada antes de autorizar: o Figma
+documenta apenas **30 s de validade do código após emissão**. Não passe códigos pelo chat nem
+os registre em tarefas/Git. A tentativa pode aguardar minutos; a sessão autenticada é outra coisa.
+O ensaio Mac → WSL confirmou o MCP carregado e, após reinício, carregamento em 2,46 s sem novo OAuth.
+A entrega bem-sucedida foi imediata e assistida por observador temporário de clipboard; não
+confunda isso com nova função nativa do Kiro. Detalhes e limites estão na referência da skill.
+
+Teste de código/fluxo: `tests/test_figma_cota.sh`. Pacote, reparo, idempotência e proot:
+`tests/test_figma_instalacao.sh`. Nenhum desses testes consome cota de leitura do Figma.
 
 ## Terminal interativo para agentes (`tt --pty`)
 

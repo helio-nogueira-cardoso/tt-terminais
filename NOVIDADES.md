@@ -3,8 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.8.0 · 22/10/2026
+- **Skills do Figma completas e reforçadas:** a instalação e o vigia distribuem instruções, scripts REST/cache, auxiliar de retorno OAuth e referência detalhada para Claude, Codex e Kiro, inclusive em proots já provisionados. Links e recursos locais ficam preservados; só arquivos diferentes são regravados.
+- **Acesso Figma entre navegador e WSL documentado e testado:** entrada por URL do frame, cache antes de MCP e retorno manual entregue ao Kiro original sem Claude. A referência distingue login do Kiro, OAuth do Figma e token REST, explica a validade de 30 s do código e registra o ensaio Mac → WSL e o reinício autenticado. A distribuição não copia credenciais nem configura MCP automaticamente.
+
 ## v2.7.3 · 22/10/2026
 - **📧 Abas do aerc sem depender do Alt:** os números sozinhos também trocam de aba na lista e na mensagem aberta: 1 … 9 vão direto à conta e 0 lista todas as abas. Funcionam em qualquer terminal, inclusive no Mac sem Option como Meta e no celular, onde o Alt é difícil de alcançar. Alt+número continua valendo.
+
 
 ## v2.7.2 · 22/10/2026
 - **📧 Abas do aerc sempre alcançáveis:** o aerc desenha a barra a partir da primeira aba e não rola, então com muitas contas e mensagens abertas as do fim sumiam. Agora a aba atual fica sempre na ponta esquerda: Ctrl+n / Ctrl+p giram a barra como um carrossel, e a mensagem que você abre vem para a frente. Alt+1 … Alt+9 vão direto à conta (na ordem das contas) e Alt+0 lista todas as abas, contas e mensagens, com busca pelo nome. As abas também ficaram distintas e mais curtas: ▣ conta, ✉ mensagem (assunto em até 20 letras), ✎ mensagem sendo escrita.

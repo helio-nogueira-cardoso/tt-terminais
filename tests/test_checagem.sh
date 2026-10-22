@@ -55,6 +55,10 @@ grep -q $'^separacao\taviso\t.*meu-arquivo' <<<"$("$TT" --checar --tsv)" || falh
 rm -f "$TT_DIR/meu-arquivo"; mv "$TT_DIR/sessoes-ia.py" "$T/guardado"
 grep -q $'^separacao\tfalha\t.*sessoes-ia.py' <<<"$("$TT" --checar --tsv)" || falhou 'pacote incompleto não foi acusado'
 mv "$T/guardado" "$TT_DIR/sessoes-ia.py"
+recurso=skills/figma-cota/scripts/figma_oauth_retorno.py
+mv "$TT_DIR/$recurso" "$T/guardado"
+grep -q $'^separacao\tfalha\t.*figma_oauth_retorno.py' <<<"$("$TT" --checar --tsv)" || falhou 'recurso aninhado ausente não foi acusado'
+mv "$T/guardado" "$TT_DIR/$recurso"
 cp "$TT_DIR/email-tt.py" "$XDG_CONFIG_HOME/tt/velho.py"
 grep -q $'^separacao\taviso\t.*velho.py' <<<"$("$TT" --checar --tsv)" || falhou 'código no perfil não foi acusado'
 rm -f "$XDG_CONFIG_HOME/tt/velho.py"

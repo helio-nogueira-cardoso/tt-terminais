@@ -327,8 +327,11 @@ A [skill figma-cota](skills/figma-cota/SKILL.md) e seu script estão versionados
 Recebe links de frames, consulta o cache REST e reserva MCP para detalhes. A referência
 [acesso e autenticação](skills/figma-cota/references/acesso-autenticacao.md) explica o erro de
 callback local do Kiro, o login Organização por dispositivo e a validação separada do OAuth Figma.
-São recursos do repositório; a instalação e o reforço automático do tt ainda não os distribuem.
-Teste isolado: `tests/test_figma_cota.sh`; também faz parte de `make test`.
+A instalação e o reforço periódico do tt distribuem a skill completa para Claude, Codex e Kiro,
+inclusive nos proots já provisionados do celular. A fonte compartilhada fica em
+`~/.agents/skills/figma-cota/`; somente os quatro arquivos do pacote são atualizados, preservando
+recursos locais. O reforço compara o conteúdo antes de gravar e não configura MCP nem copia credenciais.
+Testes isolados: `tests/test_figma_cota.sh` e `tests/test_figma_instalacao.sh`; também fazem parte de `make test`.
 
 ## Contas de IA
 

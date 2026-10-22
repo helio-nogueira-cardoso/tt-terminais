@@ -348,19 +348,24 @@ recusa cache associado a outra chave. Cache legado sem origem requer confirmaç�
 
 ## Onde manter e como verificar
 
-Fonte versionada no clone do tt: `skills/figma-cota/`, com `SKILL.md`, script, esta referência e
-testes. Ela está versionada como recurso do repositório; esta entrega não altera o instalador do
-tt nem instala a skill automaticamente em outras máquinas.
+Fonte versionada no clone do tt: `skills/figma-cota/`, com entrada, scripts, esta referência e
+testes. Os quatro recursos operacionais entram no pacote por `ARQUIVOS_SKILL_FIGMA` e
+`ARQUIVOS_FONTE`. Os testes permanecem no repositório.
 
-Instalação local já aplicada nesta rodada: `~/.agents/skills/figma-cota/`, com links nas pastas de
-skills do Claude, Codex e Kiro. Atualizações devem copiar os arquivos mantidos da fonte versionada
-para essa pasta, preservando recursos locais. Não substitua a pasta por um link para uma worktree
-que poderá ser removida.
+O instalador e o reforço periódico do tt mantêm `~/.agents/skills/figma-cota/` e distribuem cópias
+nas pastas de skills dos agentes existentes. Links anteriores são preservados, incluindo os links
+para a fonte compartilhada aplicados nesta rodada. Os perfis de contas Claude compartilham skills.
+Nos proots com tt já provisionado, o pacote e os agentes também recebem os recursos.
+
+O reforço compara conteúdo antes de gravar; corrige apenas os arquivos gerenciados e preserva
+recursos extras. Não configura o MCP nem transporta token REST ou OAuth. Não substitua a pasta
+por um link para uma worktree que poderá ser removida. `tt --reforcar-agentes` força a conferência.
 
 Verificação a partir da raiz do clone:
 
 ```bash
 python3 -m unittest discover -s skills/figma-cota/tests -v
+bash tests/test_figma_instalacao.sh
 python3 skills/figma-cota/scripts/figma_rest.py resolver 'https://www.figma.com/design/ABC/Tela?node-id=12-34'
 make test
 ```

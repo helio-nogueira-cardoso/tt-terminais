@@ -9,8 +9,11 @@ fail() { echo "FALHOU: $1" >&2; exit 1; }
 git init -q dev; g dev checkout -q -B main 2>/dev/null
 for f in tt precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
          atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py \
-         skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf; do
-  [[ -e $RAIZ/$f ]] && cp "$RAIZ/$f" dev/
+         skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf skills/figma-cota/SKILL.md skills/figma-cota/scripts/figma_rest.py skills/figma-cota/scripts/figma_oauth_retorno.py skills/figma-cota/references/acesso-autenticacao.md; do
+  if [[ -e $RAIZ/$f ]]; then
+    [[ $f == */* ]] && mkdir -p "dev/${f%/*}"
+    cp "$RAIZ/$f" "dev/$f"
+  fi
 done
 printf 'nome=teste\nrepo=%s\n' "$T/dev" >"$XDG_CONFIG_HOME/tt/config"
 rotulo() { "$TT" --pacote | tar -xOf - VERSAO | awk '{ print $4 }'; }
