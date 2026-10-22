@@ -49,3 +49,18 @@ passou 'bashrc: janela do Ghostty abre no tt, exclusões de ssh e IDE preservada
 f=$(grep '^set -s terminal-features' "$TT_DIR/tmux.conf")
 grep -q 'xterm-ghostty:RGB:extkeys:usstyle:overline:strikethrough' <<<"$f" && grep -q 'xterm-256color:RGB:extkeys' <<<"$f" && grep -q 'xterm\*:sync:hyperlinks' <<<"$f" || falhou "terminal-features sem o Ghostty ou sem os de antes: $f"
 passou 'tmux: cores reais, teclas estendidas e sublinhados no Ghostty; recursos anteriores intactos'
+
+# 5) Larguras: os 9 emojis de mão e de pessoa sem seletor ocupam 1 coluna, como no Ghostty (o tmux dava 2 e a linha
+#    andava para a esquerda no terminal); com o seletor de emoji seguem 2. Medido no tmux com o tmux.conf do tt.
+if tmux -V | awk '{v=$2+0; exit !(v >= 3.5)}'; then
+  tmux -f /dev/null new -d -s larg -x 40 -y 5 'sleep 60' 2>/dev/null || falhou 'tmux de teste não subiu'
+  grep '^set -sq codepoint-widths' "$TT_DIR/tmux.conf" >"$T/larg.conf" && tmux source-file "$T/larg.conf"
+  for par in "☝ 1" "🕵 1" "🖐 1" "☝️ 2" "🖐️ 2" "👍 2"; do
+    set -- $par
+    tmux respawn-pane -k -t larg "printf '%s' '$1'; sleep 30"
+    x=; for _ in $(seq 1 20); do sleep 0.05; x=$(tmux display -p -t larg '#{cursor_x}'); [[ $x != 0 ]] && break; done
+    [[ $x == "$2" ]] || falhou "$1 ocupa $x colunas no tmux com o tmux.conf do tt, não $2"
+  done
+  tmux kill-session -t larg
+  passou 'tmux: ☝ ✌ 🕵 🖐 sem seletor com 1 coluna (como o Ghostty), com o seletor 2'
+fi

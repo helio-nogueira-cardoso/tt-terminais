@@ -1165,11 +1165,11 @@ config_paradas() {
       if ((m == 0)); then rot="Desativado (nunca fechar)"; else rot="Após $m min sem uso"; fi
       ((m == 30)) && rot+=" (padrão)"
       printf '%s\t%s %s\t%s\n' "$k" "$( ((m == atual)) && echo '✓' || echo ' ')" "$rot" \
-        "$EU --definir-paradas $m >/dev/null 2>&1; tmux display-message -c $(q "$c") '⏱ sessões paradas: $( ((m == 0)) && echo desativado || echo "fecham após $m min") — todas as máquinas'"
+        "$EU --definir-paradas $m >/dev/null 2>&1; tmux display-message -c $(q "$c") '⏱️ sessões paradas: $( ((m == 0)) && echo desativado || echo "fecham após $m min") — todas as máquinas'"
     done
     printf -- '-\t\t\n'
-    printf 'o\t  Outro tempo…\t%s\n' "tmux command-prompt -c $(q "$c") -I $atual -p 'Minutos parada até fechar (0 = nunca):' \"run-shell -b '$EU --definir-paradas %% >/dev/null 2>&1; tmux display-message -c $c \\\"⏱ sessões paradas: %% min (0 = desativado)\\\"'\""
-  } | menu_popup "$c" "⏱ sessões paradas"
+    printf 'o\t  Outro tempo…\t%s\n' "tmux command-prompt -c $(q "$c") -I $atual -p 'Minutos parada até fechar (0 = nunca):' \"run-shell -b '$EU --definir-paradas %% >/dev/null 2>&1; tmux display-message -c $c \\\"⏱️ sessões paradas: %% min (0 = desativado)\\\"'\""
+  } | menu_popup "$c" "⏱️ sessões paradas"
 }
 
 # Linha separadora do bloco de vazias (chave !vazias: Enter/clique fecha todas).
@@ -8682,12 +8682,12 @@ c	📋 Colar a última cópia	tmux paste-buffer -p -t $p
 y	📋 Copiar o texto da tela	$EU --copiar-tela $(q "$c") $p
 u	🔗 Links da tela (abrir ou copiar)…	$EU --links-tela $(q "$c") $p
 h	📋 Histórico de cópias…	$(popup_tt "$c" "📋 cópias" "$env $EU --copias")
-a	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
-k	⏱ Sessões paradas: $( (($(minutos_paradas))) && echo "fecham após $(minutos_paradas) min" || echo desativado)…	$EU --config-paradas $(q "$c")
+a	✏️ Atalhos da barra…	$(popup_tt "$c" "✏️ atalhos da barra" "$EU --editar-atalhos")
+k	⏱️ Sessões paradas: $( (($(minutos_paradas))) && echo "fecham após $(minutos_paradas) min" || echo desativado)…	$EU --config-paradas $(q "$c")
 n	🧠 Nomeador de abas: $(modo_nomeador)…	$(popup_tt "$c" "🧠 nomeador de abas" "$EU --nomeador-ui")
 g	🪟 Janelas flutuantes (clicar fora fecha): $(flutuante_rotulo)…	$EU --flutuante alternar $(q "$c")
 S	🔄 Sincronização das tarefas: $(tarefas_sync_rotulo)…	$(popup_tt "$c" "🔄 sincronização das tarefas" "$EU --tarefas-sync-ui")
-w	✉ Demandas por e-mail (remetentes autorizados)…	$(popup_tt "$c" "✉ demandas por e-mail" "$EU --demandas-ui")
+w	✉️ Demandas por e-mail (remetentes autorizados)…	$(popup_tt "$c" "✉️ demandas por e-mail" "$EU --demandas-ui")
 j	📰 Letreiro (fontes e ajustes)…	$(popup_tt "$c" "📰 letreiro" "$EU --letreiro-ui")
 -		
 r	Renomear painel	tmux command-prompt -t $(q "$c") -p 'nome do painel:' "set-option -p -t $p @nome_painel '%%'"
@@ -8697,9 +8697,9 @@ s	Virar sessão própria	$EU --soltar $p
 e	📤 Enviar arquivos daqui…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar")
 t	📥 Trazer arquivos para cá…	$(popup_tt "$c" "📥 trazer" "$env $EU --trazer")$copiado
 u	📥 Recebidos recentes…	$(popup_tt "$c" "📥 recebidos" "$EU --recebidos")
-f	⇅ Acompanhar as transferências…	$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")
+f	⇅  Acompanhar as transferências…	$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")
 d	📂 Abrir a pasta de recebidos	$EU --abrir-pasta $(q "$(pasta_recebidos)") $(q "$c")
-m	⚙ tmux…	$EU --menu-tmux $(q "$c") $p
+m	⚙️ tmux…	$EU --menu-tmux $(q "$c") $p
 -		
 x	Fechar painel	tmux kill-pane -t $p
 ITENS
@@ -8733,7 +8733,7 @@ h	Rolar / copiar o histórico	tmux copy-mode -t $p
 u	Mouse: $mouse	tmux set-option -g mouse
 k	Ver todos os atalhos	$(popup_tt "$c" atalhos "tmux list-keys | sed 's/^bind-key *//' | less -S")
 e	Editar a configuração desta máquina	$(popup_tt "$c" "~/.tmux.conf" "$ed ~/.tmux.conf && tmux source-file ~/.tmux.conf")
-t	✏ Atalhos da barra…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
+t	✏️ Atalhos da barra…	$(popup_tt "$c" "✏️ atalhos da barra" "$EU --editar-atalhos")
 l	Recarregar a configuração	tmux source-file ~/.tmux.conf \; display-message -c $(q "$c") 'configuração recarregada'
 -		
 r	Renomear a sessão…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 70 7) -T ' renomear ' $(q "$EU --renomear $(q "$sess")")
@@ -8844,7 +8844,7 @@ menu_atalhos() {
   mkdir -p "$CONF_DIR"
   touch "$CONF_ATALHOS"
   menu_popup "$c" "atalhos de comandos" <<ITENS
-e	✏ Editar atalhos (lista: editar, novo, excluir, cor)…	$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")
+e	✏️ Editar atalhos (lista: editar, novo, excluir, cor)…	$(popup_tt "$c" "✏️ atalhos da barra" "$EU --editar-atalhos")
 t	Editar o arquivo direto (avançado)	$(popup_tt "$c" "~/.config/tt/atalhos" "$ed ~/.config/tt/atalhos && $EU --redesenhar")
 v	Ver atalhos ativos	$(popup_tt "$c" "atalhos ativos" "$EU --atalhos-lista | less -S")
 ITENS
@@ -8858,10 +8858,10 @@ menu_arquivos() {
   menu_popup "$c" "⇅ arquivos" <<ITENS
 e	📤 Enviar daqui para outra máquina…	$(popup_tt "$c" "📤 enviar" "$env $EU --enviar")
 t	📥 Trazer de outra máquina para cá…	$(popup_tt "$c" "📥 trazer" "$env $EU --trazer")
-a	⇅ Acompanhar as transferências…	$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")
+a	⇅  Acompanhar as transferências…	$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")
 -		
 r	📂 Abrir a pasta de recebidos ($(pasta_recebidos))	$EU --abrir-pasta $(q "$(pasta_recebidos)") $(q "$c")
-p	⚙ Mudar a pasta padrão de recebidos desta máquina…	$(popup_tt "$c" "pasta padrão" "$env $EU --pasta-padrao; read -rsn1 -p '(tecla fecha)'")
+p	⚙️ Mudar a pasta padrão de recebidos desta máquina…	$(popup_tt "$c" "pasta padrão" "$env $EU --pasta-padrao; read -rsn1 -p '(tecla fecha)'")
 ITENS
 }
 
@@ -8891,7 +8891,7 @@ menu_maquinas() {
     printf 't\t  Todas as máquinas\t%s\n' "$EU --seletor-em $(q "$c") todas $p"
     printf 'c\t  ☰ Central completa…\t%s\n' "$EU --clique tt $(q "$c") $p ''"
     printf -- '-\t\t\n'
-    printf 'g\t  ⚙ Administrar (arquivos, tmux, cadastro)…\t%s\n' "$EU --menu-admin $(q "$c") $p"
+    printf 'g\t  ⚙️ Administrar (arquivos, tmux, cadastro)…\t%s\n' "$EU --menu-admin $(q "$c") $p"
   } | menu_popup "$c" "máquinas · tt $(versao_humana)"
 }
 
@@ -8911,10 +8911,10 @@ menu_admin() {
     printf 'P\t  ⚡ Pré-carregamento de sessões…\t%s\n' "$(popup_tt "$c" 'pré-carregamento' "$EU --precarregar-ui")"
     printf 'e\t  📤 Enviar arquivos…\t%s\n' "$(popup_tt "$c" "📤 enviar" "TT_CLIENTE=$c TT_PANE=$p $EU --enviar")"
     printf 'r\t  📥 Trazer arquivos…\t%s\n' "$(popup_tt "$c" "📥 trazer" "TT_CLIENTE=$c TT_PANE=$p $EU --trazer")"
-    printf 'f\t  ⇅ Acompanhar as transferências…\t%s\n' "$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")"
+    printf 'f\t  ⇅  Acompanhar as transferências…\t%s\n' "$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")"
     printf 'o\t  📂 Abrir a pasta de recebidos\t%s\n' "$EU --abrir-pasta $(q "$(pasta_recebidos)") $(q "$c")"
-    printf 'p\t  ⚙ Pasta padrão de recebidos desta máquina…\t%s\n' "$(popup_tt "$c" "pasta padrão" "TT_CLIENTE=$c TT_PANE=$p $EU --pasta-padrao; read -rsn1 -p '(tecla fecha)'")"
-    printf 'm\t  ⚙ tmux…\t%s\n' "$EU --menu-tmux $(q "$c") $p"
+    printf 'p\t  ⚙️ Pasta padrão de recebidos desta máquina…\t%s\n' "$(popup_tt "$c" "pasta padrão" "TT_CLIENTE=$c TT_PANE=$p $EU --pasta-padrao; read -rsn1 -p '(tecla fecha)'")"
+    printf 'm\t  ⚙️ tmux…\t%s\n' "$EU --menu-tmux $(q "$c") $p"
     printf -- '-\t\t\n'
     printf 'c\t  📧 Contas de e-mail…\t%s\n' "$EU --email-contas $(q "$c")"
     if busca_ativa; then printf 'B\t  🔎 Busca na conversa inteira: ligada (desligar)\t%s\n' "$(popup_tt "$c" "🔎 busca na conversa" "$EU --busca off; echo; $EU --busca estado; read -rsn1 -p '(tecla fecha)'")"
@@ -12067,9 +12067,9 @@ letreiro_lista() { # linhas "chave<TAB>desenho"
   case $vista in ativas) nome_vista='só as que estão na roda' ;; disponiveis) nome_vista='só as disponíveis (desligadas)' ;; *) nome_vista='todas' ;; esac
   printf '+\t\033[32m＋ Nova fonte (assistente)\033[0m\n'
   printf '@cat\t\033[36m📚 Catálogo: trazer de volta uma fonte que você tirou ou criar a partir de um modelo\033[0m\n'
-  printf '@cfg\t\033[33m⚙ Ajustes globais do letreiro\033[0m\n'
-  printf '@pre\t\033[35m👁 Pré-visualizar na faixa\033[0m\n'
-  printf '@vis\t\033[34m⇄ Vista: %s \033[90m(Tab ou clique alterna: todas · na roda · disponíveis)\033[0m\n' "$nome_vista"
+  printf '@cfg\t\033[33m⚙️ Ajustes globais do letreiro\033[0m\n'
+  printf '@pre\t\033[35m👁️ Pré-visualizar na faixa\033[0m\n'
+  printf '@vis\t\033[34m⇄  Vista: %s \033[90m(Tab ou clique alterna: todas · na roda · disponíveis)\033[0m\n' "$nome_vista"
   case $(letreiro_ordem) in
     aleatoria) printf '@ord\t\033[34m🔀 Ordem: aleatória \033[90m(mistura as entradas de todas as fontes; ^o ou clique volta ao sequencial)\033[0m\n' ;;
     peso) printf '@ord\t\033[34m🔀 Ordem: por peso \033[90m(^o ou clique volta ao sequencial; escolhida nos ajustes)\033[0m\n' ;;
@@ -12203,7 +12203,7 @@ letreiro_ajustes_ui() {
         case $k in
           ticker_ligado) nome='🔆 Letreiro' ;; ticker_rolagem) nome='↔️ Movimento' ;; ticker_veloc) nome='🚀 Velocidade' ;;
           ticker_fps) nome='🎞 Quadros por segundo' ;; ticker_separador) nome='· Separador' ;; ticker_ordem) nome='↕ Ordem dos itens' ;;
-          ticker_largura) nome='↔ Largura máxima' ;; ticker_pausa) nome='⏸ Pausa ao clicar' ;; ticker_cor) nome='🎨 Cores' ;;
+          ticker_largura) nome='↔️ Largura máxima' ;; ticker_pausa) nome='⏸️ Pausa ao clicar' ;; ticker_cor) nome='🎨 Cores' ;;
           ticker_economia) nome='🔋 Economia de energia' ;; ticker_bateria_min) nome='🔌 Bateria mínima' ;; ticker_ponte) nome='🌉 Exibição por ponte' ;;
           ticker_idioma) nome='🌐 Formato dos números' ;; ticker_fuso) nome='🕒 Fuso horário' ;; *) nome=$k ;;
         esac
@@ -14976,7 +14976,7 @@ menu_tarefas() {
 t	📋 Abrir o painel de tarefas	$EU --tarefas $(q "$c")
 a	▦ Agenda (calendário do mês)	$EU --clique relogio $(q "$c") x "$HOME" 0
 n	+ Nova tarefa…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 14) -b rounded -T ' + nova tarefa ' $(q "$EU --tarefa-add-ui")
-e	✉ Enviar tarefas por e-mail…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 90 24) -b rounded -T ' ✉ enviar tarefas ' $(q "TT_CLIENTE=$(q "$c") $EU --tarefa-email-ui")
+e	✉️ Enviar tarefas por e-mail…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 90 24) -b rounded -T ' ✉️ enviar tarefas ' $(q "TT_CLIENTE=$(q "$c") $EU --tarefa-email-ui")
 v	📨 Enviar tarefas diretamente…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 90 24) -b rounded -T ' 📨 enviar tarefas ' $(q "TT_CLIENTE=$(q "$c") $EU --email-enviar --tarefas-ui")
 s	🔄 Sincronização: $(tarefas_sync_rotulo)…	$(popup_tt "$c" "🔄 sincronização das tarefas" "$EU --tarefas-sync-ui")
 l	▤ Arquivar ou apagar as tarefas feitas…	$EU --popup -c $(q "$c") -E $(dim_popup "$c" 72 13) -b rounded $(q "$EU --tarefa-limpar-prompt")
@@ -15197,18 +15197,57 @@ reconciliar_fixadas() {
 # Largura de exibição (colunas de tela) de um texto simples, como o tmux conta: emoji e CJK valem 2.
 # Resultado em W (sem subshell: é chamada muitas vezes ao montar a faixa).
 tt_largura() {
-  local t=$1 i cp n resto LC_ALL=C
-  # Cada caractere vale 1; só os não ASCII (poucos) são conferidos um a um, para somar 1 aos largos.
-  # Tirar os bytes ASCII no locale C é rápido e não parte caractere nenhum (byte ASCII nunca está no meio
-  # de um caractere UTF-8).
+  local t=$1 i cp n resto prev=1 LC_ALL=C
+  # Cada caractere vale 1; só os não ASCII (poucos) são conferidos um a um. Tirar os bytes ASCII no locale C é
+  # rápido e não parte caractere nenhum (byte ASCII nunca está no meio de um caractere UTF-8).
+  # A tabela é a que o tmux 3.8 e o Ghostty 1.3 medem igual (medida caractere a caractere nos dois): emoji de
+  # apresentação padrão (⚡ ⏳ ☰ ✅ ⭐) vale 2 e o de apresentação texto (🖥 🗑 🕰 🌡) vale 1; o VS16 faz o anterior
+  # valer 2, o VS15 não conta, ZWJ junta o caractere seguinte ao anterior, tom de pele e acento combinante não contam.
+  # A largura errada desalinhava a barra e o mapa de clique dos cabeçalhos (o toque caía no botão vizinho).
   resto=${t//[$'\x01'-$'\x7f']/}
   [[ -z $resto ]] && { W=${#t}; return 0; }
   LC_ALL=$TT_UTF8; n=${#t}
   for ((i = 0; i < ${#resto}; i++)); do
     printf -v cp '%d' "'${resto:i:1}"
-    if ((cp >= 0x1100 && (cp <= 0x115f || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) ||
-        (cp >= 0xf900 && cp <= 0xfaff) || (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) ||
-        (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1faff) || cp >= 0x20000))); then n=$((n + 1)); fi
+    if ((cp < 0x300)); then prev=1
+    elif ((cp <= 0x36f)); then n=$((n - 1))   # acento combinante (texto decomposto, nomes vindos do macOS)
+    elif ((cp < 0x1100)); then prev=1
+    elif ((cp < 0x231a)); then
+      if ((cp <= 0x115f)); then n=$((n + 1)); prev=2
+      elif ((cp <= 0x11ff)); then n=$((n - 1))   # jamo do hangul no meio da sílaba
+      elif ((cp == 0x200d)); then               # ZWJ: ele e o caractere seguinte somem no anterior
+        n=$((n - 2)); i=$((i + 1)); prev=2
+      elif ((cp >= 0x20d0 && cp <= 0x20ff)); then n=$((n - 1))   # marca combinante de símbolo (keycap 1️⃣)
+      else prev=1; fi
+    elif ((cp < 0x1f000)); then
+      if ((cp == 0xfe0f)); then ((prev == 2)) && n=$((n - 1)); prev=2   # VS16: o anterior passa a valer 2
+      elif ((cp == 0xfe0e)); then n=$((n - 1))
+      elif (((cp >= 0x231a && cp <= 0x231b) || (cp >= 0x2329 && cp <= 0x232a) || (cp >= 0x23e9 && cp <= 0x23ec) ||
+          cp == 0x23f0 || cp == 0x23f3 || (cp >= 0x25fd && cp <= 0x25fe) || (cp >= 0x2614 && cp <= 0x2615) ||
+          (cp >= 0x2630 && cp <= 0x2637) || (cp >= 0x2648 && cp <= 0x2653) || cp == 0x267f || (cp >= 0x268a && cp <= 0x268f) ||
+          cp == 0x2693 || cp == 0x26a1 || (cp >= 0x26aa && cp <= 0x26ab) || (cp >= 0x26bd && cp <= 0x26be) ||
+          (cp >= 0x26c4 && cp <= 0x26c5) || cp == 0x26ce || cp == 0x26d4 || cp == 0x26ea || (cp >= 0x26f2 && cp <= 0x26f3) ||
+          cp == 0x26f5 || cp == 0x26fa || cp == 0x26fd || cp == 0x2705 || (cp >= 0x270a && cp <= 0x270b) || cp == 0x2728 ||
+          cp == 0x274c || cp == 0x274e || (cp >= 0x2753 && cp <= 0x2755) || cp == 0x2757 || (cp >= 0x2795 && cp <= 0x2797) ||
+          cp == 0x27b0 || cp == 0x27bf || (cp >= 0x2b1b && cp <= 0x2b1c) || cp == 0x2b50 || cp == 0x2b55 ||
+          (cp >= 0x2e80 && cp <= 0xa4cf && cp != 0x303f) || (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff) ||
+          (cp >= 0xfe10 && cp <= 0xfe19) || (cp >= 0xfe30 && cp <= 0xfe6b) || (cp >= 0xff00 && cp <= 0xff60) ||
+          (cp >= 0xffe0 && cp <= 0xffe6))); then n=$((n + 1)); prev=2
+      else prev=1; fi
+    elif ((cp < 0x20000)); then
+      if ((cp >= 0x1f3fb && cp <= 0x1f3ff && prev == 2)); then n=$((n - 1))   # tom de pele junto do emoji
+      elif ((cp == 0x1f004 || cp == 0x1f0cf || cp == 0x1f18e || (cp >= 0x1f191 && cp <= 0x1f19a) ||
+          (cp >= 0x1f200 && cp <= 0x1f320) || (cp >= 0x1f32d && cp <= 0x1f335) || (cp >= 0x1f337 && cp <= 0x1f37c) ||
+          (cp >= 0x1f37e && cp <= 0x1f393) || (cp >= 0x1f3a0 && cp <= 0x1f3ca) || (cp >= 0x1f3cf && cp <= 0x1f3d3) ||
+          (cp >= 0x1f3e0 && cp <= 0x1f3f0) || cp == 0x1f3f4 || (cp >= 0x1f3f8 && cp <= 0x1f43e) || cp == 0x1f440 ||
+          (cp >= 0x1f442 && cp <= 0x1f4fc) || (cp >= 0x1f4ff && cp <= 0x1f53d) || (cp >= 0x1f54b && cp <= 0x1f54e) ||
+          (cp >= 0x1f550 && cp <= 0x1f567) || cp == 0x1f57a || (cp >= 0x1f595 && cp <= 0x1f596) || cp == 0x1f5a4 ||
+          (cp >= 0x1f5fb && cp <= 0x1f64f) || (cp >= 0x1f680 && cp <= 0x1f6c5) || cp == 0x1f6cc || (cp >= 0x1f6d0 && cp <= 0x1f6d2) ||
+          (cp >= 0x1f6d5 && cp <= 0x1f6df) || (cp >= 0x1f6eb && cp <= 0x1f6ec) || (cp >= 0x1f6f4 && cp <= 0x1f6fc) ||
+          (cp >= 0x1f7e0 && cp <= 0x1f7f0) || (cp >= 0x1f90c && cp <= 0x1f93a) || (cp >= 0x1f93c && cp <= 0x1f945) ||
+          (cp >= 0x1f947 && cp <= 0x1f9ff) || (cp >= 0x1fa70 && cp <= 0x1faf8))); then n=$((n + 1)); prev=2
+      else prev=1; fi
+    else n=$((n + 1)); prev=2; fi
   done
   W=$n
 }
@@ -15662,8 +15701,8 @@ d	Desafixar da barra	$EU --alternar-fixada-rotulo $(q "$r") $(q "$s")
 -		
 e	◀ Mover para a esquerda	$( ((i > 1)) && echo "$EU --mover-fixada $i $((i - 1))")
 r	▶ Mover para a direita	$( ((i < n)) && echo "$EU --mover-fixada $i $((i + 1))")
-a	⏮ Mover para o início	$( ((i > 1)) && echo "$EU --mover-fixada $i 1")
-z	⏭ Mover para o fim	$( ((i < n)) && echo "$EU --mover-fixada $i $n")
+a	⏮️ Mover para o início	$( ((i > 1)) && echo "$EU --mover-fixada $i 1")
+z	⏭️ Mover para o fim	$( ((i < n)) && echo "$EU --mover-fixada $i $n")
 -		
 t	≡ Todas as fixadas (ir · reordenar · desafixar)…	$EU --fixadas-popup $(q "$c")
 ITENS
@@ -15835,7 +15874,7 @@ menu_email() {
 e	📧 Abrir o e-mail	$EU --email $(q "$c")
 t	📨 Enviar tarefas…	$(popup_tt "$c" "📨 enviar tarefas" "$EU --email-enviar --tarefas-ui")
 d	📥 Tarefas recebidas / Entrada	$EU --clique entrada $(q "$c") x $(q "$HOME") 0
-w	✉ Remetentes autorizados…	$(popup_tt "$c" "✉ remetentes autorizados" "$EU --demandas-ui")
+w	✉️ Remetentes autorizados…	$(popup_tt "$c" "✉️ remetentes autorizados" "$EU --demandas-ui")
 r	⟳ Sincronizar agora (consulta as contas; útil esperando um código)	$EU --email-sync-agora $(q "$c")
 c	👤 Contas: cadastrar, descadastrar, testar…	$EU --email-contas $(q "$c")
 n	＋ Cadastrar uma conta…	$EU --popup -c $(q "$c") -E $(tam_popup "$c") -T ' 📧 nova conta ' "cd ${HOME@Q}; $EU --email-conta-nova-ui"
@@ -16174,7 +16213,7 @@ atalho_menu_itens() { # id cliente painel
   done
   printf -- '-\t\t\n'
   printf ' \tℹ %s\t\n' "${cmd:0:70}"
-  printf 'e\t✏ Editar os atalhos…\t%s\n' "$(popup_tt "$c" "✏ atalhos da barra" "$EU --editar-atalhos")"
+  printf 'e\t✏️ Editar os atalhos…\t%s\n' "$(popup_tt "$c" "✏️ atalhos da barra" "$EU --editar-atalhos")"
 }
 
 # Botão direito num atalho: o menu dele, ou (sem a 5ª coluna) o comando, como antes.
@@ -19692,7 +19731,7 @@ email_conta_nova_ui() {
 email_editar_ui() {
   local slug=$1 erro t snap auth_antiga autorizar=0; local -A E=(); email_ler "$slug" || return 0
   auth_antiga=${E[auth]}
-  clear 2>/dev/null; printf '✏ Editar conta'; email_resumo
+  clear 2>/dev/null; printf '✏️ Editar conta'; email_resumo
   email_pergunta 'E[endereco]' 'Endereço' "${E[endereco]}" || return 0
   email_pergunta 'E[nome_exibicao]' 'Nome de exibição (no "De:"; opcional)' "${E[nome_exibicao]:-}" || return 0
   email_escolher 'E[auth]' 'Como entrar? OAuth2 é recomendado quando disponível' "$auth_antiga" \
@@ -19749,7 +19788,7 @@ email_conta_ui() {
   while :; do
     email_ler "$slug" || return 0
     op=$( { printf 't\t🔌 Testar conexão (receber e enviar)\n'
-            printf 'e\t✏ Editar (servidores, portas, segurança, usuário, senha)\n'
+            printf 'e\t✏️ Editar (servidores, portas, segurança, usuário, senha)\n'
             [[ ${E[auth]} == oauth ]] && printf 'a\t🔑 Autorizar de novo (OAuth2 / SSO)\n'
             if [[ ${E[sync_local]:-} == 1 ]]; then printf 's\t🔄 Sync local: ✓ ligado (espelho offline dos e-mails)\n'
             else printf 's\t🔄 Sync local: desligado (espelho offline: abre na hora e funciona sem rede)\n'; fi

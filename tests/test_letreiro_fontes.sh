@@ -296,7 +296,7 @@ q=$(roda_tmux); contem "$q" 'Um 1' 'dado novo aparece com a inicial capitalizada
 for f in d1 d2 d3; do touch -d '-3 hours' "$HOME/.cache/tt-ticker/$f"; done
 q=$(roda_tmux)
 contem "$q" '⏳ Um 1' 'se_faltar=ultimo: o último valor com a marca de velho'; contem "$q" '#[fg=#585b70]' 'e apagado'
-nao_contem "$q" 'Dois 2' 'se_faltar=esconder: some'; contem "$q" '⚠ Três: sem dado atual' 'se_faltar=erro: mostra o problema'
+nao_contem "$q" 'Dois 2' 'se_faltar=esconder: some'; contem "$q" '⚠️ Três: sem dado atual' 'se_faltar=erro: mostra o problema'
 py editar d1 url="$H/erro500" >/dev/null; atual d1
 igual "$(meta d1 falhas)" 1 'falha registrada'; contem "$(cru d1)" 'um 1' 'a falha de rede NÃO apagou o cache'
 contem "$(roda_tmux)" 'Um 1' 'nem o letreiro'

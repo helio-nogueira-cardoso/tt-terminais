@@ -231,8 +231,9 @@ class Roda:
 
 
 def _celulas(texto, base):
+    """(grafema, estilo) por grafema: o recorte nunca parte uma bandeira ou um emoji composto."""
     out, est = [], base
-    for c in texto:
+    for c in grafemas(texto):
         if c in MARC:
             est = MARC[c] or base
             continue
@@ -240,7 +241,27 @@ def _celulas(texto, base):
     return out
 
 
+_memo_roda = {}
+
+
 def montar_roda(cfg, agora):
+    """A roda, remontada só quando muda algo de que ela depende: a config, o _roda.json, os arquivos das fontes ou o
+    minuto (janelas de exibição e dado velho andam por minuto; a ordem aleatória, por hora). Remontar a cada quadro
+    custava dezenas de ms por quadro, por cliente."""
+    ent = entradas_roda(cfg)
+    mts = []
+    for nome, _e in ent:
+        try:
+            mts.append(os.stat(os.path.join(DIR_TICKER, nome)).st_mtime_ns)
+        except OSError:
+            mts.append(None)
+    chave = (tuple(sorted(cfg.items())), _roda_cache["mtime"], tuple(n for n, _e in ent), tuple(mts), int(agora // 60))
+    if _memo_roda.get("chave") != chave:
+        _memo_roda.update(chave=chave, roda=_montar_roda(cfg, agora))
+    return _memo_roda["roda"]
+
+
+def _montar_roda(cfg, agora):
     sep = cfg.get("ticker_separador", " • ") or " • "
     ent = entradas_roda(cfg)
     # ticker_ordem: sequencial (a ordem das fontes; "manual" é o nome antigo), aleatoria (mistura as ENTRADAS de todas
@@ -274,10 +295,10 @@ def montar_roda(cfg, agora):
     r = Roda()
     for _chave, nome, i, cel in itens:
         if r.cel:
-            r.cel += [(c, None) for c in sep]
+            r.cel += [(c, None) for c in grafemas(sep)]
         r.segs.append((len(r.cel), len(r.cel) + len(cel), nome, i))
         r.cel += cel
-    r.fim_roda = [(c, None) for c in sep] if r.cel else []
+    r.fim_roda = [(c, None) for c in grafemas(sep)] if r.cel else []
     return r
 
 
@@ -286,33 +307,93 @@ def linha_letreiro(cfg):
     return "".join(c for c, _e in montar_roda(cfg, time.time()).cel)
 
 
-def larg(c):
-    """Largura em células: emoji e ideogramas ocupam 2, marcas combinantes e de formato 0."""
-    if c in MARC:
+# Grafemas que o tmux (3.6+) e o Ghostty (1.3) desenham com a MESMA largura, medida célula a célula nos dois. O
+# recorte do letreiro anda de grafema em grafema: partir uma bandeira (🇧🇷 = duas letras regionais) deixava uma letra
+# sozinha, 1 coluna para o tmux e 2 para o Ghostty; na faixa, que é a última linha da tela, a coluna a mais quebrava a
+# linha e a tela inteira rolava (linhas duplicadas, barras deslocadas até o próximo redesenho).
+#   - ficam inteiros: bandeira, sequência com ZWJ, tom de pele, keycap e marcas combinantes;
+#   - somem: letra regional sozinha, VS15 (o caractere fica com a apresentação padrão), VS16 depois de letra comum
+#     (abaixo de U+2000, salvo © ® e keycap: tmux 2, Ghostty 1) e o que não aparece (formato, U+115F);
+#   - emoji de apresentação texto (🕰 ⏱ ✏ ⚙ ❤ …) ganha o VS16: sozinho mede 1 coluna, mas o Ghostty o desenha com a
+#     fonte de emoji por cima da letra seguinte; com o VS16 mede 2 nos dois e cabe ("🕰2022" virava "🕰️ 2022" colado).
+#     Ficam de fora © ® ™ ‼ ⁉, setas e formas geométricas, que têm forma de texto em toda fonte; ⸺ ⸻ (Ghostty 2) viram —.
+_EMOJI_TEXTO = re.compile("[ℹ⌨⏏⏭-⏯⏱-⏲⏸-⏺Ⓜ☀-☄☎☑☘☝☠☢-☣☦☪☮-☯☸-☺♀♂♟-♠♣♥-♦♨♻♾⚒⚔-⚗⚙⚛-⚜⚠⚧⚰-⚱⛈⛏⛑⛓⛩⛰-⛱⛴⛷-⛹✂✈-✉"
+                          "✌-✍✏✒✔✖✝✡✳-✴❄❇❣-❤⬅-⬇🅰-🅱🅾-🅿🌡🌤-🌬🌶🍽🎖-🎗🎙-🎛🎞-🎟🏋-🏎🏔-🏟🏳🏵🏷🐿👁📽🕉-🕊🕯-🕰"
+                          "🕳-🕹🖇🖊-🖍🖐🖥🖨🖱-🖲🖼🗂-🗄🗑-🗓🗜-🗞🗡🗣🗨🗯🗳🗺🛋🛍-🛏🛠-🛥🛩🛰🛳]")
+_TROCA = {"\u2e3a": "\u2014\u2014", "\u2e3b": "\u2014\u2014\u2014", "\u115f": ""}
+
+
+def _regional(c):
+    return "\U0001f1e6" <= c <= "\U0001f1ff"
+
+
+def grafemas(texto):
+    """O texto em grafemas normalizados (lista de str), na forma que o tmux e o Ghostty medem igual."""
+    t = "".join(_TROCA.get(c, c) for c in texto)
+    out, i, n = [], 0, len(t)
+    while i < n:
+        c = t[i]
+        i += 1
+        if _regional(c):
+            if i < n and _regional(t[i]):
+                out.append(c + t[i])
+                i += 1
+            continue
+        if c in MARC:
+            out.append(c)
+            continue
+        if unicodedata.category(c) == "Cf" or c in "\ufe0e\ufe0f":
+            continue  # invisível, ou seletor sem caractere antes
+        g = c + ("\ufe0f" if _EMOJI_TEXTO.match(c) else "")
+        while i < n:
+            d = t[i]
+            if d == "\ufe0f":
+                if "\ufe0f" not in g and (c >= "\u2000" or c in "\xa9\xae" or t[i + 1:i + 2] == "\u20e3"):
+                    g += d
+                i += 1
+            elif d == "\ufe0e":
+                i += 1
+            elif d == "\u200d" and i + 1 < n and t[i + 1] not in "\u200d\ufe0e\ufe0f":
+                g += d + t[i + 1]
+                i += 2
+            elif "\U0001f3fb" <= d <= "\U0001f3ff" or unicodedata.category(d) in ("Mn", "Me", "Mc"):
+                g += d
+                i += 1
+            else:
+                break
+        out.append(g)
+    return out
+
+
+def larg(g):
+    """Largura em células de um grafema (de grafemas()): emoji e ideogramas ocupam 2, marcas 0."""
+    if g in MARC:
         return 0
-    if unicodedata.category(c) in ("Mn", "Me", "Cf"):
-        return 0
-    if unicodedata.east_asian_width(c) in "WF" or ord(c) >= 0x1F000:
+    c = g[0]
+    if len(g) > 1 and (_regional(c) or "\ufe0f" in g or "\u200d" in g or "\U0001f3fb" <= g[1] <= "\U0001f3ff"):
         return 2
-    return 1
+    if unicodedata.category(c) in ("Mn", "Me", "Mc", "Cf"):
+        return 0
+    return 2 if unicodedata.east_asian_width(c) in "WF" else 1
 
 
 def cortar(t, orc):
-    """Trunca por células, com … dentro do orçamento."""
-    tot = 0
-    for i, c in enumerate(t):
-        tot += larg(c)
-        if tot > orc:
-            corte = i
-            while corte > 0 and sum(larg(x) for x in t[:corte]) + 1 > orc:
-                corte -= 1
-            return t[:corte].rstrip() + "…"
-    return t
+    """Trunca por células, com … dentro do orçamento, sem partir grafema."""
+    gs = grafemas(t)
+    if sum(larg(g) for g in gs) <= orc:
+        return "".join(gs)
+    out, tot = [], 0
+    for g in gs:
+        if tot + larg(g) + 1 > orc:
+            break
+        out.append(g)
+        tot += larg(g)
+    return "".join(out).rstrip() + "…"
 
 
 def janela(linha, w, off):
-    """Recorte de w células da roda (linha + " • " repetida), a partir do caractere off."""
-    l = linha + " • "
+    """Recorte de w células da roda (linha + " • " repetida), a partir do grafema off."""
+    l = grafemas(linha + " • ")
     n = len(l)
     if n == 0:
         return ""
@@ -396,10 +477,15 @@ def alternar_pausa():
     return "pausado"
 
 
+_tem_termux = []
+
+
 def economia_estatica(cfg):
     """Modo economia: com a bateria baixa (e sem carregar) o letreiro vira páginas (não anima)."""
     e = cfg.get("ticker_economia", "auto")
-    if e == "0" or (e == "auto" and shutil.which("termux-open-url") is None):
+    if not _tem_termux:  # o PATH deste processo não muda; no WSL o which varre o PATH do Windows (~75 ms)
+        _tem_termux.append(shutil.which("termux-open-url") is not None)
+    if e == "0" or (e == "auto" and not _tem_termux[0]):
         return False
     try:
         with open(os.path.join(DIR_TICKER, "_energia")) as f:

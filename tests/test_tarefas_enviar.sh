@@ -64,7 +64,7 @@ grep -q "^act:email:$BP" <<<"$m" || falhou "o menu ⋯ da tarefa de topo deveria
 printf 'modo=menu:%s\n' "$BS" >"$UI"; m=$(tt --tarefas-lista | sed 's/\x1b\[[0-9;]*m//g')
 grep -q "^act:email:" <<<"$m" && falhou "subtarefa não tem ✉ (compartilha-se a mãe)"
 a=$(FZF_QUERY= tt --tarefa-acao email "act:email:$BP"); grep -q "execute(.*--tarefa-email-ui $BP)" <<<"$a" || falhou "a ação email deveria abrir a tela de envio: $a"
-grep -q '✉ Enviar tarefas por e-mail…' "$RAIZ/tt" || falhou 'o menu do 📋 deveria ter ✉ Enviar tarefas por e-mail…'
+grep -q '✉️ Enviar tarefas por e-mail…' "$RAIZ/tt" || falhou 'o menu do 📋 deveria ter ✉️ Enviar tarefas por e-mail…'
 passou 'botão ✉ só na tarefa de topo (menu ⋯) e no menu do 📋'
 
 # 6) sem compositor configurado e sem aerc/desktop: imprime o texto (não perde o trabalho)
