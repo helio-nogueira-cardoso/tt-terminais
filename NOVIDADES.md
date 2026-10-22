@@ -3,6 +3,13 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.5.3 · 21/10/2026
+- **🍎 Contas de IA no Mac não aparecem mais como "sem login" por engano:** no macOS o Claude Code guarda a credencial no Keychain, não no
+  `.credentials.json`. O `ia-conta listar`, a abertura da conta e o `ia-login --faltas` passam a reconhecer o login por lá (também por ssh), então
+  o `ia-login` deixa de cobrar logins de contas que já estão conectadas.
+- **Nome que não é conta não deixa perfil vazio:** `ia-conta rodar` (ou um nome que não existe) agora só avisa, sem criar a pasta de perfil
+  que o `ia-login` depois cobrava como login pendente.
+
 ## v2.5.2 · 21/10/2026
 - **📨 Modo relaxado libera as demandas de remetentes autorizados:** aceita mesmo quando o Graph entrega autenticação como `fail`, além dos casos sem cabeçalho. Necessário para mensagens legítimas do Felipe que o tenant reporta como não autenticadas.
 

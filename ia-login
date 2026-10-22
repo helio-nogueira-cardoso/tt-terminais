@@ -54,9 +54,23 @@ conf() { awk -v k="$1" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) } 
 
 # ───────────── lado da máquina ─────────────
 
+# Há login do Claude nesta pasta? No macOS a credencial fica no Keychain, não no .credentials.json
+# (mesma regra do tem_credencial do ia-conta: serviço "Claude Code-credentials[-<8 hex do sha256 da
+# pasta>]", só a existência, pelo caminho do login.keychain, que o ssh deixa fora da busca).
+tem_credencial() {
+  local dir=$1 svc='Claude Code-credentials' h
+  [[ -s $dir/.credentials.json ]] && return 0
+  [[ $(uname -s 2>/dev/null) == Darwin ]] && command -v security >/dev/null 2>&1 || return 1
+  if [[ $dir != "$BASE" ]]; then
+    if command -v shasum >/dev/null 2>&1; then h=$(printf %s "$dir" | shasum -a 256); else h=$(printf %s "$dir" | sha256sum); fi
+    svc+="-${h:0:8}"
+  fi
+  security find-generic-password -s "$svc" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1
+}
+
 email_claude() { # pasta → e-mail logado (vazio se não há login)
   local dir=$1 saida email
-  [[ -s $dir/.credentials.json ]] || return 0
+  tem_credencial "$dir" || return 0
   if [[ $dir == "$BASE" ]]; then saida=$(env -u CLAUDE_CONFIG_DIR "$CLAUDE_BIN" auth status --json 2>/dev/null)
   else saida=$(CLAUDE_CONFIG_DIR="$dir" "$CLAUDE_BIN" auth status --json 2>/dev/null); fi
   email=$(sed -n 's/^[[:space:]]*"email"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$saida" | head -n 1)
@@ -79,13 +93,13 @@ faltas() {
   local dir nome email apelido p esperado tem
   local -A email_de=() sem_cred=()
   if [[ -x $CLAUDE_BIN ]]; then
-    [[ -s $BASE/.credentials.json ]] && email_de[principal]=$(email_cache "$BASE")
+    tem_credencial "$BASE" && email_de[principal]=$(email_cache "$BASE")
     for dir in "$RAIZ"/*/; do
       dir=${dir%/}; [[ -d $dir && ! -L $dir ]] || continue
       nome=${dir##*/}
       [[ $nome =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || continue # travas não precisam de login
       case $nome in codex | kiro) continue ;; esac # não são perfis do Claude
-      if [[ -s $dir/.credentials.json ]]; then email_de[$nome]=$(email_cache "$dir"); else sem_cred[$nome]=1; fi
+      if tem_credencial "$dir"; then email_de[$nome]=$(email_cache "$dir"); else sem_cred[$nome]=1; fi
     done
     # Perfis sem credencial: entram com o e-mail que o cadastro dá ao apelido (se der).
     for nome in "${!sem_cred[@]}"; do

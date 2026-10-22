@@ -368,6 +368,9 @@ token renovasse. `ia-conta cadastro nomear <apelido|e-mail|provedor:e-mail> <nov
 `ia-conta cadastro esquecer <…>` tira a conta do cadastro. Duas contas locais com o mesmo par (a
 principal e um perfil logados no mesmo e-mail) são a mesma janela de uso: o `ia-rot` bloqueia as duas
 juntas e nunca passa a tarefa de uma para a outra.
+No macOS o Claude Code guarda a credencial no Keychain (serviço `Claude Code-credentials`, com
+`-<8 hex do sha256 da pasta>` nos perfis), não no `.credentials.json`: o `ia-conta` e o `ia-login` consultam
+só a existência dela no `login.keychain` (sem ler o segredo; funciona por ssh).
 
 **Logar o que falta, de um lugar só:** `ia-login` pergunta a cada máquina do tt o que falta (contas do
 Claude do cadastro que ela não tem, perfis sem credencial, Codex/Kiro instalados e deslogados),

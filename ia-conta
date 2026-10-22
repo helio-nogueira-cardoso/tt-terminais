@@ -42,12 +42,27 @@ nome_valido() {
 # Nomes que já têm outro significado na rotação ou nos subcomandos.
 nome_reservado() {
   case $1 in
-    principal | codex | kiro | abrir | adicionar | entrar | renomear | remover | descadastrar | listar | uso | cadastro | ajuda) return 0 ;;
+    principal | codex | kiro | abrir | adicionar | entrar | renomear | remover | descadastrar | listar | uso | cadastro | ajuda | retomar | rodar) return 0 ;;
   esac
   return 1
 }
 
 perfil() { printf '%s/%s' "$RAIZ" "$1"; }
+
+# Há login do Claude nesta pasta? No macOS o Claude Code guarda a credencial no Keychain (serviço
+# "Claude Code-credentials", mais "-<8 hex do sha256 da pasta>" com CLAUDE_CONFIG_DIR), não no
+# .credentials.json. Só a existência é consultada (sem -w, o segredo não sai), pelo caminho do
+# login.keychain: por ssh ele fica fora da lista de busca e a consulta sem caminho não acha nada.
+tem_credencial() {
+  local dir=$1 svc='Claude Code-credentials' h
+  [[ -s $dir/.credentials.json ]] && return 0
+  [[ $(uname -s 2>/dev/null) == Darwin ]] && command -v security >/dev/null 2>&1 || return 1
+  if [[ $dir != "$BASE" ]]; then
+    if command -v shasum >/dev/null 2>&1; then h=$(printf %s "$dir" | shasum -a 256); else h=$(printf %s "$dir" | sha256sum); fi
+    svc+="-${h:0:8}"
+  fi
+  security find-generic-password -s "$svc" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1
+}
 
 # Estes dados são independentes da conta e permanecem canônicos em ~/.claude. O link é criado
 # uma única vez por perfil; assim, uma conversa iniciada por qualquer conta pode ser retomada por
@@ -303,7 +318,7 @@ remover() {
   dir=$(perfil "$nome")
   [[ -d $dir ]] || die "não existe a conta '$nome' (veja: ia-conta listar)"
   recusar_em_uso "$nome"
-  if [[ -s $dir/.credentials.json && $sim != 1 ]]; then
+  if tem_credencial "$dir" && [[ $sim != 1 ]]; then
     email=$(claude_status_email "$dir") || email='e-mail desconhecido'
     [[ -t 0 ]] || die "a conta '$nome' está conectada ($email); confirme com: ia-conta remover $nome --sim"
     read -r -p "A conta '$nome' está conectada ($email). Remover? [s/N] " resp
@@ -361,9 +376,12 @@ rodar() {
     IA_CONTA=principal exec env -u CLAUDE_CONFIG_DIR "$CLAUDE_BIN" "$@"
   fi
   nome_valido "$nome" || die "nome inválido: use letras, números, - ou _"
-  compartilhar_dados "$nome"
+  # Confere antes de compartilhar_dados: um nome que não é conta (ia-conta rodar, um subcomando
+  # digitado errado) não pode deixar uma pasta de perfil vazia, que o ia-login cobraria como login.
+  nome_reservado "$nome" && die "'$nome' não é uma conta (veja: ia-conta listar)"
   dir=$(perfil "$nome")
-  [[ -s $dir/.credentials.json ]] || die "a conta '$nome' ainda não foi conectada; rode: ia-conta adicionar $nome"
+  tem_credencial "$dir" || die "a conta '$nome' ainda não foi conectada; rode: ia-conta adicionar $nome"
+  compartilhar_dados "$nome"
   exec env IA_CONTA="$nome" CLAUDE_CONFIG_DIR="$dir" "$CLAUDE_BIN" "$@"
 }
 
@@ -646,7 +664,7 @@ listar() {
         if [[ -n $email ]]; then estado='conectada'; else email='—'; estado='sem login'; fi ;;
       *)
         dir=$(pasta_claude "$c")
-        if [[ -s $dir/.credentials.json ]]; then
+        if tem_credencial "$dir"; then
           estado='conectada'
           email=$(claude_status_email "$( [[ $c == principal ]] || echo "$dir")") || email='—'
         elif [[ $c == principal && -x $CLAUDE_BIN ]]; then
@@ -773,7 +791,7 @@ opcoes() {
   for c in "${contas[@]}"; do [[ $c == principal ]] || ordem+=("$c"); done
   [[ ${contas[0]:-} == principal ]] && ordem+=(principal)
   for c in "${ordem[@]}"; do
-    case $c in principal | codex | kiro) ;; *) [[ -s $(perfil "$c")/.credentials.json ]] || continue ;; esac
+    case $c in principal | codex | kiro) ;; *) tem_credencial "$(perfil "$c")" || continue ;; esac
     p=$(provedor_de "$c"); email=$(email_local "$c")
     if [[ -n $email ]]; then
       [[ -n ${visto[$p:$email]:-} ]] && continue
