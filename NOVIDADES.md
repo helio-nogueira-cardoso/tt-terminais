@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.8.6 · 22/10/2026
+- **🔌 Ponte fechada não deixa cliente preso na outra máquina:** a ponte e o painel remoto passam a abrir uma conexão ssh própria, em vez de um canal da conexão compartilhada. No Tailscale SSH, fechar um canal dessa conexão não encerrava o tmux do outro lado, que ficava preso horas animando a barra para ninguém (eram 9 no PC da empresa). Agora fechar a ponte fecha a conexão, e o cliente de lá sai junto. Abrir uma ponte nova custa uns 0,1 a 0,3 s a mais; a pré-carregada já vem conectada. Os comandos rápidos seguem na conexão compartilhada.
+
 ## v2.8.3 · 22/10/2026
 - **⚡ Pré-carregamento sem pontes esquecidas:** um coordenador só por servidor tmux. Antes, no Mac, o mesmo servidor chegava por dois caminhos (/tmp e /private/tmp, e duas pastas temporárias), abria dois coordenadores e cada um preparava as suas pontes, passando do limite de 6. Sessões em espera deixadas por um coordenador que já morreu são recolhidas. Para a mesma sessão remota fica uma ponte ativada só: as cópias que ninguém está vendo fecham, e a sessão da outra máquina não é tocada. O `tt --precarregar status` volta a achar o coordenador também por ssh.
 

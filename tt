@@ -1845,6 +1845,12 @@ if [[ -n ${TT_REPO:-} ]]; then REPO_TT=$TT_REPO; else conf_em REPO_TT repo; fi
 SSH_OPC=(-o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new
   -o ControlMaster=auto -o "ControlPath=$HOME/.cache/tt-ssh-%C" -o ControlPersist=12h
   -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+# Conexão que segura uma tela (ponte, painel remoto): conexão própria, não um canal da mestra. No Tailscale SSH,
+# fechar um canal dentro da mestra (que segue aberta por 12 h) NÃO encerra o processo de lá: o tmux attach remoto
+# ficava preso para sempre, animando a barra para ninguém, quando a ponte daqui era fechada (ociosa, órfã,
+# repetida). Com conexão própria, fechar a ponte fecha a conexão e o cliente de lá sai. No ssh vale o primeiro
+# valor de cada opção, então estas vão na frente. Custa um aperto de mão (~0,1–0,3 s) ao abrir a ponte.
+SSH_OPC_TELA=(-o ControlPath=none -o ControlMaster=no "${SSH_OPC[@]}")
 # Comandos remotos rodam no shell não interativo de lá. No macOS (zsh) ele não tem o Homebrew no
 # PATH: nem tmux nem o bash novo que o tt exige (o /bin/bash de lá é o 3.2). Todo comando remoto
 # ganha esse PATH na frente; a instalação no macOS também o põe no ~/.zshenv (ver zshenv_bloco).
@@ -5203,7 +5209,7 @@ renomear_painel() {
 # desenha "_" no lugar de cada emoji (um por célula: 📋 vira "__"). O -u não depende do ambiente que a janela recebeu.
 cmd_ver() {
   if [[ $1 == . ]]; then echo "env -u TMUX $(q "$TT_TMUX_BIN") -u attach -t $(q "=$2")"
-  else echo "ssh -t $(q "${SSH_OPC[@]}") $(q "$1") $(q "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|${3:-}") tmux -u attach -t $(q "=$2")")"; fi
+  else echo "ssh -t $(q "${SSH_OPC_TELA[@]}") $(q "$1") $(q "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|${3:-}") tmux -u attach -t $(q "=$2")")"; fi
 }
 
 # Uma ponte não pode morrer junto com o ssh: se isso acontecia enquanto uma tela estava dentro
@@ -5263,7 +5269,7 @@ ponte() {
       ponte_registrar "$ponte" "$dest" "$id" "$srv" "$nome_atual"
     fi
     # Anexa pelo id quando o temos: o nome pode mudar enquanto a ponte está aberta ou reconecta.
-    ssh -t "${SSH_OPC[@]}" "$dest" \
+    ssh -t "${SSH_OPC_TELA[@]}" "$dest" \
       "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|$ponte") tmux -u attach -t $(q "${id:-=$nome_atual}")"
     st=$?
     # O attach terminou. Se a sessão sumiu no destino (fim normal: a sessão de lá foi fechada), a

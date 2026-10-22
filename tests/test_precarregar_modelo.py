@@ -307,6 +307,14 @@ class Heuristica(unittest.TestCase):
             for f in pastas:
                 f.rmdir()
 
+    def test_transporte_abre_conexao_propria_e_nao_canal_da_mestra(self):
+        with patch.object(pre.subprocess, "call", return_value=0) as call:
+            pre.main(["transporte", "u@pc", "t" * 32, "sessao", "", "maq|tt-pre-x", "180",
+                      "--ssh-args", "-o", "ControlMaster=auto", "-o", "ControlPath=/x/%C"])
+        args = call.call_args[0][0]
+        self.assertLess(args.index("ControlPath=none"), args.index("ControlPath=/x/%C"))
+        self.assertLess(args.index("ControlMaster=no"), args.index("ControlMaster=auto"))
+
     def test_expiracao_remove_espera_mas_nao_ponte_ativa(self):
         with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)):
             c = pre.Coordinator(Path(d))

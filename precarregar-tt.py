@@ -36,6 +36,7 @@ HERE = Path(__file__).resolve().parent
 CONF = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "tt"
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "tt/precarregamento"
 SSH_ARGS = []
+SSH_TELA = ["-o", "ControlPath=none", "-o", "ControlMaster=no"]  # no ssh vale o primeiro valor de cada opção
 REMOTE_PATH = os.environ.get("TT_PRE_PATH_REMOTO", 'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH; ')
 MAX_MESSAGE = 65536
 
@@ -856,7 +857,9 @@ def main(argv):
     if op in ("remoto", "confirmar"):
         return protocol.main(argv)
     if op == "transporte" and len(argv) == 7:
-        return subprocess.call(["ssh", "-tt", *SSH_ARGS, argv[1], remote_command("remoto", *argv[2:])])
+        # Conexão própria (não um canal da mestra do tt): no Tailscale SSH, fechar um canal da mestra não encerra o
+        # attach de lá, que ficava preso animando a barra para ninguém. A conexão nasce na preparação, não no clique.
+        return subprocess.call(["ssh", "-tt", *SSH_TELA, *SSH_ARGS, argv[1], remote_command("remoto", *argv[2:])])
     try:
         folder = runtime()
     except TmuxUnavailable:
