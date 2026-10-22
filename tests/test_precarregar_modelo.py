@@ -263,6 +263,50 @@ class Heuristica(unittest.TestCase):
                 self.assertEqual(tmux.call_count, 2)
                 self.assertEqual(tmux.call_args[0], ("kill-session", "-t", "=tt-pre-" + token[:16]))
 
+    def test_orfa_de_coordenador_morto_e_removida_e_de_vivo_fica(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)):
+            root = Path(d)
+            folder = root / "tt-pre-1-aaaaaaaaaaaaaaaa"; folder.mkdir()
+            vivo, morto = root / "tt-pre-1-bbbbbbbbbbbbbbbb", root / "tt-pre-1-cccccccccccccccc"
+            vivo.mkdir(); morto.mkdir(); (morto / "lock").touch()
+            c = pre.Coordinator(folder)
+            tokens = {"vivo": "b" * 32, "morto": "c" * 32, "sumido": "d" * 32}
+            owners = {"vivo": vivo.name, "morto": morto.name, "sumido": "tt-pre-1-dddddddddddddddd"}
+            lines = [pre.SEP.join(["tt-pre-" + tokens[k][:16], owners[k], tokens[k], "espera", "0"]) for k in tokens]
+            with open(vivo / "lock", "a") as trava:
+                pre.fcntl.flock(trava, pre.fcntl.LOCK_EX)
+                with patch.object(pre, "tmux", side_effect=[(0, "\n".join(lines)), (0, ""), (0, "")]) as tmux:
+                    c.reap_orphans()
+            mortas = [call[0][2] for call in tmux.call_args_list[1:]]
+            self.assertEqual(sorted(mortas), sorted(["=tt-pre-" + tokens["morto"][:16], "=tt-pre-" + tokens["sumido"][:16]]))
+
+    def test_ponte_ativa_repetida_fecha_so_as_que_ninguem_ve(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)):
+            c = pre.Coordinator(Path(d))
+            a, b = "a" * 32, "b" * 32
+            rows = [("tt-pre-1", "ativa", a, "u@pc", "0", "100"), ("tt-pre-2", "ativa", a, "u@pc", "0", "300"),
+                    ("tt-pre-3", "ativa", a, "u@pc", "1", "50"), ("tt-pre-4", "ativa", b, "u@pc", "0", "10"),
+                    ("tt-pre-5", "ativa", b, "u@pc", "0", "20"), ("tt-pre-6", "espera", b, "u@pc", "0", "5"),
+                    ("comum", "ativa", b, "u@pc", "0", "1")]
+            out = "\n".join(pre.SEP.join(r) for r in rows)
+            with patch.object(c, "resolve_machine", return_value="pc"), \
+                    patch.object(pre, "tmux", side_effect=[(0, out)] + [(0, "")] * 5) as tmux:
+                c.dedupe_active()
+            mortas = sorted(call[0][2] for call in tmux.call_args_list[1:])
+            # a: fica a anexada (3), fecham 1 e 2; b: fica a mais recente (5), fecha 4; espera e não tt-pre ficam
+            self.assertEqual(mortas, ["=tt-pre-1", "=tt-pre-2", "=tt-pre-4"])
+
+    def test_um_coordenador_por_servidor_mesmo_com_tt_rt_e_atalho_de_tmp(self):
+        with tempfile.TemporaryDirectory() as d:
+            real = Path(d) / "real"; real.mkdir(); (Path(d) / "atalho").symlink_to(real)
+            pastas = set()
+            for sock, rt in ((str(real / "default"), "/tmp"), (str(Path(d) / "atalho" / "default"), "/var/folders/x/T/")):
+                with patch.dict(pre.os.environ, {"TMUX": sock + ",1,0", "TT_RT": rt}):
+                    pastas.add(pre.runtime())
+            self.assertEqual(len(pastas), 1)
+            for f in pastas:
+                f.rmdir()
+
     def test_expiracao_remove_espera_mas_nao_ponte_ativa(self):
         with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)):
             c = pre.Coordinator(Path(d))

@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.8.3 · 22/10/2026
+- **⚡ Pré-carregamento sem pontes esquecidas:** um coordenador só por servidor tmux. Antes, no Mac, o mesmo servidor chegava por dois caminhos (/tmp e /private/tmp, e duas pastas temporárias), abria dois coordenadores e cada um preparava as suas pontes, passando do limite de 6. Sessões em espera deixadas por um coordenador que já morreu são recolhidas. Para a mesma sessão remota fica uma ponte ativada só: as cópias que ninguém está vendo fecham, e a sessão da outra máquina não é tocada. O `tt --precarregar status` volta a achar o coordenador também por ssh.
+
 ## v2.8.2 · 22/10/2026
 - **📰 Letreiro mais leve:** quando a velocidade do letreiro é mais lenta que uma coluna por quadro, o tt deixa de redesenhar a barra nos quadros em que nada muda. Exemplo: 20 quadros por segundo com o texto andando 2 colunas por segundo viram 2 quadros, com a mesma tela, no mesmo instante, em todos os clientes. Menos processos por terminal e menos tráfego nas pontes. Dica: para o texto deslizar contínuo, use uma coluna por quadro (por exemplo, velocidade 0,125 s com 8 quadros por segundo).
 

@@ -140,7 +140,10 @@ def runtime():
         rc, socket_name = tmux("display-message", "-p", "#{socket_path}")
         if rc:
             raise TmuxUnavailable("tmux indisponível")
-    key = "|".join([str(Path.home()), os.environ.get("TT_RT", ""), socket_name.strip(), str(HERE)])
+    # Um coordenador por servidor tmux: o caminho REAL do socket (no macOS /tmp é /private/tmp, e o mesmo
+    # servidor chegava por dois nomes) e sem o TT_RT, que varia com quem chama (/tmp ou o TMPDIR do
+    # macOS). Antes, cada variação abria outro coordenador, com limite próprio e pontes repetidas.
+    key = "|".join([str(Path.home()), os.path.realpath(socket_name.strip()), str(HERE)])
     digest = hashlib.sha256(key.encode()).hexdigest()[:16]
     # AF_UNIX no macOS aceita ~104 bytes: prefere /tmp curto. No Android essa
     # pasta não é gravável; o TMPDIR privado do Termux também cabe no socket.
@@ -674,14 +677,51 @@ class Coordinator:
         self.next_scan = min(self.next_scan, time.monotonic() + .35)
         return {"ok": True}
 
+    def owner_alive(self, owner):
+        """Outro coordenador está vivo se segura a trava da pasta dele (mesma raiz, nome tt-pre-UID-…)."""
+        if owner == self.folder.name:
+            return False  # este acabou de assumir: o que é dele em espera ficou de uma vida anterior
+        if not re.fullmatch(r"tt-pre-[0-9]+-[a-f0-9]{16}", owner or ""):
+            return True  # marca desconhecida: não é nossa para julgar
+        try:
+            with open(self.folder.parent / owner / "lock", "a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(lock, fcntl.LOCK_UN)
+                return False
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return True
+
     def reap_orphans(self):
         rc, out = tmux("list-sessions", "-F", SEP.join([
             "#{session_name}", "#{@tt_pre_owner}", "#{@tt_pre_token}", "#{@tt_pre_estado}", "#{session_attached}"]))
         for line in out.splitlines() if not rc else []:
             c = line.split(SEP)
-            if (len(c) == 5 and c[1] == self.folder.name and c[3:] == ["espera", "0"]
+            if (len(c) == 5 and c[3:] == ["espera", "0"] and not self.owner_alive(c[1])
                     and re.fullmatch(r"[a-f0-9]{32}", c[2]) and c[0] == "tt-pre-" + c[2][:16]):
                 tmux("kill-session", "-t", "=" + c[0])
+
+    def dedupe_active(self):
+        """Uma ponte ativada por sessão remota: as cópias que ninguém vê (de cliques depois de o coordenador
+        esquecer a anterior) fecham, e só a conexão daqui se encerra. Fica a anexada ou, sem nenhuma, a de
+        uso mais recente; as ociosas há 30 min seguem com fechar_pontes_ociosas do tt."""
+        rc, out = tmux("list-sessions", "-F", SEP.join([
+            "#{session_name}", "#{@tt_pre_estado}", "#{@tt_pre_id}", "#{@ponte}", "#{session_attached}",
+            "#{?session_last_attached,#{session_last_attached},#{session_created}}"]))
+        groups = collections.defaultdict(list)
+        for line in out.splitlines() if not rc else []:
+            c = line.split(SEP)
+            if len(c) != 6 or c[1] != "ativa" or not re.fullmatch(r"[a-f0-9]{32}", c[2]) or not c[0].startswith("tt-pre-"):
+                continue
+            machine = self.resolve_machine(c[3]) or c[3]
+            groups[(machine, c[2])].append((c[4] != "0", int(c[5]) if c[5].isdigit() else 0, c[0]))
+        for sessions in groups.values():
+            sessions.sort(reverse=True)  # anexadas primeiro, depois a mais recente
+            for attached, _, name in sessions[1:]:
+                if not attached:
+                    tmux("kill-session", "-t", "=" + name)
+                    self.metrics["pontes_repetidas"] += 1
 
     def check_wake(self, now, wall):
         # CLOCK_MONOTONIC pode parar durante o suspend; compara também o relógio civil.
@@ -719,6 +759,7 @@ class Coordinator:
                                 break  # instalação nova: próximo evento inicia o código novo
                             self.scan_clients()
                             self.maintain()
+                            self.dedupe_active()
                             self.next_scan = now + (1 if self.requests else 10)
                         ready, _, _ = select.select([listener], [], [], .2 if self.requests else .5)
                         drained = 0
