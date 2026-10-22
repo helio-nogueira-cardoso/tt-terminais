@@ -84,7 +84,9 @@ Para retorno manual quando o navegador está fora do WSL, use o auxiliar
 à tentativa original, validando destino e state. O Figma documenta validade de 30 s do código:
 prepare o auxiliar antes de autorizar e cole diretamente no terminal, sem passar pelo chat. Com tt, `--sessao NOME` lê o link OAuth da
 sessão sem pedir que o usuário o copie. Isso é um auxiliar Python, não uma entrada manual nativa
-comprovada do Kiro. Siga o procedimento e confira o resultado em
+comprovada do Kiro. O ensaio com navegador Mac, entrega imediata assistida e Kiro 2.33.1 no WSL
+confirmou o MCP carregado; duas entregas demoradas pelo chat receberam invalid_grant.
+Siga o procedimento e confira o resultado em
 [acesso e autenticação](references/acesso-autenticacao.md). Se o navegador não abrir,
 use a URL que o cliente apresentar; não invente
 callback, não copie tokens de outro agente. Se isso bloquear, o fluxo `ler URL` continua disponível

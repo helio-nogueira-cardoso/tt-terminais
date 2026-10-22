@@ -21,8 +21,12 @@ Ambiente: macOS, Kiro CLI 2.32.0, terminal persistente do tt.
   mostrou `figma requires OAuth authentication. Use /mcp to see the auth link`. O comando `/mcp`
   exibiu uma URL nativa `https://www.figma.com/oauth/mcp?...`. Nenhum Claude foi usado para gerar
   ou intermediar esse link. O retorno era para localhost, com listener ativo naquele momento.
-- Os testes locais do script passaram sem token e sem chamadas ao Figma. O uso real do MCP do
-  Figma continua sendo uma validação separada; não registrar como concluído por causa do login Kiro.
+- O MCP Figma carregou no Mac após OAuth pelo navegador (`figma loaded in 88.84 s`).
+- No teste posterior entre navegador Mac e Kiro 2.33.1 no WSL, o auxiliar entregou a URL de
+  retorno e o Kiro confirmou `figma-retorno-manual loaded in 268.56 s`. Esse é o aceite observado
+  da inicialização autenticada pelo fluxo de retorno manual assistido; não houve uso de Claude.
+- Os testes locais do script passaram sem token e sem chamadas de leitura ao Figma. Carregar
+  o MCP confirma a inicialização autenticada, não a fidelidade de uma consulta a um arquivo específico.
 
 A causa imediata do erro do Safari foi a ausência de um receptor local. Não foi possível determinar
 por que o processo anterior terminou: encerramento do terminal, timeout e execução em outra máquina
@@ -185,10 +189,10 @@ execução headless por outro agente. O usuário pode abrir o link mostrado na p
 Nesta validação, o link usava retorno HTTP para `127.0.0.1` com porta temporária, e havia um
 listener ativo ao abrir o navegador. Mantenha a sessão Kiro aberta até concluir a autorização.
 
-**O que isso comprova:** apresentação nativa da URL de autorização, adequada quando o navegador
-não abre automaticamente. **O que ainda não comprova:** colar uma URL de callback de volta no
-Kiro após falha do receptor, equivalência completa ao fluxo manual do Claude, OAuth Figma
-concluído ou leitura real de um arquivo. Não confunda esses resultados.
+**O que essa observação isolada comprova:** apresentação nativa da URL de autorização, adequada
+quando o navegador não abre automaticamente. Ela não comprova uma entrada manual nativa no Kiro,
+equivalência ao fluxo do Claude ou leitura de arquivo. O aceite posterior com o auxiliar e o
+Kiro rodando no WSL está registrado na seção de retorno manual abaixo.
 
 `kiro-cli chat --legacy-ui` foi usado somente para inspecionar a interface sem migrar configurações
 para V3. O cliente avisou que Classic seria descontinuado; não torne essa opção uma recomendação
@@ -267,9 +271,27 @@ em resposta 302. Eles usam códigos sintéticos e não fazem chamadas ao Figma.
 
 Na rodada de 22/10/2026, foi preparado um workspace temporário em `empresa` (WSL, Kiro 2.33.1),
 com configuração Figma somente nesse workspace e navegador no Mac. O login Organização do Kiro
-no WSL foi concluído. A autorização do MCP e a entrega manual estão em verificação; só atualizar
-este registro como sucesso quando o próprio Kiro confirmar o servidor carregado após a entrega.
-Não houve instalação permanente da skill no WSL nessa preparação.
+no WSL foi concluído. Nas duas primeiras tentativas, entregar o retorno após passagem pelo chat
+resultou em `invalid_grant`. Na terceira, o observador temporário já estava preparado; ao copiar
+a URL final, ele validou a tentativa e a entregou via SSH ao mesmo `entregar()` do auxiliar no WSL.
+O código e o token não passaram por Claude nem foram trocados por outro cliente MCP.
+
+**Resultado confirmado pelo Kiro:** `figma-retorno-manual loaded in 268.56 s`.
+Após encerrar e reabrir o Kiro no mesmo workspace WSL, o servidor carregou em **2,46 s**, sem
+nova autorização. A persistência da autenticação ficou confirmada pelo cliente; não significa
+que o token seja permanente ou dispense renovação futura.
+
+Esse tempo de 268,56 s é o carregamento completo, incluindo a espera humana, e demonstra que a tentativa
+pode ficar aberta por minutos. Os 30 s referem-se ao código emitido **após** conceder acesso.
+A entrega imediata evitou depender da latência da conversa com o agente. A confirmação `loaded`
+é o aceite da inicialização autenticada; não foi feita chamada de leitura a arquivo como parte
+deste teste de autenticação.
+
+O transporte do auxiliar foi exercitado em stdin oculto nas duas entregas iniciais e, na entrega
+que concluiu o OAuth, via observador de clipboard/SSH para reduzir a demora. Isso valida a entrega
+manual assistida, não uma nova função nativa de colar callbacks no Kiro. Uma pessoa que cole
+diretamente no auxiliar deve preparar o campo antes de autorizar e respeitar os mesmos 30 s.
+Não houve instalação permanente da skill no WSL; os arquivos do ensaio ficaram em workspace temporário.
 
 ## Validação do acesso Figma sem desperdício
 
@@ -343,9 +365,10 @@ python3 skills/figma-cota/scripts/figma_rest.py resolver 'https://www.figma.com/
 make test
 ```
 
-Os testes de script usam cache sintético e respostas simuladas; não fazem login real nem gastam
-cota. A recuperação do login Organização foi verificada com o usuário. A listagem MCP foi
-verificada após esse login; a leitura real pelo MCP do Figma deve ser registrada separadamente.
+Os 14 testes de script usam cache sintético e receptor HTTP local; não fazem login real nem
+consomem cota de leitura. O ensaio interativo confirmou o login Organização e a inicialização
+autenticada do MCP Figma no Mac e no WSL, com as diferenças descritas acima. Uma leitura real
+de arquivo pelo MCP deve ser registrada separadamente. O livro local não afirma saldo oficial.
 
 ## Fontes
 
