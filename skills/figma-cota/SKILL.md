@@ -76,7 +76,11 @@ Ou mescle em `~/.kiro/settings/mcp.json`, preservando os outros servidores:
 ```
 
 Configuração não equivale a autenticação: conclua login do Kiro e OAuth do Figma pelo fluxo
-oferecido pelo cliente. Se o navegador não abrir, use a URL que o cliente apresentar; não invente
+oferecido pelo cliente. No Kiro CLI 2.32.0, foi verificado: ele avisa que o Figma exige OAuth e
+`/mcp` apresenta o link nativo `https://www.figma.com/oauth/mcp?...`, sem depender do Claude.
+Mantenha essa sessão aberta; o retorno do link verificado depende de um receptor local ativo.
+Isso não valida colar o callback manualmente após uma falha. Se o navegador não abrir,
+use a URL que o cliente apresentar; não invente
 callback, não copie tokens de outro agente. Se isso bloquear, o fluxo `ler URL` continua disponível
 pelo script REST/cache. Não alegue equivalência de autenticação com o Claude sem testar.
 

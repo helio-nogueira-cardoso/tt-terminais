@@ -17,6 +17,10 @@ Ambiente: macOS, Kiro CLI 2.32.0, terminal persistente do tt.
 - Depois disso, `kiro-cli mcp list` funcionou e listou `figma` no agente `kiro_default`.
 - `kiro-cli mcp status --name figma` exibiu configuração habilitada. Esse comando não comprovou
   sessão OAuth do Figma, acesso a arquivo ou execução de ferramenta.
+- Em uma sessão interativa `kiro-cli chat --legacy-ui`, o Kiro detectou o Figma sem OAuth e
+  mostrou `figma requires OAuth authentication. Use /mcp to see the auth link`. O comando `/mcp`
+  exibiu uma URL nativa `https://www.figma.com/oauth/mcp?...`. Nenhum Claude foi usado para gerar
+  ou intermediar esse link. O retorno era para localhost, com listener ativo naquele momento.
 - Os testes locais do script passaram sem token e sem chamadas ao Figma. O uso real do MCP do
   Figma continua sendo uma validação separada; não registrar como concluído por causa do login Kiro.
 
@@ -165,8 +169,31 @@ servidores, fazendo backup antes e sem substituir o arquivo por apenas esse exem
 `mcp list` informa agentes e escopos. Uma entrada disponível para `kiro_default` não significa que
 ela está disponível em todos os agentes personalizados: confira o agente usado na implementação.
 
-Na sessão do Kiro, use o fluxo de autenticação MCP que essa versão oferecer. Observe `/help` e
-as opções de gerenciamento MCP do próprio cliente; não prescreva comandos de versões futuras.
+### URL nativa de autenticação do MCP Figma: verificada
+
+Na sessão interativa do Kiro CLI 2.32.0, o cliente detectou que o Figma exigia OAuth e instruiu:
+`figma requires OAuth authentication. Use /mcp to see the auth link`.
+Ao digitar `/mcp`, a seção `figma` exibiu:
+
+```text
+figma requires OAuth authentication. Follow this link to proceed:
+https://www.figma.com/oauth/mcp?<parâmetros temporários omitidos>
+```
+
+Essa é uma URL produzida pelo próprio cliente MCP do Kiro. Não depende do Claude nem de
+execução headless por outro agente. O usuário pode abrir o link mostrado na própria sessão.
+Nesta validação, o link usava retorno HTTP para `127.0.0.1` com porta temporária, e havia um
+listener ativo ao abrir o navegador. Mantenha a sessão Kiro aberta até concluir a autorização.
+
+**O que isso comprova:** apresentação nativa da URL de autorização, adequada quando o navegador
+não abre automaticamente. **O que ainda não comprova:** colar uma URL de callback de volta no
+Kiro após falha do receptor, equivalência completa ao fluxo manual do Claude, OAuth Figma
+concluído ou leitura real de um arquivo. Não confunda esses resultados.
+
+`kiro-cli chat --legacy-ui` foi usado somente para inspecionar a interface sem migrar configurações
+para V3. O cliente avisou que Classic seria descontinuado; não torne essa opção uma recomendação
+permanente. Na interface atual do usuário, confira `/help` e a rota MCP equivalente.
+
 `login --use-device-flow` documentado acima resolve o login do Kiro, não garante que o servidor
 Figma ofereça device flow no seu OAuth.
 
