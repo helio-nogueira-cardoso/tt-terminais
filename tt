@@ -4480,8 +4480,9 @@ email_checkmail_migrar() {
 # Abas do aerc: ele desenha a barra sempre a partir da primeira aba e não rola, então com muitas
 # contas e mensagens abertas as do fim nem aparecem. A rolagem fica nos atalhos: a aba atual vai
 # sempre para a ponta esquerda (sempre à vista). Ctrl-n/Ctrl-p giram a barra como um carrossel;
-# Alt-1..9 vão direto à conta N (ordem do accounts.conf); Alt-0 lista todas as abas (contas e
-# mensagens) com busca. O :move-tab do aerc troca duas abas de lugar; repetido com +1/-1 ele
+# 1..9 (ou Alt-1..9) vão direto à conta N (ordem do accounts.conf); 0 (ou Alt-0) lista todas as abas
+# (contas e mensagens) com busca. Os dígitos sozinhos estão livres na lista e na leitura e valem em
+# qualquer terminal (Option do Mac sem Meta, Alt difícil no celular). O :move-tab do aerc troca duas abas de lugar; repetido com +1/-1 ele
 # "borbulha" a aba atual até a ponta sem desordenar as outras (60 = folga para o número de abas).
 # A aba nova (mensagem aberta, :term) entra no fim depois que o aerc a monta, sem aviso: duas ondas
 # em segundo plano (:menu -b, que executa uma linha por comando) a trazem para a frente; se a aba
@@ -4503,8 +4504,10 @@ aerc_binds_abas() { # seção: atalhos de abas daquela seção do binds.conf
     [[ -z $a || $a == *"'"* ]] && continue
     ((++n > 9)) && break
     echo "<A-$n> = :change-tab '$a'<Enter>${frente}"
+    echo "$n = :change-tab '$a'<Enter>${frente}"
   done < <(aerc_abas_contas)
   echo '<A-0> = :change-tab<space>'
+  echo '0 = :change-tab<space>'
 }
 # binds.conf: bloco do tt entre marcadores. q/Q saem na hora (o título do popup diz "q fecha") e
 # ações comuns ganham teclas fáceis, na lista e na leitura da mensagem. No fim, os binds por conta
@@ -15886,8 +15889,8 @@ Escrever	e / v	na revisão: voltar a editar / ver como vai ficar
 Escrever	Ctrl+x	linha de comando do aerc dentro da mensagem (ex.: :attach, :cc)
 Contas	F2  ou  botão 👤	contas de e-mail: cadastrar, descadastrar, testar, assinatura, propagar (Esc volta)
 Contas	Ctrl+n / Ctrl+p	próxima / anterior aba (contas ▣ e mensagens ✉); a aba atual fica sempre na ponta esquerda e a barra gira
-Contas	Alt+1 … Alt+9	ir direto à conta 1…9 (ordem das contas), mesmo fora da barra
-Contas	Alt+0	lista de todas as abas: digite um pedaço do nome, Tab completa, Enter vai
+Contas	1 … 9  ou  Alt+1 … Alt+9	ir direto à conta 1…9 (ordem das contas), mesmo fora da barra
+Contas	0  ou  Alt+0	lista de todas as abas: digite um pedaço do nome, Tab completa, Enter vai
 Ajuda	Ctrl+r	redesenhar a tela (se aparecer algo estranho)
 Ajuda	?  ou  botão ?	esta tela (Esc, q ou o botão de novo fecha; os botões do rodapé valem com ela aberta)
 AT

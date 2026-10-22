@@ -57,6 +57,7 @@ printf '[Pessoal]\nsource = maildir:///x\n\n[Firma X]\nsource = maildir:///y\n' 
 roda
 [[ $(grep '^tab-title-account=' "$C") == 'tab-title-account=▣ {{.Account}}{{if .Unread}} {{.Unread}}{{end}}' ]] || falhou 'título antigo do tt não migrou'
 grep -q "^<A-1> = :change-tab 'Pessoal'<Enter>:move-tab -1" "$B" && grep -q "^<A-2> = :change-tab 'Firma X'<Enter>" "$B" || falhou 'Alt-N não segue as contas do accounts.conf'
+grep -q "^1 = :change-tab 'Pessoal'<Enter>:move-tab -1" "$B" && grep -q "^2 = :change-tab 'Firma X'<Enter>" "$B" && grep -q '^0 = :change-tab<space>' "$B" || falhou 'dígitos 0..9 (sem Alt) ausentes'
 sed -i.x 's/^tab-title-account=.*/tab-title-account={{.Account}} meu/' "$C"; rm -f "$C.x"; roda
 grep -q '^tab-title-account={{.Account}} meu$' "$C" || falhou 'título de aba do dono foi sobrescrito'
 rm -f "$HOME/.config/aerc/accounts.conf"; cp "$T/c.bak" "$C"; roda
