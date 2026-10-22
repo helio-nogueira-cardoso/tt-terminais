@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.6.2 · 22/10/2026
+- **📧 Fim do aviso vermelho do aerc nas contas Graph:** o espelho do Outlook deixou de apagar e refazer a pasta a cada sync. Cada mensagem mantém o mesmo arquivo; só a marca de lida e o conteúdo mudam quando o servidor muda, e sai só o que sumiu dele. Acaba o `could not read previous flags … key …`, as marcas do aerc (sinalizada, respondida) ficam e o sync não regrava o que não mudou.
+
 ## v2.6.1 · 22/10/2026
 - **📧 Lida no aerc vale no Outlook (contas Graph):** marcar uma mensagem como lida ou não lida no aerc chega ao servidor no próximo sync, antes de a pasta ser refeita. Antes a marcação sumia na volta seguinte e a mensagem reaparecia como não lida. Vai pela API REST do Outlook (no Graph o app padrão do tt só lê); sem permissão, avisa e a marcação fica só no cliente. A primeira volta depois de atualizar só registra o estado, sem enviar nada.
 

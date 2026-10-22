@@ -1426,8 +1426,8 @@ def graph_devolver_lidos(c, mudancas):
 
 def graph_sync(c, base, limite, completo=False):
     """Espelha o INBOX como maildir; no modo completo, também Enviados/Lixeira/Rascunhos/Spam/
-    Arquivo. Cada pasta é reconstruída do servidor a cada sync (o id do Graph é a verdade: evita
-    duplicar quando o cliente renomeia arquivos ao marcar lido/arquivar)."""
+    Arquivo. O id do Graph é a verdade e dá o nome do arquivo: a pasta é atualizada no lugar, sem
+    duplicar quando o cliente renomeia arquivos ao marcar lido/arquivar."""
     from email.message import EmailMessage
     from email.utils import formataddr, format_datetime
     from datetime import datetime
@@ -1464,16 +1464,24 @@ def graph_sync(c, base, limite, completo=False):
             if e.code == 404:   # pasta inexistente nesta conta: ignora
                 continue
             raise
-        # Reconstrói a pasta (só é lida pelo cliente com cur/new/tmp; limpar evita duplicatas).
+        # Atualiza a pasta no lugar: cada mensagem mantém arquivo e nome (a "key" do aerc), só a flag S e o
+        # conteúdo mudam quando o servidor muda, e sai só o que sumiu dele. Refazer tudo a cada volta fazia o
+        # aerc perder a key ("could not read previous flags") e as outras flags (F, R) que ele grava.
+        locais = {}
         for sub in ("cur", "new", "tmp"):
             d = os.path.join(destino, sub)
-            if os.path.isdir(d):
-                for f in os.listdir(d):
+            os.makedirs(d, exist_ok=True)
+            if sub == "tmp":
+                continue
+            for arq in os.listdir(d):
+                base_nome = arq.partition(":2,")[0]
+                if base_nome in locais:  # duplicata (versão antiga, cópia do cliente): fica a primeira
                     try:
-                        os.remove(os.path.join(d, f))
+                        os.remove(os.path.join(d, arq))
                     except OSError:
                         pass
-            os.makedirs(d, exist_ok=True)
+                    continue
+                locais[base_nome] = (sub, arq)
         manifesto = {}
         for m in mensagens:
             ident = m.get("id", "")
@@ -1505,12 +1513,37 @@ def graph_sync(c, base, limite, completo=False):
             body = m.get("body") or {}
             mensagem.set_content(body.get("content", m.get("bodyPreview", "")),
                                  subtype="html" if body.get("contentType", "").lower() == "html" else "plain")
+            dados = mensagem.as_bytes()
+            sub, arq = locais.pop(nome, (None, None))
+            if sub is None:  # mensagem nova
+                dst = os.path.join(destino, "cur", nome + ":2,S") if lido else os.path.join(destino, "new", nome)
+            else:
+                atual = os.path.join(destino, sub, arq)
+                flags = "".join(sorted(set(arq.partition(":2,")[2]) - {"S"} | ({"S"} if lido else set())))
+                if sub == "new" and not lido:
+                    dst = atual
+                else:  # lida sai de new/; em cur/ só a flag S muda, as do cliente ficam
+                    dst = os.path.join(destino, "cur", nome + ":2," + flags)
+                if dst != atual:
+                    os.replace(atual, dst)
+                try:
+                    with open(dst, "rb") as f:
+                        igual = f.read() == dados
+                except OSError:
+                    igual = False
+                if igual:
+                    total += 1
+                    continue
             tmp = os.path.join(destino, "tmp", nome)
-            dst = os.path.join(destino, "cur", nome + ":2,S") if lido else os.path.join(destino, "new", nome)
             with open(tmp, "wb") as f:
-                f.write(mensagem.as_bytes())
+                f.write(dados)
             os.replace(tmp, dst)
             total += 1
+        for sub, arq in locais.values():  # sumiu do servidor (apagada, movida ou além do teto)
+            try:
+                os.remove(os.path.join(destino, sub, arq))
+            except OSError:
+                pass
         tmp = os.path.join(destino, GRAPH_MANIFESTO + ".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(manifesto, f)

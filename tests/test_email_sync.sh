@@ -298,7 +298,7 @@ m.graph_sync({}, base, 50)
 assert dict(patches) == {"A/1": True, "B:2": False}, patches
 assert servidor == {"A/1": True, "B:2": False, "C": False}, servidor
 assert os.path.exists(os.path.join(inbox, "cur", "A_1:2,S")), "A/1 devia voltar lida"
-assert os.path.exists(os.path.join(inbox, "new", "B_2")), "B:2 devia voltar não lida"
+assert os.path.exists(os.path.join(inbox, "cur", "B_2:2,")), "B:2 devia seguir não lida, no mesmo arquivo"
 patches.clear(); m.graph_sync({}, base, 50)
 assert patches == [], "sem mudança local não há PATCH: %r" % patches
 # sem permissão de escrita: avisa, não quebra o sync e o arquivo volta como o servidor diz
@@ -306,9 +306,39 @@ status[0] = 403
 os.rename(os.path.join(inbox, "new", "C"), os.path.join(inbox, "cur", "C:2,S"))
 m.graph_sync({}, base, 50)
 assert len(patches) == 1 and servidor["C"] is False, (patches, servidor)
-assert os.path.exists(os.path.join(inbox, "new", "C")), "sem permissão, C segue como no servidor"
+assert os.path.exists(os.path.join(inbox, "cur", "C:2,")), "sem permissão, C segue não lida como no servidor"
 PY
 passou 'Graph: lida/não lida do cliente volta ao servidor (PATCH IsRead no Outlook REST); 1ª volta e sem mudança não enviam; 403 não quebra'
+
+# Pasta atualizada no lugar: o nome do arquivo (a key do aerc) não muda entre syncs, flags do cliente
+# (F, R) ficam, lida no servidor só liga o S, conteúdo novo é regravado no mesmo nome e o que sumiu sai.
+python3 - "$(dirname "$0")/../email-tt.py" "$T/graphlugar" <<'PY' || falhou 'graph_sync: a pasta não foi atualizada no lugar'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("emailtt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+base = sys.argv[2]; inbox = os.path.join(base, "INBOX")
+servidor = {"A": {"isRead": False, "subject": "a"}, "B": {"isRead": True, "subject": "b"}, "C": {"isRead": False, "subject": "c"}}
+m.graph_get = lambda c, caminho: {"value": [dict(v, id=i, **{"from": {"emailAddress": {"address": "x@y"}}}) for i, v in servidor.items()]}
+m.outlook_marcar_lido = lambda c, mid, lido: 200
+def arquivos():
+    return sorted(sub + "/" + a for sub in ("cur", "new") for a in os.listdir(os.path.join(inbox, sub)))
+m.graph_sync({}, base, 50)
+assert arquivos() == ["cur/B:2,S", "new/A", "new/C"], arquivos()
+ino = {a: os.stat(os.path.join(inbox, a)).st_ino for a in arquivos()}
+os.rename(os.path.join(inbox, "cur", "B:2,S"), os.path.join(inbox, "cur", "B:2,FRS"))  # aerc: sinalizada e respondida
+os.rename(os.path.join(inbox, "new", "C"), os.path.join(inbox, "cur", "C:2,"))        # aerc viu, não leu
+m.graph_sync({}, base, 50)
+assert arquivos() == ["cur/B:2,FRS", "cur/C:2,", "new/A"], arquivos()
+assert os.stat(os.path.join(inbox, "new", "A")).st_ino == ino["new/A"], "sem mudança, o arquivo não pode ser regravado"
+servidor["A"]["isRead"] = True; servidor["B"]["subject"] = "b editado"; del servidor["C"]
+m.graph_sync({}, base, 50)
+assert arquivos() == ["cur/A:2,S", "cur/B:2,FRS"], arquivos()
+assert "Subject: b editado" in open(os.path.join(inbox, "cur", "B:2,FRS"), encoding="utf-8").read(), "conteúdo novo no mesmo nome"
+open(os.path.join(inbox, "new", "A"), "w").write("cópia velha")  # duplicata de outra versão
+m.graph_sync({}, base, 50)
+assert len([a for a in arquivos() if a.split("/")[1].startswith("A")]) == 1, arquivos()
+PY
+passou 'Graph: pasta atualizada no lugar (nome estável, flags do cliente preservadas, conteúdo regravado, sumida sai, duplicata some)'
 
 # --- Liga/desliga depois do cadastro (o botão 🔄 da tela de contas chama isto) -------------------
 "$TT" --email-sync-local Online 1 >/dev/null || falhou 'ligar sync local numa conta existente'
