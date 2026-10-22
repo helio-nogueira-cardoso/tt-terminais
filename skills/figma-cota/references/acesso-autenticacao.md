@@ -213,6 +213,25 @@ OAuth, incluindo PKCE. O auxiliar valida `state`, host, porta e caminho da mesma
 de conectar. Não segue redirecionamentos, não usa proxy, não mostra a URL recebida e não grava
 códigos ou tokens em arquivo. Em falha de rede, não repete uma entrega potencialmente consumida.
 
+### Prazo do código e resultado das tentativas
+
+O [Figma documenta validade de **30 segundos** para o código de autorização](https://developers.figma.com/docs/rest-api/oauth-apps/).
+A troca por token precisa ocorrer nessa janela após a autorização. O tempo de toda a tentativa
+não mede a idade exata do código, mas esperar para entregar o callback pelo chat é inadequado.
+Deixe o auxiliar aguardando **antes** de autorizar, e cole diretamente no terminal logo após copiar.
+
+Duas entregas reais no WSL chegaram ao receptor HTTP, mas o Kiro recebeu `invalid_grant` do Figma.
+Os carregamentos encerraram cerca de 459 s e 99 s após seu início. Isso não demonstra falha de
+transporte do callback nem prova sozinho expiração: a evidência é entrega HTTP aceita, seguida de
+recusa da troca por token. A validade curta torna atraso uma hipótese forte a testar com entrega imediata.
+Não registre o fluxo completo como validado só porque o auxiliar recebeu HTTP 200.
+
+Para isolar a demora humana/agente, o ensaio seguinte usa um observador temporário da área de
+transferência no Mac, armado antes de abrir a autorização: ele aceita somente uma URL com destino
+e `state` da tentativa atual e encaminha os dados via stdin de SSH ao auxiliar no WSL. Não imprime,
+persiste ou coloca o código em argumentos. O Kiro continua fazendo a troca por token. Esse observador
+é infraestrutura de teste local, não um recurso nativo do Kiro nem instalado permanentemente no WSL.
+
 ### Procedimento
 
 1. Inicie Kiro no WSL em terminal persistente e mantenha a sessão aberta. Se usar o tt:

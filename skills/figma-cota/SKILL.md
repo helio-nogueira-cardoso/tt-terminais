@@ -81,7 +81,8 @@ oferecido pelo cliente. No Kiro CLI 2.32.0, foi verificado: ele avisa que o Figm
 Mantenha essa sessão aberta; o retorno do link verificado depende de um receptor local ativo.
 Para retorno manual quando o navegador está fora do WSL, use o auxiliar
 `scripts/figma_oauth_retorno.py` no lado do Kiro: ele recebe o callback em campo oculto e entrega
-à tentativa original, validando destino e state. Com tt, `--sessao NOME` lê o link OAuth da
+à tentativa original, validando destino e state. O Figma documenta validade de 30 s do código:
+prepare o auxiliar antes de autorizar e cole diretamente no terminal, sem passar pelo chat. Com tt, `--sessao NOME` lê o link OAuth da
 sessão sem pedir que o usuário o copie. Isso é um auxiliar Python, não uma entrada manual nativa
 comprovada do Kiro. Siga o procedimento e confira o resultado em
 [acesso e autenticação](references/acesso-autenticacao.md). Se o navegador não abrir,
