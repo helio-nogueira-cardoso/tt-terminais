@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.8.1 · 22/10/2026
+- **🖥 Ghostty, o terminal padrão do tt:** onde cabe (Mac e Linux com área de trabalho), o tt passa a recomendar o Ghostty como pendência de instalação, que dá para adiar mas não para recusar de vez: no Mac pelo Homebrew, no Linux pelo snap. Com o Ghostty presente, o tt o deixa configurado: tema Catppuccin Mocha, Option esquerdo como Alt (o direito segue digitando símbolos), terminfo e variáveis levados no ssh e janela que fecha sem perguntar (a sessão continua no tmux). Seus ajustes ficam abaixo do bloco do tt e prevalecem. Janelas do Ghostty abrem direto no tt, e o tmux liga nele cores reais, teclas estendidas e sublinhado colorido. `tt --ghostty` mostra o estado. Os outros terminais seguem como antes.
+
 ## v2.8.0 · 22/10/2026
 - **Skills do Figma completas e reforçadas:** a instalação e o vigia distribuem instruções, scripts REST/cache, auxiliar de retorno OAuth e referência detalhada para Claude, Codex e Kiro, inclusive em proots já provisionados. Links e recursos locais ficam preservados; só arquivos diferentes são regravados.
 - **Acesso Figma entre navegador e WSL documentado e testado:** entrada por URL do frame, cache antes de MCP e retorno manual entregue ao Kiro original sem Claude. A referência distingue login do Kiro, OAuth do Figma e token REST, explica a validade de 30 s do código e registra o ensaio Mac → WSL e o reinício autenticado. A distribuição não copia credenciais nem configura MCP automaticamente.
