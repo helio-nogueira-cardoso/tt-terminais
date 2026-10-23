@@ -174,9 +174,14 @@ class SemTravar(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, {'TT_PRE_RELAY_DIR': d}), \
                     patch.object(pre, 'STATE', Path(d)):
                 sock = Path(d) / ('tt-pre-relay-%d' % os.getuid()) / TOKEN[:16]
-                code = ('import sys,time; sys.path.insert(0,%r); import precarregar_remoto as p; '
-                        'p.start_doorman(%r); print("pronto", flush=True); time.sleep(30)') % (str(root), TOKEN)
-                def cliente():  # o "cliente tmux": o processo do bilhete, que chama o porteiro e faz exec
+                def cliente(sem_escrita=False):  # o processo do bilhete, que chama o porteiro e faz exec
+                    # Android não deixa chmod no PTY; root pode ignorar os bits no Linux.
+                    # Simula a recusa só na sonda deste terminal; socket, fork e bytes são reais.
+                    sonda = ('terminal=p.os.ttyname(1); access=p.os.access; '
+                             'p.os.access=lambda path,mode: False if str(path)==terminal else access(path,mode); '
+                             if sem_escrita else '')
+                    code = ('import sys,time; sys.path.insert(0,%r); import precarregar_remoto as p; '
+                            '%sp.start_doorman(%r); print("pronto", flush=True); time.sleep(30)') % (str(root), sonda, TOKEN)
                     proc = subprocess.Popen([sys.executable, '-c', code], stdin=slave, stdout=slave,
                                             stderr=subprocess.DEVNULL, env=dict(os.environ))
                     procs.append(proc)
@@ -194,8 +199,7 @@ class SemTravar(unittest.TestCase):
                 self.assertFalse(sock.exists())
                 procs[-1].kill(); procs[-1].wait()
 
-                os.chmod(name, 0o400)  # como o pty do Tailscale SSH: dono root, 620, grupo tty
-                proc = cliente(); self.assertIn(b'pronto', ler())
+                proc = cliente(sem_escrita=True); self.assertIn(b'pronto', ler())
                 fim = time.monotonic() + 3
                 while not sock.exists() and time.monotonic() < fim:
                     time.sleep(.05)
@@ -218,7 +222,8 @@ class SemTravar(unittest.TestCase):
                 c.nested_clients[name] = dict(generation=generation, session='origem')
                 c.nested_env[generation] = TOKEN
                 row = pre.SEP.join([name, str(proc.pid), '1', 'origem'])
-                with patch.object(pre, 'tmux', return_value=(0, row)):
+                with patch.object(pre, 'tmux', return_value=(0, row)), \
+                        patch.object(pre.os, 'open', side_effect=PermissionError('PTY sem escrita')):
                     self.assertTrue(c.relay_nested(name, dict(dest='mac', name='nova', id='b' * 32, order=99)))
                 self.assertEqual(c.metrics['encaminhadas_porteiro'], 1)
                 self.assertEqual(c.metrics['falhas_encaminhamento'], 0)
