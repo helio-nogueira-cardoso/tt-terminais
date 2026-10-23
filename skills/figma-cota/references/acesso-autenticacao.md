@@ -194,6 +194,35 @@ quando o navegador não abre automaticamente. Ela não comprova uma entrada manu
 equivalência ao fluxo do Claude ou leitura de arquivo. O aceite posterior com o auxiliar e o
 Kiro rodando no WSL está registrado na seção de retorno manual abaixo.
 
+### Caminho primário: `Ctrl+A` na tela `/mcp` (mesmo host), validado em 2026-10-23
+
+Quando navegador e Kiro estão na mesma máquina (ex.: Mac local, sem WSL), o caminho mais fluido
+não exige auxiliar nem copiar link à mão. Validado no Kiro CLI 2.32.0, macOS, 2026-10-23:
+
+1. A tela `/mcp` mostrava `figma  local  ✗ failed  0 tools`. O log registrava
+   `Failed to connect ... error=Unauthorized`. Isso é falta de OAuth, não erro de configuração: a
+   entrada em `~/.kiro/settings/mcp.json` já apontava para `https://mcp.figma.com/mcp`.
+2. Com a linha `figma` selecionada (`^J`/`^K`), o atalho `Ctrl+A` (rodapé `^A auth`) disparou o
+   OAuth nativo. O log mostrou `Resetting connection startOAuth=true`, depois
+   `Received authorization code, completing OAuth`.
+3. A autorização no navegador da mesma máquina voltou ao receptor local dentro da janela de
+   validade. O log encadeou `Connected with transport (streamable-http) ... mcp.connect.ok`,
+   `mcp.listTools.ok` e `Connected`. A tela passou a `● running` com as tools.
+
+Observações:
+
+- Esse atalho é o gatilho que evita montar o fluxo de retorno manual quando ele é desnecessário.
+  Prefira-o sempre que o navegador roda no mesmo host do Kiro.
+- Tentativas anteriores de completar o callback passando a URL pelo chat falharam com
+  `invalid_grant`: o atraso estourava a validade de ~30 s do código. O `Ctrl+A` com navegador local
+  elimina essa ida e volta.
+- Token gravado em `~/.kiro/secrets.json` (permissão 600), chaves por servidor sob
+  `kiro.mcp.<hash>`: `.client`, `.discovery`, `.tokens`, `.verifier` (PKCE). São segredos: não
+  versionar, não imprimir, não copiar valor.
+- Reautenticar ou recuperar após expiração: repetir `/mcp` → selecionar `figma` → `Ctrl+A`.
+- O auxiliar `scripts/figma_oauth_retorno.py` continua sendo o plano B para navegador fora do host
+  (WSL/SSH) ou callback recusado, conforme a seção de retorno manual abaixo.
+
 `kiro-cli chat --legacy-ui` foi usado somente para inspecionar a interface sem migrar configurações
 para V3. O cliente avisou que Classic seria descontinuado; não torne essa opção uma recomendação
 permanente. Na interface atual do usuário, confira `/help` e a rota MCP equivalente.

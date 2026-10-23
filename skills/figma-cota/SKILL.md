@@ -76,9 +76,16 @@ Ou mescle em `~/.kiro/settings/mcp.json`, preservando os outros servidores:
 ```
 
 Configuração não equivale a autenticação: conclua login do Kiro e OAuth do Figma pelo fluxo
-oferecido pelo cliente. No Kiro CLI 2.32.0, foi verificado: ele avisa que o Figma exige OAuth e
-`/mcp` apresenta o link nativo `https://www.figma.com/oauth/mcp?...`, sem depender do Claude.
-Mantenha essa sessão aberta; o retorno do link verificado depende de um receptor local ativo.
+oferecido pelo cliente. Caminho primário verificado no Kiro CLI 2.32.0: na tela `/mcp`, o servidor
+sem token aparece `✗ failed / 0 tools` com erro `Unauthorized` (não é defeito de config, é falta de
+OAuth). Navegue até a linha `figma` (`^J`/`^K`) e acione o OAuth nativo com `Ctrl+A` (rodapé
+`^A auth`). O Kiro abre o fluxo (`startOAuth:true`), mostra o link e mantém o receptor local
+aguardando; autorizando no navegador da mesma máquina, o status vira `● running`. Com navegador e
+Kiro no mesmo host, o callback local resolve direto, sem auxiliar. O token fica em
+`~/.kiro/secrets.json` (600) sob `kiro.mcp.<hash>` com `client/discovery/tokens/verifier` (PKCE);
+não versionar nem imprimir. O `/mcp` também apresenta o link nativo
+`https://www.figma.com/oauth/mcp?...`, sem depender do Claude.
+Mantenha a sessão aberta; o retorno do link depende de um receptor local ativo.
 Para retorno manual quando o navegador está fora do WSL, use o auxiliar
 `scripts/figma_oauth_retorno.py` no lado do Kiro: ele recebe o callback em campo oculto e entrega
 à tentativa original, validando destino e state. O Figma documenta validade de 30 s do código:
