@@ -6,7 +6,8 @@
 source "$(dirname "$0")/lib.sh"; isolar
 tmux -V | awk '{v=$2+0; exit !(v >= 3.6)}' || { passou 'tmux < 3.6: sem agrupamento de grafemas, nada a medir'; exit 0; }
 source <(sed -n '/^tt_largura() {/,/^}/p' "$TT")
-TT_UTF8=$(locale -a 2>/dev/null | grep -i -m1 -E '^(C|en_US)\.utf-?8$'); TT_UTF8=${TT_UTF8:-en_US.UTF-8}
+# Consuma a lista inteira: grep -m1 fechava o pipe e locale saía 141 no Mac sob carga.
+TT_UTF8=$(locale -a 2>/dev/null | awk 'tolower($0) ~ /^(c|en_us)\.utf-?8$/ && !v { v=$0 } END { print v }'); TT_UTF8=${TT_UTF8:-en_US.UTF-8}
 amostras=(
   'ab' '📋 ab' '☰ terminais' '⚡ Em lote' '📧 (430) ⏳' '✅ ok' '⭐' '❌' '♿' '⌚'
   '🖥 máquinas' '🗑' '🕰2022' '🌡' '⚙ tmux' '⚙️ tmux' '✏️ Atalhos' '✉ x' '☑ Tudo' '↩ Responder'
