@@ -114,7 +114,10 @@ clicar 30 "$y2" 16; sleep 0.08; clicar 30 "$y2" 16
 esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "Ctrl+duplo clique não copiou o link inteiro: '$(cat "$CLIP")'"
 sleep 0.6; [[ ! -s $LOG ]] || falhou "Ctrl+duplo clique também abriu o link: $(cat "$LOG")"
 : >"$CLIP"
-clicar 3 "$ys" 16; sleep 0.08; clicar 3 "$ys" 16; sleep 0.08; clicar 3 "$ys" 16
+# Um gesto só no PTY: seis chamadas ao tmux e as pausas podiam estourar a janela
+# de triplo clique no Mac. Atraso da infraestrutura de teste não é intervalo do mouse.
+triplo_evento=$'\e[<16;3;'"$ys"$'M\e[<16;3;'"$ys"$'m'
+fora send -t v -l "$triplo_evento$triplo_evento$triplo_evento"
 esperar '[[ $(cat "$CLIP" 2>/dev/null) == "texto sem link nenhum" ]]' 6 || falhou "Ctrl+triplo clique não copiou a linha: '$(cat "$CLIP")'"
 sleep 1.5 # as cópias do duplo e do triplo clique terminam em segundo plano: não podem cair no teste seguinte
 passou "Ctrl+duplo clique copia o link inteiro (sem abrir) e Ctrl+triplo clique copia a linha"
