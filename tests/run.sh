@@ -66,6 +66,8 @@ varrer_rodada() {
   while IFS= read -r s; do tmux -S "$s" kill-server 2>/dev/null; done < <(find "$rodada" -type s -path '*/tmux-*/*' 2>/dev/null)
   pkill -f "$rodada/" 2>/dev/null
   rm -rf "$rodada"
+  # Um tt em segundo plano das checagens finais ainda recria o $TT_RT (mkdir -p) logo depois: 2ª passada.
+  (sleep 5; rm -rf "$rodada") >/dev/null 2>&1 </dev/null &
 }
 trap varrer_rodada EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
