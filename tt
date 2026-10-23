@@ -5863,7 +5863,7 @@ ir_para() {
 # Roda na máquina de origem: os clientes que estão na ponte P passam a mostrar a sessão S da
 # máquina de rótulo R (desta, direto; de outra, por uma ponte).
 ir_ponte() {
-  local p=$1 r=$2 s=$3 id=${4:-} alvo c dest
+  local p=$1 r=$2 s=$3 id=${4:-} alvo c dest resolvida nome_real id_real
   prazo_vencido && return 1
   tmux has-session -t "=$p" 2>/dev/null || return 1
   # Com pontes por aparelho, P tem um cliente só. Pontes antigas (compartilhadas) podem ter vários:
@@ -5881,6 +5881,14 @@ ir_ponte() {
       return 1
     fi
     precarregar_trocar "$c" "$dest" "$s" "$id" && return 0
+    if [[ -n $id ]]; then
+      # Sem coordenador/cache (inclusive modo off), a origem assume a resolução
+      # que o remetente deixou de fazer. Nunca substitui identidade por nome.
+      resolvida=$(timeout 6 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --resolver-fixada $(q "$s") $(q "$id")" </dev/null 2>/dev/null)
+      IFS=$'\t' read -r nome_real id_real <<<"$resolvida"
+      [[ -n $nome_real && $id_real == "$id" ]] || return 1
+      s=$nome_real
+    fi
     alvo=$(criar_ponte "$dest" "$s" "$c") || return 1
   fi
   fecha_ciclo "$alvo" "$(contem_cliente "$c")" && return 1

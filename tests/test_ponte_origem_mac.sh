@@ -144,3 +144,24 @@ TT_SO_CARREGAR=1 "$BASH" -c '
 locais | grep -q 'não aceitou a troca' || falhou 'recusa da origem não preservou ponte do cache'
 locais | grep -q 'switch-client\|new-session' && falhou 'recusa da origem abriu/trocou ponte do cache por dentro'
 passou 'origem que recusa preserva a identidade e tela de uma ponte confirmada'
+
+# Modo off/sem coordenador: resolver é responsabilidade da origem, inclusive após rename.
+TT_SO_CARREGAR=1 "$BASH" -c '
+  source "$1"; MAQUINA=origem
+  tmux() { case $1 in has-session) return 0;; list-clients) echo "1 cliente";; esac; }
+  dest_ir() { echo u@dest; }
+  precarregar_trocar() { return 1; }
+  timeout() { shift; "$@"; }
+  ssh() { cat "$T/identidade-resposta"; }
+  criar_ponte() { printf "%s\n" "$2" >>"$T/alvo-legado"; echo ponte-certa; }
+  fecha_ciclo() { return 1; }
+  contem_cliente() { :; }
+  printf "renomeada\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" >"$T/identidade-resposta"
+  ir_ponte ponte-o alvo nome-antigo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  [[ $(cat "$T/alvo-legado") == renomeada ]] || exit 1
+  rm "$T/alvo-legado"
+  printf "nome-antigo\tbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n" >"$T/identidade-resposta"
+  ir_ponte ponte-o alvo nome-antigo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa || true
+  [[ ! -e $T/alvo-legado ]] || exit 1
+' _ "$TT" || falhou 'origem sem cache perdeu rename ou aceitou sessão reciclada'
+passou 'origem sem cache resolve rename por identidade e recusa substituição pelo mesmo nome'
