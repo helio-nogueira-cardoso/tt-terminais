@@ -376,9 +376,10 @@ passou 'voz: --telegram liga o bot; Android Auto avisa pelo bot uma vez'
 # daemon e garantir: nada sobe sem o marcador de ativação
 bash "$V" --garantir; sleep 1; [[ -e $HOME/.local/state/tt-voz/daemon.pid ]] && falhou 'garantir subiu o daemon sem ativação'
 mkdir -p "$T/sd/Tasker/voz/in"; echo "onde" >"$T/sd/Tasker/voz/in/1.txt"
+printf 0 >"$T/sd/Tasker/voz/falando" # o Tasker falso terminou a fala anterior
 VOZ_MUDO= bash "$V" --daemon >/dev/null 2>&1 & dp=$!
-for i in $(seq 20); do [[ -e $T/sd/Tasker/voz/in/1.txt ]] || break; sleep 0.5; done
-sleep 1; kill "$dp" 2>/dev/null; wait "$dp" 2>/dev/null || true
+for i in $(seq 60); do grep -q 'Máquina dell' "$T/sd/Tasker/voz/fala.txt" 2>/dev/null && break; sleep 0.25; done
+kill "$dp" 2>/dev/null; wait "$dp" 2>/dev/null || true
 grep -q 'Máquina dell' "$T/sd/Tasker/voz/fala.txt" || falhou "daemon não respondeu: $(cat "$T/sd/Tasker/voz/fala.txt")"
 passou 'voz: daemon lê a entrada do Tasker e responde; garantir só age depois de ativado'
 
