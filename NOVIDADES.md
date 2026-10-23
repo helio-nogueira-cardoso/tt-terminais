@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.9.7 · 23/10/2026
+- **Voltar à ponte mais rápido:** clicar numa fixada já conectada reaproveita a tela e a conexão, sem resolver e conferir o destino novamente por SSH. A entrada curta também volta à fixada local. Cada troca continua conferindo a identidade e o dono da tela.
+- **Cache preservado no reinício:** o coordenador recupera pontes vivas. Um transporte encerrado, mesmo com prompt de reconexão aberto, não é tratado como tela pronta. A primeira abertura continua confirmando o destino remoto; as verificações de ativação agora esperam menos entre rodadas.
+
 ## v2.9.0 · 23/10/2026
 - **Mais controles pela voz:** esconder e mostrar a barra das fixadas, ligar o não perturbe com prazo, mudar a mensagem do letreiro e renomear sessões. Fixadas, histórico de avisos e acompanhamentos ficam preservados.
 - **E-mail, transferências e calendário:** a voz abre os painéis no terminal conectado à sessão escolhida e lê contas, estado da sincronização, transferências e tarefas com prazo.

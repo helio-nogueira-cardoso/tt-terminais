@@ -6,26 +6,29 @@ um cliente (tty + pid + nascimento), não à sessão que vários aparelhos podem
 O terminal SSH fica esperando um bilhete de ativação de uso único. Não recebe teclas,
 saída de agentes ou foco durante a especulação. Protocolo v1, com nonce por ponte.
 """
-import base64
-import collections
-import fcntl
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
-import re
-import secrets
-import select
-import shlex
-import signal
 import socket
-import subprocess
 import sys
 import tempfile
 import time
 
-import precarregar_remoto as protocol
+# O cliente curto só faz RPC local. Não paga imports de SSH, PTY, heurística e
+# coordenação a cada clique; os outros modos e os testes carregam tudo normalmente.
+if __name__ != "__main__" or sys.argv[1:2] != ["try-fixed"]:
+    import base64
+    import collections
+    import fcntl
+    import math
+    import re
+    import secrets
+    import select
+    import shlex
+    import signal
+    import subprocess
+    import precarregar_remoto as protocol
 
 
 # Tab é preservado tanto pelo tmux 3.5 quanto pelo 3.8; 0x1f vira "\\037" no 3.5.
@@ -203,6 +206,9 @@ class Coordinator:
         self.cooldown_until = 0
         self.energy_at = 0
         self.energy = (None, False)
+        self.guardian_at = 0
+        self.guardian_process = None
+        self.guardian_needed = False
         self.history_file = STATE / (folder.name + ".json")
         self.package_stamp = (HERE / "precarregar-tt.py").stat().st_mtime_ns
         try:
@@ -377,6 +383,7 @@ class Coordinator:
         cmd = ["new-session", "-d", "-s", bridge, "-x", client_data["width"], "-y", client_data["height"], shlex.join(args)]
         for option, value in [("@ponte", dest), ("@ponte_alvo", dest + "|" + target["name"]),
                               ("@ponte_dono", client), ("@tt_pre_token", token), ("@tt_pre_owner", self.folder.name),
+                              ("@tt_pre_generation", client_data["generation"]),
                               ("@tt_pre_estado", "espera"), ("@nome_auto", "0"), ("status", "off")]:
             cmd.extend([";", "set-option", "-t", "=" + bridge + ":", option, value])
         cmd.extend([";", "set-option", "-p", "-t", "=" + bridge + ":", "remain-on-exit", "on"])
@@ -473,8 +480,14 @@ class Coordinator:
             self.discard(old["key"])
         key = (client, identity(target))
         item = self.candidates.get(key)
+        # Voltar a uma tela já conectada é uma operação local. Antes, cair aqui no legado
+        # abria SSH para resolver o nome e verificar a sessão, mesmo com o transporte vivo.
+        # A leitura também recupera pontes após reinício do coordenador; nunca adota outro tty.
+        if self.revisit(client, target, data):
+            return {"handled": True}
         if item and item["state"] == "active":
-            return {"handled": False}  # ponte visitada: caminho já existente do tt
+            self.candidates.pop(key, None)  # transporte encerrado: não mostrar tela congelada
+            item = None
         if item and (item["state"] == "failed" or time.monotonic() - item["created"] > 150):
             self.discard(key)
             item = None
@@ -496,13 +509,97 @@ class Coordinator:
         self.metrics["acertos"] += int(hit)
         return {"handled": True}
 
+    def revisit(self, client, target, data):
+        owner = self.clients[client]
+        fmt = SEP.join(["#{session_name}", "#{@tt_pre_estado}", "#{@tt_pre_id}", "#{@ponte}",
+                        "#{@ponte_dono}", "#{@tt_pre_generation}", "#{@tt_pre_token}",
+                        "#{@tt_pre_viva}", "#{@tt_pre_transport_pid}", "#{pane_dead}",
+                        "#{session_attached}", "#{@ponte_alvo}"])
+        rc, out = tmux("list-sessions", "-F", fmt)
+        for line in out.splitlines() if not rc else []:
+            c = line.split(SEP)
+            if (len(c) != 12 or c[1] != "ativa" or not c[0].startswith("tt-pre-")
+                    or c[4:6] != [client, owner["generation"]]
+                    or not re.fullmatch(r"[a-f0-9]{32}", c[6]) or c[7] != c[6]
+                    or not c[8].isdigit() or c[9] == "1"
+                    or (c[10] != "0" and owner["session"] != c[0])
+                    or self.resolve_machine(c[3]) != target["machine"]):
+                continue
+            if target.get("id"):
+                matches = c[2] == target["id"]
+            else:
+                matches = c[11].partition("|")[2] == target["name"]
+            if not matches:
+                continue
+            try:
+                os.kill(int(c[8]), 0)
+            except OSError:
+                continue
+            # Reconfere o cliente imediatamente antes de trocar, como na primeira ativação.
+            rc, live = tmux("list-clients", "-F", SEP.join([
+                "#{client_name}", "#{client_pid}", "#{client_created}", "#{session_name}"]))
+            expected = SEP.join([client, *owner["generation"].split(":"), owner["session"]])
+            if rc or expected not in live.splitlines():
+                return True  # pedido perdeu a tela; jamais tentar o legado depois
+            guard = "#{&&:#{==:#{@tt_pre_viva}," + c[6] + "},#{!=:#{pane_dead},1}}"
+            command = shlex.join(["switch-client", "-c", client, "-t", "=" + c[0]]) + " ; display-message -p TT_PRE_SWITCH"
+            rc, switched = tmux("if-shell", "-F", "-t", "=" + c[0] + ":", guard, command)
+            if rc or switched.strip() != "TT_PRE_SWITCH":
+                return True
+            actual = dict(target, id=c[2], name=c[11].partition("|")[2])
+            key = (client, identity(actual))
+            self.discard(key)
+            self.candidates[key] = {"state": "active", "bridge": c[0], "target": actual,
+                                    "client": client, "generation": owner["generation"]}
+            elapsed = round((time.monotonic() - min(time.monotonic(), data.get("order", time.monotonic_ns()) / 1e9)) * 1000)
+            request = {"source": owner["session"], "hit": True}
+            self.log_switch(client, request, c[0])
+            self.samples.append({"preparada": True, "reutilizada": True, "clique_ms": elapsed})
+            self.metrics["cliques"] += 1
+            self.metrics["acertos"] += 1
+            self.metrics["reutilizadas"] += 1
+            self.metrics["trocas"] += 1
+            self.next_scan = min(self.next_scan, time.monotonic() + .35)
+            return True
+        return False
+
+    def revisit_local(self, client, target, data):
+        # Voltar da ponte à sessão desta máquina também dispensa carregar o Bash inteiro.
+        # Só pela identidade estável; nomes e sessões especiais continuam no fluxo normal.
+        stable = target.get("id", "")
+        if not re.fullmatch(r"[a-f0-9]{32}", stable):
+            return False
+        rc, out = tmux("list-sessions", "-F", SEP.join([
+            "#{session_id}", "#{session_name}", "#{@tt_session_id}", "#{@ponte}"]))
+        for line in out.splitlines() if not rc else []:
+            c = line.split(SEP)
+            if len(c) != 4 or c[2] != stable or c[3] or c[1].startswith("_"):
+                continue
+            owner = self.clients[client]
+            rc, live = tmux("list-clients", "-F", SEP.join([
+                "#{client_name}", "#{client_pid}", "#{client_created}", "#{session_name}"]))
+            expected = SEP.join([client, *owner["generation"].split(":"), owner["session"]])
+            if rc or expected not in live.splitlines():
+                return True
+            command = shlex.join(["switch-client", "-c", client, "-t", c[0]]) + " ; display-message -p TT_PRE_SWITCH"
+            rc, switched = tmux("if-shell", "-F", "-t", c[0] + ":", "#{==:#{@tt_session_id}," + stable + "}", command)
+            if not rc and switched.strip() == "TT_PRE_SWITCH":
+                elapsed = round((time.monotonic() - min(time.monotonic(), data.get("order", time.monotonic_ns()) / 1e9)) * 1000)
+                self.log_switch(client, {"source": owner["session"], "hit": True}, c[1])
+                self.samples.append({"preparada": True, "local": True, "clique_ms": elapsed})
+                self.metrics["cliques"] += 1
+                self.metrics["trocas"] += 1
+                self.metrics["locais"] += 1
+                self.next_scan = min(self.next_scan, time.monotonic() + .35)
+            return True
+        return False
+
     def begin_activation(self, item):
         if not self.still_owned(item):
             self.failure(item, "ponte mudou de dono")
             return
-        rc, _ = tmux("send-keys", "-t", "=" + item["bridge"] + ":", "-l", "ATIVAR " + item["token"])
-        if not rc:
-            rc, _ = tmux("send-keys", "-t", "=" + item["bridge"] + ":", "Enter")
+        rc, _ = tmux("send-keys", "-t", "=" + item["bridge"] + ":", "-l", "ATIVAR " + item["token"],
+                     ";", "send-keys", "-t", "=" + item["bridge"] + ":", "Enter")
         if rc:
             self.failure(item, "não consegui ativar a ponte")
             return
@@ -636,10 +733,28 @@ class Coordinator:
                 "pontes": [{k: v for k, v in item.items() if k in ("client", "target", "state", "bridge", "reason")}
                            for item in self.candidates.values()]}
 
+    def ensure_guardian(self):
+        # O clique curto preserva vigia_garantir, mas a resposta/troca sai antes desta
+        # partida em segundo plano. Mantém a mesma folga de 30 s e recolhe o filho.
+        if self.guardian_process and self.guardian_process.poll() is not None:
+            self.guardian_process = None
+        if not self.guardian_needed:
+            return
+        self.guardian_needed = False
+        if os.environ.get("TT_SEM_VIGIA_AUTO") == "1" or time.monotonic() < self.guardian_at or self.guardian_process:
+            return
+        self.guardian_at = time.monotonic() + 30
+        try:
+            self.guardian_process = subprocess.Popen([self.tt, "--vigia-garantir"], stdin=subprocess.DEVNULL,
+                                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                     start_new_session=True)
+        except OSError:
+            self.metrics["falhas_vigia"] += 1
+
     def handle(self, data):
         self.last_event = time.monotonic()
         op = data.get("op")
-        if op in ("navigate", "cancel"):
+        if op in ("navigate", "revisit", "cancel"):
             client = data.get("client")
             if not isinstance(client, str):
                 return {"handled": False}
@@ -662,6 +777,22 @@ class Coordinator:
             if self.settings()[0] == "off":
                 return {"handled": False}
             return self.navigate(data)
+        if op == "revisit":
+            if read_config().get("precarregar") == "off" or os.environ.get("TT_PRECARREGAR") == "0":
+                return {"handled": False}
+            self.scan_clients()
+            client = data.get("client")
+            old = self.requests.pop(client, None)
+            if old:
+                self.discard(old["key"])
+            label = self.machine if data.get("dest") == self.machine else self.resolve_machine(data.get("dest", ""))
+            if client not in self.clients or not label or not text_ok(data.get("name")):
+                return {"handled": False}
+            target = {"machine": label, "name": data["name"], "id": data.get("id", "")}
+            handled = (self.revisit_local(client, target, data) if label == self.machine
+                       else self.revisit(client, target, data))
+            self.guardian_needed = self.guardian_needed or handled
+            return {"handled": handled}
         if op == "cancel":
             old = self.requests.pop(data.get("client"), None)
             if old:
@@ -762,7 +893,11 @@ class Coordinator:
                             self.maintain()
                             self.dedupe_active()
                             self.next_scan = now + (1 if self.requests else 10)
-                        ready, _, _ = select.select([listener], [], [], .2 if self.requests else .5)
+                        # Só acelera enquanto há clique real. Depois do início, 20 Hz bastam
+                        # para uma rede lenta sem manter centenas de sondagens tmux por segundo.
+                        interval = (.01 if any(now - r["time"] < .25 for r in self.requests.values())
+                                    else .05) if self.requests else .5
+                        ready, _, _ = select.select([listener], [], [], interval)
                         drained = 0
                         while ready and self.running and drained < 32:
                             drained += 1
@@ -786,6 +921,7 @@ class Coordinator:
                             break
                         self.poll_preparations()
                         self.poll_requests()
+                        self.ensure_guardian()
                         if not self.clients and now - self.last_event > 60:
                             break
                 finally:
@@ -851,6 +987,8 @@ def main(argv):
         pos = argv.index("--ssh-args")
         SSH_ARGS, argv = argv[pos + 1:], argv[:pos]
     op = argv[0] if argv else "status"
+    if op == "try-fixed":
+        return try_fixed(argv[1:])
     human = op == "status-text"
     if human:
         op = "status"
@@ -859,7 +997,14 @@ def main(argv):
     if op == "transporte" and len(argv) == 7:
         # Conexão própria (não um canal da mestra do tt): no Tailscale SSH, fechar um canal da mestra não encerra o
         # attach de lá, que ficava preso animando a barra para ninguém. A conexão nasce na preparação, não no clique.
-        return subprocess.call(["ssh", "-tt", *SSH_TELA, *SSH_ARGS, argv[1], remote_command("remoto", *argv[2:])])
+        bridge, token = argv[5].split("|", 1)[-1], argv[2]
+        proc = subprocess.Popen(["ssh", "-tt", *SSH_TELA, *SSH_ARGS, argv[1], remote_command("remoto", *argv[2:])])
+        tmux("set-option", "-t", "=" + bridge + ":", "@tt_pre_transport_pid", str(proc.pid),
+             ";", "set-option", "-t", "=" + bridge + ":", "@tt_pre_viva", token)
+        try:
+            return proc.wait()
+        finally:
+            tmux("set-option", "-t", "=" + bridge + ":", "@tt_pre_viva", "")
     try:
         folder = runtime()
     except TmuxUnavailable:
@@ -912,6 +1057,49 @@ def main(argv):
     if op == "navigate":
         return 0 if response.get("handled") else 1
     return 0
+
+
+def try_fixed(args):
+    """Caminho curto só para uma ponte já conectada; sem SSH nem partida de daemon."""
+    command = os.environ.get("TT_PRE_TT", str(HERE / "tt"))
+    def fallback():
+        os.environ["TT_PRE_FAST_FALLBACK"] = "1"
+        os.execv(command, [command, *args])
+    if not os.environ.get("TMUX"):
+        return fallback()
+    if args[0] == "--clique":
+        # O pressionar já fez a troca; soltar não inicia outra consulta/navegação.
+        if len(args) > 6 and args[6] == "u":
+            return 0
+        client, key = args[2], args[1].removeprefix("user|").removeprefix("fx")
+    else:
+        client, key = args[1], args[2].removeprefix("fx")
+    config = read_config()
+    if os.environ.get("TT_PRECARREGAR") == "0" or config.get("precarregar") == "off":
+        return fallback()
+    try:
+        fixed = (CONF / "fixadas").read_text().splitlines()
+        for line in fixed:
+            fields = line.split("\t")
+            if len(fields) < 2:
+                continue
+            machine, name = fields[:2]
+            stable = fields[2] if len(fields) > 2 else ""
+            # Mesmo contrato de fixada_chave_em; identidade estável sobrevive à renomeação.
+            value = machine + "\t" + (stable or name)
+            if hashlib.sha256(value.encode()).hexdigest()[:12] != key:
+                continue
+            data = {"op": "revisit", "client": client, "dest": machine, "name": name, "id": stable,
+                    "order": time.monotonic_ns(), "expires": time.monotonic() + 3}
+            response = send_request(runtime(), data)
+            if response.get("handled"):
+                return 0
+            break
+    except UncertainReply:
+        return 0  # pedido aceito: não duplicar após perder a resposta
+    except (OSError, ValueError, TmuxUnavailable):
+        pass
+    return fallback()
 
 
 if __name__ == "__main__":

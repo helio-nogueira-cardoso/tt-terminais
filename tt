@@ -85,6 +85,25 @@ fi
 # Locale UTF-8 que existe nesta máquina (o macOS não tem C.UTF-8; tem o en_US.UTF-8).
 TT_UTF8=C.UTF-8; [[ $OSTYPE == darwin* ]] && TT_UTF8=en_US.UTF-8
 
+# Volta a uma ponte viva sem carregar o núcleo Bash. O coordenador decide pelo tty,
+# geração e identidade; se não puder atender, o Python reexecuta este mesmo comando.
+# Só no pacote instalado, nunca ao carregar funções nem com o caminho completo forçado.
+if [[ -z ${TT_SO_CARREGAR:-} && -z ${TT_COMPLETO:-} && -z ${TT_PRE_FAST_FALLBACK:-} && -n ${TMUX:-} && ${TT_PRECARREGAR:-} != 0 && ! -e ${XDG_CONFIG_HOME:-$HOME/.config}/tt/trace ]]; then
+  _tt_fx=""
+  case ${1:-} in
+    --ir-fixada) _tt_fx=${3:-} ;;
+    --clique) _tt_fx=${2#user|} ;;
+  esac
+  if [[ $_tt_fx == fx* && $_tt_fx != fxx* ]]; then
+    _tt_pre=${TT_DIR:-$HOME/.local/share/tt}
+    if [[ -f $_tt_pre/precarregar-tt.py && $0 -ef $_tt_pre/tt ]]; then
+      TT_PRE_TT="$_tt_pre/tt" exec python3 -S "$_tt_pre/precarregar-tt.py" try-fixed "$@"
+    fi
+    unset _tt_pre
+  fi
+  unset _tt_fx
+fi
+
 # Partida rápida (gerar_rapido): com o núcleo gerado na instalação, este desvio lê só ele (~100 KB, ~10 ms) e
 # cada função na 1ª chamada, em vez do arquivo inteiro (~850 KB, de 60 a 90 ms) a cada clique, tecla e recarga.
 # Um tt que não é o instalado (o do repositório, o de um teste) ou um núcleo mais velho que ele seguem o

@@ -2348,6 +2348,24 @@ um bilhete de uso único libera a anexação. Só depois da confirmação do des
 o cliente de origem troca. Renomear preserva a identidade; apagar e recriar com o mesmo nome não.
 Um novo clique cancela o anterior. Outra tela anexada à mesma sessão continua independente.
 
+Ao **voltar a uma ponte já ativada**, a troca reaproveita sua conexão e sua tela prontas.
+Confere localmente o cliente (tty, PID e nascimento), a identidade do destino, o bilhete,
+o processo do transporte e a marca de conexão viva. Não abre SSH para resolver novamente o
+nome nem para perguntar se a mesma sessão existe. A saída do transporte limpa a marca viva;
+um terminal parado no prompt de reconexão não conta como ponte pronta. Um reinício do
+coordenador recupera essas marcas, preservando o dono de cada tela. A fixada local também
+troca pelo caminho curto quando tem identidade estável.
+
+O clique numa fixada conectada usa um pedido Unix local antes de carregar o núcleo Bash.
+Se não houver ponte válida/coordenador, continua pelo comando original; uma resposta perdida
+não repete uma ação já enviada. Pressionar faz a troca e soltar não inicia outra. O vigia é
+conferido em segundo plano, sem segurar a troca. `TT_COMPLETO=1` ou o arquivo de diagnóstico
+`~/.config/tt/trace` conservam o caminho completo. Preparações novas continuam exigindo
+identidade remota e primeiro quadro: **a primeira abertura ainda depende da rede**. As
+verificações de ativação usam 10 ms no início e 50 ms enquanto a rede demora, somente com
+pedido pendente; a espera ociosa continua em 500 ms. Após atualizar, uma ponte de versão
+antiga sem a marca viva precisa ser aberta pelo fluxo completo uma vez para ganhar o reuso.
+
 Padrão: até **3 candidatos por tela e 6 no total**, com duas preparações simultâneas em segundo plano,
 margem contra trocas excessivas, validade de 150 s e espera progressiva após falhas. Cliques reais
 têm prioridade sobre esse trabalho especulativo. Termux, modo econômico ou bateria ≤20% sem carregar:
@@ -2356,12 +2374,14 @@ deixa de preparar. Suspender/retomar cancela pedidos antigos e dá 5 s para a re
 
 Em **Administrar → ⚡ Pré-carregamento**, `a` liga o automático, `e` o econômico, `d` desliga e `q`/Esc volta.
 Também: `tt --precarregar status` mostra o estado, os motivos e a última duração; `json` fornece métricas
-e amostras de preparação/troca para diagnóstico; `auto`, `economico` e `off` escolhem o modo.
+e amostras de preparação/troca para diagnóstico (`reutilizada` distingue uma volta, `local` a sessão desta máquina);
+`auto`, `economico` e `off` escolhem o modo. `clique_ms` começa no pedido Python, até o comando de troca:
+não inclui a partida do chamador, o desenho final do terminal ou um SSH da máquina remota até a origem.
 `~/.config/tt/config` aceita `precarregar_total=6` e `precarregar_por_tela=3` (tetos 12 e 6).
 Desligar descarta só transportes especulativos: não derruba uma sessão em uso.
 
 O coordenador Python é único por socket tmux/pacote, com socket Unix privado e pontes por identidade
-do cliente (tty, PID e nascimento). Reaproveita o multiplexador SSH do tt. O protocolo remoto é pequeno,
+do cliente (tty, PID e nascimento). A ponte usa conexão SSH própria; só a confirmação usa o multiplexador do tt. O protocolo remoto é pequeno,
 só stdlib, executado em memória via SSH: basta Python 3 e tmux, sem instalar arquivos ou exigir uma
 versão nova do tt no destino. Não usa servidor TCP nem serviço novo do sistema. Estado local em
 `~/.local/state/tt/precarregamento/`; runtime privado em `/tmp/tt-pre-UID-HASH/`

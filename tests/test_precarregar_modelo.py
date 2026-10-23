@@ -217,7 +217,7 @@ class Heuristica(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)):
             c = pre.Coordinator(Path(d))
             c.clients["tela"] = {"generation": "1", "session": "origem"}
-            with patch.object(c, "scan_clients"), patch.object(c, "resolve_machine", return_value="dell"), \
+            with patch.object(c, "scan_clients"), patch.object(c, "revisit", return_value=False), patch.object(c, "resolve_machine", return_value="dell"), \
                     patch.object(c, "fixed", return_value=[self.target]), \
                     patch.object(c, "settings", return_value=("auto", 6, 3)), \
                     patch.object(c, "prepare", return_value={"state": "preparing"}) as prepare:
@@ -308,9 +308,12 @@ class Heuristica(unittest.TestCase):
                 f.rmdir()
 
     def test_transporte_abre_conexao_propria_e_nao_canal_da_mestra(self):
-        with patch.object(pre.subprocess, "call", return_value=0) as call:
+        with patch.object(pre.subprocess, "Popen") as call, patch.object(pre, "tmux") as tmux:
+            call.return_value.wait.return_value = 0
             pre.main(["transporte", "u@pc", "t" * 32, "sessao", "", "maq|tt-pre-x", "180",
                       "--ssh-args", "-o", "ControlMaster=auto", "-o", "ControlPath=/x/%C"])
+        self.assertEqual(tmux.call_args[0][-2:], ("@tt_pre_viva", ""))
+        self.assertIn("@tt_pre_transport_pid", tmux.call_args_list[0][0])
         args = call.call_args[0][0]
         self.assertLess(args.index("ControlPath=none"), args.index("ControlPath=/x/%C"))
         self.assertLess(args.index("ControlMaster=no"), args.index("ControlMaster=auto"))
@@ -324,6 +327,100 @@ class Heuristica(unittest.TestCase):
                     patch.object(c, "still_owned", return_value=False), patch.object(pre, "tmux", return_value=(0, "")):
                 c.maintain()
             self.assertEqual(list(c.candidates), ["ativa"])
+
+    def test_reuso_valida_tela_transporte_e_identidade_sem_ssh(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)):
+            c = pre.Coordinator(Path(d))
+            c.clients["tela"] = {"generation": "17:100", "session": "origem"}
+            token = "d" * 32
+            row = ["tt-pre-viva", "ativa", "a" * 32, "u@dell", "tela", "17:100", token, token,
+                   "1234", "0", "0", "u@dell|renomeada"]
+            def exercise(values, live="tela\t17\t100\torigem", dead=False):
+                def call(*args):
+                    if args[0] == "list-sessions":
+                        return 0, pre.SEP.join(values)
+                    if args[0] == "list-clients":
+                        return 0, live
+                    if args[0] == "if-shell":
+                        return 0, "TT_PRE_SWITCH"
+                    raise AssertionError(args)
+                with patch.object(pre, "tmux", side_effect=call) as tmux, \
+                        patch.object(c, "resolve_machine", return_value="dell"), \
+                        patch.object(c, "log_switch"), patch.object(pre.os, "kill", side_effect=ProcessLookupError if dead else None), \
+                        patch.object(pre.subprocess, "Popen") as ssh:
+                    result = c.revisit("tela", self.target, {})
+                    switched = any(a.args[0] == "if-shell" for a in tmux.call_args_list)
+                    ssh.assert_not_called()
+                    return result, switched
+            self.assertEqual(exercise(row), (True, True))
+            self.assertEqual(c.candidates[("tela", pre.identity(self.target))]["target"]["name"], "renomeada")
+            # Outro dono, tty reutilizado, ponte encerrada, bilhete diferente ou identidade reciclada.
+            for index, value in ((1, "espera"), (2, "b" * 32), (4, "outra"), (5, "18:101"),
+                                 (7, ""), (9, "1"), (10, "1")):
+                values = row.copy(); values[index] = value
+                self.assertEqual(exercise(values), (False, False), (index, value))
+            self.assertEqual(exercise(row, dead=True), (False, False))
+            self.assertEqual(exercise(row, live="tela\t18\t101\torigem"), (True, False))
+            self.assertEqual(exercise(row, live="tela\t17\t100\toutra"), (True, False))
+
+    def test_vigia_do_clique_curto_e_deferido_limitado_e_isolado(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)), \
+                patch.dict(pre.os.environ, {"TT_SEM_VIGIA_AUTO": "0"}), \
+                patch.object(pre.subprocess, "Popen") as spawn:
+            c = pre.Coordinator(Path(d))
+            c.guardian_needed = True
+            spawn.assert_not_called()
+            c.ensure_guardian()
+            spawn.assert_called_once()
+            self.assertEqual(spawn.call_args[0][0][-1], "--vigia-garantir")
+            spawn.return_value.poll.return_value = 0
+            c.guardian_needed = True
+            c.ensure_guardian()
+            spawn.assert_called_once()  # não abre processo por clique
+            c.guardian_at = 0
+            c.guardian_needed = True
+            with patch.dict(pre.os.environ, {"TT_SEM_VIGIA_AUTO": "1"}):
+                c.ensure_guardian()
+            spawn.assert_called_once()
+
+    def test_volta_local_recusa_sessao_reciclada_ponte_e_oculta(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)):
+            c = pre.Coordinator(Path(d))
+            c.clients["tela"] = {"generation": "17:100", "session": "origem"}
+            for row in (["$1", "tarefa", "b" * 32, ""], ["$1", "tarefa", "a" * 32, "u@pc"],
+                        ["$1", "_oculta", "a" * 32, ""]):
+                with patch.object(pre, "tmux", return_value=(0, pre.SEP.join(row))) as tmux:
+                    self.assertFalse(c.revisit_local("tela", self.target, {}))
+                    self.assertFalse(any(a.args[0] == "if-shell" for a in tmux.call_args_list))
+
+    def test_entrada_curta_mesma_chave_com_acentos_e_sem_repetir_pedido(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "CONF", Path(d)), \
+                patch.object(pre, "runtime", return_value=Path(d)), \
+                patch.object(pre, "read_config", return_value={}), \
+                patch.dict(pre.os.environ, {"TT_PRECARREGAR": "1", "TMUX": "/somente-teste,1,0"}), \
+                patch.object(pre.os, "execv", side_effect=AssertionError("não pode cair no legado")):
+            (Path(d) / "fixadas").write_text("máquina\ttarefa antiga\t" + "a" * 32 + "\n")
+            key = "fx" + pre.hashlib.sha256(("máquina\t" + "a" * 32).encode()).hexdigest()[:12]
+            with patch.object(pre, "send_request", return_value={"handled": True}) as send:
+                self.assertEqual(pre.try_fixed(["--ir-fixada", "tela", key]), 0)
+                self.assertEqual(send.call_args[0][1]["id"], "a" * 32)
+                self.assertEqual(send.call_args[0][1]["dest"], "máquina")
+                self.assertEqual(pre.try_fixed(["--clique", "user|" + key, "tela", "%0", "", "0", "d"]), 0)
+                send.reset_mock()
+                self.assertEqual(pre.try_fixed(["--clique", key, "tela", "%0", "", "0", "u"]), 0)
+                send.assert_not_called()
+            with patch.object(pre, "send_request", side_effect=pre.UncertainReply):
+                self.assertEqual(pre.try_fixed(["--ir-fixada", "tela", key]), 0)
+
+    def test_entrada_curta_sem_coordenador_reexecuta_comando_original(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "CONF", Path(d)), \
+                patch.object(pre, "read_config", return_value={}), \
+                patch.object(pre.os, "execv") as fallback, \
+                patch.dict(pre.os.environ, {"TT_PRE_TT": "/pacote/tt", "TT_PRECARREGAR": "1"}):
+            args = ["--clique", "fxinexistente", "tela", "%1", "/pasta com espaço", "3", "d"]
+            pre.try_fixed(args)
+            fallback.assert_called_once_with("/pacote/tt", ["/pacote/tt", *args])
+            self.assertEqual(pre.os.environ["TT_PRE_FAST_FALLBACK"], "1")
 
     def test_cadastro_antigo_e_ocultas(self):
         with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)), patch.object(pre, "CONF", Path(d)):

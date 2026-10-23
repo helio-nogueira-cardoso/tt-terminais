@@ -171,6 +171,15 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   Espera bilhete de uso único, sem anexar usuário ao tmux. Clique valida ID estável + servidor/sessão e
   primeira tela antes de trocar apenas o cliente correto. Pedidos anteriores são cancelados; sleep,
   renomeação, sessão substituída, rede caída e cliente desconectado não provocam troca tardia.
+- **Voltar a uma ponte viva é local:** a entrada curta da fixada faz RPC Unix e confere tty/PID/nascimento,
+  dono, identidade, bilhete, PID do transporte e `@tt_pre_viva`. Sem SSH por retorno; também recupera a ponte após
+  reinício do coordenador. A fixada local com ID estável usa a mesma entrada. Transporte encerrado limpa a marca,
+  mesmo se o pane continua no prompt. Pressionar troca; soltar não repete. Sem cache válido, reexecuta o comando
+  original; resposta perdida nunca duplica. `TT_COMPLETO=1`/arquivo `trace` conservam o fluxo completo. Vigia em
+  segundo plano. Ponte antiga sem marca viva precisa de uma abertura completa após atualizar.
+- Primeiro uso continua validando destino e primeiro quadro via rede. Sondagens: 10 ms no início do pedido,
+  50 ms na espera lenta, 500 ms ocioso. JSON: `reutilizada`/`local`, contadores `reutilizadas`/`locais`;
+  `clique_ms` mede pedido Python→troca, sem partida do chamador, pintura final ou SSH de volta à origem.
 - Pontes `tt-pre-*` têm `@ponte`, `@tt_pre_owner`, `@tt_pre_token`, `@tt_pre_estado=espera|ativa`.
   `criar_ponte` e `fechar_pontes_ociosas` ignoram as de espera (gerenciadas pelo coordenador).
   Histórico privado em `~/.local/state/tt/precarregamento/`, 500 transições/7 dias; não sincroniza conteúdo.
