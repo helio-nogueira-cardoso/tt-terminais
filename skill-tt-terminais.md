@@ -138,6 +138,16 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 
 ### Sessões, central, seletor, painéis
 - `tt` (sem args) ou `Ctrl+B s` — abre a central (todas as sessões de todas as máquinas).
+- `tt --recuperar-tela [CLIENTE]`, `Ctrl+B Esc` ou menu ⋯ → Recuperar tela — escape local:
+  cancela a tentativa de conexão e pedidos de troca pendentes, fecha a superfície modal e abre a
+  central, preservando as sessões. Após falha da ponte, R/Enter reconecta, V/Esc abre a central
+  e N cria uma sessão no destino;
+  sem eco de teclas de controle. Prazo até a conexão: `TT_T_RECONEXAO` (20 s, máximo 120), nunca
+  timeout de sessão já conectada. Até três retentativas de resolução (2/4/8 s) cabem nesse prazo;
+  criar sessão exige escolha explícita e não se repete se perder a resposta. A vista do e-mail navega pela tela dona (tty+PID); os ganchos
+  impedem recursão de tamanho. Detalhes e diagnóstico: `docs/recuperacao-telas-anexos.md` no
+  repositório e em `~/.local/share/tt/`. Testes: `test_tela_recuperar`, `test_recuperar_tela`,
+  `test_email_recursao`.
 - `tt --nova [nome]` — cria sessão solta; `tt --nova-e-ir nome` cria e entra.
 - `tt --fixar [maquina:]sessao` — fixa (ver Fixadas).
 - `tt --renomear [sessao]` — pergunta um nome; `tt --sugerir sessao` sugere; `tt --nomear-todas`
@@ -626,6 +636,12 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   de recebidos da máquina da tela (`transferir`); aqui, pergunta a pasta (sem sobrescrever: "nome (2)"). No `E`, o
   seletor de máquina começa pela da tela (`escolher_maquina TÍTULO [exceto] [preferida]`). Teste
   `tests/test_anexos_maquina_da_tela.sh`.
+  Falha/cancelamento conserva o lote em `~/.cache/tt-anexos/pendente-XXXXXXXX/arquivos`; retoma com
+  `tt --anexo-salvar CAMINHO-DO-LOTE`. Só retira cada origem após cópia confirmada. Não sobrescreve
+  arquivos nem links existentes; não elimina pendentes por idade. Transferência remota é assíncrona:
+  o lote fica preservado, e iniciar a cópia não comprova entrega. `.eml` enviado conserva a mensagem
+  e anexos internos; imagens inline mantêm Content-ID. Formato inválido falha antes do envio.
+  Cobertura adicional: `tests/test_anexos_integridade.sh`.
   `--email-adicionar provedor=gmail auth=oauth` sem client_id usa o app OAuth embutido do tt (EMAIL_GMAIL_ID; segredo montado em partes, gravado por conta em ~/.secrets). `--email-sync-local CONTA 0|1` (liga/desliga o espelho mbsync pós-cadastro; botão 🔄 em F2).
   Pendências de instalação: ver a seção "Pendências de instalação" abaixo (`--pendencias`, `--pedir-sudo`).
 

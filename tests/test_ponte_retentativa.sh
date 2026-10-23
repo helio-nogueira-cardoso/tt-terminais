@@ -1,88 +1,60 @@
 #!/usr/bin/env bash
-# Regressão (projeto tt): a ponte pré-carregada de outra máquina ficou presa em "Não consegui confirmar a
-# identidade do destino. Enter para tentar novamente." com a sessão existindo lá. Destino mudo (rede/SSH)
-# agora tenta sozinho (2, 4 e 8 s) antes de pedir a escolha: Enter tenta de novo, n abre uma sessão nova
-# na máquina de lá, q volta. A escolha ignora eventos de foco (ESC[I/ESC[O) e o que chegou antes.
-# Usa as funções REAIS do tt (extraídas), com resolver, ssh, sleep, read e tmux simulados; sem rede.
-set -u
-source "$(dirname "$0")/tmux-isolado.sh"   # antes dos stubs abaixo, que valem por cima
-TT="$(cd "$(dirname "$0")/.." && pwd)/tt"
-HOME=$(mktemp -d); export HOME
-falhas=0
-ok()   { echo "  ok: $1"; }
-erro() { echo "  ERRO: $1"; falhas=$((falhas+1)); }
-
-for f in ler_escolha ponte_nova_janela ponte; do
+# Rede simulada: retentativas limitadas no supervisor e criação só por escolha explícita.
+source "$(dirname "$0")/lib.sh"; isolar
+for f in ponte_tentar ponte_nova_janela; do
   eval "$(sed -n "/^$f() {/,/^}/p" "$TT")"
-  [[ $(type -t "$f") == function ]] || { echo "não extraí $f"; exit 1; }
 done
-
-LOG=$HOME/chamadas; : >"$LOG"
-FILA=$HOME/fila     # retornos do resolver_remota, um por linha (0, 1 ou 2); a subshell não guarda estado
-RESP=""             # o que o usuário digita no aviso
-FIM=""              # 1: a entrada acabou (EOF) no aviso
+LOG=$T/chamadas
+FILA=$T/fila
 resolver_remota() {
-  local r
-  r=$(sed -n 1p "$FILA" 2>/dev/null); [[ -n $r ]] || r=$(tail -n1 "$FILA")
-  sed -i 1d "$FILA" 2>/dev/null
-  echo "resolver $r" >>"$LOG"
-  [[ $r == 0 ]] && echo '$17|1792792741|graph-email-tt'
-  return "$r"
+  local rc
+  rc=$(head -1 "$FILA"); [[ -n $rc ]] || rc=2
+  sed -i '1d' "$FILA"
+  printf 'resolver %s %s\n' "$rc" "$2" >>"$LOG"
+  [[ $rc == 0 ]] && echo '$17|1792792741|sessao'
+  return "$rc"
 }
 sleep() { echo "sleep $1" >>"$LOG"; }
-read() {
-  case "$*" in
-    "-r -t 0.05 -n 64 _le_x") return 1 ;;                        # drenagem: nada na fila
-    "-r _le_r") echo "AVISO" >>"$LOG"; [[ -n $FIM ]] && return 1
-                printf -v _le_r '%s' "$RESP"; return 0 ;;
-    *) builtin read "$@" ;;
-  esac
-}
-stty() { :; }
-timeout() { shift; "$@"; }
-clear() { :; }
-rotulo_de() { echo macbook-pro; }
-ponte_registrar() { :; }
+rotulo_de() { echo remota; }
+ponte_registrar() { echo "registrar $*" >>"$LOG"; }
 log_ponte() { :; }
-ssh() {
-  echo "ssh" >>"$LOG"
-  case "$*" in *--nova*) echo sessao-nova ;; esac
-  return 0
-}
-tmux() {
-  case $1 in
-    kill-session) echo "kill-session" >>"$LOG" ;;
-    set-option) echo "set-option $*" >>"$LOG" ;;
-  esac
-  return 0
-}
-MAQUINA=dell; PATH_REMOTO=''; SSH_OPC_TELA=(); SSH_OPC=(); TT_REMOTO=tt; EU=/bin/true
+ssh() { echo "ssh $*" >>"$LOG"; }
+ssh_pedir() { echo criar >>"$LOG"; printf -v "$1" '%s' "$NOVA"; return "$CRIAR_RC"; }
+tmux() { [[ $1 == set-option ]] && echo "$*" >>"$LOG"; return 0; }
 q() { printf '%q' "$1"; }
+MAQUINA=teste; PATH_REMOTO=''; SSH_OPC_TELA=(); TT_REMOTO=tt
+NOVA=sessao-nova; CRIAR_RC=0
 
-# 1) destino mudo duas vezes e depois responde; a 3ª resposta (sessão sumiu depois do attach) encerra a ponte
-printf '%s\n' 2 2 0 1 1 >"$FILA"; : >"$LOG"; FIM=1
-ponte macbook-pro@x graph-email-tt tt-pre-teste >/dev/null 2>&1
-grep -q '^sleep 2$' "$LOG" && grep -q '^sleep 4$' "$LOG" && ok "espera crescente de 2 e 4 s antes de confirmar" || erro "esperas erradas: $(tr '\n' ' ' <"$LOG")"
-grep -q '^AVISO$' "$LOG" && erro "mostrou o aviso quando o destino voltou a responder" || ok "sem aviso enquanto as tentativas automáticas resolvem"
-grep -q '^kill-session$' "$LOG" && ok "ponte encerrada quando a sessão sumiu de verdade" || erro "ponte não encerrou"
+printf '%s\n' 2 2 0 >"$FILA"; : >"$LOG"
+ponte_tentar usuario@remota sessao ponte token >"$T/saida" || falhou 'não conectou quando a rede voltou'
+grep -q '^sleep 2$' "$LOG" && grep -q '^sleep 4$' "$LOG" || falhou 'retentativas sem espera crescente'
+[[ $(grep -c '^ssh ' "$LOG") == 1 ]] || falhou 'attach repetido'
+passou 'rede volta: duas esperas, um attach, sem pedir Enter'
 
-# 2) destino mudo o tempo todo: 3 tentativas automáticas (2, 4, 8 s), depois o aviso; Enter tenta de novo
-printf '%s\n' 2 2 2 2 2 2 2 2 2 2 2 2 >"$FILA"; : >"$LOG"; RESP=""; FIM=1
-ponte macbook-pro@x graph-email-tt tt-pre-teste >/dev/null 2>&1
-[[ $(grep -c '^sleep' "$LOG") == 3 ]] && grep -q '^sleep 8$' "$LOG" && ok "três tentativas automáticas (2, 4, 8 s)" || erro "tentativas: $(tr '\n' ' ' <"$LOG")"
-[[ $(grep -c '^AVISO$' "$LOG") == 1 ]] && ok "depois mostra o aviso, uma vez" || erro "aviso mostrado $(grep -c '^AVISO$' "$LOG") vezes"
-grep -q 'nova janela' "$LOG" && erro "ação n disparou sem ser escolhida" || ok "sem ação extra quando a entrada acaba"
+printf '%s\n' 2 2 2 2 >"$FILA"; : >"$LOG"
+rc=0; ponte_tentar usuario@remota sessao ponte token >"$T/saida" || rc=$?
+[[ $rc == 21 && $(grep -c '^sleep ' "$LOG") == 3 ]] || falhou 'rede muda não parou após três retentativas'
+grep -q '^sleep 8$' "$LOG" || falhou 'terceira espera não é de 8 s'
+! grep -q '^criar\|^ssh ' "$LOG" || falhou 'criou/anexou sem identidade confirmada'
+passou 'rede muda: três retentativas no máximo e retorno para recuperação'
 
-# 3) escolha n: cria a sessão nova lá e troca a ponte para ela (exec do tt com o nome novo)
-printf '%s\n' 2 2 2 >"$FILA"; : >"$LOG"; RESP="n"; FIM=""; EU=/bin/echo
-saida=$(ponte macbook-pro@x graph-email-tt tt-pre-teste 2>&1)
-grep -q -- '--ponte macbook-pro@x sessao-nova tt-pre-teste' <<<"$saida" && ok "n: ponte passa para a sessão nova criada lá" || erro "n não trocou para a sessão nova: $saida"
-grep -q 'set-option -u' "$LOG" && ok "identidade antiga removida da ponte" || erro "identidade antiga ficou na ponte"
-EU=/bin/true
+printf '%s\n' 1 1 >"$FILA"; : >"$LOG"
+rc=0; ponte_tentar usuario@remota sessao ponte token >"$T/saida" || rc=$?
+[[ $rc == 20 && $(grep -c '^resolver ' "$LOG") == 2 ]] || falhou 'alvo ausente não foi conferido duas vezes'
+! grep -q 'kill-session' "$LOG" || falhou 'recuperação matou a ponte antes da escolha'
+passou 'alvo ausente oferece saída local sem matar sessões'
 
-# 4) escolha com eventos de foco e espaços: ESC[O e ESC[I saem da resposta; q volta sem tocar em nada
-RESP=$'\e[O q\e[I'; FIM=""
-ler_escolha escolha_teste; [[ $escolha_teste == " q" ]] && ok "eventos de foco saem da resposta" || erro "resposta com lixo: [$escolha_teste]"
+printf '%s\n' 0 >"$FILA"; : >"$LOG"
+ponte_tentar usuario@remota antiga ponte token nova >"$T/saida" || falhou 'N não criou e conectou'
+[[ $(grep -c '^criar$' "$LOG") == 1 ]] || falhou 'criação repetida'
+grep -q '^resolver 0 sessao-nova$' "$LOG" || falhou 'reconectou ao nome antigo'
+for opc in ponte_uuid tt_pre_id ponte_id ponte_srv; do
+  grep -q -- "-u -t =ponte: @$opc" "$LOG" || falhou "identidade @$opc antiga ficou"
+done
+passou 'nova sessão explícita limpa toda a identidade antiga antes de resolver'
 
-echo "$([[ $falhas == 0 ]] && echo 'ok: retentativa e escolha da ponte' || echo "$falhas falha(s)")"
-[[ $falhas == 0 ]]
+CRIAR_RC=124; NOVA=''; : >"$LOG"
+rc=0; ponte_tentar usuario@remota antiga ponte token nova >"$T/saida" || rc=$?
+[[ $rc == 22 && $(grep -c '^criar$' "$LOG") == 1 ]] || falhou 'criação incerta foi repetida'
+! grep -q '^resolver\|^set-option' "$LOG" || falhou 'criação incerta alterou o alvo'
+passou 'criação sem resposta é informada e não se repete automaticamente'

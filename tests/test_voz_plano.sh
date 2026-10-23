@@ -34,6 +34,9 @@ mkdir -p "$EST"
 
 tmux new-session -d -s site "$B/agente.sh"
 tmux new-session -d -s backend "$B/agente.sh"
+# O título padrão de alguns Macs é um hostname *.internal. A busca aproximada
+# não pode transformar o nome proibido _interna em um pedido para essa sessão.
+tmux select-pane -t =backend: -T node.example.internal
 tmux new-session -d -s deploy-a 'sleep 600'; tmux new-window -t =deploy-a: 'sleep 600'
 tmux new-session -d -s deploy-b 'sleep 600'
 tmux new-session -d -s deploy-c 'sleep 600'

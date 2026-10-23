@@ -10,7 +10,7 @@ g() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false -C "$1" "${@:
 # e o "commit publicado depois" não existe — o teste passava em falso.
 git init -q --bare publicado.git && git -C publicado.git symbolic-ref HEAD refs/heads/main
 git clone -q publicado.git dev 2>/dev/null
-for f in tt precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
+for f in tt tela-recuperar.py docs/recuperacao-telas-anexos.md precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
          atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py \
          skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf skills/figma-cota/SKILL.md skills/figma-cota/scripts/figma_rest.py skills/figma-cota/scripts/figma_oauth_retorno.py skills/figma-cota/references/acesso-autenticacao.md; do
   if [[ -e $RAIZ/$f ]]; then

@@ -1737,6 +1737,9 @@ confirmar_resposta() { # sim|nao
 
 # ---------- resolver uma sessão dita (número da última lista, nome, título) em qualquer máquina ----------
 sessao_resolver() { # NOME [MÁQUINA] -> "MAQ<TAB>SESSÃO"; sem NOME, a escolhida
+  # Não transforme _interna em "interna": a busca por título poderia casar um
+  # hostname *.internal e escolher outra sessão de trabalho no lugar da proibida.
+  [[ ${1:-} == _* ]] && return 1
   local nome=$(norm "${1:-}") m=${2:-} lista s n r
   if [[ -z $nome || $nome =~ ^(esta|essa|atual|escolhida|a escolhida|esta sessao|essa sessao|a sessao)$ ]]; then
     [[ -n $(alvo_s) ]] || return 1; printf '%s\t%s\n' "$(alvo_m)" "$(alvo_s)"; return 0

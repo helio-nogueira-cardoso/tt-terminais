@@ -3418,6 +3418,7 @@ versao_rotulo() { if [[ ${2:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then printf 'v%s'
 # tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
 ajuda() {
   sed -n '2,49p' "$EU" | sed 's/^# \{0,1\}//'
+  printf '\nRecuperar tela: Ctrl+B Esc, menu ⋯ ou tt --recuperar-tela [CLIENTE].\nRetomar anexos preservados: tt --anexo-salvar CAMINHO-DO-LOTE.\n'
   printf '\nVersão instalada: %s (%s)\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao_humana)" "$(versao)" "$DIR_TT" "$DIR_TT"
 }
 
@@ -3616,7 +3617,7 @@ mac_configurar_padrao() {
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_SKILL_FIGMA=(skills/figma-cota/SKILL.md skills/figma-cota/scripts/figma_rest.py
   skills/figma-cota/scripts/figma_oauth_retorno.py skills/figma-cota/references/acesso-autenticacao.md)
-ARQUIVOS_FONTE=(tt precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
+ARQUIVOS_FONTE=(tt tela-recuperar.py docs/recuperacao-telas-anexos.md precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
   checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf
   "${ARQUIVOS_SKILL_FIGMA[@]}")
@@ -5813,121 +5814,101 @@ log_ponte() { # ponte texto
   return 0
 }
 
-# Lê a escolha de um aviso sem deixar lixo na tela. Antes, descarta o que já chegou e desliga o eco; depois,
-# tira da resposta os eventos de foco do tmux (ESC[I e ESC[O), que chegam sozinhos e, com o eco ligado,
-# aparecem como caracteres aleatórios por cima do aviso (o pane travado mostrava ^[[O).
-ler_escolha() { # variável
-  local _le_v=$1 _le_r="" _le_x="" _le_rc
-  while read -r -t 0.05 -n 64 _le_x 2>/dev/null; do :; done
-  stty -echo 2>/dev/null
-  read -r _le_r; _le_rc=$?
-  stty echo 2>/dev/null
-  _le_r=${_le_r//$'\e[I'/}; _le_r=${_le_r//$'\e[O'/}
-  printf -v "$_le_v" '%s' "$_le_r"
-  printf '\n'
-  return "$_le_rc"
+# Só uma escolha explícita cria uma sessão. Se a resposta se perder, não repete a criação:
+# a nova sessão pode já existir lá. A tentativa inteira segue sob o supervisor local.
+ponte_nova_janela() { # destino ponte -> nome novo
+  local nova rc
+  printf 'Criando uma sessão nova em %s…\n' "$(rotulo_de "$1")" >&2
+  ssh_pedir nova 15 "$1" "$TT_REMOTO --nova" 3; rc=$?
+  [[ $rc == 0 && -n $nova && $nova != *$'\n'* && $nova != *$'\r'* ]] || return 1
+  tmux set-option -u -t "=$2:" @ponte_uuid \
+    \; set-option -u -t "=$2:" @tt_pre_id \
+    \; set-option -u -t "=$2:" @ponte_id \
+    \; set-option -u -t "=$2:" @ponte_srv \
+    \; set-option -t "=$2:" @ponte_alvo "$1|$nova" 2>/dev/null || return 1
+  printf '%s\n' "$nova"
 }
 
-# Saída da ponte presa: cria uma sessão nova na máquina de lá e a ponte passa a mostrar essa sessão.
-# O id e o uuid da sessão antiga saem da ponte, senão a identidade velha a derrubaria como "sumiu".
-ponte_nova_janela() { # destino ponte
-  local nova
-  printf '\nCriando uma sessão nova em %s…\n' "$(rotulo_de "$1")"
-  nova=$(timeout 15 ssh "${SSH_OPC[@]}" "$1" "$TT_REMOTO --nova" </dev/null 2>/dev/null)
-  if [[ -z $nova ]]; then
-    printf 'Não consegui criar a sessão em %s (sem resposta). Enter para tentar de novo. ' "$(rotulo_de "$1")"
-    read -r
-    return 0
+# Uma tentativa inteira fica no PTY do supervisor: resolver, handshake e primeiro quadro
+# compartilham o prazo. Cancelar encerra só esse grupo, nunca a sessão tmux do destino.
+ponte_tentar() { # dest nome ponte token [nova]
+  local dest=$1 nome_atual=$2 ponte=$3 token=$4 info id srv uuid rc anexar guarda mudo=0
+  [[ $token =~ ^[a-zA-Z0-9-]{1,96}$ ]] || return 2
+  [[ -n $dest && $dest != : ]] || { echo 'Destino remoto inválido.'; return 20; }
+  if [[ ${5:-} == nova ]]; then
+    nome_atual=$(ponte_nova_janela "$dest" "$ponte") || return 22
   fi
-  tmux set-option -u -t "=$2:" @ponte_uuid 2>/dev/null
-  tmux set-option -u -t "=$2:" @tt_pre_id 2>/dev/null
-  exec "$EU" --ponte "$1" "$nova" "$2"
+  # Campos restritos (id, epoch e hex): | preserva vazios e funciona no tmux 3.5,
+  # que imprime o controle 0x1f como os quatro caracteres literais \037.
+  IFS='|' read -r id srv uuid < <(tmux display -p -t "=$ponte:" '#{@ponte_id}|#{@ponte_srv}|#{@ponte_uuid}' 2>/dev/null)
+  [[ -n $uuid ]] || uuid=$(tmux show-options -qv -t "=$ponte:" @tt_pre_id 2>/dev/null)
+  printf 'Confirmando a sessão %s:%s…\n' "$(rotulo_de "$dest")" "$nome_atual"
+  while true; do
+    info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv" "$uuid"); rc=$?
+    ((rc == 2 && mudo < 3)) || break
+    mudo=$((mudo + 1))
+    printf 'Sem resposta. Nova tentativa em %s s (%s/3); Esc cancela.\n' "$((2 ** mudo))" "$mudo"
+    sleep "$((2 ** mudo))"
+  done
+  if ((rc == 1)); then sleep 2; info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv" "$uuid"); rc=$?; fi
+  if ((rc == 1)); then
+    log_ponte "$ponte" "destino confirmou que a sessão $dest|$nome_atual não existe mais"
+    return 20
+  fi
+  ((rc == 0)) || return 21
+  IFS='|' read -r id srv nome_atual <<<"$info"
+  [[ -n $id && -n $srv ]] || return 21
+  ponte_registrar "$ponte" "$dest" "$id" "$srv" "$nome_atual"
+  anexar="tmux -u attach -t $(q "$id")"
+  if [[ -n $uuid ]]; then
+    [[ $uuid =~ ^[0-9a-f]{32}$ ]] || return 21
+    guarda="#{&&:#{==:#{@tt_session_id},$uuid},#{==:#{start_time},$srv}}"
+    anexar="tmux -u if-shell -F -t $(q "$id:") $(q "$guarda") $(q "attach-session -E -t $(q "$id")")"
+  fi
+  # O marcador é consumido pelo supervisor. Antes dele, banners do SSH não liberam o teclado.
+  ssh -t "${SSH_OPC_TELA[@]}" "$dest" \
+    "$PATH_REMOTO printf '\033]777;tt-conectado;$token\007'; exec env TT_PONTE=$(q "$MAQUINA|$ponte") $anexar"
+}
+
+ponte_esperar() { # ponte título motivo — 0 reconectar, 11 nova; central volta à espera
+  local ponte=$1 titulo=$2 motivo=$3 rc c
+  while true; do
+    python3 "$DIR_TT/tela-recuperar.py" esperar --nova --titulo "$titulo" --motivo "$motivo"; rc=$?
+    ((rc == 0 || rc == 11)) && return "$rc"
+    ((rc == 10)) || return "$rc"
+    c=$(cliente_do_painel)
+    [[ -n $c ]] && recuperar_tela "$c"
+  done
 }
 
 ponte() {
-  local dest=$1 s=$2 ponte=$3 st
-  # Uma ponte antiga pode chegar aqui sem host (ex.: o rótulo deixou de resolver). Não
-  # repetir SSH com destino vazio: isso produz "Could not resolve hostname" para sempre.
-  if [[ -z $dest || $dest == : ]]; then
-    clear
-    printf 'Destino remoto inválido para a sessão %s (host vazio).\n' "$s"
-    printf 'Pressione Enter para abrir o seletor e escolher outra sessão; Ctrl+B d para voltar. '
-    read -r
-    exec "$EU"
-  fi
-  local info id="" srv="" nome_atual=$s rc uuid anexar guarda mudo=0
-  uuid=$(tmux show-options -qv -t "=$ponte:" @ponte_uuid 2>/dev/null)
-  [[ -n $uuid ]] || uuid=$(tmux show-options -qv -t "=$ponte:" @tt_pre_id 2>/dev/null)
+  local dest=$1 s=$2 ponte=$3 st token motivo tentativa alvo modo=${4:-}
   while true; do
-    clear
-    printf 'Conectando a %s:%s…\n' "$(rotulo_de "$dest")" "$nome_atual"
-    # Identifica a sessão de lá por id (sobrevive a renomeação). O que mata a ponte é a sessão ter
-    # SUMIDO de verdade (nem o id nem o nome existem, e o destino respondeu), conferido duas vezes;
-    # destino mudo (rede/SSH caiu) é transitório e permite nova tentativa.
-    info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv" "$uuid"); rc=$?
-    if ((rc == 1)); then sleep 2; info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv" "$uuid"); rc=$?; fi
-    if ((rc == 1)); then
-      printf '\n\033[33mA sessão %s:%s não existe mais no destino. Encerrando esta ponte.\033[0m\n' \
-        "$(rotulo_de "$dest")" "$nome_atual"
-      log_ponte "$ponte" "ponte encerrada: a sessão $dest|$nome_atual (id ${id:-?}) não existe mais no destino"
-      sleep 1
-      tmux kill-session -t "=$ponte" 2>/dev/null
-      return 0
+    token="tt-$BASHPID-$RANDOM-$RANDOM"
+    python3 "$DIR_TT/tela-recuperar.py" conectar --token "$token" --prazo "${TT_T_RECONEXAO:-20}" \
+      -- "$EU" --ponte-tentar "$dest" "$s" "$ponte" "$token" "$modo" </dev/tty &
+    tentativa=$!
+    tmux set-option -p -t "${TMUX_PANE:-=$ponte:}" @tt_tentativa "$tentativa|$token" 2>/dev/null
+    wait "$tentativa"; st=$?
+    alvo=$(tmux set-option -pu -t "${TMUX_PANE:-=$ponte:}" @tt_tentativa \
+      \; display -p -t "=$ponte:" '#{@ponte_alvo}' 2>/dev/null)
+    [[ $alvo == "$dest|"* ]] && s=${alvo#*|}
+    case $st in
+      20) motivo='A sessão não existe mais no destino. Abra a central para escolher outra.' ;;
+      21) motivo='Não foi possível confirmar a sessão. A conexão pode estar indisponível.' ;;
+      22) motivo='Não confirmei a criação. Confira a central: a nova sessão pode já existir no destino.' ;;
+      124) motivo='O prazo de conexão terminou. Você pode tentar de novo ou abrir a central.' ;;
+      130) motivo='Tentativa cancelada. A sessão de trabalho foi preservada.' ;;
+      *) motivo="A conexão terminou (código $st). A sessão de trabalho foi preservada." ;;
+    esac
+    if [[ $modo == nova ]] && ((st == 124 || st == 130)); then
+      motivo="A tentativa de criar/conectar terminou. Confira a central: a nova sessão pode já existir."
     fi
-    if ((rc != 0)); then
-      # Destino mudo (rede ou SSH): tenta sozinho, com espera crescente (2, 4 e 8 s), antes de pedir Enter.
-      if ((mudo < 3)); then
-        mudo=$((mudo + 1))
-        printf '\n\033[33mSem resposta de %s (rede ou SSH). Nova tentativa em %s s (%s/3)…\033[0m\n' \
-          "$(rotulo_de "$dest")" $((2 ** mudo)) "$mudo"
-        sleep $((2 ** mudo))
-        continue
-      fi
-      mudo=0
-      printf '\nSem resposta de %s; não consegui confirmar a identidade.\n' "$(rotulo_de "$dest")"
-      printf '  Enter: tentar de novo  ·  n: nova janela lá  ·  q: voltar (Ctrl+B d) '
-      ler_escolha escolha || return 0
-      case $escolha in
-        n | N) ponte_nova_janela "$dest" "$ponte" ;;
-        q | Q) return 0 ;;
-      esac
-      continue
-    fi
-    mudo=0
-    if ((rc == 0)); then
-      IFS='|' read -r id srv nome_atual <<<"$info"
-      ponte_registrar "$ponte" "$dest" "$id" "$srv" "$nome_atual"
-    fi
-    [[ -n $id && -n $srv ]] || return 1
-    # Anexa pelo id quando o temos: o nome pode mudar enquanto a ponte está aberta ou reconecta.
-    anexar="tmux -u attach -t $(q "$id")"
-    if [[ -n $uuid ]]; then
-      [[ $uuid =~ ^[0-9a-f]{32}$ ]] || return 1
-      guarda="#{&&:#{==:#{@tt_session_id},$uuid},#{==:#{start_time},$srv}}"
-      anexar="tmux -u if-shell -F -t $(q "$id:") $(q "$guarda") $(q "attach-session -E -t $(q "$id")")"
-    fi
-    ssh -t "${SSH_OPC_TELA[@]}" "$dest" \
-      "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|$ponte") $anexar"
-    st=$?
-    # O attach terminou. Se a sessão sumiu no destino (fim normal: a sessão de lá foi fechada), a
-    # ponte não tem mais o que mostrar — encerra em vez de oferecer reconexão a um alvo morto.
-    info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv" "$uuid"); rc=$?
-    if ((rc == 1)); then sleep 2; info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv" "$uuid"); rc=$?; fi
-    if ((rc == 1)); then
-      printf '\n\033[33mA sessão %s:%s foi encerrada no destino. Fechando esta ponte.\033[0m\n' \
-        "$(rotulo_de "$dest")" "$nome_atual"
-      log_ponte "$ponte" "ponte encerrada: a sessão $dest|$nome_atual (id ${id:-?}) foi encerrada no destino"
-      sleep 1
-      tmux kill-session -t "=$ponte" 2>/dev/null
-      return 0
-    fi
-    if ((rc == 0)); then
-      IFS='|' read -r id srv nome_atual <<<"$info"
-      ponte_registrar "$ponte" "$dest" "$id" "$srv" "$nome_atual"
-    fi
-    printf '\n\033[33mA conexão com %s:%s terminou (código %s).\033[0m\n' "$(rotulo_de "$dest")" "$nome_atual" "$st"
-    printf 'A janela foi preservada. Pressione Enter para tentar novamente ou Ctrl+B d para voltar. '
-    ler_escolha _ponte_fim
+    # Uma resposta perdida não autoriza repetir criação de sessão.
+    modo=""
+    log_ponte "$ponte" "recuperação: código $st; destino $dest|$s"
+    ponte_esperar "$ponte" "Conexão com $(rotulo_de "$dest"):$s" "$motivo"; st=$?
+    case $st in 0) ;; 11) modo=nova ;; *) return "$st" ;; esac
   done
 }
 
@@ -6021,19 +6002,75 @@ abrir_painel() {
 # Arestas "sessão-que-contém → sessão-mostrada" desta máquina: painel cujo processo é um cliente
 # tmux deste servidor.
 arestas_paineis() {
-  local -A sessao_do_cliente
-  local pid s
+  local -A sessao_do_cliente=() panes=() pais=()
+  local pid s p n precisa=0
   while read -r pid s; do sessao_do_cliente[$pid]=$s; done < <(tmux list-clients -F '#{client_pid} #{session_name}' 2>/dev/null)
-  tmux list-panes -a -F '#{pane_pid} #{session_name}' 2>/dev/null | while read -r pid s; do
-    [[ -n ${sessao_do_cliente[$pid]:-} ]] && echo "$s ${sessao_do_cliente[$pid]}"
+  while read -r pid s; do panes[$pid]=$s; done < <(tmux list-panes -a -F '#{pane_pid} #{session_name}' 2>/dev/null)
+  for pid in "${!sessao_do_cliente[@]}"; do [[ -n ${panes[$pid]:-} ]] || precisa=1; done
+  if ((precisa)); then
+    while read -r pid p; do [[ -n $pid ]] && pais[$pid]=$p; done < <(ps -A -o pid= -o ppid=)
+  fi
+  for pid in "${!sessao_do_cliente[@]}"; do
+    p=$pid; n=0
+    while [[ $p != 0 && $p != 1 ]] && ((n++ < 64)); do
+      if [[ -n ${panes[$p]:-} ]]; then printf '%s %s\n' "${panes[$p]}" "${sessao_do_cliente[$pid]}"; break; fi
+      p=${pais[$p]:-0}
+    done
   done
 }
 
 # A sessão que contém o painel onde o cliente C roda (vazio se C é um terminal de verdade).
 contem_cliente() {
-  local pid
+  local pid p s direto n=0
   pid=$(do_cliente "$1" '#{client_pid}')
-  [[ -n $pid ]] && tmux list-panes -a -F '#{pane_pid} #{session_name}' 2>/dev/null | awk -v p="$pid" '$1 == p { print $2; exit }'
+  [[ $pid =~ ^[0-9]+$ ]] || return 1
+  local -A panes=() pais=()
+  while IFS=$'\t' read -r p s; do [[ -n $p ]] && panes[$p]=$s; done < <(tmux list-panes -a -F $'#{pane_pid}\t#{session_name}' 2>/dev/null)
+  [[ -n ${panes[$pid]:-} ]] && { printf '%s\n' "${panes[$pid]}"; return; }
+  # Um shell/wrapper pode ser o pane_pid, com tmux como filho. Não perder esse vínculo.
+  while read -r p s; do [[ -n $p ]] && pais[$p]=$s; done < <(ps -A -o pid= -o ppid=)
+  while [[ $pid =~ ^[0-9]+$ && $pid != 0 && $pid != 1 ]] && ((n++ < 64)); do
+    pid=${pais[$pid]:-0}
+    [[ -n ${panes[$pid]:-} ]] && { printf '%s\n' "${panes[$pid]}"; return; }
+  done
+  return 1
+}
+
+# O cliente do e-mail é uma vista, nunca a tela a ser navegada. O dono é identificado
+# por tty E PID; um tty reciclado não autoriza trocar outra tela. Sem marca, é legado.
+cliente_de_fora() {
+  local c=$1 pid term dono dono_pid
+  IFS='|' read -r pid term < <(do_cliente "$c" '#{client_pid}|#{client_termname}')
+  if [[ $term == tmux* || $term == screen* ]]; then
+    if [[ $(env_do_pid "$pid" TT_EMAIL_CLIENTE) == 1 ]]; then
+      dono=$(env_do_pid "$pid" TT_EMAIL_DONO)
+      dono_pid=$(env_do_pid "$pid" TT_EMAIL_DONO_PID)
+      [[ -n $dono && $dono != "$c" && -n $dono_pid && $(do_cliente "$dono" '#{client_pid}') == "$dono_pid" ]] || return 1
+      printf '%s\n' "$dono"; return
+    fi
+  fi
+  printf '%s\n' "$c"
+}
+
+# Escape local: não consulta máquinas, não mata o aerc nem a sessão remota. O popup
+# da central começa pela lista em cache e o usuário escolhe para onde seguir.
+recuperar_tela() {
+  local c=${1:-${TT_CLIENTE:-}} p modal pid token externo
+  [[ -n $c ]] || c=$(cliente_do_painel)
+  [[ -n $c ]] || return 1
+  externo=$(cliente_de_fora "$c") || { tmux detach-client -t "$c"; return; }
+  c=$externo
+  IFS='|' read -r p modal pid token < <(do_cliente "$c" '#{pane_id}|#{window_modal_pane}|#{@tt_tentativa}')
+  [[ -n $p ]] || return 1
+  if [[ $pid =~ ^[0-9]+$ && $token == tt-* ]] && [[ $(cmdline_do_pid "$pid") == *"tela-recuperar.py conectar --token $token "* ]]; then
+    kill -TERM "$pid" 2>/dev/null || true
+  fi
+  # Fecha só a superfície modal, não a sessão oculta que mantém rascunhos e anexos.
+  [[ -n $modal ]] && tmux kill-pane -t "$modal" 2>/dev/null
+  _tmux_real display-popup -C -c "$c" 2>/dev/null || true
+  precarregar_cancelar "$c"
+  popup_fixo -c "$c" -E $(tam_popup "$c") -T ' Recuperar tela · central local ' \
+    "TT_CLIENTE=$(q "$c") $EU"
 }
 
 # Verdadeiro se, a partir da sessão DE, seguindo os painéis, chega-se à sessão PARA.
@@ -6098,7 +6135,7 @@ guarda_tamanho() {
       # Um tamanho pequeno de passagem (o cliente que acabou de voltar ao e-mail ainda se redesenha, mais devagar no
       # macOS) não é ciclo: confere de novo antes de desligar.
       sleep 0.5
-      read -r w h s < <(tmux display -p -c "$c" '#{client_width} #{client_height} #{session_name}' 2>/dev/null) || continue
+      read -r w h s < <(do_cliente "$c" '#{client_width} #{client_height} #{session_name}') || continue
       [[ -n ${w:-} ]] || continue
       ((w < 12 || h < 4)) || continue
       tmux detach-client -t "$c" && n=$((n + 1))
@@ -6118,17 +6155,29 @@ guarda_tamanho() {
 guarda_aninhado() { # cliente [voltou]
   local c=${1:-} pid s cont
   [[ -n $c ]] || return 0
-  IFS=$'\x1f' read -r pid s < <(tmux display -p -c "$c" $'#{client_pid}\x1f#{session_name}' 2>/dev/null)
+  IFS=$'\x1f' read -r pid s < <(do_cliente "$c" $'#{client_pid}\x1f#{session_name}')
   [[ -n $pid && -n $s ]] || return 0
   mkdir -p "$HOME/.cache"
   if [[ ${2:-} == voltou ]]; then # o gancho do tmux já o trouxe de volta; aqui só fica o registro
-    echo "$(date '+%F %T') guarda: o cliente do e-mail $c foi para $(tmux display -p -c "$c" '#{client_last_session}' 2>/dev/null); voltou ao e-mail" >>"$HOME/.cache/tt-vigia.log"
+    if [[ $s != "$EMAIL_SESSAO" ]]; then
+      # tmux antigos podem ignorar switch-client dentro do próprio gancho. A vista
+      # continua ignore-size enquanto este comando externo tenta completar o retorno.
+      tmux switch-client -c "$c" -t "=$EMAIL_SESSAO" 2>/dev/null
+      s=$(do_cliente "$c" '#{session_name}')
+    fi
+    if [[ $s != "$EMAIL_SESSAO" ]]; then
+      tmux detach-client -t "$c" 2>/dev/null
+      log_ponte "$c" 'guarda: retorno ao e-mail falhou; somente a vista foi fechada'
+      return 0
+    fi
+    tmux refresh-client -t "$c" -f '!ignore-size' 2>/dev/null
+    echo "$(date '+%F %T') guarda: o cliente do e-mail $c foi para $(do_cliente "$c" '#{client_last_session}'); voltou ao e-mail" >>"$HOME/.cache/tt-vigia.log"
     return 0
   fi
-  if cmdline_do_pid "$pid" | grep -q -- "attach -t =$EMAIL_SESSAO"; then
+  if [[ $(env_do_pid "$pid" TT_EMAIL_CLIENTE) == 1 ]] || cmdline_do_pid "$pid" | grep -q -- "attach -t =$EMAIL_SESSAO"; then
     [[ $s == "$EMAIL_SESSAO" ]] && return 0
-    tmux switch-client -c "$c" -t "=$EMAIL_SESSAO" 2>/dev/null || tmux detach-client -t "$c" 2>/dev/null
-    echo "$(date '+%F %T') guarda: o cliente do e-mail $c foi para $s; voltou ao e-mail" >>"$HOME/.cache/tt-vigia.log"
+    tmux refresh-client -t "$c" -f ignore-size 2>/dev/null
+    guarda_aninhado "$c" voltou
     return 0
   fi
   cont=$(contem_cliente "$c")
@@ -6275,9 +6324,12 @@ precarregar_ponte() { # destino sessão id token ponte
   local dest=$1 s=$2 id=$3 token=$4 p=$5 st=0
   precarregar_py transporte "$dest" "$token" "$s" "$id" "$MAQUINA|$p" 180 || st=$?
   if [[ $(tmux show-options -qv -t "=$p:" @tt_pre_estado 2>/dev/null) == ativa ]]; then
-    printf '\nA conexão terminou (código %s). Enter para reconectar; Ctrl+B d para voltar. ' "$st"
-    read -r || return 0
-    exec "$EU" --ponte "$dest" "$s" "$p"
+    ponte_esperar "$p" "Conexão com $(rotulo_de "$dest"):$s" "A conexão terminou (código $st). A sessão foi preservada."; st=$?
+    case $st in
+      0) exec "$EU" --ponte "$dest" "$s" "$p" ;;
+      11) exec "$EU" --ponte "$dest" "$s" "$p" nova ;;
+      *) return "$st" ;;
+    esac
   fi
   return "$st"
 }
@@ -6470,6 +6522,9 @@ prazo_vencido() {
 
 ir_para() {
   local dest=$1 s=$2 origem om op aviso st r alvo_id=""
+  if [[ -n ${TT_CLIENTE:-} ]]; then
+    TT_CLIENTE=$(cliente_de_fora "$TT_CLIENTE") || return 1
+  fi
   origem=${_origem_fixada:-}
   [[ -n $origem ]] || origem=$(origem_ponte "${TT_CLIENTE:-}")
   om=${origem%%|*} op=${origem#*|}
@@ -6495,12 +6550,11 @@ ir_para() {
   local container
   container=$( [[ -n ${TT_CLIENTE:-} ]] && contem_cliente "$TT_CLIENTE")
   if [[ -n $container && $dest == . ]] && fecha_ciclo "$s" "$container"; then
-    # Escape automático: quebra o ciclo desanexando as vistas aninhadas que levam ao alvo e segue.
-    # Só avisa e volta se não houve nada para desanexar (ciclo que não sabemos desfazer sozinhos).
-    if ! quebrar_ciclo_para "$s"; then
-      aviso_ciclo "$s" "$container"; read -rp "Enter para voltar."
-      return 1
-    fi
+    # Fecha apenas a vista que pediu a navegação: a sessão que a contém já fica acessível.
+    # Desanexar todas as vistas do alvo poderia arrastar outro aparelho.
+    log_ponte "$TT_CLIENTE" "ciclo impedido antes da troca para $s (contêiner $container)"
+    tmux detach-client -t "$TT_CLIENTE"
+    return
   fi
   # Dentro do tmux sem saber qual é a tela: resolve pelo painel que abriu o menu. Não escolha a
   # primeira tela da sessão: ela pode ser outra tela do mesmo computador.
@@ -9423,6 +9477,7 @@ b	Dividir embaixo (terminal novo)	tmux split-window -v -t $p -c $(q "$pasta")
 v	Abrir outra sessão ao lado…	$(popup_tt "$c" "ao lado" "$env TT_MODO=lado $EU")
 o	Abrir outra sessão embaixo…	$(popup_tt "$c" embaixo "$env TT_MODO=embaixo $EU")
 p	Trocar a sessão deste painel…	$troca
+R	↩ Recuperar tela (Ctrl+B Esc)	$EU --recuperar-tela $(q "$c")
 -		
 c	📋 Colar a última cópia	tmux paste-buffer -p -t $p
 y	📋 Copiar o texto da tela	$EU --copiar-tela $(q "$c") $p
@@ -16703,7 +16758,12 @@ desafixar_n() {
 # da área da esquerda o menu das máquinas. RANGE CLIENTE PAINEL [X-DO-MOUSE].
 clique_direito() {
   export TT_X=$(( ${4:-0} > 4 ? ${4:-0} - 4 : 0 ))
-  local faixa=${1#user|}
+  local faixa=${1#user|} externo
+  case $faixa in tt|sessao|maquina|fx*|email)
+    externo=$(cliente_de_fora "$2") || return 1
+    [[ $externo == "$2" ]] || set -- "$1" "$externo" "$(do_cliente "$externo" '#{pane_id}')" "${4:-}" "${5:-}" "${6:-}"
+    ;;
+  esac
   case $faixa in
     fxx*) desafixar_item "$2" "${faixa#fxx}" ;;
     fixmais) fixadas_agrupar "$2" ;;
@@ -16810,38 +16870,52 @@ abrir_recebido() {
 # S no e-mail: o anexo escolhido (o aerc o salvou em ~/.cache/tt-anexos/salvar) vai para a máquina da TELA, na pasta
 # de recebidos dela (cópia em segundo plano, a barra mostra). Vendo desta máquina: pergunta a pasta (Tab completa),
 # começando pela de recebidos daqui. Nada é sobrescrito: repetido vira "nome (2)".
+anexos_lote() { # salvar|atual — renomeia a entrada inteira; chamadas concorrentes não misturam lotes
+  local base="$HOME/.cache/tt-anexos" lote
+  [[ $1 == salvar || $1 == atual ]] || return 2
+  [[ -d $base/$1 && ! -L $base/$1 ]] || return 1
+  lote=$(mktemp -d "$base/pendente-XXXXXXXX") || return 1
+  if mv -- "$base/$1" "$lote/arquivos"; then printf '%s\n' "$lote/arquivos"
+  else rmdir "$lote" 2>/dev/null; return 1; fi
+}
+
+anexos_pendentes_aviso() {
+  printf '\nAnexos preservados em: %s\nPara tentar salvar novamente: tt --anexo-salvar %q\n' "$1" "$1"
+}
+
 anexo_salvar() {
-  local base="$HOME/.cache/tt-anexos" lote t d om c ddst destino n alvo i
+  local base="$HOME/.cache/tt-anexos" lote=${1:-} t d om c ddst destino n rc
   local -a nomes=()
-  [[ -d $base/salvar && -n $(ls -A "$base/salvar" 2>/dev/null) ]] || { echo "Nada para salvar: escolha o anexo com Ctrl+j / Ctrl+k e aperte S."; read -rsn1 -t 4; return 0; }
-  lote=$(mktemp -d "$base/$(date +%Y%m%d-%H%M%S)-salvar-XXXX") || return 1
-  mv "$base/salvar/"* "$base/salvar/".[!.]* "$lote/" 2>/dev/null; rmdir "$base/salvar" 2>/dev/null
-  mapfile -t nomes < <(cd "$lote" && ls -1A)
-  ((${#nomes[@]})) || { rm -rf "$lote"; return 0; }
+  if [[ -n $lote ]]; then
+    # Retomar somente um lote nosso: não aceitar uma pasta arbitrária para mover seu conteúdo.
+    [[ $lote == "$base"/pendente-*/arquivos && ${lote%/*/*} == "$base" && -d $lote && ! -L $lote && ! -L ${lote%/*} &&
+       ${lote#"$base"/} != */../* ]] || { echo 'Lote de anexos inválido.' >&2; return 2; }
+  else
+    [[ -d $base/salvar ]] || { echo "Nada para salvar: escolha o anexo com Ctrl+j / Ctrl+k e aperte S."; return 1; }
+    lote=$(anexos_lote salvar) || return 1
+  fi
+  while IFS= read -r -d '' n; do nomes+=("${n##*/}"); done < <(find "$lote" -mindepth 1 -maxdepth 1 -print0)
+  ((${#nomes[@]})) || { rmdir "$lote" "${lote%/*}" 2>/dev/null; return 0; }
   t=$(dest_da_tela)
   if [[ -n $t ]]; then
     IFS=$'\t' read -r d om c <<<"$t"
     if ddst=$(timeout 20 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --pasta-recebidos" </dev/null 2>/dev/null) && [[ -n $ddst ]]; then
       echo "📎 salvando ${nomes[*]} em $om ($ddst)"
-      transferir . "$(encurtar "$lote")" "$d" "$ddst" "${nomes[@]}"
-      return 0
+      transferir . "$(encurtar "$lote")" "$d" "$ddst" "${nomes[@]}"; rc=$?
+      anexos_pendentes_aviso "$lote"
+      return "$rc"
     fi
     echo "$om não respondeu: salvo nesta máquina."
   fi
   if [[ -t 0 ]]; then
     destino=$(expandir "$(pasta_recebidos)")
-    read -r -e -p "Salvar em: " -i "$destino/" destino || { rm -rf "$lote"; return 0; }
+    read -r -e -p "Salvar em: " -i "$destino/" destino || { anexos_pendentes_aviso "$lote"; return 130; }
   else IFS= read -r destino || true; [[ -n $destino ]] || destino=$(expandir "$(pasta_recebidos)"); fi
-  destino=$(expandir "${destino%/}"); mkdir -p "$destino" || { echo "Não consegui criar $destino"; read -rsn1 -t 4; return 1; }
-  for n in "${nomes[@]}"; do
-    alvo="$destino/$n"; i=2
-    while [[ -e $alvo ]]; do
-      if [[ $n == ?*.* ]]; then alvo="$destino/${n%.*} ($i).${n##*.}"; else alvo="$destino/$n ($i)"; fi
-      i=$((i + 1))
-    done
-    mv "$lote/$n" "$alvo" && echo "✔ $alvo"
-  done
-  rm -rf "$lote"; sleep 1
+  destino=$(expandir "${destino%/}")
+  python3 -I "$DIR_TT/email-tt.py" anexos-salvar "$lote" "$destino"; rc=$?
+  if ((rc)); then anexos_pendentes_aviso "$lote"
+  else rmdir "${lote%/*}" 2>/dev/null || true; fi
+  return "$rc"
 }
 
 imagens_do_email() {
@@ -16876,20 +16950,23 @@ imagens_do_email() {
 # da mensagem aberta em ~/.cache/tt-anexos/atual e abre isto: marca quais, escolhe a máquina no
 # mesmo seletor do ⇅ arquivos, e a cópia segue em segundo plano (barra mostra o andamento).
 anexos_enviar() {
-  local base="$HOME/.cache/tt-anexos" lote dst ddst escolha
+  local base="$HOME/.cache/tt-anexos" lote dst ddst escolha rc n
   local -a nomes=()
-  # lotes velhos (enviados há mais de 1 dia) somem
-  find "$base" -mindepth 1 -maxdepth 1 -type d ! -name atual -mtime +1 -exec rm -rf {} + 2>/dev/null
+  # Idade não comprova entrega: lotes pendentes e transferências interrompidas são preservados.
   [[ -d $base/atual && -n $(ls -A "$base/atual" 2>/dev/null) ]] || { echo "Esta mensagem não tem anexos."; read -rsn1 -t 3; return 0; }
-  lote="$base/$(date +%Y%m%d-%H%M%S)"; mv "$base/atual" "$lote"
-  escolha=$(cd "$lote" && ls -1 | fzf --multi --bind 'start:select-all' --layout=reverse --height=~20 --border=rounded \
+  lote=$(anexos_lote atual) || return 1
+  escolha=$(mktemp "$base/.escolha-XXXXXXXX") || { anexos_pendentes_aviso "$lote"; return 1; }
+  (cd "$lote" && find . -mindepth 1 -maxdepth 1 -type f -printf '%P\0' | fzf --read0 --print0 --multi --bind 'start:select-all' --layout=reverse --height=~20 --border=rounded \
     --border-label=' 📎 anexos para enviar (Tab marca/desmarca · ⏎ segue) ' --prompt='❯ ' --pointer='▶' --marker='✔' \
-    --preview 'f={}; printf "%s\n%s\n" "$(du -h "$f" | cut -f1)" "$(file -b "$f" 2>/dev/null)"' --preview-window=down,3) || { rm -rf "$lote"; return 0; }
-  mapfile -t nomes <<<"$escolha"; ((${#nomes[@]})) || { rm -rf "$lote"; return 0; }
+    --preview 'f={}; printf "%s\n%s\n" "$(du -h "$f" | cut -f1)" "$(file -b "$f" 2>/dev/null)"' --preview-window=down,3) >"$escolha"; rc=$?
+  while IFS= read -r -d '' n; do nomes+=("$n"); done <"$escolha"
+  rm -f "$escolha"
+  ((rc == 0 && ${#nomes[@]} > 0)) || { anexos_pendentes_aviso "$lote"; return 130; }
   local tela; tela=$(dest_da_tela); tela=${tela%%$'\t'*}
-  dst=$(escolher_maquina "📤 enviar ${#nomes[@]} anexo(s) para" "" "$tela") || { rm -rf "$lote"; return 0; }
-  [[ -n $dst ]] || { rm -rf "$lote"; return 0; }
+  dst=$(escolher_maquina "📤 enviar ${#nomes[@]} anexo(s) para" "" "$tela") || { anexos_pendentes_aviso "$lote"; return 130; }
+  [[ -n $dst ]] || { anexos_pendentes_aviso "$lote"; return 130; }
   ddst=$(rodar "$dst" --pasta-recebidos)
+  [[ -n $ddst ]] || { anexos_pendentes_aviso "$lote"; return 1; }
   transferir . "$(encurtar "$lote")" "$dst" "$ddst" "${nomes[@]}"
 }
 
@@ -18135,20 +18212,19 @@ botao_email() {
     email_sessao "$cmd" "$modo" || { botao_aviso "$cliente" "e-mail: não consegui abrir o aerc"; return; }
     # Se o aerc morrer logo ao abrir (tema/config/conta inválidos), a sessão fica num shell com o
     # erro em vez de o popup abrir e sumir vazio. Dá um instante para ele iniciar e checa o estado.
-    sleep 0.4
     if ! tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
       botao_aviso "$cliente" "e-mail: o aerc fechou sozinho ao abrir. Rode: aerc  (fora do tt) para ver o erro, ou 📧 → contas para corrigir."
       return
     fi
-    local pane_cmd; pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
+    local pane_cmd; pane_cmd=$(email_aerc_comando)
     if [[ $pane_cmd != aerc* ]]; then
       # O aerc saiu e o shell da sessão mostra o erro: anexa o popup a ele para o erro ficar visível.
-      email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")$(q "$TT_TMUX_BIN") -u attach -t $(q "=$EMAIL_SESSAO")"
+      email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")TT_EMAIL_CLIENTE=1 TT_EMAIL_DONO=$(q "$cliente")TT_EMAIL_DONO_PID=$(q "$(do_cliente "$cliente" '#{client_pid}')")$(q "$TT_TMUX_BIN") -u attach -t $(q "=$EMAIL_SESSAO")"
       email_sessao_encerrar
       botao_aviso "$cliente" "e-mail: o aerc não abriu. Verifique a conta em 📧 → contas (ou rode: aerc)."
       return
     fi
-    email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")$(q "$TT_TMUX_BIN") -u attach -t $(q "=$EMAIL_SESSAO")"
+    email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")TT_EMAIL_CLIENTE=1 TT_EMAIL_DONO=$(q "$cliente")TT_EMAIL_DONO_PID=$(q "$(do_cliente "$cliente" '#{client_pid}')")$(q "$TT_TMUX_BIN") -u attach -t $(q "=$EMAIL_SESSAO")"
     return
   fi
   tmux display-popup -c "$cliente" -E "${geo[@]}" \
@@ -18191,6 +18267,21 @@ email_popup_abrir() { # cliente comando
 # contas ou pastas mudaram; outra largura reaproveita o mesmo aerc. Nela, q desanexa em vez de sair
 # (binds próprios, gerados do binds.conf).
 EMAIL_SESSAO=_tt-email
+# Durante a partida o tmux ainda pode enxergar env/bash/zsh, principalmente no Mac.
+# Não confundir esse intervalo com aerc encerrado nem recriar a sessão a cada clique.
+# A sessão madura retorna imediatamente; a espera de até 2 s só existe na partida.
+email_aerc_comando() {
+  local cmd criada agora n=0
+  printf -v agora '%(%s)T' -1
+  while :; do
+    read -r cmd criada < <(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command} #{session_created}' 2>/dev/null)
+    [[ $cmd == env || $cmd == bash || $cmd == zsh || $cmd == sh ]] || break
+    [[ $criada =~ ^[0-9]+$ ]] && ((agora - criada < 5 && n++ < 40)) || break
+    sleep .05
+  done
+  printf '%s\n' "$cmd"
+}
+
 email_sessao() {
   local cmd=$1 modo=$2 b="$HOME/.config/aerc/binds.conf" contas="$HOME/.config/aerc/accounts.conf" bo="$HOME/.cache/tt-aerc-binds-oculto.conf" pane_cmd
   # Versão da sessão: binds, contas e pastas. O aerc não recarrega accounts.conf; inclui sua soma para
@@ -18200,7 +18291,7 @@ email_sessao() {
   local base="$EMAIL_BINDS_VER:$( [[ -f $b ]] && cksum <"$b" | cut -d' ' -f1 || echo 0)" ver atual
   ver="$base:$( [[ -f $contas ]] && cksum <"$contas" | cut -d' ' -f1 || echo 0):$(email_pastas_soma)"
   if tmux has-session -t "=$EMAIL_SESSAO" 2>/dev/null; then
-    pane_cmd=$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command}' 2>/dev/null)
+    pane_cmd=$(email_aerc_comando)
     atual=$(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_binds)
     # Aberta em outra tela (popup anexado), mudança só de contas/pastas não a derruba: fecharia o e-mail
     # lá, possivelmente com uma resposta pela metade. Fica para a próxima abertura desanexada.
@@ -20880,7 +20971,15 @@ botao_sair() {
 }
 
 botao() {
-  local acao=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} cmd w h
+  local acao=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} cmd w h externo
+  case $acao in cl|clc|clr|dbn|ant)
+    externo=$(cliente_de_fora "$cliente") || return 1
+    if [[ $externo != "$cliente" ]]; then
+      cliente=$externo
+      pane=$(do_cliente "$cliente" '#{pane_id}')
+      pasta=$(do_cliente "$cliente" '#{pane_current_path}')
+    fi ;;
+  esac
   case $acao in
     cl|clc|clr)
       local args=()
@@ -21879,12 +21978,12 @@ case "${1:-}" in
   --checar-ver) shift; checar_ver "$@"; exit ;;
   --checar-handoff) shift; checar_handoff "$@"; exit ;;
   --email-sync-local) email_sync_local_definir "${2:?uso: tt --email-sync-local CONTA 0|1}" "${3:-1}"; exit ;;
-  --anexos-enviar) anexos_enviar; exit 0 ;;
+  --anexos-enviar) anexos_enviar; exit $? ;;
   --imagens) imagens_do_email; exit 0 ;;
   --abrir-imagem) abrir_imagem "${2:-}"; exit 0 ;;
   --abrir-anexo) abrir_anexo "${2:-}"; exit 0 ;;
   --abrir-recebido) abrir_recebido "${2:-}"; exit ;;
-  --anexo-salvar) anexo_salvar; exit 0 ;;
+  --anexo-salvar) anexo_salvar "${2:-}"; exit $? ;;
   --tarefas)
     # Abre o painel de tarefas: slide-over no tmux, ou lista texto fora dele.
     c=${2:-$(tmux display-message -p '#{client_name}' 2>/dev/null)}
@@ -22241,7 +22340,9 @@ case "${1:-}" in
   --precarregar-ponte) precarregar_ponte "${@:2}"; exit $? ;;
   --precarregar-remoto) precarregar_py remoto "${@:2}"; exit $? ;;
   --precarregar-confirmar) precarregar_py confirmar "${@:2}"; exit $? ;;
-  --ponte) ponte "$2" "$3" "$4"; exit ;;
+  --ponte) ponte "$2" "$3" "$4" "${5:-}"; exit ;;
+  --ponte-tentar) ponte_tentar "$2" "$3" "$4" "$5" "${6:-}"; exit ;;
+  --recuperar-tela) recuperar_tela "${2:-}"; exit ;;
   --focar) focar "$2"; exit ;;
   --soltar) soltar_painel "$2"; exit ;;
   --renomear-painel) renomear_painel "$2"; exit ;;

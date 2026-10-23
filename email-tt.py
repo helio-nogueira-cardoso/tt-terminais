@@ -1182,6 +1182,141 @@ def conta_graph(c):
     return c.get("provedor") == "microsoft" and c.get("graph") == "1"
 
 
+def anexo_bytes(parte):
+    """Conteúdo real: message/rfc822 é uma árvore MIME, não um payload base64 simples."""
+    if parte.get_content_type() == "message/rfc822":
+        if str(parte.get("Content-Transfer-Encoding", "")).lower() in ("base64", "quoted-printable"):
+            raise ValueError("anexo de e-mail com codificação inválida; salve-o e anexe novamente")
+        mensagens = parte.get_payload()
+        if not isinstance(mensagens, list) or len(mensagens) != 1:
+            raise ValueError("anexo de e-mail inválido: esperado exatamente uma mensagem")
+        return mensagens[0].as_bytes(policy=email_lib.policy.SMTP)
+    if parte.is_multipart():
+        raise ValueError("anexo multipart não suportado: salve-o como arquivo antes de enviar")
+    dados = parte.get_payload(decode=True)
+    if dados is None:
+        raise ValueError("não foi possível decodificar o anexo")
+    return dados
+
+
+def outlook_anexos(m):
+    """Expande related sem transformar o corpo HTML em um anexo vazio; preserva os CIDs."""
+    corpos = [m.get_body(preferencelist=(tipo,)) for tipo in ("html", "plain")]
+    def visitar(parte, raiz=False):
+        if parte.get_content_disposition() == "attachment" or parte.get_content_type() == "message/rfc822":
+            yield parte
+            return
+        if parte.get_content_type() == "multipart/alternative":
+            escolhido = parte.get_body(preferencelist=("related", "html", "plain"))
+            if escolhido is not None:
+                yield from visitar(escolhido)
+        elif parte.is_multipart():
+            for filho in parte.iter_parts():
+                yield from visitar(filho)
+        elif not raiz and not any(parte is corpo for corpo in corpos):
+            yield parte
+    yield from visitar(m, raiz=True)
+
+
+def salvar_anexos(lote, destino):
+    """Publica cada arquivo sem sobrescrever; só remove a origem após cópia confirmada.
+
+    Temporário no mesmo filesystem do destino + link exclusivo tornam a publicação atômica.
+    ENOSPC, permissão, arquivo mudando e nomes concorrentes nunca apagam a cópia pendente.
+    """
+    import errno
+    import shutil
+    import stat
+    import tempfile
+    from pathlib import Path
+    origem, pasta = Path(lote), Path(destino)
+    try:
+        if origem.is_symlink() or not origem.is_dir():
+            raise ValueError("lote de anexos inválido")
+        pasta.mkdir(parents=True, exist_ok=True)
+        arquivos = list(origem.iterdir())
+    except (OSError, ValueError) as exc:
+        print(f"✗ não consegui preparar o destino: {exc}; anexos preservados em {origem}", file=sys.stderr)
+        return 1
+    erros = 0
+    for arquivo in arquivos:
+        temporario = None
+        try:
+            fd = os.open(arquivo, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+            with os.fdopen(fd, "rb") as entrada:
+                antes = os.fstat(entrada.fileno())
+                if not stat.S_ISREG(antes.st_mode):
+                    raise ValueError("o anexo não é um arquivo regular")
+                with tempfile.NamedTemporaryFile(prefix=".tt-anexo-", dir=pasta, delete=False) as saida:
+                    temporario = Path(saida.name)
+                    shutil.copyfileobj(entrada, saida, length=1024 * 1024)
+                    saida.flush()
+                    os.fsync(saida.fileno())
+                    depois = os.fstat(entrada.fileno())
+                    if saida.tell() != antes.st_size or (depois.st_size, depois.st_mtime_ns, depois.st_ctime_ns) != (
+                            antes.st_size, antes.st_mtime_ns, antes.st_ctime_ns):
+                        raise ValueError("o arquivo mudou durante a cópia")
+                # link() recusa inclusive links simbólicos quebrados que já ocupem o nome.
+                alvo, n = pasta / arquivo.name, 2
+                while True:
+                    try:
+                        try:
+                            os.link(temporario, alvo)
+                        except OSError as exc:
+                            if exc.errno not in (errno.EPERM, errno.EOPNOTSUPP, errno.ENOSYS, errno.EXDEV):
+                                raise
+                            # FAT/exFAT e alguns compartilhamentos não aceitam hardlinks.
+                            # O_EXCL ainda garante que nenhum arquivo existente seja sobrescrito.
+                            fd_saida = os.open(alvo, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                            identidade = os.fstat(fd_saida)
+                            try:
+                                with os.fdopen(fd_saida, "wb") as saida, temporario.open("rb") as entrada_temp:
+                                    shutil.copyfileobj(entrada_temp, saida, length=1024 * 1024)
+                                    saida.flush()
+                                    os.fsync(saida.fileno())
+                            except BaseException:
+                                atual = alvo.lstat()
+                                if (atual.st_dev, atual.st_ino) == (identidade.st_dev, identidade.st_ino):
+                                    alvo.unlink()
+                                raise
+                        break
+                    except FileExistsError:
+                        alvo = pasta / f"{arquivo.stem} ({n}){arquivo.suffix}"
+                        n += 1
+                pasta_fd = os.open(pasta, os.O_RDONLY)
+                try:
+                    try:
+                        os.fsync(pasta_fd)
+                    except OSError as exc:
+                        if exc.errno not in (errno.EINVAL, errno.EOPNOTSUPP):
+                            raise
+                finally:
+                    os.close(pasta_fd)
+                atual = arquivo.lstat()
+                if (atual.st_dev, atual.st_ino, atual.st_size, atual.st_mtime_ns) != (
+                        antes.st_dev, antes.st_ino, antes.st_size, antes.st_mtime_ns):
+                    raise ValueError("a origem mudou; a cópia anterior foi salva e a nova foi preservada")
+                arquivo.unlink()
+                print(f"✔ {alvo}")
+        except (OSError, ValueError) as exc:
+            erros += 1
+            print(f"✗ {arquivo.name}: {exc}", file=sys.stderr)
+        finally:
+            if temporario is not None:
+                try:
+                    temporario.unlink(missing_ok=True)
+                except OSError as exc:
+                    erros += 1
+                    print(f"✗ temporário preservado em {temporario}: {exc}", file=sys.stderr)
+    try:
+        origem.rmdir()  # somente vazio: nada de remover o lote inteiro após uma falha parcial
+    except OSError:
+        pass
+    if erros:
+        print(f"Anexos pendentes preservados em: {origem}", file=sys.stderr)
+    return int(bool(erros))
+
+
 def outlook_json(m, destinatarios=None):
     """Mensagem MIME → corpo JSON do sendmail do Outlook REST (texto ou HTML, anexos, Reply-To)."""
     def enderecos(campo):
@@ -1194,12 +1329,16 @@ def outlook_json(m, destinatarios=None):
     else:
         corpo = {"ContentType": "Text", "Content": corpo_txt.get_content() if corpo_txt is not None else ""}
     anexos, total = [], 0
-    for parte in m.iter_attachments():
-        dados = parte.get_payload(decode=True) or b""
+    for parte in outlook_anexos(m):
+        dados = anexo_bytes(parte)
         total += len(dados)
-        anexos.append({"@odata.type": "#Microsoft.OutlookServices.FileAttachment",
+        anexo = {"@odata.type": "#Microsoft.OutlookServices.FileAttachment",
                        "Name": parte.get_filename() or "anexo", "ContentType": parte.get_content_type(),
-                       "ContentBytes": base64.b64encode(dados).decode()})
+                        "ContentBytes": base64.b64encode(dados).decode()}
+        if parte.get("Content-ID"):
+            anexo.update(ContentId=str(parte["Content-ID"]).strip("<>"),
+                         IsInline=parte.get_content_disposition() != "attachment")
+        anexos.append(anexo)
     if total > OUTLOOK_LIMITE_ANEXOS:
         raise RuntimeError(f"anexos somam {total // 1024} KB; o envio pela API do Outlook aceita até "
                            f"{OUTLOOK_LIMITE_ANEXOS // 1024 // 1024} MB")
@@ -1366,7 +1505,11 @@ def montar_mensagem(c, o, corpo):
         with open(caminho, "rb") as f:
             dados = f.read()
         tipo = (mimetypes.guess_type(caminho)[0] or "application/octet-stream").split("/", 1)
-        m.add_attachment(dados, maintype=tipo[0], subtype=tipo[1], filename=os.path.basename(caminho))
+        if tipo == ["message", "rfc822"]:
+            m.add_attachment(email_lib.message_from_bytes(dados, policy=email_lib.policy.default),
+                             filename=os.path.basename(caminho))
+        else:
+            m.add_attachment(dados, maintype=tipo[0], subtype=tipo[1], filename=os.path.basename(caminho))
     return m
 
 
@@ -2493,6 +2636,8 @@ def idle(tt, email_dir, estado):
 def main(a):
     if a[:1] == ["idle"] and len(a) == 4:
         return idle(a[1], a[2], a[3])
+    if a[:1] == ["anexos-salvar"] and len(a) == 3:
+        return salvar_anexos(a[1], a[2])
     if a[:1] == ["contatos-indexar"] and len(a) >= 2:
         return contatos_indexar(a[1:])
     if a[:1] == ["html"]:

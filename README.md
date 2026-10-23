@@ -15,6 +15,10 @@ encontra as máquinas da sua rede, sabe quais estão ligadas e usa o Tailscale S
 
 ## O que faz
 
+- **Recuperar tela** (`Ctrl+B Esc`, menu ⋯ ou `tt --recuperar-tela`): cancela uma conexão presa e
+  abre a central local. Depois de uma falha, a tela fica limpa, sem eco de caracteres de controle,
+  com opções de reconectar ou voltar à central. Veja [recuperação, proteção contra recursão e
+  retomada de anexos](docs/recuperacao-telas-anexos.md).
 - **Central** (`tt`, `Ctrl+B s` ou ☰ na barra): sessões de todas as máquinas, com prévia ao vivo;
   busca em nome, título da conversa do Claude Code e conteúdo da tela (a prévia pula para o
   trecho achado); filtro por máquina; cada painel de cada sessão; janelas vazias agrupadas, com

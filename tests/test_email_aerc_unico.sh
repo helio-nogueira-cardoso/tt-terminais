@@ -64,15 +64,26 @@ passou 'aerc ocupado: abre como está e ajusta na próxima'
 cat >"$T/teimoso" <<'EOF'
 #!/usr/bin/env bash
 trap '' HUP
+printf '%s\n' "$$" >"${0%/*}/teimoso.pid"
 while :; do sleep 0.2; done
 EOF
 chmod +x "$T/teimoso"
+teimoso_iniciar() {
+  rm -f "$T/teimoso.pid"
+  tmux new-session -d -s _tt-email "$T/teimoso"
+  local n
+  for ((n=0; n<100; n++)); do
+    [[ -s $T/teimoso.pid ]] && { read -r p <"$T/teimoso.pid"; kill -0 "$p" 2>/dev/null && return 0; }
+    sleep .05
+  done
+  falhou 'falso aerc não instalou a guarda de SIGHUP'
+}
 tmux kill-session -t =_tt-email
-tmux new-session -d -s _tt-email "$T/teimoso"; sleep 0.3; p=$(pgrep -n -f "$T/teimoso")
+teimoso_iniciar
 tmux kill-session -t =_tt-email; sleep 0.5
 kill -0 "$p" 2>/dev/null || falhou 'premissa: o falso deveria sobreviver ao kill-session (como o aerc real)'
 kill "$p"
-tmux new-session -d -s _tt-email "$T/teimoso"; sleep 0.3; p=$(pgrep -n -f "$T/teimoso")
+teimoso_iniciar
 fn email_sessao_encerrar
 tmux has-session -t =_tt-email 2>/dev/null && falhou 'a sessão do e-mail deveria ter fechado'
 kill -0 "$p" 2>/dev/null && { kill -9 "$p"; falhou 'email_sessao_encerrar deixou o aerc vivo'; }

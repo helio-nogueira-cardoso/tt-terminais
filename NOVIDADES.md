@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.11.10 · 24/10/2026
+- **Saída de uma conexão presa:** Ctrl+B Esc e o menu ⋯ → Recuperar tela abrem a central local. Uma falha limpa o quadro antigo e oferece Reconectar ou Central, sem escrever sequências estranhas por cima da interface. A tentativa tem prazo e pode ser cancelada; a sessão de trabalho é preservada.
+- **E-mail sem cascata:** navegar de dentro da janela age na tela que a abriu. Trocas nativas recebem proteção imediata de tamanho e retorno verificado; uma falha fecha só a vista, preservando o aerc. A partida do cliente no Mac também deixa de provocar recriações por confundir `env` com um aerc encerrado.
+- **Anexos recuperáveis:** erro de gravação ou cancelamento preserva os arquivos e informa como retomar. Nomes repetidos não sobrescrevem arquivos existentes. E-mails anexados (`.eml`) enviados pela Microsoft deixam de ir vazios; imagens inline conservam seu vínculo com o corpo HTML. Guia completo: `docs/recuperacao-telas-anexos.md`.
+- **Sessões internas pela voz:** um nome reservado não vira uma busca aproximada que acaba selecionando outra sessão de trabalho pelo título.
+
 ## v2.11.4 · 24/10/2026
 - **📰 Letreiro sem emoji piscando no Ghostty:** com o letreiro andando uma coluna por quadro (o da ponte, que é o mais fluido), o Ghostty fazia piscar o emoji montado com mais de um código, como o 🏛️ do G1, da Câmara e do Senado, o 🌡️ do tempo e o 🛰. Agora o emoji desse tipo sai como o símbolo seguido de um espaço, que o Ghostty desenha firme e na mesma largura; tom de pele, emoji com ZWJ e keycap ficam só com o emoji de base. As bandeiras continuam as de verdade e são as únicas que ainda podem piscar: não existe bandeira de país feita de um código só.
 
