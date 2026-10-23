@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.9.20 · 23/10/2026
+- **Menos SSH à toa no pré-carregamento:** quando a outra máquina responde que a sessão com aquele ID não existe mais, ela sai do histórico de visitas e deixa de ser preparada. Antes, sessões já fechadas voltavam à fila a cada poucos segundos, e cada tentativa abria uma conexão SSH. Um tmux que apenas demorou a responder lá não apaga nada.
+- **Trilha de diagnóstico do coordenador:** uma volta do laço acima de 2 s fica no `erros.log` do coordenador, com o tempo de cada fase, e o encerramento de um coordenador travado também fica registrado.
+
 ## v2.9.19 · 23/10/2026
 - **Clique de dentro da ponte que não trocava a tela:** o coordenador de pontes congelava quando uma conexão mestra do SSH, meio morta, segurava a saída de um comando dele. A partir daí todo clique nas fixadas feito de dentro de uma ponte sumia sem aviso. Agora nenhuma leitura espera o fim da saída de um processo que já terminou. Se o coordenador parar de responder mesmo assim, ele é encerrado, um novo assume e o clique segue pelo caminho antigo, sem risco de troca dupla.
 - **Terminal do Tailscale SSH:** quando a ponte entra pelo SSH do Tailscale, o terminal de lá pertence ao root e o tt não conseguia devolver o clique por ele. Agora um porteiro mínimo, que só repassa pedidos de navegação daquela ponte, segura o terminal enquanto a ponte existe. O clique volta pelo caminho rápido também nesse caso. O status do pré-carregamento conta à parte os cliques entregues pelo porteiro e os que precisaram do SSH de volta.

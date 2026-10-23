@@ -2406,6 +2406,12 @@ conexão própria. Usam-no o pedido à origem (`pedir_na_origem`), `sessao_remot
 `--resolver-fixada`. Testes: `tests/test_ssh_mestra_presa.sh` e a classe `SemTravar` de
 `tests/test_precarregar_fluxo_modelo.py`.
 
+**Histórico sem sessões fechadas:** o bilhete devolve 3 quando a sessão não existe lá (inclusive sem servidor
+tmux) e 5 quando o tmux de lá não respondeu a tempo. No 3, com ID, o coordenador tira o alvo do histórico
+(`forget`): um ID nunca é reaproveitado, e a especulação parava de abrir SSH atrás dele só pelo backoff, que um
+coordenador novo zera. O `erros.log` do coordenador (`/tmp/tt-pre-UID-*/erros.log`) guarda as voltas do laço
+acima de 2 s, com o tempo de cada fase, e os coordenadores encerrados como travados.
+
 **Identidade da sessão:** `@tt_session_id` guarda um UUID de 32 caracteres hexadecimais, atribuído
 uma vez com trava por servidor e verificação de colisão. Renomear não altera o UUID. Depois de a
 referência ter ID, o nome é apenas um rótulo: navegação, cache, reconciliação e reconexão não podem

@@ -196,6 +196,8 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   depois `-O stop` e conexão própria). Coordenador grava `vivo` a cada volta; cliente sem resposta de coordenador
   parado há 5 s o encerra (`coordinator_stuck`) e segue pelo caminho antigo (pedido vencido não vira troca tardia).
   Testes: `tests/test_ssh_mestra_presa.sh`, classe `SemTravar` em `tests/test_precarregar_fluxo_modelo.py`.
+  Bilhete: 3 = sessão não existe (sai do histórico se tem ID: `forget`), 5 = tmux de lá lento (passageiro).
+  `erros.log` do coordenador: voltas do laço > 2 s (fase a fase) e coordenadores encerrados como travados.
 - **Identidade:** `@tt_session_id` é UUID persistente de 32 hex, atribuído uma vez sob trava e checagem de colisão.
   Nome só na descoberta inicial de legado sem ID. Havendo ID, não aceitar fallback por nome em clique, cache,
   reconciliação ou reconexão; exclusão/recriação é outra sessão. ID duplicado/ausente é recusa, nunca desempate

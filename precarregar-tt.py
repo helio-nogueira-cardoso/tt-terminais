@@ -366,7 +366,21 @@ def coordinator_stuck(folder):
         pass
     except OSError:
         return False
+    log_line(folder, "coordenador %d encerrado como travado: o laço não girava havia %.0f s" %
+             (pid, time.time() - alive.stat().st_mtime if alive.exists() else 0))
     return True
+
+
+def log_line(folder, text):
+    """Uma linha no erros.log do coordenador (a mesma trilha do stderr dele), sem deixá-lo crescer sem fim."""
+    try:
+        path = folder / "erros.log"
+        if path.exists() and path.stat().st_size > 256 * 1024:
+            path.write_text("")
+        with open(path, "a") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + text + "\n")
+    except OSError:
+        pass
 
 
 def send_request(folder, data, timeout=3):
@@ -647,6 +661,34 @@ class Coordinator:
                 absent = "TT_PRE_FAIL %s 3" % item["token"] in out
                 self.failure(item, "sessão ausente ou identidade alterada" if absent else "destino sem resposta",
                              machine=not absent)
+                if absent and item["target"].get("id"):
+                    self.forget(item["target"])
+
+    def log_slow(self, lap):
+        """Volta do laço acima de 2 s (sem contar a espera do select): quanto cada fase levou, no erros.log.
+
+        Um laço parado por 5 s leva o coordenador a ser encerrado (coordinator_stuck); a trilha diz qual fase travou.
+        """
+        phases = [(name, end - start) for (_, start), (name, end) in zip(lap, lap[1:])]
+        busy = sum(d for name, d in phases if name != "espera")
+        if busy > 2:
+            log_line(self.folder, "volta lenta do laço: %.1f s (%s)" % (
+                busy, " · ".join("%s %.1f" % (name, d) for name, d in phases if name != "espera" and d >= .05)))
+
+    def forget(self, target):
+        """A sessão com este ID não existe mais lá (ID nunca é reaproveitado): sai do histórico.
+
+        Sem isso, a especulação abria um SSH atrás de uma sessão fechada a cada recuo do backoff, e de novo a cada
+        coordenador novo (que nasce sem o backoff): em 23/10/2026, 15 de 19 preparações da empresa eram assim.
+        """
+        key = identity(target)
+        kept = [v for v in self.history if identity(v["target"]) != key]
+        if len(kept) != len(self.history):
+            self.history = kept
+            try:
+                atomic_json(self.history_file, self.history)
+            except OSError:
+                pass
 
     def notify(self, client, message):
         tmux("display-message", "-c", client, "-d", "4000", message)
@@ -1208,6 +1250,7 @@ class Coordinator:
                             except OSError:
                                 pass
                         self.check_wake(now, time.time())
+                        lap = [("início", now)]
                         if now >= self.next_scan:
                             if (HERE / "precarregar-tt.py").stat().st_mtime_ns != self.package_stamp:
                                 break  # instalação nova: próximo evento inicia o código novo
@@ -1215,15 +1258,20 @@ class Coordinator:
                             self.maintain()
                             self.dedupe_active()
                             self.next_scan = now + (1 if self.requests else 10)
+                        lap.append(("varredura", time.monotonic()))
                         # Só acelera enquanto há clique real. Depois do início, 20 Hz bastam
                         # para uma rede lenta sem manter centenas de sondagens tmux por segundo.
                         interval = (.01 if any(now - r["time"] < .25 for r in self.requests.values())
                                     else .05) if self.requests else .5
                         ready, _, _ = select.select([listener], [], [], interval)
+                        lap.append(("espera", time.monotonic()))
                         drained = 0
                         while ready and self.running and drained < 32:
                             drained += 1
-                            conn, _ = listener.accept()
+                            try:
+                                conn, _ = listener.accept()
+                            except OSError:
+                                break  # o cliente desistiu entre o select e o accept
                             with conn:
                                 conn.settimeout(.5)
                                 raw = b""
@@ -1241,9 +1289,14 @@ class Coordinator:
                             ready, _, _ = select.select([listener], [], [], 0)
                         if not self.running:
                             break
+                        lap.append(("pedidos", time.monotonic()))
                         self.poll_preparations()
+                        lap.append(("preparos", time.monotonic()))
                         self.poll_requests()
+                        lap.append(("trocas", time.monotonic()))
                         self.ensure_guardian()
+                        lap.append(("vigia", time.monotonic()))
+                        self.log_slow(lap)
                         if not self.clients and not self.nested_clients and now - self.last_event > 60:
                             break
                 finally:

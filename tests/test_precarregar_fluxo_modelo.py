@@ -151,6 +151,7 @@ class SemTravar(unittest.TestCase):
                 os.utime(alive, (old, old))
                 self.assertTrue(pre.coordinator_stuck(folder))   # parado: encerrado
                 self.assertEqual(holder.wait(timeout=3), -9)
+                self.assertIn('coordenador %d encerrado como travado' % holder.pid, (folder / 'erros.log').read_text())
                 self.assertTrue(pre.coordinator_stuck(folder))   # já morto: a fila dele também segue
                 alive.write_text(str(outro.pid)); os.utime(alive, (old, old))
                 self.assertTrue(pre.coordinator_stuck(folder))   # pid reciclado: morto, e o outro programa fica

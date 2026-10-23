@@ -502,6 +502,53 @@ class Heuristica(unittest.TestCase):
             self.assertEqual(seen[1]["order"], seen[0]["order"])
             self.assertGreaterEqual(seen[1]["expires"], seen[0]["expires"])
 
+    def test_sessao_ausente_com_id_sai_do_historico_e_tmux_lento_nao(self):
+        # 23/10/2026: 15 de 19 preparações da empresa eram SSH atrás de sessões fechadas, a cada recuo do backoff.
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)):
+            c = pre.Coordinator(Path(d))
+            fechada = {"machine": "dell", "name": "fechada", "id": "c" * 32}
+            viva = {"machine": "dell", "name": "viva", "id": "d" * 32}
+            sem_id = {"machine": "dell", "name": "antiga", "id": ""}
+            c.history = [{"from": "x", "to": pre.identity(t), "time": pre.time.time(), "target": t}
+                         for t in (fechada, viva, sem_id)]
+            def item(target, token):
+                return {"target": dict(target), "bridge": "tt-pre-" + token[:16], "token": token, "client": "tela",
+                        "state": "preparing", "created": pre.time.monotonic()}
+            for target, code in ((fechada, 3), (sem_id, 3), (viva, 5)):
+                token = (target["name"][0] * 32)[:32]
+                c.candidates = {("tela", pre.identity(target)): item(target, token)}
+                def tmux(*args):
+                    if args[0] == "capture-pane":
+                        return 0, "TT_PRE_FAIL %s %d\n" % (token, code)
+                    return 0, "1"
+                with patch.object(pre, "tmux", side_effect=tmux):
+                    c.poll_preparations()
+            restantes = [v["target"]["name"] for v in c.history]
+            self.assertEqual(restantes, ["viva", "antiga"])  # só a de ID inexistente saiu; tmux lento (5) não apaga
+            salvo = pre.json.loads((Path(d) / (Path(d).name + ".json")).read_text())
+            self.assertEqual([v["target"]["name"] for v in salvo], ["viva", "antiga"])
+
+    def test_bilhete_distingue_sessao_inexistente_de_tmux_que_nao_respondeu(self):
+        proto = pre.protocol
+        with patch.object(proto, "remote_target", return_value=None):
+            with patch.object(proto, "tmux", return_value=(1, "")):  # sem servidor: as sessões não voltam
+                self.assertEqual(proto.remote_wait("a" * 32, "s", "b" * 32, "m|p", "30"), 3)
+            with patch.object(proto, "tmux", return_value=(0, "x\n")):
+                self.assertEqual(proto.remote_wait("a" * 32, "s", "b" * 32, "m|p", "30"), 3)
+            with patch.object(proto, "tmux", return_value=(124, "")):  # tmux lento: passageiro
+                self.assertEqual(proto.remote_wait("a" * 32, "s", "b" * 32, "m|p", "30"), 5)
+
+    def test_volta_lenta_e_encerramento_ficam_no_erros_log(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)):
+            c = pre.Coordinator(Path(d))
+            c.log_slow([("início", 0), ("varredura", .1), ("espera", 5.1), ("pedidos", 5.2), ("preparos", 8.2)])
+            c.log_slow([("início", 0), ("varredura", .1), ("espera", 9.1), ("pedidos", 9.2)])  # só esperou: nada
+            log = (Path(d) / "erros.log").read_text().splitlines()
+            self.assertEqual(len(log), 1)
+            self.assertIn("volta lenta do laço: 3.2 s", log[0])
+            self.assertIn("preparos 3.0", log[0])
+            self.assertNotIn("espera", log[0])
+
     def test_entrada_curta_sem_coordenador_reexecuta_comando_original(self):
         with tempfile.TemporaryDirectory() as d, patch.object(pre, "CONF", Path(d)), \
                 patch.object(pre, "read_config", return_value={}), \

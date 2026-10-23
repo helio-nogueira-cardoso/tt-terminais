@@ -273,7 +273,9 @@ def remote_wait(token, name, stable, origin, ttl):
     began = time.monotonic()
     target = remote_target(name, stable)
     if not target:
-        return 3
+        # 3 = a sessão não existe (inclusive sem servidor tmux: sessões não voltam com o mesmo ID); 5 = o tmux daqui
+        # não respondeu a tempo, falha passageira que não pode apagar nada lá na origem.
+        return 5 if tmux("list-sessions", "-F", "x")[0] == 124 else 3
     old = termios.tcgetattr(0)
     quiet = termios.tcgetattr(0)
     quiet[3] &= ~termios.ECHO
