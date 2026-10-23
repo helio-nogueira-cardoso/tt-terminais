@@ -17372,7 +17372,7 @@ botao_email() {
   # Auto-reparo: se o aerc foi instalado depois do tt ou perdeu o conversor HTML, corrige somente
   # o filtro text/html. Quando houve reparo, reinicia a sessão oculta para carregar a configuração.
   if [[ ${cmd%% *} == */aerc || ${cmd%% *} == aerc ]] && aerc_reparar_se_preciso; then
-    tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
+    email_sessao_encerrar
   fi
   # Dica de como fechar: display-popup não tem X clicável, então o popup só some quando o
   # cliente sai. Mostra no título a tecla de saída do cliente para quem não a conhece.
@@ -17421,7 +17421,7 @@ botao_email() {
     if [[ $pane_cmd != aerc* ]]; then
       # O aerc saiu e o shell da sessão mostra o erro: anexa o popup a ele para o erro ficar visível.
       email_popup_abrir "$cliente" "env -u TMUX $(email_origem "$cliente")$(q "$TT_TMUX_BIN") -u attach -t $(q "=$EMAIL_SESSAO")"
-      tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
+      email_sessao_encerrar
       botao_aviso "$cliente" "e-mail: o aerc não abriu. Verifique a conta em 📧 → contas (ou rode: aerc)."
       return
     fi
@@ -17464,8 +17464,9 @@ email_popup_abrir() { # cliente comando
 }
 
 # Sessão oculta com o aerc aberto. Marcada como "ponte" do tipo email: fica fora da central, do
-# seletor, do vigia e da limpeza de sessões paradas/vazias. Recriada se o aerc saiu ou se o modo
-# (largo/estreito) mudou. Nela, q desanexa em vez de sair (binds próprios, gerados do binds.conf).
+# seletor, do vigia e da limpeza de sessões paradas/vazias. Recriada só se o aerc saiu ou se binds,
+# contas ou pastas mudaram; outra largura reaproveita o mesmo aerc. Nela, q desanexa em vez de sair
+# (binds próprios, gerados do binds.conf).
 EMAIL_SESSAO=_tt-email
 email_sessao() {
   local cmd=$1 modo=$2 b="$HOME/.config/aerc/binds.conf" contas="$HOME/.config/aerc/accounts.conf" bo="$HOME/.cache/tt-aerc-binds-oculto.conf" pane_cmd
@@ -17482,11 +17483,15 @@ email_sessao() {
     # lá, possivelmente com uma resposta pela metade. Fica para a próxima abertura desanexada.
     [[ $atual != "$ver" && $atual == "$base:"* &&
        $(tmux display -p -t "=$EMAIL_SESSAO:" '#{session_attached}' 2>/dev/null) =~ ^[1-9] ]] && atual=$ver
-    if [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo) == "$modo" && $pane_cmd == aerc* &&
-          $atual == "$ver" &&
-          $(tmux show-environment -t "=$EMAIL_SESSAO" VAXIS_FORCE_UNICODE 2>/dev/null) == VAXIS_FORCE_UNICODE=1 ]]; then email_sessao_botoes; return 0; fi
-    tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
+    # Outra largura (abrir no celular o que estava aberto no Mac) não recria: o mesmo aerc se ajusta
+    # pelo IPC (email_aerc_modo); se não der agora, abre como está.
+    if [[ $pane_cmd == aerc* && $atual == "$ver" &&
+          $(tmux show-environment -t "=$EMAIL_SESSAO" VAXIS_FORCE_UNICODE 2>/dev/null) == VAXIS_FORCE_UNICODE=1 ]]; then
+      email_aerc_modo "$modo"; email_sessao_botoes; return 0
+    fi
+    email_sessao_encerrar
   fi
+  email_aerc_orfaos_encerrar
   mkdir -p "$HOME/.cache"
   if [[ -f $b ]]; then
     # Na sessão oculta: q/Q desanexam; ? e F2 abrem as telas do tt como janelas da sessão (não como
@@ -17526,6 +17531,62 @@ email_sessao_criar() {
   tmux set -q -t "=$EMAIL_SESSAO:" @nome_auto 0
   tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_modo "$modo"
   tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_binds "$ver"
+  # Barra de pastas que dá para religar com :toggle-sidebar (a cópia estreita nasce com largura 0).
+  tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_lateral "$([[ $modo == estreito ]] && echo x || echo 1)"
+  return 0
+}
+# Encerra a sessão oculta E o aerc dela. O aerc ignora o SIGHUP que o tmux manda ao fechar o painel:
+# só o kill-session deixava o processo vivo, adotado pelo launchd/init, com as conexões das contas e o
+# socket do IPC (que passava a responder no lugar do aerc novo). Um a mais a cada recriação.
+email_sessao_encerrar() {
+  local pids p i vivo
+  pids=$(tmux list-panes -s -t "=$EMAIL_SESSAO" -F '#{pane_pid}' 2>/dev/null)
+  for p in $pids; do pids+=" $(pgrep -P "$p" 2>/dev/null)"; done
+  tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null
+  pids=$(echo $pids)
+  [[ -n $pids ]] || return 0
+  kill $pids 2>/dev/null
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    vivo=; for p in $pids; do kill -0 "$p" 2>/dev/null && { vivo=1; break; }; done
+    [[ -n $vivo ]] || return 0
+    sleep 0.1
+  done
+  kill -9 $pids 2>/dev/null
+  return 0
+}
+# aerc órfãos (pai = launchd/init) de sessões fechadas por fora (tmux reiniciado, versões antigas do
+# tt): encerrados antes de criar a sessão, para haver um aerc só, dono do socket do IPC.
+email_aerc_orfaos_encerrar() {
+  local p; p=$(ps -o pid=,ppid=,comm= -u "$(id -u)" 2>/dev/null | awk '$2 == 1 && $3 ~ /(^|\/)aerc$/ { print $1 }')
+  [[ -n $p ]] && kill $p 2>/dev/null
+  return 0
+}
+# Ajusta o aerc já aberto à largura da tela que o abre, pelo IPC, sem reabrir: estreito sem prévia
+# e sem barra de pastas; largo com a prévia do aerc.conf; amplo com a prévia ao lado. As colunas da
+# lista ficam as da abertura (o aerc não as troca em execução), e uma sessão aberta no modo estreito
+# segue sem barra de pastas. Falha (mensagem aberta na frente, sem IPC): o modo fica o antigo e a
+# próxima abertura tenta de novo.
+email_aerc_modo() { # modo
+  local modo=$1 split lat
+  [[ $(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_modo) == "$modo" ]] && return 0
+  case $modo in
+    estreito) split= ;;
+    amplo) split=':vsplit 70' ;;
+    *) split=$(sed -n 's/^[[:space:]]*message-list-split[[:space:]]*=[[:space:]]*//p' "$HOME/.config/aerc/aerc.conf" 2>/dev/null | tail -1)
+       case $split in
+         horizontal\ *) split=":split ${split#horizontal }" ;;
+         vertical\ *) split=":vsplit ${split#vertical }" ;;
+         *) split= ;;
+       esac ;;
+  esac
+  # :split 0 limpa a prévia que houver (repetir o mesmo :split N a desligaria).
+  email_ipc :split 0 || return 1
+  [[ -z $split ]] || email_ipc $split || return 1
+  lat=$(tmux show -qv -t "=$EMAIL_SESSAO:" @tt_email_lateral)
+  if [[ $lat == 1 && $modo == estreito ]] || [[ $lat == 0 && $modo != estreito ]]; then
+    email_ipc :toggle-sidebar && tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_lateral "$((1 - lat))"
+  fi
+  tmux set -q -t "=$EMAIL_SESSAO:" @tt_email_modo "$modo"
   return 0
 }
 
@@ -18164,7 +18225,7 @@ email_salvar_validado() { # snapshot autorizar_oauth(0|1)
     senha) rm -f "$SECRETS_DIR/aerc-$slug.client_secret" ;;
   esac
   rm -rf "$snap"
-  tmux kill-session -t "=$EMAIL_SESSAO" 2>/dev/null || true
+  email_sessao_encerrar
   # Primeiro espelho em segundo plano, para o maildir já ter conteúdo quando o aerc abrir.
   [[ ${E[sync_local]:-} == 1 && -z ${TT_EMAIL_SEM_REDE:-} ]] && ("$EU" --email-sync "$slug" --completo >/dev/null 2>&1 &)
   return 0
@@ -18669,7 +18730,12 @@ email_aerc_conferir() {
 # estreita (sem prévia) abre a mensagem (:view). No fim, :check-mail. Sem IPC (aerc antigo, -I,
 # socket ausente) abre como sempre. Sessão oculta ainda não existe: abre o popup e salta assim que
 # o aerc subir. Os avisos dessa conta ficam marcados como lidos (<id>.lida na central).
-email_ipc_socket() { printf '%s/aerc.sock' "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; }
+# Sem XDG_RUNTIME_DIR, o aerc do macOS põe o socket em ~/Library/Application Support (não em /run/user).
+email_ipc_socket() {
+  local d=${XDG_RUNTIME_DIR:-}
+  [[ -n $d ]] || { [[ $OSTYPE == darwin* ]] && d="$HOME/Library/Application Support" || d=/run/user/$(id -u); }
+  printf '%s/aerc.sock' "$d"
+}
 # Um comando ao aerc da sessão oculta. Falha sem instância (socket ou aerc ausentes) ou quando o
 # aerc responde erro ("response: …"). O aerc sem instância abriria a interface aqui: por isso a
 # guarda antes, e o timeout.

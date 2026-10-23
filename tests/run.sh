@@ -53,6 +53,23 @@ unset TMUX TMUX_PANE TT_CLIENTE TT_PANE # (a tela gráfica de quem roda a suíte
 export TT_MAC_AUTO=0 TT_TAILSCALE_WS_AUTO=0
 export TT_PRECARREGAR=0
 res=$(mktemp -d "${TMPDIR:-/tmp}/tt-testes.XXXXXX")
+# Tudo o que a rodada cria (sentinelas, pastas dos testes, servidores tmux e processos deles) fica numa
+# pasta só, varrida na saída — também quando a rodada é interrompida (Ctrl+C, timeout de quem a chamou)
+# ou um teste estoura o tempo (o timeout -k termina com SIGKILL e a limpeza do teste não roda). Antes
+# sobravam dezenas de tmux e agentes falsos por dias. Em /tmp, curto: o socket do tmux tem teto de 104
+# caracteres e o TMPDIR do macOS (/private/var/folders/…) o estourava (Termux, sem /tmp: o TMPDIR).
+rodada=/tmp; [[ -d $rodada && -w $rodada ]] || rodada=${TMPDIR:-/tmp}
+rodada=$(mktemp -d "${rodada%/}/ttr.XXXXXX")
+varrer_rodada() {
+  local s
+  set +e
+  while IFS= read -r s; do tmux -S "$s" kill-server 2>/dev/null; done < <(find "$rodada" -type s -path '*/tmux-*/*' 2>/dev/null)
+  pkill -f "$rodada/" 2>/dev/null
+  rm -rf "$rodada"
+}
+trap varrer_rodada EXIT
+trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
+export TMPDIR=$rodada
 duracoes=${XDG_CACHE_HOME:-$HOME/.cache}/tt-testes/duracoes
 tempo_max=${TT_TESTE_TEMPO_MAX:-1800}
 rodar_teste() { # teste — com a sentinela própria; grava em $res o log, o status, o vazamento e a duração
@@ -229,7 +246,7 @@ done
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/tt-test.XXXXXX")
 sock=$tmp/tmux.sock
 limpar() { tmux -S "$sock" kill-server >/dev/null 2>&1 || true; rm -rf "$tmp"; }
-trap limpar EXIT
+trap 'limpar; varrer_rodada' EXIT # (o $tmp fica dentro da rodada)
 # Daqui em diante (os testes de comportamento já rodaram, cada um com o seu), o tt chamado direto usa um runtime só da
 # suíte. Sem TT_RT, o assistente de conta de e-mail lá embaixo, com o HOME isolado e sem cadastro de máquinas, gravava a
 # lista vazia no cache do /run/user/UID de verdade, e o vigia, a central e a malha de quem roda a suíte ficavam 20 s sem

@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.9.12 · 23/10/2026
+- **📧 Um aerc só:** abrir o e-mail numa tela de outra largura (o celular depois do Mac, uma ponte) reaproveita o aerc que já está aberto e só ajusta a prévia e a barra de pastas, sem reconectar as contas. Antes, cada troca de largura abria um aerc novo. O antigo ficava vivo sem tela, porque o aerc ignora o sinal que o tmux manda ao fechar a sessão. Num Mac de 8 GB chegaram a se acumular 59 instâncias em três dias, com mais de cem visualizadores pendurados. Quando a sessão precisa mesmo ser recriada (conta ou pasta nova), o aerc antigo é encerrado. Os que sobraram de versões anteriores são encerrados na próxima abertura.
+- **Salto para a mensagem nova no Mac:** o tt procurava o socket do aerc em `/run/user`, que não existe no macOS. Agora procura em `~/Library/Application Support`, e o clique no aviso de e-mail novo vai direto à mensagem também no Mac.
+- **Testes sem restos:** a suíte guarda tudo o que cria numa pasta da rodada e a varre ao sair, inclusive quando é interrompida ou quando um teste estoura o tempo. Antes, servidores tmux e agentes falsos de rodadas interrompidas ficavam vivos por dias.
+
 ## v2.9.7 · 23/10/2026
 - **Voltar à ponte mais rápido:** clicar numa fixada já conectada reaproveita a tela e a conexão, sem resolver e conferir o destino novamente por SSH. A entrada curta também volta à fixada local. Cada troca continua conferindo a identidade e o dono da tela. Cliques feitos dentro da ponte vão primeiro à máquina da tela, sem uma consulta extra ao destino, inclusive ao trocar entre sessões da mesma máquina remota.
 - **Cache preservado no reinício:** o coordenador recupera pontes vivas. Um transporte encerrado, mesmo com prompt de reconexão aberto, não é tratado como tela pronta. A primeira abertura continua confirmando o destino remoto; as verificações de ativação agora esperam menos entre rodadas.
