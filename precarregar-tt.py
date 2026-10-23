@@ -1071,9 +1071,13 @@ def try_fixed(args):
         # O pressionar já fez a troca; soltar não inicia outra consulta/navegação.
         if len(args) > 6 and args[6] == "u":
             return 0
-        client, key = args[2], args[1].removeprefix("user|").removeprefix("fx")
+        client, key = args[2], args[1]
+        if key.startswith("user|"):
+            key = key[5:]
     else:
-        client, key = args[1], args[2].removeprefix("fx")
+        client, key = args[1], args[2]
+    if key.startswith("fx"):
+        key = key[2:]
     config = read_config()
     if os.environ.get("TT_PRECARREGAR") == "0" or config.get("precarregar") == "off":
         return fallback()
