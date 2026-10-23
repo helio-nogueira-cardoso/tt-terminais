@@ -63,12 +63,13 @@ REMOTO=$'$3|999|estranha\n'
 sonda; sonda
 existe p-reinicio && erro "id reaproveitado por outro servidor foi tomado como a mesma sessão" || ok "id de outro servidor (start_time diferente) não vale"
 
-# 5) servidor reiniciou mas a sessão existe com o MESMO nome: reata por nome e guarda o id novo
+# 5) mesmo nome em um servidor novo é OUTRA sessão: identidade conhecida não reata por nome.
 cria p-reata destX 'destX|janela-2' '$3' 100
 REMOTO=$'$7|999|janela-2\n'
-sonda; sonda
-existe p-reata && ok "reata por nome quando o id não vale mais" || erro "ponte morta apesar de a sessão existir"
-[[ $(opt p-reata @ponte_id) == '$7' ]] && ok "id novo guardado" || erro "id novo não guardado ($(opt p-reata @ponte_id))"
+sonda
+existe p-reata && ok "identidade antiga: primeira sonda preserva para confirmar" || erro "morta sem confirmação"
+sonda
+existe p-reata && erro "ponte herdou sessão homônima de outro servidor" || ok "mesmo nome não substitui identidade conhecida"
 
 # 6) ponte antiga (sem id) cujo nome existe: ganha o id
 cria p-antiga destX 'destX|viva'

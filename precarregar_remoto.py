@@ -5,13 +5,19 @@ Só usa Python 3 e tmux. O mesmo código atende preparação e confirmação, in
 em versões anteriores do tt: não depende de uma atualização simultânea da malha.
 """
 import base64
+import fcntl
+import hashlib
 import json
 import os
 import re
 import select
+import shlex
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 import termios
+import uuid
 import time
 
 SEP = "\t"  # o tmux 3.5 escapa 0x1f; tab permanece literal em todas as versões suportadas
@@ -28,25 +34,83 @@ def tmux(*args):
         return 124, ""
 
 
-def remote_target(name, stable="", expected=None):
+def ensure_identity(sid):
+    # Grava UMA vez. Trava por socket (canônico) também cobre criadores concorrentes.
+    fmt = SEP.join(["#{@tt_session_id}", "#{host}", "#{socket_path}", "#{pid}",
+                    "#{start_time}", "#{session_id}", "#{session_created}"])
+    def read():
+        rc, out = tmux("display-message", "-p", "-t", sid + ":", fmt)
+        fields = out.rstrip("\r\n").split(SEP)
+        return fields if not rc and len(fields) == 7 and re.fullmatch(r"\$[0-9]+", fields[5]) else None
+    first = read()
+    if not first:
+        return ""
+    if first[0]:
+        return first[0]
+    key = hashlib.sha256((os.path.realpath(first[2]) + "|" + first[3] + "|" + first[4]).encode()).hexdigest()[:16]
+    root = Path("/tmp")
+    if not root.is_dir() or not os.access(root, os.W_OK | os.X_OK):
+        root = Path(tempfile.gettempdir())
+    folder = root / ("tt-id-%s-%s" % (os.getuid(), key))
+    folder.mkdir(mode=0o700, exist_ok=True)
+    info = folder.lstat()
+    if folder.is_symlink() or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        return ""
+    fd = os.open(folder / "lock", os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        fields = read()
+        if not fields or fields[3:6] != first[3:6]:
+            return ""
+        if fields[0]:
+            return fields[0]
+        rc, ids = tmux("list-sessions", "-F", "#{@tt_session_id}")
+        if rc:
+            return ""
+        used = set(ids.splitlines())
+        for _ in range(16):
+            stable = uuid.uuid4().hex
+            if stable not in used:
+                break
+        else:
+            return ""
+        target = fields[5] + ":"
+        set_id = shlex.join(["set-option", "-q", "-t", target, "@tt_session_id", stable])
+        inner = shlex.join(["if-shell", "-F", "-t", target, "#{==:#{@tt_session_id},}", set_id])
+        read_id = shlex.join(["show-options", "-qv", "-t", target, "@tt_session_id"])
+        guard = "#{&&:#{==:#{pid}," + fields[3] + "},#{==:#{start_time}," + fields[4] + "}}"
+        rc, out = tmux("if-shell", "-F", "-t", target, guard, inner + " ; " + read_id)
+        return out.strip() if not rc else ""
+    finally:
+        os.close(fd)
+
+
+def remote_target(name, stable="", expected=None, allow_special=False):
     rc, out = tmux("list-sessions", "-F", SEP.join([
         "#{session_id}", "#{start_time}", "#{session_name}", "#{@tt_session_id}", "#{@ponte}"]))
     if rc:
         return None
+    matches = []
     for line in out.splitlines():
         c = line.split(SEP)
-        if len(c) != 5 or c[4] or c[2].startswith("_"):
+        if len(c) != 5 or (not allow_special and (c[4] or c[2].startswith("_"))):
             continue
         candidate = {"sid": c[0], "server": c[1], "name": c[2], "id": c[3]}
         if expected:
             match = candidate["sid"] == expected["sid"] and candidate["server"] == expected["server"]
-            if stable:
-                match = match and candidate["id"] == stable
+            expected_id = stable or expected.get("id", "")
+            if expected_id:
+                match = match and candidate["id"] == expected_id
         else:
             match = c[3] == stable if stable else c[2] == name
         if match:
-            return candidate
-    return None
+            matches.append(candidate)
+    if len(matches) != 1:
+        return None  # ID ambíguo nunca escolhe a primeira sessão por acaso
+    candidate = matches[0]
+    if not candidate["id"]:
+        candidate["id"] = ensure_identity(candidate["sid"])
+    return candidate if candidate["id"] else None
 
 
 def emit(token, payload):
@@ -75,8 +139,12 @@ def remote_wait(token, name, stable, origin, ttl):
     finally:
         termios.tcsetattr(0, termios.TCSANOW, old)
     os.environ["TT_PONTE"] = origin
+    # Só o cliente de transporte recebe a capacidade; -E não a publica na sessão.
+    os.environ["TT_PRE_TOKEN"] = token
     # Mesmo PID do bilhete; -E não altera o ambiente da sessão de destino.
-    os.execvp(TMUX, [TMUX, "-u", "attach-session", "-E", "-t", target["sid"]])
+    guard = "#{&&:#{==:#{@tt_session_id}," + target["id"] + "},#{==:#{start_time}," + target["server"] + "}}"
+    attach = shlex.join(["attach-session", "-E", "-t", target["sid"]])
+    os.execvp(TMUX, [TMUX, "-u", "if-shell", "-F", "-t", target["sid"] + ":", guard, attach])
 
 
 def remote_confirm(token, pid, sid, server):
@@ -96,6 +164,16 @@ def remote_confirm(token, pid, sid, server):
 
 
 def main(argv):
+    if len(argv) == 5 and argv[0] == "resolver":
+        name, stable, sid, server = argv[1:]
+        expected = {"sid": sid, "server": server, "id": stable} if sid and server else None
+        print(json.dumps({"target": remote_target(name, stable, expected, allow_special=True)}))
+        return 0
+    if len(argv) == 2 and argv[0] == "identidade":
+        value = ensure_identity(argv[1])
+        if value:
+            print(value)
+        return 0 if value else 1
     if len(argv) == 6 and argv[0] == "remoto":
         return remote_wait(*argv[1:])
     if len(argv) == 5 and argv[0] == "confirmar":

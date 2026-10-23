@@ -3,6 +3,7 @@
 # Heurística + SSH/PTY/tmux reais em duas casas e sockets isolados. Nenhuma rede real.
 source "$(dirname "$0")/lib.sh"; isolar
 python3 "$RAIZ/tests/test_precarregar_modelo.py"
+python3 "$RAIZ/tests/test_precarregar_fluxo_modelo.py"
 export TT_PRECARREGAR=1
 export TT_TEST_PRE_REMOTE=$T/remota
 mkdir -p "$T/bin" "$TT_TEST_PRE_REMOTE/home/.config/tt" "$TT_TEST_PRE_REMOTE/home/.local/bin" "$TT_TEST_PRE_REMOTE/home/.local/share" "$TT_TEST_PRE_REMOTE/tmux" "$TT_TEST_PRE_REMOTE/rt" "$HOME/.local/bin"
@@ -24,7 +25,7 @@ limpar_pre() {
 }
 trap 'st=$?; set +e; (exit "$st"); limpar_pre' EXIT
 R -f /dev/null new-session -d -s primeira "printf 'TT_TELA_PRIMEIRA\\n'; sleep 600"
-R new-session -d -s segunda 'sleep 600'
+R new-session -d -s segunda "printf 'TT_TELA_SEGUNDA\\n'; sleep 600"
 R set-option -t primeira @tt_session_id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 R set-option -t segunda @tt_session_id bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 printf 'remota\tprimeira\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nremota\tsegunda\tbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' >"$XDG_CONFIG_HOME/tt/fixadas"
@@ -111,6 +112,11 @@ PY_BENCH
 pre_estado | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["metricas"].get("reutilizadas",0)>=7; print("reuso no coordenador:", [s["clique_ms"] for s in d["troca_ms"] if s.get("reutilizada")])'
 passou 'sete voltas à ponte pela barra sem helper remoto e sem SSH adicional'
 
+# O caso relatado: a pessoa está na origem vendo a remota e clica na barra DE LÁ.
+remote_socket=$(R display-message -p '#{socket_path}')
+python3 "$RAIZ/tests/precarregar_fluxo_cenario.py" "$TT" "$cliente" "fora-$$" "$TT_TEST_PRE_REMOTE" "$remote_socket" "$ponte_cliente" "$MAQUINA"
+passou 'clique de dentro da ponte chega pelo SSH existente, troca só a tela correta e não abre SSH adicional'
+
 # A mesma entrada curta volta à sessão local sem atrasar o clique com novo Bash/SSH.
 tmux set-option -t '=origem:' @tt_session_id eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 printf '%s\torigem\teeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n' "$MAQUINA" >>"$XDG_CONFIG_HOME/tt/fixadas"
@@ -164,7 +170,7 @@ passou 'falha de rede preserva a tela'
 
 # Sessão removida e recriada com MESMO nome não herda um bilhete de outra identidade.
 R kill-session -t segunda
-R new-session -d -s segunda 'sleep 600'
+R new-session -d -s segunda "printf 'TT_TELA_SEGUNDA\\n'; sleep 600"
 R set-option -t segunda @tt_session_id cccccccccccccccccccccccccccccccc
 precarregar_trocar "$outro" usuario@dest segunda bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 sleep 3

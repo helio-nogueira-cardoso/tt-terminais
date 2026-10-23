@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.9.16 · 23/10/2026
+- **Sessões do Mac vistas pela empresa:** o clique na faixa das fixadas segue pela conexão que já exibe a ponte. Não abre outro comando SSH de volta à origem por clique; a origem continua validando a identidade e escolhendo apenas a tela correta. A primeira troca renova conexões de versões antigas.
+- **ID preservado ao renomear:** atribuição de UUID uma única vez, protegida contra concorrência e colisão; o nome só descobre uma referência ainda sem identidade. Um ID conhecido não é substituído pelo nome em navegação, reconciliação ou reconexão. Sessão recriada com o mesmo nome recebe outro ID; identidade ambígua é recusada.
+
+
 ## v2.9.12 · 23/10/2026
 - **📧 Um aerc só:** abrir o e-mail numa tela de outra largura (o celular depois do Mac, uma ponte) reaproveita o aerc que já está aberto e só ajusta a prévia e a barra de pastas, sem reconectar as contas. Antes, cada troca de largura abria um aerc novo. O antigo ficava vivo sem tela, porque o aerc ignora o sinal que o tmux manda ao fechar a sessão. Num Mac de 8 GB chegaram a se acumular 59 instâncias em três dias, com mais de cem visualizadores pendurados. Quando a sessão precisa mesmo ser recriada (conta ou pasta nova), o aerc antigo é encerrado. Os que sobraram de versões anteriores são encerrados na próxima abertura.
 - **Salto para a mensagem nova no Mac:** o tt procurava o socket do aerc em `/run/user`, que não existe no macOS. Agora procura em `~/Library/Application Support`, e o clique no aviso de e-mail novo vai direto à mensagem também no Mac.

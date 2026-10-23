@@ -181,6 +181,16 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   Também ao escolher outra sessão da mesma máquina remota: não retargeta uma ponte identificada por dentro.
   `--ir-ponte P M S [ID]` usa entrada curta no coordenador aberto, escolhe apenas o cliente que vê P e respeita
   `TT_PRAZO`. Recusa da origem preserva a ponte do cache; a ida pela rede à origem continua necessária.
+- **Empresa vendo o Mac:** `TT_PRE_TOKEN` no cliente de transporte habilita envelope no TTY, retirado por
+  `NavigationStream` antes de desenhar e encaminhado ao RPC da origem, sem SSH adicional por clique. A origem
+  continua controlando a troca; não retargetar a ponte por dentro. `@tt_pre_relay=1` indica a capacidade;
+  transporte antigo é renovado na primeira troca. Cliques no Mac incrementam `encaminhadas_fluxo`; as trocas
+  ficam nas métricas da empresa. Fragmentação, duplicação/expiração, teclado e resize têm teste com dois PTYs.
+  Encaminhador frio é iniciado pelo clique e não encerra só por não ter tela física; não faz prefetch de aninhados.
+- **Identidade:** `@tt_session_id` é UUID persistente de 32 hex, atribuído uma vez sob trava e checagem de colisão.
+  Nome só na descoberta inicial de legado sem ID. Havendo ID, não aceitar fallback por nome em clique, cache,
+  reconciliação ou reconexão; exclusão/recriação é outra sessão. ID duplicado/ausente é recusa, nunca desempate
+  por nome. `$N`/servidor são endereços de execução, conferidos junto ao UUID. Teste: `test_sessoes_identidade.sh`.
 - Primeiro uso continua validando destino e primeiro quadro via rede. Sondagens: 10 ms no início do pedido,
   50 ms na espera lenta, 500 ms ocioso. JSON: `reutilizada`/`local`, contadores `reutilizadas`/`locais`;
   `clique_ms` mede pedido Python→troca, sem partida do chamador, pintura final ou SSH de volta à origem.

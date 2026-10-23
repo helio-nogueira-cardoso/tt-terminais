@@ -27,6 +27,7 @@ if __name__ != "__main__" or sys.argv[1:2] not in (["try-fixed"], ["try-bridge"]
     import select
     import shlex
     import signal
+    import stat
     import subprocess
     import precarregar_remoto as protocol
 
@@ -42,6 +43,94 @@ SSH_ARGS = []
 SSH_TELA = ["-o", "ControlPath=none", "-o", "ControlMaster=no"]  # no ssh vale o primeiro valor de cada opção
 REMOTE_PATH = os.environ.get("TT_PRE_PATH_REMOTO", 'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH; ')
 MAX_MESSAGE = 65536
+NAV_PREFIX = b"\x1b]777;tt-nav;"
+
+
+class NavigationStream:
+    """Retira só envelopes deste transporte; demais bytes seguem intactos ao terminal."""
+    def __init__(self, token, forward):
+        self.prefix = NAV_PREFIX + token.encode("ascii") + b";"
+        self.forward = forward
+        self.buffer = b""
+        self.latest = 0
+
+    def feed(self, data, final=False):
+        self.buffer += data
+        output = []
+        while self.buffer:
+            at = self.buffer.find(self.prefix)
+            if at < 0:
+                keep = 0
+                for size in range(1, min(len(self.buffer), len(self.prefix) - 1) + 1):
+                    if self.prefix.startswith(self.buffer[-size:]):
+                        keep = size
+                if final:
+                    output.append(self.buffer[:-keep] if keep >= len(NAV_PREFIX) else self.buffer)
+                    self.buffer = b""
+                    break
+                output.append(self.buffer[:-keep] if keep else self.buffer)
+                self.buffer = self.buffer[-keep:] if keep else b""
+                break
+            output.append(self.buffer[:at])
+            self.buffer = self.buffer[at:]
+            end = self.buffer.find(b"\x07", len(self.prefix))
+            newer = self.buffer.find(self.prefix, len(self.prefix))
+            if newer >= 0 and (end < 0 or newer < end):
+                self.buffer = self.buffer[newer:]
+                continue
+            if end < 0:
+                if final or len(self.buffer) > 8192:
+                    self.buffer = b""  # envelope nosso truncado: nunca vira texto/comando
+                break
+            payload, self.buffer = self.buffer[len(self.prefix):end], self.buffer[end + 1:]
+            try:
+                packet = json.loads(base64.b64decode(payload, validate=True))
+                if (not isinstance(packet, dict) or packet.get("v") != 1
+                        or not all(text_ok(packet.get(k)) for k in ("dest", "name"))
+                        or not isinstance(packet.get("id"), str) or len(packet["id"]) > 128
+                        or type(packet.get("seq")) is not int or not 0 < packet["seq"] < 2**63 or packet["seq"] <= self.latest
+                        or not isinstance(packet.get("deadline"), (int, float))
+                        or not math.isfinite(packet["deadline"]) or packet["deadline"] > time.time() + 30):
+                    continue
+                self.latest = packet["seq"]
+                if packet["deadline"] >= time.time():
+                    self.forward(packet)
+            except (ValueError, TypeError, OverflowError):
+                continue
+        return b"".join(output)
+
+
+def relay_output(proc, token, origin):
+    bridge = origin.split("|", 1)[-1]
+    folder = runtime()
+    def forward(packet):
+        data = {"op": "bridge", "bridge": bridge, "dest": packet["dest"], "name": packet["name"],
+                "id": packet["id"], "order": time.monotonic_ns(), "expires": time.monotonic() + 3,
+                "deadline": packet["deadline"]}
+        try:
+            if send_request(folder, data, timeout=.5).get("handled"):
+                return
+        except UncertainReply:
+            return  # enviado: resposta perdida não duplica a navegação
+        except (OSError, ValueError):
+            pass
+        # Coordenador ausente/modo off: o mesmo comando antigo, executado AQUI, sem SSH de volta.
+        if packet["deadline"] > time.time():
+            env = dict(os.environ, TT_PRAZO=str(int(packet["deadline"])), TT_PRE_FAST_FALLBACK="1")
+            execute([os.environ.get("TT_PRE_TT", str(HERE / "tt")), "--ir-ponte", bridge,
+                     packet["dest"], packet["name"], packet["id"]],
+                    timeout=max(.1, packet["deadline"] - time.time()), env=env)
+    stream = NavigationStream(token, forward)
+    def write(data):
+        while data:
+            data = data[os.write(1, data):]
+    while True:
+        data = os.read(proc.stdout.fileno(), 65536)
+        if not data:
+            break
+        write(stream.feed(data))
+    write(stream.feed(b"", final=True))
+    return proc.wait()
 
 
 def read_config():
@@ -190,6 +279,8 @@ class Coordinator:
         self.tt = os.environ.get("TT_PRE_TT", str(HERE / "tt"))
         self.candidates = {}
         self.clients = {}
+        self.nested_clients = {}
+        self.nested_env = {}
         self.current = {}
         self.requests = {}
         self.latest = {}
@@ -275,13 +366,16 @@ class Coordinator:
         if rc:
             self.running = False
             return
-        clients = {}
+        clients, nested = {}, {}
         for line in out.splitlines():
             c = line.split(SEP)
-            if len(c) != 12 or c[4].startswith(("tmux", "screen")):
-                continue  # quem prepara é a máquina da tela, nunca cada salto da malha
+            if len(c) != 12:
+                continue
             if not c[3].isdigit() or time.time() - int(c[3]) > 600:
                 continue
+            if c[4].startswith(("tmux", "screen")):
+                nested[c[0]] = {"generation": c[1] + ":" + c[2], "session": c[5]}
+                continue  # só encaminha eventos; nunca prepara/anexa outra ponte neste salto
             clients[c[0]] = {"generation": c[1] + ":" + c[2], "session": c[5],
                              "width": c[9], "height": c[10], "activity": int(c[3])}
             if c[6] and "|" in c[6]:
@@ -307,6 +401,9 @@ class Coordinator:
                     atomic_json(self.history_file, self.history)
                 self.current[c[0]] = key
         self.clients = clients
+        self.nested_clients = nested
+        live = {v["generation"] for v in nested.values()}
+        self.nested_env = {k: v for k, v in self.nested_env.items() if k in live}
         for c in list(self.requests):
             if c not in clients:
                 del self.requests[c]
@@ -515,11 +612,11 @@ class Coordinator:
         fmt = SEP.join(["#{session_name}", "#{@tt_pre_estado}", "#{@tt_pre_id}", "#{@ponte}",
                         "#{@ponte_dono}", "#{@tt_pre_generation}", "#{@tt_pre_token}",
                         "#{@tt_pre_viva}", "#{@tt_pre_transport_pid}", "#{pane_dead}",
-                        "#{session_attached}", "#{@ponte_alvo}"])
+                        "#{session_attached}", "#{@ponte_alvo}", "#{@tt_pre_relay}"])
         rc, out = tmux("list-sessions", "-F", fmt)
         for line in out.splitlines() if not rc else []:
             c = line.split(SEP)
-            if (len(c) != 12 or c[1] != "ativa" or not c[0].startswith("tt-pre-")
+            if (len(c) != 13 or c[12] != "1" or c[1] != "ativa" or not c[0].startswith("tt-pre-")
                     or c[4:6] != [client, owner["generation"]]
                     or not re.fullmatch(r"[a-f0-9]{32}", c[6]) or c[7] != c[6]
                     or not c[8].isdigit() or c[9] == "1"
@@ -564,6 +661,62 @@ class Coordinator:
             return True
         return False
 
+    def relay_nested(self, client, data):
+        owner = self.nested_clients[client]
+        generation = owner["generation"]
+        if generation not in self.nested_env:
+            pid = generation.split(":", 1)[0]
+            try:
+                environ = Path("/proc", pid, "environ")
+                if environ.is_file():
+                    raw = environ.read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace")
+                else:
+                    _, raw = execute(["ps", "eww", "-p", pid])
+                values = dict(re.findall(r"(?:^|\s)(TT_(?:PONTE|PRE_TOKEN))=([^\s]+)", raw))
+                token = values.get("TT_PRE_TOKEN", "")
+                origin = values.get("TT_PONTE", "").partition("|")[2]
+                self.nested_env[generation] = token if re.fullmatch(r"[a-f0-9]{32}", token) and origin == "tt-pre-" + token[:16] else ""
+            except OSError:
+                self.nested_env[generation] = ""
+        token = self.nested_env[generation]
+        if not token or not all(text_ok(data.get(k)) for k in ("dest", "name")):
+            return False  # conexão antiga: continua pelo caminho SSH já existente
+        stable = data.get("id", "")
+        if not isinstance(stable, str) or len(stable) > 128:
+            return False
+        rc, live = tmux("list-clients", "-F", SEP.join([
+            "#{client_name}", "#{client_pid}", "#{client_created}", "#{session_name}"]))
+        expected = SEP.join([client, *generation.split(":"), owner["session"]])
+        if rc or expected not in live.splitlines():
+            return True  # a tela mudou; não tentar outra rota com pedido velho
+        packet = {"v": 1, "dest": data["dest"], "name": data["name"], "id": stable,
+                  "seq": data.get("order", time.monotonic_ns()), "deadline": time.time() + 5}
+        frame = NAV_PREFIX + token.encode() + b";" + base64.b64encode(json.dumps(packet).encode()) + b"\x07"
+        if not client.startswith("/dev/") or len(frame) > 4096:
+            return False
+        written = 0
+        try:
+            fd = os.open(client, os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISCHR(info.st_mode) or info.st_uid != os.geteuid():
+                    return False
+                until = time.monotonic() + .05
+                while written < len(frame):
+                    try:
+                        written += os.write(fd, frame[written:])
+                    except BlockingIOError:
+                        if time.monotonic() >= until:
+                            raise
+                        select.select([], [fd], [], .005)
+            finally:
+                os.close(fd)
+        except OSError:
+            self.metrics["falhas_encaminhamento"] += 1
+            return bool(written)  # envio parcial nunca dispara uma segunda navegação
+        self.metrics["encaminhadas_fluxo"] += 1
+        return True
+
     def revisit_local(self, client, target, data):
         # Voltar da ponte à sessão desta máquina também dispensa carregar o Bash inteiro.
         # Só pela identidade estável; nomes e sessões especiais continuam no fluxo normal.
@@ -572,8 +725,10 @@ class Coordinator:
             return False
         rc, out = tmux("list-sessions", "-F", SEP.join([
             "#{session_id}", "#{session_name}", "#{@tt_session_id}", "#{@ponte}"]))
-        for line in out.splitlines() if not rc else []:
-            c = line.split(SEP)
+        rows = [line.split(SEP) for line in out.splitlines()] if not rc else []
+        if sum(len(c) == 4 and c[2] == stable for c in rows) != 1:
+            return False
+        for c in rows:
             if len(c) != 4 or c[2] != stable or c[3] or c[1].startswith("_"):
                 continue
             owner = self.clients[client]
@@ -696,6 +851,11 @@ class Coordinator:
     def maintain(self):
         if time.monotonic() < self.cooldown_until:
             return
+        if not self.clients:
+            for key, item in list(self.candidates.items()):
+                if item["state"] != "active":
+                    self.discard(key)
+            return  # encaminhador sem tela física não precisa sondar bateria nem preparar SSH
         mode, total, per_client = self.settings()
         pending = {r["key"] for r in self.requests.values()}
         choices = []
@@ -792,6 +952,11 @@ class Coordinator:
                 return {"handled": False}
             return self.navigate(data)
         if op == "revisit":
+            if not scanned:
+                self.scan_clients()
+                scanned = True
+            if data.get("client") in self.nested_clients:
+                return {"handled": self.relay_nested(data["client"], data)}
             if read_config().get("precarregar") == "off" or os.environ.get("TT_PRECARREGAR") == "0":
                 return {"handled": False}
             if data.get("dest") != self.machine:
@@ -942,7 +1107,7 @@ class Coordinator:
                         self.poll_preparations()
                         self.poll_requests()
                         self.ensure_guardian()
-                        if not self.clients and now - self.last_event > 60:
+                        if not self.clients and not self.nested_clients and now - self.last_event > 60:
                             break
                 finally:
                     for key, item in list(self.candidates.items()):
@@ -986,6 +1151,8 @@ def format_status(data):
     metrics = data.get("metricas", {})
     lines.append("Cliques: %d · preparados: %d · trocas: %d · falhas: %d" %
                  tuple(metrics.get(k, 0) for k in ("cliques", "acertos", "trocas", "falhas")))
+    if metrics.get("encaminhadas_fluxo"):
+        lines.append("Cliques encaminhados pela conexão existente: %d" % metrics["encaminhadas_fluxo"])
     samples = data.get("troca_ms", [])
     if samples:
         lines.append("Última troca confirmada: %d ms (%s)" %
@@ -1014,18 +1181,44 @@ def main(argv):
     human = op == "status-text"
     if human:
         op = "status"
-    if op in ("remoto", "confirmar"):
+    if op in ("remoto", "confirmar", "identidade"):
         return protocol.main(argv)
+    if op == "resolver" and len(argv) == 6:
+        rc, out = execute(["ssh", *SSH_ARGS, argv[1], remote_command("resolver", *argv[2:])], timeout=8)
+        if rc:
+            return 2
+        try:
+            reply = json.loads(out)
+            if not isinstance(reply, dict) or "target" not in reply:
+                return 2
+            target = reply["target"]
+            if target is None:
+                return 1
+            if target.get("id") != argv[3] or not re.fullmatch(r"\$[0-9]+", target.get("sid", "")):
+                return 2
+            print("%s|%s|%s" % (target["sid"], target["server"], target["name"]))
+            return 0
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return 2
     if op == "transporte" and len(argv) == 7:
         # Conexão própria (não um canal da mestra do tt): no Tailscale SSH, fechar um canal da mestra não encerra o
         # attach de lá, que ficava preso animando a barra para ninguém. A conexão nasce na preparação, não no clique.
         bridge, token = argv[5].split("|", 1)[-1], argv[2]
-        proc = subprocess.Popen(["ssh", "-tt", *SSH_TELA, *SSH_ARGS, argv[1], remote_command("remoto", *argv[2:])])
+        proc = subprocess.Popen(["ssh", "-tt", *SSH_TELA, *SSH_ARGS, argv[1], remote_command("remoto", *argv[2:])], stdout=subprocess.PIPE)
         tmux("set-option", "-t", "=" + bridge + ":", "@tt_pre_transport_pid", str(proc.pid),
-             ";", "set-option", "-t", "=" + bridge + ":", "@tt_pre_viva", token)
+             ";", "set-option", "-t", "=" + bridge + ":", "@tt_pre_viva", token,
+             ";", "set-option", "-t", "=" + bridge + ":", "@tt_pre_relay", "1")
         try:
-            return proc.wait()
+            return relay_output(proc, token, argv[5])
         finally:
+            proc.stdout.close()
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
             tmux("set-option", "-t", "=" + bridge + ":", "@tt_pre_viva", "")
     try:
         folder = runtime()
@@ -1076,7 +1269,7 @@ def main(argv):
             return 1
     if op == "status":
         print(format_status(response) if human else json.dumps(response, ensure_ascii=False, indent=2))
-    if op == "navigate":
+    if op in ("navigate", "revisit"):
         return 0 if response.get("handled") else 1
     return 0
 

@@ -2373,7 +2373,27 @@ Isso vale também para escolher outra sessão da mesma máquina remota: quem tro
 para que uma ponte já identificada não passe a mostrar outra sessão por dentro. O `--ir-ponte`
 recebido pela origem usa RPC curto quando o coordenador está aberto, conserva `TT_PRAZO` e escolhe
 somente o cliente que mostra a ponte. Se a origem recusar uma ponte do cache, a tela é preservada.
-Ainda existe a viagem do pedido remoto até a origem; o caminho curto não elimina a latência dessa rede.
+A conexão existente leva o envelope à origem; o fluxo antigo por comando SSH permanece como compatibilidade para conexões sem a capacidade.
+
+O percurso **empresa → Mac → clique na faixa do Mac** usa a própria conexão SSH para transportar
+o pedido de navegação. O cliente remoto recebe uma capacidade no ambiente do transporte (`-E`
+preserva o ambiente da sessão). O coordenador remoto emite um envelope curto no TTY desse cliente;
+o transporte da origem o retira antes do desenho e entrega ao coordenador local. Não há comando
+SSH adicional de volta por clique. A origem continua escolhendo a tela e validando UUID e primeiro
+quadro; o alvo não é trocado por dentro da ponte. Bytes de tela, teclado e redimensionamento seguem
+pelo canal normal. Envelopes inválidos, repetidos e expirados não navegam. Só o transporte com a
+mesma capacidade reconhece o envelope. Conexão antiga sem essa capacidade usa o fluxo anterior
+uma vez e ganha um transporte novo. Um encaminhador frio é iniciado pela primeira troca e permanece
+ativo enquanto houver clientes aninhados em uso; sem tela física, não prepara SSH nem sonda bateria.
+No status do Mac, `encaminhadas_fluxo` conta os pedidos; as trocas efetivas são medidas na origem.
+
+**Identidade da sessão:** `@tt_session_id` guarda um UUID de 32 caracteres hexadecimais, atribuído
+uma vez com trava por servidor e verificação de colisão. Renomear não altera o UUID. Depois de a
+referência ter ID, o nome é apenas um rótulo: navegação, cache, reconciliação e reconexão não podem
+herdar outra sessão pelo mesmo nome. IDs ambíguos são recusados. Entradas antigas sem ID usam o
+nome só na descoberta inicial, antes de gravar a identidade. `$N` e o nascimento do servidor são
+endereços locais de execução, conferidos junto ao UUID; não substituem a identidade persistente.
+Apagar/recriar uma sessão é criar outro objeto e outro UUID, mesmo com o mesmo nome.
 
 Padrão: até **3 candidatos por tela e 6 no total**, com duas preparações simultâneas em segundo plano,
 margem contra trocas excessivas, validade de 150 s e espera progressiva após falhas. Cliques reais

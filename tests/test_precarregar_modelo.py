@@ -308,7 +308,7 @@ class Heuristica(unittest.TestCase):
                 f.rmdir()
 
     def test_transporte_abre_conexao_propria_e_nao_canal_da_mestra(self):
-        with patch.object(pre.subprocess, "Popen") as call, patch.object(pre, "tmux") as tmux:
+        with patch.object(pre.subprocess, "Popen") as call, patch.object(pre, "tmux") as tmux, patch.object(pre, "relay_output", return_value=0):
             call.return_value.wait.return_value = 0
             pre.main(["transporte", "u@pc", "t" * 32, "sessao", "", "maq|tt-pre-x", "180",
                       "--ssh-args", "-o", "ControlMaster=auto", "-o", "ControlPath=/x/%C"])
@@ -334,7 +334,7 @@ class Heuristica(unittest.TestCase):
             c.clients["tela"] = {"generation": "17:100", "session": "origem"}
             token = "d" * 32
             row = ["tt-pre-viva", "ativa", "a" * 32, "u@dell", "tela", "17:100", token, token,
-                   "1234", "0", "0", "u@dell|renomeada"]
+                   "1234", "0", "0", "u@dell|renomeada", "1"]
             def exercise(values, live="tela\t17\t100\torigem", dead=False):
                 def call(*args):
                     if args[0] == "list-sessions":
@@ -408,9 +408,9 @@ class Heuristica(unittest.TestCase):
                 patch.object(pre.subprocess, "Popen") as spawn:
             c = pre.Coordinator(Path(d))
             data = {"op": "revisit", "client": "tela", "dest": "dell", "name": "tarefa", "id": "a" * 32}
-            with patch.object(c, "navigate", return_value={"handled": True}) as navigate:
+            with patch.object(c, "scan_clients"), patch.object(c, "navigate", return_value={"handled": True}) as navigate:
                 self.assertEqual(c.handle(data), {"handled": True})
-                navigate.assert_called_once_with(data)
+                navigate.assert_called_once_with(data, scanned=True)
                 spawn.assert_not_called()  # vigia não bloqueia a resposta
                 self.assertTrue(c.guardian_needed)
 

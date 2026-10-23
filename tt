@@ -5281,15 +5281,17 @@ ponte() {
     read -r
     exec "$EU"
   fi
-  local info id="" srv="" nome_atual=$s rc
+  local info id="" srv="" nome_atual=$s rc uuid anexar guarda
+  uuid=$(tmux show-options -qv -t "=$ponte:" @ponte_uuid 2>/dev/null)
+  [[ -n $uuid ]] || uuid=$(tmux show-options -qv -t "=$ponte:" @tt_pre_id 2>/dev/null)
   while true; do
     clear
     printf 'Conectando a %s:%s…\n' "$(rotulo_de "$dest")" "$nome_atual"
     # Identifica a sessão de lá por id (sobrevive a renomeação). O que mata a ponte é a sessão ter
     # SUMIDO de verdade (nem o id nem o nome existem, e o destino respondeu), conferido duas vezes;
     # destino mudo (rede/SSH caiu) é transitório e permite nova tentativa.
-    info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv"); rc=$?
-    if ((rc == 1)); then sleep 2; info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv"); rc=$?; fi
+    info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv" "$uuid"); rc=$?
+    if ((rc == 1)); then sleep 2; info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv" "$uuid"); rc=$?; fi
     if ((rc == 1)); then
       printf '\n\033[33mA sessão %s:%s não existe mais no destino. Encerrando esta ponte.\033[0m\n' \
         "$(rotulo_de "$dest")" "$nome_atual"
@@ -5298,18 +5300,30 @@ ponte() {
       tmux kill-session -t "=$ponte" 2>/dev/null
       return 0
     fi
+    if ((rc != 0)); then
+      printf '\nNão consegui confirmar a identidade do destino. Enter para tentar novamente. '
+      read -r || return 0
+      continue
+    fi
     if ((rc == 0)); then
       IFS='|' read -r id srv nome_atual <<<"$info"
       ponte_registrar "$ponte" "$dest" "$id" "$srv" "$nome_atual"
     fi
+    [[ -n $id && -n $srv ]] || return 1
     # Anexa pelo id quando o temos: o nome pode mudar enquanto a ponte está aberta ou reconecta.
+    anexar="tmux -u attach -t $(q "$id")"
+    if [[ -n $uuid ]]; then
+      [[ $uuid =~ ^[0-9a-f]{32}$ ]] || return 1
+      guarda="#{&&:#{==:#{@tt_session_id},$uuid},#{==:#{start_time},$srv}}"
+      anexar="tmux -u if-shell -F -t $(q "$id:") $(q "$guarda") $(q "attach-session -E -t $(q "$id")")"
+    fi
     ssh -t "${SSH_OPC_TELA[@]}" "$dest" \
-      "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|$ponte") tmux -u attach -t $(q "${id:-=$nome_atual}")"
+      "$PATH_REMOTO exec env TT_PONTE=$(q "$MAQUINA|$ponte") $anexar"
     st=$?
     # O attach terminou. Se a sessão sumiu no destino (fim normal: a sessão de lá foi fechada), a
     # ponte não tem mais o que mostrar — encerra em vez de oferecer reconexão a um alvo morto.
-    info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv"); rc=$?
-    if ((rc == 1)); then sleep 2; info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv"); rc=$?; fi
+    info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv" "$uuid"); rc=$?
+    if ((rc == 1)); then sleep 2; info=$(resolver_remota "$dest" "$nome_atual" "$id" "$srv" "$uuid"); rc=$?; fi
     if ((rc == 1)); then
       printf '\n\033[33mA sessão %s:%s foi encerrada no destino. Fechando esta ponte.\033[0m\n' \
         "$(rotulo_de "$dest")" "$nome_atual"
@@ -5343,9 +5357,13 @@ sessao_remota_existe() {
 # reiniciar; por isso vale junto com o start_time do servidor. Sem id válido, cai para o nome.
 # Uma única consulta ssh. Imprime "id|start_time|nome-atual". Retorno:
 #   0 achou · 1 o destino respondeu e a sessão não existe · 2 sem resposta (rede/ssh): não concluir nada.
-resolver_remota() { # dest nome [id] [start_time]
-  local dest=$1 nome=$2 id=${3:-} srv=${4:-} out rc
+resolver_remota() { # dest nome [id tmux] [start_time] [UUID persistente]
+  local dest=$1 nome=$2 id=${3:-} srv=${4:-} uuid=${5:-} out rc
   [[ -n $dest && $dest != : ]] || return 2
+  if [[ -n $uuid ]]; then
+    precarregar_py resolver "$dest" "$nome" "$uuid" "$id" "$srv"
+    return $?
+  fi
   out=$(timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO tmux list-sessions -F '#{session_id}|#{start_time}|#{session_name}'" </dev/null 2>/dev/null)
   rc=$?
   ((rc == 0 || rc == 1)) || return 2   # 124 (timeout), 255 (ssh) ou outro: não sabemos
@@ -5355,7 +5373,7 @@ resolver_remota() { # dest nome [id] [start_time]
       if (id != "" && $1 == id && $2 == srv) { print $1 "|" $2 "|" n; achou = 1; exit }
       if (n == nome && !porNome) porNome = $1 "|" $2 "|" n
     }
-    END { if (!achou && porNome != "") { print porNome; exit 0 } exit !achou }
+    END { if (!achou && id == "" && porNome != "") { print porNome; exit 0 } exit !achou }
   ' && return 0
   return 1
 }
@@ -5534,7 +5552,7 @@ guarda_aninhado() { # cliente [voltou]
 
 # Sessão-ponte local que mostra a sessão S de outra máquina (cria se não existir). Imprime o nome.
 criar_ponte() {
-  local dest=$1 s=$2 cliente=${3:-} base ponte alvo nome anexada dono n=2
+  local dest=$1 s=$2 cliente=${3:-} uuid=${4:-} base ponte alvo nome anexada dono n=2
   [[ -n $dest && $dest != : ]] || {
     printf 'tt: ponte não criada para %s: destino remoto vazio ou inválido\n' "$s" >&2
     return 1
@@ -5553,8 +5571,10 @@ criar_ponte() {
     while IFS=$'\x1f' read -r nome anexada dono a_alvo; do
       [[ $dono == "$cliente" ]] && { ponte=$nome p_dono=$dono p_alvo=$a_alvo; break; }
       [[ -z $ponte && $anexada == 0 ]] && { ponte=$nome p_dono=$dono p_alvo=$a_alvo; }
-    done < <(tmux list-sessions -f '#{!=:#{@tt_pre_estado},espera}' -F "#{session_name}"$'\t'"#{session_attached}"$'\t'"#{@ponte_dono}"$'\t'"#{@ponte_alvo}" 2>/dev/null |
-      awk -F'\t' -v a="$alvo" -v b="$base" '$4 == a || ($4 == "" && $1 == b) { print $1 "\037" $2 "\037" $3 "\037" $4 }')
+    done < <(tmux list-sessions -f '#{!=:#{@tt_pre_estado},espera}' -F "#{session_name}"$'\t'"#{session_attached}"$'\t'"#{@ponte_dono}"$'\t'"#{@ponte_alvo}"$'\t'"#{?@ponte_uuid,#{@ponte_uuid},#{@tt_pre_id}}" 2>/dev/null |
+      awk -F'\t' -v a="$alvo" -v b="$base" -v u="$uuid" -v d="$dest" '
+        (u != "" && $5 == u && index($4,d "|")==1) || (u == "" && ($4 == a || ($4 == "" && $1 == b)))
+          { print $1 "\037" $2 "\037" $3 "\037" $4 }')
     if [[ -n $ponte ]]; then
       [[ $p_dono == "$cliente" ]] || lote_add lote set-option -t "=$ponte:" @ponte_dono "$cliente"
       [[ -n $p_alvo ]] || lote_add lote set-option -t "=$ponte:" @ponte_alvo "$alvo"
@@ -5565,12 +5585,16 @@ criar_ponte() {
     while tmux has-session -t "=$ponte" 2>/dev/null; do ponte="$base-$n"; n=$((n + 1)); done
   else
     ponte=$base
-    tmux has-session -t "=$ponte" 2>/dev/null && { echo "$ponte"; return 0; }
+    while tmux has-session -t "=$ponte" 2>/dev/null; do
+      [[ -z $uuid || $(tmux show-options -qv -t "=$ponte:" @ponte_uuid) == "$uuid" ]] && { echo "$ponte"; return 0; }
+      ponte="$base-$n"; n=$((n + 1))
+    done
   fi
   # A sessão e as marcas dela numa ida só (se o new-session falha, o tmux não roda o resto e devolve erro).
   lote_add lote new-session -d -s "$ponte" "$(q "$EU" --ponte "$dest" "$s" "$ponte")"
   lote_add lote set-option -t "=$ponte:" @ponte "$dest"
   lote_add lote set-option -t "=$ponte:" @ponte_alvo "$alvo"
+  [[ -n $uuid ]] && lote_add lote set-option -t "=$ponte:" @ponte_uuid "$uuid"
   [[ -n $cliente ]] && lote_add lote set-option -t "=$ponte:" @ponte_dono "$cliente"
   lote_add lote set-option -t "=$ponte:" @nome_auto 0
   lote_add lote set-option -t "=$ponte:" status off
@@ -5715,7 +5739,7 @@ entrar_remoto() {
     tmux display-message ${TT_CLIENTE:+-c "$TT_CLIENTE"} "⚠ $(rotulo_de "$dest"):$s não existe mais ou está inacessível"
     return 1
   fi
-  ponte=$(criar_ponte "$dest" "$s" "${TT_CLIENTE:-}") || return 1
+  ponte=$(criar_ponte "$dest" "$s" "${TT_CLIENTE:-}" "${TT_PRE_IDENTIDADE:-}") || return 1
   sair_menu
   log_troca ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$ponte"
   exec "$TT_TMUX_BIN" switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$ponte"
@@ -5811,7 +5835,7 @@ prazo_vencido() {
 }
 
 ir_para() {
-  local dest=$1 s=$2 origem om op aviso st r
+  local dest=$1 s=$2 origem om op aviso st r alvo_id=""
   origem=${_origem_fixada:-}
   [[ -n $origem ]] || origem=$(origem_ponte "${TT_CLIENTE:-}")
   om=${origem%%|*} op=${origem#*|}
@@ -5854,8 +5878,21 @@ ir_para() {
     fi
   fi
   if [[ $dest != . ]]; then entrar_remoto "$dest" "$s"; return; fi
+  if [[ -n ${TT_PRE_IDENTIDADE:-} ]]; then
+    [[ $TT_PRE_IDENTIDADE =~ ^[0-9a-f]{32}$ ]] || return 1
+    alvo_id=$(session_by_id "$TT_PRE_IDENTIDADE" tmux)
+    [[ -n $alvo_id ]] || return 1
+  fi
   precarregar_cancelar "${TT_CLIENTE:-}"
   sair_menu
+  if [[ -n $alvo_id ]]; then
+    if [[ -n ${TMUX:-} ]]; then
+      log_troca ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "$alvo_id"
+      exec "$TT_TMUX_BIN" if-shell -F -t "$alvo_id:" "#{==:#{@tt_session_id},$TT_PRE_IDENTIDADE}" \
+        "switch-client ${TT_CLIENTE:+-c $(q "$TT_CLIENTE")} -t $(q "$alvo_id")"
+    fi
+    exec "$TT_TMUX_BIN" if-shell -F -t "$alvo_id:" "#{==:#{@tt_session_id},$TT_PRE_IDENTIDADE}" "attach-session -t $(q "$alvo_id")"
+  fi
   if [[ -n ${TMUX:-} ]]; then log_troca ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$s"; exec "$TT_TMUX_BIN" switch-client ${TT_CLIENTE:+-c "$TT_CLIENTE"} -t "=$s"; fi
   tmux attach-session -t "=$s"
 }
@@ -5863,7 +5900,7 @@ ir_para() {
 # Roda na máquina de origem: os clientes que estão na ponte P passam a mostrar a sessão S da
 # máquina de rótulo R (desta, direto; de outra, por uma ponte).
 ir_ponte() {
-  local p=$1 r=$2 s=$3 id=${4:-} alvo c dest resolvida nome_real id_real
+  local p=$1 r=$2 s=$3 id=${4:-} alvo c dest resolvida nome_real id_real alvo_id
   prazo_vencido && return 1
   tmux has-session -t "=$p" 2>/dev/null || return 1
   # Com pontes por aparelho, P tem um cliente só. Pontes antigas (compartilhadas) podem ter vários:
@@ -5889,9 +5926,16 @@ ir_ponte() {
       [[ -n $nome_real && $id_real == "$id" ]] || return 1
       s=$nome_real
     fi
-    alvo=$(criar_ponte "$dest" "$s" "$c") || return 1
+    alvo=$(criar_ponte "$dest" "$s" "$c" "$id") || return 1
   fi
   fecha_ciclo "$alvo" "$(contem_cliente "$c")" && return 1
+  if [[ $r == "$MAQUINA" && -n $id ]]; then
+    [[ $id =~ ^[0-9a-f]{32}$ ]] || return 1
+    alvo_id=$(session_by_id "$id" tmux)
+    [[ -n $alvo_id ]] || return 1
+    tmux if-shell -F -t "$alvo_id:" "#{==:#{@tt_session_id},$id}" "switch-client -c $(q "$c") -t $(q "$alvo_id")"
+    return $?
+  fi
   tmux switch-client -c "$c" -t "=$alvo"
 }
 
@@ -9020,20 +9064,23 @@ CONF_FIX=$CONF_DIR/fixadas
 fixadas() { [[ -f $CONF_FIX ]] && grep -v '^\s*$' "$CONF_FIX"; }
 
 session_id() {
-  local s=$1 id
+  local s=$1 id sid
   id=$(tmux show-options -qv -t "=$s:" @tt_session_id 2>/dev/null)
   if [[ -z $id ]]; then
-    id=$(printf '%s\0%s\0%s\0%s' "$MAQUINA" "$s" "$$" "$(date +%s%N)" | sha256sum | cut -c1-32)
-    tmux set-option -q -t "=$s:" @tt_session_id "$id" 2>/dev/null || return 1
+    sid=$(tmux display-message -p -t "=$s:" '#{session_id}' 2>/dev/null) || return 1
+    [[ $sid == \$[0-9]* ]] || return 1
+    id=$(precarregar_py identidade "$sid") || return 1
+    [[ -n $id ]] || return 1
   fi
   printf '%s\n' "$id"
 }
 
 session_by_id() {
-  local id=$1
+  local id=$1 formato='#{session_name}'
+  [[ ${2:-} == tmux ]] && formato='#{session_id}'
   # O tmux não converte "\t" no formato: o TAB precisa ir literal ($'\t').
-  tmux list-sessions -F "#{session_name}"$'\t'"#{@tt_session_id}" 2>/dev/null |
-    awk -F'\t' -v id="$id" '$2 == id { print $1; exit }'
+  tmux list-sessions -F "$formato"$'\t'"#{@tt_session_id}" 2>/dev/null |
+    awk -F'\t' -v id="$id" 'id != "" && $2 == id { nome=$1; n++ } END { if (n==1) print nome }'
 }
 
 # Resolve um código persistente para a sessão atual, mesmo depois de ela ser renomeada.
@@ -9046,9 +9093,14 @@ session_resolve() { # código → rótulo da máquina<TAB>nome atual da sessão
 
 resolver_fixada_remota() {
   local antigo=$1 id=$2 s
-  if [[ -n $id ]]; then s=$(session_by_id "$id"); else s=$antigo; fi
+  if [[ -n $id ]]; then
+    s=$(session_by_id "$id")
+  else
+    id=$(session_id "$antigo") || return 1
+    s=$(session_by_id "$id")
+  fi
   [[ -n $s ]] || return 1
-  printf '%s\t%s\n' "$s" "$(session_id "$s")"
+  printf '%s\t%s\n' "$s" "$id"
 }
 
 # Identidade estável do item da barra. O índice pode mudar enquanto o vigia sincroniza a lista;
@@ -15254,16 +15306,16 @@ reconciliar_fixadas() {
     novo=$s
     if [[ $r == "$MAQUINA" ]]; then
       # Primeiro resolve pelo UUID. O nome antigo pode ter sido reutilizado por outra sessão.
-      if [[ -n $id ]]; then novo=$(session_by_id "$id"); fi
+      if [[ -n $id ]]; then novo=$(session_by_id "$id"); novo_id=$id; fi
       if [[ -n $novo ]]; then
         opt_sessao "$novo" @tt_fixado_nome "$novo"
-        novo_id=$(session_id "$novo")
-      elif tmux has-session -t "=$s" 2>/dev/null; then
+        [[ -n $id ]] || novo_id=$(session_id "$novo")
+      elif [[ -z $id ]] && tmux has-session -t "=$s" 2>/dev/null; then
         # Também migra itens fixados de versões antigas para o marcador de identidade.
         novo=$s
         opt_sessao "$s" @tt_fixado_nome "$s"
         novo_id=$(session_id "$s")
-      else
+      elif [[ -z $id ]]; then
         novo=$(tmux list-sessions -F "#{session_name}"$'\t'"#{@tt_fixado_nome}" 2>/dev/null |
           awk -F'\t' -v antigo="$s" '$2 == antigo { print $1; exit }')
         [[ -n $novo ]] && novo_id=$(session_id "$novo")
@@ -15292,6 +15344,10 @@ reconciliar_fixadas() {
       [[ $st == 0 ]] || { printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$tmp"; continue; }
       novo=${resposta%%$'\t'*}; novo_id=${resposta#*$'\t'}
       [[ -n $novo ]] || { fixadas_log "removida $r:$s ($id): a máquina respondeu sem a sessão"; mudou=1; continue; }
+      if [[ -n $id && $novo_id != "$id" ]]; then
+        fixadas_log "preservada $r:$s ($id): resposta com outra identidade, sem herdar pelo nome"
+        printf '%s\t%s\t%s\n' "$r" "$s" "$id" >>"$tmp"; continue
+      fi
     fi
     [[ $novo == "$s" && $novo_id == "$id" ]] || mudou=1
     printf '%s\t%s\t%s\n' "$r" "$novo" "$novo_id" >>"$tmp"
@@ -15772,13 +15828,16 @@ barra_fixadas() {
 
 # Clique num item fixado: vai para ele (ponte, se for de outra máquina).
 ir_fixada() {
-  local c=$1 chave=${2#fx} r s id k d resolvida fora rc _origem_fixada
+  local c=$1 chave=${2#fx} r s id k d resolvida fora rc _origem_fixada id_real
   while IFS=$'\t' read -r r s id; do
     fixada_chave_em k "$r" "$s" "$id"
     [[ $k == "$chave" ]] && break
     r=""; s=""
   done < <(fixadas)
   [[ -n $s ]] || return 0
+  # O encaminhador pode estar frio (ex.: só há uma ponte, sem janela física nesta máquina).
+  # Inicia-o aqui antes de decidir por SSH; o cliente aninhado só encaminha, nunca prepara.
+  if [[ -n $c ]] && precarregar_ativo && precarregar_py revisit "$c" "$r" "$s" "$id" >/dev/null 2>&1; then return 0; fi
   # Dada como desligada pelo Tailscale (fora=2), vai assim mesmo: a marca dele oscila com a máquina de pé
   d=$(dest_ir "$r"); fora=$?
   if [[ -z $d ]]; then tmux display-message -c "$c" "📌 $r: máquina não cadastrada"; return 0; fi
@@ -15802,18 +15861,24 @@ ir_fixada() {
       if ((fora == 2 && (rc == 124 || rc == 255))); then
         tmux display-message -c "$c" "📌 $r não respondeu: o Tailscale a dá como desligada"; return 0
       fi
+      id_real=${resolvida#*$'\t'}
       resolvida=${resolvida%%$'\t'*}
+      [[ $id_real == "$id" ]] || resolvida=""
       # Achada pelo id lá agora há pouco: a sessão existe. O entrar_remoto pula a 2ª ida por ssh
       # (has-session) que só confirmaria isso (~0,2 a 0,6 s a menos até a troca).
       [[ -n $resolvida ]] && local _remota_confirmada=$d
     fi
-    [[ -n $resolvida ]] && s=$resolvida
+    if [[ -z $resolvida ]]; then
+      tmux display-message -c "$c" "📌 a identidade desta sessão não foi encontrada; a tela foi preservada"
+      return 1
+    fi
+    s=$resolvida
   fi
-  if [[ $d == . ]] && ! tmux has-session -t "=$s" 2>/dev/null; then
+  if [[ $d == . && -z $id ]] && ! tmux has-session -t "=$s" 2>/dev/null; then
     TT_RECONC_IMEDIATO=1 reconciliar_fixadas
     tmux display-message -c "$c" "📌 a sessão \"$s\" não existe mais e foi desafixada"; return 0
   fi
-  TT_CLIENTE=$c ir_para "$d" "$s"
+  TT_CLIENTE=$c TT_PRE_IDENTIDADE=$id ir_para "$d" "$s"
 }
 
 # Botão direito num item fixado.

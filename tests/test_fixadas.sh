@@ -1,76 +1,44 @@
 #!/usr/bin/env bash
-# Teste de regressão dos cliques na faixa de sessões fixadas.
-set -euo pipefail
+# Fluxo real: nome antigo na fixada, anexar fora do tmux e trocar o cliente exato por UUID.
+source "$(dirname "$0")/lib.sh"; isolar
+printf 'nome=dell\n' >"$XDG_CONFIG_HOME/tt/config"
+TT_SO_CARREGAR=1 source "$TT"; EU=$TT
+tmux -f /dev/null new-session -d -s sessao-a 'sleep 600'
+tmux new-session -d -s sessao-b 'sleep 600'
+tmux set-option -t '=sessao-a:' @tt_session_id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+tmux set-option -t '=sessao-b:' @tt_session_id bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+printf 'dell\tnome-antigo\tbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' >"$CONF_FIX"
+fixada_chave_em key dell nome-antigo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+espera() { local i; for i in {1..150}; do "$@" && return; sleep .02; done; falhou "espera: $*"; }
+quantos() { [[ $(tmux list-clients -F '#{client_name}' 2>/dev/null | wc -l) == "$1" ]]; }
+sessao() { tmux list-clients -F '#{client_name} #{session_name}' | awk -v c="$1" '$1==c {print $2}'; }
 
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-TT="$ROOT/tt"
-TEST_DIR=$(mktemp -d)
-trap 'rm -rf "$TEST_DIR"' EXIT
-source "$(dirname "$0")/tmux-isolado.sh"
+# Sem TMUX: o cliente é anexado em um PTY real à identidade, apesar do nome antigo.
+fora new -d -s externo -x 100 -y 30 "env -u TMUX $(q "$TT") --ir-fixada '' fx$key"
+espera quantos 1
+externo=$(tmux list-clients -F '#{client_name}')
+[[ $(sessao "$externo") == sessao-b ]] || falhou 'anexar usou o nome antigo'
+passou 'fora do tmux: fixada anexa pela identidade, sem depender do nome salvo'
 
-[[ -x "$TT" ]]
-bash -n "$TT"
-grep -q 'fixada_chave()' "$TT"
-grep -q 'cliente_do_painel()' "$TT"
-grep -q 'session_id()' "$TT"
-grep -q 'session_by_id()' "$TT"
-grep -q 'tmux has-session -t "=\$p"' "$TT"
-grep -q 'range=user|fx%s' "$TT"
-grep -q 'range=user|fxx%s' "$TT"
+# Dentro: só o cliente indicado muda; a outra tela continua independente.
+fora new -d -s interno -x 90 -y 25 "env -u TMUX TERM=xterm-256color TMUX_TMPDIR=$TMUX_TMPDIR tmux attach -t sessao-a"
+espera quantos 2
+interno=$(tmux list-clients -F '#{client_width} #{client_name}' | awk '$1==90 {print $2}')
+export TMUX=$(tmux display-message -p '#{socket_path},#{pid},0')
+"$TT" --ir-fixada "$interno" "fx$key"
+[[ $(sessao "$interno") == sessao-b && $(sessao "$externo") == sessao-b ]] || falhou 'troca não preservou as duas telas'
+passou 'cliente explícito troca para o UUID certo, sem arrastar outra tela'
 
-mkdir -p "$TEST_DIR/home/.config/tt" "$TEST_DIR/bin" "$TEST_DIR/pkg"
-cp "$ROOT"/tt "$ROOT"/atalhos-padrao* "$TEST_DIR/pkg/"  # TT_DIR nunca aponta para o repositório
-printf 'nome=dell\n' >"$TEST_DIR/home/.config/tt/config"
-# O nome salvo está deliberadamente atrasado: a resolução deve encontrar sessao-b pelo UUID.
-printf 'dell\tsessao-a\tuuid-a\ndell\tnome-antigo\tuuid-b\n' >"$TEST_DIR/home/.config/tt/fixadas"
+# Sem cliente explícito: resolve pelo painel que abriu o seletor.
+tmux switch-client -c "$interno" -t '=sessao-a'
+painel=$(tmux display-message -p -t '=sessao-a:' '#{pane_id}')
+TMUX_PANE=$painel TT_CLIENTE= "$TT" --ir-fixada '' "fx$key"
+[[ $(sessao "$interno") == sessao-b ]] || falhou 'não usou o cliente do painel'
+[[ $(sessao "$externo") == sessao-b ]] || falhou 'alterou cliente de outra tela'
+passou 'cliente ausente é resolvido pelo painel correto'
 
-cat >"$TEST_DIR/bin/tmux" <<'TMUX'
-#!/usr/bin/env bash
-case ${1:-} in
-  display-message)
-    if [[ " $* " == *" -t %1 "* && "$*" == *"#{client_name}"* ]]; then
-      printf '%s\n' cliente-real
-    fi
-    exit 0 ;;
-  list-sessions)
-    printf 'sessao-b\tuuid-b\n'; exit 0 ;;
-  show-options)
-    printf '%s\n' uuid-b; exit 0 ;;
-  set-option) exit 0 ;;
-  list-clients) exit 0 ;;
-  has-session) exit 0 ;;
-  attach-session|switch-client) printf '%s\n' "$*" >"$TT_TEST_LOG"; exit 0 ;;
-  *) exit 0 ;;
-esac
-TMUX
-chmod +x "$TEST_DIR/bin/tmux"
-
-key=$(printf '%s\t%s' dell uuid-b | sha256sum | cut -c1-12)
-env HOME="$TEST_DIR/home" XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
-  TT_DIR="$TEST_DIR/pkg" TT_TEST_LOG="$TEST_DIR/tmux.log" \
-  TMUX= TMUX_PANE= \
-  PATH="$TEST_DIR/bin:$PATH" "$TT" --ir-fixada cliente "fx$key"
-
-grep -qx 'attach-session -t =sessao-b' "$TEST_DIR/tmux.log"
-
-env HOME="$TEST_DIR/home" XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
-  TT_DIR="$TEST_DIR/pkg" TT_TEST_LOG="$TEST_DIR/tmux.log" \
-  TMUX=tmux-test TMUX_PANE=%1 \
-  PATH="$TEST_DIR/bin:$PATH" "$TT" --ir-fixada cliente "fx$key"
-
-grep -qx 'switch-client -c cliente -t =sessao-b' "$TEST_DIR/tmux.log"
-
-rm -f "$TEST_DIR/tmux.log"
-env HOME="$TEST_DIR/home" XDG_CONFIG_HOME="$TEST_DIR/home/.config" \
-  TT_DIR="$TEST_DIR/pkg" TT_TEST_LOG="$TEST_DIR/tmux.log" \
-  TMUX=tmux-test TMUX_PANE=%1 TT_CLIENTE= \
-  PATH="$TEST_DIR/bin:$PATH" "$TT" --ir-fixada "" "fx$key"
-
-grep -qx 'switch-client -c cliente-real -t =sessao-b' "$TEST_DIR/tmux.log"
-
-key_again=$(printf '%s\t%s' dell uuid-b | sha256sum | cut -c1-12)
-key_other=$(printf '%s\t%s' dell uuid-a | sha256sum | cut -c1-12)
-[[ $key == "$key_again" ]]
-[[ $key != "$key_other" ]]
-
-echo 'ok: cliques fixados usam identidade persistente e acompanham rename'
+tmux rename-session -t '=sessao-b' nome-novo
+fixada_chave_em again dell nome-novo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+fixada_chave_em other dell nome-novo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+[[ $key == "$again" && $key != "$other" ]] || falhou 'nome participou da chave persistente'
+passou 'a chave da faixa depende de máquina/ID; renomear não a muda'
