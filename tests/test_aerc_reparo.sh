@@ -104,8 +104,9 @@ before=$(cat "$conf"); aerc_reparar_se_preciso
 [[ $(cat "$conf") == "$before" ]] && ok "filtro w3m novo: idempotente" || erro "reescreveu filtro w3m novo"
 
 corpo_botao=$(sed -n '/^botao_email()/,/^}/p' "$raiz/tt")
+# (email_sessao_encerrar: fecha a sessão E o aerc, que ignora o SIGHUP; um kill-session sozinho o deixava órfão)
 grep -q 'aerc_reparar_se_preciso' <<<"$corpo_botao" &&
-  grep -q 'kill-session.*EMAIL_SESSAO' <<<"$corpo_botao" &&
+  grep -A1 'aerc_reparar_se_preciso' <<<"$corpo_botao" | grep -q 'email_sessao_encerrar' &&
   ok "reparo reinicia a sessão oculta para carregar o filtro" ||
   erro "botao_email não reinicia a sessão após reparar"
 
