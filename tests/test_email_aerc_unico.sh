@@ -18,9 +18,18 @@ if [[ \${1:-} == :* ]]; then
   [[ -e $T/recusar && \$1 == :split ]] && echo 'response: Unknown command split'
   exit 0
 fi
-while :; do sleep 1; done
+printf '%s\n' "\$\$" >>"$T/aerc-pids"
 EOF
-chmod +x "$T/bin/aerc"; nomear_script "$T/bin/aerc" aerc; export PATH=$T/bin:$PATH
+printf '%s\n' "$(exec_como aerc sleep 600)" >>"$T/bin/aerc"
+chmod +x "$T/bin/aerc"; export PATH=$T/bin:$PATH
+# A coleta de órfãos enxerga somente os aerc criados por este ensaio.
+ps_real=$(command -v ps)
+cat >"$T/bin/ps" <<EOF
+#!/bin/sh
+"$ps_real" "\$@" | awk 'NR==FNR { own[\$1]=1; next } \$3 ~ /(^|\/)aerc\$/ && !(\$1 in own) { next } { print }' "$T/aerc-pids" -
+EOF
+: >"$T/aerc-pids"
+chmod +x "$T/bin/ps"
 printf '[ui]\nsidebar-width=24\nmessage-list-split=horizontal 14\n' >~/.config/aerc/aerc.conf
 python3 -I -c 'import socket, sys; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$XDG_RUNTIME_DIR/aerc.sock"
 fn() { TT_SO_CARREGAR=1 bash -c 'source "$1" >/dev/null 2>&1; shift; "$@"' _ "$TT" "$@"; }

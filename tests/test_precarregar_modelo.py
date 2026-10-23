@@ -366,7 +366,7 @@ class Heuristica(unittest.TestCase):
     def test_pedido_de_ponte_seleciona_so_a_tela_que_a_mostra(self):
         with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)), \
                 patch.object(pre, "read_config", return_value={}), \
-                patch.dict(pre.os.environ, {"TT_PRECARREGAR": "1"}):
+                patch.dict(pre.os.environ, {"TT_PRECARREGAR": "1", "TT_PRE_MACHINE": "origem"}):
             c = pre.Coordinator(Path(d))
             c.clients = {"certa": {"session": "ponte-a", "activity": 1},
                          "outra": {"session": "ponte-b", "activity": 100}}
@@ -404,7 +404,7 @@ class Heuristica(unittest.TestCase):
     def test_entrada_curta_delega_primeira_ativacao_ao_coordenador_existente(self):
         with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)), \
                 patch.object(pre, "read_config", return_value={}), \
-                patch.dict(pre.os.environ, {"TT_PRECARREGAR": "1"}), \
+                patch.dict(pre.os.environ, {"TT_PRECARREGAR": "1", "TT_PRE_MACHINE": "origem"}), \
                 patch.object(pre.subprocess, "Popen") as spawn:
             c = pre.Coordinator(Path(d))
             data = {"op": "revisit", "client": "tela", "dest": "dell", "name": "tarefa", "id": "a" * 32}
