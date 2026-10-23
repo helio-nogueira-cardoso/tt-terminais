@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.10.0 · 23/10/2026
+- **⚙ Guarda dos serviços do usuário:** um serviço do systemd que reinicia sem parar agora é percebido, explicado e tratado com critério. Antes, um serviço cujo programa sumiu ficava reiniciando a cada poucos segundos para sempre, sem nunca aparecer como falha: o ollama.service do Jiraops reiniciou 6611 vezes em 23 horas assim. O vigia confere a cada 5 minutos.
+- **Programa ausente:** o serviço deixa de tentar enquanto o programa não existir, e o aviso diz qual programa, para onde apontava o link quebrado e desde quando. Quando o programa volta, o tt religa o serviço, confere que ele ficou de pé e então tira a guarda. Se o serviço não subir, ele fica parado (nada de loop com o programa quebrado) e só tenta de novo quando o programa mudar. Uma troca de versão que deixa o programa ausente por um instante não conta.
+- **Falha repetida:** medida pela taxa de tentativas, nunca pelo total acumulado, e o serviço nunca é desligado: só ganha espera crescente entre as tentativas (systemd 254 ou mais novo) e um aviso. O episódio termina sozinho quando o serviço se normaliza, e a espera crescente sai junto. Um serviço que termina com sucesso de propósito, como um periódico, nunca é tocado.
+- **Uma pergunta por episódio, no 🔔:** o aviso abre a decisão na máquina do serviço, mesmo vista de outra: instalar de novo (o tt já reinstala o Ollama sem administrador, numa pasta só dele, conferindo o pacote oficial e sem tocar nos modelos), ligar agora, desligar, deixar esperando ou tirar a guarda. Também em `tt --servicos`, no `tt --checar` e no `tt --saude`.
+
 ## v2.9.20 · 23/10/2026
 - **Menos SSH à toa no pré-carregamento:** quando a outra máquina responde que a sessão com aquele ID não existe mais, ela sai do histórico de visitas e deixa de ser preparada. Antes, sessões já fechadas voltavam à fila a cada poucos segundos, e cada tentativa abria uma conexão SSH. Um tmux que apenas demorou a responder lá não apaga nada.
 - **Trilha de diagnóstico do coordenador:** uma volta do laço acima de 2 s fica no `erros.log` do coordenador, com o tempo de cada fase, e o encerramento de um coordenador travado também fica registrado.

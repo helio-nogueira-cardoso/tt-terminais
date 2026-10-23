@@ -128,6 +128,13 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   precisa aprovar, policy nega, sem chave, timeout).
 - `tt --reparar [nome]` — reautoriza a chave desta máquina usando outra cadastrada como ponte.
 - `tt --saude` — painel: verde conecta, vermelho online sem acesso.
+- `tt --servicos [status|vigiar|ui|instalar|ligar|desligar|esperar|soltar UNIT]` — guarda dos serviços do usuário
+  (systemd; Linux; vigia a cada 300 s). Programa ausente (ExecStart sem executável, 2+ partidas): drop-in
+  `UNIT.d/00-tt-guarda.conf` com `ConditionFileIsExecutable=`, stop, aviso por episódio; o vigia reconcilia (programa
+  de volta há 30 s → tira a guarda, liga e CONFERE de pé; ExecStart trocado ou unit apagada → limpa). Falha repetida:
+  por taxa (5 partidas entre duas olhadas), nunca parada; só `RestartSteps` no systemd 254+ e aviso; quem sai 0 nunca
+  é tocado. Aviso `servico:MÁQUINA|UNIT` abre a decisão na máquina do serviço. `servico_instalador`: Ollama sem sudo,
+  pasta dedicada, só bin/ e lib/, sha256, download no disco do destino. Teste `tests/test_servicos_guarda.sh`.
 
 ### Sessões, central, seletor, painéis
 - `tt` (sem args) ou `Ctrl+B s` — abre a central (todas as sessões de todas as máquinas).

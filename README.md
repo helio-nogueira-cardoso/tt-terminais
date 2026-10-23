@@ -1750,6 +1750,46 @@ tarefa quando você aprova.
   a hora de agora, que vence qualquer recriação tardia. A 1ª vez numa caixa só olha o que chegou nas últimas 24 h.
 - Testes: `tests/test_demandas.sh`.
 
+## Guarda dos serviços do usuário (systemd)
+
+Um serviço do usuário com `Restart=` e sem limite de partidas, cujo programa sumiu, reinicia para sempre: fica em
+`activating (auto-restart)`, nunca chega a `failed`, e nem `systemctl --user --failed` nem `OnFailure=` o enxergam
+(em 23/10/2026 o `ollama.service` do Jiraops reiniciou 6611 vezes em 23 h, a cada 3 s). A guarda roda no vigia
+(`tt --servicos vigiar`, a cada 300 s; duas idas ao systemd), só no Linux com systemd do usuário (`servicos_guarda=0`
+desliga), e separa dois casos:
+
+- **Programa ausente** (o caminho do `ExecStart` não existe ou não executa, com 2+ partidas em `auto-restart`, ou
+  `failed` com 5+ partidas ou `start-limit-hit`): o único sem ambiguidade, contido sozinho. Drop-in
+  `UNIT.d/00-tt-guarda.conf` (na pasta de units do gerente; o `00-` deixa o `override.conf` do usuário prevalecer)
+  com `ConditionFileIsExecutable=` (o serviço nem tenta sem o programa), `stop` + `reset-failed` e um aviso. Antes de
+  abrir um episódio novo, confere o programa de novo `TT_SERVICO_RECONFERIR` s (8) depois: uma troca de versão deixa o
+  arquivo ausente por um instante. A cada volta o vigia reconcilia: programa de volta e com ctime de mais de
+  `TT_SERVICO_ASSENTAR` s (30; o ctime, que o `tar`/`cp -p` não preservam) → tira a guarda, liga e CONFERE (`active` e
+  sem partir de novo por `TT_SERVICO_CONFERIR` s, ou um oneshot que terminou com `Result=success`): de pé, avisa;
+  senão, para o serviço e marca `religar-falhou` com o ctime do programa (só tenta de novo se ele mudar). `ExecStart`
+  trocado pelo usuário → tira a guarda e, se o programa novo existe, liga e confere; unit apagada → limpa; mascarada
+  ou desligada não é religada. Sem `.path` nem oneshot: nada de escape de unit, ambiente do gerente ou corrida.
+- **Falha repetida** (o programa existe, sai ≠ 0 e o resultado não é `success`): medida por TAXA,
+  `TT_SERVICO_TAXA` partidas (5) entre duas olhadas do vigia (`~/.local/state/tt/servicos/.observado`), nunca pelo
+  total (`NRestarts` acumula); a linha de base de quem não foi pego em `auto-restart` fica até 1 h. Nunca para nem
+  limita o serviço (um túnel que espera a rede precisa insistir): no systemd 254+, `RestartSteps=5` +
+  `RestartMaxDelaySec=5min` (espera crescente); antes disso, só o aviso. O episódio fecha quando o serviço fica de pé
+  em duas olhadas seguidas: a espera crescente sai (o systemd a calcula sobre o total de partidas).
+- **Aviso por episódio no 🔔:** ação `servico:MÁQUINA|UNIT`, código `servico-MÁQUINA-UNIT-CAUSA-EPISÓDIO` (episódio =
+  quando a guarda entrou): o mesmo episódio não avisa duas vezes; o programa que some de novo é outro. O clique abre
+  `tt --servicos ui UNIT` na máquina do serviço (por ssh, se for outra): `i` instalar de novo (quando
+  `servico_instalador` conhece o programa), `r` ligar agora, `d` desligar (`disable --now`; a guarda fica), `e` deixar
+  esperando, `l` log, `s` tirar a guarda (vale pelo episódio: até o serviço se normalizar; o próximo problema é
+  outro episódio).
+- **Instalar de novo:** `servico_instalar_ollama` baixa o pacote oficial da versão publicada mais nova (`.tar.zst`,
+  aberto pelo `zstd` ou pelo Python 3.14+, ou `.tgz`), confere o sha256 que o GitHub publica e o espaço pelo tamanho
+  do pacote, no MESMO disco do destino (o `/run/user` é memória). Só numa pasta dedicada (`ollama*`, dentro da sua
+  pasta: o destino canônico do link do serviço, senão `~/.local/ollama`), trocando só `bin/` e `lib/` (modelos e o
+  resto ficam). Programa num lugar que exige administrador: recusa antes de baixar.
+- CLI: `tt --servicos [status|vigiar|ui|instalar|ligar|desligar|esperar|soltar UNIT]` (UNIT sem `.service` vale).
+  Estado em `~/.local/state/tt/servicos/UNIT`, trilha em `~/.local/state/tt/servicos/registro.log`. O `tt --checar`
+  tem a linha `servicos` e o `tt --saude` mostra os em loop. Teste: `tests/test_servicos_guarda.sh`.
+
 ## Malha de máquinas (sem ilhas)
 
 Todas as máquinas cadastradas se conhecem e se alcançam, sem você fazer nada além do primeiro `--cadastrar`:

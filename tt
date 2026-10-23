@@ -22,6 +22,7 @@
 #   tt --pty AÇÃO   terminal interativo (tmux) para agentes: abrir|enviar|tecla|ler|esperar|entrar|fechar|listar
 #   tt --checar     confere se o tt funciona aqui (--checar-agente: um agente confere e corrige; --checar-ver
 #                   o último relatório; --checar-handoff: pacote de logs, sem segredos, para quem mantém o tt)
+#   tt --servicos   serviços do usuário (systemd) reiniciando sem parar: causa, guarda e decisão (status|ui UNIT…)
 #   tt --sessoes-ia conversas do Claude/Codex/Kiro iguais em todas as máquinas (status|on|off|agora)
 #   tt --precarregar [status|json|auto|economico|off]  preparação inteligente das próximas sessões, por tela
 #   tt --conversa-ia C  a conversa de IA de código C em Markdown, para outra IA seguir (--de MÁQUINA, --salvar)
@@ -682,6 +683,8 @@ vigiar() {
       ("$EU" --checar-auto >/dev/null 2>&1 &)
       # Esta máquina aceita conexão da malha (sshd do sistema ou o do usuário na 8022)?
       ("$EU" --sshd-garantir --vigia >/dev/null 2>&1 &)
+      # Serviço do usuário reiniciando sem parar (programa sumiu): guarda, causa e uma pergunta no 🔔.
+      ("$EU" --servicos vigiar >/dev/null 2>&1 &)
       # Macs mantêm o bridge local disponível mesmo depois de queda ou atualização.
       ("$EU" --tailscale-ws-garantir >/dev/null 2>&1 &)
     fi
@@ -2310,9 +2313,497 @@ saude_local() {
       printf '  \033[31m●\033[0m %-16s %s\n' "units locais" "$n em falha: $falhas"
     fi
   fi
+  # em loop: reiniciando sem parar nunca chega a "failed" e não aparece acima (guarda dos serviços)
+  if servicos_ok; then
+    local -a lp=(); local u
+    while IFS=$'\x1f' read -r u _; do [[ -n $u ]] && lp+=("$u"); done < <(servicos_em_loop)
+    ((${#lp[@]})) && printf '  \033[31m●\033[0m %-16s %s\n' "units em loop" "${#lp[@]} reiniciando sem parar: ${lp[*]} (tt --servicos)"
+  fi
   [[ -s $tsv ]] || return 0
   echo "  ultimas falhas registradas ($tsv):"
   tail -n 3 "$tsv" | while IFS=$'\t' read -r ts unit est; do printf '    %s  %s %s\n' "$ts" "$unit" "$est"; done
+}
+
+# --- Guarda dos serviços do usuário (systemd --user) -------------------------------------------------------------
+# Um serviço com Restart= e sem limite de partidas, cujo programa sumiu, reinicia para sempre: fica em "activating
+# (auto-restart)", nunca chega a "failed", e nem o `systemctl --user --failed` nem o OnFailure= o enxergam. Em
+# 23/10/2026 o ollama.service do Jiraops reiniciou 6611 vezes em 23 h, a cada 3 s, depois que a pasta do Ollama foi
+# apagada. A guarda (vigia a cada 300 s, `tt --servicos`):
+# - programa ausente (o ExecStart não existe ou não executa; com 2+ partidas, ou parado em start-limit-hit): o único
+#   caso sem ambiguidade, então é contido sozinho. Drop-in 00-tt-guarda.conf com ConditionFileIsExecutable= (o
+#   serviço nem tenta sem o programa) e um aviso no 🔔. A cada volta o vigia reconcilia: programa de volta e parado
+#   há 30 s → tira a guarda, liga, confere que ficou de pé e avisa; ExecStart mudado → tira a guarda; unit apagada →
+#   limpa. Sem .path nem oneshot: nada de escape de unit, ambiente do gerente ou corrida com a instalação.
+# - falha repetida (o programa existe e sai ≠ 0): medida por TAXA (TT_SERVICO_TAXA partidas entre duas olhadas do
+#   vigia), nunca pelo total. Não para nem limita o serviço (um túnel que espera a rede precisa insistir): só espera
+#   crescente entre as partidas (systemd 254+) e o aviso. Serviço que sai 0 (periódico) nunca é tocado.
+# Decisões no 🔔 (a tela abre na máquina do serviço): instalar de novo (servico_instalador), desligar, deixar
+# esperando, ligar agora, tirar a guarda. Linux com systemd do usuário; macOS/Termux: nada. servicos_guarda=0 desliga.
+servicos_unitdir() { # a pasta de units do GERENTE (o XDG_CONFIG_HOME dele, não o deste processo)
+  local v
+  [[ -n ${SERVICOS_UNITDIR:-} ]] && { printf '%s' "$SERVICOS_UNITDIR"; return; }
+  v=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_CONFIG_HOME=//p')
+  SERVICOS_UNITDIR=${v:-$HOME/.config}/systemd/user
+  printf '%s' "$SERVICOS_UNITDIR"
+}
+servicos_ok() {
+  local v
+  [[ ${TT_SERVICOS:-1} != 0 ]] || return 1
+  conf_em v servicos_guarda; [[ $v != 0 ]] || return 1
+  tem_cmd systemctl || return 1
+  # o vigia pode ter nascido fora de uma sessão de login (tmux aberto por ssh): sem isto o systemctl --user não acha o gerente
+  [[ -n ${XDG_RUNTIME_DIR:-} || ! -d /run/user/$UID ]] || export XDG_RUNTIME_DIR=/run/user/$UID
+  systemctl --user show-environment >/dev/null 2>&1
+}
+# "unit␟partidas␟estado␟resultado␟status␟programa␟descrição" dos serviços em auto-restart ou failed (duas idas ao systemd).
+servicos_listar() {
+  local -a us=()
+  local u _l _a sub _r
+  while read -r u _l _a sub _r; do
+    [[ $u == *.service && ( $sub == auto-restart || $sub == failed ) ]] && us+=("$u")
+  done < <(systemctl --user list-units --type=service --all --plain --no-legend 2>/dev/null)
+  ((${#us[@]})) || return 0
+  systemctl --user show "${us[@]}" -p Id -p NRestarts -p SubState -p Result -p ExecMainStatus -p ExecStart -p Description 2>/dev/null |
+    awk -v S=$'\x1f' '
+      function sai() { if (id != "") print id S n S sb S rs S st S prog S desc; id = n = sb = rs = st = prog = desc = "" }
+      /^$/ { sai(); next }
+      { k = $0; sub(/=.*/, "", k); v = substr($0, length(k) + 2) }
+      k == "Id" { id = v }
+      k == "NRestarts" { n = v }
+      k == "SubState" { sb = v }
+      k == "Result" { rs = v }
+      k == "ExecMainStatus" { st = v }
+      k == "Description" { desc = v }
+      k == "ExecStart" && prog == "" && match(v, /^\{ path=[^ ;]+/) { prog = substr(v, RSTART + 7, RLENGTH - 7) }
+      END { sai() }'
+}
+# "unit␟partidas␟estado␟programa␟causa␟descrição" dos serviços em loop. A falha repetida usa a observação anterior do
+# vigia ($ESTADO_DIR/servicos/.observado: "unit partidas epoch"); com --observar, grava a de agora.
+servicos_em_loop() {
+  local obs=$ESTADO_DIR/servicos/.observado agora u n sub rs st prog desc causa
+  local -A nant=() tant=() visto=()
+  local -a novo=()
+  printf -v agora '%(%s)T' -1
+  if [[ -r $obs ]]; then while read -r u n st; do [[ -n $u ]] && nant[$u]=$n tant[$u]=$st; done <"$obs"; fi
+  while IFS=$'\x1f' read -r u n sub rs st prog desc; do
+    [[ -n $u && -n $prog ]] || continue
+    n=${n:-0}; causa=""
+    if [[ ! -x $prog ]]; then
+      { [[ $sub == auto-restart ]] && ((n >= 2)); } || { [[ $sub == failed ]] && { ((n >= ${TT_SERVICO_REINICIOS:-5})) || [[ $rs == start-limit-hit ]]; }; } && causa=ausente
+    elif [[ $sub == auto-restart && $rs != success && ${st:-0} != 0 ]]; then
+      novo+=("$u $n $agora"); visto[$u]=1
+      # taxa: TT_SERVICO_TAXA partidas desde a olhada anterior (até 1 h): um periódico de 5 min não chega lá
+      [[ -n ${nant[$u]:-} ]] && ((n - nant[$u] >= ${TT_SERVICO_TAXA:-5} && agora - tant[$u] <= 3600)) && causa=falha
+    fi
+    [[ -n $causa ]] && printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$u" "$n" "$sub" "$prog" "$causa" "$desc"
+  done < <(servicos_listar)
+  if [[ ${1:-} == --observar ]]; then
+    # quem não foi pego em auto-restart agora (de pé entre duas quedas) guarda a linha de base anterior, até 1 h
+    for u in "${!nant[@]}"; do
+      [[ -z ${visto[$u]:-} ]] && ((agora - tant[$u] <= 3600)) && novo+=("$u ${nant[$u]} ${tant[$u]}")
+    done
+    mkdir -p "${obs%/*}"
+    { ((${#novo[@]} == 0)) || printf '%s\n' "${novo[@]}"; } >"$obs.tmp" && mv "$obs.tmp" "$obs"
+  fi
+}
+# Destino de um link quebrado (absoluto); vazio se o programa não é link ou existe.
+servico_alvo() {
+  local p=$1 a
+  [[ -L $p && ! -e $p ]] || return 0
+  a=$(readlink "$p") || return 0
+  [[ $a == /* ]] || a=${p%/*}/$a
+  printf '%s' "$a"
+}
+# Desde quando o systemd não acha o programa ("22/10 16:45"): a mais antiga das últimas 24 h, o começo deste episódio.
+servico_desde() {
+  local l
+  l=$(journalctl --user -u "$1" -S -24h -o short-iso -q --no-pager --grep 'Unable to locate executable|status=203' 2>/dev/null | head -1)
+  [[ $l =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}) ]] || return 0
+  printf '%s/%s %s:%s' "${BASH_REMATCH[3]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[4]}" "${BASH_REMATCH[5]}"
+}
+servico_caminho_curto() { printf '%s' "${1/#$HOME/\~}"; }
+servico_programa() { systemctl --user show "$1" -p ExecStart --value 2>/dev/null | sed -n 's/^{ path=\([^ ;]*\).*/\1/p' | head -1; }
+servico_prop() { systemctl --user show "$1" -p "$2" --value 2>/dev/null; } # uma por vez: com várias, o --value sai na ordem do systemd
+# Estado de um serviço: S_ESTADO (guardado|esperando|desligado|ativo|solto|religar-falhou) S_CAUSA S_PROG S_ALVO S_DESDE
+# S_N S_DESC S_EPISODIO (quando a guarda entrou: identidade do episódio no código do aviso) S_MTIME (do programa
+# na religação que falhou: só tenta de novo se o programa mudar).
+servico_ler() {
+  local k v
+  S_ESTADO="" S_CAUSA="" S_PROG="" S_ALVO="" S_DESDE="" S_N="" S_DESC="" S_EPISODIO="" S_MTIME="" S_SAUDE=""
+  [[ -r $ESTADO_DIR/servicos/$1 ]] || return 1
+  while IFS='=' read -r k v; do
+    case $k in estado) S_ESTADO=$v ;; causa) S_CAUSA=$v ;; programa) S_PROG=$v ;; alvo) S_ALVO=$v ;;
+      desde) S_DESDE=$v ;; partidas) S_N=$v ;; descricao) S_DESC=$v ;; episodio) S_EPISODIO=$v ;; mtime) S_MTIME=$v ;;
+      saude) S_SAUDE=$v ;; esac
+  done <"$ESTADO_DIR/servicos/$1"
+}
+servico_gravar() { # unit estado (os demais campos vêm de S_*)
+  local d=$ESTADO_DIR/servicos
+  mkdir -p "$d"
+  printf 'estado=%s\ncausa=%s\nprograma=%s\nalvo=%s\ndesde=%s\npartidas=%s\ndescricao=%s\nepisodio=%s\nmtime=%s\nsaude=%s\nquando=%(%s)T\n' \
+    "$2" "$S_CAUSA" "$S_PROG" "$S_ALVO" "$S_DESDE" "$S_N" "$S_DESC" "$S_EPISODIO" "$S_MTIME" "${S_SAUDE:-0}" -1 >"$d/$1.tmp" && mv "$d/$1.tmp" "$d/$1"
+}
+servicos_log() { mkdir -p "$ESTADO_DIR/servicos"; printf '%(%F %T)T %s\n' -1 "$*" >>"$ESTADO_DIR/servicos/registro.log"; }
+servico_guarda_arq() { printf '%s/%s.d/00-tt-guarda.conf' "$(servicos_unitdir)" "$1"; }
+# Escreve a guarda (só se mudou: sem daemon-reload a cada volta do vigia). 0 = mudou; 1 = igual ou nada a escrever.
+servico_guarda_escrever() { # unit programa causa
+  local u=$1 prog=$2 causa=$3 arq v txt=""
+  arq=$(servico_guarda_arq "$u")
+  if [[ $causa == ausente ]]; then
+    # (no arquivo de unit, % é especificador: %% é o caractere)
+    txt=$(printf '# tt, guarda dos serviços: o programa não existe e o serviço reiniciava sem parar.\n# Desfazer: tt --servicos soltar %s\n[Unit]\nConditionFileIsExecutable=%s\n' "$u" "${prog//%/%%}")
+  else
+    v=$(systemctl --version 2>/dev/null | awk 'NR == 1 { print $2 + 0 }')
+    # espera crescente entre as partidas (3 s, 6 s… até 5 min) sem parar o serviço; sem isso no systemd < 254, só o aviso
+    if ((v >= 254)); then
+      txt=$(printf '# tt, guarda dos serviços: falhava e reiniciava sem parar; espera crescente entre as partidas.\n# Desfazer: tt --servicos soltar %s\n[Service]\nRestartSteps=5\nRestartMaxDelaySec=5min\n' "$u")
+    fi
+  fi
+  [[ -n $txt ]] || return 1
+  [[ -f $arq && $(<"$arq") == "$txt" ]] && return 1
+  mkdir -p "${arq%/*}" && printf '%s\n' "$txt" >"$arq.tmp" && mv "$arq.tmp" "$arq"
+}
+servico_tirar_guarda() { # 0 = havia guarda (e tirou)
+  local arq
+  arq=$(servico_guarda_arq "${1:?}")
+  [[ -f $arq ]] || return 1
+  rm -f "${arq:?}"
+  rmdir "${arq%/*}" 2>/dev/null
+  return 0
+}
+# Um aviso por EPISÓDIO (código: máquina, unit, causa e quando a guarda entrou): o mesmo episódio não avisa duas vezes,
+# e o programa que some de novo depois de voltar é outro episódio, outro aviso.
+servico_avisar() { # unit (de S_*)
+  local u=$1 txt prog
+  prog=$(servico_caminho_curto "$S_PROG")
+  if [[ $S_CAUSA == ausente ]]; then
+    txt="⚙ $u${S_DESC:+ ($S_DESC)} reiniciava sem parar (${S_N}×): o programa $prog${S_ALVO:+ → $(servico_caminho_curto "$S_ALVO")} não existe${S_DESDE:+ desde $S_DESDE}. Parei as tentativas; quando o programa voltar, eu o ligo. Clique para decidir."
+  else
+    txt="⚙ $u${S_DESC:+ ($S_DESC)} falha e reinicia sem parar (${S_N} partidas). Ele segue tentando$( (( $(systemctl --version 2>/dev/null | awk 'NR == 1 { print $2 + 0 }') >= 254 )) && echo ', com espera crescente'). Clique para ver o log e decidir."
+  fi
+  notificar "$txt" 604800 "servico:$MAQUINA|$u" sino "servico-$MAQUINA-$u-$S_CAUSA-$S_EPISODIO"
+}
+servicos_vigiar() {
+  servicos_ok || return 0
+  local u n sub prog causa desc mudou agora i
+  local -a linhas=() novos=()
+  printf -v agora '%(%s)T' -1
+  servicos_reconciliar
+  mapfile -t linhas < <(servicos_em_loop --observar)
+  # Programa ausente de um episódio novo: confere de novo uns segundos depois. Uma troca de versão (pipx, uv, cargo,
+  # tar por cima) deixa o arquivo ausente por um instante, e isso não é episódio.
+  for i in "${!linhas[@]}"; do
+    IFS=$'\x1f' read -r u n sub prog causa desc <<<"${linhas[i]}"
+    [[ $causa == ausente ]] || continue
+    servico_ler "$u" && [[ $S_CAUSA == ausente && $S_PROG == "$prog" && $S_ESTADO =~ ^(guardado|esperando|desligado|solto)$ ]] && continue
+    novos+=("$i")
+  done
+  if ((${#novos[@]})); then
+    sleep "${TT_SERVICO_RECONFERIR:-8}"
+    for i in "${novos[@]}"; do
+      IFS=$'\x1f' read -r u n sub prog causa desc <<<"${linhas[i]}"
+      [[ -x $prog ]] && linhas[i]=""
+    done
+  fi
+  for i in "${!linhas[@]}"; do
+    [[ -n ${linhas[i]} ]] || continue
+    IFS=$'\x1f' read -r u n sub prog causa desc <<<"${linhas[i]}"
+    # Mesmo episódio (a mesma causa e programa, guardado/esperando/desligado): só confere a guarda. Solto: o usuário
+    # tirou a guarda deste episódio, ele vale até o serviço se normalizar. Fora disso: episódio novo, guarda e aviso.
+    if servico_ler "$u" && [[ $S_CAUSA == "$causa" && $S_PROG == "$prog" && $S_ESTADO =~ ^(guardado|esperando|desligado|solto)$ ]]; then
+      [[ $S_ESTADO == solto ]] && { S_SAUDE=0; servico_gravar "$u" solto; continue; }
+    else
+      S_ESTADO=guardado S_EPISODIO=$agora S_MTIME="" S_DESDE=""
+      S_CAUSA=$causa S_PROG=$prog S_DESC=$desc S_ALVO=$(servico_alvo "$prog")
+      [[ $causa == ausente ]] && S_DESDE=$(servico_desde "$u")
+    fi
+    S_N=$n S_SAUDE=0
+    mudou=0; servico_guarda_escrever "$u" "$prog" "$causa" && mudou=1
+    ((mudou)) && systemctl --user daemon-reload 2>/dev/null
+    if [[ $causa == ausente ]]; then
+      systemctl --user stop "$u" 2>/dev/null
+      systemctl --user reset-failed "$u" 2>/dev/null
+    fi
+    servico_gravar "$u" "$S_ESTADO"
+    ((mudou)) && servicos_log "guarda em $u ($causa, $prog)"
+    servico_avisar "$u"
+  done
+}
+servico_ctime() { stat -L -c %Z "$1" 2>/dev/null || stat -L -f %c "$1" 2>/dev/null; } # ctime: o tar/cp -p não o preservam
+servico_saudavel() { [[ $(servico_prop "$1" ActiveState) == active && $(servico_prop "$1" SubState) == running ]]; }
+# A cada volta, os episódios abertos:
+# - programa ausente (guardado, esperando, religar-falhou): o programa voltou e assentou → religa e confere; o ExecStart
+#   mudou (o usuário consertou) → tira a guarda e, se o programa novo existe, religa e confere; unit apagada → limpa.
+#   Desligado e mascarado não são religados.
+# - falha repetida e os soltos: o episódio acaba quando o serviço fica de pé em duas olhadas seguidas (~10 min); sai
+#   a espera crescente (o systemd a calcula sobre o total de partidas: um tropeço isolado semanas depois esperaria
+#   5 min em vez do RestartSec do serviço).
+servicos_reconciliar() {
+  local f u load prog ct agora
+  printf -v agora '%(%s)T' -1
+  for f in "$ESTADO_DIR"/servicos/*; do
+    [[ -f $f && $f != *.log && $f != *.tmp ]] || continue
+    u=${f##*/}
+    servico_ler "$u" || continue
+    load=$(servico_prop "$u" LoadState)
+    if [[ $load == not-found ]]; then
+      servico_tirar_guarda "$u" && systemctl --user daemon-reload 2>/dev/null
+      rm -f "${f:?}"; servicos_log "$u não existe mais: guarda e estado removidos"; continue
+    fi
+    if [[ $S_CAUSA == falha || $S_ESTADO == solto ]]; then
+      if servico_saudavel "$u"; then
+        S_SAUDE=$(( ${S_SAUDE:-0} + 1 ))
+        if ((S_SAUDE >= 2)); then
+          servico_tirar_guarda "$u" && systemctl --user daemon-reload 2>/dev/null
+          rm -f "${f:?}"; servicos_log "$u de pé há duas olhadas: episódio encerrado"
+        else servico_gravar "$u" "$S_ESTADO"; fi
+      elif ((${S_SAUDE:-0})); then S_SAUDE=0; servico_gravar "$u" "$S_ESTADO"; fi
+      continue
+    fi
+    [[ $S_CAUSA == ausente && $S_ESTADO =~ ^(guardado|esperando|religar-falhou)$ ]] || continue
+    [[ $load == masked ]] && continue
+    prog=$(servico_programa "$u")
+    if [[ -n $prog && $prog != "$S_PROG" ]]; then
+      servico_tirar_guarda "$u" && systemctl --user daemon-reload 2>/dev/null
+      servicos_log "$u passou a usar $prog: guarda tirada"
+      if [[ -x $prog ]]; then S_PROG=$prog S_MTIME=""; servico_gravar "$u" guardado; servico_religar "$u" >/dev/null 2>&1
+      else rm -f "${f:?}"; fi
+      continue
+    fi
+    [[ -x $S_PROG ]] || continue
+    ct=$(servico_ctime "$S_PROG")
+    ((agora - ${ct:-$agora} >= ${TT_SERVICO_ASSENTAR:-30})) || continue   # ainda sendo escrito (instalação em curso)
+    [[ $S_ESTADO == religar-falhou && $S_MTIME == "$ct" ]] && continue      # o mesmo programa já não subiu
+    servico_religar "$u" >/dev/null 2>&1
+  done
+}
+# Tira a guarda, liga e CONFERE: de pé (active) e sem partir de novo por 3 s, ou um oneshot que terminou bem. Sem isso,
+# o start do Type=simple volta 0 mesmo quando o exec falha. Não subiu: para o serviço (nada de loop com o programa
+# quebrado) e registra o ctime do programa: só tenta de novo quando ele mudar.
+servico_religar() {
+  local u=$1 n0 n1 at i ok=0 ct
+  servico_ler "$u" || { S_PROG=$(servico_programa "$u") S_CAUSA=ausente; }
+  [[ -x ${S_PROG:-/nao/existe} ]] || { echo "✗ o programa $(servico_caminho_curto "$S_PROG") ainda não existe." >&2; return 1; }
+  servico_tirar_guarda "$u"
+  systemctl --user daemon-reload 2>/dev/null
+  systemctl --user reset-failed "$u" 2>/dev/null
+  timeout 60 systemctl --user start "$u" 2>/dev/null
+  for ((i = 0; i < 16; i++)); do
+    at=$(servico_prop "$u" ActiveState); n0=$(servico_prop "$u" NRestarts)
+    if [[ $at == active ]]; then
+      sleep "${TT_SERVICO_CONFERIR:-3}"
+      at=$(servico_prop "$u" ActiveState); n1=$(servico_prop "$u" NRestarts)
+      [[ $at == active && $n1 == "$n0" ]] && ok=1
+      break
+    fi
+    if [[ $at == inactive && $(servico_prop "$u" Result) == success ]]; then ok=1; break; fi   # oneshot que terminou bem
+    [[ $at == activating || $at == reloading || -z $at ]] || break   # failed/inactive: não vai subir
+    sleep 0.5
+  done
+  if ((ok)); then
+    servico_gravar "$u" ativo
+    servicos_log "$u ligado de novo e de pé"
+    notificar "⚙ $u voltou: o programa reapareceu, o serviço foi ligado e está de pé" 86400 "" sino "servico-$MAQUINA-$u-voltou-$S_EPISODIO"
+    echo "✓ $u ligado e de pé."
+    return 0
+  fi
+  systemctl --user stop "$u" 2>/dev/null
+  systemctl --user reset-failed "$u" 2>/dev/null
+  ct=$(servico_ctime "$S_PROG")
+  S_MTIME=$ct; servico_gravar "$u" religar-falhou
+  servicos_log "$u não ficou de pé com o programa de volta: parado"
+  notificar "⚙ $u: o programa voltou, mas o serviço não ficou de pé (deixei parado). Clique para ver o log." 86400 "servico:$MAQUINA|$u" sino "servico-$MAQUINA-$u-naosubiu-$S_EPISODIO-$ct"
+  echo "✗ $u não ficou de pé (deixei parado); veja o log (tecla l)." >&2
+  return 1
+}
+servico_desligar() { # não sobe mais, nem no login; a guarda fica (algo que o puxe por Wants= também não entra em loop)
+  local u=$1
+  servico_ler "$u"
+  systemctl --user disable --now "$u" >/dev/null 2>&1
+  systemctl --user reset-failed "$u" 2>/dev/null
+  servico_gravar "$u" desligado
+  servicos_log "$u desligado"
+  echo "✓ $u desligado: não sobe mais, nem no login. Para voltar: systemctl --user enable $u e tt --servicos ligar $u"
+}
+servico_esperar() {
+  servico_ler "$1"
+  servico_gravar "$1" esperando
+  servicos_log "$1 fica esperando"
+  if [[ $S_CAUSA == ausente ]]; then echo "✓ $1 fica esperando: não tenta sem o programa e, quando ele voltar, eu o ligo (em até 5 min)."
+  else echo "✓ $1 segue tentando; não aviso de novo enquanto for a mesma falha."; fi
+}
+servico_ligar() { # tentar agora (programa presente); a guarda de programa ausente sai, a espera crescente fica
+  local u=$1
+  servico_ler "$u" || S_PROG=$(servico_programa "$u")
+  if [[ $S_CAUSA == ausente || -z $S_CAUSA ]]; then servico_religar "$u"; return; fi
+  systemctl --user reset-failed "$u" 2>/dev/null
+  systemctl --user restart "$u" 2>/dev/null && echo "✓ $u reiniciado." || echo "✗ $u não reiniciou; veja o log (tecla l)." >&2
+}
+servico_soltar() { # tira a guarda deste episódio: vale até o serviço se normalizar (o próximo problema é outro episódio)
+  local u=$1
+  servico_ler "$u"
+  servico_tirar_guarda "$u" && systemctl --user daemon-reload 2>/dev/null
+  S_SAUDE=0; servico_gravar "$u" solto
+  servicos_log "guarda tirada de $u"
+  echo "✓ guarda tirada de $u: ele volta a ser como era (não o liguei) até se normalizar; o próximo problema é outro aviso."
+}
+# Programas que o tt sabe reinstalar sem sudo: a função de instalação, pelo nome do programa.
+servico_instalador() {
+  case ${1##*/} in
+    ollama) echo servico_instalar_ollama ;;
+    *) return 1 ;;
+  esac
+}
+# Ollama na pasta do usuário (sem sudo): o pacote oficial da versão publicada mais nova, conferido pelo sha256 que o
+# GitHub publica. Só numa pasta DEDICADA (nome ollama*, dentro da sua pasta, nunca ela inteira nem ~/.local): o
+# destino do link do serviço, senão ~/.local/ollama. Troca só bin/ e lib/ (o resto da pasta, como modelos, fica).
+# Baixa no mesmo disco do destino (o /run/user é memória), conferindo o espaço pelo tamanho do pacote.
+servico_instalar_ollama() { # programa (o caminho do ExecStart)
+  local prog=$1 alvo raiz pai arch json tag nome url sha bytes mb tmp zst=0 e
+  [[ $(uname -s) == Linux ]] || { echo "✗ o tt só instala o Ollama no Linux." >&2; return 1; }
+  case $(uname -m) in x86_64 | amd64) arch=amd64 ;; aarch64 | arm64) arch=arm64 ;;
+    *) echo "✗ não há pacote do Ollama para $(uname -m)." >&2; return 1 ;; esac
+  # o lugar do programa precisa ser seu (link ou arquivo novo) antes de baixar 1,5 GB
+  if [[ -e $prog && ! -L $prog ]] || [[ ! -w ${prog%/*} && ! ( ! -e ${prog%/*} && ${prog%/*} == "$HOME"/* ) ]]; then
+    echo "✗ $prog não é um lugar que eu possa trocar sem administrador: use o instalador oficial do Ollama." >&2; return 1
+  fi
+  alvo=$(servico_alvo "$prog"); [[ -z $alvo && -L $prog ]] && alvo=$(readlink "$prog") && [[ $alvo != /* ]] && alvo=${prog%/*}/$alvo
+  raiz=""
+  [[ $alvo == */bin/ollama ]] && raiz=$(realpath -m "${alvo%/bin/ollama}" 2>/dev/null)
+  [[ ${raiz##*/} == ollama* && $raiz == "$HOME"/?* ]] || raiz=$HOME/.local/ollama
+  pai=${raiz%/*}
+  { tem_cmd zstd || python3 -c 'import sys; sys.exit(sys.version_info < (3, 14))' 2>/dev/null; } && zst=1
+  json=$(curl -fsSL --max-time 20 "${TT_OLLAMA_API:-https://api.github.com/repos/ollama/ollama/releases/latest}") ||
+    { echo "✗ não consegui consultar a versão publicada do Ollama (rede?)." >&2; return 1; }
+  read -r tag nome url sha bytes < <(python3 -I -c '
+import json, sys
+d = json.loads(sys.argv[1]); arch, zst = sys.argv[2], sys.argv[3] == "1"
+nomes = (["ollama-linux-%s.tar.zst" % arch] if zst else []) + ["ollama-linux-%s.tgz" % arch]
+assets = {a["name"]: a for a in d.get("assets", [])}
+for n in nomes:
+    if n in assets:
+        a = assets[n]; sha = (a.get("digest") or "").replace("sha256:", "")
+        print(d.get("tag_name", "?"), n, a["browser_download_url"], sha or "-", int(a.get("size") or 0)); break
+' "$json" "$arch" "$zst")
+  [[ -n $url ]] || { echo "✗ a versão publicada não tem pacote para linux-$arch que eu consiga abrir (falta o zstd?)." >&2; return 1; }
+  [[ $sha == - ]] && sha=""
+  mb=$(( (${bytes:-0} / 1000000 + 1) * 3 ))   # o pacote + o que ele vira aberto (o .tar.zst cresce ~1,7×)
+  pacotes_lib || return 1
+  mkdir -p "$pai" || return 1
+  # restos de instalações interrompidas (até ~4 GB escondidos em ~/.local): os de mais de 6 h saem
+  find "$pai" -maxdepth 1 -name '.tt-ollama.*' -type d -mmin +360 -exec rm -rf {} + 2>/dev/null
+  tmp=$(mktemp -d "$pai/.tt-ollama.XXXXXX") || return 1
+  trap 'rm -rf "${tmp:?}"; exit 1' INT TERM HUP   # o popup fechado: sai de verdade (não segue para a troca de bin/ e lib/)
+  echo "Baixando o Ollama $tag ($nome, $((${bytes:-0} / 1000000)) MB) para $(servico_caminho_curto "$pai")…"
+  # prazo pelo tamanho (≥ 250 kB/s), não os 20 min fixos: 1,5 GB numa rede média não cabia
+  if ! TT_PK_TIMEOUT=$(( ${bytes:-0} / 250000 + 600 )) pk_baixar "$url" "$tmp/$nome" "$sha" "${TT_OLLAMA_MB:-$mb}"; then
+    rm -rf "${tmp:?}"; trap - INT TERM HUP; return 1
+  fi
+  mkdir -p "$tmp/novo"
+  case $nome in
+    *.tar.zst) if tem_cmd zstd; then tar --zstd -xf "$tmp/$nome" -C "$tmp/novo"
+               else python3 -I -c 'import sys, tarfile; tarfile.open(sys.argv[1], "r:zst").extractall(sys.argv[2], filter="data")' "$tmp/$nome" "$tmp/novo"; fi ;;
+    *) tar -xzf "$tmp/$nome" -C "$tmp/novo" ;;
+  esac
+  rm -f "${tmp:?}/$nome"
+  if [[ ! -x $tmp/novo/bin/ollama ]]; then
+    rm -rf "${tmp:?}"; trap - INT TERM HUP; echo "✗ o pacote não trouxe bin/ollama; nada mudou." >&2; return 1
+  fi
+  echo "Instalando em $(servico_caminho_curto "$raiz") (só bin/ e lib/)…"
+  mkdir -p "$raiz" "$tmp/velho"
+  for e in bin lib; do
+    [[ -e $tmp/novo/$e ]] || continue
+    [[ -e $raiz/$e ]] && mv "$raiz/$e" "$tmp/velho/$e"
+    mv "$tmp/novo/$e" "$raiz/$e"
+  done
+  rm -rf "${tmp:?}"; trap - INT TERM HUP
+  mkdir -p "${prog%/*}" && ln -sfn "$raiz/bin/ollama" "$prog"
+  [[ -x $prog ]] || { echo "✗ instalado em $raiz, mas $prog ainda não roda." >&2; return 1; }
+  echo "✓ Ollama $tag instalado ($(servico_caminho_curto "$raiz"))."
+}
+servico_instalar() {
+  local u=$1 fn prog
+  servico_ler "$u" || true
+  prog=${S_PROG:-$(servico_programa "$u")}
+  [[ -n $prog ]] || { echo "✗ não sei qual é o programa de $u." >&2; return 1; }
+  fn=$(servico_instalador "$prog") || { echo "✗ o tt não sabe instalar ${prog##*/}; instale pelo meio de sempre e eu ligo o serviço quando ele voltar." >&2; return 1; }
+  "$fn" "$prog" || return 1
+  [[ -n $S_PROG ]] || { S_PROG=$prog; S_CAUSA=ausente; servico_gravar "$u" guardado; }
+  servico_religar "$u"
+}
+# Tela da decisão (o clique no aviso do 🔔 a abre num popup, na máquina do serviço).
+servicos_ui() {
+  local u=$1 k ativo inst
+  while :; do
+    servico_ler "$u" || S_PROG=$(servico_programa "$u")
+    ativo=$(systemctl --user is-active "$u" 2>/dev/null)
+    inst=""; [[ ! -x ${S_PROG:-/nao/existe} ]] && servico_instalador "${S_PROG:-x}" >/dev/null && inst=1
+    printf '\033[H\033[2J\033[1m⚙ %s\033[0m%s · %s%s\n\n' "$u" "${S_DESC:+  ($S_DESC)}" "${ativo:-?}" "${S_ESTADO:+ · $S_ESTADO}"
+    if [[ $S_CAUSA == ausente ]]; then
+      printf '  O programa %s%s %s%s.\n' "$(servico_caminho_curto "$S_PROG")" "${S_ALVO:+ (aponta para $(servico_caminho_curto "$S_ALVO"))}" \
+        "$([[ -x $S_PROG ]] && echo 'voltou' || echo 'não existe')" "${S_DESDE:+ (sumiu em $S_DESDE)}"
+      printf '  Ele reiniciava sem parar (%s partidas). A guarda parou as tentativas.\n\n' "${S_N:-?}"
+    elif [[ $S_CAUSA == falha ]]; then
+      printf '  Ele falha e reinicia sem parar (%s partidas). Segue tentando%s.\n\n' "${S_N:-?}" "$([[ -f $(servico_guarda_arq "$u") ]] && echo ', com espera crescente')"
+    fi
+    [[ -n $inst ]] && printf '  [i] instalar de novo e ligar\n'
+    [[ -x ${S_PROG:-/nao/existe} ]] && printf '  [r] ligar agora\n'
+    printf '  [d] desligar o serviço (não sobe mais, nem no login)\n'
+    if [[ $S_CAUSA == falha ]]; then printf '  [e] deixar como está (sem novo aviso para esta falha)\n'
+    else printf '  [e] deixar esperando (eu o ligo quando o programa voltar)\n'; fi
+    printf '  [l] ver o fim do log\n  [s] tirar a guarda (volta a ser como era até se normalizar)\n  [q] fechar\n\n'
+    IFS= read -rsn1 k || return 0
+    case $k in
+      i) [[ -n $inst ]] || continue; servico_instalar "$u"; read -rsn1 -p $'\nTecle algo para voltar.' _ ;;
+      r) [[ -x ${S_PROG:-/nao/existe} ]] || continue; servico_ligar "$u"; read -rsn1 -p $'\nTecle algo para voltar.' _ ;;
+      d) servico_desligar "$u"; sleep 1.5; return 0 ;;
+      e) servico_esperar "$u"; sleep 1.5; return 0 ;;
+      l) journalctl --user -u "$u" -n 40 --no-pager 2>&1 | less -R ;;
+      s) servico_soltar "$u"; sleep 1.5; return 0 ;;
+      q | $'\e') return 0 ;;
+    esac
+  done
+}
+# Clique no aviso "servico:MÁQUINA|unit": a decisão roda na máquina do serviço (por ssh, se for outra).
+servico_abrir() { # "máquina|unit" cliente
+  local m=${1%%|*} u=${1#*|} c=$2 d cmd
+  if [[ $m == "$MAQUINA" || -z $m ]]; then
+    cmd="$EU --servicos ui $(q "$u")"
+  else
+    d=$(dest_ir "$m")
+    [[ -n $d ]] || { tmux display-message -c "$c" -d 4000 "⚙ $m não está cadastrada aqui" 2>/dev/null; return 0; }
+    cmd="ssh -t $(q "${SSH_OPC[@]}") $(q "$d") $(q "$TT_REMOTO --servicos ui $(q "$u")")"
+  fi
+  eval "$(popup_tt "$c" "⚙ $u ($m)" "$cmd")"
+}
+servicos_status() {
+  local u n sub prog causa desc f achou=0
+  if ! servicos_ok; then echo "Guarda dos serviços: sem systemd do usuário nesta máquina (ou desligada: servicos_guarda=0)."; return 0; fi
+  echo "Guarda dos serviços do usuário ($MAQUINA)"
+  while IFS=$'\x1f' read -r u n sub prog causa desc; do
+    [[ -n $u ]] || continue
+    achou=1; printf '  \033[31m●\033[0m %s em loop (%s partidas, %s): %s\n' "$u" "$n" "$causa" "$(servico_caminho_curto "$prog")"
+  done < <(servicos_em_loop)
+  for f in "$ESTADO_DIR"/servicos/*; do
+    [[ -f $f && $f != *.log && $f != *.tmp ]] || continue
+    servico_ler "${f##*/}"; achou=1
+    printf '  \033[33m●\033[0m %s: %s (%s%s)\n' "${f##*/}" "$S_ESTADO" "$S_CAUSA" "${S_PROG:+, $(servico_caminho_curto "$S_PROG")}"
+  done
+  ((achou)) || printf '  \033[32m●\033[0m nenhum serviço em loop nem guardado\n'
+}
+servicos_cli() {
+  local acao=${1:-status} u=${2:-}
+  case $acao in
+    status) servicos_status ;;
+    vigiar) servicos_vigiar ;;
+    ui | instalar | desligar | esperar | soltar | religar | ligar)
+      [[ -n $u ]] || { echo "uso: tt --servicos $acao UNIT" >&2; return 2; }
+      [[ $u == *.* ]] || u=$u.service
+      servicos_ok || { echo "✗ sem systemd do usuário nesta máquina." >&2; return 1; }
+      case $acao in ui) servicos_ui "$u" ;; instalar) servico_instalar "$u" ;; desligar) servico_desligar "$u" ;;
+        esperar) servico_esperar "$u" ;; soltar) servico_soltar "$u" ;; religar) servico_religar "$u" ;; ligar) servico_ligar "$u" ;; esac ;;
+    *) echo "uso: tt --servicos [status|vigiar|ui|instalar|desligar|esperar|ligar|soltar UNIT]" >&2; return 2 ;;
+  esac
 }
 
 # Garante a chave publica desta maquina no authorized_keys do destino (idempotente). Precisa
@@ -7839,6 +8330,27 @@ elif est: print("ok\t" + (d.get("Self") or {}).get("DNSName", "").split(".")[0])
     if ((${#lst[@]})); then checar_linha sessoes-ia aviso "conversas das IAs sem troca boa há mais de 2 dias com: ${lst[*]}" "tt --sessoes-ia agora; log em ~/.cache/tt-sessoes-ia.log"
     else checar_linha sessoes-ia ok "conversas das IAs trocando"; fi
   fi
+
+  # serviços do usuário reiniciando sem parar (guarda dos serviços; só com systemd do usuário)
+  if servicos_ok; then
+    lst=()
+    while IFS=$'\x1f' read -r f _; do [[ -n $f ]] && lst+=("$f"); done < <(servicos_em_loop)
+    if ((${#lst[@]})); then
+      checar_linha servicos falha "serviço do usuário reiniciando sem parar: ${lst[*]}" "tt --servicos vigiar (o vigia faz em até 5 min): guarda, causa e uma pergunta no 🔔"
+    else
+      lst=()
+      local -a lfal=()
+      for f in "$ESTADO_DIR"/servicos/*; do
+        [[ -f $f && $f != *.log && $f != *.tmp ]] || continue
+        servico_ler "${f##*/}" || continue
+        if [[ $S_CAUSA == ausente && $S_ESTADO =~ ^(guardado|religar-falhou)$ ]]; then lst+=("${f##*/}")
+        elif [[ $S_CAUSA == falha && $S_ESTADO == guardado ]]; then lfal+=("${f##*/}"); fi
+      done
+      if ((${#lst[@]})); then checar_linha servicos aviso "serviço parado pela guarda (programa ausente), esperando a sua decisão: ${lst[*]}" "tt --servicos ui ${lst[0]}"
+      elif ((${#lfal[@]})); then checar_linha servicos aviso "serviço falhando e reiniciando (segue tentando): ${lfal[*]}" "tt --servicos ui ${lfal[0]}"
+      else checar_linha servicos ok "nenhum serviço do usuário reiniciando sem parar"; fi
+    fi
+  fi
   return 0
 }
 
@@ -12582,6 +13094,7 @@ notif_abrir() { # ação cliente
     letreiro) eval "$(popup_tt "$c" "📰 letreiro" "$EU --letreiro-ui")" ;;
     cmd:*) rodar_fora 0 "${acao#cmd:}" ;;
     sessao:*) notif_ir_sessao "${acao#sessao:}" "$c" ;;
+    servico:*) servico_abrir "${acao#servico:}" "$c" ;;   # guarda dos serviços: a decisão, na máquina do serviço
     *) return 1 ;;
   esac
 }
@@ -21154,6 +21667,7 @@ case "${1:-}" in
   --novidades-avisar) novidades_avisar; exit 0 ;;
   --checar) shift; checar "$@"; exit ;;
   --checar-agente) shift; checar_agente "$@"; exit ;;
+  --servicos) shift; servicos_cli "$@"; exit $? ;;  # guarda dos serviços do usuário (systemd)
   --checar-auto) checar_auto; exit 0 ;;              # (interno, vigia) uma rodada por versão nova
   --sshd-garantir) if [[ ${2:-} == --vigia ]]; then sshd_vigiar; else sshd_garantir; fi; exit ;; # --vigia: só na malha
   --checar-fechar) shift; checar_fechar "$@"; exit ;; # (interno) fim da rodada do agente
