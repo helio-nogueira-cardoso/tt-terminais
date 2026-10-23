@@ -2367,6 +2367,14 @@ verificações de ativação usam 10 ms no início e 50 ms enquanto a rede demor
 pedido pendente; a espera ociosa continua em 500 ms. Após atualizar, uma ponte de versão
 antiga sem a marca viva precisa ser aberta pelo fluxo completo uma vez para ganhar o reuso.
 
+Quando o clique vem **de dentro de uma ponte**, a fixada encaminha primeiro o pedido à máquina
+da tela, levando a identidade estável. Não consulta o destino por SSH antes desse encaminhamento.
+Isso vale também para escolher outra sessão da mesma máquina remota: quem troca é a origem,
+para que uma ponte já identificada não passe a mostrar outra sessão por dentro. O `--ir-ponte`
+recebido pela origem usa RPC curto quando o coordenador está aberto, conserva `TT_PRAZO` e escolhe
+somente o cliente que mostra a ponte. Se a origem recusar uma ponte do cache, a tela é preservada.
+Ainda existe a viagem do pedido remoto até a origem; o caminho curto não elimina a latência dessa rede.
+
 Padrão: até **3 candidatos por tela e 6 no total**, com duas preparações simultâneas em segundo plano,
 margem contra trocas excessivas, validade de 150 s e espera progressiva após falhas. Cliques reais
 têm prioridade sobre esse trabalho especulativo. Termux, modo econômico ou bateria ≤20% sem carregar:

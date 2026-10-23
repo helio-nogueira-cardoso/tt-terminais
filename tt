@@ -90,18 +90,21 @@ TT_UTF8=C.UTF-8; [[ $OSTYPE == darwin* ]] && TT_UTF8=en_US.UTF-8
 # Só no pacote instalado, nunca ao carregar funções nem com o caminho completo forçado.
 if [[ -z ${TT_SO_CARREGAR:-} && -z ${TT_COMPLETO:-} && -z ${TT_PRE_FAST_FALLBACK:-} && -n ${TMUX:-} && ${TT_PRECARREGAR:-} != 0 && ! -e ${XDG_CONFIG_HOME:-$HOME/.config}/tt/trace ]]; then
   _tt_fx=""
+  _tt_pre_op=""
   case ${1:-} in
     --ir-fixada) _tt_fx=${3:-} ;;
     --clique) _tt_fx=${2#user|} ;;
+    --ir-ponte) _tt_pre_op=try-bridge ;;
   esac
-  if [[ $_tt_fx == fx* && $_tt_fx != fxx* ]]; then
+  [[ $_tt_fx == fx* && $_tt_fx != fxx* ]] && _tt_pre_op=try-fixed
+  if [[ -n $_tt_pre_op ]]; then
     _tt_pre=${TT_DIR:-$HOME/.local/share/tt}
     if [[ -f $_tt_pre/precarregar-tt.py && $0 -ef $_tt_pre/tt ]]; then
-      TT_PRE_TT="$_tt_pre/tt" exec python3 -S "$_tt_pre/precarregar-tt.py" try-fixed "$@"
+      TT_PRE_TT="$_tt_pre/tt" exec python3 -S "$_tt_pre/precarregar-tt.py" "$_tt_pre_op" "$@"
     fi
     unset _tt_pre
   fi
-  unset _tt_fx
+  unset _tt_fx _tt_pre_op
 fi
 
 # Partida rápida (gerar_rapido): com o núcleo gerado na instalação, este desvio lê só ele (~100 KB, ~10 ms) e
@@ -5808,18 +5811,26 @@ prazo_vencido() {
 }
 
 ir_para() {
-  local dest=$1 s=$2 origem om op aviso st
-  origem=$(origem_ponte "${TT_CLIENTE:-}")
+  local dest=$1 s=$2 origem om op aviso st r
+  origem=${_origem_fixada:-}
+  [[ -n $origem ]] || origem=$(origem_ponte "${TT_CLIENTE:-}")
   om=${origem%%|*} op=${origem#*|}
-  if [[ $dest != . && -n $origem && -n $op ]]; then
+  if [[ -n $origem && -n $op ]]; then
     # Quem troca a tela é a máquina de origem. Rede lenta até ela: diz que está esperando, e desiste com aviso.
     ( sleep 1.5; tmux display-message ${TT_CLIENTE:+-c "$TT_CLIENTE"} -d 10000 "⟳ esperando $om (a máquina desta tela) responder…" ) >/dev/null 2>&1 &
     aviso=$!
-    pedir_na_origem "$om" --ir-ponte "$op" "$(rotulo "$dest")" "$s"; st=$?
+    if [[ $dest == . ]]; then r=$MAQUINA; else r=$(rotulo "$dest"); fi
+    pedir_na_origem "$om" --ir-ponte "$op" "$r" "$s" "${TT_PRE_IDENTIDADE:-}"; st=$?
     kill "$aviso" 2>/dev/null
     if ((st == 0)); then sair_menu; return 0; fi
     if ((st == 2)); then
       tmux display-message ${TT_CLIENTE:+-c "$TT_CLIENTE"} "⚠ $om (a máquina desta tela) não respondeu; a tela não trocou"
+      return 1
+    fi
+    if [[ $op == tt-pre-* ]]; then
+      # Uma ponte confirmada não pode passar a mostrar outra identidade por dentro,
+      # mantendo a marca antiga no cache da origem.
+      tmux display-message ${TT_CLIENTE:+-c "$TT_CLIENTE"} "⚠ $om não aceitou a troca; a tela foi preservada"
       return 1
     fi
   fi
@@ -5852,21 +5863,24 @@ ir_para() {
 # Roda na máquina de origem: os clientes que estão na ponte P passam a mostrar a sessão S da
 # máquina de rótulo R (desta, direto; de outra, por uma ponte).
 ir_ponte() {
-  local p=$1 r=$2 s=$3 alvo c dest
+  local p=$1 r=$2 s=$3 id=${4:-} alvo c dest
   prazo_vencido && return 1
   tmux has-session -t "=$p" 2>/dev/null || return 1
   # Com pontes por aparelho, P tem um cliente só. Pontes antigas (compartilhadas) podem ter vários:
   # aí troca só o que agiu por último (quem clicou ou teclou na barra de lá).
   c=$(tmux list-clients -t "=$p" -F '#{client_activity} #{client_name}' 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')
   [[ -n $c ]] || return 1
-  if [[ $r == "$MAQUINA" ]]; then precarregar_cancelar "$c"; alvo=$s
+  if [[ $r == "$MAQUINA" ]]; then
+    precarregar_cancelar "$c"
+    if [[ -n $id ]]; then alvo=$(session_by_id "$id"); [[ -n $alvo ]] || return 1
+    else alvo=$s; fi
   else
     dest=$(dest_ir "$r")
     if [[ -z $dest ]]; then
       tmux display-message -c "$c" "⚠ $r: máquina não cadastrada; sessão $s não aberta"
       return 1
     fi
-    precarregar_trocar "$c" "$dest" "$s" && return 0
+    precarregar_trocar "$c" "$dest" "$s" "$id" && return 0
     alvo=$(criar_ponte "$dest" "$s" "$c") || return 1
   fi
   fecha_ciclo "$alvo" "$(contem_cliente "$c")" && return 1
@@ -15750,7 +15764,7 @@ barra_fixadas() {
 
 # Clique num item fixado: vai para ele (ponte, se for de outra máquina).
 ir_fixada() {
-  local c=$1 chave=${2#fx} r s id k d resolvida fora rc
+  local c=$1 chave=${2#fx} r s id k d resolvida fora rc _origem_fixada
   while IFS=$'\t' read -r r s id; do
     fixada_chave_em k "$r" "$s" "$id"
     [[ $k == "$chave" ]] && break
@@ -15760,6 +15774,13 @@ ir_fixada() {
   # Dada como desligada pelo Tailscale (fora=2), vai assim mesmo: a marca dele oscila com a máquina de pé
   d=$(dest_ir "$r"); fora=$?
   if [[ -z $d ]]; then tmux display-message -c "$c" "📌 $r: máquina não cadastrada"; return 0; fi
+  # De dentro de uma ponte, a origem já tem o cache e valida a identidade. Não gastar
+  # SSH resolvendo o alvo aqui antes de pedir que ela troque a tela.
+  _origem_fixada=$(origem_ponte "$c")
+  if [[ -n $_origem_fixada ]]; then
+    TT_CLIENTE=$c TT_PRE_IDENTIDADE=$id ir_para "$d" "$s"
+    return
+  fi
   # O protocolo passivo resolve a identidade no destino; não paga outro SSH só para confirmar
   # o que o bilhete já confere. Clientes de ponte (aninhados) são recusados pelo coordenador.
   if [[ $d != . ]] && precarregar_trocar "$c" "$d" "$s" "$id"; then return 0; fi
@@ -21305,7 +21326,7 @@ case "${1:-}" in
   --seletor-em) seletor_em "$2" "${3:-}" "${4:-}"; exit ;;
   --seletor) TT_ESTADO=$(mktemp "$RT/tt-menu.XXXXXX"); export TT_ESTADO
              trap limpar_estado EXIT; seletor; exit ;;
-  --ir-ponte) ir_ponte "$2" "$3" "$4"; exit ;;
+  --ir-ponte) ir_ponte "$2" "$3" "$4" "${5:-}"; exit ;;
   --janela-ponte) janela_ponte "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit ;;
   --precarregar) precarregar_cmd "${2:-status}"; exit $? ;;
   --precarregar-ui) precarregar_ui; exit ;;

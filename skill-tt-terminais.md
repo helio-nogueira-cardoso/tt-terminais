@@ -177,6 +177,10 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   mesmo se o pane continua no prompt. Pressionar troca; soltar não repete. O coordenador já aberto também ativa a preparada ou prepara sob demanda. Sem coordenador/atendimento, reexecuta o comando
   original; resposta perdida nunca duplica. `TT_COMPLETO=1`/arquivo `trace` conservam o fluxo completo. Vigia em
   segundo plano. Ponte antiga sem marca viva precisa de uma abertura completa após atualizar.
+- **Clique de dentro da ponte:** a fixada pede à origem antes de resolver o destino por SSH, levando o ID.
+  Também ao escolher outra sessão da mesma máquina remota: não retargeta uma ponte identificada por dentro.
+  `--ir-ponte P M S [ID]` usa entrada curta no coordenador aberto, escolhe apenas o cliente que vê P e respeita
+  `TT_PRAZO`. Recusa da origem preserva a ponte do cache; a ida pela rede à origem continua necessária.
 - Primeiro uso continua validando destino e primeiro quadro via rede. Sondagens: 10 ms no início do pedido,
   50 ms na espera lenta, 500 ms ocioso. JSON: `reutilizada`/`local`, contadores `reutilizadas`/`locais`;
   `clique_ms` mede pedido Python→troca, sem partida do chamador, pintura final ou SSH de volta à origem.

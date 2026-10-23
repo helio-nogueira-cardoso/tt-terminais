@@ -108,3 +108,39 @@ TMUX=tmux-teste TT_PRAZO=$(($(date +%s) - 1)) "$TT" --ir-ponte ponte-o "$eu" ses
 TMUX=tmux-teste TT_PRAZO=$(($(date +%s) + 30)) TT_FALSO_REMOTO=1 "$TT" --ir-ponte ponte-o "$eu" sessao-x
 grep -q 'switch-client -c cliente -t =sessao-x' "$T/tmux.log" || falhou "pedido no prazo deveria trocar: $(cat "$T/tmux.log")"
 passou 'ir-ponte: pedido que chega depois do prazo (rede travada) não troca a tela; no prazo, troca'
+
+# Fixada clicada por dentro da ponte: só o SSH à origem, antes de qualquer resolver no destino.
+rm -f "$T/ssh.log" "$T/tmux.log" "$T/remoto.log"
+echo 0 >"$T/remoto-rc"
+TT_SO_CARREGAR=1 "$BASH" -c '
+  source "$1"; EU=$1
+  fixadas() { printf "alvo\tsessao-x\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"; }
+  dest_ir() { case $1 in maq-o) echo u@ho;; *) echo u@dest;; esac; }
+  rotulo() { echo alvo; }
+  precarregar_trocar() { echo indevido >>"$T/cache-aqui"; return 1; }
+  fixada_chave_em chave alvo sessao-x aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  TT_CLIENTE=cliente ir_fixada cliente "fx$chave"
+' _ "$TT"
+[[ $(wc -l <"$T/ssh.log") == 1 ]] || falhou 'fixada consultou destino antes da origem'
+grep -q -- '--ir-ponte ponte-o alvo sessao-x aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$T/remoto.log" || falhou 'fixada perdeu identidade ao pedir à origem'
+[[ ! -e $T/cache-aqui ]] || falhou 'fixada tentou cache na máquina remota da ponte'
+passou 'fixada dentro da ponte vai direto à origem com identidade, sem SSH para resolver o destino'
+
+# Até outra sessão desta mesma máquina remota deve usar o cache da origem.
+rm -f "$T/ssh.log" "$T/tmux.log" "$T/remoto.log"
+TT_SO_CARREGAR=1 "$BASH" -c 'source "$1"; TT_PRE_IDENTIDADE=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb TT_CLIENTE=cliente ir_para . outra' _ "$TT"
+grep -q -- "--ir-ponte ponte-o $eu outra bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" "$T/remoto.log" || falhou 'troca local remota retargetou a ponte por dentro'
+locais | grep -q 'switch-client' && falhou 'a máquina remota trocou a sessão de uma ponte já identificada'
+passou 'troca entre sessões da mesma máquina remota também usa a origem e preserva identidade da ponte'
+
+# O não da origem nunca retargeta por dentro uma ponte do cache confirmado.
+rm -f "$T/tmux.log" "$T/remoto.log"
+echo 1 >"$T/remoto-rc"
+TT_SO_CARREGAR=1 "$BASH" -c '
+  source "$1"
+  origem_ponte() { echo "maq-o|tt-pre-protegida"; }
+  TT_CLIENTE=cliente ir_para . outra
+' _ "$TT" || true
+locais | grep -q 'não aceitou a troca' || falhou 'recusa da origem não preservou ponte do cache'
+locais | grep -q 'switch-client\|new-session' && falhou 'recusa da origem abriu/trocou ponte do cache por dentro'
+passou 'origem que recusa preserva a identidade e tela de uma ponte confirmada'

@@ -55,3 +55,20 @@ físico ao S23. Os extras de voz d5e2257/v2.10.3 permanecem na sua worktree, sep
 Também eliminada a reexecução do Bash quando o coordenador já possui uma ponte preparada ou pode
 preparar sob demanda. Os números anteriores acima são do pacote sem núcleo gerado e não devem
 ser tratados como medição direta da versão instalada; aguardar o novo comparativo.
+
+## Comparativo com núcleo gerado e clique por dentro da ponte
+
+Com a partida rápida da instalação gerada nos dois lados da comparação, a base d3c4203 mediu
+446 ms de mediana / 522 ms máximo; a revisão 7613ebe mediu 134 / 150 ms: cerca de 70% menos.
+Esse é o comparativo preferível para falar da versão instalada. A revisão seguinte, incluindo
+origem curta, mediu 128 / 139 ms na mesma rota. Sete regressões Mac e 37 testes unitários passaram.
+
+A leitura do caminho real revelou ainda que ir_fixada resolvia o alvo por SSH na máquina remota
+antes de pedir à origem que trocasse. Agora passa origem + ID antes da resolução, evitando essa
+ida extra. ir_para inclui a escolha de outra sessão da própria máquina remota; a ponte identificada
+não pode ser retargetada por dentro mantendo metadados antigos. Recusa da origem conserva a tela
+nas pontes tt-pre. ir_ponte recebe ID opcional, conserva o prazo e tem RPC curto que escolhe só quem
+mostra a ponte; consulta inicial de clientes é reaproveitada dentro do mesmo pedido, mantendo a
+checagem final. O caminho de versão antiga continua disponível. Testes Mac comprovaram um único
+SSH à origem, ID preservado, nenhuma consulta prévia ao alvo, troca local remota pela origem,
+recusa sem retarget e pedido curto sem arrastar outra tela. A viagem SSH à origem continua existindo.

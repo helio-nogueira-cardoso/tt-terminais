@@ -17,7 +17,7 @@ import time
 
 # O cliente curto só faz RPC local. Não paga imports de SSH, PTY, heurística e
 # coordenação a cada clique; os outros modos e os testes carregam tudo normalmente.
-if __name__ != "__main__" or sys.argv[1:2] != ["try-fixed"]:
+if __name__ != "__main__" or sys.argv[1:2] not in (["try-fixed"], ["try-bridge"]):
     import base64
     import collections
     import fcntl
@@ -283,7 +283,7 @@ class Coordinator:
             if not c[3].isdigit() or time.time() - int(c[3]) > 600:
                 continue
             clients[c[0]] = {"generation": c[1] + ":" + c[2], "session": c[5],
-                             "width": c[9], "height": c[10]}
+                             "width": c[9], "height": c[10], "activity": int(c[3])}
             if c[6] and "|" in c[6]:
                 dest, name = c[6].split("|", 1)
                 label = self.resolve_machine(dest)
@@ -456,9 +456,10 @@ class Coordinator:
         except OSError:
             self.metrics["falhas_log"] += 1
 
-    def navigate(self, data):
+    def navigate(self, data, scanned=False):
         client, dest, name = data.get("client"), data.get("dest"), data.get("name")
-        self.scan_clients()
+        if not scanned:
+            self.scan_clients()
         old = self.requests.pop(client, None)
         label = self.resolve_machine(dest) if isinstance(dest, str) else None
         if client not in self.clients or not label or not text_ok(name):
@@ -751,7 +752,7 @@ class Coordinator:
         except OSError:
             self.metrics["falhas_vigia"] += 1
 
-    def handle(self, data):
+    def handle(self, data, scanned=False):
         self.last_event = time.monotonic()
         op = data.get("op")
         if op in ("navigate", "revisit", "cancel"):
@@ -773,6 +774,19 @@ class Coordinator:
             self.requests.clear()
             self.running = False
             return {"ok": True}
+        if op == "bridge":
+            if data.get("expires", 0) < time.monotonic():
+                return {"handled": True}
+            deadline = data.get("deadline")
+            if deadline is not None and time.time() > deadline:
+                return {"handled": True}
+            self.scan_clients()
+            clients = [(v.get("activity", 0), c) for c, v in self.clients.items()
+                       if v["session"] == data.get("bridge")]
+            if not clients:
+                return {"handled": False}
+            forwarded = dict(data, op="revisit", client=max(clients)[1])
+            return self.handle(forwarded, scanned=True)
         if op == "navigate":
             if self.settings()[0] == "off":
                 return {"handled": False}
@@ -783,10 +797,12 @@ class Coordinator:
             if data.get("dest") != self.machine:
                 # O coordenador já possui SSH_ARGS e o destino cadastrado. Mesmo uma ponte
                 # pronta/sob demanda pode ativar aqui, sem reexecutar o Bash no cliente.
-                handled = self.navigate(data).get("handled", False)
+                result = self.navigate(data, scanned=True) if scanned else self.navigate(data)
+                handled = result.get("handled", False)
                 self.guardian_needed = self.guardian_needed or handled
                 return {"handled": handled}
-            self.scan_clients()
+            if not scanned:
+                self.scan_clients()
             client = data.get("client")
             old = self.requests.pop(client, None)
             if old:
@@ -987,12 +1003,14 @@ def format_status(data):
 
 def main(argv):
     global SSH_ARGS
+    if argv[:1] == ["try-fixed"]:
+        return try_fixed(argv[1:])
+    if argv[:1] == ["try-bridge"]:
+        return try_bridge(argv[1:])
     if "--ssh-args" in argv:
         pos = argv.index("--ssh-args")
         SSH_ARGS, argv = argv[pos + 1:], argv[:pos]
     op = argv[0] if argv else "status"
-    if op == "try-fixed":
-        return try_fixed(argv[1:])
     human = op == "status-text"
     if human:
         op = "status"
@@ -1063,12 +1081,40 @@ def main(argv):
     return 0
 
 
+def fallback_command(args):
+    command = os.environ.get("TT_PRE_TT", str(HERE / "tt"))
+    os.environ["TT_PRE_FAST_FALLBACK"] = "1"
+    os.execv(command, [command, *args])
+
+
+def try_bridge(args):
+    """Pedido vindo da máquina remota; o coordenador escolhe só o cliente que vê a ponte."""
+    if not os.environ.get("TMUX") or len(args) < 4:
+        return fallback_command(args)
+    deadline = None
+    try:
+        deadline = int(os.environ.get("TT_PRAZO", ""))
+    except ValueError:
+        pass
+    if deadline is not None and int(time.time()) > deadline:
+        return 1
+    data = {"op": "bridge", "bridge": args[1], "dest": args[2], "name": args[3],
+            "id": args[4] if len(args) > 4 else "", "order": time.monotonic_ns(),
+            "expires": time.monotonic() + 3, "deadline": deadline}
+    try:
+        if send_request(runtime(), data).get("handled"):
+            return 0
+    except UncertainReply:
+        return 0
+    except (OSError, ValueError, TmuxUnavailable):
+        pass
+    return fallback_command(args)
+
+
 def try_fixed(args):
     """Caminho curto só para uma ponte já conectada; sem SSH nem partida de daemon."""
-    command = os.environ.get("TT_PRE_TT", str(HERE / "tt"))
     def fallback():
-        os.environ["TT_PRE_FAST_FALLBACK"] = "1"
-        os.execv(command, [command, *args])
+        return fallback_command(args)
     if not os.environ.get("TMUX"):
         return fallback()
     if args[0] == "--clique":

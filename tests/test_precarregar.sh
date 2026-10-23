@@ -115,6 +115,12 @@ passou 'sete voltas à ponte pela barra sem helper remoto e sem SSH adicional'
 tmux set-option -t '=origem:' @tt_session_id eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 printf '%s\torigem\teeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n' "$MAQUINA" >>"$XDG_CONFIG_HOME/tt/fixadas"
 fixada_chave_em chave_local "$MAQUINA" origem eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+"$TT" --ir-ponte "$ponte_cliente" "$MAQUINA" origem eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+[[ $(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c="$cliente" '$1==c {print $2}') == origem ]] || falhou 'pedido de dentro da ponte não voltou à sessão local correta'
+[[ $(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c="$outro" '$1==c {print $2}') == origem ]] || falhou 'pedido de ponte arrastou outra tela'
+"$TT" --ir-fixada "$cliente" "fx$chave"
+passou 'ir-ponte curto chega à origem certa com identidade e preserva a outra tela'
+
 "$TT" --ir-fixada "$cliente" "fx$chave_local"
 [[ $(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c="$cliente" '$1==c {print $2}') == origem ]] || falhou 'entrada curta não voltou à sessão local'
 pre_estado | python3 -c 'import json,sys; assert json.load(sys.stdin)["troca_ms"][-1].get("local")'

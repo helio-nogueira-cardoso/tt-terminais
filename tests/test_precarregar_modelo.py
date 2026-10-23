@@ -363,6 +363,44 @@ class Heuristica(unittest.TestCase):
             self.assertEqual(exercise(row, live="tela\t18\t101\torigem"), (True, False))
             self.assertEqual(exercise(row, live="tela\t17\t100\toutra"), (True, False))
 
+    def test_pedido_de_ponte_seleciona_so_a_tela_que_a_mostra(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)), \
+                patch.object(pre, "read_config", return_value={}), \
+                patch.dict(pre.os.environ, {"TT_PRECARREGAR": "1"}):
+            c = pre.Coordinator(Path(d))
+            c.clients = {"certa": {"session": "ponte-a", "activity": 1},
+                         "outra": {"session": "ponte-b", "activity": 100}}
+            data = {"op": "bridge", "bridge": "ponte-a", "dest": "dell", "name": "tarefa",
+                    "id": "a" * 32, "order": 123, "expires": pre.time.monotonic() + 3}
+            with patch.object(c, "scan_clients"), patch.object(c, "navigate", return_value={"handled": True}) as navigate:
+                self.assertTrue(c.handle(data)["handled"])
+                self.assertEqual(navigate.call_args[0][0]["client"], "certa")
+                self.assertEqual(navigate.call_args[0][0]["id"], "a" * 32)
+                self.assertEqual(c.latest, {"certa": 123})
+                navigate.reset_mock()
+                data["bridge"] = "ausente"
+                self.assertFalse(c.handle(data)["handled"])
+                navigate.assert_not_called()
+                data["deadline"] = 1
+                self.assertTrue(c.handle(data)["handled"])
+                navigate.assert_not_called()
+
+    def test_cliente_curto_da_ponte_respeita_prazo_id_e_resposta_perdida(self):
+        with patch.dict(pre.os.environ, {"TMUX": "/teste,1,0", "TT_PRAZO": "1"}), \
+                patch.object(pre, "runtime", return_value=Path("/somente-teste")), \
+                patch.object(pre, "send_request") as send, patch.object(pre.os, "execv") as fallback:
+            args = ["--ir-ponte", "ponte-a", "dell", "--ssh-args", "a" * 32]
+            self.assertEqual(pre.main(["try-bridge", *args]), 1)
+            send.assert_not_called(); fallback.assert_not_called()
+            pre.os.environ["TT_PRAZO"] = str(int(pre.time.time()) + 30)
+            send.return_value = {"handled": True}
+            self.assertEqual(pre.main(["try-bridge", *args]), 0)
+            self.assertEqual(send.call_args[0][1]["name"], "--ssh-args")
+            self.assertEqual(send.call_args[0][1]["id"], "a" * 32)
+            send.side_effect = pre.UncertainReply
+            self.assertEqual(pre.main(["try-bridge", *args]), 0)
+            fallback.assert_not_called()
+
     def test_entrada_curta_delega_primeira_ativacao_ao_coordenador_existente(self):
         with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)), \
                 patch.object(pre, "read_config", return_value={}), \
