@@ -13,6 +13,8 @@ echo '{}'
 FIM
 cat >"$B/ssh" <<'FIM'
 #!/usr/bin/env bash
+# -O check/stop só falam com a mestra local, nunca rodam comando lá; neste mundo não há mestra (como o ssh: 255)
+[[ " $* " == *" -O "* ]] && exit 255
 args=("$@"); i=0
 while ((i < ${#args[@]})); do case ${args[i]} in -o) i=$((i + 2)) ;; -*) i=$((i + 1)) ;; *) break ;; esac; done
 cmd=${args[*]:i+1}

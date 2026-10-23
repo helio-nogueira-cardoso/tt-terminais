@@ -12,6 +12,7 @@ import os
 import re
 import select
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,9 @@ import time
 SEP = "\t"  # o tmux 3.5 escapa 0x1f; tab permanece literal em todas as versões suportadas
 PREFIX = "TT_PRE_1 "
 TMUX = os.environ.get("TT_TMUX_BIN", "tmux")
+NAV_PREFIX = b"\x1b]777;tt-nav;"  # o mesmo do precarregar-tt.py
+FRAME_MAX = 4096
+BASE64 = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
 
 
 def tmux(*args):
@@ -117,6 +121,152 @@ def emit(token, payload):
     print(PREFIX + token + " " + base64.b64encode(json.dumps(payload).encode()).decode(), flush=True)
 
 
+def relay_folder():
+    """Pasta privada dos porteiros desta máquina (a mesma conta no bilhete e no coordenador)."""
+    root = Path(os.environ.get("TT_PRE_RELAY_DIR") or "/tmp")  # a variável só existe nos testes
+    if not root.is_dir() or not os.access(root, os.W_OK | os.X_OK):
+        root = Path(tempfile.gettempdir())
+    folder = root / ("tt-pre-relay-%d" % os.getuid())
+    folder.mkdir(mode=0o700, exist_ok=True)
+    info = folder.lstat()
+    if folder.is_symlink() or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise OSError("pasta dos porteiros sem isolamento")
+    return folder
+
+
+def frame_ok(frame, token):
+    head = NAV_PREFIX + token.encode() + b";"
+    body = frame[len(head):-1]
+    return (len(frame) <= FRAME_MAX and frame.startswith(head) and frame.endswith(b"\x07")
+            and len(body) > 0 and all(c in BASE64 for c in body))
+
+
+def write_all(fd, data, limit=.2):
+    until = time.monotonic() + limit
+    written = 0
+    while written < len(data):
+        try:
+            written += os.write(fd, data[written:])
+        except BlockingIOError:
+            if time.monotonic() >= until:
+                raise
+            select.select([], [fd], [], .005)
+    return written
+
+
+def doorman_send(token, frame, timeout=.5):
+    """Entrega o envelope ao porteiro da ponte TOKEN. False só se não chegou a ele (ou ele recusou)."""
+    try:
+        path = relay_folder() / token[:16]
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    except OSError:
+        return False
+    with conn:
+        try:
+            conn.settimeout(timeout)
+            conn.connect(str(path))
+        except OSError:
+            return False
+        try:
+            conn.sendall(frame)
+            conn.shutdown(socket.SHUT_WR)
+            return not conn.recv(8).startswith(b"no")
+        except OSError:
+            return True  # já entregue: resposta perdida nunca dispara outra navegação
+
+
+def serve_doorman(tty, path, token, owner):
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        listener.bind(str(path))
+        listener.listen(4)
+        os.set_blocking(tty, False)
+        while True:
+            ready, _, _ = select.select([listener], [], [], .2)
+            try:
+                os.kill(owner, 0)
+            except ProcessLookupError:
+                break  # o cliente tmux saiu: a ponte acabou
+            except PermissionError:
+                break  # o pid já é de outro usuário
+            if not ready:
+                continue
+            try:
+                conn, _ = listener.accept()
+            except OSError:
+                continue  # conexão desistida ou sem descritor livre: o porteiro segue de pé
+            with conn:
+                frame = b""
+                try:
+                    conn.settimeout(.5)
+                    while len(frame) <= FRAME_MAX:
+                        part = conn.recv(FRAME_MAX + 1 - len(frame))
+                        if not part:
+                            break
+                        frame += part
+                    ok = frame_ok(frame, token)
+                    if ok:
+                        write_all(tty, frame)
+                    conn.sendall(b"ok\n" if ok else b"no\n")
+                except BlockingIOError:
+                    pass
+                except OSError as exc:
+                    if exc.errno in (5, 9):  # EIO/EBADF: o terminal foi fechado
+                        break
+    finally:
+        listener.close()
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def start_doorman(token):
+    """Porteiro do terminal desta ponte, só quando o caminho dele não aceita a nossa escrita.
+
+    O Tailscale SSH cria o pty com dono root (modo 620, grupo tty): o coordenador desta máquina não
+    abre o terminal para devolver o clique à máquina da tela. O porteiro herda o terminal já aberto e
+    escreve nele só envelopes de navegação desta ponte. Sai quando o cliente tmux (este mesmo pid,
+    depois do exec) termina.
+    """
+    try:
+        name = os.ttyname(1)
+        # A mesma regra do coordenador (relay_nested): só escreve direto no terminal que é nosso.
+        if os.access(name, os.W_OK) and os.stat(name).st_uid == os.geteuid():
+            return
+        path = relay_folder() / token[:16]
+        tty = os.dup(1)
+    except OSError:
+        return
+    owner = os.getpid()
+    try:
+        pid = os.fork()
+    except OSError:
+        os.close(tty)
+        return
+    if pid:
+        os.close(tty)
+        try:
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+        return
+    try:
+        os.setsid()  # sem terminal de controle: o fim da sessão não o derruba no meio de uma escrita
+        if os.fork():
+            os._exit(0)  # o neto não vira zumbi do cliente tmux
+        null = os.open(os.devnull, os.O_RDWR)
+        for fd in (0, 1, 2):
+            os.dup2(null, fd)
+        serve_doorman(tty, path, token, owner)
+    finally:
+        os._exit(0)
+
+
 def remote_wait(token, name, stable, origin, ttl):
     if not re.fullmatch(r"[a-f0-9]{32}", token) or not name or not origin:
         return 2
@@ -141,6 +291,7 @@ def remote_wait(token, name, stable, origin, ttl):
     os.environ["TT_PONTE"] = origin
     # Só o cliente de transporte recebe a capacidade; -E não a publica na sessão.
     os.environ["TT_PRE_TOKEN"] = token
+    start_doorman(token)
     # Mesmo PID do bilhete; -E não altera o ambiente da sessão de destino.
     guard = "#{&&:#{==:#{@tt_session_id}," + target["id"] + "},#{==:#{start_time}," + target["server"] + "}}"
     attach = shlex.join(["attach-session", "-E", "-t", target["sid"]])

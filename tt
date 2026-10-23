@@ -5346,9 +5346,10 @@ ponte() {
 # mande a tela para uma ponte que já vai falhar; a função ponte acima cobre a corrida entre esta
 # checagem e o attach.
 sessao_remota_existe() {
-  local dest=$1 s=$2
+  local dest=$1 s=$2 r
   # pelo "tt-ok" impresso lá, não pelo código de saída (o Tailscale SSH do macOS devolve sempre 0)
-  [[ $(timeout 5 ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO tmux has-session -t $(q "=$s")&& echo tt-ok" </dev/null 2>/dev/null) == *tt-ok* ]]
+  ssh_pedir r 5 "$dest" "$PATH_REMOTO tmux has-session -t $(q "=$s")&& echo tt-ok" 3
+  [[ $r == *tt-ok* ]]
 }
 
 # Acha a sessão remota pela IDENTIDADE, não pelo nome: o vigia renomeia sessões sozinho, e um nome
@@ -5818,10 +5819,54 @@ pedir_na_origem() { # máquina verbo args…
   d=$(dest_ir "$om")
   [[ -n $d ]] || return 1
   printf -v prazo '%(%s)T' -1
-  r=$(timeout "$t" ssh "${SSH_OPC[@]}" "$d" "TT_PRAZO=$((prazo + t + 5)) $TT_REMOTO $(q "$@")&& echo tt-ok" </dev/null 2>/dev/null); rc=$?
+  ssh_pedir r "$t" "$d" "TT_PRAZO=$((prazo + t + 5)) $TT_REMOTO $(q "$@")&& echo tt-ok" 4; rc=$?
   [[ $r == *tt-ok* ]] && return 0
   ((rc == 124 || rc == 255)) && return 2
   return 1
+}
+
+# Comando remoto com prazo; a saída vai para VAR. Nada de $(ssh …): no modo mux o cliente entrega o próprio stdout
+# à conexão mestra, e uma mestra meio morta (aceita o canal e não o abre lá) segurava o pipe até os keepalives a
+# derrubarem, uns 45 s depois do timeout (em 23/10/2026 um clique de dentro de uma ponte levou 47 s e não trocou).
+# Com a saída num arquivo, só o processo é esperado. O comando vai precedido de "echo tt-ini": havendo mestra, o canal
+# tem PRAZO_MESTRA s para abrir lá (o marcador chegar); aberto, o comando tem o PRAZO inteiro e nunca é repetido. Só
+# o canal que nem abriu (o comando não começou lá) leva a mestra a ser encerrada (-O stop: as sessões abertas nela
+# seguem) e a ida a se repetir por conexão própria no tempo que sobra. Mestra que nem responde ao controle local: a ida
+# já sai por conexão própria. Devolve o código do ssh (124 = sem resposta no prazo; 255 = não chegou lá).
+ssh_pedir() { # VAR PRAZO DESTINO COMANDO [PRAZO_MESTRA]
+  local _sp_var=$1 _sp_t=$2 _sp_d=$3 _sp_cmd="echo tt-ini; $4" _sp_tm=${5:-$2} _sp_arq _sp_rc _sp_ck=255 _sp_pid _sp_vigia=""
+  local _sp_ini _sp_agora _sp_saida="" _sp_propria=(-o ControlPath=none -o ControlMaster=no)
+  local -a _sp_opc=("${SSH_OPC[@]}")
+  printf -v "$_sp_var" '%s' ""
+  _sp_arq=$(mktemp "$RT/tt-ssh.XXXXXX") || return 255
+  printf -v _sp_ini '%(%s)T' -1
+  # (-O check fala só com o processo local da mestra: responde em milissegundos, mesmo com ela meio morta)
+  if ((_sp_tm < _sp_t)); then
+    timeout 1 ssh "${SSH_OPC[@]}" -O check "$_sp_d" </dev/null >/dev/null 2>&1; _sp_ck=$?
+    ((_sp_ck == 124)) && _sp_opc=("${_sp_propria[@]}" "${SSH_OPC[@]}")
+  fi
+  timeout "$_sp_t" ssh "${_sp_opc[@]}" "$_sp_d" "$_sp_cmd" </dev/null >"$_sp_arq" 2>/dev/null &
+  _sp_pid=$!
+  if ((_sp_ck == 0)); then
+    ( sleep "$_sp_tm"; [[ -s $_sp_arq ]] || kill "$_sp_pid" ) >/dev/null 2>&1 &
+    _sp_vigia=$!
+  fi
+  wait "$_sp_pid"; _sp_rc=$?
+  [[ -n $_sp_vigia ]] && kill "$_sp_vigia" 2>/dev/null
+  if ((_sp_ck == 0)) && [[ ! -s $_sp_arq ]]; then
+    timeout 1 ssh "${SSH_OPC[@]}" -O stop "$_sp_d" </dev/null >/dev/null 2>&1
+    printf -v _sp_agora '%(%s)T' -1
+    _sp_rc=124
+    if ((_sp_t - (_sp_agora - _sp_ini) >= 1)); then
+      timeout "$((_sp_t - (_sp_agora - _sp_ini)))" ssh "${_sp_propria[@]}" "${SSH_OPC[@]}" "$_sp_d" "$_sp_cmd" \
+        </dev/null >"$_sp_arq" 2>/dev/null; _sp_rc=$?
+    fi
+  fi
+  [[ -s $_sp_arq ]] && _sp_saida=$(<"$_sp_arq")
+  rm -f "$_sp_arq"
+  _sp_saida=${_sp_saida#tt-ini}
+  printf -v "$_sp_var" '%s' "${_sp_saida#$'\n'}"
+  return "$_sp_rc"
 }
 
 # Pedido vindo de outra máquina que chegou depois do prazo dela (TT_PRAZO, epoch): ela já desistiu e avisou na tela.
@@ -5921,7 +5966,7 @@ ir_ponte() {
     if [[ -n $id ]]; then
       # Sem coordenador/cache (inclusive modo off), a origem assume a resolução
       # que o remetente deixou de fazer. Nunca substitui identidade por nome.
-      resolvida=$(timeout 6 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --resolver-fixada $(q "$s") $(q "$id")" </dev/null 2>/dev/null)
+      ssh_pedir resolvida 6 "$dest" "$TT_REMOTO --resolver-fixada $(q "$s") $(q "$id")" 4
       IFS=$'\t' read -r nome_real id_real <<<"$resolvida"
       [[ -n $nome_real && $id_real == "$id" ]] || return 1
       s=$nome_real
@@ -5933,9 +5978,11 @@ ir_ponte() {
     [[ $id =~ ^[0-9a-f]{32}$ ]] || return 1
     alvo_id=$(session_by_id "$id" tmux)
     [[ -n $alvo_id ]] || return 1
+    log_troca -c "$c" -t "$alvo_id"
     tmux if-shell -F -t "$alvo_id:" "#{==:#{@tt_session_id},$id}" "switch-client -c $(q "$c") -t $(q "$alvo_id")"
     return $?
   fi
+  log_troca -c "$c" -t "=$alvo"
   tmux switch-client -c "$c" -t "=$alvo"
 }
 
@@ -15257,7 +15304,7 @@ fixada_renomeada() {
 # Resposta de outra máquina sobre uma fixada (para reconciliar_fixadas): grava "status<TAB>resposta".
 resolver_fixada_em() { # arq dest sessão id
   local r st
-  r=$(timeout 6 ssh "${SSH_OPC[@]}" "$2" "$TT_REMOTO --resolver-fixada $(q "$3") $(q "$4")" </dev/null 2>/dev/null)
+  ssh_pedir r 6 "$2" "$TT_REMOTO --resolver-fixada $(q "$3") $(q "$4")" 4
   st=$?
   printf '%s\t%s\n' "$st" "$r" >"$1"
 }
@@ -15856,7 +15903,7 @@ ir_fixada() {
     if [[ $d == . ]]; then
       resolvida=$(session_by_id "$id")
     else
-      resolvida=$(timeout 6 ssh "${SSH_OPC[@]}" "$d" "$TT_REMOTO --resolver-fixada $(q "$s") $(q "$id")" </dev/null 2>/dev/null)
+      ssh_pedir resolvida 6 "$d" "$TT_REMOTO --resolver-fixada $(q "$s") $(q "$id")" 4
       rc=$?
       if ((fora == 2 && (rc == 124 || rc == 255))); then
         tmux display-message -c "$c" "📌 $r não respondeu: o Tailscale a dá como desligada"; return 0

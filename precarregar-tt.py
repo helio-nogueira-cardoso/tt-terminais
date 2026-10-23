@@ -111,7 +111,8 @@ def relay_output(proc, token, origin):
             if send_request(folder, data, timeout=.5).get("handled"):
                 return
         except UncertainReply:
-            return  # enviado: resposta perdida não duplica a navegação
+            if not coordinator_stuck(folder):
+                return  # enviado: resposta perdida não duplica a navegação
         except (OSError, ValueError):
             pass
         # Coordenador ausente/modo off: o mesmo comando antigo, executado AQUI, sem SSH de volta.
@@ -152,13 +153,80 @@ def text_ok(value):
     return isinstance(value, str) and 0 < len(value) <= 512 and not any(ord(c) < 32 for c in value)
 
 
-def execute(args, timeout=3, **kwargs):
+def drain(pipe):
+    """O que já chegou ao pipe, sem esperar o fim dele, e fecha a nossa ponta."""
+    if pipe is None:
+        return b""
+    data = bytearray()
     try:
-        r = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                           stderr=subprocess.DEVNULL, timeout=timeout, **kwargs)
-        return r.returncode, r.stdout.decode("utf-8", "replace")
-    except (OSError, subprocess.TimeoutExpired):
+        fd = pipe.fileno()
+        os.set_blocking(fd, False)
+        while True:
+            try:
+                block = os.read(fd, 65536)
+            except BlockingIOError:
+                break
+            if not block:
+                break
+            data += block
+    except (OSError, ValueError):
+        pass
+    finally:
+        pipe.close()
+    return bytes(data)
+
+
+def finish(proc, kill=True):
+    """Encerra (se preciso) e devolve a saída sem depender do fim do pipe.
+
+    No modo mux o cliente ssh entrega o próprio stdout à conexão mestra. Morto o cliente, uma
+    mestra meio travada segura o pipe e o communicate() espera para sempre: em 23/10/2026 o
+    coordenador da empresa congelou assim e todo clique vindo de uma ponte se perdeu.
+    """
+    import subprocess  # o cliente curto não o carrega no topo
+    if kill and proc.poll() is None:
+        proc.kill()
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    return drain(proc.stdout)
+
+
+def execute(args, timeout=3, **kwargs):
+    import select as _select  # o cliente curto não carrega select nem subprocess no topo
+    import subprocess
+    try:
+        proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, **kwargs)
+    except OSError:
         return 124, ""
+    data = bytearray()
+    end = time.monotonic() + timeout
+    rc = None
+    try:
+        fd = proc.stdout.fileno()
+        while True:
+            rc = proc.poll()
+            left = end - time.monotonic()
+            if rc is not None or left <= 0:
+                break
+            # Fatia curta: se um neto (mestra do ssh) segura o pipe, o fim do processo basta.
+            ready, _, _ = _select.select([fd], [], [], min(left, .05))
+            if ready:
+                block = os.read(fd, 65536)
+                if block:
+                    data += block
+                    continue
+                try:
+                    rc = proc.wait(timeout=max(0, end - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    rc = None
+                break
+    except OSError:
+        pass
+    data += finish(proc, kill=rc is None)
+    return (124 if rc is None else rc), bytes(data).decode("utf-8", "replace")
 
 
 def tmux(*args):
@@ -253,6 +321,52 @@ def runtime():
 
 class UncertainReply(Exception):
     """Pedido enviado; nunca repetir navegação pelo caminho legado após um timeout."""
+
+
+ALIVE = "vivo"  # pid do coordenador; a data do arquivo anda a cada segundo do laço (relógio de parede)
+STUCK_AFTER = 5
+
+
+def coordinator_stuck(folder):
+    """Coordenador que não vai atender: travado (é encerrado) ou já morto. True = siga pelo caminho antigo.
+
+    Pedido sem resposta conta como entregue (nunca duplica a navegação). Mas um laço parado não atende ninguém, e o
+    pedido vence (expires) antes de um coordenador voltar, então nunca vira troca tardia. Numa rajada, o primeiro
+    cliente encerra o travado e os pedidos que esperavam na fila dele levam reset: o coordenador está morto, e eles
+    também seguem (antes, só o clique mais velho valia). Sem sondar a trava: um coordenador nascendo desistiria.
+    """
+    if folder is None:
+        return False
+    import signal as _signal
+    alive = folder / ALIVE
+    try:
+        # Sem vivo (versão antiga, ou saída limpa, que pode ter atendido antes de sair): vale como entregue.
+        if time.time() - alive.stat().st_mtime < STUCK_AFTER:
+            return False
+        pid = int(alive.read_text().strip())
+    except (OSError, ValueError):
+        return False
+    if pid <= 1 or pid == os.getpid():
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True  # morreu sem limpar (SIGKILL)
+    except OSError:
+        return False
+    # pid reciclado nunca leva SIGKILL: só o próprio coordenador (ps -o command= vale no Linux e no macOS)
+    rc, out = execute(["ps", "-o", "command=", "-p", str(pid)], timeout=2)
+    if rc or not out.strip():
+        return False
+    if "precarregar-tt.py" not in out or "daemon" not in out:
+        return True  # o pid já é de outro programa: o coordenador morreu
+    try:
+        os.kill(pid, _signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        return False
+    return True
 
 
 def send_request(folder, data, timeout=3):
@@ -457,8 +571,7 @@ class Coordinator:
             return
         proc = item.get("confirm")
         if proc and proc.poll() is None:
-            proc.kill()
-            proc.communicate()
+            finish(proc)
         if self.still_owned(item):
             tmux("kill-session", "-t", "=" + item["bridge"])
         self.candidates.pop(key, None)
@@ -692,30 +805,38 @@ class Coordinator:
         packet = {"v": 1, "dest": data["dest"], "name": data["name"], "id": stable,
                   "seq": data.get("order", time.monotonic_ns()), "deadline": time.time() + 5}
         frame = NAV_PREFIX + token.encode() + b";" + base64.b64encode(json.dumps(packet).encode()) + b"\x07"
-        if not client.startswith("/dev/") or len(frame) > 4096:
+        if not client.startswith("/dev/") or len(frame) > protocol.FRAME_MAX:
             return False
         written = 0
         try:
             fd = os.open(client, os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+        except OSError:
+            fd = None  # terminal de outro dono (Tailscale SSH: root, modo 620): só o porteiro alcança
+        if fd is not None:
             try:
                 info = os.fstat(fd)
-                if not stat.S_ISCHR(info.st_mode) or info.st_uid != os.geteuid():
-                    return False
-                until = time.monotonic() + .05
-                while written < len(frame):
-                    try:
-                        written += os.write(fd, frame[written:])
-                    except BlockingIOError:
-                        if time.monotonic() >= until:
-                            raise
-                        select.select([], [fd], [], .005)
+                if stat.S_ISCHR(info.st_mode) and info.st_uid == os.geteuid():
+                    until = time.monotonic() + .05
+                    while written < len(frame):
+                        try:
+                            written += os.write(fd, frame[written:])
+                        except BlockingIOError:
+                            if time.monotonic() >= until:
+                                raise
+                            select.select([], [fd], [], .005)
+                    self.metrics["encaminhadas_fluxo"] += 1
+                    return True
+            except OSError:
+                if written:
+                    self.metrics["envios_parciais"] += 1
+                    return True  # envio parcial nunca dispara uma segunda navegação
             finally:
                 os.close(fd)
-        except OSError:
-            self.metrics["falhas_encaminhamento"] += 1
-            return bool(written)  # envio parcial nunca dispara uma segunda navegação
-        self.metrics["encaminhadas_fluxo"] += 1
-        return True
+        if protocol.doorman_send(token, frame):
+            self.metrics["encaminhadas_porteiro"] += 1
+            return True
+        self.metrics["falhas_encaminhamento"] += 1
+        return False
 
     def revisit_local(self, client, target, data):
         # Voltar da ponte à sessão desta máquina também dispensa carregar o Bash inteiro.
@@ -788,12 +909,14 @@ class Coordinator:
             proc = item["confirm"]
             if proc.poll() is None:
                 if time.monotonic() - item["activating_at"] > 4:
-                    proc.kill()
-                    proc.communicate()
+                    finish(proc)
+                    # A confirmação passa pela mestra; sem resposta, ela pode estar meio morta (aceita o canal
+                    # e não o abre lá). Sem ela, a próxima ativação abre uma conexão nova em vez de falhar de novo.
+                    execute(["ssh", *SSH_ARGS, "-O", "stop", item["dest"]], timeout=2)
                     self.failure(item, "ativação sem confirmação")
                 continue
             if "confirmed" not in item:
-                output, _ = proc.communicate()
+                output = finish(proc, kill=False)
                 try:
                     confirmed = decode_ticket(output.decode("utf-8", "replace"), item["token"])
                     item["confirmed"] = bool(confirmed and all(confirmed[k] == item["remote"][k] for k in ("sid", "server", "pid", "id")))
@@ -1057,6 +1180,12 @@ class Coordinator:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError:
                 return
+            alive = self.folder / ALIVE
+            try:
+                alive.write_text(str(os.getpid()))  # antes de tudo: o vivo velho de outro pid nunca fica valendo
+            except OSError:
+                pass  # disco cheio: só não há o sinal de vida (o cliente trata como versão antiga)
+            beat = time.time()
             self.reap_orphans()
             address = self.folder / "socket"
             if address.exists():
@@ -1070,6 +1199,14 @@ class Coordinator:
                 try:
                     while self.running:
                         now = time.monotonic()
+                        # Relógio de parede, como a data do arquivo: depois de um sleep o monotônico parado deixava o
+                        # vivo velho por até 1 s, e um cliente encerrava o coordenador são.
+                        if abs(time.time() - beat) >= 1:
+                            beat = time.time()
+                            try:
+                                os.utime(alive)
+                            except OSError:
+                                pass
                         self.check_wake(now, time.time())
                         if now >= self.next_scan:
                             if (HERE / "precarregar-tt.py").stat().st_mtime_ns != self.package_stamp:
@@ -1113,10 +1250,10 @@ class Coordinator:
                     for key, item in list(self.candidates.items()):
                         proc = item.get("confirm")
                         if proc and proc.poll() is None:
-                            proc.kill()
-                            proc.communicate()
+                            finish(proc)
                         self.discard(key)
                     address.unlink(missing_ok=True)
+                    alive.unlink(missing_ok=True)
 
 
 def battery():
@@ -1153,6 +1290,10 @@ def format_status(data):
                  tuple(metrics.get(k, 0) for k in ("cliques", "acertos", "trocas", "falhas")))
     if metrics.get("encaminhadas_fluxo"):
         lines.append("Cliques encaminhados pela conexão existente: %d" % metrics["encaminhadas_fluxo"])
+    if metrics.get("encaminhadas_porteiro"):
+        lines.append("Cliques encaminhados pelo porteiro (terminal de outro dono): %d" % metrics["encaminhadas_porteiro"])
+    if metrics.get("falhas_encaminhamento"):
+        lines.append("Encaminhamentos que caíram no SSH de volta: %d" % metrics["falhas_encaminhamento"])
     samples = data.get("troca_ms", [])
     if samples:
         lines.append("Última troca confirmada: %d ms (%s)" %
@@ -1243,9 +1384,12 @@ def main(argv):
         data["id"] = argv[4]
     try:
         response = send_request(folder, data)
-    except UncertainReply:
-        return 0  # sem duplicar um clique cuja confirmação se perdeu
-    except (OSError, ValueError):
+    except (UncertainReply, OSError, ValueError) as exc:
+        if isinstance(exc, UncertainReply) and not coordinator_stuck(folder):
+            return 0  # sem duplicar um clique cuja confirmação se perdeu
+        # O travado não atendeu: o coordenador novo recebe o pedido com prazo novo e a MESMA ordem (o relógio
+        # monotônico é da máquina): numa rajada, o clique mais novo continua vencendo.
+        data["expires"] = time.monotonic() + 3
         if op in ("status", "stop", "cancel"):
             if op == "status":
                 response = {"modo": read_config().get("precarregar", "auto"), "coordenador": "parado"}
@@ -1294,11 +1438,14 @@ def try_bridge(args):
     data = {"op": "bridge", "bridge": args[1], "dest": args[2], "name": args[3],
             "id": args[4] if len(args) > 4 else "", "order": time.monotonic_ns(),
             "expires": time.monotonic() + 3, "deadline": deadline}
+    folder = None
     try:
-        if send_request(runtime(), data).get("handled"):
+        folder = runtime()
+        if send_request(folder, data).get("handled"):
             return 0
     except UncertainReply:
-        return 0
+        if not coordinator_stuck(folder):
+            return 0
     except (OSError, ValueError, TmuxUnavailable):
         pass
     return fallback_command(args)
@@ -1324,6 +1471,7 @@ def try_fixed(args):
     config = read_config()
     if os.environ.get("TT_PRECARREGAR") == "0" or config.get("precarregar") == "off":
         return fallback()
+    folder = None
     try:
         fixed = (CONF / "fixadas").read_text().splitlines()
         for line in fixed:
@@ -1338,12 +1486,14 @@ def try_fixed(args):
                 continue
             data = {"op": "revisit", "client": client, "dest": machine, "name": name, "id": stable,
                     "order": time.monotonic_ns(), "expires": time.monotonic() + 3}
-            response = send_request(runtime(), data)
+            folder = runtime()
+            response = send_request(folder, data)
             if response.get("handled"):
                 return 0
             break
     except UncertainReply:
-        return 0  # pedido aceito: não duplicar após perder a resposta
+        if not coordinator_stuck(folder):
+            return 0  # pedido aceito: não duplicar após perder a resposta
     except (OSError, ValueError, TmuxUnavailable):
         pass
     return fallback()

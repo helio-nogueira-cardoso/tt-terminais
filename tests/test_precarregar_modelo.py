@@ -463,6 +463,45 @@ class Heuristica(unittest.TestCase):
             with patch.object(pre, "send_request", side_effect=pre.UncertainReply):
                 self.assertEqual(pre.try_fixed(["--ir-fixada", "tela", key]), 0)
 
+    def test_resposta_perdida_de_coordenador_travado_segue_pelo_caminho_antigo(self):
+        # 23/10/2026: coordenador congelado (pipe preso pela mestra do ssh) engolia todo clique como "entregue".
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "CONF", Path(d)), \
+                patch.object(pre, "runtime", return_value=Path(d)), \
+                patch.object(pre, "read_config", return_value={}), \
+                patch.dict(pre.os.environ, {"TT_PRECARREGAR": "1", "TMUX": "/somente-teste,1,0", "TT_PRE_TT": "/pacote/tt"}), \
+                patch.object(pre, "send_request", side_effect=pre.UncertainReply), \
+                patch.object(pre.os, "execv") as fallback:
+            (Path(d) / "fixadas").write_text("máquina\ttarefa\t" + "a" * 32 + "\n")
+            key = "fx" + pre.hashlib.sha256(("máquina\t" + "a" * 32).encode()).hexdigest()[:12]
+            with patch.object(pre, "coordinator_stuck", return_value=False):
+                self.assertEqual(pre.try_fixed(["--ir-fixada", "tela", key]), 0)  # só lento: nunca duplica
+                self.assertEqual(pre.try_bridge(["--ir-ponte", "ponte-a", "dell", "tarefa", "a" * 32]), 0)
+                fallback.assert_not_called()
+            with patch.object(pre, "coordinator_stuck", return_value=True) as stuck:
+                pre.try_fixed(["--ir-fixada", "tela", key])
+                fallback.assert_called_once()
+                stuck.assert_called_once_with(Path(d))
+                fallback.reset_mock()
+                pre.try_bridge(["--ir-ponte", "ponte-a", "dell", "tarefa", "a" * 32])
+                fallback.assert_called_once()
+        seen = []
+        def send(folder, data, timeout=3):
+            seen.append(dict(data))
+            if len(seen) == 1:
+                raise pre.UncertainReply
+            return {"handled": True}
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "runtime", return_value=Path(d)), \
+                patch.object(pre, "read_config", return_value={}), \
+                patch.dict(pre.os.environ, {"TT_PRECARREGAR": "1"}), \
+                patch.object(pre, "coordinator_stuck", return_value=True), \
+                patch.object(pre.subprocess, "Popen") as spawn, patch.object(pre.time, "sleep"), \
+                patch.object(pre, "send_request", side_effect=send):
+            self.assertEqual(pre.main(["revisit", "tela", "dell", "tarefa", "a" * 32]), 0)
+            spawn.assert_called_once()  # coordenador novo
+            # o novo recebe prazo novo (o vencido seria descartado) e a mesma ordem: numa rajada, o mais novo vence
+            self.assertEqual(seen[1]["order"], seen[0]["order"])
+            self.assertGreaterEqual(seen[1]["expires"], seen[0]["expires"])
+
     def test_entrada_curta_sem_coordenador_reexecuta_comando_original(self):
         with tempfile.TemporaryDirectory() as d, patch.object(pre, "CONF", Path(d)), \
                 patch.object(pre, "read_config", return_value={}), \

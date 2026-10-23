@@ -187,6 +187,15 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   transporte antigo é renovado na primeira troca. Cliques no Mac incrementam `encaminhadas_fluxo`; as trocas
   ficam nas métricas da empresa. Fragmentação, duplicação/expiração, teclado e resize têm teste com dois PTYs.
   Encaminhador frio é iniciado pelo clique e não encerra só por não ter tela física; não faz prefetch de aninhados.
+- **Terminal de outro dono (Tailscale SSH: pty do root, 620):** o bilhete deixa um porteiro (`start_doorman`) com o
+  terminal aberto, socket `/tmp/tt-pre-relay-UID/<token16>`; só envelopes daquela ponte; sai com o cliente tmux.
+  `relay_nested`: terminal direto → porteiro (`encaminhadas_porteiro`) → SSH de volta (`falhas_encaminhamento`).
+- **Mestra do ssh meio morta segura pipes** (mux entrega o stdout à mestra; os keepalives só a derrubam em ~45 s):
+  nada de `communicate()`/`$(ssh …)` esperando o fim do pipe. Python: `execute()`/`finish()` leem até o processo
+  terminar. Bash: `ssh_pedir VAR PRAZO DESTINO COMANDO [PRAZO_MESTRA]` (saída em arquivo; mestra com prazo curto,
+  depois `-O stop` e conexão própria). Coordenador grava `vivo` a cada volta; cliente sem resposta de coordenador
+  parado há 5 s o encerra (`coordinator_stuck`) e segue pelo caminho antigo (pedido vencido não vira troca tardia).
+  Testes: `tests/test_ssh_mestra_presa.sh`, classe `SemTravar` em `tests/test_precarregar_fluxo_modelo.py`.
 - **Identidade:** `@tt_session_id` é UUID persistente de 32 hex, atribuído uma vez sob trava e checagem de colisão.
   Nome só na descoberta inicial de legado sem ID. Havendo ID, não aceitar fallback por nome em clique, cache,
   reconciliação ou reconexão; exclusão/recriação é outra sessão. ID duplicado/ausente é recusa, nunca desempate

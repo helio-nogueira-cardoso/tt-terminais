@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.9.19 · 23/10/2026
+- **Clique de dentro da ponte que não trocava a tela:** o coordenador de pontes congelava quando uma conexão mestra do SSH, meio morta, segurava a saída de um comando dele. A partir daí todo clique nas fixadas feito de dentro de uma ponte sumia sem aviso. Agora nenhuma leitura espera o fim da saída de um processo que já terminou. Se o coordenador parar de responder mesmo assim, ele é encerrado, um novo assume e o clique segue pelo caminho antigo, sem risco de troca dupla.
+- **Terminal do Tailscale SSH:** quando a ponte entra pelo SSH do Tailscale, o terminal de lá pertence ao root e o tt não conseguia devolver o clique por ele. Agora um porteiro mínimo, que só repassa pedidos de navegação daquela ponte, segura o terminal enquanto a ponte existe. O clique volta pelo caminho rápido também nesse caso. O status do pré-carregamento conta à parte os cliques entregues pelo porteiro e os que precisaram do SSH de volta.
+- **Pedido à máquina da tela em segundos, não em 45 s:** com a mestra do SSH travada, o pedido de troca esperava até os keepalives derrubarem a conexão. Agora a mestra tem um prazo curto. Sem resposta nesse prazo, ela é encerrada e o pedido segue por uma conexão própria. O mesmo vale para a consulta de sessão e de identidade antes de abrir uma ponte. A troca feita a pedido de uma ponte agora aparece em `~/.cache/tt-troca.log`.
+
 ## v2.9.16 · 23/10/2026
 - **Sessões do Mac vistas pela empresa:** o clique na faixa das fixadas segue pela conexão que já exibe a ponte. Não abre outro comando SSH de volta à origem por clique; a origem continua validando a identidade e escolhendo apenas a tela correta. A primeira troca renova conexões de versões antigas.
 - **ID preservado ao renomear:** atribuição de UUID uma única vez, protegida contra concorrência e colisão; o nome só descobre uma referência ainda sem identidade. Um ID conhecido não é substituído pelo nome em navegação, reconciliação ou reconexão. Sessão recriada com o mesmo nome recebe outro ID; identidade ambígua é recusada.

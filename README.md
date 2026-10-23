@@ -2387,6 +2387,25 @@ uma vez e ganha um transporte novo. Um encaminhador frio é iniciado pela primei
 ativo enquanto houver clientes aninhados em uso; sem tela física, não prepara SSH nem sonda bateria.
 No status do Mac, `encaminhadas_fluxo` conta os pedidos; as trocas efetivas são medidas na origem.
 
+**Terminal de outro dono (Tailscale SSH):** o pty que o Tailscale SSH cria pertence ao root (modo 620,
+grupo tty), e o coordenador não consegue abri-lo para escrever o envelope. Nesse caso o bilhete deixa
+um porteiro (`precarregar_remoto.py`, `start_doorman`) antes do `exec` do tmux: um processo mínimo com o
+terminal já aberto, servindo num socket privado (`/tmp/tt-pre-relay-UID/<token16>`, pasta 700). Ele só
+escreve envelopes de navegação daquela ponte (token e base64 conferidos) e sai quando o cliente tmux sai.
+O coordenador tenta o terminal direto e, recusado, o porteiro (`encaminhadas_porteiro`); só sem os dois
+cai no SSH de volta (`falhas_encaminhamento`). Terminal que aceita a escrita não ganha porteiro.
+
+**Nada espera o fim de um pipe:** no modo mux o cliente ssh entrega o próprio stdout à conexão mestra, e
+uma mestra meio morta (aceita o canal e não o abre lá) segura esse pipe até os keepalives a derrubarem
+(~45 s). No coordenador, `execute()` e `finish()` leem só até o processo terminar; o `ssh` de confirmação
+sem resposta encerra a mestra (`-O stop`). O coordenador marca `vivo` a cada volta do laço: um cliente
+sem resposta cujo coordenador parou de girar há 5 s o encerra e segue pelo caminho antigo (o pedido
+vencido nunca vira troca tardia no coordenador novo). No bash, `ssh_pedir VAR PRAZO DESTINO COMANDO
+[PRAZO_MESTRA]` grava a saída num arquivo; havendo mestra, ela tem o prazo curto e a ida se repete por
+conexão própria. Usam-no o pedido à origem (`pedir_na_origem`), `sessao_remota_existe` e as consultas
+`--resolver-fixada`. Testes: `tests/test_ssh_mestra_presa.sh` e a classe `SemTravar` de
+`tests/test_precarregar_fluxo_modelo.py`.
+
 **Identidade da sessão:** `@tt_session_id` guarda um UUID de 32 caracteres hexadecimais, atribuído
 uma vez com trava por servidor e verificação de colisão. Renomear não altera o UUID. Depois de a
 referência ter ID, o nome é apenas um rótulo: navegação, cache, reconciliação e reconexão não podem
