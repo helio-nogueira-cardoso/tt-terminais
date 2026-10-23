@@ -456,7 +456,10 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   `VOZ_ACOMPANHAR_MAX`=7200 s; tira o `pendente` da mesma sessão) e `acompanhar_estado` diz sumiu/trabalhando/pergunta/
   pergunta-dita/terminou (mexeu e parada em duas olhadas)/parada. `voz --fundo-pronto` (0 = há o que falar: agenda
   vencida, acompanhada com novidade, pendente pronto) e `voz --turno-fundo` (fala, cada um pelo `CANAL` do pedido); a
-  janela confere a cada ~6 s ouvindo e digitando; o daemon do celular a cada `VOZ_T_FUNDO` (6 s). `esperas`,
+  janela confere a cada ~6 s ouvindo e digitando; o daemon do celular a cada `VOZ_T_FUNDO` (6 s), inclusive
+  quando só o modo retorno está ativo. A condição do daemon precisa incluir `retorno`: sem isso, callbacks
+  e prazos ficavam parados até surgir outra espera. `tests/test_voz_daemon_retorno.sh` cobre retorno e prazo
+  pelos canais Tasker e Telegram, com transportes falsos e sem fala duplicada. `esperas`,
   `cancelar_espera` (agenda, acompanhamentos, pendente e o modo retorno), `voz --esperas`.
 - Modo retorno (`modo_retorno [SEG]`, frases "modo retorno (por N)", "me chama quando elas terminarem", "pode ir que eu
   espero"; `retorno_sair`, `retorno_auto sim|nao` = `~/.config/tt-voz/retorno-auto`; CLI `voz --retorno [SEG|sair|auto X]`;

@@ -2448,7 +2448,7 @@ daemon() {
     # o que a voz fala sozinha (a espera que venceu, a sessão acompanhada, o agente que terminou), pelo canal do pedido
     if ((SECONDS - fundo >= ${VOZ_T_FUNDO:-6})); then
       fundo=$SECONDS
-      if [[ -s $ST/agenda || -s $ST/acompanhar || -s $ST/pendente ]] && fundo_pronto; then turno_fundo; CANAL=; fi
+      if [[ -s $ST/agenda || -s $ST/acompanhar || -s $ST/pendente || -s $ST/retorno ]] && fundo_pronto; then turno_fundo; CANAL=; fi
     fi
     sleep 1
   done

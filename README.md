@@ -2084,6 +2084,8 @@ sozinha. "Ligar o retorno automático" faz cada pedido já entrar nele. Nas sess
 avisam na hora quando terminam ou pedem algo, com a última mensagem deles: o `ia-conta` passa o gancho `Stop` e
 `Notification` ao Claude (`--settings`) e o `notify` ao Codex (`-c`), só nessas sessões e sem mudar a sua configuração;
 Kiro, Gemini e outros são conferidos pela tela (todas as sessões de uma máquina numa ida, a cada 10 s).
+O daemon do celular também confere o retorno e seu prazo, mesmo sem outra espera em andamento;
+a resposta segue pelo Tasker ou Telegram conforme o canal do pedido.
 
 **A interface do tt pela voz:** "fixar esta sessão" (ou "fixe a sessão site"), "desafixar a sessão X", "quais são as
 fixadas", "mova a fixada X para o início" (fim, esquerda, direita, posição 3) e "agrupe as fixadas"; "nova tarefa comprar

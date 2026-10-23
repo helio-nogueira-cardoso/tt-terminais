@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.8.10 · 23/10/2026
+- **Retorno da voz no celular:** o daemon verifica respostas e prazos do modo retorno mesmo sem outra espera ativa. O aviso segue pelo Tasker ou pelo Telegram conforme o canal do pedido.
+
 ## v2.8.9 · 22/10/2026
 - **🔄 Passagem de tarefa no Mac:** o `ia-rot --passar` rodado por SSH ou fora do Claude não morre mais com "CLAUDE_CONFIG_DIR: unbound variable"; sem essa variável a conta da sessão só fica desconhecida. As datas também deixaram de depender do `date` do Linux: no Mac aparecia "date: illegal option -- d" e sumia a hora em que a primeira conta volta. A hora do reset lida na mensagem de limite ("try again at…", "resets 3pm") agora é entendida no Mac também.
 
