@@ -76,7 +76,9 @@ printf 'indicadores=frases
 ticker_rolagem=paginas
 ticker_veloc=3600
 ' >>"$XDG_CONFIG_HOME/tt/config"
-"$TT" --ticker-fontes >/dev/null 2>&1
+# O cenário exige só a lista local; a política de bateria do Termux pode adiar fontes sem --forcar.
+"$TT" --letreiro-editar frases ativa=1 >/dev/null 2>&1
+python3 -I "$TT_DIR/letreiro-fontes.py" atualizar frases --forcar >/dev/null 2>&1
 [[ -s $HOME/.cache/tt-ticker/frases ]] || falhou 'fonte frases não escreveu cache'
 grep -qF "$(cut -c1-12 "$HOME/.cache/tt-ticker/frases")" <<<"$(quadro 140)" || falhou "slot sem aviso não mostra o letreiro (frase da fonte): $(quadro 140)"
 grep -q 'A%' <<<"$(quadro 140)" && falhou 'aviso já expirado/lido não deveria estar no slot'
