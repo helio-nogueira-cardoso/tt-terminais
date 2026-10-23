@@ -2095,6 +2095,18 @@ apelido da tarefa X", "apague a tarefa X" (pede o sim); "ler as notificações" 
 como lidas", "limpe as notificações" (as lidas, pede o sim); "o que está no letreiro", "pause o letreiro", "continue o
 letreiro".
 
+Os outros controles seguem a máquina escolhida na voz:
+
+- "Esconda a barra das fixadas" e "mostre a barra das fixadas" mudam a altura da barra e preservam as sessões fixadas.
+- "Não perturbe por dez minutos", "ligue o não perturbe" e "desligue o não perturbe" controlam os avisos do aparelho e as mensagens sobrepostas do tmux. O histórico e o contador do sino continuam disponíveis. Sem duração, fica ligado até desligar.
+- "Mude a mensagem do letreiro para Reunião às 14h" substitui uma mensagem local e preserva as outras fontes. O texto é tratado como texto, inclusive quando contém pontuação.
+- "Renomeie esta sessão para Revisão da sprint" ou "renomeie a sessão site para Portal" mantém o alvo da voz, fixadas, esperas e retornos associados à sessão.
+- "Abra o e-mail", "abra transferências" e "abra o calendário" usam o terminal conectado à sessão escolhida. "Contas de e-mail", "estado do e-mail", "ver transferências" e "ler calendário" respondem pela voz.
+- "Troque a conta para career" pede confirmação, pois interrompe o agente da sessão escolhida. "Trocar conta" lista as contas disponíveis. A confirmação perde validade se a sessão ou o painel for substituído.
+
+Pelo terminal, os mesmos controles estão em `tt --fixadas-faixa on|off|status`, `tt --nao-perturbe on|off|SEGUNDOS|status`,
+`tt --letreiro-mensagem "TEXTO"` e `tt --renomear SESSÃO "NOME"`. O menu Administrar também alterna a barra das fixadas e o não perturbe.
+
 **Fechar sessões e a limpeza:** "feche a sessão X" pergunta antes ("diga sim para fechar"); se é a sessão escolhida, ou
 se o agente dela está trabalhando, pergunta duas vezes. "Limpeza" (ou "quais sessões posso fechar", "limpe as sessões
 do dell") olha todas as sessões das máquinas: quem está olhando, fixada, papel no tt, texto não enviado, uso recente,

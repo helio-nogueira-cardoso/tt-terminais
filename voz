@@ -504,8 +504,51 @@ cru_trecho() { # FRASE-ORIGINAL TRECHO-NORMALIZADO -> o pedaço do meio da frase
   printf '%s\n' "$2"
 }
 # frases das ações novas (esperar, acompanhar, fixadas, tarefas, notificações, letreiro, fechar, limpeza) -> comando()
+reescrever_interface() {
+  local n=$1 r novo nome seg
+  [[ $n =~ ^(esconder|esconda|ocultar|oculte|oculta|esconde)(\ a)?\ barra(\ das)?\ fixadas$ ]] && { echo 'barra fixadas off'; return 0; }
+  [[ $n =~ ^(mostrar|mostre|mostra|exibir|exiba|exibe)(\ a)?\ barra(\ das)?\ fixadas$ ]] && { echo 'barra fixadas on'; return 0; }
+  [[ $n =~ ^(estado\ da\ |a\ )?barra(\ das)?\ fixadas$ ]] && { echo 'barra fixadas status'; return 0; }
+  [[ $n =~ ^(desligar|desligue|desliga|desativar|desative|desativa)(\ o)?(\ modo)?\ nao\ perturbe$|^(retomar|retome|reativar|reative)(\ as)?\ notificacoes$ ]] && { echo 'nao perturbe off'; return 0; }
+  [[ $n =~ ^(estado\ do\ |status\ do\ )nao\ perturbe$ ]] && { echo 'nao perturbe status'; return 0; }
+  r=
+  if [[ $n =~ ^(ligar|ligue|liga|ativar|ative|ativa)(\ o)?(\ modo)?\ nao\ perturbe(.*)$ ]]; then r=${BASH_REMATCH[4]}
+  elif [[ $n =~ ^(silenciar|silencie|silencia)(\ as)?\ notificacoes(.*)$ ]]; then r=${BASH_REMATCH[3]}
+  elif [[ $n == nao\ perturbe* ]]; then r=${n#nao perturbe}
+  else r=-; fi
+  if [[ $r != - ]]; then
+    r=${r# }; r=${r#por }
+    if [[ -z $r ]]; then echo 'nao perturbe on'
+    elif novo=$(duracao_de "$r") && [[ -z ${novo#*$'\t'} ]]; then echo "nao perturbe ${novo%%$'\t'*}"
+    else echo 'nao perturbe invalido'; fi
+    return 0
+  fi
+  if [[ $n =~ ^(mudar|mude|muda|trocar|troque|troca|alterar|altere|altera)(\ a)?\ (mensagem|texto)(\ do)?\ letreiro\ (para\ |pra\ )?(.+)$ ||
+    $n =~ ^(mensagem|texto)(\ do)?\ letreiro\ (.+)$ ]]; then
+    echo "mensagem letreiro ${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}"; return 0
+  fi
+  if [[ $n =~ ^(renomear|renomeie|renomeia|renomee|renome)\ (.+)$ ]]; then
+    r=${BASH_REMATCH[2]}; r=${r#a }; r=${r#esta }; r=${r#essa }; r=${r#sessao }; r=${r#aba }
+    if [[ $r == para\ * ]]; then nome=esta; novo=${r#para }
+    elif [[ $r == *' para '* ]]; then nome=${r%% para *}; novo=${r#* para }
+    else nome=esta; novo=; fi
+    echo "renomear sessao $nome|$novo"; return 0
+  fi
+  [[ $n =~ ^((abrir|abra|abre|mostrar|mostre|mostra)(\ o)?\ )?(email|e\ mail|correio)$ ]] && { echo 'email abrir'; return 0; }
+  [[ $n =~ ^((listar|liste|mostre|mostrar)(\ as)?\ )?contas\ de\ (email|e\ mail)$ ]] && { echo 'email contas'; return 0; }
+  [[ $n =~ ^(estado|status)\ (do\ )?(email|e\ mail)$ ]] && { echo 'email estado'; return 0; }
+  [[ $n =~ ^(abrir|abra|abre)(\ as)?\ transferencias$ ]] && { echo 'transferencias abrir'; return 0; }
+  [[ $n =~ ^((ver|veja|ler|leia|listar|liste|status\ das|estado\ das)(\ as)?\ )?transferencias$ ]] && { echo 'transferencias ler'; return 0; }
+  [[ $n =~ ^((abrir|abra|abre|mostrar|mostre)(\ o)?\ )?calendario$ ]] && { echo 'calendario abrir'; return 0; }
+  [[ $n =~ ^(ler|leia|consultar|consulte)(\ o)?\ calendario$ ]] && { echo 'calendario ler'; return 0; }
+  [[ $n =~ ^(trocar|troque|troca|mudar|mude|muda)(\ a)?\ conta(\ (da\ ia|do\ agente))?(\ (para|pra)\ (.+))?$ ]] &&
+    { echo "trocar conta ${BASH_REMATCH[7]}"; return 0; }
+  return 1
+}
+
 reescrever_acoes() { # frase normalizada -> o comando, ou 1
   local n=$1 r seg resto dep nome
+  reescrever_interface "$n" && return 0
   if [[ $n =~ ^(espere|espera|esperar|aguarde|aguarda|aguardar|daqui\ a|daqui|dentro\ de|em)\ (.+)$ ]] && r=$(duracao_de "${BASH_REMATCH[2]}"); then
     seg=${r%%$'\t'*}; resto=$(sed -E 's/^((e|depois|entao|ai|e depois|e entao|e ai|voce|me) )+//' <<<"${r#*$'\t'}"); dep=ler; nome=""
     # só o que a voz sabe fazer depois (conferir, ler, resumir, avisar); "espere 2 minutos e rode os testes" é do agente
@@ -580,8 +623,9 @@ reescrever_acoes() { # frase normalizada -> o comando, ou 1
 }
 reescrever() { # frase normalizada -> o vocabulário de comando(); deixa a conversa solta ("empresa", "sessões do dell", "2", "sim")
   local n=$1 m p pre r
-  n=$(sed -E 's/^(por favor|ok|entao|e|agora) //; s/ por favor$//
-    s/^(me )?(diga|fala|mostra|mostre|mostrar|lista|liste|listar|ver|veja|quero ver|quais sao|quais|qual)( as| os| a| o)? //
+  n=$(sed -E 's/^(por favor|ok|entao|e|agora) //; s/ por favor$//' <<<"$n")
+  r=$(reescrever_interface "$n") && { echo "$r"; return; }
+  n=$(sed -E 's/^(me )?(diga|fala|mostra|mostre|mostrar|lista|liste|listar|ver|veja|quero ver|quais sao|quais|qual)( as| os| a| o)? //
     s/^(vai|va|vamos|entra|entrar|entre|muda|troca) (para|pra|no|na|em) /ir para /' <<<"$n")
   n=$(sed -E 's/^ir para (a |o )?(sessao|aba) /sessao /' <<<"$n")
   # "abra uma nova sessão em empresa", "crie uma aba com o codex", "nova sessão no dell" -> o 🚀 (máquina e IA ditas);
@@ -642,11 +686,11 @@ reescrever() { # frase normalizada -> o vocabulário de comando(); deixa a conve
   echo "$n"
 }
 
-CONHECIDOS='^(retorno|retorno .+|esperar .+|acompanhar.*|cancelar espera|esperas|fixadas|agrupar fixadas|fixar.*|desafixar.*|mover fixada .+|nova tarefa .+|subtarefa .+|prazo tarefa .+|concluir tarefa .+|reabrir tarefa .+|apagar tarefa .+|apelido tarefa .+|notificacoes.*|letreiro.*|fechar sessao.*|limpeza.*|confirmar (sim|nao)|panorama|opcao .+|tarefa .+|tarefas abertas|silencio|sem microfone|android auto|ajuda.*|comandos|como funciona|como usar|terminal|ola|oi|inicio|comecar|encerrar|sair|tchau|fim|terminar|desligar|ate mais|maquinas|computadores|status|saude|estado|ir para .+|ir pra .+|trocar para .+|mudar para .+|sessoes|abas|janelas|listar sessoes|sessoes em .+|aba .+|sessao .+|abrir .+|proxima|proxima aba|seguinte|anterior|aba anterior|voltar|nova sessao.*|nova aba.*|tarefas|minhas tarefas|contas|rodizio|uso|limite|repetir|repete|de novo|ler|resposta|e ai|permitir sessao|liberar sessao|bloquear sessao|enter|confirmar|confirma|cancelar|escape|onde|alvo|atual|nao)$'
+CONHECIDOS='^(barra fixadas (on|off|status)|nao perturbe .+|mensagem letreiro .+|renomear sessao .+|email .+|transferencias .+|calendario .+|trocar conta.*|retorno|retorno .+|esperar .+|acompanhar.*|cancelar espera|esperas|fixadas|agrupar fixadas|fixar.*|desafixar.*|mover fixada .+|nova tarefa .+|subtarefa .+|prazo tarefa .+|concluir tarefa .+|reabrir tarefa .+|apagar tarefa .+|apelido tarefa .+|notificacoes.*|letreiro.*|fechar sessao.*|limpeza.*|confirmar (sim|nao)|panorama|opcao .+|tarefa .+|tarefas abertas|silencio|sem microfone|android auto|ajuda.*|comandos|como funciona|como usar|terminal|ola|oi|inicio|comecar|encerrar|sair|tchau|fim|terminar|desligar|ate mais|maquinas|computadores|status|saude|estado|ir para .+|ir pra .+|trocar para .+|mudar para .+|sessoes|abas|janelas|listar sessoes|sessoes em .+|aba .+|sessao .+|abrir .+|proxima|proxima aba|seguinte|anterior|aba anterior|voltar|nova sessao.*|nova aba.*|tarefas|minhas tarefas|contas|rodizio|uso|limite|repetir|repete|de novo|ler|resposta|e ai|permitir sessao|liberar sessao|bloquear sessao|enter|confirmar|confirma|cancelar|escape|onde|alvo|atual|nao)$'
 # Dois pedidos na mesma frase ("apaga a tarefa X e fecha a sessão Y", "fixa o site, depois abre uma nova no dell") não são um comando
 # simples: uma regra executaria só o começo e ignoraria o resto. A conjunção seguida de outro verbo de ação manda a frase ao cérebro, que
 # monta o plano inteiro (as destrutivas entram na fila de um ok só).
-COMPOSTO_RE=' (e|depois|entao|tambem|alem disso|em seguida|e depois|e tambem|ai|e ai) (fecha|fechar|feche|apaga|apagar|apague|junta|juntar|junte|abre|abrir|abra|fixa|fixar|fixe|desafixa|desafixar|desafixe|manda|mande|enviar|envie|envia|resume|resumir|resuma|conclui|concluir|conclua|cria|criar|crie|troca|trocar|troque|limpa|limpar|limpe|pede|peca|pergunta|pergunte|espera|esperar|espere|acompanha|acompanhar|acompanhe|passa|passar|passe|reabre|reabrir|reabra|marca|marcar|marque|avisa|avise|ache|acha|achar|procura|procure|retoma|retomar|retome|agrupa|agrupar|agrupe|move|mover|mova|tira|tirar|tire|lembra|lembre|agenda|agende) '
+COMPOSTO_RE=' (e|depois|entao|tambem|alem disso|em seguida|e depois|e tambem|ai|e ai) (fecha|fechar|feche|apaga|apagar|apague|junta|juntar|junte|abre|abrir|abra|fixa|fixar|fixe|desafixa|desafixar|desafixe|manda|mande|enviar|envie|envia|resume|resumir|resuma|conclui|concluir|conclua|cria|criar|crie|troca|trocar|troque|limpa|limpar|limpe|pede|peca|pergunta|pergunte|espera|esperar|espere|acompanha|acompanhar|acompanhe|passa|passar|passe|reabre|reabrir|reabra|marca|marcar|marque|avisa|avise|ache|acha|achar|procura|procure|retoma|retomar|retome|agrupa|agrupar|agrupe|move|mover|mova|tira|tirar|tire|lembra|lembre|agenda|agende|esconde|esconda|esconder|oculta|oculte|ocultar|mostra|mostre|mostrar|exibe|exiba|exibir|liga|ligue|ligar|ativa|ative|ativar|desliga|desligue|desligar|desativa|desative|desativar|silencia|silencie|silenciar|muda|mude|mudar|altera|altere|alterar|renomeia|renomeie|renomear) '
 simples() { # com o cérebro ligado, só os comandos curtos e exatos ficam nas regras (o resto vai ao modelo)
   local r
   [[ " $1 " =~ $COMPOSTO_RE ]] && return 1
@@ -656,6 +700,7 @@ simples() { # com o cérebro ligado, só os comandos curtos e exatos ficam nas r
     listar\ sessoes|sessoes\ em\ *|proxima|proxima\ aba|seguinte|anterior|aba\ anterior|voltar|tarefas|minhas\ tarefas|\
     tarefas\ abertas|contas|rodizio|uso|limite|repetir|repete|de\ novo|ler|resposta|e\ ai|permitir\ sessao|liberar\ sessao|\
     bloquear\ sessao|enter|confirmar|confirma|cancelar|escape|onde|alvo|atual|nao|opcao\ *|nova\ sessao|nova\ aba|panorama|\
+    barra\ fixadas\ *|nao\ perturbe\ *|mensagem\ letreiro\ *|renomear\ sessao\ *|email\ *|transferencias\ *|calendario\ *|trocar\ conta*|\
     retorno|retorno\ *|esperar\ *|acompanhar|acompanhar\ *|cancelar\ espera|esperas|fixadas|agrupar\ fixadas|fixar|desafixar|mover\ fixada\ *|\
     nova\ tarefa\ *|subtarefa\ *|prazo\ tarefa\ *|concluir\ tarefa\ *|reabrir\ tarefa\ *|apagar\ tarefa\ *|apelido\ tarefa\ *|\
     notificacoes|notificacoes\ *|letreiro|letreiro\ *|fechar\ sessao|limpeza|limpeza\ *|confirmar\ sim|confirmar\ nao) return 0 ;;
@@ -793,6 +838,15 @@ Ações (na ordem em que devem acontecer):
 {"acao":"prazo_tarefa","nome":"...","prazo":"@sex 14h, @amanha, @20/10 ou sem prazo"}  {"acao":"apagar_tarefa","nome":"..."}
 {"acao":"notificacoes","filtro":"naolidas|todas"}  lê o 🔔   {"acao":"notificacoes_lidas"}  marca tudo como lido
 {"acao":"limpar_notificacoes"}  apaga as já lidas      {"acao":"letreiro","tecla":"ler|pausar|continuar"}  a faixa que rola
+{"acao":"barra_fixadas","tecla":"mostrar|esconder|estado"}  muda apenas a visibilidade da faixa
+{"acao":"nao_perturbe","tecla":"ligar|desligar|estado","segundos":N opcional}  silencia avisos do aparelho;
+  preserva o histórico e o sino; sem duração, fica até o usuário desligar
+{"acao":"mensagem_letreiro","texto":"mensagem literal"}  substitui a mensagem local, preservando as outras fontes
+{"acao":"renomear_sessao","sessao":"opcional: escolhida por padrão","texto":"novo nome"}
+{"acao":"email","tecla":"abrir|contas|estado"}  abre o cliente ou lê as contas e o estado do sync
+{"acao":"transferencias","tecla":"abrir|ler"}  abre o painel ou lê o progresso
+{"acao":"calendario","tecla":"abrir|ler"}  abre o calendário ou lê as tarefas com prazo
+{"acao":"trocar_conta","ia":"nome da conta"}  troca na sessão escolhida, após confirmação; sem nome, lista contas
 {"acao":"fechar_sessao","maquina":"M","sessao":"S"}  fecha uma sessão (eu confirmo antes)
 {"acao":"limpeza","maquina":"opcional"}  analisa as sessões e sugere as paradas que podem fechar, com o motivo; depois o
   usuário diz fechar (todas da lista), tirar N (fica aberta) ou cancelar
@@ -919,6 +973,24 @@ cerebro() { # cerebro "FRASE(S)": executa o plano do modelo; 1 = sem cérebro ou
   [[ -n $fala ]] && falar "$fala"
   while IFS=$'\x1f' read -r -u 9 a mq se tx te tm ia qt nm nu fl sg dp po pz og rd cs; do
     case $a in
+      barra_fixadas|nao_perturbe|mensagem_letreiro|renomear_sessao|email|transferencias|calendario|trocar_conta)
+        if [[ -n $mq ]]; then
+          m=$(achar_maquina "$mq") || { falar "Não achei a máquina $mq."; continue; }
+          [[ $m == "$(alvo_m)" ]] || { printf '%s' "$m" >"$ST/alvo_m"; rm -f "$ST/alvo_s"; }
+        fi ;;
+    esac
+    case $a in
+      barra_fixadas) case $te in mostrar|on) controle_interface_voz --fixadas-faixa on ;; esconder|off) controle_interface_voz --fixadas-faixa off ;; *) controle_interface_voz --fixadas-faixa status ;; esac ;;
+      nao_perturbe) case $te in
+        ligar|on) controle_interface_voz --nao-perturbe "${sg:-on}" ;;
+        desligar|off) controle_interface_voz --nao-perturbe off ;;
+        *) controle_interface_voz --nao-perturbe status ;; esac ;;
+      mensagem_letreiro) controle_interface_voz --letreiro-mensagem "$tx" ;;
+      renomear_sessao) renomear_sessao_voz "${se:-esta}" "$tx" ;;
+      email) email_voz "${te:-abrir}" ;;
+      transferencias) transferencias_voz "${te:-ler}" ;;
+      calendario) if [[ $te == ler ]]; then tarefas_ler prazo; else abrir_interface_voz calendario; fi ;;
+      trocar_conta) trocar_conta_voz "$ia" ;;
       maquinas|status|contas|repetir) comando "$a" ;;
       tarefas) tarefas_ler "${fl:-abertas}" ;;
       listar) if m=$(achar_maquina "${mq:-$(alvo_m)}"); then printf '%s' "$m" > "$ST/alvo_m"; rm -f "$ST/alvo_s"; listar_sessoes "$m"
@@ -993,7 +1065,7 @@ cerebro() { # cerebro "FRASE(S)": executa o plano do modelo; 1 = sem cérebro ou
 # tarefa, apagar avisos lidos, juntar sessões) entra numa FILA e o usuário aprova tudo de uma vez ("sim"), tira itens ("tira o
 # 2", "tira a sessão x") ou cancela ("não"). Nada da fila roda sem esse sim.
 LOTE=$ST/lote            # linhas: acao<US>descrição falada<US>args…
-PLANO_ACOES=" fechar_sessao_ja tarefa_apagar_ja notifs_limpar_ja unir_ja "   # o que um "sim" do plano pode executar
+PLANO_ACOES=" fechar_sessao_ja tarefa_apagar_ja notifs_limpar_ja unir_ja trocar_conta_ja "   # o que um "sim" do plano pode executar
 lote_add() { # DESCRIÇÃO AÇÃO ARGS…: põe na fila do plano
   local d=$1; shift
   { printf '%s' "$1"; printf '\x1f%s' "$d" "${@:2}"; printf '\n'; } >> "$LOTE"
@@ -1237,7 +1309,11 @@ ajuda() { # ajuda [tema]: explicação curta e falável, um tema por vez
     *maquina*|*computador*|*status*)
       falar "Diga máquinas para ouvir a lista, e status para saber quais estão ligadas. Para trocar, diga só o nome da máquina, por exemplo, notebook. Eu já leio as sessões dela. Este celular é celular." ;;
     *sess*|*aba*)
-      falar "Diga sessões, ou sessões e a máquina, para ouvir as abas numeradas. Para escolher, diga o número, ou aba e uma palavra do nome, por exemplo, aba claude, de qualquer máquina. Próxima e anterior andam pela lista. Panorama resume o que cada sessão está fazendo. Nova sessão em uma máquina abre um agente pelo rodízio de contas." ;;
+      falar "Diga sessões, ou sessões e a máquina, para ouvir as abas numeradas. Para escolher, diga o número, ou aba e uma palavra do nome, por exemplo, aba claude, de qualquer máquina. Próxima e anterior andam pela lista. Panorama resume o que cada sessão está fazendo. Nova sessão em uma máquina abre um agente pelo rodízio de contas. Renomeie esta sessão para, e o nome novo, muda o nome e mantém as fixadas e os acompanhamentos." ;;
+    *email*|*correio*|*transferencia*|*calendario*)
+      falar "Escolha a sessão que está aberta na tela e diga abrir e-mail, abrir transferências ou abrir calendário. Contas de e-mail e estado do e-mail consultam o cadastro e a sincronização. Ver transferências lê o progresso. Ler calendário lê as tarefas com prazo." ;;
+    *conta*|*rodizio*)
+      falar "Trocar conta lista as contas disponíveis na máquina escolhida. Diga troque a conta para, e o nome da conta. Eu peço confirmação antes de interromper o agente da sessão escolhida. Diga sim para trocar, ou não para cancelar." ;;
     *agente*|*claude*|*codex*|" ia "*|*" ia "*|*permit*|*mandar*)
       falar "Escolha a sessão e fale: toda frase que não for comando vai para o agente dela, e eu leio a resposta. Se ele demorar, eu aviso quando terminar. Enter confirma o que ele perguntar, cancelar interrompe, e bloquear sessão a solta." ;;
     *retorno*|*callback*)
@@ -1247,15 +1323,15 @@ ajuda() { # ajuda [tema]: explicação curta e falável, um tema por vez
     *esper*|*acompanh*|*avis*|*depois*)
       falar "Diga espere um minuto e depois confira a sessão, ou daqui a 30 segundos leia a resposta: eu fico livre e falo sozinho na hora. Me avise quando ele terminar acompanha a sessão até concluir, e eu falo se ela pedir uma decisão. O que você está esperando lista, e cancele a espera cancela." ;;
     *fixad*|*barra*|*notific*|*letreiro*|*interface*)
-      falar "Na barra: fixar esta sessão, desafixar a sessão e o nome, quais são as fixadas, mova a fixada e o nome para o início, e agrupe as fixadas. Notificações: ler as notificações, marque como lidas e limpe as notificações. Letreiro: o que está no letreiro, pause e continue o letreiro." ;;
+      falar "Na barra: fixar esta sessão, quais são as fixadas, esconder a barra das fixadas e mostrar a barra das fixadas. Não perturbe por dez minutos silencia os avisos do aparelho, mantendo o sino e o histórico. Desligue o não perturbe restaura os avisos. Notificações: ler, marcar como lidas e limpar. Letreiro: ler, pausar e continuar. Mude a mensagem do letreiro para, e o texto, troca só a mensagem local." ;;
     *limp*|*fech*|*faxina*)
       falar "Feche a sessão e o nome fecha uma sessão, depois do seu sim; se é a escolhida ou se está trabalhando, eu pergunto duas vezes. Limpeza analisa as sessões e sugere as paradas, com o motivo. Depois diga fechar, tira a e o número, para manter uma, ou cancelar." ;;
     *tarefa*)
       falar "Tarefas: diga tarefas para ouvir a lista, nova tarefa e o texto, com o prazo no fim, por exemplo para amanhã às 14 horas. Também: adicione a subtarefa X na tarefa Y, conclua a tarefa, reabra a tarefa, mude o prazo da tarefa para sexta, qual o apelido da tarefa, e apague a tarefa, que pede o seu sim." ;;
     *comando*|*lista*|*tudo*)
-      falar "Comandos: máquinas, status, ir para, sessões, aba, próxima, anterior, onde, panorama, nova sessão, bloquear sessão, enter, cancelar, tarefas, contas, esperar, acompanhar, modo retorno, fixar, notificações, letreiro, fechar sessão, limpeza, repetir, ajuda e encerrar. Qualquer outra frase vai para o agente da sessão escolhida." ;;
+      falar "Comandos: máquinas, status, sessões, aba, próxima, anterior, panorama, nova sessão, renomear sessão, enter, cancelar, tarefas, contas, trocar conta, esperar, acompanhar, modo retorno, fixar, barra das fixadas, não perturbe, notificações, letreiro, e-mail, transferências, calendário, fechar sessão, limpeza, repetir, ajuda e encerrar. Qualquer outra frase vai para o agente da sessão escolhida." ;;
     *)
-      falar "Terminal por voz. Fale um comando por vez, depois que eu terminar de falar. O caminho é: escolher a máquina, escolher a sessão e falar com o agente. Para detalhes, diga ajuda e um tema: máquinas, sessões, agente, conversa, esperar, retorno, barra, tarefas, limpeza ou comandos." ;;
+      falar "Terminal por voz. Fale um comando por vez, depois que eu terminar de falar. O caminho é: escolher a máquina, escolher a sessão e falar com o agente. Para detalhes, diga ajuda e um tema: máquinas, sessões, agente, conversa, esperar, retorno, barra, tarefas, contas, e-mail, calendário, limpeza ou comandos." ;;
   esac
 }
 
@@ -1464,13 +1540,14 @@ abrir_ia() { # MAQ [IA ou conta] [1º PEDIDO]: o 🚀 (o rodízio de contas, ou 
   if [[ -n $pedido ]]; then aviso "Sessão $(falavel "$nome") pronta em $m."; enviar "$pedido"
   else falar "Sessão $(falavel "$nome") pronta em $m. Pode falar com ela."; fi
 }
-trocar_ia() { # [IA ou conta]: o 👇 na sessão escolhida (fecha o agente dela e abre outro, retomando a conversa do Claude)
+trocar_ia() { # [IA ou conta] [máquina sessão]: o 👇 (retoma a conversa)
   local m s p args c=""
-  m=$(alvo_m); s=$(alvo_s); [[ -n $s ]] || { falar "Escolha uma sessão primeiro."; return; }
+  m=${2:-$(alvo_m)}; s=${3:-$(alvo_s)}; [[ -n $s ]] || { falar "Escolha uma sessão primeiro."; return; }
   liberar "$m" "$s"
   p=$(painel_de "$m" "$s"); [[ -n $p ]] || { falar "A sessão $s não existe mais em $m."; return; }
   if [[ -n ${1:-} ]]; then args=$(conta_para "$m" "$1") || { falar "Não conheço a IA ou a conta $1 em $m."; return; }; c=${args#--conta }; fi
-  em "$m" "tmux set-option -t '=$s:' @tt_voz 1; tt --atalho-rodar ia-aqui '' '$p' ${c:+conta=$c}" >/dev/null 2>&1  # @tt_voz antes: os ganchos
+  em "$m" "tmux set-option -t $(q "=$s:") @tt_voz 1 && tt --atalho-rodar ia-aqui '' $(q "$p") ${c:+$(q "conta=$c")}" >/dev/null 2>&1 ||
+    { falar "Não consegui trocar a IA da sessão $(falavel "$s")."; return; }
   aviso "Trocando a IA da sessão $(falavel "$s")."
   if destravar "$m" "$s"; then falar "Pronto: ${1:-outra IA} na sessão $(falavel "$s"). Pode falar."; fi
 }
@@ -1489,6 +1566,83 @@ passar_ia() { # [MAQ]: o ⏩ na sessão escolhida (a conversa segue com outra IA
   [[ -n $novo ]] || { falar "Não vi a sessão nova em $r. Diga sessões do $r."; return; }
   alvo_novo "$r" "$novo"; em "$r" "tmux set-option -t '=$novo:' @tt_voz 1" >/dev/null 2>&1
   if destravar "$r" "$novo"; then falar "A conversa segue em $r, na sessão $(falavel "$novo"). Pode falar."; fi
+}
+
+controle_interface_voz() { # verbo do tt e argumentos literais, na máquina escolhida
+  local r m; m=$(alvo_m)
+  if r=$(em "$m" "tt $(q "$@")" 2>/dev/null); then falar "$r"
+  else falar "Não consegui fazer isso em $m. Confira se o tt está atualizado."; fi
+}
+abrir_interface_voz() {
+  local tipo=$1 m s c r comando rotulo
+  m=$(alvo_m); s=$(alvo_s)
+  [[ -n $s ]] || { falar 'Escolha uma sessão primeiro.'; return; }
+  r=$(em "$m" "tmux list-clients -t $(q "=$s") -F '#{client_name}	#{client_activity}'" 2>/dev/null)
+  c=$(sort -t$'\t' -k2,2nr <<<"$r" | head -1 | cut -f1)
+  [[ -n $c ]] || { falar "Não há terminal conectado à sessão $(falavel "$s"), em $m."; return; }
+  case $tipo in email) rotulo='o e-mail' ;; calendario) rotulo='o calendário' ;; transferencias) rotulo='as transferências' ;; *) return 1 ;; esac
+  comando="tt --interface-abrir $(q "$tipo" "$c")"
+  if em "$m" "tmux run-shell -b $(q "$comando")" >/dev/null 2>&1; then falar "Abrindo $rotulo no terminal da sessão $(falavel "$s"), em $m."
+  else falar "Não consegui abrir $rotulo em $m."; fi
+}
+email_voz() {
+  local r
+  case ${1:-abrir} in
+    abrir) abrir_interface_voz email ;;
+    contas) r=$(em "$(alvo_m)" 'tt --email-listar' 2>/dev/null | awk -F'\t' 'NF >= 3 { print $2 ", " $3 "." }' | head -6 | tr '\n' ' ')
+      falar "${r:-Nenhuma conta de e-mail cadastrada.}" ;;
+    estado) controle_interface_voz --email-sync-estado curto ;;
+  esac
+}
+transferencias_voz() {
+  local r
+  if [[ ${1:-ler} == abrir ]]; then abrir_interface_voz transferencias
+  else r=$(em "$(alvo_m)" 'tt --transferencias' </dev/null 2>/dev/null | semcor | head -5 | tr '\n' ' ')
+    falar "${r:-Nenhuma transferência registrada.}"; fi
+}
+renomear_sessao_voz() {
+  local nome=$1 novo=$2 r m s f tmp cm cs
+  [[ -n $novo ]] || { falar 'Diga renomeie esta sessão para, e o novo nome.'; return; }
+  r=$(sessao_resolver "$nome") || { falar "Não achei a sessão $nome."; return; }
+  IFS=$'\t' read -r m s <<<"$r"
+  novo=$(em "$m" "tt --renomear $(q "$s" "$novo")" 2>/dev/null) || { falar 'Não consegui renomear a sessão.'; return; }
+  [[ -n $novo && $novo != *$'\n'* ]] || { falar 'Não consegui confirmar o nome novo.'; return; }
+  if [[ $(alvo_m) == "$m" && $(alvo_s) == "$s" ]]; then printf '%s' "$novo" >"$ST/alvo_s"; fi
+  tmp=$(mktemp "$CF/permitidas.XXXXXX") || return 1
+  awk -v a="$m:$s" -v b="$m:$novo" '{ if ($0 == a) print b; else print }' "$CF/permitidas" >"$tmp" && mv "$tmp" "$CF/permitidas"
+  for f in chamadas acompanhar agenda retorno.fila; do
+    [[ -s $ST/$f ]] || continue
+    case $f in agenda) cm=3; cs=4 ;; retorno.fila) cm=2; cs=3 ;; *) cm=1; cs=2 ;; esac
+    awk -F'\t' -v OFS='\t' -v m="$m" -v a="$s" -v b="$novo" -v cm="$cm" -v cs="$cs" '{ if ($cm == m && $cs == a) $cs=b; print }' "$ST/$f" >"$ST/$f.novo" && mv "$ST/$f.novo" "$ST/$f"
+  done
+  [[ $(cat "$ST/pendente" 2>/dev/null) == "$m:$s" ]] && printf '%s' "$m:$novo" >"$ST/pendente"
+  r=$(pergunta); [[ $r == *":$m:$s" ]] && printf '%s' "${r%:*}:$novo" >"$ST/pergunta"
+  rm -f "$ST/lista" "$ST/indice"
+  falar "Sessão $(falavel "$s") renomeada para $(falavel "$novo")."
+}
+trocar_conta_voz() {
+  local conta=${1:-} m s args ident r
+  m=$(alvo_m); s=$(alvo_s)
+  if [[ -z $conta ]]; then
+    r=$(contas_de "$m" | cut -f1 | head -8 | tr '\n' ',')
+    falar "Contas disponíveis em $m: ${r%,}. Diga troque a conta para, e o nome da conta."; return
+  fi
+  [[ -n $s ]] || { falar 'Escolha uma sessão primeiro.'; return; }
+  args=$(conta_para "$m" "$conta") || { falar "Não conheço a conta $conta em $m."; return; }
+  conta=${args#--conta }
+  [[ $conta =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { falar 'A conta tem um nome inválido.'; return; }
+  ident=$(em "$m" "tmux display-message -p -t $(q "=$s:") '#{pid}:#{session_id}:#{pane_id}'" 2>/dev/null)
+  [[ -n $ident ]] || { falar 'A sessão não existe mais.'; return; }
+  if [[ -n ${PLANO_LOTE:-} ]]; then lote_add "trocar a conta da sessão $(falavel "$s"), em $m, para $conta (interrompe o agente atual)" trocar_conta_ja "$m" "$s" "$conta" "$ident"
+  else confirmar_pedir 1 "Trocar a conta da sessão $(falavel "$s"), em $m, para $conta? O agente atual será interrompido. Diga sim para trocar." '' trocar_conta_ja "$m" "$s" "$conta" "$ident"; fi
+}
+trocar_conta_ja() {
+  local m=$1 s=$2 conta=$3 ident=$4 atual args
+  atual=$(em "$m" "tmux display-message -p -t $(q "=$s:") '#{pid}:#{session_id}:#{pane_id}'" 2>/dev/null)
+  [[ $atual == "$ident" ]] || { falar 'A sessão mudou desde o pedido: não troquei a conta.'; return; }
+  args=$(conta_para "$m" "$conta")
+  [[ $args == "--conta $conta" ]] || { falar 'A conta não está mais disponível: não troquei.'; return; }
+  trocar_ia "$conta" "$m" "$s"
 }
 
 # ---------- tarefas ----------
@@ -1554,7 +1708,7 @@ tarefa_achar() { # NOME [sub] -> apelido<TAB>título (apelido, código ou palavr
 apelido_falavel() { sed -E 's/([0-9])/ \1/g; s/  +/ /g' <<<"$1"; }  # "kito47" -> "kito 4 7"
 
 # ---------- confirmação: o que é destrutivo só acontece com o seu "sim" (duas vezes, quando o risco é maior) ----------
-CONFIRMAVEIS=" fechar_sessao_ja tarefa_apagar_ja notifs_limpar_ja "
+CONFIRMAVEIS=" fechar_sessao_ja tarefa_apagar_ja notifs_limpar_ja trocar_conta_ja "
 confirmar_pedir() { # ETAPAS "PERGUNTA" "PERGUNTA DA 2ª VEZ" AÇÃO ARGS…: grava, pergunta e espera o sim (5 min)
   local et=$1 p1=$2 p2=$3; shift 3
   [[ $CONFIRMAVEIS == *" $1 "* ]] || return 1
@@ -2371,6 +2525,16 @@ comando() {
     acompanhar|acompanhar\ *) acompanhar "${n#acompanhar}" ;;
     cancelar\ espera) cancelar_espera ;;
     esperas) esperas ;;
+    barra\ fixadas\ *) controle_interface_voz --fixadas-faixa "${n#barra fixadas }" ;;
+    nao\ perturbe\ invalido) falar 'Diga não perturbe por dez minutos, ou desligue não perturbe.' ;;
+    nao\ perturbe\ *) controle_interface_voz --nao-perturbe "${n#nao perturbe }" ;;
+    mensagem\ letreiro\ *) controle_interface_voz --letreiro-mensagem "$(cru_sufixo "$raw" "${n#mensagem letreiro }")" ;;
+    renomear\ sessao\ *) r=${n#renomear sessao }; renomear_sessao_voz "${r%%|*}" "$(cru_sufixo "$raw" "${r#*|}")" ;;
+    email\ *) email_voz "${n#email }" ;;
+    transferencias\ *) transferencias_voz "${n#transferencias }" ;;
+    calendario\ abrir) abrir_interface_voz calendario ;;
+    calendario\ ler) tarefas_ler prazo ;;
+    trocar\ conta*) r=${n#trocar conta}; trocar_conta_voz "${r# }" ;;
     fixadas) fixadas_ler ;;
     agrupar\ fixadas) tt --fixadas-agrupar >/dev/null 2>&1; falar "Fixadas agrupadas por máquina." ;;
     fixar|fixar\ *) fixar_voz fixar "${n#fixar}" ;;

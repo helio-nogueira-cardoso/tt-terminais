@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.9.0 · 23/10/2026
+- **Mais controles pela voz:** esconder e mostrar a barra das fixadas, ligar o não perturbe com prazo, mudar a mensagem do letreiro e renomear sessões. Fixadas, histórico de avisos e acompanhamentos ficam preservados.
+- **E-mail, transferências e calendário:** a voz abre os painéis no terminal conectado à sessão escolhida e lê contas, estado da sincronização, transferências e tarefas com prazo.
+- **Trocar a conta da IA:** diga o nome da conta e confirme antes de interromper o agente. A confirmação é recusada se a sessão tiver sido substituída. Os novos controles também têm ajuda falada; barra e não perturbe estão no menu Administrar e na CLI.
+
 ## v2.8.10 · 23/10/2026
 - **Retorno da voz no celular:** o daemon verifica respostas e prazos do modo retorno mesmo sem outra espera ativa. O aviso segue pelo Tasker ou pelo Telegram conforme o canal do pedido.
 

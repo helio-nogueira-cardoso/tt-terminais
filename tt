@@ -30,6 +30,10 @@
 #                   --conta --cc --cco --anexo --html --ensaio (apelidos em inglês: --to --subject --body…)
 #   tt --letreiro-listar  fontes (APIs) do letreiro da faixa: -add -editar -rm -testar -log -exportar -importar
 #                   -catalogo -ajustes; painel: menu ⋯ → 📰 Letreiro (README: "Letreiro: fontes")
+#   tt --fixadas-faixa on|off|status  mostra/esconde a barra sem desafixar as sessões
+#   tt --nao-perturbe on|off|SEGUNDOS|status  silencia avisos do aparelho e preserva o sino
+#   tt --letreiro-mensagem "TEXTO"  muda a mensagem local sem remover as outras fontes
+#   tt --renomear SESSÃO "NOME"  renomeia sem abrir o prompt
 #   tt --tailscale-ws garantir|ativar|desativar|status|testar  fallback WebSocket local no macOS
 #   tt --snapshots [on|off|status]  histórico de até 50 snapshots do estado (abas, agentes de IA, fixadas); ⏎ restaura
 #   tt --busca-conversas T   conversas antigas (Claude, Codex, Kiro; todas as contas) que casam com T; tt --sessao-falar ORIG DEST "msg"  uma sessão fala com outra
@@ -2852,7 +2856,7 @@ versao_rotulo() { if [[ ${2:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then printf 'v%s'
 
 # tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
 ajuda() {
-  sed -n '2,45p' "$EU" | sed 's/^# \{0,1\}//'
+  sed -n '2,49p' "$EU" | sed 's/^# \{0,1\}//'
   printf '\nVersão instalada: %s (%s)\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao_humana)" "$(versao)" "$DIR_TT" "$DIR_TT"
 }
 
@@ -8909,6 +8913,8 @@ menu_admin() {
   done < <(maquinas)
   {
     printf 'P\t  ⚡ Pré-carregamento de sessões…\t%s\n' "$(popup_tt "$c" 'pré-carregamento' "$EU --precarregar-ui")"
+    printf 'F\t  📌 Barra das fixadas: %s (alternar)\t%s\n' "$(fixadas_faixa_ativa && echo visível || echo oculta)" "$EU --fixadas-faixa alternar"
+    printf 'D\t  🌙 Não perturbe: %s (alternar)\t%s\n' "$(nao_perturbe_ativo && echo ligado || echo desligado)" "$EU --nao-perturbe alternar"
     printf 'e\t  📤 Enviar arquivos…\t%s\n' "$(popup_tt "$c" "📤 enviar" "TT_CLIENTE=$c TT_PANE=$p $EU --enviar")"
     printf 'r\t  📥 Trazer arquivos…\t%s\n' "$(popup_tt "$c" "📥 trazer" "TT_CLIENTE=$c TT_PANE=$p $EU --trazer")"
     printf 'f\t  ⇅  Acompanhar as transferências…\t%s\n' "$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")"
@@ -11554,10 +11560,82 @@ notifs_sincronizar() (
 )
 notifs_sincronizar_em_segundo_plano() { ("$EU" --notifs-sync >/dev/null 2>&1 &) }
 
-# Quantas linhas a barra tem: 3 (margem, janelas, fixadas), ou 4 com a faixa de notificações. Sem réguas:
+# Quantas linhas a barra tem: margem, janelas, fixadas opcionais e a faixa de notificações opcional. Sem réguas:
 # as faixas se distinguem só pelo fundo. TODO caminho que mexe no número de linhas passa por aqui — dois
 # pontos discordando faziam a faixa piscar.
-barra_status_linhas() { if faixa_notif_ativa; then echo 4; else echo 3; fi; }
+barra_status_linhas() {
+  local n=3; faixa_notif_ativa && n=4
+  fixadas_faixa_ativa || n=$((n - 1))
+  echo "$n"
+}
+
+fixadas_faixa_ativa() { local v; conf_em v fixadas_faixa; [[ $v != 0 ]]; }
+fixadas_faixa_cmd() {
+  local modo=${1:-status}
+  [[ $modo == alternar ]] && { if fixadas_faixa_ativa; then modo=off; else modo=on; fi; }
+  case $modo in
+    on) conf_gravar fixadas_faixa 1 || return 1; atualizar_barras ;;
+    off) conf_gravar fixadas_faixa 0 || return 1; atualizar_barras ;;
+    status|estado) ;;
+    *) echo 'uso: tt --fixadas-faixa on|off|alternar|status' >&2; return 2 ;;
+  esac
+  if fixadas_faixa_ativa; then echo 'Barra das fixadas: visível.'; else echo 'Barra das fixadas: oculta.'; fi
+}
+
+nao_perturbe_ativo() {
+  local fim="" agora
+  { IFS= read -r fim <"$ESTADO_DIR/nao-perturbe"; } 2>/dev/null || return 1
+  [[ $fim == on ]] && return 0
+  [[ $fim =~ ^[1-9][0-9]{0,11}$ ]] || return 1
+  printf -v agora '%(%s)T' -1
+  ((10#$fim > agora))
+}
+nao_perturbe_cmd() { # on | off | segundos | status
+  local modo=${1:-status} agora fim tmp
+  [[ $modo == alternar ]] && { if nao_perturbe_ativo; then modo=off; else modo=on; fi; }
+  case $modo in
+    off) rm -f "$ESTADO_DIR/nao-perturbe" ;;
+    on|[0-9]*)
+      fim=on
+      if [[ $modo != on ]]; then
+        [[ $modo =~ ^[1-9][0-9]{0,4}$ ]] && ((10#$modo <= 86400)) || { echo 'informe de 1 a 86400 segundos' >&2; return 2; }
+        printf -v agora '%(%s)T' -1; fim=$((agora + 10#$modo))
+      fi
+      mkdir -p "$ESTADO_DIR"; tmp=$(mktemp "$ESTADO_DIR/nao-perturbe.XXXXXX") || return 1
+      printf '%s\n' "$fim" >"$tmp" && mv -f "$tmp" "$ESTADO_DIR/nao-perturbe" || return 1 ;;
+    status|estado) ;;
+    *) echo 'uso: tt --nao-perturbe on|off|SEGUNDOS|status' >&2; return 2 ;;
+  esac
+  if nao_perturbe_ativo; then
+    IFS= read -r fim <"$ESTADO_DIR/nao-perturbe"
+    if [[ $fim == on ]]; then echo 'Não perturbe: ligado, até você desligar.'
+    else printf 'Não perturbe: ligado até %s.\n' "$(tt_fmt_epoch "$fim" '%d/%m %H:%M')"; fi
+  else echo 'Não perturbe: desligado.'; fi
+}
+
+letreiro_mensagem() {
+  local texto=${1:-} nome=voz-mensagem
+  [[ -n ${texto//[[:space:]]/} && ${#texto} -le 1000 && $texto != *$'\n'* && $texto != *$'\r'* && $texto != *$'\e'* ]] ||
+    { echo 'informe uma mensagem de até 1000 caracteres, em uma linha' >&2; return 2; }
+  if letreiro_py ler "$nome" >/dev/null 2>&1; then
+    letreiro_py editar "$nome" origem=lista item= "item=$texto" ativa=1 escopo=local >/dev/null || return 1
+  else letreiro_py criar "$nome" origem=lista "item=$texto" ativa=1 escopo=local ordem=0 >/dev/null || return 1; fi
+  letreiro_py atualizar "$nome" --forcar >/dev/null || return 1
+  letreiro_mudou
+  echo 'Mensagem do letreiro atualizada.'
+}
+
+interface_abrir() { # tipo cliente: as mesmas ações dos botões da barra
+  local tipo=${1:-} c=${2:-}
+  [[ -n $c ]] && tmux list-clients -F '#{client_name}' 2>/dev/null | grep -qxF -- "$c" ||
+    { echo 'terminal não está mais conectado' >&2; return 1; }
+  case $tipo in
+    email) botao_email "$c" ;;
+    calendario) abrir_calendario "$c" ;;
+    transferencias) tmux display-popup -c "$c" -E $(dim_popup "$c" 90 26) -b rounded -T '⇅ transferências' "$(q "$EU") --transferencias" ;;
+    *) echo 'interface desconhecida' >&2; return 2 ;;
+  esac
+}
 
 faixa_notif_ativa() {
   local v; conf_em v faixa_notif
@@ -12962,6 +13040,7 @@ tarefas_notificar() { # titulo corpo [ação para o clique na faixa] [canal: sin
 # percebe o evento mostra a sua, mesmo quando o aviso do 🔔 (um só na rede, pelo código) já veio de outra.
 notificar_aparelho() { # titulo corpo
   local t=$1 c=$2 cl ok=1
+  nao_perturbe_ativo && return 0
   # Com a faixa ligada o aviso JÁ aparece nela: o display-message por cima da 1ª linha vira
   # redundância que cobre a barra — só entra quando a faixa está desligada.
   if faixa_notif_ativa; then
@@ -15543,8 +15622,8 @@ atualizar_barras_fundo() {
 # que a barra só lê. Só grava o que mudou: cada set-option redesenha a tela inteira de todos os
 # clientes (o miolo da faixa nem passa por aqui — é o letreiro-tt.py, ver barra_notifs_fmt).
 atualizar_barras() {
-  local nome valor fmt="" i sai l1 st_atual="" faixa=0 st _qn v_tarefas v_versao
-  local -a nomes=(fixadas atalhos transf versao tarefas email data hora notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0) atuais=() lote=()
+  local nome valor fmt="" i sai l1 st_atual="" faixa=0 st _qn v_tarefas v_versao fx_visivel=1
+  local -a nomes=(fixadas atalhos transf versao tarefas email data hora notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0 fixadas_ocultas) atuais=() lote=()
   # Os valores atuais (e o status) numa ida só ao tmux (eram 16 show, um por opção, e o servidor do tmux
   # atende um pedido por vez); #{@x} devolve o valor literal, sem expandir o que está dentro. Se a leitura
   # vier incompleta, volta ao show por opção: na dúvida, nunca regrava (cada set redesenha todos os clientes).
@@ -15560,12 +15639,14 @@ atualizar_barras() {
   fi
   # A faixa ligada ou não decide 6 dos segmentos e o nº de linhas: perguntada uma vez (eram 7 a cada volta).
   faixa_notif_ativa && faixa=1
+  fixadas_faixa_ativa || fx_visivel=0
   # Tarefas e versão também medem o canto direito da faixa das fixadas: calculados uma vez só, aqui.
   v_tarefas=$(barra_tarefas_fmt); v_versao=$(versao_barra)
   local _BARRA_DIR_TXT="$v_tarefas$v_versao"
   for i in "${!nomes[@]}"; do
     nome=${nomes[i]}
     case $nome in
+      fixadas_ocultas) valor=$((1 - fx_visivel)) ;;
       fixadas) valor=$(barra_fixadas_fmt) ;;
       atalhos) valor=$(atalhos_barra) ;;
       transf) valor=$(transferencias_barra) ;;
@@ -15594,13 +15675,16 @@ atualizar_barras() {
         else valor="#{E:@barra_tarefas}#{E:@barra_versao}"; fi ;;
       fim0)
         if ((faixa)); then valor=""
-        else valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{?#{e|<:#{client_width},60},,#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},90},,#{E:@barra_data}}#{E:@barra_hora} #[norange]#[default]}"; fi ;;
+        else valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{?#{e|<:#{client_width},60},,#[range=user|relogio]#[fg=#a6adc8]#{?#{e|<:#{client_width},90},,#{E:@barra_data}}#{E:@barra_hora} #[norange]#[default]}"
+          ((fx_visivel)) || valor+=" #{E:@barra_tarefas}#{E:@barra_versao}"
+        fi ;;
     esac
     [[ $valor == "${atuais[i]}" ]] && continue
     lote_add lote set -g "@barra_$nome" "$valor"
   done
-  # Mesmo critério de barra_status_linhas (4 linhas com a faixa, 3 sem).
+  # Mesmo critério de barra_status_linhas, descontando a faixa das fixadas quando oculta.
   if ((faixa)); then st=4; else st=3; fi
+  ((fx_visivel)) || st=$((st - 1))
   [[ $st_atual == "$st" ]] || lote_add lote set -g status "$st"
   # Tudo o que mudou numa ida só: o servidor aplica os sets juntos e redesenha os clientes UMA vez (cada set
   # separado era um pedido na fila e um redesenho da tela inteira de todos os clientes).
@@ -21127,6 +21211,10 @@ case "${1:-}" in
   --notifs-lidas) notifs_marcar_lidas; exit ;;
   --notifs-listar) notifs_listar "${2:-todas}"; exit 0 ;;   # id, lida, quando, texto (texto puro; a voz lê por aqui)
   --notifs-limpar-lidas) notifs_limpar_lidas_cli; exit 0 ;; # apaga as lidas (aqui e na rede) e diz quantas
+  --fixadas-faixa) fixadas_faixa_cmd "${2:-status}"; exit $? ;;
+  --nao-perturbe) nao_perturbe_cmd "${2:-status}"; exit $? ;;
+  --interface-abrir) interface_abrir "${2:-}" "${3:-}"; exit $? ;;
+  --letreiro-mensagem) letreiro_mensagem "${2:-}"; exit $? ;;
   --letreiro-ler) ticker_linha_montar; echo; exit 0 ;;      # o que o letreiro mostra agora (sem buscar nada na rede)
   --letreiro-pausa) letreiro_pausa_cli "${2:-estado}"; exit $? ;;
   --notif-abrir) notif_abrir "${2:-}" "${3:-}"; exit 0 ;;
@@ -21215,7 +21303,7 @@ case "${1:-}" in
           tmux new-session -d -s "$nome" -c "$HOME" && echo "$nome"; exit ;;
   --adotar) adotar "$2"; exit ;;
   --sugerir) sugerir_nome "$2"; exit ;;
-  --renomear) renomear_interativo "${2:-$(tmux display-message -p '#{session_name}')}"; exit ;;
+  --renomear) if (($# >= 3)); then renomear "$2" "$3"; else renomear_interativo "${2:-$(tmux display-message -p '#{session_name}')}"; fi; exit ;;
   --nomear-todas) nomear_todas; exit ;;
   --nomear-todas-local) nomear_todas_local; exit ;;
   --vigia) vigiar; exit ;;

@@ -493,6 +493,22 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   `--tarefa-editar`; `tarefa_achar NOME [sub]`); notificações (`tt --notifs-listar`, `--notifs-lidas`,
   `--notifs-limpar-lidas` com confirmação); letreiro (`tt --letreiro-ler`, `tt --letreiro-pausa sim|nao`). Texto com
   acento vem da frase original (`cru_sufixo`, `cru_trecho`).
+- Controles da etapa 2: `controle_interface_voz` chama o tt na máquina escolhida com argumentos literais.
+  `barra_fixadas` (`tecla=mostrar|esconder|estado`), `nao_perturbe` (`tecla=ligar|desligar|estado`, `segundos` opcional),
+  `mensagem_letreiro` (`texto`), `renomear_sessao` (`sessao` opcional, `texto` novo), `email` (`abrir|contas|estado`),
+  `transferencias` (`abrir|ler`), `calendario` (`abrir|ler`) e `trocar_conta` (`ia` = conta) são ações do cérebro e das regras.
+  Reescreva antes de tirar verbos como “mostre”: nesse caso ele significa tornar a faixa visível.
+  `--fixadas-faixa` persiste `fixadas_faixa=0|1`, ajusta status para 2–4 linhas e mantém os cadastros. Com a faixa
+  de notificações desligada, os chips de tarefas/versão passam para a linha das janelas quando as fixadas estão ocultas.
+  `--nao-perturbe` usa estado local em `nao-perturbe` (on ou epoch de término, até 86400 s); a expiração é conferida
+  com relógio do Bash. Silencia `notificar_aparelho`, incluindo sobreposição de terminal; histórico e sino permanecem.
+  `--letreiro-mensagem` cria/edita a fonte local `voz-mensagem` (lista), substitui seu item e atualiza só essa fonte.
+  A CLI `--renomear S N` usa o mesmo `renomear` manual; a voz acompanha a mudança no alvo, permissões, pendente,
+  chamadas, agenda, acompanhamentos e fila de retorno. `--interface-abrir TIPO CLIENTE` reutiliza e-mail/calendário/popup
+  de transferências; a voz escolhe um cliente anexado à sessão, sem cair no terminal de outra sessão.
+  `trocar_conta_voz` valida a conta e guarda servidor/sessão/painel; confirma pelo mecanismo existente (fila do plano
+  para ações do cérebro), revalida a identidade e a conta, e chama o atalho `ia-aqui` via `trocar_ia`.
+  Testes: `tests/test_interface_controles.sh` e `tests/test_voz_interface.sh`.
 - Fechar e limpeza: `fechar_sessao [NOME]` confirma (2 vezes se é a escolhida ou está trabalhando; sessão `_*` nunca) e
   `fechar_uma` usa `tt --fechar . SESSÃO` lá (solta a fixada). `limpeza [MÁQUINA]`: `tt --listar-tudo --tsv` de todas ao
   mesmo tempo → `LIMPEZA_AWK` (manter: escolhida, acompanhada, anexada, fixada, papel ≠ atalho, rascunho, ocioso < 120 s,
@@ -1146,7 +1162,8 @@ volta ao PATH de origem (`_TT_PATH_ORIGEM`).
   `notify-send`/`termux-notification` mudo (`tests/sem-notificacao-real.sh`; só para os comandos que existem
   na máquina) e o `run.sh` põe uma sentinela por teste que reprova o teste que ainda chegar ao de verdade. Teste que
   quer conferir o aviso põe o próprio stub em `$T/bin`. O `notify-send` dos AGENTES (`--notificar-daqui`)
-  nunca é suprimido no uso real: vai ao 🔔 e ao sistema (regra do usuário; `test_notificar_daqui` item 9).
+  vai ao 🔔 e ao sistema no uso normal (regra do usuário; `test_notificar_daqui` item 9). O não perturbe ligado
+  explicitamente pelo usuário silencia o aparelho, preservando o aviso no 🔔.
 - Paralelo: `TT_TESTES_J` testes ao mesmo tempo (padrão nº de CPUs, até 8; no Mac, no máximo um por 4 GB de RAM;
   `1` = em fila; valor explícito prevalece), cada um com a sua
   sentinela (`TMUX_TMPDIR` próprio); fila pelos mais demorados (`~/.cache/tt-testes/duracoes`); a saída de cada
