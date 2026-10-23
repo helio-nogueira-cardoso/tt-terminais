@@ -2356,8 +2356,9 @@ um terminal parado no prompt de reconexão não conta como ponte pronta. Um rein
 coordenador recupera essas marcas, preservando o dono de cada tela. A fixada local também
 troca pelo caminho curto quando tem identidade estável.
 
-O clique numa fixada conectada usa um pedido Unix local antes de carregar o núcleo Bash.
-Se não houver ponte válida/coordenador, continua pelo comando original; uma resposta perdida
+O clique numa fixada usa um pedido Unix local antes de carregar o núcleo Bash.
+O coordenador já aberto também ativa uma ponte preparada ou prepara o destino sob demanda.
+Se não houver coordenador ou o pedido não puder ser atendido ali, continua pelo comando original; uma resposta perdida
 não repete uma ação já enviada. Pressionar faz a troca e soltar não inicia outra. O vigia é
 conferido em segundo plano, sem segurar a troca. `TT_COMPLETO=1` ou o arquivo de diagnóstico
 `~/.config/tt/trace` conservam o caminho completo. Preparações novas continuam exigindo

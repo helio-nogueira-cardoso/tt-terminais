@@ -17,8 +17,8 @@ revalidada imediatamente antes da troca. Reinício recupera pontes com essas mar
 antiga sem elas passa pela abertura completa uma vez, sem migração presumida de conexões.
 
 A entrada da fixada instalada delega um RPC Unix antes de carregar o núcleo Bash. Não cria daemon,
-não prepara SSH nem executa tarefas no caminho curto. Falta de cache/coordenador reexecuta o
-comando original uma vez. Resposta incerta não duplica o clique. Soltar não navega novamente.
+não abre SSH nem executa tarefas no cliente curto. O coordenador já aberto pode ativar a preparada
+ou preparar sob demanda pelo fluxo habitual. Falta de coordenador/atendimento reexecuta o comando original uma vez. Resposta incerta não duplica o clique. Soltar não navega novamente.
 Fixada local com ID usa a mesma entrada; cliente aninhado continua no caminho de retorno à origem.
 Vigia é conferido depois da resposta e no máximo a cada 30 s; trace/TT_COMPLETO preservam o Bash.
 
@@ -50,3 +50,8 @@ checagem deferida do vigia e documentação, ainda será revalidada no Mac e no 
 
 Nenhuma sessão/ponte do usuário foi usada como bancada. Nenhum push, instalação remota ou acesso
 físico ao S23. Os extras de voz d5e2257/v2.10.3 permanecem na sua worktree, separados desta correção.
+
+Às 11:07, o benchmark passou a gerar o núcleo da instalação nos dois lados da comparação.
+Também eliminada a reexecução do Bash quando o coordenador já possui uma ponte preparada ou pode
+preparar sob demanda. Os números anteriores acima são do pacote sem núcleo gerado e não devem
+ser tratados como medição direta da versão instalada; aguardar o novo comparativo.

@@ -780,17 +780,21 @@ class Coordinator:
         if op == "revisit":
             if read_config().get("precarregar") == "off" or os.environ.get("TT_PRECARREGAR") == "0":
                 return {"handled": False}
+            if data.get("dest") != self.machine:
+                # O coordenador já possui SSH_ARGS e o destino cadastrado. Mesmo uma ponte
+                # pronta/sob demanda pode ativar aqui, sem reexecutar o Bash no cliente.
+                handled = self.navigate(data).get("handled", False)
+                self.guardian_needed = self.guardian_needed or handled
+                return {"handled": handled}
             self.scan_clients()
             client = data.get("client")
             old = self.requests.pop(client, None)
             if old:
                 self.discard(old["key"])
-            label = self.machine if data.get("dest") == self.machine else self.resolve_machine(data.get("dest", ""))
-            if client not in self.clients or not label or not text_ok(data.get("name")):
+            if client not in self.clients or not text_ok(data.get("name")):
                 return {"handled": False}
-            target = {"machine": label, "name": data["name"], "id": data.get("id", "")}
-            handled = (self.revisit_local(client, target, data) if label == self.machine
-                       else self.revisit(client, target, data))
+            target = {"machine": self.machine, "name": data["name"], "id": data.get("id", "")}
+            handled = self.revisit_local(client, target, data)
             self.guardian_needed = self.guardian_needed or handled
             return {"handled": handled}
         if op == "cancel":

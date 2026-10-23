@@ -363,6 +363,19 @@ class Heuristica(unittest.TestCase):
             self.assertEqual(exercise(row, live="tela\t18\t101\torigem"), (True, False))
             self.assertEqual(exercise(row, live="tela\t17\t100\toutra"), (True, False))
 
+    def test_entrada_curta_delega_primeira_ativacao_ao_coordenador_existente(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)), \
+                patch.object(pre, "read_config", return_value={}), \
+                patch.dict(pre.os.environ, {"TT_PRECARREGAR": "1"}), \
+                patch.object(pre.subprocess, "Popen") as spawn:
+            c = pre.Coordinator(Path(d))
+            data = {"op": "revisit", "client": "tela", "dest": "dell", "name": "tarefa", "id": "a" * 32}
+            with patch.object(c, "navigate", return_value={"handled": True}) as navigate:
+                self.assertEqual(c.handle(data), {"handled": True})
+                navigate.assert_called_once_with(data)
+                spawn.assert_not_called()  # vigia não bloqueia a resposta
+                self.assertTrue(c.guardian_needed)
+
     def test_vigia_do_clique_curto_e_deferido_limitado_e_isolado(self):
         with tempfile.TemporaryDirectory() as d, patch.object(pre, "STATE", Path(d)), \
                 patch.dict(pre.os.environ, {"TT_SEM_VIGIA_AUTO": "0"}), \

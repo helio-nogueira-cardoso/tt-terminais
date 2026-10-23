@@ -60,6 +60,9 @@ if "$TT" --listar-leve | grep -q 'tt-pre-'; then falhou 'transporte especulativo
 [[ $(tmux list-clients -F '#{session_name}' | sort -u) == origem ]] || falhou 'pré-carregamento trocou tela sem clique'
 passou 'conexões preparadas sem anexar cliente nem trocar a tela'
 
+# Mesmo núcleo gerado na instalação real, para não atribuir à mudança o custo de ler o tt inteiro.
+"$TT" --rapido gerar >/dev/null
+
 # Nome muda depois de preparar: identidade persiste.
 R rename-session -t primeira renomeada
 # CLI interna usa a mesma entrada de navegação da barra, com identidade explícita.

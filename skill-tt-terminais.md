@@ -174,7 +174,7 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
 - **Voltar a uma ponte viva é local:** a entrada curta da fixada faz RPC Unix e confere tty/PID/nascimento,
   dono, identidade, bilhete, PID do transporte e `@tt_pre_viva`. Sem SSH por retorno; também recupera a ponte após
   reinício do coordenador. A fixada local com ID estável usa a mesma entrada. Transporte encerrado limpa a marca,
-  mesmo se o pane continua no prompt. Pressionar troca; soltar não repete. Sem cache válido, reexecuta o comando
+  mesmo se o pane continua no prompt. Pressionar troca; soltar não repete. O coordenador já aberto também ativa a preparada ou prepara sob demanda. Sem coordenador/atendimento, reexecuta o comando
   original; resposta perdida nunca duplica. `TT_COMPLETO=1`/arquivo `trace` conservam o fluxo completo. Vigia em
   segundo plano. Ponte antiga sem marca viva precisa de uma abertura completa após atualizar.
 - Primeiro uso continua validando destino e primeiro quadro via rede. Sondagens: 10 ms no início do pedido,
