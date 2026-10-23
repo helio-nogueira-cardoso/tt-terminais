@@ -104,3 +104,15 @@ for acao in barra_fixadas nao_perturbe mensagem_letreiro renomear_sessao email t
   grep -q "\"acao\":\"$acao\"" <<<"$regras" || falhou "ação ausente no prompt: $acao"
 done
 passou 'cérebro: novas ações preservam texto literal e a troca participa da confirmação do plano'
+
+# Uma escolha persistida pode ter sido removida do cadastro entre duas falas.
+printf descartada >"$EST/alvo_m"
+saida=$(v 'esconda a barra das fixadas')
+[[ $saida == *'Não consegui'* ]] || falhou "máquina removida recebeu sucesso: $saida"
+estado=$(tt --fixadas-faixa status); [[ $estado == *visível* ]] || falhou 'máquina removida alterou a barra local'
+antes=$(cat "$TEST_UI_LOG")
+v 'abrir e-mail' >/dev/null
+[[ $(cat "$TEST_UI_LOG") == "$antes" ]] || falhou 'máquina removida abriu interface local'
+v 'troque a conta para career' >/dev/null
+[[ ! -e $TEST_CONTA_LOG ]] || falhou 'máquina removida trocou a conta local'
+passou 'voz: máquina removida do cadastro não redireciona controles ao servidor local'

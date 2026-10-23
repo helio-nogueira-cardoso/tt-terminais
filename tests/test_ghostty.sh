@@ -3,6 +3,7 @@
 # configuração no TOPO do arquivo (o que o dono escreve abaixo vence), idempotente e preservando o resto; o
 # ~/.bashrc abre o tt numa janela do Ghostty; o tmux liga os recursos do xterm-ghostty.
 source "$(dirname "$0")/lib.sh"; isolar
+export TT_GHOSTTY_BIN=$T/ghostty-ausente # não herdar o Ghostty real, inclusive /snap/bin
 B=$T/bin; mkdir -p "$B"
 carrega() { source <(sed -n '/^mac_ghostty_conf() {/,/^}/p;/^GHOSTTY_INI=/,/^# tt --ghostty/p' "$TT"); }
 

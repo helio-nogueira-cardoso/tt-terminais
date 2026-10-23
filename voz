@@ -183,6 +183,7 @@ em() { # em ROTULO comando...  (roda lá, local ou por ssh; EM_TEMPO segundos no
   # sem stdin (ssh -n): o ssh lê o stdin inteiro de quem o chama, e dentro de um "while read" (o plano do cérebro, o sim
   # do plano) comia as linhas seguintes: só o 1º passo numa outra máquina rodava, e o resto sumia calado
   local d; d=$(destino "$1"); shift
+  [[ -z $d && ${EM_EXIGIR_DESTINO:-} == 1 ]] && return 1
   if [[ $d == local || -z $d ]]; then timeout "${EM_TEMPO:-40}" bash -c "$*" </dev/null; else
     timeout "${EM_TEMPO:-40}" ssh -n "${SSHO[@]}" "$d" "PATH=\"\$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:\$PATH\"; TMUX_TMPDIR=\"\${TMUX_TMPDIR:-\$([ -d \"\${PREFIX:-/x}/var/run\" ] && echo \"\$PREFIX/var/run\")}\"; export TMUX_TMPDIR; $*"; fi
 }
@@ -1569,11 +1570,13 @@ passar_ia() { # [MAQ]: o ⏩ na sessão escolhida (a conversa segue com outra IA
 }
 
 controle_interface_voz() { # verbo do tt e argumentos literais, na máquina escolhida
+  local EM_EXIGIR_DESTINO=1
   local r m; m=$(alvo_m)
   if r=$(em "$m" "tt $(q "$@")" 2>/dev/null); then falar "$r"
   else falar "Não consegui fazer isso em $m. Confira se o tt está atualizado."; fi
 }
 abrir_interface_voz() {
+  local EM_EXIGIR_DESTINO=1
   local tipo=$1 m s c r comando rotulo
   m=$(alvo_m); s=$(alvo_s)
   [[ -n $s ]] || { falar 'Escolha uma sessão primeiro.'; return; }
@@ -1586,6 +1589,7 @@ abrir_interface_voz() {
   else falar "Não consegui abrir $rotulo em $m."; fi
 }
 email_voz() {
+  local EM_EXIGIR_DESTINO=1
   local r
   case ${1:-abrir} in
     abrir) abrir_interface_voz email ;;
@@ -1595,12 +1599,14 @@ email_voz() {
   esac
 }
 transferencias_voz() {
+  local EM_EXIGIR_DESTINO=1
   local r
   if [[ ${1:-ler} == abrir ]]; then abrir_interface_voz transferencias
   else r=$(em "$(alvo_m)" 'tt --transferencias' </dev/null 2>/dev/null | semcor | head -5 | tr '\n' ' ')
     falar "${r:-Nenhuma transferência registrada.}"; fi
 }
 renomear_sessao_voz() {
+  local EM_EXIGIR_DESTINO=1
   local nome=$1 novo=$2 r m s f tmp cm cs
   [[ -n $novo ]] || { falar 'Diga renomeie esta sessão para, e o novo nome.'; return; }
   r=$(sessao_resolver "$nome") || { falar "Não achei a sessão $nome."; return; }
@@ -1621,6 +1627,7 @@ renomear_sessao_voz() {
   falar "Sessão $(falavel "$s") renomeada para $(falavel "$novo")."
 }
 trocar_conta_voz() {
+  local EM_EXIGIR_DESTINO=1
   local conta=${1:-} m s args ident r
   m=$(alvo_m); s=$(alvo_s)
   if [[ -z $conta ]]; then
@@ -1637,6 +1644,7 @@ trocar_conta_voz() {
   else confirmar_pedir 1 "Trocar a conta da sessão $(falavel "$s"), em $m, para $conta? O agente atual será interrompido. Diga sim para trocar." '' trocar_conta_ja "$m" "$s" "$conta" "$ident"; fi
 }
 trocar_conta_ja() {
+  local EM_EXIGIR_DESTINO=1
   local m=$1 s=$2 conta=$3 ident=$4 atual args
   atual=$(em "$m" "tmux display-message -p -t $(q "=$s:") '#{pid}:#{session_id}:#{pane_id}'" 2>/dev/null)
   [[ $atual == "$ident" ]] || { falar 'A sessão mudou desde o pedido: não troquei a conta.'; return; }

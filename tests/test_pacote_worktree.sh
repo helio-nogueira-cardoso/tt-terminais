@@ -7,7 +7,15 @@ T=$(mktemp -d); trap 'git -C "$T/repo" worktree remove --force "$T/wt" >/dev/nul
 source "$(dirname "$0")/tmux-isolado.sh"
 fail() { echo "FALHOU: $*" >&2; exit 1; }
 
-git clone -q "$RAIZ" "$T/repo"
+if [[ -e $RAIZ/.git ]]; then
+  git clone -q "$RAIZ" "$T/repo"
+else
+  # git archive é o transporte de testes entre máquinas: crie o histórico só desta fixture.
+  git init -q "$T/repo"
+  cp -R "$RAIZ/." "$T/repo/"
+  git -C "$T/repo" add -A
+  git -C "$T/repo" -c user.name=teste -c user.email=teste@invalid -c commit.gpgsign=false commit -qm fixture
+fi
 git -C "$T/repo" worktree add -q --detach "$T/wt"
 [[ -f $T/wt/.git ]] || fail "a worktree deveria ter .git como arquivo"
 esperado=$(git -C "$T/wt" rev-parse --short HEAD)

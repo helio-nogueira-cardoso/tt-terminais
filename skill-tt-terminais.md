@@ -494,6 +494,7 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   `--notifs-limpar-lidas` com confirmação); letreiro (`tt --letreiro-ler`, `tt --letreiro-pausa sim|nao`). Texto com
   acento vem da frase original (`cru_sufixo`, `cru_trecho`).
 - Controles da etapa 2: `controle_interface_voz` chama o tt na máquina escolhida com argumentos literais.
+  Os controles exigem destino cadastrado (`EM_EXIGIR_DESTINO`): máquina removida não vira ação local.
   `barra_fixadas` (`tecla=mostrar|esconder|estado`), `nao_perturbe` (`tecla=ligar|desligar|estado`, `segundos` opcional),
   `mensagem_letreiro` (`texto`), `renomear_sessao` (`sessao` opcional, `texto` novo), `email` (`abrir|contas|estado`),
   `transferencias` (`abrir|ler`), `calendario` (`abrir|ler`) e `trocar_conta` (`ia` = conta) são ações do cérebro e das regras.
