@@ -28,7 +28,8 @@ case ${1:-} in
   show)
     shift; us=() ps=(); while (($#)); do case $1 in -p) ps+=("$2"); shift 2 ;; --value) shift ;; *) us+=("$1"); shift ;; esac; done
     if [[ ${#us[@]} == 1 && ${#ps[@]} == 1 ]]; then prop "${us[0]}" "${ps[0]}"; exit 0; fi
-    n=0; for u in "${us[@]}"; do ((n++)) && echo; cat "$T/show/$u" 2>/dev/null; done; exit 0 ;;
+    # depois-UNIT: o estado da próxima olhada (o serviço muda entre duas amostras)
+    n=0; for u in "${us[@]}"; do ((n++)) && echo; cat "$T/show/$u" 2>/dev/null; [[ -f $T/depois-$u ]] && mv "$T/depois-$u" "$T/show/$u"; done; exit 0 ;;
   stop) touch "$T/parado-$2"; exit 0 ;;
   start | restart)
     echo "$2" >>"$T/ligados"
@@ -41,13 +42,18 @@ esac
 FIM
 cat >"$B/journalctl" <<'FIM'
 #!/usr/bin/env bash
-[[ " $* " == *" --grep "* ]] && echo "2026-10-22T16:45:20-03:00 empresa (ollama)[1]: ollama.service: Unable to locate executable"
+# -S @EPOCH (depois do fim do episódio anterior): a 1ª linha 5 s depois; senão, a de ontem
+s=""; a=("$@"); for ((i = 0; i < ${#a[@]}; i++)); do [[ ${a[i]} == -S ]] && s=${a[i + 1]:-}; done
+[[ " $* " == *" --grep "* ]] || exit 0
+if [[ $s == @* ]]; then
+  python3 -c 'import sys, time; print(time.strftime("%Y-%m-%dT%H:%M:%S-03:00", time.localtime(int(sys.argv[1]) + 5)) + " empresa (ollama)[2]: ollama.service: Unable to locate executable")' "${s#@}"
+else echo "2026-10-22T16:45:20-03:00 empresa (ollama)[1]: ollama.service: Unable to locate executable"; fi
 exit 0
 FIM
 chmod +x "$B"/*
 # (sem as esperas de segurança: conferir de pé, reconferir o programa ausente e esperar o programa assentar; cada uma
 # tem a sua própria verificação abaixo)
-export T PATH="$B:$TT_PATH_BASE" TT_SERVICO_CONFERIR=0 TT_SERVICO_RECONFERIR=0 TT_SERVICO_ASSENTAR=0
+export T PATH="$B:$TT_PATH_BASE" TT_SERVICO_CONFERIR=0 TT_SERVICO_RECONFERIR=0 TT_SERVICO_ASSENTAR=0 TT_SERVICO_REAMOSTRA=0
 N=$HOME/.local/state/tt/notifs
 em_loop() { # unit programa partidas status descrição [estado] [resultado]
   printf '%s loaded activating %s %s\n' "$1" "${6:-auto-restart}" "$5" >"$T/units/$1"
@@ -92,10 +98,15 @@ grep -qx ollama.service "$T/ligados" || falhou 'não ligou'
 passou 'o programa voltou: guarda tirada, serviço ligado e conferido de pé, aviso'
 
 # --- some de novo: outro episódio, outro aviso; volta e não fica de pé: registra e só tenta de novo se o programa mudar
+q=$(sed -n 's/^quando=//p' "$HOME/.local/state/tt/servicos/ollama.service")
 rm -f "$HOME/.local/ollama/bin/ollama" "$T/sobe-ollama.service" "$T/ativo-ollama.service" "$T/ligados"
 em_loop ollama.service "$PROG" 12 203 "Ollama local para Jiraops"
 sleep 1; vigiar
 [[ $(avisos ollama.service 'reiniciava sem parar') == 2 ]] || falhou "o episódio novo não avisou: $(avisos ollama.service 'reiniciava sem parar')"
+# desde quando: o sumiço de agora (depois de o serviço ter ficado de pé), não o primeiro do dia
+d=$(python3 -c 'import sys, time; print(time.strftime("%d/%m %H:%M", time.localtime(int(sys.argv[1]) + 5)))' "$q")
+a=$(cat "$(grep -l 'reiniciava sem parar' "$N"/* | sort | tail -1)")
+[[ $a == *"desde $d"* && $a != *'22/10 16:45'* ]] || falhou "o episódio novo deu o desde do anterior (esperava $d): $a"
 printf '#!/bin/sh\nexit 1\n' >"$HOME/.local/ollama/bin/ollama"; chmod +x "$HOME/.local/ollama/bin/ollama"; touch -d '-2 min' "$HOME/.local/ollama/bin/ollama"
 touch "$T/parado-ollama.service"
 vigiar
@@ -149,6 +160,26 @@ echo 252 >"$T/versao"; rm -rf "$HOME/.local/state/tt/servicos" "$U"
 em_loop velho.service "$HOME/.local/bin/sumido" 7 203 "Velho"; vigiar
 grep -q ConditionFileIsExecutable "$(guarda velho.service)" || falhou 'systemd 252: sem guarda'
 passou 'systemd 252: a guarda de programa ausente entra'
+
+# --- a amostra (23/10/2026, empresa): o loop de programa ausente passa um instante de pé a cada volta (o fork antes de o
+# exec falhar) e, no systemd 254+, em auto-restart-queued; pego aí, sumia da amostra e o --checar dava ok. De pé com o
+# programa apagado depois de subir (atualização) não é loop: não para nem avisa.
+rm -rf "$HOME/.local/state/tt/servicos" "$U"
+em_loop fila.service "$HOME/.local/bin/sumido-f" 8 203 "Fila" auto-restart-queued; vigiar
+grep -q ConditionFileIsExecutable "$(guarda fila.service)" || falhou 'auto-restart-queued: o loop não foi visto'
+em_loop instante.service "$HOME/.local/bin/sumido-i" 9 203 "Instante"; mv "$T/show/instante.service" "$T/depois-instante.service"
+em_loop instante.service "$HOME/.local/bin/sumido-i" 8 0 "Instante" running success; vigiar
+grep -q ConditionFileIsExecutable "$(guarda instante.service)" || falhou 'loop pego de pé (instante do exec): não foi visto'
+em_loop salto.service "$HOME/.local/bin/sumido-s" 9 0 "Salto" running success; mv "$T/show/salto.service" "$T/depois-salto.service"
+em_loop salto.service "$HOME/.local/bin/sumido-s" 8 0 "Salto" running success; vigiar
+grep -q ConditionFileIsExecutable "$(guarda salto.service)" || falhou 'loop de pé nas duas olhadas, mas partindo de novo: não foi visto'
+em_loop vivo.service "$HOME/.local/bin/apagado" 5 0 "Vivo" running success
+ck=$("$TT" --checar --tsv 2>/dev/null || true); vigiar
+[[ ! -e $(guarda vivo.service) && -z $(estado vivo.service) && $(avisos vivo.service 'reiniciava') == 0 ]] || falhou 'processo vivo com o programa apagado virou loop'
+grep -q -- '--user stop vivo.service' "$T/systemctl.log" && falhou 'parou um processo vivo com o programa apagado'
+grep -q $'^servicos\tfalha.*vivo' <<<"$ck" && falhou "checar deu loop a um processo vivo: $(grep '^servicos' <<<"$ck")"
+rm -f "$T/units/"{fila,instante,salto,vivo}.service
+passou 'amostra: loop pego de pé ou em auto-restart-queued é visto; processo vivo com o programa apagado não é tocado'
 
 # --- falha repetida: por taxa, nunca parada; espera crescente só no 254+; o que sai 0 e o que nunca entrou em loop ficam
 em_loop quebra.service /bin/sh 10 1 "Quebra"; vigiar                      # 1ª olhada: só observa
@@ -211,7 +242,8 @@ touch "$T/parado-cai.service"; sed -i 's/^SubState=.*/SubState=running/' "$T/sho
 vigiar; [[ -e $(guarda cai.service) ]] || falhou 'fechou o episódio com uma olhada só'
 vigiar; [[ ! -e $(guarda cai.service) && -z $(estado cai.service) ]] || falhou 'episódio de falha não fechou com o serviço de pé'
 rm -f "$T/ativo-cai.service"
-em_loop cai.service /bin/sh 30 1 "Cai"; vigiar; em_loop cai.service /bin/sh 40 1 "Cai"; vigiar
+# (o episódio é identificado pelo segundo em que a guarda entrou: a recaída no mesmo segundo seria o mesmo aviso)
+sleep 1; em_loop cai.service /bin/sh 30 1 "Cai"; vigiar; em_loop cai.service /bin/sh 40 1 "Cai"; vigiar
 [[ $(avisos cai.service 'falha e reinicia') == 2 ]] || falhou 'a recaída depois de normalizar não avisou'
 "$TT" --servicos soltar cai >/dev/null
 em_loop cai.service /bin/sh 50 1 "Cai"; vigiar; em_loop cai.service /bin/sh 60 1 "Cai"; vigiar

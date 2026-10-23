@@ -1758,12 +1758,17 @@ Um serviço do usuário com `Restart=` e sem limite de partidas, cujo programa s
 (`tt --servicos vigiar`, a cada 300 s; duas idas ao systemd), só no Linux com systemd do usuário (`servicos_guarda=0`
 desliga), e separa dois casos:
 
-- **Programa ausente** (o caminho do `ExecStart` não existe ou não executa, com 2+ partidas em `auto-restart`, ou
-  `failed` com 5+ partidas ou `start-limit-hit`): o único sem ambiguidade, contido sozinho. Drop-in
+- **Programa ausente** (o caminho do `ExecStart` não existe ou não executa, com 2+ partidas em `auto-restart` ou
+  `auto-restart-queued` (systemd 254+), ou `failed` com 5+ partidas ou `start-limit-hit`): o único sem ambiguidade,
+  contido sozinho. A cada volta o loop passa um instante `running` (o `Type=simple` fica ativo logo depois do fork,
+  antes de o exec falhar; sob carga, centenas de ms): pego de pé com o programa ausente e 2+ partidas, é olhado de novo
+  até 3 vezes (`TT_SERVICO_REAMOSTRA` s, 0,3) e só conta se partir de novo ou cair em `auto-restart`; de pé o tempo
+  todo é um processo vivo cujo programa foi trocado depois de subir, e fica de fora. Drop-in
   `UNIT.d/00-tt-guarda.conf` (na pasta de units do gerente; o `00-` deixa o `override.conf` do usuário prevalecer)
   com `ConditionFileIsExecutable=` (o serviço nem tenta sem o programa), `stop` + `reset-failed` e um aviso. Antes de
   abrir um episódio novo, confere o programa de novo `TT_SERVICO_RECONFERIR` s (8) depois: uma troca de versão deixa o
-  arquivo ausente por um instante. A cada volta o vigia reconcilia: programa de volta e com ctime de mais de
+  arquivo ausente por um instante. O "desde" do aviso é a 1ª falha do exec nas últimas 24 h, ou, se o episódio
+  anterior acabou com o serviço de pé, a 1ª depois disso. A cada volta o vigia reconcilia: programa de volta e com ctime de mais de
   `TT_SERVICO_ASSENTAR` s (30; o ctime, que o `tar`/`cp -p` não preservam) → tira a guarda, liga e CONFERE (`active` e
   sem partir de novo por `TT_SERVICO_CONFERIR` s, ou um oneshot que terminou com `Result=success`): de pé, avisa;
   senão, para o serviço e marca `religar-falhou` com o ctime do programa (só tenta de novo se ele mudar). `ExecStart`

@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.10.1 · 24/10/2026
+- **⚙ Guarda dos serviços:** o loop de programa ausente às vezes passava despercebido. A cada volta ele fica de pé por um instante (antes de o programa faltar de novo) e, no systemd 254 ou mais novo, passa por um estado de espera que o tt não conhecia; pego num desses momentos, o `tt --checar` dizia que estava tudo bem. Agora o tt olha de novo antes de concluir, e um programa trocado com o serviço rodando continua fora da conta. O aviso de um programa que some de novo no mesmo dia passa a dizer quando ele sumiu desta vez, não da primeira.
+
 ## v2.10.0 · 23/10/2026
 - **⚙ Guarda dos serviços do usuário:** um serviço do systemd que reinicia sem parar agora é percebido, explicado e tratado com critério. Antes, um serviço cujo programa sumiu ficava reiniciando a cada poucos segundos para sempre, sem nunca aparecer como falha: o ollama.service do Jiraops reiniciou 6611 vezes em 23 horas assim. O vigia confere a cada 5 minutos.
 - **Programa ausente:** o serviço deixa de tentar enquanto o programa não existir, e o aviso diz qual programa, para onde apontava o link quebrado e desde quando. Quando o programa volta, o tt religa o serviço, confere que ele ficou de pé e então tira a guarda. Se o serviço não subir, ele fica parado (nada de loop com o programa quebrado) e só tenta de novo quando o programa mudar. Uma troca de versão que deixa o programa ausente por um instante não conta.

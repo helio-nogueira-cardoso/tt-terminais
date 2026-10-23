@@ -2355,15 +2355,45 @@ servicos_ok() {
   [[ -n ${XDG_RUNTIME_DIR:-} || ! -d /run/user/$UID ]] || export XDG_RUNTIME_DIR=/run/user/$UID
   systemctl --user show-environment >/dev/null 2>&1
 }
-# "unit␟partidas␟estado␟resultado␟status␟programa␟descrição" dos serviços em auto-restart ou failed (duas idas ao systemd).
+# "unit␟partidas␟estado␟resultado␟status␟programa␟descrição" dos serviços em auto-restart (e auto-restart-queued, do
+# systemd 254+) ou failed (duas idas ao systemd). Um loop de programa ausente passa um instante de pé a cada volta (o
+# Type=simple fica "running" logo depois do fork, antes de o exec falhar; sob carga, centenas de ms): pego nesse
+# instante, o loop sumia da amostra (o --checar dava ok com o serviço em loop). De pé com o programa ausente e 2+
+# partidas: olha de novo, até 3 vezes; partiu de novo ou caiu em auto-restart = loop. De pé o tempo todo é um processo
+# vivo cujo programa foi trocado ou apagado depois de subir (atualização): fica de fora, como antes.
 servicos_listar() {
-  local -a us=()
-  local u _l _a sub _r
+  local -a us=() rever=() ainda=()
+  local -A n0=()
+  local u _l _a sub _r n rs st prog desc i
   while read -r u _l _a sub _r; do
-    [[ $u == *.service && ( $sub == auto-restart || $sub == failed ) ]] && us+=("$u")
+    [[ $u == *.service ]] || continue
+    case $sub in auto-restart* | failed | running | start) us+=("$u") ;; esac
   done < <(systemctl --user list-units --type=service --all --plain --no-legend 2>/dev/null)
   ((${#us[@]})) || return 0
-  systemctl --user show "${us[@]}" -p Id -p NRestarts -p SubState -p Result -p ExecMainStatus -p ExecStart -p Description 2>/dev/null |
+  while IFS=$'\x1f' read -r u n sub rs st prog desc; do
+    [[ -n $u ]] || continue
+    if [[ $sub == running || $sub == start ]]; then
+      [[ -n $prog && ! -x $prog ]] && ((${n:-0} >= 2)) && { rever+=("$u"); n0[$u]=${n:-0}; }
+      continue
+    fi
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$u" "$n" "$sub" "$rs" "$st" "$prog" "$desc"
+  done < <(servicos_show "${us[@]}")
+  for ((i = 0; i < 3 && ${#rever[@]}; i++)); do
+    sleep "${TT_SERVICO_REAMOSTRA:-0.3}"
+    ainda=()
+    while IFS=$'\x1f' read -r u n sub rs st prog desc; do
+      [[ -n $u ]] || continue
+      if [[ $sub == auto-restart* || $sub == failed ]]; then :
+      elif ((${n:-0} > ${n0[$u]:-0})); then sub=auto-restart   # partiu de novo entre as duas olhadas
+      else ainda+=("$u"); continue; fi
+      printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$u" "$n" "$sub" "$rs" "$st" "$prog" "$desc"
+    done < <(servicos_show "${rever[@]}")
+    rever=(${ainda[@]+"${ainda[@]}"})
+  done
+}
+# As propriedades de servicos_listar, uma linha por unit (uma ida ao systemd).
+servicos_show() {
+  systemctl --user show "$@" -p Id -p NRestarts -p SubState -p Result -p ExecMainStatus -p ExecStart -p Description 2>/dev/null |
     awk -v S=$'\x1f' '
       function sai() { if (id != "") print id S n S sb S rs S st S prog S desc; id = n = sb = rs = st = prog = desc = "" }
       /^$/ { sai(); next }
@@ -2389,8 +2419,8 @@ servicos_em_loop() {
     [[ -n $u && -n $prog ]] || continue
     n=${n:-0}; causa=""
     if [[ ! -x $prog ]]; then
-      { [[ $sub == auto-restart ]] && ((n >= 2)); } || { [[ $sub == failed ]] && { ((n >= ${TT_SERVICO_REINICIOS:-5})) || [[ $rs == start-limit-hit ]]; }; } && causa=ausente
-    elif [[ $sub == auto-restart && $rs != success && ${st:-0} != 0 ]]; then
+      { [[ $sub == auto-restart* ]] && ((n >= 2)); } || { [[ $sub == failed ]] && { ((n >= ${TT_SERVICO_REINICIOS:-5})) || [[ $rs == start-limit-hit ]]; }; } && causa=ausente
+    elif [[ $sub == auto-restart* && $rs != success && ${st:-0} != 0 ]]; then
       novo+=("$u $n $agora"); visto[$u]=1
       # taxa: TT_SERVICO_TAXA partidas desde a olhada anterior (até 1 h): um periódico de 5 min não chega lá
       [[ -n ${nant[$u]:-} ]] && ((n - nant[$u] >= ${TT_SERVICO_TAXA:-5} && agora - tant[$u] <= 3600)) && causa=falha
@@ -2415,9 +2445,13 @@ servico_alvo() {
   printf '%s' "$a"
 }
 # Desde quando o systemd não acha o programa ("22/10 16:45"): a mais antiga das últimas 24 h, o começo deste episódio.
-servico_desde() {
-  local l
-  l=$(journalctl --user -u "$1" -S -24h -o short-iso -q --no-pager --grep 'Unable to locate executable|status=203' 2>/dev/null | head -1)
+# Com o epoch do fim do episódio anterior (o serviço ficou de pé ali), só o que veio depois: sem ele, o programa que
+# some de novo no mesmo dia dava a hora do primeiro sumiço.
+servico_desde() { # unit [epoch]
+  local l s=-24h agora
+  printf -v agora '%(%s)T' -1
+  [[ ${2:-} =~ ^[0-9]+$ ]] && (($2 > agora - 86400)) && s=@$2
+  l=$(journalctl --user -u "$1" -S "$s" -o short-iso -q --no-pager --grep 'Unable to locate executable|status=203' 2>/dev/null | head -1)
   [[ $l =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}) ]] || return 0
   printf '%s/%s %s:%s' "${BASH_REMATCH[3]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[4]}" "${BASH_REMATCH[5]}"
 }
@@ -2426,15 +2460,15 @@ servico_programa() { systemctl --user show "$1" -p ExecStart --value 2>/dev/null
 servico_prop() { systemctl --user show "$1" -p "$2" --value 2>/dev/null; } # uma por vez: com várias, o --value sai na ordem do systemd
 # Estado de um serviço: S_ESTADO (guardado|esperando|desligado|ativo|solto|religar-falhou) S_CAUSA S_PROG S_ALVO S_DESDE
 # S_N S_DESC S_EPISODIO (quando a guarda entrou: identidade do episódio no código do aviso) S_MTIME (do programa
-# na religação que falhou: só tenta de novo se o programa mudar).
+# na religação que falhou: só tenta de novo se o programa mudar) S_QUANDO (a última gravação).
 servico_ler() {
   local k v
-  S_ESTADO="" S_CAUSA="" S_PROG="" S_ALVO="" S_DESDE="" S_N="" S_DESC="" S_EPISODIO="" S_MTIME="" S_SAUDE=""
+  S_ESTADO="" S_CAUSA="" S_PROG="" S_ALVO="" S_DESDE="" S_N="" S_DESC="" S_EPISODIO="" S_MTIME="" S_SAUDE="" S_QUANDO=""
   [[ -r $ESTADO_DIR/servicos/$1 ]] || return 1
   while IFS='=' read -r k v; do
     case $k in estado) S_ESTADO=$v ;; causa) S_CAUSA=$v ;; programa) S_PROG=$v ;; alvo) S_ALVO=$v ;;
       desde) S_DESDE=$v ;; partidas) S_N=$v ;; descricao) S_DESC=$v ;; episodio) S_EPISODIO=$v ;; mtime) S_MTIME=$v ;;
-      saude) S_SAUDE=$v ;; esac
+      saude) S_SAUDE=$v ;; quando) S_QUANDO=$v ;; esac
   done <"$ESTADO_DIR/servicos/$1"
 }
 servico_gravar() { # unit estado (os demais campos vêm de S_*)
@@ -2485,7 +2519,7 @@ servico_avisar() { # unit (de S_*)
 }
 servicos_vigiar() {
   servicos_ok || return 0
-  local u n sub prog causa desc mudou agora i
+  local u n sub prog causa desc mudou agora i ini
   local -a linhas=() novos=()
   printf -v agora '%(%s)T' -1
   servicos_reconciliar
@@ -2513,9 +2547,10 @@ servicos_vigiar() {
     if servico_ler "$u" && [[ $S_CAUSA == "$causa" && $S_PROG == "$prog" && $S_ESTADO =~ ^(guardado|esperando|desligado|solto)$ ]]; then
       [[ $S_ESTADO == solto ]] && { S_SAUDE=0; servico_gravar "$u" solto; continue; }
     else
+      ini=""; [[ $S_ESTADO == ativo ]] && ini=$S_QUANDO   # o episódio anterior acabou com o serviço de pé
       S_ESTADO=guardado S_EPISODIO=$agora S_MTIME="" S_DESDE=""
       S_CAUSA=$causa S_PROG=$prog S_DESC=$desc S_ALVO=$(servico_alvo "$prog")
-      [[ $causa == ausente ]] && S_DESDE=$(servico_desde "$u")
+      [[ $causa == ausente ]] && S_DESDE=$(servico_desde "$u" "$ini")
     fi
     S_N=$n S_SAUDE=0
     mudou=0; servico_guarda_escrever "$u" "$prog" "$causa" && mudou=1
