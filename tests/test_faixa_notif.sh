@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Faixa de notificações (3ª linha, abaixo das fixadas): liga por padrão (status 3) e move 📧/📋/
+# Faixa de notificações (4ª linha, abaixo das fixadas): ligada (status 4), move 📧/📋/
 # relógio/versão para a linha 2; faixa_notif=0 volta ao layout sem a faixa (3 linhas); tt --notificar põe o
 # aviso na faixa, expira sozinho e o histórico lista; lembrete de tarefas e e-mail novo espelham.
 source "$(dirname "$0")/lib.sh"; isolar
+printf 'faixa_notif=1\n' >>"$XDG_CONFIG_HOME/tt/config" # cenário explícito, inclusive no Termux
 tmux -f /dev/null new -d -s s1 'sleep 300'
 tt() { "$TT" "$@"; }
 
@@ -22,7 +23,7 @@ grep -q 'e|<:#{client_width},120},,#{E:@barra_data}' <<<"$d" && grep -q 'e|<:#{c
   falhou "lado direito da faixa não encolhe em terminal estreito: $d"
 [[ -z $(tmux show -gqv @barra_lado1) ]] || falhou 'com a faixa, a linha das fixadas deveria ficar só para elas'
 [[ -z $(tmux show -gqv @barra_fim0) ]] || falhou 'com a faixa, o 📧/relógio deveriam sair da linha 0'
-passou 'faixa ligada: status 3, blocos na linha 2, fixadas 100% livres'
+passou 'faixa ligada: status 4, chips na faixa, fixadas 100% livres'
 # Layout: 3 a 4 linhas coladas — margem, janelas, fixadas e faixa — SEM réguas: as faixas se distinguem só
 # pelo fundo levemente diferente; cada linha é pintada em toda a largura (fill) e o #[default] volta ao
 # fundo DELA (set-default).

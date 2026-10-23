@@ -8,6 +8,7 @@
 #  5) vários `tt --bordas gancho` juntos deixam a barrinha dos painéis certa.
 #  6) clique num painel sem link chega ao programa sem rodar o python dos links; com link na tela, passa por ele.
 source "$(dirname "$0")/lib.sh"; isolar
+printf 'faixa_notif=1\n' >>"$XDG_CONFIG_HOME/tt/config" # mede também os segmentos da faixa, mesmo no Termux
 set +o pipefail
 
 # --- 1) tem_cmd ----------------------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 # verdade. Toque no 📍 da barra fixa (o item aparece na faixa); toque no ✕ do item desafixa (some
 # da faixa e da lista). Cada toque é pressionar + soltar, como no celular.
 source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado
+printf 'faixa_notif=1\n' >>"$XDG_CONFIG_HOME/tt/config" # as coordenadas abaixo pressupõem quatro linhas
 tmux -f "$HOME/.tmux.conf" new -d -s minha -x 120 -y 30 'bash --norc' 2>/dev/null
 anexar v 120 32 minha; sleep 4
 

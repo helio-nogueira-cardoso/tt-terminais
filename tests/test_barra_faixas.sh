@@ -4,6 +4,8 @@
 # largura e mesmo com muitas janelas, e o aviso do tmux (display-message) cai só na margem (linha 0), sem
 # cobrir faixa nenhuma. Mede célula a célula o que o tmux manda a um cliente real (script + leitura de SGR).
 source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado
+# Este cenário mede quatro linhas; no Termux a faixa vem desligada por padrão.
+printf 'faixa_notif=1\n' >>"$XDG_CONFIG_HOME/tt/config"
 mkdir -p "$HOME/.cache/tt-ticker"; printf '%s\n' 'Alfa bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november oscar papa' >"$HOME/.cache/tt-ticker/frases"
 printf 'indicadores=frases\n' >>"$XDG_CONFIG_HOME/tt/config"
 tmux -f "$HOME/.tmux.conf" new -d -s s -x 160 -y 40 'sleep 600' 2>/dev/null

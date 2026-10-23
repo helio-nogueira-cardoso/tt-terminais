@@ -1329,7 +1329,7 @@ ajuda() { # ajuda [tema]: explicação curta e falável, um tema por vez
     *tarefa*)
       falar "Tarefas: diga tarefas para ouvir a lista, nova tarefa e o texto, com o prazo no fim, por exemplo para amanhã às 14 horas. Também: adicione a subtarefa X na tarefa Y, conclua a tarefa, reabra a tarefa, mude o prazo da tarefa para sexta, qual o apelido da tarefa, e apague a tarefa, que pede o seu sim." ;;
     *comando*|*lista*|*tudo*)
-      falar "Comandos: máquinas, status, sessões, aba, próxima, anterior, panorama, nova sessão, renomear sessão, enter, cancelar, tarefas, contas, trocar conta, esperar, acompanhar, modo retorno, fixar, barra das fixadas, não perturbe, notificações, letreiro, e-mail, transferências, calendário, fechar sessão, limpeza, repetir, ajuda e encerrar. Qualquer outra frase vai para o agente da sessão escolhida." ;;
+      falar "Comandos: máquinas, status, ir para, sessões, aba, próxima, anterior, onde, panorama, nova sessão, renomear sessão, bloquear sessão, enter, cancelar, tarefas, contas, trocar conta, esperar, acompanhar, modo retorno, fixar, barra das fixadas, não perturbe, notificações, letreiro, e-mail, transferências, calendário, fechar sessão, limpeza, repetir, ajuda e encerrar. Qualquer outra frase vai para o agente da sessão escolhida." ;;
     *)
       falar "Terminal por voz. Fale um comando por vez, depois que eu terminar de falar. O caminho é: escolher a máquina, escolher a sessão e falar com o agente. Para detalhes, diga ajuda e um tema: máquinas, sessões, agente, conversa, esperar, retorno, barra, tarefas, contas, e-mail, calendário, limpeza ou comandos." ;;
   esac

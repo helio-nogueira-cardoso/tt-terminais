@@ -30,7 +30,7 @@ SSH_OPC=()
 maquinas() { printf 'ma\tA\nmb\tB\n'; }
 atualizar_barras() { :; }
 atualizar_barras_pedir() { :; }
-source <(sed -n '/^notifs_nome_valido()/,/^barra_status_linhas()/p' "$ROOT/tt")
+source <(sed -n '/^notifs_nome_valido()/,/^barra_status_linhas()/ { /^barra_status_linhas()/d; p; }' "$ROOT/tt")
 source <(sed -n '/^notifs_apagar()/,/^notifs_render()/ { /^notifs_render()/d; p; }' "$ROOT/tt")
 source <(sed -n '/^barra_notifs_sino()/,/^}/p' "$ROOT/tt")
 notifs_sincronizar_em_segundo_plano() { notifs_sincronizar; }
