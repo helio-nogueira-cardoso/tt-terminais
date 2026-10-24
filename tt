@@ -3104,10 +3104,31 @@ sshd_bin() {
   done
   return 1
 }
+# O sshd do Termux visto de dentro do proot (Debian no Termux): o tt não sobe outro na mesma porta.
+sshd_termux_presente() { [[ ${PREFIX:-} != *com.termux* && -x /data/data/com.termux/files/usr/bin/sshd ]]; }
+# Saudável = banner SSH + login com uma chave de checagem para o usuário local. O login não é testado
+# no sshd do Termux visto de dentro do proot (o usuário dele é outro: ver sshd_termux_presente).
+sshd_pronto() { # porta
+  sshd_escuta "$1" || return 1
+  sshd_termux_presente && return 0
+  sshd_login_ok "$1"
+}
+# Chave de checagem: entra na lista de autorizadas só durante o teste e sai logo depois (marca no comentário).
+sshd_login_ok() { # porta
+  local d=$ESTADO_DIR/sshd k=$ESTADO_DIR/sshd/checagem_chave ak=$HOME/.ssh/authorized_keys marca rc=0
+  marca="tt-checagem-$$"
+  [[ -s $k ]] || ssh-keygen -q -t ed25519 -N '' -f "$k" >/dev/null 2>&1 || return 1
+  mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+  printf '%s %s\n' "$(cut -d' ' -f1,2 "$k.pub")" "$marca" >>"$ak"; chmod 600 "$ak"
+  timeout 10 ssh -i "$k" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=5 -p "$1" "$(id -un)@127.0.0.1" true >/dev/null 2>&1 || rc=1
+  grep -v "$marca" "$ak" >"$ak.tt" 2>/dev/null; mv -f "$ak.tt" "$ak"; chmod 600 "$ak"
+  return $rc
+}
 # A porta em que esta máquina atende (para anunciar à malha): 22, 8022 (Termux ou o sshd do tt) ou nada.
 sshd_porta() {
   if [[ ${PREFIX:-} == *com.termux* ]]; then sshd_escuta 8022 && echo 8022; return; fi
-  if sshd_escuta "$SSHD_PORTA_SIS"; then echo "$SSHD_PORTA_SIS"; elif sshd_escuta "$SSHD_PORTA_TT"; then echo "$SSHD_PORTA_TT"; fi
+  if sshd_pronto "$SSHD_PORTA_SIS"; then echo "$SSHD_PORTA_SIS"; elif sshd_pronto "$SSHD_PORTA_TT"; then echo "$SSHD_PORTA_TT"; fi
 }
 sshd_log() { mkdir -p "$ESTADO_DIR/sshd"; printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$ESTADO_DIR/sshd/garantir.log"; }
 # O sshd do usuário na 8022: chave de host própria, só chave pública, sem PAM (não roda como root).
@@ -3122,7 +3143,9 @@ sshd_usuario() {
 Port $porta
 HostKey $d/ssh_host_ed25519_key
 PidFile $d/sshd.pid
-AuthorizedKeysFile .ssh/authorized_keys
+AuthorizedKeysFile $HOME/.ssh/authorized_keys
+# StrictModes desligado: o HOME de um teste fica em /tmp (1777) e o sshd recusaria a chave; a pasta .ssh e a chave o tt cria 700/600.
+StrictModes no
 PubkeyAuthentication yes
 PasswordAuthentication no
 KbdInteractiveAuthentication no
@@ -3131,7 +3154,7 @@ PermitRootLogin no
 Subsystem sftp internal-sftp
 FIM
   "$b" -f "$d/sshd_config" -E "$d/sshd.log" 2>>"$d/sshd.log" || return 1
-  local i; for i in 1 2 3 4 5; do sshd_escuta "$porta" && return 0; sleep 0.3; done
+  local i; for i in 1 2 3 4 5; do sshd_pronto "$porta" && return 0; sleep 0.3; done
   return 1
 }
 # tt --sshd-garantir: imprime a porta que atende (sai 1 se nenhuma).
@@ -3153,6 +3176,9 @@ sshd_garantir() {
     sleep 1
     sshd_escuta "$SSHD_PORTA_SIS" && { sshd_log "sshd do sistema ligado (sudo sem senha)"; echo "$SSHD_PORTA_SIS"; return 0; }
   fi
+  # Com o sshd do Termux aqui dentro, não sobe o do Debian na mesma porta (ele aceitaria outro usuário e
+  # brigaria pela 8022): só avisa, e quem religa é o Termux (rodar `sshd` nele).
+  if sshd_termux_presente; then sshd_log "sshd do Termux não responde na 8022: rode sshd no Termux (não subo o do Debian)"; return 1; fi
   if sshd_usuario; then sshd_log "sshd do usuário na porta $SSHD_PORTA_TT"; echo "$SSHD_PORTA_TT"; return 0; fi
   sshd_bin >/dev/null || sshd_log "sem o programa sshd (openssh-server): pendência sshd"
   return 1

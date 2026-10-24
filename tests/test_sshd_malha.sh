@@ -10,7 +10,7 @@ porta_livre() { python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.
 export TT_SSHD_SEM_SUDO=1 TT_SSHD_PORTA_SISTEMA=$(porta_livre) TT_SSHD_PORTA=$(porta_livre)
 ES=$HOME/.local/state/tt
 parar() { [[ -s $ES/sshd/sshd.pid ]] && kill "$(cat "$ES/sshd/sshd.pid")" 2>/dev/null; return 0; }
-trap 'parar; limpar_isolado' EXIT
+trap 'st=$?; parar; (exit $st); limpar_isolado' EXIT # parar() zera o $? antes do limpar_isolado: sem isto, um FALHOU sairia 0
 
 # Fora da malha: nada é aberto.
 "$TT" --sshd-garantir --vigia
@@ -83,3 +83,8 @@ passou 'porta sem banner SSH não conta como sshd funcionando'
 "$TT" --instalar-aqui >/dev/null 2>&1 || falhou 'instalar-aqui deveria rodar'
 grep -q "instalação/atualização: sshd respondendo na porta $TT_SSHD_PORTA" "$ES/sshd/garantir.log" || falhou "o log deveria registrar a instalação: $(tail -2 "$ES/sshd/garantir.log")"
 passou 'instalação registra no log que o sshd responde'
+
+# O login de checagem usa uma chave temporária: depois do teste ela não pode ficar em authorized_keys.
+"$TT" --sshd-garantir >/dev/null 2>&1
+! grep -q 'tt-checagem-' "$HOME/.ssh/authorized_keys" 2>/dev/null || falhou 'a chave de checagem ficou em authorized_keys'
+passou 'a chave de checagem sai de authorized_keys depois do teste'
