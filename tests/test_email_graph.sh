@@ -117,7 +117,7 @@ sp = importlib.util.spec_from_file_location("e", sys.argv[1]); e = importlib.uti
 lixo = ["a", "b", "c"]
 def graph_get(c, caminho):
     if caminho.startswith("/me/mailFolders/deleteditems?"):
-        return {"displayName": "Itens Excluídos", "totalItemCount": len(lixo)}
+        return {"displayName": "Itens Excluídos", "totalItemCount": len(lixo) + 2}   # + 2 contatos apagados
     if caminho.startswith("/me/mailFolders/deleteditems/messages?"):
         return {"value": [{"id": i} for i in lixo]}
     raise AssertionError(caminho)
@@ -129,7 +129,7 @@ def rodar(esvaziar):
     with contextlib.redirect_stdout(o):
         assert e.lixeira(conta, esvaziar) == 0
     return dict(l.split("=", 1) for l in o.getvalue().splitlines() if "=" in l)
-assert rodar(False) == {"pasta": "Itens Excluídos", "mensagens": "3"}
+assert rodar(False) == {"pasta": "Itens Excluídos", "mensagens": "3", "outros": "2"}   # só e-mails contam
 tentativas = []
 def outlook(c, mid): tentativas.append(("outlook", mid)); return 403
 def graph(c, mid):
@@ -138,7 +138,7 @@ def graph(c, mid):
     lixo.remove(mid); return 204
 e.outlook_apagar, e.graph_apagar = outlook, graph
 r = rodar(True)
-assert r["apagadas"] == "3" and r["restam"] == "1", r     # "b" ainda conta no stub: o servidor diria 0
+assert r["apagadas"] == "3" and r["restam"] == "1", r     # "b" ainda está no stub: o servidor diria 0
 assert tentativas == [("outlook", "a"), ("graph", "a"), ("graph", "b"), ("graph", "c")], tentativas
 e.outlook_apagar = e.graph_apagar = lambda c, mid: 403
 try:

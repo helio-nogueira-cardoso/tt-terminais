@@ -773,25 +773,27 @@ def graph_apagar(c, mid):
 
 def graph_lixeira(c, esvaziar=False):
     """Lixeira das contas Microsoft em modo Graph ("Itens Excluídos"): o token delas é do Graph, e o login IMAP
-    com ele é recusado (AUTHENTICATE failed). Conta pelo Graph; esvazia apagando cada mensagem pela API REST do
-    Outlook e, se ela recusar por permissão, pelo Graph — apagar nos Itens Excluídos é o "Esvaziar pasta" do
-    Outlook. Mesma saída do caminho IMAP (pasta=, mensagens=, apagadas=, restam=)."""
-    def contar():
+    com ele é recusado (AUTHENTICATE failed). Conta e lista pelo Graph; esvazia apagando cada mensagem pela API
+    REST do Outlook e, se ela recusar por permissão, pelo Graph — apagar nos Itens Excluídos é o "Esvaziar pasta"
+    do Outlook. Mesma saída do caminho IMAP (pasta=, mensagens=, apagadas=, restam=); conta só e-mails: contatos,
+    compromissos e tarefas apagados também ficam nessa pasta, não são mensagens e saem em outros=."""
+    def listar():
         p = graph_get(c, "/me/mailFolders/deleteditems?$select=displayName,totalItemCount")
-        return p.get("displayName") or "Itens Excluídos", int(p.get("totalItemCount") or 0)
-    nome, n = contar()
+        caminho, ids = "/me/mailFolders/deleteditems/messages?$top=1000&$select=id", []
+        while caminho:
+            r = graph_get(c, caminho)
+            ids.extend(x["id"] for x in r.get("value", []) if x.get("id"))
+            proxima = r.get("@odata.nextLink", "")
+            caminho = proxima[len("https://graph.microsoft.com/v1.0"):] if proxima.startswith("https://graph.microsoft.com/v1.0/") else ""
+        return p.get("displayName") or "Itens Excluídos", ids, max(int(p.get("totalItemCount") or 0) - len(ids), 0)
+    nome, ids, outros = listar()
     print(f"pasta={nome}")
-    print(f"mensagens={n}")
+    print(f"mensagens={len(ids)}")
+    if outros:
+        print(f"outros={outros}")
     if not esvaziar:
         return 0
     apagadas, metodo = 0, None
-    caminho = "/me/mailFolders/deleteditems/messages?$top=1000&$select=id"
-    ids = []
-    while caminho:
-        r = graph_get(c, caminho)
-        ids.extend(x["id"] for x in r.get("value", []) if x.get("id"))
-        proxima = r.get("@odata.nextLink", "")
-        caminho = proxima[len("https://graph.microsoft.com/v1.0"):] if proxima.startswith("https://graph.microsoft.com/v1.0/") else ""
     for mid in ids:
         if metodo is None:
             st = outlook_apagar(c, mid)
@@ -810,9 +812,9 @@ def graph_lixeira(c, esvaziar=False):
                                "Reautorize a conta: tt --email-autorizar CONTA")
         else:
             raise RuntimeError(f"o servidor recusou apagar (HTTP {st}); {apagadas} apagada(s) antes")
-    _, resta = contar()
+    _, resta, _ = listar()
     print(f"apagadas={apagadas}")
-    print(f"restam={resta}")
+    print(f"restam={len(resta)}")
     return 0
 
 
