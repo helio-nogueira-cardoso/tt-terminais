@@ -2217,6 +2217,7 @@ for p in (d.get("Peer") or {}).values():
     fi
   fi
   if grep -q 'login.tailscale.com' <<<"$err"; then echo precisa-aprovar
+  elif grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED' <<<"$err"; then echo chave-trocada
   elif grep -qi 'tailnet policy does not permit' <<<"$err"; then echo policy-nega
   elif grep -qi 'permission denied' <<<"$err"; then echo sem-chave
   elif grep -qiE 'not allowed at this time|exceeded maxstartups' <<<"$err"; then echo ssh-limitado
@@ -2252,6 +2253,7 @@ explicar_diagnostico() {
   porta-fechada) echo "rota ok, mas o sshd nao respondeu (servico parado ou porta fechada)." ;;
   precisa-aprovar) echo "o Tailscale SSH de la pede aprovacao no navegador (tente de novo apos aprovar)." ;;
   policy-nega) echo "a policy do tailnet nao permite esse usuario de destino; ajuste a ACL ou use outro usuario." ;;
+  chave-trocada) echo "a chave SSH desta máquina mudou (reinstalada ou chaves novas): confira a impressão digital na própria máquina; se for ela, ssh-keygen -R <host> e conecte de novo." ;;
   sem-chave) echo "rota e porta ok, mas a chave publica nao esta autorizada la; rode: tt --reparar <maquina>." ;;
   ssh-limitado) echo "o servidor SSH recusou temporariamente novas conexoes; verifique limites e logs do sshd antes de tentar novamente." ;;
   dns) echo "o nome nao foi resolvido; verifique DNS/MagicDNS ou use um endereco Tailscale conhecido." ;;
