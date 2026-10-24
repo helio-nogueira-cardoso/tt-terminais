@@ -107,3 +107,44 @@ except RuntimeError as e:
     assert "AADSTS700082" in str(e), e
 PY
 passou 'graph_token: sem token pede autorização, a recusa traz a causa e o refresh token novo fica guardado (600)'
+
+# Lixeira das contas Graph: o token é do Graph e o login IMAP com ele é recusado (AUTHENTICATE failed). Conta pelo
+# Graph; esvazia pela API do Outlook e, sem permissão lá, pelo Graph; 404 (já apagada) conta; sem permissão em
+# nenhum dos dois, para e diz como resolver. Sem rede: stubs.
+python3 -I - "${TT%/*}/email-tt.py" >"$T/lix.log" 2>&1 <<'PY' || falhou "lixeira Graph: $(cat "$T/lix.log")"
+import importlib.util, io, contextlib, sys
+sp = importlib.util.spec_from_file_location("e", sys.argv[1]); e = importlib.util.module_from_spec(sp); sp.loader.exec_module(e)
+lixo = ["a", "b", "c"]
+def graph_get(c, caminho):
+    if caminho.startswith("/me/mailFolders/deleteditems?"):
+        return {"displayName": "Itens Excluídos", "totalItemCount": len(lixo)}
+    if caminho.startswith("/me/mailFolders/deleteditems/messages?"):
+        return {"value": [{"id": i} for i in lixo]}
+    raise AssertionError(caminho)
+e.graph_get = graph_get
+e.imap_conectar = lambda c: (_ for _ in ()).throw(AssertionError("conta Graph não pode ir pelo IMAP"))
+conta = {"provedor": "microsoft", "graph": "1", "auth": "oauth"}
+def rodar(esvaziar):
+    o = io.StringIO()
+    with contextlib.redirect_stdout(o):
+        assert e.lixeira(conta, esvaziar) == 0
+    return dict(l.split("=", 1) for l in o.getvalue().splitlines() if "=" in l)
+assert rodar(False) == {"pasta": "Itens Excluídos", "mensagens": "3"}
+tentativas = []
+def outlook(c, mid): tentativas.append(("outlook", mid)); return 403
+def graph(c, mid):
+    tentativas.append(("graph", mid))
+    if mid == "b": return 404       # outro aparelho já tinha esvaziado
+    lixo.remove(mid); return 204
+e.outlook_apagar, e.graph_apagar = outlook, graph
+r = rodar(True)
+assert r["apagadas"] == "3" and r["restam"] == "1", r     # "b" ainda conta no stub: o servidor diria 0
+assert tentativas == [("outlook", "a"), ("graph", "a"), ("graph", "b"), ("graph", "c")], tentativas
+e.outlook_apagar = e.graph_apagar = lambda c, mid: 403
+try:
+    rodar(True); raise AssertionError("sem permissão deveria falhar")
+except RuntimeError as x:
+    assert "tt --email-autorizar" in str(x), x
+print("ok")
+PY
+passou 'lixeira das contas Graph: conta e esvazia sem IMAP (Outlook, ou Graph sem permissão lá) e explica a falta de permissão'

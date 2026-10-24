@@ -751,10 +751,78 @@ def pastas(c):
             pass
 
 
+def _ms_apagar(url, token):
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token}, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=contexto_ssl()) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def outlook_apagar(c, mid):
+    """DELETE da mensagem pela API REST do Outlook (o recurso em que o app padrão do tt escreve, como no envio)."""
+    return _ms_apagar(OUTLOOK_API + "/me/messages/" + urllib.parse.quote(mid, safe=""),
+                      graph_token(c, "https://outlook.office.com/.default"))
+
+
+def graph_apagar(c, mid):
+    """DELETE pelo Graph (só com Mail.ReadWrite no Graph, como num app próprio)."""
+    return _ms_apagar("https://graph.microsoft.com/v1.0/me/messages/" + urllib.parse.quote(mid, safe=""), graph_token(c))
+
+
+def graph_lixeira(c, esvaziar=False):
+    """Lixeira das contas Microsoft em modo Graph ("Itens Excluídos"): o token delas é do Graph, e o login IMAP
+    com ele é recusado (AUTHENTICATE failed). Conta pelo Graph; esvazia apagando cada mensagem pela API REST do
+    Outlook e, se ela recusar por permissão, pelo Graph — apagar nos Itens Excluídos é o "Esvaziar pasta" do
+    Outlook. Mesma saída do caminho IMAP (pasta=, mensagens=, apagadas=, restam=)."""
+    def contar():
+        p = graph_get(c, "/me/mailFolders/deleteditems?$select=displayName,totalItemCount")
+        return p.get("displayName") or "Itens Excluídos", int(p.get("totalItemCount") or 0)
+    nome, n = contar()
+    print(f"pasta={nome}")
+    print(f"mensagens={n}")
+    if not esvaziar:
+        return 0
+    apagadas, metodo = 0, None
+    caminho = "/me/mailFolders/deleteditems/messages?$top=1000&$select=id"
+    ids = []
+    while caminho:
+        r = graph_get(c, caminho)
+        ids.extend(x["id"] for x in r.get("value", []) if x.get("id"))
+        proxima = r.get("@odata.nextLink", "")
+        caminho = proxima[len("https://graph.microsoft.com/v1.0"):] if proxima.startswith("https://graph.microsoft.com/v1.0/") else ""
+    for mid in ids:
+        if metodo is None:
+            st = outlook_apagar(c, mid)
+            metodo = outlook_apagar
+            if st in (401, 403):
+                st = graph_apagar(c, mid)
+                metodo = graph_apagar
+        else:
+            st = metodo(c, mid)
+        if 200 <= st < 300 or st == 404:   # 404: já tinha saído (outro aparelho esvaziou junto)
+            apagadas += 1
+            if apagadas % 100 == 0:
+                print(f"progresso={apagadas}/{len(ids)}", file=sys.stderr, flush=True)
+        elif st in (401, 403):
+            raise RuntimeError(f"a Microsoft não deixou apagar (sem permissão de escrita); {apagadas} apagada(s). "
+                               "Reautorize a conta: tt --email-autorizar CONTA")
+        else:
+            raise RuntimeError(f"o servidor recusou apagar (HTTP {st}); {apagadas} apagada(s) antes")
+    _, resta = contar()
+    print(f"apagadas={apagadas}")
+    print(f"restam={resta}")
+    return 0
+
+
 def lixeira(c, esvaziar=False):
     """Quantas mensagens há na lixeira e, com esvaziar, apaga todas de vez (STORE \\Deleted + EXPUNGE).
     A lixeira é a pasta que o servidor marca como \\Trash (RFC 6154; não depende do idioma). Sem essa
-    marca, vale a pasta_lixeira do cadastro, se o servidor a tiver. Nunca toca outra pasta."""
+    marca, vale a pasta_lixeira do cadastro, se o servidor a tiver. Nunca toca outra pasta. Contas Microsoft em
+    modo Graph vão pelo Graph (graph_lixeira)."""
+    if conta_graph(c):
+        return graph_lixeira(c, esvaziar)
     m = imap_conectar(c)
     try:
         todas = listar_pastas(m)

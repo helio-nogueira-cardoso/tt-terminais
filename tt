@@ -18481,7 +18481,8 @@ email_naolidas() {
 }
 
 # 🧹 Esvaziar a lixeira. A conta é consultada e esvaziada pelo IMAP (email-tt.py lixeira): a pasta
-# que o servidor marca como \Trash, apagada de vez (no Gmail, apagar na Lixeira é para sempre).
+# que o servidor marca como \Trash, apagada de vez (no Gmail, apagar na Lixeira é para sempre). As contas
+# Microsoft em modo Graph vão pelo Graph e pela API do Outlook (o token delas não vale para o IMAP).
 # Pergunta antes; --sim pula a pergunta; sem terminal e sem --sim, só mostra quanto há. Depois, uma
 # rodada completa do sync (em segundo plano) tira as mesmas mensagens do espelho local.
 #   tt --email-lixeira [CONTA…|--todas] [--sim]
