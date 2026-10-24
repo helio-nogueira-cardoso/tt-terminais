@@ -3090,7 +3090,8 @@ ssh_porta_garantir() { # host porta
 #      configuração em ~/.local/state/tt/sshd/. A malha já tenta a 8022 quando a 22 não responde e grava a
 #      porta no ~/.ssh/config de quem conecta;
 #   4. sem o programa sshd (openssh-server): pendência essencial "sshd" (o 📦 pede para instalar).
-# sshd_garantir=0 no config desliga. Só age em máquina que tem outras cadastradas (fora da malha, não abre porta).
+# sshd_garantir=0 no config desliga. O vigia só age em máquina que tem outras cadastradas (fora da malha, não abre
+# porta); a instalação/atualização chama sempre, com ou sem malha.
 SSHD_PORTA_TT=${TT_SSHD_PORTA:-8022}      # testes trocam as portas (nunca a 22/8022 de verdade)
 SSHD_PORTA_SIS=${TT_SSHD_PORTA_SISTEMA:-22}
 sshd_escuta() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; } # porta
@@ -3956,7 +3957,7 @@ instalar_aqui() {
     [[ -r $DIR_TT/rapido/nucleo.sh && ! $DIR_TT/tt -nt $DIR_TT/rapido/nucleo.sh ]] || gerar_rapido "$DIR_TT" >/dev/null 2>&1
     mac_configurar_padrao || return 1
     ghostty_configurar
-    if [[ -s $CONF_MAQ ]]; then sshd_garantir >/dev/null 2>&1; fi
+    sshd_garantir >/dev/null 2>&1
     garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (já instalada)"; return 0
   fi
   if [[ $origem != "$DIR_TT" ]]; then
@@ -4037,8 +4038,8 @@ CONF
     done
     tmux run-shell -b -c "$HOME" "$HOME/.local/bin/tt --vigia"
   fi
-  # Atualização força o sshd da malha: máquina com outras cadastradas aceita conexão já, sem esperar o vigia.
-  if [[ -s $CONF_MAQ ]]; then sshd_garantir >/dev/null 2>&1; fi
+  # Atualização força o sshd, com ou sem outras máquinas cadastradas: não espera o vigia (que só age na malha).
+  sshd_garantir >/dev/null 2>&1
   garantir_navegadores_em_segundo_plano
   echo "$(conf nome): $(versao)"
 }

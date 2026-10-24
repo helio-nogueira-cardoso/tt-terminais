@@ -52,6 +52,12 @@ parar; sleep 0.5
 timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$TT_SSHD_PORTA" || falhou 'a instalação na malha deveria subir o sshd do usuário'
 passou 'instalar-aqui na malha sobe o sshd sem esperar o vigia'
 
+# Atualização sobe o sshd também fora da malha (sem outras máquinas cadastradas); o vigia não.
+parar; sleep 0.5; rm -f "$XDG_CONFIG_HOME/tt/maquinas"; sed -i '/^sshd_garantir=0$/d' "$XDG_CONFIG_HOME/tt/config"
+"$TT" --instalar-aqui >/dev/null 2>&1 || falhou 'instalar-aqui fora da malha deveria rodar'
+timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$TT_SSHD_PORTA" || falhou 'a atualização deveria subir o sshd mesmo fora da malha'
+passou 'instalar-aqui fora da malha também sobe o sshd'
+
 # sshd_garantir=0 desliga.
 parar; sleep 0.5; echo sshd_garantir=0 >>"$XDG_CONFIG_HOME/tt/config"
 "$TT" --sshd-garantir --vigia
