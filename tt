@@ -3183,6 +3183,7 @@ sshd_garantir() {
   sshd_bin >/dev/null || sshd_log "sem o programa sshd (openssh-server): pendência sshd"
   return 1
 }
+# Publicação de teste do vigia no celular (sem efeito no comportamento).
 # O boot do celular (Termux:Boot) vem do pacote: a instalação grava o 00-tt em ~/.termux/boot quando o Termux:Boot
 # existe. Na instalação feita pelo tt do Termux (a malha instala assim no celular) ele também roda agora: o proot com
 # o vigia sobe sem esperar o reboot. (Dentro do proot não dá para arrancar: o proot mata os filhos quando sai.)
