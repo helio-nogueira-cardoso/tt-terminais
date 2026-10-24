@@ -46,6 +46,12 @@ timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$TT_SSHD_PORTA" || falhou 'o vigia
 grep -q "sshd do usuário na porta $TT_SSHD_PORTA" "$ES/sshd/garantir.log" || falhou 'o religamento deveria ficar no log'
 passou 'idempotente; o vigia religa o sshd que caiu e registra'
 
+# Atualização (instalar-aqui) força o sshd da malha, mesmo com o pacote já instalado: sem esperar o vigia.
+parar; sleep 0.5
+"$TT" --instalar-aqui >/dev/null 2>&1 || falhou 'instalar-aqui com a malha deveria rodar'
+timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$TT_SSHD_PORTA" || falhou 'a instalação na malha deveria subir o sshd do usuário'
+passou 'instalar-aqui na malha sobe o sshd sem esperar o vigia'
+
 # sshd_garantir=0 desliga.
 parar; sleep 0.5; echo sshd_garantir=0 >>"$XDG_CONFIG_HOME/tt/config"
 "$TT" --sshd-garantir --vigia

@@ -3956,6 +3956,7 @@ instalar_aqui() {
     [[ -r $DIR_TT/rapido/nucleo.sh && ! $DIR_TT/tt -nt $DIR_TT/rapido/nucleo.sh ]] || gerar_rapido "$DIR_TT" >/dev/null 2>&1
     mac_configurar_padrao || return 1
     ghostty_configurar
+    if [[ -s $CONF_MAQ ]]; then sshd_garantir >/dev/null 2>&1; fi
     garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (já instalada)"; return 0
   fi
   if [[ $origem != "$DIR_TT" ]]; then
@@ -4036,6 +4037,8 @@ CONF
     done
     tmux run-shell -b -c "$HOME" "$HOME/.local/bin/tt --vigia"
   fi
+  # Atualização força o sshd da malha: máquina com outras cadastradas aceita conexão já, sem esperar o vigia.
+  if [[ -s $CONF_MAQ ]]; then sshd_garantir >/dev/null 2>&1; fi
   garantir_navegadores_em_segundo_plano
   echo "$(conf nome): $(versao)"
 }
