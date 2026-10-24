@@ -5802,6 +5802,37 @@ log_ponte() { # ponte texto
   return 0
 }
 
+# Lê a escolha de um aviso sem deixar lixo na tela. Antes, descarta o que já chegou e desliga o eco; depois,
+# tira da resposta os eventos de foco do tmux (ESC[I e ESC[O), que chegam sozinhos e, com o eco ligado,
+# aparecem como caracteres aleatórios por cima do aviso (o pane travado mostrava ^[[O).
+ler_escolha() { # variável
+  local _le_v=$1 _le_r="" _le_x="" _le_rc
+  while read -r -t 0.05 -n 64 _le_x 2>/dev/null; do :; done
+  stty -echo 2>/dev/null
+  read -r _le_r; _le_rc=$?
+  stty echo 2>/dev/null
+  _le_r=${_le_r//$'\e[I'/}; _le_r=${_le_r//$'\e[O'/}
+  printf -v "$_le_v" '%s' "$_le_r"
+  printf '\n'
+  return "$_le_rc"
+}
+
+# Saída da ponte presa: cria uma sessão nova na máquina de lá e a ponte passa a mostrar essa sessão.
+# O id e o uuid da sessão antiga saem da ponte, senão a identidade velha a derrubaria como "sumiu".
+ponte_nova_janela() { # destino ponte
+  local nova
+  printf '\nCriando uma sessão nova em %s…\n' "$(rotulo_de "$1")"
+  nova=$(timeout 15 ssh "${SSH_OPC[@]}" "$1" "$TT_REMOTO --nova" </dev/null 2>/dev/null)
+  if [[ -z $nova ]]; then
+    printf 'Não consegui criar a sessão em %s (sem resposta). Enter para tentar de novo. ' "$(rotulo_de "$1")"
+    read -r
+    return 0
+  fi
+  tmux set-option -u -t "=$2:" @ponte_uuid 2>/dev/null
+  tmux set-option -u -t "=$2:" @tt_pre_id 2>/dev/null
+  exec "$EU" --ponte "$1" "$nova" "$2"
+}
+
 ponte() {
   local dest=$1 s=$2 ponte=$3 st
   # Uma ponte antiga pode chegar aqui sem host (ex.: o rótulo deixou de resolver). Não
@@ -5813,7 +5844,7 @@ ponte() {
     read -r
     exec "$EU"
   fi
-  local info id="" srv="" nome_atual=$s rc uuid anexar guarda
+  local info id="" srv="" nome_atual=$s rc uuid anexar guarda mudo=0
   uuid=$(tmux show-options -qv -t "=$ponte:" @ponte_uuid 2>/dev/null)
   [[ -n $uuid ]] || uuid=$(tmux show-options -qv -t "=$ponte:" @tt_pre_id 2>/dev/null)
   while true; do
@@ -5833,10 +5864,25 @@ ponte() {
       return 0
     fi
     if ((rc != 0)); then
-      printf '\nNão consegui confirmar a identidade do destino. Enter para tentar novamente. '
-      read -r || return 0
+      # Destino mudo (rede ou SSH): tenta sozinho, com espera crescente (2, 4 e 8 s), antes de pedir Enter.
+      if ((mudo < 3)); then
+        mudo=$((mudo + 1))
+        printf '\n\033[33mSem resposta de %s (rede ou SSH). Nova tentativa em %s s (%s/3)…\033[0m\n' \
+          "$(rotulo_de "$dest")" $((2 ** mudo)) "$mudo"
+        sleep $((2 ** mudo))
+        continue
+      fi
+      mudo=0
+      printf '\nSem resposta de %s; não consegui confirmar a identidade.\n' "$(rotulo_de "$dest")"
+      printf '  Enter: tentar de novo  ·  n: nova janela lá  ·  q: voltar (Ctrl+B d) '
+      ler_escolha escolha || return 0
+      case $escolha in
+        n | N) ponte_nova_janela "$dest" "$ponte" ;;
+        q | Q) return 0 ;;
+      esac
       continue
     fi
+    mudo=0
     if ((rc == 0)); then
       IFS='|' read -r id srv nome_atual <<<"$info"
       ponte_registrar "$ponte" "$dest" "$id" "$srv" "$nome_atual"
@@ -5870,7 +5916,7 @@ ponte() {
     fi
     printf '\n\033[33mA conexão com %s:%s terminou (código %s).\033[0m\n' "$(rotulo_de "$dest")" "$nome_atual" "$st"
     printf 'A janela foi preservada. Pressione Enter para tentar novamente ou Ctrl+B d para voltar. '
-    read -r
+    ler_escolha _ponte_fim
   done
 }
 
