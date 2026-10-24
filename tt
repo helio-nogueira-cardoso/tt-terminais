@@ -22427,7 +22427,7 @@ case "${1:-}" in
   --renomear) if (($# >= 3)); then renomear "$2" "$3"; else renomear_interativo "${2:-$(tmux display-message -p '#{session_name}')}"; fi; exit ;;
   --nomear-todas) nomear_todas; exit ;;
   --nomear-todas-local) nomear_todas_local; exit ;;
-  --vigia) vigiar; exit ;;
+  --vigia) vigia_no_debian && exit 0; vigiar; exit ;;  # no Termux com Debian, o vigia é o do Debian
   --rapido) rapido_cmd "${2:-status}"; exit $? ;;
   --janela) PATH=${_TT_PATH_ORIGEM:-$PATH}; unset _TT_PATH_ORIGEM; exec "$TT_TMUX_BIN" new-session -s "$(proximo_nome)" ;;
   -h | --help | ajuda) ajuda; exit 0 ;;
