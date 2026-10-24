@@ -15,3 +15,8 @@ passou 'sshd do Termux com configuração inválida: não sobe e o erro do sshd 
 
 "$TT" --vigia-vivo && falhou 'sem pidfile o vigia não pode estar vivo'
 passou 'vigia sem pidfile: --vigia-vivo diz que não está de pé'
+
+# No Termux com Debian, o vigia é o do Debian: a instalação e o garantir do Termux não sobem um segundo.
+grep -q 'vigia_no_debian || tmux run-shell' "$RAIZ/tt" || falhou 'a instalação do Termux deve pular o vigia quando há Debian'
+grep -q 'vigia_no_debian && return 0' "$RAIZ/tt" || falhou 'vigia_garantir deve pular no Termux com Debian'
+passou 'Termux com Debian: não sobe um segundo vigia'
