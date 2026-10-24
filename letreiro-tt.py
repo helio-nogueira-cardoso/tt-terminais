@@ -307,16 +307,23 @@ def linha_letreiro(cfg):
     return "".join(c for c, _e in montar_roda(cfg, time.time()).cel)
 
 
-# Grafemas que o tmux (3.6+) e o Ghostty (1.3) desenham com a MESMA largura, medida célula a célula nos dois. O
-# recorte do letreiro anda de grafema em grafema: partir uma bandeira (🇧🇷 = duas letras regionais) deixava uma letra
-# sozinha, 1 coluna para o tmux e 2 para o Ghostty; na faixa, que é a última linha da tela, a coluna a mais quebrava a
-# linha e a tela inteira rolava (linhas duplicadas, barras deslocadas até o próximo redesenho).
-#   - ficam inteiros: bandeira, sequência com ZWJ, tom de pele, keycap e marcas combinantes;
-#   - somem: letra regional sozinha, VS15 (o caractere fica com a apresentação padrão), VS16 depois de letra comum
-#     (abaixo de U+2000, salvo © ® e keycap: tmux 2, Ghostty 1) e o que não aparece (formato, U+115F);
-#   - emoji de apresentação texto (🕰 ⏱ ✏ ⚙ ❤ …) ganha o VS16: sozinho mede 1 coluna, mas o Ghostty o desenha com a
-#     fonte de emoji por cima da letra seguinte; com o VS16 mede 2 nos dois e cabe ("🕰2022" virava "🕰️ 2022" colado).
-#     Ficam de fora © ® ™ ‼ ⁉, setas e formas geométricas, que têm forma de texto em toda fonte; ⸺ ⸻ (Ghostty 2) viram —.
+# Grafemas que o tmux (3.6+) e o Ghostty (1.3) desenham com a MESMA largura, medida célula a célula nos dois, e que o
+# Ghostty desenha firme com o letreiro andando. O recorte anda de grafema em grafema: partir uma bandeira (duas letras
+# regionais) deixava uma letra sozinha, 1 coluna para o tmux e 2 para o Ghostty; na faixa, que é a última linha da
+# tela, a coluna a mais quebrava a linha e a tela inteira rolava (linhas duplicadas, barras deslocadas até o próximo
+# redesenho).
+# Cada grafema é UM código, salvo a bandeira (24/10/2026): no Ghostty 1.3 o grafema de vários códigos
+# (🏛️ = 🏛 + VS16, a bandeira 🇨🇳, tom de pele, ZWJ, keycap) pisca quando o letreiro anda uma coluna por quadro;
+# o de um código só fica firme#  (provado no Ghostty do Mac: 🏛️ e 🌡️ piscam, 🌍 🏦 e 🏛 sem VS16 não). Então:
+#   - a bandeira fica (par de letras regionais, 2 colunas nos dois) e segue piscando: país não tem bandeira de um código
+#     só, e entre a bandeira de verdade e letras (CN) ou 🚩CN, o dono ficou com ela; letra regional sozinha some;
+#   - emoji de apresentação texto (🏛 🌡 🛰 🕰 ❤ …) vira o símbolo e um espaço, um bloco só de 2 colunas (o espaço
+#     que já vinha depois dele é o do bloco): sozinho mede 1 coluna nos dois, e o Ghostty o desenha com a fonte de
+#     emoji por cima do espaço, sem cobrir a letra seguinte ("🕰2022" sai "🕰 2022");
+#   - VS15, VS16, tom de pele, keycap e o que vem depois de um ZWJ somem: fica o caractere de base;
+#   - o texto passa pelo NFC (acento composto, um código); as marcas combinantes que sobram ficam. Some o que não
+#     aparece (formato, U+115F). © ® ™ ‼ ⁉, setas e formas geométricas têm forma de texto em toda fonte e ficam
+#     como estão; ⸺ ⸻ (Ghostty 2) viram —.
 _EMOJI_TEXTO = re.compile("[ℹ⌨⏏⏭-⏯⏱-⏲⏸-⏺Ⓜ☀-☄☎☑☘☝☠☢-☣☦☪☮-☯☸-☺♀♂♟-♠♣♥-♦♨♻♾⚒⚔-⚗⚙⚛-⚜⚠⚧⚰-⚱⛈⛏⛑⛓⛩⛰-⛱⛴⛷-⛹✂✈-✉"
                           "✌-✍✏✒✔✖✝✡✳-✴❄❇❣-❤⬅-⬇🅰-🅱🅾-🅿🌡🌤-🌬🌶🍽🎖-🎗🎙-🎛🎞-🎟🏋-🏎🏔-🏟🏳🏵🏷🐿👁📽🕉-🕊🕯-🕰"
                           "🕳-🕹🖇🖊-🖍🖐🖥🖨🖱-🖲🖼🗂-🗄🗑-🗓🗜-🗞🗡🗣🗨🗯🗳🗺🛋🛍-🛏🛠-🛥🛩🛰🛳]")
@@ -328,39 +335,40 @@ def _regional(c):
 
 
 def grafemas(texto):
-    """O texto em grafemas normalizados (lista de str), na forma que o tmux e o Ghostty medem igual."""
-    t = "".join(_TROCA.get(c, c) for c in texto)
+    """O texto em grafemas de um código cada (lista de str; o emoji de apresentação texto vem com o espaço do bloco e a
+    bandeira com as suas duas letras regionais), na forma que o tmux e o Ghostty medem igual e que o Ghostty desenha
+    firme com o letreiro andando."""
+    t = unicodedata.normalize("NFC", "".join(_TROCA.get(c, c) for c in texto))
     out, i, n = [], 0, len(t)
     while i < n:
         c = t[i]
         i += 1
         if _regional(c):
             if i < n and _regional(t[i]):
-                out.append(c + t[i])
+                out.append(c + t[i])  # a bandeira de verdade (escolha do dono): a única que ainda pisca no Ghostty
                 i += 1
             continue
         if c in MARC:
             out.append(c)
             continue
-        if unicodedata.category(c) == "Cf" or c in "\ufe0e\ufe0f":
-            continue  # invisível, ou seletor sem caractere antes
-        g = c + ("\ufe0f" if _EMOJI_TEXTO.match(c) else "")
+        if unicodedata.category(c) == "Cf" or c in "\ufe0e\ufe0f\u20e3" or "\U0001f3fb" <= c <= "\U0001f3ff":
+            continue  # invisível, ou seletor, keycap ou tom de pele sem caractere antes
+        g = c
         while i < n:
             d = t[i]
-            if d == "\ufe0f":
-                if "\ufe0f" not in g and (c >= "\u2000" or c in "\xa9\xae" or t[i + 1:i + 2] == "\u20e3"):
-                    g += d
-                i += 1
-            elif d == "\ufe0e":
+            if d in "\ufe0e\ufe0f\u20e3" or "\U0001f3fb" <= d <= "\U0001f3ff":
                 i += 1
             elif d == "\u200d" and i + 1 < n and t[i + 1] not in "\u200d\ufe0e\ufe0f":
-                g += d + t[i + 1]
                 i += 2
-            elif "\U0001f3fb" <= d <= "\U0001f3ff" or unicodedata.category(d) in ("Mn", "Me", "Mc"):
+            elif unicodedata.category(d) in ("Mn", "Me", "Mc"):
                 g += d
                 i += 1
             else:
                 break
+        if _EMOJI_TEXTO.match(c):
+            if i < n and t[i] == " ":
+                i += 1
+            g = c + " "
         out.append(g)
     return out
 
@@ -370,6 +378,8 @@ def larg(g):
     if g in MARC:
         return 0
     c = g[0]
+    if len(g) == 2 and g[1] == " ":
+        return 2  # emoji de apresentação texto e o espaço do bloco
     if len(g) > 1 and (_regional(c) or "\ufe0f" in g or "\u200d" in g or "\U0001f3fb" <= g[1] <= "\U0001f3ff"):
         return 2
     if unicodedata.category(c) in ("Mn", "Me", "Mc", "Cf"):
@@ -388,7 +398,9 @@ def cortar(t, orc):
             break
         out.append(g)
         tot += larg(g)
-    return "".join(out).rstrip() + "…"
+    while out and out[-1] == " ":  # o espaço de um bloco (emoji de texto) fica: o emoji o cobre
+        out.pop()
+    return "".join(out) + "…"
 
 
 def janela(linha, w, off):

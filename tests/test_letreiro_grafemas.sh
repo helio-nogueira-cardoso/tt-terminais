@@ -2,8 +2,12 @@
 # Letreiro recorta por grafema, não por caractere. Uma bandeira (🇧🇷 = duas letras regionais) partida na borda do
 # recorte deixava uma letra regional sozinha: 1 coluna para o tmux 3.8 e 2 para o Ghostty 1.3. Na faixa, que é a
 # última linha da tela, a coluna a mais quebrava a linha e a tela inteira rolava (linhas duplicadas, barras
-# deslocadas até o próximo redesenho). Também ficam inteiros ZWJ, tom de pele e keycap; somem o que os dois medem
-# diferente (letra regional sozinha, VS15, VS16 depois de letra comum) e a largura de cada grafema é a do tmux.
+# deslocadas até o próximo redesenho). Somem o que os dois medem
+# diferente (letra regional sozinha, VS15) e a largura de cada grafema é a do tmux. E cada grafema é de um código só,
+# salvo a bandeira (24/10/2026): no Ghostty 1.3 o de vários códigos (🏛️, 🇨🇳, tom de pele, ZWJ, keycap) pisca
+# quando o letreiro anda uma coluna por quadro. A bandeira fica (escolha do dono, segue piscando); emoji de
+# apresentação texto vira o símbolo e um espaço, um bloco de 2 colunas que o Ghostty cobre com a fonte de
+# emoji; o resto fica com o caractere de base.
 source "$(dirname "$0")/lib.sh"; isolar
 python3 -I - "$TT_DIR/letreiro-tt.py" <<'PY' || falhou 'recorte do letreiro parte grafemas ou erra a largura'
 import importlib.util, sys
@@ -12,21 +16,28 @@ RI = lambda c: 0x1F1E6 <= ord(c) <= 0x1F1FF
 g = lt.grafemas
 assert g("🇦🇷 Peso") == ["🇦🇷", " ", "P", "e", "s", "o"], g("🇦🇷 Peso")
 assert g("a🇦b") == ["a", "b"], "letra regional sozinha deveria sumir"
-assert g("👨‍👩‍👧x") == ["👨‍👩‍👧", "x"]
-assert g("👍🏽") == ["👍🏽"] and g("1️⃣") == ["1️⃣"] and g("é") == ["é"]
-assert g("🕰2022")[:2] == ["🕰️", "2"] and g("❤") == ["❤️"] and g("© ™ →") == ["©", " ", "™", " ", "→"]
-assert g("❤️") == ["❤️"] and g("x️") == ["x"] and g("🌍︎") == ["🌍"] and g("✌") == ["✌️"]
-larg = {"🇦🇷": 2, "👨‍👩‍👧": 2, "👍🏽": 2, "1️⃣": 2, "é": 1, "❤️": 2, "❤": 1, "✌️": 2,
-        "🌍": 2, "a": 1, "🌡": 1, "—": 1}
+assert g("👨‍👩‍👧x") == ["👨", "x"]
+assert g("👍🏽") == ["👍"] and g("1️⃣") == ["1"] and g("é") == ["é"] and g("é") == ["é"]
+assert g("🕰2022")[:2] == ["🕰 ", "2"] and g("❤") == ["❤ "] and g("© ™ →") == ["©", " ", "™", " ", "→"]
+assert g("❤️") == ["❤ "] and g("x️") == ["x"] and g("🌍︎") == ["🌍"] and g("✌") == ["✌ "]
+assert g("🏛️ G1") == ["🏛 ", "G", "1"], g("🏛️ G1")  # o espaço que já vinha é o do bloco
+assert g("❤️‍🔥x") == ["❤ ", "x"] and g("✌🏽") == ["✌ "] and g("©️") == ["©"]
+assert g("🏳️‍🌈") == ["🏳 "] and g("🇨🇳 Xangai")[:2] == ["🇨🇳", " "]
+# Um código por grafema (salvo o bloco do emoji de texto, as marcas que sobram do NFC e a bandeira): o Ghostty desenha firme.
+for x in g("🏛️ 🌡️ 🛰 ❤️‍🔥 ✌🏽 ©️ 1️⃣ 🏳️‍🌈 ⛏️ 👍🏽 👨‍👩‍👧 🇧🇷 🌍 é"):
+    assert len(x) == 1 or x[1:] == " " or (len(x) == 2 and RI(x[0]) and RI(x[1])), ("grafema de vários códigos", x)
+larg = {"🇦🇷": 2, "👨‍👩‍👧": 2, "👍🏽": 2, "é": 1, "❤ ": 2, "❤": 1, "✌ ": 2,
+        "🏛 ": 2, "🌍": 2, "a": 1, "🌡": 1, "🌡 ": 2, "—": 1}
 for k, v in larg.items():
     assert lt.larg(k) == v, (k, lt.larg(k), v)
 roda = lt.Roda()
-roda.cel = [(c, None) for c in g("🇦🇷 Peso 🇺🇸 S&P 👨‍👩‍👧 casa ❤️ 👍🏽 1️⃣ fim")]
+roda.cel = [(c, None) for c in g("🇦🇷 Peso 🇺🇸 S&P 👨‍👩‍👧 casa ❤️ 👍🏽 1️⃣ 🏛️ G1 🛰x 🇨🇳 fim")]
 roda.fim_roda = [(c, None) for c in g(" • ")]
 n = len(roda.cel) + len(roda.fim_roda)
 for w in (5, 9, 13):
     for off in range(n):
         txt = lt.janela_roda(roda, w, off)
+        assert not any(ch in "\ufe0f\u200d" for ch in txt), ("grafema de vários códigos no recorte", w, off, txt)
         cel = g(txt)
         assert not any(len(c) == 1 and RI(c) for c in cel), (w, off, txt)
         assert sum(lt.larg(c) for c in cel) == w, (w, off, txt)
@@ -57,7 +68,7 @@ if tmux -V | awk '{v=$2+0; exit !(v >= 3.6)}'; then
 import importlib.util, sys
 sp = importlib.util.spec_from_file_location("lt", sys.argv[1]); lt = importlib.util.module_from_spec(sp); sp.loader.exec_module(lt)
 roda = lt.Roda()
-roda.cel = [(c, None) for c in lt.grafemas("🇦🇷 Peso 🇺🇸 S&P 👨‍👩‍👧 casa ❤️ 👍🏽 1️⃣ fim")]
+roda.cel = [(c, None) for c in lt.grafemas("🇦🇷 Peso 🇺🇸 S&P 👨‍👩‍👧 casa ❤️ 👍🏽 1️⃣ 🏛️ G1 🛰x 🇨🇳 fim")]
 roda.fim_roda = [(c, None) for c in lt.grafemas(" • ")]
 print(lt.janela_roda(roda, 9, int(sys.argv[2])).replace("##", "#"), end="")
 PY

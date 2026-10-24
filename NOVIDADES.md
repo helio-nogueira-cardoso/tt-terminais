@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.11.4 · 24/10/2026
+- **📰 Letreiro sem emoji piscando no Ghostty:** com o letreiro andando uma coluna por quadro (o da ponte, que é o mais fluido), o Ghostty fazia piscar o emoji montado com mais de um código, como o 🏛️ do G1, da Câmara e do Senado, o 🌡️ do tempo e o 🛰. Agora o emoji desse tipo sai como o símbolo seguido de um espaço, que o Ghostty desenha firme e na mesma largura; tom de pele, emoji com ZWJ e keycap ficam só com o emoji de base. As bandeiras continuam as de verdade e são as únicas que ainda podem piscar: não existe bandeira de país feita de um código só.
+
 ## v2.11.1 · 24/10/2026
 - **🧹 Esvaziar a lixeira nas contas Microsoft:** dava "AUTHENTICATE failed". A lixeira era sempre consultada pelo IMAP, e o acesso dessas contas é do Microsoft Graph, que a Microsoft não aceita no IMAP. Agora a contagem vem pelo Graph e o esvaziar apaga pela mesma API do Outlook que o tt já usa para enviar e marcar lida.
 
