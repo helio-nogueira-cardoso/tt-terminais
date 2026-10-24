@@ -103,6 +103,9 @@ isolar() {
   export HOME_REAL
   trap limpar_isolado EXIT
   source "$RAIZ/tests/sem-notificacao-real.sh"; sem_notificacao_real "$T"
+  # Muitos testes refazem o PATH como PATH="$T/bin:$TT_PATH_BASE": sem o stub aqui, o notify-send real volta
+  # e a suíte manda avisos ao GNOME de quem roda (24/10: test_email_eventos mandou "📧 local: oi" de a@b.c).
+  TT_PATH_BASE="$T/sem-notificacao-real:$TT_PATH_BASE"; export TT_PATH_BASE
 }
 
 # A tela gráfica de quem roda a suíte fica inalcançável: o tt de um teste chamava o wl-copy/xclip de
