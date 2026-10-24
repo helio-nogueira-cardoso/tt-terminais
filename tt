@@ -3159,14 +3159,40 @@ FIM
   local i; for i in 1 2 3 4 5; do sshd_pronto "$porta" && return 0; sleep 0.3; done
   return 1
 }
+# Sobe o sshd do Termux de forma supervisionada: valida a configuração (sshd -t) e preserva o erro no log; religa pelo
+# runit (sv, do termux-services) quando há serviço, senão pelo sshd direto; confirma pelo banner SSH na porta real,
+# com espera progressiva e limite. Nunca sobe um segundo sshd na mesma porta.
+sshd_termux_subir() {
+  local erro i
+  if ! erro=$(sshd -t 2>&1); then
+    sshd_log "sshd do Termux: configuração inválida (sshd -t): $(head -3 <<<"$erro" | tr '\n' ' ')"; return 1
+  fi
+  if sshd_escuta 8022; then sshd_log "sshd do Termux já responde na 8022"; return 0; fi
+  if tem_cmd sv && [[ -d ${SVDIR:-$PREFIX/var/service}/sshd ]]; then
+    sv up sshd >/dev/null 2>&1 || sv restart sshd >/dev/null 2>&1
+  else
+    sshd >/dev/null 2>&1
+  fi
+  for i in 1 2 3 4 5 6; do
+    sshd_escuta 8022 && { sshd_log "sshd do Termux respondendo na 8022 (tentativa $i)"; return 0; }
+    sleep "$i"
+  done
+  sshd_log "sshd do Termux não respondeu na 8022 após as tentativas (ver ~/.local/state/tt/sshd e a saída do sv)"
+  return 1
+}
+# O vigia está de pé? (pidfile do vigia vivo e com --vigia na linha de comando): o proot do celular confere isso.
+vigia_vivo() {
+  local pid="" pidf="$RT/tt-vigia-$UID.pid"
+  { read -r pid <"$pidf"; } 2>/dev/null
+  [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null && cmdline_do_pid "$pid" | grep -q -- '--vigia'
+}
 # tt --sshd-garantir: imprime a porta que atende (sai 1 se nenhuma).
 sshd_garantir() {
   local p
   [[ $(conf sshd_garantir) == 0 ]] && return 0
   p=$(sshd_porta); [[ -n $p ]] && { echo "$p"; return 0; }
   if [[ ${PREFIX:-} == *com.termux* ]]; then
-    tem_cmd sshd && sshd >/dev/null 2>&1; sleep 1
-    p=$(sshd_porta); [[ -n $p ]] && { sshd_log "Termux: sshd religado"; echo "$p"; return 0; }
+    sshd_termux_subir && { p=$(sshd_porta); echo "${p:-8022}"; return 0; }
     return 1
   fi
   if [[ -z ${TT_SSHD_SEM_SUDO:-} ]] && sshd_bin >/dev/null && sudo -n true 2>/dev/null; then
@@ -21966,6 +21992,7 @@ case "${1:-}" in
   --malha-completar) malha_completar; exit ;;
   --malha-vigia) malha_vigia; exit ;;
   --vigia-garantir) vigia_garantir; exit ;;
+  --vigia-vivo) vigia_vivo; exit ;;
   --malha) malha_completar; malha_estado; exit $? ;;
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;
