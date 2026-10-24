@@ -1511,17 +1511,25 @@ def _abrir(url, req):
         raise Erro("endereço sem servidor")
     porta = u.port or (443 if esquema == "https" else 80)
     ips = resolver(host)                     # valida SEMPRE o destino final, mesmo com proxy
+    # IPv6 antes do IPv4: o edge IPv4 de alguns CDNs (AwesomeAPI, 24/10/2026) devolve 429 para este cliente e o
+    # IPv6 do mesmo nome responde. Só a ORDEM muda: todos os endereços já passaram pela validação do resolver.
+    ips = sorted(ips, key=lambda ip: ":" not in ip)
     timeout = req["timeout"]
     proxy = req.get("proxy") or ""
     if proxy:
         pu = urllib.parse.urlsplit(proxy)
-        alvo = (pu.hostname, pu.port or 80)
+        alvos = [(pu.hostname, pu.port or 80)]
     else:
-        alvo = (ips[0], porta)
-    try:
-        sock = socket.create_connection(alvo, timeout=timeout)
-    except OSError as e:
-        raise ErroHTTP("não consegui conectar a %s: %s" % (host, e.strerror or e), tentar_de_novo=True)
+        alvos = [(ip, porta) for ip in ips]
+    sock, erro_conexao = None, None
+    for alvo in alvos:                       # sem IPv6 nesta rede, cai para o próximo endereço
+        try:
+            sock = socket.create_connection(alvo, timeout=timeout)
+            break
+        except OSError as e:
+            erro_conexao = e
+    if sock is None:
+        raise ErroHTTP("não consegui conectar a %s: %s" % (host, erro_conexao.strerror or erro_conexao), tentar_de_novo=True)
     if proxy and esquema == "https":
         sock.sendall(("CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n\r\n" % (host, porta, host, porta)).encode())
         cab = b""
