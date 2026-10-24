@@ -94,6 +94,19 @@ def graph_get(c, caminho):
      ]},
 ]}
 m.graph_get = graph_get
+
+# (o graph_sync lista leve e busca a mensagem completa de cada nova: o falso acha pelo id visto na listagem)
+_lista = m.graph_get; _vistas = {}; detalhes = []
+def _com_detalhe(c, caminho):
+    import urllib.parse
+    if caminho.startswith("/me/messages/"):
+        detalhes.append(caminho)
+        return _vistas[urllib.parse.unquote(caminho.split("/")[3].split("?")[0])]
+    r = _lista(c, caminho)
+    for x in r.get("value", []):
+        _vistas[x["id"]] = x
+    return r
+m.graph_get = _com_detalhe
 m.graph_sync({"_slug": "g"}, base, 50, True)   # completo
 for p in ("INBOX", "Enviados", "Lixeira", "Rascunhos", "Spam", "Arquivo"):
     for sub in ("cur", "new", "tmp"):
@@ -106,7 +119,7 @@ for p in ("INBOX", "Enviados", "Lixeira", "Rascunhos", "Spam", "Arquivo"):
     assert "Authentication-Results: mx.example; dkim=pass header.i=@x" in raw, "faltou preservar Authentication-Results"
     assert "Authentication-Results: forged; dmarc=fail" in raw, "a ordem dos resultados não foi preservada"
     assert "X-Private-Test" not in raw, "cabeçalho não necessário foi copiado"
-assert all("internetMessageHeaders" in q for q in consultas), "Graph não pediu internetMessageHeaders"
+assert detalhes and all("internetMessageHeaders" in q for q in detalhes), "Graph não pediu internetMessageHeaders"
 shutil.rmtree(base)
 m.graph_sync({"_slug": "g"}, base, 50, False)  # inbox só
 assert os.path.isdir(os.path.join(base, "INBOX")), "inbox-só não criou INBOX"
@@ -131,6 +144,19 @@ m.graph_get = lambda c, caminho: {"value": [
                                 h("X-MS-Exchange-Organization-AuthAs", "Anonymous"), h("X-MS-Exchange-CrossTenant-AuthAs", "Internal")]},
     {"id": "INJ", "subject": "[tt] a\nAuthentication-Results: x; dmarc=pass", "from": {"emailAddress": {"name": "N\r\nX-Falso: 1", "address": "n@empresa.com.br"}}, "isRead": False, "body": {"content": "", "contentType": "text"}},
 ]}
+
+# (o graph_sync lista leve e busca a mensagem completa de cada nova: o falso acha pelo id visto na listagem)
+_lista = m.graph_get; _vistas = {}; detalhes = []
+def _com_detalhe(c, caminho):
+    import urllib.parse
+    if caminho.startswith("/me/messages/"):
+        detalhes.append(caminho)
+        return _vistas[urllib.parse.unquote(caminho.split("/")[3].split("?")[0])]
+    r = _lista(c, caminho)
+    for x in r.get("value", []):
+        _vistas[x["id"]] = x
+    return r
+m.graph_get = _com_detalhe
 m.graph_sync({"_slug": "g"}, base, 50, False)
 def ler(i): return open(glob.glob(os.path.join(base, "INBOX", "new", i))[0], encoding="utf-8").read()
 def veredito(i):
@@ -173,8 +199,21 @@ def graph_get(c, caminho):
     {"id": "D3", "subject": "sem nada", "from": {"emailAddress": {"name": "C", "address": "c@x.com"}}, "isRead": False},
 ]}
 m.graph_get = graph_get
+
+# (o graph_sync lista leve e busca a mensagem completa de cada nova: o falso acha pelo id visto na listagem)
+_lista = m.graph_get; _vistas = {}; detalhes = []
+def _com_detalhe(c, caminho):
+    import urllib.parse
+    if caminho.startswith("/me/messages/"):
+        detalhes.append(caminho)
+        return _vistas[urllib.parse.unquote(caminho.split("/")[3].split("?")[0])]
+    r = _lista(c, caminho)
+    for x in r.get("value", []):
+        _vistas[x["id"]] = x
+    return r
+m.graph_get = _com_detalhe
 m.graph_sync({"_slug": "g"}, base, 50, False)
-assert all("internetMessageId" in q and "sentDateTime" in q for q in consultas), consultas
+assert detalhes and all("internetMessageId" in q and "sentDateTime" in q for q in detalhes), detalhes
 def arq(i): return glob.glob(os.path.join(base, "INBOX", "new", i))[0]
 def cab(i): return dict(l.split(": ", 1) for l in open(arq(i), encoding="utf-8").read().split("\n\n", 1)[0].split("\n"))
 h = cab("D1")
@@ -288,6 +327,19 @@ def outlook_marcar_lido(c, mid, lido):
         servidor[mid] = lido
     return status[0]
 m.graph_get, m.outlook_marcar_lido = graph_get, outlook_marcar_lido
+
+# (o graph_sync lista leve e busca a mensagem completa de cada nova: o falso acha pelo id visto na listagem)
+_lista = m.graph_get; _vistas = {}; detalhes = []
+def _com_detalhe(c, caminho):
+    import urllib.parse
+    if caminho.startswith("/me/messages/"):
+        detalhes.append(caminho)
+        return _vistas[urllib.parse.unquote(caminho.split("/")[3].split("?")[0])]
+    r = _lista(c, caminho)
+    for x in r.get("value", []):
+        _vistas[x["id"]] = x
+    return r
+m.graph_get = _com_detalhe
 inbox = os.path.join(base, "INBOX")
 m.graph_sync({}, base, 50)
 assert patches == [], "primeira volta não pode devolver nada ao servidor"
@@ -319,6 +371,19 @@ m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 base = sys.argv[2]; inbox = os.path.join(base, "INBOX")
 servidor = {"A": {"isRead": False, "subject": "a"}, "B": {"isRead": True, "subject": "b"}, "C": {"isRead": False, "subject": "c"}}
 m.graph_get = lambda c, caminho: {"value": [dict(v, id=i, **{"from": {"emailAddress": {"address": "x@y"}}}) for i, v in servidor.items()]}
+
+# (o graph_sync lista leve e busca a mensagem completa de cada nova: o falso acha pelo id visto na listagem)
+_lista = m.graph_get; _vistas = {}; detalhes = []
+def _com_detalhe(c, caminho):
+    import urllib.parse
+    if caminho.startswith("/me/messages/"):
+        detalhes.append(caminho)
+        return _vistas[urllib.parse.unquote(caminho.split("/")[3].split("?")[0])]
+    r = _lista(c, caminho)
+    for x in r.get("value", []):
+        _vistas[x["id"]] = x
+    return r
+m.graph_get = _com_detalhe
 m.outlook_marcar_lido = lambda c, mid, lido: 200
 def arquivos():
     return sorted(sub + "/" + a for sub in ("cur", "new") for a in os.listdir(os.path.join(inbox, sub)))
@@ -330,7 +395,7 @@ os.rename(os.path.join(inbox, "new", "C"), os.path.join(inbox, "cur", "C:2,"))  
 m.graph_sync({}, base, 50)
 assert arquivos() == ["cur/B:2,FRS", "cur/C:2,", "new/A"], arquivos()
 assert os.stat(os.path.join(inbox, "new", "A")).st_ino == ino["new/A"], "sem mudança, o arquivo não pode ser regravado"
-servidor["A"]["isRead"] = True; servidor["B"]["subject"] = "b editado"; del servidor["C"]
+servidor["A"]["isRead"] = True; servidor["B"]["subject"] = "b editado"; servidor["B"]["lastModifiedDateTime"] = "2026-10-24T00:00:00Z"; del servidor["C"]
 m.graph_sync({}, base, 50)
 assert arquivos() == ["cur/A:2,S", "cur/B:2,FRS"], arquivos()
 assert "Subject: b editado" in open(os.path.join(inbox, "cur", "B:2,FRS"), encoding="utf-8").read(), "conteúdo novo no mesmo nome"

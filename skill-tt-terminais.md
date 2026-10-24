@@ -759,6 +759,25 @@ e os instaladores da pasta do usuário ficam no `tt`.
   não avisou, a notificação do sistema leva todas; `email_aviso=0` desliga) e `atualizar_barras`; `barra_email_fmt` (`tt --barra-email`)
   preenche `@barra_email` (não lidas do espelho; ⚠ vermelho se `--email-sync-estado curto` tem
   erro/parado, ⏳ âmbar se só atrasado), referenciada pelo range `email` do tema.
+- Sync por eventos (v2.11): `email-tt.py idle TT PASTA-CONTAS ESTADO` (um por máquina; o vigia o mantém com
+  `email_idle_garantir` a cada minuto, pid em `email-sync/.idle.pid`, batimento geral em `.idle.vivo`, log em `.idle.log`;
+  `TT_EMAIL_IDLE=0` desliga) deixa uma conexão IMAP IDLE no INBOX de cada conta `sync_local=1` (nas do Graph com OAuth, `_GraphConta` lê
+  `totalItemCount`/`unreadItemCount` do INBOX a cada `GRAPH_EVENTOS_CADA`=60 s, token em cache de 45 min),
+  grava `email-sync/<slug>.idle` ("epoch<TAB>ok" ou "epoch<TAB>erro<TAB>motivo") e, quando o servidor avisa
+  (EXISTS/EXPUNGE/FETCH), chama `tt --email-sync SLUG --evento` (junta rajadas de 4 s; no máximo 1 a cada 20 s). Sai
+  sozinho com o `email-tt.py` trocado, o tt ausente ou o pid tomado. `email_idle_saudavel` = batimento ok há até
+  `TT_EMAIL_IDLE_FOLGA` (240 s). `email_sync_dispensavel` pula sem abrir a rede: `--se-preciso` (o `check-mail-cmd` do
+  aerc, que segue a cada 2 min só para o aerc reler o maildir) com sync bom há menos de `TT_EMAIL_SYNC_AERC` (110 s)
+  ou IDLE de pé; `--vigia` com IDLE de pé e INBOX bom há menos de `TT_EMAIL_SYNC_EVENTOS` (1800) / completa boa há
+  menos de `TT_EMAIL_SYNC_COMPLETO_EVENTOS` (7200). `--evento` sempre roda, mas respeita `<slug>.espera`. Com o IDLE
+  de pé a conta não vira `parado`. `email_novos_avisar` só roda quando `email_inbox_assinatura` (mtime com fração de
+  new/ e cur/, `stat --printf %.9Y`) mudou; as demandas rodam sempre. `barra_email_fmt` guarda a contagem em
+  `email-sync/.naolidas` e só recontam quando as pastas mudam. `email_checkmail_migrar` regrava bloco sem `--se-preciso`.
+  `graph_sync` incremental: lista `id,isRead,lastModifiedDateTime` (até 1000 por página, sem corpo) e busca
+  `GRAPH_CAMPOS` só do id novo ou com `lastModifiedDateTime` diferente do manifesto (`mod`; manifesto sem `mod` não
+  força rebaixar). `_graph_nomes`: em disco que não distingue maiúsculas, ids que colidem ganham sufixo do sha1 (o
+  dono do nome simples fica estável pelo manifesto, `"v": 2`; membro antigo é refeito uma vez).
+  Teste: `tests/test_email_eventos.sh` (inclui um servidor IMAP falso e o Graph com `graph_get` falso).
 - Filtros do leitor (`aerc_filtros_basicos`, `aerc_filtro_texto`): a seção `[filters]` do `aerc.conf` SUBSTITUI a lista de fábrica do aerc; só com `text/html` o corpo
   `text/plain` aparecia como anexo ("No filter configured for this mimetype"). `configurar_aerc` e `aerc_reparar_se_preciso` (ao abrir o 📧) acrescentam, só se
   faltarem, `text/plain=wrap -w 100 | colorize | python3 email-tt.py linkify`, `text/calendar=calendar`, `message/delivery-status|rfc822=colorize` e `.headers=colorize`

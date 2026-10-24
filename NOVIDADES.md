@@ -3,6 +3,15 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.11.0 · 24/10/2026
+- **📧 E-mail por eventos:** o servidor passa a avisar quando chega mensagem, e só então o tt sincroniza. Um processo leve por máquina deixa uma conexão IMAP IDLE aberta na caixa de entrada de cada conta com espelho local; e-mail novo, apagado ou lido em outro aparelho dispara a sincronização daquela conta em segundos. Antes, cada conta era consultada a cada 2 minutos por dois caminhos ao mesmo tempo (o vigia e o aerc); num Mac com sete contas eram cerca de 1.200 sincronizações por dia, quase todas para descobrir que nada tinha mudado.
+- **Polling vira rede de segurança:** com o IDLE de pé, o vigia confere a caixa de entrada a cada 30 minutos e as demais pastas a cada 2 horas. Se a conexão cair ou o servidor não oferecer IDLE, a conta volta sozinha ao ritmo de antes. O 📧 não acusa "parado" por causa desse espaçamento.
+- **O aerc deixa de ir ao servidor à toa:** o intervalo de 2 minutos dele continua (é o que faz a lista se atualizar sozinha), mas não abre conexão se a conta acabou de sincronizar ou se o IDLE dela está de pé. Antes ele ainda ignorava a espera que o tt faz depois de um erro.
+- **Menos trabalho por rodada:** o aviso de e-mail novo só varre a caixa quando ela mudou, e a contagem de não lidas da barra só é refeita quando as pastas mudam.
+- **Contas Microsoft (Graph) também por eventos:** o Graph não oferece IDLE, então o tt confere os contadores da caixa de entrada a cada minuto, numa consulta de poucos bytes, e sincroniza só quando eles mudam. A sincronização também ficou incremental: lista as mensagens sem o corpo e baixa o corpo só do que é novo ou mudou. Na conta da empresa, cada sincronização caiu de cerca de 500 requisições e 70 segundos para uma requisição e 0,2 segundo.
+- **Mensagens que sumiam do espelho Microsoft no Mac:** os identificadores do Graph diferenciam maiúsculas de minúsculas, e o disco do Mac não. Duas mensagens com identificadores parecidos caíam no mesmo arquivo, e uma sobrescrevia a outra: na conta da empresa eram 37 de 500. Agora cada uma tem o seu arquivo; as afetadas são baixadas de novo uma vez.
+- `TT_EMAIL_IDLE=0` desliga os eventos.
+
 ## v2.10.1 · 24/10/2026
 - **⚙ Guarda dos serviços:** o loop de programa ausente às vezes passava despercebido. A cada volta ele fica de pé por um instante (antes de o programa faltar de novo) e, no systemd 254 ou mais novo, passa por um estado de espera que o tt não conhecia; pego num desses momentos, o `tt --checar` dizia que estava tudo bem. Agora o tt olha de novo antes de concluir, e um programa trocado com o serviço rodando continua fora da conta. O aviso de um programa que some de novo no mesmo dia passa a dizer quando ele sumiu desta vez, não da primeira.
 

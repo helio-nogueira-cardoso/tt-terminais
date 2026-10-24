@@ -44,6 +44,8 @@ assert mail.demanda_rica(ruim, assunto) is None, 'metadado não validado'
 consultas = []
 def graph(c, caminho):
     consultas.append(caminho)
+    if '/me/messages/' in caminho:   # o graph_sync lista leve e busca cada mensagem nova completa
+        return graph(c, 'lista')['value'][0]
     return {'value': [{'id': 'identidade/Graph', 'internetMessageId': '<mesma-mensagem@exemplo.com>',
         'subject': assunto, 'from': {'emailAddress': {'name': 'Remetente', 'address': 'origem@exemplo.com'}},
         'receivedDateTime': '2026-10-21T12:00:00Z', 'isRead': False,
@@ -52,7 +54,7 @@ def graph(c, caminho):
 mail.graph_get = graph
 base = root / 'maildir'
 mail.graph_sync({}, str(base), 50)
-assert 'body,' in consultas[0] and 'internetMessageId' in consultas[0]
+assert any('body,' in q and 'internetMessageId' in q for q in consultas if '/me/messages/' in q)
 eml = next((base / 'INBOX' / 'new').iterdir())
 mensagem = email.message_from_bytes(eml.read_bytes(), policy=email.policy.default)
 assert mensagem['Message-ID'] == '<mesma-mensagem@exemplo.com>'

@@ -547,7 +547,7 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   faxina_vigia
-  local ultima_volta=0 pos_wake=0 ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_sonda=0 ultima_email_sync=0 ultima_email_completo=0 ultima_notifs=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_volta=0 pos_wake=0 ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_sonda=0 ultima_email_sync=0 ultima_email_completo=0 ultima_email_idle=0 ultima_notifs=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   ultima_email_completo=$(email_ultima_completa)
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
@@ -651,6 +651,11 @@ vigiar() {
       fi
       ((email_ocioso && ${TT_EMAIL_SYNC_OCIOSO:-300} > t_email_sync)) && t_email_sync=${TT_EMAIL_SYNC_OCIOSO:-300}
       [[ $t_email_sync == "$email_intervalo" ]] || { email_intervalo=$t_email_sync; email_intervalo_gravar "$t_email_sync"; }
+    fi
+    # Eventos: o IDLE (email-tt.py idle) avisa na hora quando o INBOX muda; com ele de pé, cada conta pula as
+    # voltas que só serviriam para descobrir que nada mudou (email_sync_dispensavel). Conferido a cada minuto.
+    if ((t_email_sync > 0 && agora - ${ultima_email_idle:-0} >= 60)); then
+      ultima_email_idle=$agora; email_idle_garantir 2>/dev/null
     fi
     if ((t_email_sync > 0 && agora - ultima_email_completo >= t_email_completo)); then
       ultima_email_completo=$agora; ultima_email_sync=$agora
@@ -5133,7 +5138,8 @@ UI
   email_checkmail_migrar 2>/dev/null || true
 }
 # Contas espelhadas gravadas antes do check-mail automático: regrava o bloco se faltar o comando
-# ou o intervalo (sem intervalo, o aerc não atualiza a lista Maildir em segundo plano).
+# ou o intervalo (sem intervalo, o aerc não atualiza a lista Maildir em segundo plano). Também o comando
+# sem --se-preciso (anterior à v2.11): ele ia ao servidor a cada 2 min por conta, além do vigia.
 email_checkmail_migrar() {
   local slug; local -A E=()
   [[ -f $AERC_CONTAS ]] || return 0
@@ -5142,7 +5148,7 @@ email_checkmail_migrar() {
     [[ ${E[sync_local]:-} == 1 ]] || email_graph || continue
     awk -v a="# >>> tt e-mail: $slug >>>" -v z="# <<< tt e-mail: $slug <<<" '
       $0 == a { d = 1 }
-      d && /^[[:space:]]*check-mail-cmd[[:space:]]*=/ { cmd = 1 }
+      d && /^[[:space:]]*check-mail-cmd[[:space:]]*=.*--se-preciso/ { cmd = 1 }
       d && /^[[:space:]]*check-mail[[:space:]]*=/ { intervalo = 1 }
       $0 == z { d = 0 }
       END { exit !(cmd && intervalo) }
@@ -18928,7 +18934,7 @@ email_bloco() {
     # Maildir não acompanha mudanças externas sozinho: o intervalo faz o aerc chamar o sync e
     # atualizar a lista, além do vigia que mantém o espelho local.
     printf 'check-mail        = 2m\n'
-    printf 'check-mail-cmd    = %s --email-sync %s\n' "$HOME/.local/bin/tt" "${E[_slug]}"
+    printf 'check-mail-cmd    = %s --email-sync %s --se-preciso\n' "$HOME/.local/bin/tt" "${E[_slug]}"
     printf 'check-mail-timeout = 120s\n'
   else
     printf 'source            = %s\n' "$(email_url imap)"
@@ -18946,7 +18952,7 @@ email_bloco() {
   # INBOX: sem ele o aerc responde "check-mail: no command specified". O mbsync pode passar dos 10 s padrão.
   if [[ ${E[sync_local]:-} == 1 ]] && ! email_graph; then
     printf 'check-mail        = 2m\n'
-    printf 'check-mail-cmd    = %s --email-sync %s\n' "$HOME/.local/bin/tt" "${E[_slug]}"
+    printf 'check-mail-cmd    = %s --email-sync %s --se-preciso\n' "$HOME/.local/bin/tt" "${E[_slug]}"
     printf 'check-mail-timeout = 120s\n'
   fi
   if [[ -n ${E[nome_exibicao]:-} ]]; then printf 'from              = %s <%s>\n' "${E[nome_exibicao]}" "${E[endereco]}"
@@ -19211,6 +19217,86 @@ email_sem_segredo() { sed -E 's#(AUTHENTICATE [A-Z0-9_-]+) [A-Za-z0-9+/=]{8,}#\1
 # "pulada": não é parada. Depois de um erro a conta espera mais (<slug>.espera: 2×, 4×… o intervalo,
 # até 15 min; zera no 1º sucesso) — o Gmail responde devagar quando é muito procurado (4 aparelhos
 # na mesma conta), e insistir piorava. Só o vigia (QUEM=vigia) respeita a espera; à mão, sincroniza já.
+# ─── Sincronização por eventos (IMAP IDLE) ─────────────────────────────────────
+# O email-tt.py idle (um por máquina, mantido pelo vigia: email_idle_garantir) deixa uma conexão IDLE no INBOX
+# de cada conta IMAP com espelho e, nas do Microsoft Graph (sem IDLE nem webhook possível sem endereço público),
+# confere os contadores do INBOX a cada minuto. Grava o batimento em email-sync/<slug>.idle ("<epoch><TAB>ok", ou
+# "<epoch><TAB>erro<TAB>motivo"). Quando a caixa muda, chama tt --email-sync CONTA --evento. Com o batimento em
+# dia, o polling do vigia vira rede de segurança.
+email_idle_saudavel() { # slug [agora]
+  local f="$ESTADO_DIR/email-sync/$1.idle" t="" st="" agora=${2:-}
+  [[ -r $f ]] || return 1
+  IFS=$'\t' read -r t st _ <"$f" || [[ -n $t ]] || return 1
+  [[ $st == ok && $t =~ ^[0-9]+$ ]] || return 1
+  [[ -n $agora ]] || printf -v agora '%(%s)T' -1
+  ((agora - t <= ${TT_EMAIL_IDLE_FOLGA:-240}))
+}
+# Fim da última rodada boa da conta (inbox ou completo; com "completo", só a volta completa); 0 se nunca.
+email_ultimo_ok() { # slug [completo]
+  awk -F'\t' -v so="${2:-}" '$4 == 0 && ($1 == "completo" || (so == "" && $1 == "inbox")) && $3 > f { f = $3 } END { print f + 0 }' \
+    "$ESTADO_DIR/email-sync/$1" 2>/dev/null || echo 0
+}
+# Rodada que pode ficar para depois, sem abrir a rede:
+#   aerc (o check-mail de 2 min, que existe para o aerc reler o maildir): a conta sincronizou há menos de
+#     TT_EMAIL_SYNC_AERC (110 s) ou o IDLE dela está de pé — antes, cada conta ia ao servidor duas vezes a cada
+#     2 min (o aerc e o vigia), e o aerc nem respeitava a espera depois de um erro;
+#   vigia, com o IDLE de pé: o INBOX só a cada TT_EMAIL_SYNC_EVENTOS (1800 s) e a volta completa a cada
+#     TT_EMAIL_SYNC_COMPLETO_EVENTOS (7200 s), como rede de segurança (pastas fora do INBOX, aviso perdido).
+# O resto (⟳ sincronizar agora, o evento do IDLE, chamada à mão) sempre roda.
+email_sync_dispensavel() { # slug modo quem agora
+  local slug=$1 modo=$2 quem=$3 agora=$4 ult
+  case $quem in
+    aerc)
+      email_idle_saudavel "$slug" "$agora" && return 0
+      ult=$(email_ultimo_ok "$slug"); ((agora - ult < ${TT_EMAIL_SYNC_AERC:-110})) ;;
+    vigia)
+      email_idle_saudavel "$slug" "$agora" || return 1
+      if [[ $modo == completo ]]; then ult=$(email_ultimo_ok "$slug" completo); ((agora - ult < ${TT_EMAIL_SYNC_COMPLETO_EVENTOS:-7200}))
+      else ult=$(email_ultimo_ok "$slug"); ((agora - ult < ${TT_EMAIL_SYNC_EVENTOS:-1800})); fi ;;
+    *) return 1 ;;
+  esac
+}
+# Assinatura do INBOX do espelho: o mtime (com fração) de new/ e cur/, que muda quando uma mensagem chega,
+# sai ou é marcada (o maildir renomeia o arquivo). Vazia sem o stat do GNU: quem compara trata como mudança.
+email_inbox_assinatura() { # slug
+  local md=$EMAIL_MAILDIR_BASE/$1/INBOX # = email_maildir, sem subshell
+  [[ -d $md ]] || return 0
+  stat --printf '%.9Y ' "$md/new" "$md/cur" 2>/dev/null
+}
+# Mantém de pé o email-tt.py idle (um por máquina) enquanto houver conta IMAP com espelho; chamado pelo vigia
+# a cada minuto. TT_EMAIL_IDLE=0 desliga e o vigia volta ao polling puro. Processo vivo mas sem batimento geral
+# (.idle.vivo) há mais de 5 min = travado ou pid reaproveitado: é trocado.
+email_idle_garantir() {
+  local dir="$ESTADO_DIR/email-sync" pid="" vivo=0 slug n=0 agora; local -A E=()
+  if [[ ${TT_EMAIL_IDLE:-1} == 0 ]] || ! command -v python3 >/dev/null; then
+    email_idle_parar; return 0
+  fi
+  for slug in $(email_slugs 2>/dev/null); do
+    E=(); email_ler "$slug" 2>/dev/null || continue
+    if email_graph; then [[ ${E[auth]:-} == oauth ]] && n=$((n + 1))   # Graph: contadores do INBOX
+    elif [[ ${E[sync_local]:-} == 1 ]] && command -v "$(mbsync_bin)" >/dev/null; then n=$((n + 1)); fi
+  done
+  ((n > 0)) || { email_idle_parar; return 0; }
+  mkdir -p "$dir"; printf -v agora '%(%s)T' -1
+  [[ -r $dir/.idle.pid ]] && read -r pid <"$dir/.idle.pid"
+  [[ -r $dir/.idle.vivo ]] && read -r vivo <"$dir/.idle.vivo"
+  if [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null; then
+    ((agora - ${vivo:-0} <= 300)) && return 0
+    kill "$pid" 2>/dev/null
+  fi
+  # O log só guarda conexões e erros (nunca o segredo); passando de 1 MB, fica a metade final.
+  [[ -f $dir/.idle.log ]] && (($(wc -c <"$dir/.idle.log") > 1048576)) && { tail -c 524288 "$dir/.idle.log" >"$dir/.idle.log.tmp"; mv -f "$dir/.idle.log.tmp" "$dir/.idle.log"; }
+  printf '%s\n' "$agora" >"$dir/.idle.vivo"
+  nohup python3 -I "$EMAIL_PY" idle "$EU" "$EMAIL_DIR" "$dir" >>"$dir/.idle.log" 2>&1 </dev/null &
+  printf '%s\n' "$!" >"$dir/.idle.pid"
+}
+email_idle_parar() {
+  local f="$ESTADO_DIR/email-sync/.idle.pid" pid=""
+  [[ -r $f ]] || return 0
+  read -r pid <"$f"; [[ -n $pid ]] && kill "$pid" 2>/dev/null
+  rm -f "$f"; return 0
+}
+
 email_sync() { # slug [inbox|completo] [vigia]
   local slug=${1:?} modo=${2:-inbox} quem=${3:-} rc lock dir alvo teto ini fim st agora
   local -A E=(); email_ler "$slug" 2>/dev/null || true
@@ -19220,7 +19306,8 @@ email_sync() { # slug [inbox|completo] [vigia]
   command -v "$(mbsync_bin)" >/dev/null || return 0
   [[ -f $rc ]] || return 0
   dir="${ESTADO_DIR:?}/email-sync"; mkdir -p "$dir"; agora=$(date +%s)
-  [[ $quem == vigia ]] && ((agora < $(cat "$dir/$slug.espera" 2>/dev/null || echo 0))) && return 0
+  [[ $quem == vigia || $quem == evento ]] && ((agora < $(cat "$dir/$slug.espera" 2>/dev/null || echo 0))) && return 0
+  email_sync_dispensavel "$slug" "$modo" "$quem" "$agora" && return 0
   lock="$EMAIL_MBSYNC_DIR/$slug.lock"
   exec 9>"$lock" 2>/dev/null || return 0
   if ! flock -n 9; then   # já há um sync desta conta em curso
@@ -19231,6 +19318,7 @@ email_sync() { # slug [inbox|completo] [vigia]
     grep -q "^Channel $slug-lixeira\$" "$rc" || { exec 9>&-; return 0; }
   else alvo="$slug-inbox"; teto=${TT_EMAIL_SYNC_TETO_INBOX:-240}; grep -q "^Channel $slug-inbox\$" "$rc" || alvo=$slug; fi   # rc antigo: canal único
   ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
+  local assinatura; assinatura=$(email_inbox_assinatura "$slug")
   # O plugin XOAUTH2 só entra para contas OAuth: visível a uma conta de senha (app password), o
   # mbsync o escolhe como "melhor" mecanismo e manda a senha como token — o Gmail recusa.
   local saslp=""; grep -q '^auth=oauth' "$EMAIL_DIR/$slug.conf" 2>/dev/null && saslp=$(xoauth2_ambiente)
@@ -19260,7 +19348,12 @@ email_sync() { # slug [inbox|completo] [vigia]
     [[ $modo != completo || $st != 124 ]] && email_sync_esperar "$slug" "$fim"
   fi
   rm -f "${dir:?}/${slug:?}.andamento"
-  email_novos_avisar "$slug"
+  # O aviso só depende do INBOX: sem mudança em new/ nem cur/ (nada chegou, saiu ou foi lido), não há o
+  # que avisar, e ele deixa de varrer a caixa toda a cada rodada. As demandas rodam sempre: dependem
+  # também de autorizações e esperas que mudam fora do maildir.
+  if [[ -z $assinatura || ! -f $dir/$slug.vistas || $(email_inbox_assinatura "$slug") != "$assinatura" ]]; then
+    email_novos_avisar "$slug"
+  fi
   demandas_processar_conta "$slug"
   # Avisos e demandas podem deixar filhos em segundo plano com o fd herdado. Só fechar
   # o descritor no pai manteria a trava até esses filhos saírem; a rodada já terminou.
@@ -19496,7 +19589,18 @@ barra_email_fmt() {
   done
   # As não lidas de todas as contas (new inteiro + cur sem a marca S de lida) em dois find e um wc; eram dois
   # find e dois wc POR conta a cada redesenho.
-  ((${#novos[@]})) && n=$(( $( { find "${novos[@]}" -type f; find "${curs[@]}" -type f ! -name '*:2,*S*'; } 2>/dev/null | wc -l) ))
+  # E a contagem só é refeita quando alguma dessas pastas mudou (mtime com fração, num stat só): fica em
+  # email-sync/.naolidas ("assinatura<TAB>n"), lida sem processo.
+  if ((${#novos[@]})); then
+    local cache="$ESTADO_DIR/email-sync/.naolidas" sig="" c_sig="" c_n=""
+    sig=$(stat --printf '%.9Y ' "${novos[@]}" "${curs[@]}" 2>/dev/null)
+    [[ -n $sig && -r $cache ]] && IFS=$'\t' read -r c_sig c_n <"$cache"
+    if [[ -n $sig && $sig == "$c_sig" && $c_n =~ ^[0-9]+$ ]]; then n=$c_n
+    else
+      n=$(( $( { find "${novos[@]}" -type f; find "${curs[@]}" -type f ! -name '*:2,*S*'; } 2>/dev/null | wc -l) ))
+      [[ -n $sig ]] && mkdir -p "${cache%/*}" && printf '%s\t%s\n' "$sig" "$n" >"$cache"
+    fi
+  fi
   local atraso=""
   while IFS=$'\t' read -r slug est; do
     [[ $est == erro || $est == parado ]] && alerta=1
@@ -19562,6 +19666,8 @@ email_sync_resumo() { # slug → ok|nunca|atrasado|erro|parado
     read -r _ ini <"$dir/$slug.andamento"
     ((agora - ${ini:-0} < ${TT_EMAIL_SYNC_TETO:-600} + 60)) && vivo=$agora   # andamento velho = processo que morreu
   fi
+  # Com o IDLE de pé, o vigia espaça as rodadas de propósito (email_sync_dispensavel): a conexão viva é o sinal de vida.
+  ((${ultimo:-0} > 0)) && email_idle_saudavel "$slug" "$agora" && vivo=$agora
   if ((${ultimo:-0} == 0 && ${vivo:-0} == 0)); then echo nunca; return; fi
   if ((${st:-0} != 0)); then
     if grep -qiE "$EMAIL_ERRO_SENHA" "$dir/$slug.erro" 2>/dev/null || ((seq >= 3 || (ok > 0 && agora - ok > 600))); then echo erro
@@ -20370,11 +20476,13 @@ email_graph_sync() { # slug [inbox|completo] [vigia]
   local slug=${1:?} modo=${2:-inbox} quem=${3:-} conf dir ini fim st lock
   conf=$(email_conf_arq "$slug"); [[ -f $conf ]] || return 1
   dir="${ESTADO_DIR:?}/email-sync"; mkdir -p "$dir"
-  [[ $quem == vigia ]] && (($(date +%s) < $(cat "$dir/$slug.espera" 2>/dev/null || echo 0))) && return 0
+  [[ $quem == vigia || $quem == evento ]] && (($(date +%s) < $(cat "$dir/$slug.espera" 2>/dev/null || echo 0))) && return 0
+  email_sync_dispensavel "$slug" "$modo" "$quem" "$(date +%s)" && return 0
   lock="$EMAIL_MBSYNC_DIR/$slug.lock"; mkdir -p "$EMAIL_MBSYNC_DIR"
   exec 9>"$lock" 2>/dev/null || return 0
   flock -n 9 || { printf 'pulada\t%s\t%s\t0\n' "$(date +%s)" "$(date +%s)" >>"$dir/$slug"; return 0; }
   ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
+  local assinatura; assinatura=$(email_inbox_assinatura "$slug")
   # Modo completo: além do INBOX, espelha Enviados/Lixeira/Rascunhos/Spam/Arquivo (o Python decide).
   if email_sem_token "$slug"; then echo "conta ainda não autorizada nesta máquina: tt --email-autorizar $slug" >"$dir/$slug.erro.tmp"; st=1
   else
@@ -20393,7 +20501,11 @@ email_graph_sync() { # slug [inbox|completo] [vigia]
     email_sync_esperar "$slug" "$fim"; fi
   rm -f "$dir/$slug.andamento"
   exec 9>&-
-  email_novos_avisar "$slug"; demandas_processar_conta "$slug"; atualizar_barras 2>/dev/null
+  # (o aviso só quando o INBOX mudou: ver email_sync)
+  if [[ -z $assinatura || ! -f $dir/$slug.vistas || $(email_inbox_assinatura "$slug") != "$assinatura" ]]; then
+    email_novos_avisar "$slug"
+  fi
+  demandas_processar_conta "$slug"; atualizar_barras 2>/dev/null
   return $st
 }
 
@@ -21844,9 +21956,11 @@ case "${1:-}" in
   --email-remover) s=$(email_achar "${2:?uso: tt --email-remover NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_remover_slug "$s"; exit ;;
   --email-enviar) shift; email_enviar_cli "$@"; exit ;;
   --email-testar) s=$(email_achar "${2:?uso: tt --email-testar NOME}") || { echo "Conta não encontrada: $2"; exit 1; }; email_testar_slug "$s"; exit ;;
-  --email-sync) # [NOME] [--completo]: sem NOME, todas as contas com sync_local=1; padrão só o INBOX
+  --email-sync) # [NOME] [--completo] [--se-preciso|--evento]: sem NOME, todas as contas com sync_local=1; padrão só o INBOX
+    # --se-preciso: o check-mail do aerc (não abre a rede se a conta acabou de sincronizar ou o IDLE dela está
+    # de pé); --evento: o servidor avisou pelo IDLE (email-tt.py idle) que a caixa mudou.
     es_modo=inbox; es_nome=""; es_quem=""
-    for a in "${@:2}"; do case $a in --completo) es_modo=completo ;; --vigia) es_quem=vigia ;; *) es_nome=$a ;; esac; done
+    for a in "${@:2}"; do case $a in --completo) es_modo=completo ;; --vigia) es_quem=vigia ;; --se-preciso) es_quem=aerc ;; --evento) es_quem=evento ;; *) es_nome=$a ;; esac; done
     if [[ -n $es_nome ]]; then
       s=$(email_achar "$es_nome") || { echo "Conta não encontrada: $es_nome"; exit 1; }
       f_s() { local -A E=(); email_ler "$1" && email_sync "$1" "$2" "$3"; }; f_s "$s" "$es_modo" "$es_quem"

@@ -23,6 +23,10 @@
   email-tt.py imagens DESTINO            -> e-mail cru (stdin): salva as imagens embutidas/anexas em DESTINO e lista
                                             (TSV: arq|url, rótulo) também as <img> remotas do HTML; sem baixar nada
   email-tt.py baixar-imagem URL ARQUIVO  -> baixa uma imagem remota (só http/https, até 20 MB, só image/*)
+  email-tt.py idle TT PASTA-CONTAS ESTADO -> fica de pé: IDLE no INBOX de cada conta com espelho (sync_local=1, IMAP;
+                                            nas do Graph, os contadores do INBOX a cada minuto); quando o
+                                            servidor avisa de mudança, chama "TT --email-sync SLUG --evento"
+                                            e grava o batimento em ESTADO/<slug>.idle (o vigia do tt o mantém)
   email-tt.py contatos-indexar [--sem=END,…] MAILDIR…
                                          -> "endereço<TAB>nome<TAB>vezes" dos remetentes e destinatários
                                             dos e-mails (só os cabeçalhos), os mais frequentes primeiro
@@ -31,7 +35,7 @@ CONF é o arquivo chave=valor da conta (~/.config/tt/email/<slug>.conf). Segredo
 ~/.secrets/aerc-<slug>.txt (senha ou refresh token) e ~/.secrets/aerc-<slug>.client_secret; este
 programa nunca imprime senha nem refresh token (só o access token, quando pedido por oauth-token).
 """
-import base64, imaplib, json, os, smtplib, socket, ssl, subprocess, sys, time
+import base64, imaplib, json, os, re, select, signal, smtplib, socket, ssl, subprocess, sys, threading, time
 import email as email_lib
 import email.policy
 import urllib.parse, urllib.request, xml.etree.ElementTree as ET
@@ -1059,12 +1063,22 @@ def testar(c):
     return 0 if ok else 1
 
 
+_GRAPH_TOKENS = {}   # (conta, recurso) → (access token, quando renovar): um processo renovava a cada chamada
+GRAPH_TOKEN_VALIDADE = 45 * 60   # o access token da Microsoft vale ~60-90 min
+
+
 def graph_token(c, recurso="https://graph.microsoft.com/.default"):
     if c.get("auth") != "oauth" or c.get("graph") != "1":
         raise RuntimeError("a conta não está configurada para Microsoft Graph")
+    chave = (c.get("_slug"), recurso)
+    t, ate = _GRAPH_TOKENS.get(chave, ("", 0))
+    if t and time.time() < ate:
+        return t
     # O mesmo caminho do IMAP: conta sem token diz que falta autorizar, a recusa traz a causa da Microsoft
     # (e não só "'access_token'") e o refresh token que ela devolve a cada renovação fica guardado.
-    return access_token({**c, "oauth_scope": "offline_access " + recurso})
+    t = access_token({**c, "oauth_scope": "offline_access " + recurso})
+    _GRAPH_TOKENS[chave] = (t, time.time() + GRAPH_TOKEN_VALIDADE)
+    return t
 
 
 def graph_get(c, caminho):
@@ -1364,6 +1378,7 @@ GRAPH_PASTAS_EXTRA = [
 ]
 
 
+GRAPH_CAMPOS = "id,subject,from,receivedDateTime,sentDateTime,isRead,body,bodyPreview,internetMessageId,internetMessageHeaders"
 GRAPH_MANIFESTO = ".tt-graph-lidos.json"  # na raiz da pasta: o aerc só lê cur/new/tmp
 
 
@@ -1424,6 +1439,42 @@ def graph_devolver_lidos(c, mudancas):
     return aceitos
 
 
+def _graph_nomes(mensagens, anterior, destino):
+    """Nome do arquivo de cada id do Graph ({id: nome}) e os ids cujo arquivo precisa ser refeito.
+
+    O nome é o id com / e : trocados. Os ids do Graph distinguem maiúsculas, e no sistema de arquivos que não
+    distingue (o APFS padrão do Mac) dois ids iguais a menos disso caíam no mesmo arquivo: um sobrescrevia o
+    outro, e o espelho mostrava a mensagem errada ou perdia uma. Ali, em cada grupo que colide, um id fica com o
+    nome simples (quem já o tinha no manifesto, ou o primeiro em ordem) e os outros ganham um sufixo do hash do
+    id; os nomes ficam estáveis entre as voltas pelo manifesto. Membro de grupo ainda não refeito por esta
+    versão (sem "v": 2) é refeito uma vez: o arquivo antigo pode ter o conteúdo do outro."""
+    import hashlib
+    simples = lambda i: i.replace("/", "_").replace(":", "_")
+    sufixado = lambda i: simples(i) + "_" + hashlib.sha1(i.encode()).hexdigest()[:10]
+    ids = [m.get("id", "") for m in mensagens if m.get("id")]
+    pai, base = os.path.dirname(destino), os.path.basename(destino)
+    insensivel = base != base.swapcase() and os.path.isdir(destino) and os.path.isdir(os.path.join(pai, base.swapcase()))
+    if not insensivel:
+        return {i: simples(i) for i in ids}, set(), False
+    nome_de = {v.get("id"): n for n, v in anterior.items() if isinstance(v, dict)}
+    grupos = {}
+    for i in ids:
+        grupos.setdefault(simples(i).lower(), []).append(i)
+    nomes, refazer = {}, set()
+    for membros in grupos.values():
+        if len(membros) == 1:
+            i = membros[0]
+            nomes[i] = sufixado(i) if nome_de.get(i) == sufixado(i) else simples(i)
+            continue
+        donos = [i for i in membros if nome_de.get(i) == simples(i) and anterior.get(simples(i), {}).get("v") == 2]
+        dono = donos[0] if len(donos) == 1 else sorted(membros)[0]
+        for i in membros:
+            nomes[i] = simples(i) if i == dono else sufixado(i)
+            if anterior.get(nomes[i], {}).get("v") != 2:
+                refazer.add(i)
+    return nomes, refazer, True
+
+
 def graph_sync(c, base, limite, completo=False):
     """Espelha o INBOX como maildir; no modo completo, também Enviados/Lixeira/Rascunhos/Spam/
     Arquivo. O id do Graph é a verdade e dá o nome do arquivo: a pasta é atualizada no lugar, sem
@@ -1441,7 +1492,9 @@ def graph_sync(c, base, limite, completo=False):
         devolvidos = graph_devolver_lidos(c, graph_lidos_locais(destino)) if os.path.isdir(destino) else {}
         try:
             teto = max(1, min(int(limite), 1000))
-            caminho = f"/me/mailFolders/{wk}/messages?$top={min(teto, 50)}&$select=id,subject,from,receivedDateTime,sentDateTime,isRead,body,bodyPreview,internetMessageId,internetMessageHeaders"
+            # Só id, lida e modificação, sem corpo: as 500 mais recentes vêm numa página (o corpo de todas, a
+            # cada volta, era o grosso do custo). O corpo vem abaixo, só das que o espelho ainda não tem.
+            caminho = f"/me/mailFolders/{wk}/messages?$top={teto}&$select=id,isRead,lastModifiedDateTime"
             mensagens, paginas = [], set()
             while caminho and len(mensagens) < teto:
                 if caminho in paginas:
@@ -1453,13 +1506,6 @@ def graph_sync(c, base, limite, completo=False):
                 if proxima and not proxima.startswith("https://graph.microsoft.com/v1.0/"):
                     raise RuntimeError("Graph devolveu paginação fora do endpoint esperado")
                 caminho = proxima[len("https://graph.microsoft.com/v1.0"):] if proxima else ""
-            for mensagem in mensagens:
-                if str(mensagem.get("subject", "")).lower().startswith(("[tt]", "[tt:")) and "content" not in (mensagem.get("body") or {}):
-                    mid = urllib.parse.quote(mensagem["id"], safe="")
-                    detalhe = graph_get(c, f"/me/messages/{mid}?$select=body,internetMessageId")
-                    if "content" not in (detalhe.get("body") or {}):
-                        raise RuntimeError("Graph não entregou o corpo completo da tarefa; tente sincronizar novamente")
-                    mensagem.update(detalhe)
         except urllib.error.HTTPError as e:
             if e.code == 404:   # pasta inexistente nesta conta: ignora
                 continue
@@ -1482,14 +1528,54 @@ def graph_sync(c, base, limite, completo=False):
                         pass
                     continue
                 locais[base_nome] = (sub, arq)
-        manifesto = {}
+        try:
+            with open(os.path.join(destino, GRAPH_MANIFESTO), encoding="utf-8") as f:
+                anterior = json.load(f)
+        except (OSError, ValueError):
+            anterior = {}
+        nomes, refazer, insensivel = _graph_nomes(mensagens, anterior, destino)
+        # Sem distinção de maiúsculas, o arquivo de um nome pode estar gravado com a outra grafia: acha-se por ela
+        # (senão a limpeza do fim apagaria, pela grafia antiga, o arquivo que acabou de ser regravado).
+        grafias = {k.lower(): k for k in locais} if insensivel else {}
+        chave_local = lambda n: n if n in locais or not insensivel else grafias.get(n.lower(), n)
+        # Corpo completo só do que o espelho não tem (mensagem nova) e do que mudou no servidor desde a última volta
+        # (lastModifiedDateTime; manifesto de versão anterior, sem a data, não força rebaixar tudo). O resto só
+        # troca a marca de lida no nome do arquivo.
+        completas = {}
         for m in mensagens:
             ident = m.get("id", "")
             if not ident:
                 continue
-            nome = ident.replace("/", "_").replace(":", "_")
-            lido = devolvidos.get(ident, bool(m.get("isRead")))  # o Graph pode ainda não refletir o PATCH
-            manifesto[nome] = {"id": ident, "lido": lido}
+            nome = nomes[ident]
+            mod_antes = anterior.get(nome, {}).get("mod")
+            if ident not in refazer and chave_local(nome) in locais and (mod_antes is None or mod_antes == m.get("lastModifiedDateTime", "")):
+                continue
+            mid = urllib.parse.quote(ident, safe="")
+            completa = {**m, **graph_get(c, f"/me/messages/{mid}?$select={GRAPH_CAMPOS}")}
+            # Nunca troca uma tarefa [tt] por corpo truncado (bodyPreview): sem o corpo completo, a volta falha
+            # antes de mexer no espelho.
+            if str(completa.get("subject", "")).lower().startswith(("[tt]", "[tt:")) and "content" not in (completa.get("body") or {}):
+                raise RuntimeError("Graph não entregou o corpo completo da tarefa; tente sincronizar novamente")
+            completas[ident] = completa
+        manifesto = {}
+        for leve in mensagens:
+            ident = leve.get("id", "")
+            if not ident:
+                continue
+            nome = nomes[ident]
+            lido = devolvidos.get(ident, bool(leve.get("isRead")))  # o Graph pode ainda não refletir o PATCH
+            manifesto[nome] = {"id": ident, "lido": lido, "mod": leve.get("lastModifiedDateTime", ""), "v": 2}
+            m = completas.get(ident)
+            if m is None:   # já no espelho, sem mudança de conteúdo: só a marca de lida
+                sub, arq = locais.pop(chave_local(nome), (None, None))
+                if sub is not None:
+                    atual = os.path.join(destino, sub, arq)
+                    flags = "".join(sorted(set(arq.partition(":2,")[2]) - {"S"} | ({"S"} if lido else set())))
+                    dst = atual if (sub == "new" and not lido) else os.path.join(destino, "cur", nome + ":2," + flags)
+                    if dst != atual:
+                        os.replace(atual, dst)
+                total += 1
+                continue
             de = m.get("from", {}).get("emailAddress", {})
             # The local demand filter relies on the receiving provider's verdict. Graph omits these
             # headers unless explicitly selected; preserve only Authentication-Results, in provider
@@ -1514,7 +1600,7 @@ def graph_sync(c, base, limite, completo=False):
             mensagem.set_content(body.get("content", m.get("bodyPreview", "")),
                                  subtype="html" if body.get("contentType", "").lower() == "html" else "plain")
             dados = mensagem.as_bytes()
-            sub, arq = locais.pop(nome, (None, None))
+            sub, arq = locais.pop(chave_local(nome), (None, None))
             if sub is None:  # mensagem nova
                 dst = os.path.join(destino, "cur", nome + ":2,S") if lido else os.path.join(destino, "new", nome)
             else:
@@ -2073,7 +2159,270 @@ def cabecalhos(arquivos):
     return 0
 
 
+# --- IDLE: o servidor avisa quando o INBOX muda --------------------------------------------------
+# Um processo por máquina (o vigia do tt o mantém: email_idle_garantir) com uma thread por conta com espelho
+# local (as do Microsoft Graph: _GraphConta, pelos contadores do INBOX). Cada thread IMAP deixa uma conexão em IDLE no INBOX
+# (RFC 2177), renovada a cada IDLE_RENOVA, e grava o batimento em <estado>/<slug>.idle ("epoch<TAB>ok" ou
+# "epoch<TAB>erro<TAB>motivo"). Chegou, saiu ou mudou mensagem: depois de IDLE_JUNTA s sem novidade (junta
+# as rajadas), chama "tt --email-sync SLUG --evento" — no máximo uma vez a cada IDLE_ENTRE s por conta. O
+# imaplib do Python 3.13 não tem IDLE: o comando vai à mão, lendo o socket com select (o arquivo do imaplib
+# não aceita tempo esgotado no meio de uma leitura).
+IDLE_RENOVA = 25 * 60
+IDLE_BATIDA = 60
+IDLE_JUNTA = 4
+IDLE_ENTRE = 20
+_EVENTO_IDLE = re.compile(rb"^\* \d+ (EXISTS|EXPUNGE|FETCH|RECENT)\b", re.I)
+
+
+def _idle_log(msg):
+    print(time.strftime("%Y-%m-%d %H:%M:%S"), msg, flush=True)
+
+
+def _idle_gravar(estado, slug, linha):
+    destino = os.path.join(estado, f"{slug}.idle")
+    tmp = os.path.join(estado, f".{slug}.idle.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(linha.replace("\n", " ") + "\n")
+    os.replace(tmp, destino)
+
+
+def _idle_tipo(c):
+    """Como a conta é vigiada: "imap" (IDLE no INBOX do espelho do mbsync), "graph" (contadores do INBOX pelo
+    Microsoft Graph, que não oferece IDLE nem aceita webhook sem endereço público) ou None (sem espelho local)."""
+    if conta_graph(c):
+        return "graph" if c.get("auth") == "oauth" else None
+    if c.get("sync_local") == "1" and c.get("imap_host"):
+        return "imap"
+    return None
+
+
+class _IdleConta(threading.Thread):
+    def __init__(self, tt, conf, estado):
+        super().__init__(daemon=True)
+        self.tt, self.conf, self.estado = tt, conf, estado
+        self.slug = os.path.splitext(os.path.basename(conf))[0]
+        self.mtime = os.path.getmtime(conf)
+        self.parar = threading.Event()
+        self.buf = b""
+        self.pendente = 0.0   # 1º evento ainda não sincronizado (0 = nenhum)
+        self.ultimo_evento = 0.0
+        self.ultimo_disparo = 0.0
+        self.filhos = []
+
+    def run(self):
+        espera = 30
+        while not self.parar.is_set():
+            try:
+                self.sessao()
+                espera = 30
+            except Exception as e:
+                motivo = erro_curto(e)
+                permanente = isinstance(e, _IdleSemSuporte)
+                _idle_gravar(self.estado, self.slug, f"{int(time.time())}\terro\t{motivo}")
+                atraso = 3600 if permanente else espera
+                _idle_log(f"{self.slug}: {motivo}; nova tentativa em {atraso} s")
+                self.parar.wait(atraso)
+                espera = min(espera * 2, 900)
+            self._colher()
+        _idle_gravar(self.estado, self.slug, f"{int(time.time())}\terro\tvigia do IDLE parado")
+
+    def _ok(self):
+        _idle_gravar(self.estado, self.slug, f"{int(time.time())}\tok")
+
+    def _colher(self):
+        self.filhos = [p for p in self.filhos if p.poll() is None]
+
+    def _linha(self, sock, prazo):
+        """Uma linha do servidor (sem o CRLF), ou None se nada chegou em PRAZO segundos."""
+        fim = time.monotonic() + prazo
+        while b"\r\n" not in self.buf:
+            pendente = getattr(sock, "pending", None)
+            if not (pendente and pendente()):
+                resta = fim - time.monotonic()
+                if resta <= 0:
+                    return None
+                pronto, _, _ = select.select([sock], [], [], resta)
+                if not pronto:
+                    return None
+            dados = sock.recv(65536)
+            if not dados:
+                raise ConnectionError("o servidor fechou a conexão")
+            self.buf += dados
+        linha, self.buf = self.buf.split(b"\r\n", 1)
+        return linha
+
+    def _evento(self, linha):
+        if linha.upper().startswith(b"* BYE"):
+            raise ConnectionError("o servidor encerrou a conexão (BYE)")
+        if _EVENTO_IDLE.match(linha):
+            agora = time.time()
+            self.pendente = self.pendente or agora
+            self.ultimo_evento = agora
+
+    def _prazo(self):
+        """Quanto esperar pela próxima linha: a batida, ou menos se há evento a sincronizar."""
+        if not self.pendente:
+            return IDLE_BATIDA
+        agora = time.time()
+        quando = max(self.ultimo_evento + IDLE_JUNTA, self.ultimo_disparo + IDLE_ENTRE)
+        return max(0.5, min(IDLE_BATIDA, quando - agora))
+
+    def _talvez_disparar(self):
+        agora = time.time()
+        if not self.pendente or agora - self.ultimo_evento < IDLE_JUNTA or agora - self.ultimo_disparo < IDLE_ENTRE:
+            return
+        self.pendente = 0.0
+        self.ultimo_disparo = agora
+        self._colher()
+        try:
+            self.filhos.append(subprocess.Popen([self.tt, "--email-sync", self.slug, "--evento"],
+                                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL, start_new_session=True))
+        except OSError as e:
+            _idle_log(f"{self.slug}: não deu para chamar o tt ({e})")
+
+    def sessao(self):
+        c = ler_conf(self.conf)
+        m = imap_conectar(c)
+        try:
+            if "IDLE" not in _capacidades(m):
+                raise _IdleSemSuporte("o servidor não oferece IDLE; a conta segue no polling")
+            st, _ = m.select("INBOX", readonly=True)
+            if st != "OK":
+                raise RuntimeError("não abriu o INBOX")
+            sock = m.sock
+            self.buf = b""
+            _idle_log(f"{self.slug}: IDLE no INBOX")
+            while not self.parar.is_set():
+                tag = m._new_tag()
+                m.send(tag + b" IDLE\r\n")
+                linha = self._linha(sock, TIMEOUT)
+                while linha is not None and not linha.startswith(b"+"):
+                    if linha.startswith(tag):
+                        raise RuntimeError("o servidor recusou o IDLE")
+                    self._evento(linha)
+                    linha = self._linha(sock, TIMEOUT)
+                if linha is None:
+                    raise TimeoutError("sem resposta ao IDLE")
+                self._ok()
+                inicio = time.monotonic()
+                while not self.parar.is_set() and time.monotonic() - inicio < IDLE_RENOVA:
+                    linha = self._linha(sock, self._prazo())
+                    if linha is None:
+                        self._ok()
+                    else:
+                        self._evento(linha)
+                    self._talvez_disparar()
+                m.send(b"DONE\r\n")
+                while True:   # o fim do IDLE: até a resposta com a etiqueta
+                    linha = self._linha(sock, TIMEOUT)
+                    if linha is None:
+                        raise TimeoutError("sem resposta ao DONE")
+                    if linha.startswith(tag):
+                        break
+                    self._evento(linha)
+                self._talvez_disparar()
+        finally:
+            try:
+                m.shutdown()
+            except Exception:
+                pass
+
+
+class _IdleSemSuporte(RuntimeError):
+    pass
+
+
+GRAPH_EVENTOS_CADA = 60
+
+
+class _GraphConta(_IdleConta):
+    """Conta do Microsoft Graph: a cada GRAPH_EVENTOS_CADA s, os contadores do INBOX (total e não lidas, uma
+    requisição de poucos bytes com o token guardado em memória). Mudou = chegou, saiu ou foi lida mensagem:
+    o mesmo disparo do IDLE (tt --email-sync SLUG --evento) e o mesmo batimento em <slug>.idle."""
+
+    def sessao(self):
+        c = ler_conf(self.conf)
+        if not ler_arquivo(arq_segredo(c)):
+            raise _IdleSemSuporte("conta ainda não autorizada nesta máquina")
+        anterior = None
+        _idle_log(f"{self.slug}: eventos pelo Graph (contadores do INBOX a cada {GRAPH_EVENTOS_CADA} s)")
+        while not self.parar.is_set():
+            r = graph_get(c, "/me/mailFolders/inbox?$select=totalItemCount,unreadItemCount")
+            atual = (r.get("totalItemCount"), r.get("unreadItemCount"))
+            if anterior is not None and atual != anterior:
+                agora = time.time()
+                self.pendente = self.pendente or agora
+                self.ultimo_evento = agora - IDLE_JUNTA   # contadores já são o retrato final: sem juntar rajada
+            anterior = atual
+            self._ok()
+            self._talvez_disparar()
+            self._colher()
+            espera = GRAPH_EVENTOS_CADA
+            if self.pendente:   # segurado pelo intervalo mínimo entre disparos
+                espera = max(0.5, min(espera, self.ultimo_disparo + IDLE_ENTRE - time.time()))
+            self.parar.wait(espera)
+
+
+def idle(tt, email_dir, estado):
+    """Vigia todas as contas elegíveis; relê a pasta de contas a cada batida e sai sozinho quando este arquivo
+    muda (versão nova: o vigia do tt o sobe de novo), quando o tt some ou quando outro processo assume o pid."""
+    os.makedirs(estado, exist_ok=True)
+    eu = os.path.abspath(__file__)
+    versao = os.path.getmtime(eu)
+    pidf = os.path.join(estado, ".idle.pid")
+    parar = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: parar.set())
+    signal.signal(signal.SIGINT, lambda *_: parar.set())
+    contas = {}
+    inicio = time.monotonic()
+    while not parar.is_set():
+        try:
+            if time.monotonic() - inicio > 10 and int(open(pidf).read().split()[0]) != os.getpid():
+                break   # outro vigia do IDLE foi iniciado
+        except (OSError, ValueError, IndexError):
+            if time.monotonic() - inicio > 10:
+                break   # o tt parou o IDLE (email_idle_parar apaga o pid)
+        if not os.path.exists(tt) or not os.path.exists(eu) or os.path.getmtime(eu) != versao:
+            break
+        vistas = {}
+        for nome in sorted(os.listdir(email_dir)) if os.path.isdir(email_dir) else []:
+            if not nome.endswith(".conf") or nome == "contatos.conf":
+                continue
+            conf = os.path.join(email_dir, nome)
+            try:
+                tipo = _idle_tipo(ler_conf(conf))
+            except OSError:
+                continue
+            if tipo:
+                vistas[os.path.splitext(nome)[0]] = (conf, tipo)
+        for slug in list(contas):
+            t = contas[slug]
+            mudou = slug in vistas and os.path.getmtime(vistas[slug][0]) != t.mtime
+            if slug not in vistas or mudou or not t.is_alive():
+                t.parar.set()
+                del contas[slug]
+        for slug, (conf, tipo) in vistas.items():
+            if slug not in contas:
+                contas[slug] = (_GraphConta if tipo == "graph" else _IdleConta)(tt, conf, estado)
+                contas[slug].start()
+        if not contas:
+            break
+        with open(os.path.join(estado, ".idle.vivo.tmp"), "w") as f:
+            f.write(f"{int(time.time())}\n")
+        os.replace(os.path.join(estado, ".idle.vivo.tmp"), os.path.join(estado, ".idle.vivo"))
+        parar.wait(IDLE_BATIDA)
+    for t in contas.values():
+        t.parar.set()
+    for t in contas.values():
+        t.join(timeout=2)
+        _idle_gravar(estado, t.slug, f"{int(time.time())}\terro\tvigia do IDLE parado")
+    return 0
+
+
 def main(a):
+    if a[:1] == ["idle"] and len(a) == 4:
+        return idle(a[1], a[2], a[3])
     if a[:1] == ["contatos-indexar"] and len(a) >= 2:
         return contatos_indexar(a[1:])
     if a[:1] == ["html"]:
