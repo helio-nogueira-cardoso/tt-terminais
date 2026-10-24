@@ -39,8 +39,11 @@ os.makedirs(lt.DIR_TICKER, exist_ok=True)
 arq = os.path.join(lt.DIR_TICKER, "_teste-memo")
 cfg = {"indicadores": "_teste-memo"}
 open(arq, "w", encoding="utf-8").write("primeira 🇧🇷\n")
-agora = time.time()
+# O minuto entra na chave (janelas e dado velho andam por minuto): com a hora real, uma rodada no último segundo do
+# minuto punha agora + 1 no minuto seguinte e reprovava 1 vez em 60. O começo do minuto deixa +1 e +2 no mesmo.
+agora = time.time() // 60 * 60
 assert lt.montar_roda(cfg, agora) is lt.montar_roda(cfg, agora + 1), "a roda deveria vir guardada no quadro seguinte"
+assert lt.montar_roda(cfg, agora) is not lt.montar_roda(cfg, agora + 60), "a roda deveria se renovar no minuto seguinte"
 assert "".join(c for c, _ in lt.montar_roda(cfg, agora).cel) == "Primeira 🇧🇷"
 open(arq, "w", encoding="utf-8").write("segunda\n")
 os.utime(arq, ns=(time.time_ns(), time.time_ns() + 10**9))
