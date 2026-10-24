@@ -3094,7 +3094,9 @@ ssh_porta_garantir() { # host porta
 # porta); a instalação/atualização chama sempre, com ou sem malha.
 SSHD_PORTA_TT=${TT_SSHD_PORTA:-8022}      # testes trocam as portas (nunca a 22/8022 de verdade)
 SSHD_PORTA_SIS=${TT_SSHD_PORTA_SISTEMA:-22}
-sshd_escuta() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; } # porta
+# "Funcionando" = a porta responde com o banner do protocolo SSH, não só aceita conexão (um socket órfão ou outro
+# programa na porta também aceita).
+sshd_escuta() { timeout 4 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1; IFS= read -r -t 3 l <&3; [[ \$l == SSH-2.0* ]]" 2>/dev/null; } # porta
 sshd_bin() {
   local b
   for b in /usr/sbin/sshd /usr/local/sbin/sshd /opt/homebrew/sbin/sshd "${PREFIX:-/nonexistent}/bin/sshd" "$(command -v sshd 2>/dev/null)"; do
@@ -3154,6 +3156,11 @@ sshd_garantir() {
   if sshd_usuario; then sshd_log "sshd do usuário na porta $SSHD_PORTA_TT"; echo "$SSHD_PORTA_TT"; return 0; fi
   sshd_bin >/dev/null || sshd_log "sem o programa sshd (openssh-server): pendência sshd"
   return 1
+}
+# Instalação e atualização: garante o sshd sempre (com ou sem malha) e deixa a prova no log.
+sshd_instalar() {
+  local p; p=$(sshd_garantir 2>/dev/null)
+  sshd_log "instalação/atualização: ${p:+sshd respondendo na porta $p}${p:-SEM sshd respondendo (ver sshd.log)}"
 }
 # Vigia: só quem está numa malha (tem outras máquinas cadastradas) precisa ser alcançável.
 sshd_vigiar() { [[ -s $CONF_MAQ ]] || return 0; sshd_garantir >/dev/null; }
@@ -3957,7 +3964,7 @@ instalar_aqui() {
     [[ -r $DIR_TT/rapido/nucleo.sh && ! $DIR_TT/tt -nt $DIR_TT/rapido/nucleo.sh ]] || gerar_rapido "$DIR_TT" >/dev/null 2>&1
     mac_configurar_padrao || return 1
     ghostty_configurar
-    sshd_garantir >/dev/null 2>&1
+    sshd_instalar
     garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (já instalada)"; return 0
   fi
   if [[ $origem != "$DIR_TT" ]]; then
@@ -4039,7 +4046,7 @@ CONF
     tmux run-shell -b -c "$HOME" "$HOME/.local/bin/tt --vigia"
   fi
   # Atualização força o sshd, com ou sem outras máquinas cadastradas: não espera o vigia (que só age na malha).
-  sshd_garantir >/dev/null 2>&1
+  sshd_instalar
   garantir_navegadores_em_segundo_plano
   echo "$(conf nome): $(versao)"
 }

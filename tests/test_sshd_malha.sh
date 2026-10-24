@@ -63,3 +63,23 @@ parar; sleep 0.5; echo sshd_garantir=0 >>"$XDG_CONFIG_HOME/tt/config"
 "$TT" --sshd-garantir --vigia
 timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$TT_SSHD_PORTA" 2>/dev/null && falhou 'sshd_garantir=0 deveria desligar'
 passou 'sshd_garantir=0 desliga'
+
+# Saúde de verdade: a porta tem de responder com o banner SSH. Um socket que só aceita conexão não conta.
+sed -i '/^sshd_garantir=0$/d' "$XDG_CONFIG_HOME/tt/config"
+parar; sleep 0.5
+python3 -I -c "
+import socket, sys, time
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', $TT_SSHD_PORTA)); s.listen(5)
+while True:
+    c, _ = s.accept(); time.sleep(0.2); c.close()
+" &
+impostor=$!; sleep 0.5
+"$TT" --sshd-garantir >/dev/null 2>&1 && falhou 'uma porta que não fala SSH não pode contar como sshd no ar'
+kill "$impostor" 2>/dev/null; wait "$impostor" 2>/dev/null || true; sleep 0.3
+passou 'porta sem banner SSH não conta como sshd funcionando'
+
+# Instalação deixa a prova no log.
+"$TT" --instalar-aqui >/dev/null 2>&1 || falhou 'instalar-aqui deveria rodar'
+grep -q "instalação/atualização: sshd respondendo na porta $TT_SSHD_PORTA" "$ES/sshd/garantir.log" || falhou "o log deveria registrar a instalação: $(tail -2 "$ES/sshd/garantir.log")"
+passou 'instalação registra no log que o sshd responde'
