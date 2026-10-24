@@ -10,4 +10,4 @@ pgrep -x sshd >/dev/null || sshd
 sleep 5
 tmux has-session 2>/dev/null || tmux new-session -d -s inicio
 # O processo do proot é o dono: quando ele sai, o proot mata os filhos (o tmux e o vigia), por isso fica de pé.
-nohup proot-distro login debian -- bash -lc 'while :; do tmux has-session -t tt-vigia 2>/dev/null || tmux new-session -d -s tt-vigia "$HOME/.local/bin/tt --vigia"; sleep 60; done' >/dev/null 2>&1 &
+pgrep -f 'tt-vigia' >/dev/null || nohup proot-distro login debian -- bash -lc 'while :; do tmux has-session -t tt-vigia 2>/dev/null || tmux new-session -d -s tt-vigia "$HOME/.local/bin/tt --vigia"; sleep 60; done' >/dev/null 2>&1 &

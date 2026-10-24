@@ -3183,15 +3183,18 @@ sshd_garantir() {
   sshd_bin >/dev/null || sshd_log "sem o programa sshd (openssh-server): pendência sshd"
   return 1
 }
-# O boot do celular (Termux:Boot) vem do pacote: dentro do Debian do proot, a instalação regrava o 00-tt do Termux,
-# para que a correção chegue ao reboot sem ninguém rodar o celular.sh. Só age se o Termux:Boot já existe lá.
+# O boot do celular (Termux:Boot) vem do pacote: a instalação grava o 00-tt em ~/.termux/boot quando o Termux:Boot
+# existe. Na instalação feita pelo tt do Termux (a malha instala assim no celular) ele também roda agora: o proot com
+# o vigia sobe sem esperar o reboot. (Dentro do proot não dá para arrancar: o proot mata os filhos quando sai.)
 boot_termux_garantir() {
   local home=/data/data/com.termux/files/home src=$DIR_TT/termux/boot-tt dst
-  [[ ${PREFIX:-} != *com.termux* && -f $src && -d $home/.termux/boot ]] || return 0
+  [[ -f $src && -d $home/.termux/boot ]] || return 0
   dst=$home/.termux/boot/00-tt
-  cmp -s "$src" "$dst" 2>/dev/null && return 0
-  cp "$src" "$dst" 2>/dev/null && chmod 700 "$dst" 2>/dev/null
-  sshd_log "boot do Termux atualizado (00-tt): o vigia do Debian volta no próximo boot do celular"
+  cmp -s "$src" "$dst" 2>/dev/null || {
+    cp "$src" "$dst" 2>/dev/null && chmod 700 "$dst" 2>/dev/null && sshd_log "boot do Termux atualizado (00-tt)"
+  }
+  [[ ${PREFIX:-} == *com.termux* ]] && tem_cmd proot-distro && ( sh "$dst" </dev/null >/dev/null 2>&1 & )
+  return 0
 }
 # Instalação e atualização: garante o sshd sempre (com ou sem malha) e deixa a prova no log.
 sshd_instalar() {
