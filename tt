@@ -3183,6 +3183,16 @@ sshd_garantir() {
   sshd_bin >/dev/null || sshd_log "sem o programa sshd (openssh-server): pendência sshd"
   return 1
 }
+# O boot do celular (Termux:Boot) vem do pacote: dentro do Debian do proot, a instalação regrava o 00-tt do Termux,
+# para que a correção chegue ao reboot sem ninguém rodar o celular.sh. Só age se o Termux:Boot já existe lá.
+boot_termux_garantir() {
+  local home=/data/data/com.termux/files/home src=$DIR_TT/termux/boot-tt dst
+  [[ ${PREFIX:-} != *com.termux* && -f $src && -d $home/.termux/boot ]] || return 0
+  dst=$home/.termux/boot/00-tt
+  cmp -s "$src" "$dst" 2>/dev/null && return 0
+  cp "$src" "$dst" 2>/dev/null && chmod 700 "$dst" 2>/dev/null
+  sshd_log "boot do Termux atualizado (00-tt): o vigia do Debian volta no próximo boot do celular"
+}
 # Instalação e atualização: garante o sshd sempre (com ou sem malha) e deixa a prova no log.
 sshd_instalar() {
   local p; p=$(sshd_garantir 2>/dev/null)
@@ -3646,7 +3656,7 @@ ARQUIVOS_SKILL_FIGMA=(skills/figma-cota/SKILL.md skills/figma-cota/scripts/figma
   skills/figma-cota/scripts/figma_oauth_retorno.py skills/figma-cota/references/acesso-autenticacao.md)
 ARQUIVOS_FONTE=(tt tela-recuperar.py docs/recuperacao-telas-anexos.md precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
-  checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf
+  checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf termux/boot-tt
   "${ARQUIVOS_SKILL_FIGMA[@]}")
 ARQUIVOS_PACOTE=("${ARQUIVOS_FONTE[@]}" VERSAO)
 
@@ -3992,7 +4002,7 @@ instalar_aqui() {
     [[ -r $DIR_TT/rapido/nucleo.sh && ! $DIR_TT/tt -nt $DIR_TT/rapido/nucleo.sh ]] || gerar_rapido "$DIR_TT" >/dev/null 2>&1
     mac_configurar_padrao || return 1
     ghostty_configurar
-    sshd_instalar
+    sshd_instalar; boot_termux_garantir
     garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (já instalada)"; return 0
   fi
   if [[ $origem != "$DIR_TT" ]]; then
@@ -4074,7 +4084,7 @@ CONF
     tmux run-shell -b -c "$HOME" "$HOME/.local/bin/tt --vigia"
   fi
   # Atualização força o sshd, com ou sem outras máquinas cadastradas: não espera o vigia (que só age na malha).
-  sshd_instalar
+  sshd_instalar; boot_termux_garantir
   garantir_navegadores_em_segundo_plano
   echo "$(conf nome): $(versao)"
 }

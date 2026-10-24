@@ -1,10 +1,13 @@
 #!/data/data/com.termux/files/usr/bin/sh
-# Termux:Boot (instalado por termux/celular.sh em ~/.termux/boot/00-tt): depois de um reboot, sobe
-# os serviços e um servidor tmux sem precisar abrir o Termux, para o tt deste celular aparecer nas
-# outras máquinas.
+# Termux:Boot (instalado por termux/celular.sh em ~/.termux/boot/00-tt, e regravado pelo tt dentro do Debian a cada
+# atualização): depois de um reboot, sobe os serviços e um servidor tmux sem precisar abrir o Termux, para o tt deste
+# celular aparecer nas outras máquinas. O vigia do tt vive no tmux do Debian (proot): este script mantém um
+# processo do proot de pé (sleep) e, dentro dele, o tmux "tt-vigia" com o vigia; se o vigia cair, religa em 60 s.
 termux-wake-lock
 export SVDIR=$PREFIX/var/service LOGDIR=$PREFIX/var/log
 service-daemon start >/dev/null 2>&1   # sshd (sv-enable sshd) e o que mais estiver habilitado
 pgrep -x sshd >/dev/null || sshd
 sleep 5
 tmux has-session 2>/dev/null || tmux new-session -d -s inicio
+# O processo do proot é o dono: quando ele sai, o proot mata os filhos (o tmux e o vigia), por isso fica de pé.
+nohup proot-distro login debian -- bash -lc 'while :; do tmux has-session -t tt-vigia 2>/dev/null || tmux new-session -d -s tt-vigia "$HOME/.local/bin/tt --vigia"; sleep 60; done' >/dev/null 2>&1 &
