@@ -3199,18 +3199,6 @@ boot_termux_garantir() {
   [[ ${PREFIX:-} == *com.termux* ]] && tem_cmd proot-distro && ( sh "$dst" </dev/null >/dev/null 2>&1 & )
   return 0
 }
-# Reinício único (teste de recuperação do vigia no celular): a instalação feita pelo tt do Termux reinicia o celular
-# uma vez, pelo adb do próprio aparelho, 30 s depois. A marca em ~/.local/state/tt/reinicio/ impede repetir.
-REINICIO_UNICO=reinicio-teste-2.11.16
-reinicio_unico_garantir() {
-  local marca=$ESTADO_DIR/reinicio/$REINICIO_UNICO
-  [[ ${PREFIX:-} == *com.termux* && ! -e $marca ]] || return 0
-  tem_cmd adb || { sshd_log "reinício único: sem adb, não reiniciei"; return 0; }
-  mkdir -p "$ESTADO_DIR/reinicio" && date '+%F %T' >"$marca"
-  sshd_log "reinício único do teste ($REINICIO_UNICO): reiniciando o celular em 30 s"
-  nohup sh -c 'sleep 30; adb -s 127.0.0.1:5555 shell svc power reboot' </dev/null >/dev/null 2>&1 &
-  return 0
-}
 # Instalação e atualização: garante o sshd sempre (com ou sem malha) e deixa a prova no log.
 sshd_instalar() {
   local p; p=$(sshd_garantir 2>/dev/null)
@@ -4020,7 +4008,7 @@ instalar_aqui() {
     [[ -r $DIR_TT/rapido/nucleo.sh && ! $DIR_TT/tt -nt $DIR_TT/rapido/nucleo.sh ]] || gerar_rapido "$DIR_TT" >/dev/null 2>&1
     mac_configurar_padrao || return 1
     ghostty_configurar
-    sshd_instalar; boot_termux_garantir; reinicio_unico_garantir
+    sshd_instalar; boot_termux_garantir
     garantir_navegadores_em_segundo_plano; echo "$(conf nome): $(versao) (já instalada)"; return 0
   fi
   if [[ $origem != "$DIR_TT" ]]; then
@@ -4102,7 +4090,7 @@ CONF
     tmux run-shell -b -c "$HOME" "$HOME/.local/bin/tt --vigia"
   fi
   # Atualização força o sshd, com ou sem outras máquinas cadastradas: não espera o vigia (que só age na malha).
-  sshd_instalar; boot_termux_garantir; reinicio_unico_garantir
+  sshd_instalar; boot_termux_garantir
   garantir_navegadores_em_segundo_plano
   echo "$(conf nome): $(versao)"
 }
