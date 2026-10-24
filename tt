@@ -3160,7 +3160,8 @@ sshd_garantir() {
 # Instalação e atualização: garante o sshd sempre (com ou sem malha) e deixa a prova no log.
 sshd_instalar() {
   local p; p=$(sshd_garantir 2>/dev/null)
-  sshd_log "instalação/atualização: ${p:+sshd respondendo na porta $p}${p:-SEM sshd respondendo (ver sshd.log)}"
+  if [[ -n $p ]]; then sshd_log "instalação/atualização: sshd respondendo na porta $p"
+  else sshd_log "instalação/atualização: SEM sshd respondendo (ver sshd.log)"; fi
 }
 # Vigia: só quem está numa malha (tem outras máquinas cadastradas) precisa ser alcançável.
 sshd_vigiar() { [[ -s $CONF_MAQ ]] || return 0; sshd_garantir >/dev/null; }
