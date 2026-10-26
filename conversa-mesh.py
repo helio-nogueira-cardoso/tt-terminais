@@ -189,6 +189,8 @@ def _tecla():
             return "esc"
         if c == b"\x12":
             return "atualizar"
+        if c == b"\x14":
+            return "tick"
         if c in (b"\r", b"\n"):
             return "enter"
         if c == b"\x7f":
@@ -231,7 +233,7 @@ def painel():
         sys.stdout.write(render(datetime.date.today()))
         return
     linhas_tela = int(os.environ.get("LINES", "40"))
-    altura = max(5, linhas_tela - 4)
+    altura = max(5, linhas_tela - 5)
     est = {"buf": "", "aviso": "", "desloc": 0, "corpo": []}
 
     def montar():
@@ -246,7 +248,7 @@ def painel():
             quadro.append(_c("2", f"  ↓ {d} linha(s) abaixo · End volta ao fim") + "\033[K\n")
         else:
             quadro.append((_c("2", est["aviso"]) if est["aviso"] else "") + "\033[K\n")
-        quadro.append("\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + est["buf"] + "\033[J")
+        quadro.append("\r\033[K" + _c("2", "^R atualizar · ^T tick · Esc fecha") + "\n\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + est["buf"] + "\033[J")
         sys.stdout.write("\033[?25l" + "".join(quadro) + "\033[?25h")
         sys.stdout.flush()
 
@@ -287,6 +289,17 @@ def painel():
                 break
             if tecla == "atualizar":
                 est["aviso"] = "atualizado" if atualizar_mesh() else "sem atualizar (sem rede)"
+                montar()
+            elif tecla == "tick":
+                # Menu do tick (o mesmo do menu de administração): roda com o terminal normal e volta ao painel.
+                sys.stdout.write("\033[2J")
+                sys.stdout.flush()
+                import subprocess
+                try:
+                    subprocess.run([os.environ.get("TT_BIN", "tt"), "--mesh-tick-menu"])
+                except OSError:
+                    est["aviso"] = "tt não encontrado: o menu do tick não abriu"
+                est["aviso"] = est["aviso"] or "tick ajustado"
                 montar()
             else:
                 tratar(tecla)
