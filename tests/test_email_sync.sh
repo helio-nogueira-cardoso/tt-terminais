@@ -78,6 +78,8 @@ passou 'OAuth2: PassCmd via email-tt.py oauth-token e AuthMechs XOAUTH2'
 # refeitas do servidor a cada sync; o modo inbox traz só o INBOX. Sem rede: stub do graph_get.
 python3 - "$(dirname "$0")/../email-tt.py" "$T/graphmd" <<'PY' || falhou 'graph_sync (completo/inbox) não espelhou as pastas certas'
 import importlib.util, os, sys, shutil
+from email import policy
+from email.parser import BytesParser
 spec = importlib.util.spec_from_file_location("emailtt", sys.argv[1])
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 base = sys.argv[2]
@@ -87,6 +89,8 @@ def graph_get(c, caminho):
     return {"value": [
     {"id": "A" + caminho, "subject": "a", "from": {"emailAddress": {"name": "N", "address": "n@x"}}, "isRead": True},
     {"id": "B" + caminho, "subject": "b", "from": {"emailAddress": {"name": "M", "address": "m@x"}}, "isRead": False,
+     "replyTo": [{"emailAddress": {"name": "Departamento Pessoal", "address": "dp@x"}},
+                 {"emailAddress": {"name": "Outra Área", "address": "outra@x"}}],
      "internetMessageHeaders": [
          {"name": "Authentication-Results", "value": "mx.example; dkim=pass header.i=@x"},
          {"name": "Authentication-Results", "value": "forged; dmarc=fail"},
@@ -119,7 +123,10 @@ for p in ("INBOX", "Enviados", "Lixeira", "Rascunhos", "Spam", "Arquivo"):
     assert "Authentication-Results: mx.example; dkim=pass header.i=@x" in raw, "faltou preservar Authentication-Results"
     assert "Authentication-Results: forged; dmarc=fail" in raw, "a ordem dos resultados não foi preservada"
     assert "X-Private-Test" not in raw, "cabeçalho não necessário foi copiado"
-assert detalhes and all("internetMessageHeaders" in q for q in detalhes), "Graph não pediu internetMessageHeaders"
+    reply = BytesParser(policy=policy.default).parsebytes(raw.encode())["Reply-To"]
+    assert reply is not None and [(a.display_name, a.addr_spec) for a in reply.addresses] == [
+        ("Departamento Pessoal", "dp@x"), ("Outra Área", "outra@x")], "faltou preservar Reply-To"
+assert detalhes and all("internetMessageHeaders" in q and "replyTo" in q for q in detalhes), "Graph não pediu cabeçalhos e Reply-To"
 shutil.rmtree(base)
 m.graph_sync({"_slug": "g"}, base, 50, False)  # inbox só
 assert os.path.isdir(os.path.join(base, "INBOX")), "inbox-só não criou INBOX"

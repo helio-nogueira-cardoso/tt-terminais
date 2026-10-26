@@ -1591,7 +1591,7 @@ GRAPH_PASTAS_EXTRA = [
 ]
 
 
-GRAPH_CAMPOS = "id,subject,from,receivedDateTime,sentDateTime,isRead,body,bodyPreview,internetMessageId,internetMessageHeaders"
+GRAPH_CAMPOS = "id,subject,from,replyTo,receivedDateTime,sentDateTime,isRead,body,bodyPreview,internetMessageId,internetMessageHeaders"
 GRAPH_MANIFESTO = ".tt-graph-lidos.json"  # na raiz da pasta: o aerc só lê cur/new/tmp
 
 
@@ -1802,6 +1802,13 @@ def graph_sync(c, base, limite, completo=False):
                 if value:
                     mensagem["Authentication-Results"] = value
             mensagem["From"] = formataddr((limpo(de.get("name")), limpo(de.get("address"))))
+            respostas = [formataddr((limpo(a.get("name")), limpo(a.get("address"))))
+                         for r in m.get("replyTo", []) or []
+                         if isinstance(r, dict)
+                         for a in [r.get("emailAddress") or {}]
+                         if isinstance(a, dict) and a.get("address")]
+            if respostas:
+                mensagem["Reply-To"] = ", ".join(respostas)
             mensagem["Subject"] = limpo(m.get("subject"))
             mensagem["Message-ID"] = limpo(m.get("internetMessageId")) or "<graph-" + hashlib.sha256(ident.encode()).hexdigest()[:32] + "@tt.invalid>"
             try:
