@@ -315,8 +315,9 @@ def linha_letreiro(cfg):
 # Cada grafema é UM código, salvo a bandeira (24/10/2026): no Ghostty 1.3 o grafema de vários códigos
 # (🏛️ = 🏛 + VS16, a bandeira 🇨🇳, tom de pele, ZWJ, keycap) pisca quando o letreiro anda uma coluna por quadro;
 # o de um código só fica firme#  (provado no Ghostty do Mac: 🏛️ e 🌡️ piscam, 🌍 🏦 e 🏛 sem VS16 não). Então:
-#   - a bandeira fica (par de letras regionais, 2 colunas nos dois) e segue piscando: país não tem bandeira de um código
-#     só, e entre a bandeira de verdade e letras (CN) ou 🚩CN, o dono ficou com ela; letra regional sozinha some;
+#   - a bandeira vira o código do país em letras (🇺🇸 = US, 🇨🇳 = CN): 2 colunas, um código por grafema, e não pisca
+#     (a bandeira de verdade é um grafema de dois códigos e pisca; não existe bandeira de um código só); letra
+#     regional sozinha some;
 #   - emoji de apresentação texto (🏛 🌡 🛰 🕰 ❤ …) vira o símbolo e um espaço, um bloco só de 2 colunas (o espaço
 #     que já vinha depois dele é o do bloco): sozinho mede 1 coluna nos dois, e o Ghostty o desenha com a fonte de
 #     emoji por cima do espaço, sem cobrir a letra seguinte ("🕰2022" sai "🕰 2022");
@@ -345,7 +346,9 @@ def grafemas(texto):
         i += 1
         if _regional(c):
             if i < n and _regional(t[i]):
-                out.append(c + t[i])  # a bandeira de verdade (escolha do dono): a única que ainda pisca no Ghostty
+                # A bandeira vira o código do país em letras (US, CN): as mesmas 2 colunas, um código por grafema.
+                # A bandeira de verdade piscava no Ghostty (o grafema de dois códigos) e não existe de um código só.
+                out += [chr(ord(x) - 0x1F1E6 + 0x41) for x in (c, t[i])]
                 i += 1
             continue
         if c in MARC:

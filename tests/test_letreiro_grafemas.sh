@@ -14,7 +14,7 @@ import importlib.util, sys
 sp = importlib.util.spec_from_file_location("lt", sys.argv[1]); lt = importlib.util.module_from_spec(sp); sp.loader.exec_module(lt)
 RI = lambda c: 0x1F1E6 <= ord(c) <= 0x1F1FF
 g = lt.grafemas
-assert g("🇦🇷 Peso") == ["🇦🇷", " ", "P", "e", "s", "o"], g("🇦🇷 Peso")
+assert g("🇦🇷 Peso") == ["A", "R", " ", "P", "e", "s", "o"], g("🇦🇷 Peso")
 assert g("a🇦b") == ["a", "b"], "letra regional sozinha deveria sumir"
 assert g("👨‍👩‍👧x") == ["👨", "x"]
 assert g("👍🏽") == ["👍"] and g("1️⃣") == ["1"] and g("é") == ["é"] and g("é") == ["é"]
@@ -22,11 +22,11 @@ assert g("🕰2022")[:2] == ["🕰 ", "2"] and g("❤") == ["❤ "] and g("© �
 assert g("❤️") == ["❤ "] and g("x️") == ["x"] and g("🌍︎") == ["🌍"] and g("✌") == ["✌ "]
 assert g("🏛️ G1") == ["🏛 ", "G", "1"], g("🏛️ G1")  # o espaço que já vinha é o do bloco
 assert g("❤️‍🔥x") == ["❤ ", "x"] and g("✌🏽") == ["✌ "] and g("©️") == ["©"]
-assert g("🏳️‍🌈") == ["🏳 "] and g("🇨🇳 Xangai")[:2] == ["🇨🇳", " "]
+assert g("🏳️‍🌈") == ["🏳 "] and g("🇨🇳 Xangai")[:3] == ["C", "N", " "]
 # Um código por grafema (salvo o bloco do emoji de texto, as marcas que sobram do NFC e a bandeira): o Ghostty desenha firme.
 for x in g("🏛️ 🌡️ 🛰 ❤️‍🔥 ✌🏽 ©️ 1️⃣ 🏳️‍🌈 ⛏️ 👍🏽 👨‍👩‍👧 🇧🇷 🌍 é"):
     assert len(x) == 1 or x[1:] == " " or (len(x) == 2 and RI(x[0]) and RI(x[1])), ("grafema de vários códigos", x)
-larg = {"🇦🇷": 2, "👨‍👩‍👧": 2, "👍🏽": 2, "é": 1, "❤ ": 2, "❤": 1, "✌ ": 2,
+larg = {"A": 1, "R": 1, "👨‍👩‍👧": 2, "👍🏽": 2, "é": 1, "❤ ": 2, "❤": 1, "✌ ": 2,
         "🏛 ": 2, "🌍": 2, "a": 1, "🌡": 1, "🌡 ": 2, "—": 1}
 for k, v in larg.items():
     assert lt.larg(k) == v, (k, lt.larg(k), v)
@@ -40,10 +40,12 @@ for w in (5, 9, 13):
         assert not any(ch in "\ufe0f\u200d" for ch in txt), ("grafema de vários códigos no recorte", w, off, txt)
         cel = g(txt)
         assert not any(len(c) == 1 and RI(c) for c in cel), (w, off, txt)
+        assert not any(RI(ch) for ch in txt), ("bandeira no recorte", w, off, txt)
+        assert not any(RI(ch) for ch in txt), ("bandeira no recorte", w, off, txt)
         assert sum(lt.larg(c) for c in cel) == w, (w, off, txt)
 t = lt.cortar("🇦🇷 Peso arg. 🇺🇸 dólar", 6)
 assert t.endswith("…") and sum(lt.larg(c) for c in g(t)) <= 6 and not any(len(c) == 1 and RI(c) for c in g(t)), t
-assert lt.janela("ab🇧🇷cd", 3, 2) == "🇧🇷c", lt.janela("ab🇧🇷cd", 3, 2)
+assert lt.janela("ab🇧🇷cd", 3, 2) == "BRc", lt.janela("ab🇧🇷cd", 3, 2)
 # A roda é guardada entre quadros (remontar custava dezenas de ms por quadro) e se renova quando a fonte muda.
 import os, time
 os.makedirs(lt.DIR_TICKER, exist_ok=True)
@@ -55,7 +57,7 @@ open(arq, "w", encoding="utf-8").write("primeira 🇧🇷\n")
 agora = time.time() // 60 * 60
 assert lt.montar_roda(cfg, agora) is lt.montar_roda(cfg, agora + 1), "a roda deveria vir guardada no quadro seguinte"
 assert lt.montar_roda(cfg, agora) is not lt.montar_roda(cfg, agora + 60), "a roda deveria se renovar no minuto seguinte"
-assert "".join(c for c, _ in lt.montar_roda(cfg, agora).cel) == "Primeira 🇧🇷"
+assert "".join(c for c, _ in lt.montar_roda(cfg, agora).cel) == "Primeira BR"
 open(arq, "w", encoding="utf-8").write("segunda\n")
 os.utime(arq, ns=(time.time_ns(), time.time_ns() + 10**9))
 assert "".join(c for c, _ in lt.montar_roda(cfg, agora + 2).cel) == "Segunda", "fonte mudou e a roda não"
