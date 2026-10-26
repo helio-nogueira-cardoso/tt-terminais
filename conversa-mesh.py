@@ -164,6 +164,9 @@ def _tecla():
                 seq = os.read(fd, 16)
                 if not seq:
                     return "esc"
+                if seq.startswith(b"[<"):  # mouse (SGR): roda para cima (64) e para baixo (65); cliques são ignorados
+                    botao = seq[2:].split(b";", 1)[0]
+                    return {b"64": "up", b"65": "down"}.get(botao, "")
                 return {b"[A": "up", b"[B": "down", b"[5~": "pgup", b"[6~": "pgdn",
                         b"[H": "home", b"[1~": "home", b"[F": "end", b"[4~": "end"}.get(seq, "")
             return "esc"
@@ -186,55 +189,70 @@ def janela(linhas, altura, desloc):
     return linhas[max(0, fim - altura):fim], desloc
 
 
+MOUSE_LIGA = "\033[?1000h\033[?1006h"   # pede eventos de mouse (SGR): a roda chega ao painel
+MOUSE_DESLIGA = "\033[?1000l\033[?1006l"
+
+
 def painel():
     """Conversa do dia com a linha de digitação, como o WhatsApp: digita, Enter envia, Esc fecha (ou Ctrl+C).
-    Setas, Page Up/Down, Home e End rolam para trás. Sem terminal (teste, pipe), só mostra a conversa."""
+    Setas, Page Up/Down, Home, End e a roda do mouse rolam para trás. Sem terminal (teste, pipe), só mostra a conversa."""
     if not sys.stdin.isatty():
         sys.stdout.write(render(datetime.date.today()))
         return
     linhas = int(os.environ.get("LINES", "40"))
     altura = max(5, linhas - 4)
-    buf, aviso, desloc = "", "", 0
+    est = {"buf": "", "aviso": "", "desloc": 0}
+
     def desenhar():
         sys.stdout.write("\033[2J\033[H")
         corpo = render(datetime.date.today()).splitlines()
-        visivel, d = janela(corpo, altura, desloc)
+        visivel, d = janela(corpo, altura, est["desloc"])
         sys.stdout.write("\n".join(visivel) + "\n")
         if d:
             sys.stdout.write(_c("2", f"  ↓ {d} linha(s) abaixo · End volta ao fim") + "\n")
         else:
-            sys.stdout.write((_c("2", aviso) if aviso else "") + "\n")
-        sys.stdout.write("\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + buf)
+            sys.stdout.write((_c("2", est["aviso"]) if est["aviso"] else "") + "\n")
+        sys.stdout.write("\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + est["buf"])
         sys.stdout.flush()
-    desenhar()
-    while True:
-        tecla = _tecla()
-        if tecla == "esc":
-            break
+
+    def tratar(tecla):
         total = len(render(datetime.date.today()).splitlines())
+        maximo = max(0, total - altura)
         if tecla == "up":
-            desloc = min(desloc + 1, max(0, total - altura))
+            est["desloc"] = min(est["desloc"] + 1, maximo)
         elif tecla == "down":
-            desloc = max(desloc - 1, 0)
+            est["desloc"] = max(est["desloc"] - 1, 0)
         elif tecla == "pgup":
-            desloc = min(desloc + altura // 2, max(0, total - altura))
+            est["desloc"] = min(est["desloc"] + altura // 2, maximo)
         elif tecla == "pgdn":
-            desloc = max(desloc - altura // 2, 0)
+            est["desloc"] = max(est["desloc"] - altura // 2, 0)
         elif tecla == "home":
-            desloc = max(0, total - altura)
+            est["desloc"] = maximo
         elif tecla == "end":
-            desloc = 0
+            est["desloc"] = 0
         elif tecla == "enter":
-            if buf.strip():
-                arq, situacao = enviar(buf)
-                aviso = f"{situacao}: {os.path.basename(arq)}"
-                buf, desloc = "", 0
+            if est["buf"].strip():
+                arq, situacao = enviar(est["buf"])
+                est["aviso"] = f"{situacao}: {os.path.basename(arq)}"
+                est["buf"], est["desloc"] = "", 0
         elif tecla == "apagar":
-            buf = buf[:-1]
+            est["buf"] = est["buf"][:-1]
         elif len(tecla) == 1 and tecla.isprintable():
-            buf += tecla
+            est["buf"] += tecla
+
+    sys.stdout.write(MOUSE_LIGA)
+    sys.stdout.flush()
+    try:
         desenhar()
-    sys.stdout.write("\n")
+        while True:
+            tecla = _tecla()
+            if tecla == "esc":
+                break
+            tratar(tecla)
+            desenhar()
+    finally:
+        sys.stdout.write(MOUSE_DESLIGA + "\n")
+        sys.stdout.flush()
 
 
 if __name__ == "__main__":
