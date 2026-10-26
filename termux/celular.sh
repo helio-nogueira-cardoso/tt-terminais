@@ -252,6 +252,7 @@ verificar() {
   [[ -s $HOME/.ssh/authorized_keys ]] && ok "chaves SSH autorizadas: $(grep -c . "$HOME/.ssh/authorized_keys")" ||
     erro "nenhuma chave SSH autorizada"
   pgrep -x sshd >/dev/null && ok "sshd rodando" || erro "sshd parado"
+  if command -v proot-distro >/dev/null && proot-distro login debian -- bash -lc "command -v claude" >/dev/null 2>&1; then ok "Claude Code no Debian"; else aviso "Debian sem Claude Code: instale (curl -fsSL https://claude.ai/install.sh | bash, dentro do Debian)"; fi
   if command -v sv >/dev/null && sv status sshd 2>/dev/null | grep -q "^run:"; then ok "sshd supervisionado (runit)"; else aviso "sshd sem supervisão do runit: rode sv-enable sshd (termux-services)"; fi
   compgen -G "$HOME/.termux/boot/*" >/dev/null && ok "script de boot: $(ls "$HOME/.termux/boot" | tr '\n' ' ')" || aviso "sem script de boot"
   [[ -x $HOME/.local/bin/tt ]] && ok "tt $(cut -d' ' -f1 "$HOME/.local/share/tt/VERSAO" 2>/dev/null) como \"$(conf nome)\"" ||

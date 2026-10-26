@@ -533,6 +533,33 @@ vigia_garantir() {
 #           toque numa volta) e minuto com uso vale 1. Com 10 pontos, ao menos um pedido novo e
 #           5 min desde o último nome, pergunta ao Haiku; mudar de pasta também. Sem pedido novo,
 #           nunca. No Claude o Haiku lê os últimos pedidos, e o nome acompanha a tarefa atual.
+# O servidor que a tela do usuário vê. No proot do celular ele é o do Termux (outro binário e outro socket), não o do
+# Debian: o vigia e a instalação agem nele. Fora disso (Linux, Mac, Termux puro), é o tmux do PATH.
+# (TT_TMUX_TELA_PREFIX e TT_TMUX_TELA_BIN: os caminhos do Termux, trocáveis em teste.)
+tmux_tela() {
+  local px=${TT_TMUX_TELA_PREFIX:-/data/data/com.termux/files/usr}
+  local bin=${TT_TMUX_TELA_BIN:-/data/data/com.termux/files/home/.local/share/tt-tmux/bin/tmux}
+  if [[ ${PREFIX:-} != *com.termux* && -x $px/bin/sshd && -x $bin ]]; then
+    TMUX_TMPDIR=$px/var/run command "$bin" "$@"
+  else
+    tmux "$@"
+  fi
+}
+# A configuração do tmux diz qual versão do tt a gerou (@tt_conf_versao, gravada na instalação). Se o servidor da tela
+# tem outra (ou nenhuma), recarrega e registra: a divergência deixa de ser silenciosa e converge em uma volta do vigia.
+conf_em_dia() {
+  local quer tem
+  quer=$(cut -d' ' -f1,2 "$DIR_TT/VERSAO" 2>/dev/null) || return 0
+  [[ -n $quer ]] || return 0
+  tem=$(tmux_tela show -gqv @tt_conf_versao 2>/dev/null)
+  [[ -z $tem && -z $(tmux_tela list-sessions 2>/dev/null) ]] && return 0
+  [[ $tem == "$quer" ]] && return 0
+  mkdir -p "$HOME/.cache" 2>/dev/null
+  echo "$(date '+%F %T') tmux com configuração ${tem:-desconhecida}, instalada $quer: recarregando" 2>/dev/null >>"$HOME/.cache/tt-vigia.log"
+  tmux_tela source-file "$HOME/.tmux.conf" 2>/dev/null
+  tmux_tela set -gq @tt_conf_versao "$quer" 2>/dev/null
+  redesenhar_todos 2>/dev/null
+}
 vigiar() {
   local pidf="$RT/tt-vigia-$UID.pid" log="$HOME/.cache/tt-vigia.log" outro
   # O vigia vive dias e herda o diretório de quem o lançou (o servidor do tmux, um clique, um worktree). Se esse diretório for apagado,
@@ -683,6 +710,7 @@ vigiar() {
       ("$EU" --novidades-avisar >/dev/null 2>&1 &)
     fi
     # Reforça o padrão completo e redesenha os clientes em até 5 min, inclusive os aninhados.
+    conf_em_dia
     if ((agora - ${ultima_tema:-0} >= 300)); then
       ultima_tema=$agora
       ("$EU" --reforcar-padrao >/dev/null 2>&1) &
@@ -1855,7 +1883,15 @@ fi
 TT_TMUX_BIN=tmux
 tmux_alinhar() {
   local pid=${TMUX:-} p d bin IFS=:
-  [[ -n $pid ]] || return 0
+  # No Termux o servidor da tela fica em $PREFIX/var/run: sem isso, um tmux chamado fora dele (ssh, cron, vigia) não o acha.
+  [[ -z ${TMUX_TMPDIR:-} && ${PREFIX:-} == *com.termux* ]] && export TMUX_TMPDIR=$PREFIX/var/run
+  if [[ -z $pid ]]; then
+    # Fora do tmux, o binário do tt (se existe) vence o do PATH: é o que serve as abas (tmux 3.8, não o 3.6b do Termux).
+    for bin in "$HOME/.local/share/tt-bin/tmux" "$HOME/.local/share/tt-tmux/bin/tmux"; do
+      [[ -x $bin ]] && { TT_TMUX_BIN=$bin; return 0; }
+    done
+    return 0
+  fi
   pid=${pid#*,}; pid=${pid%%,*}
   [[ $pid =~ ^[0-9]+$ && -e /proc/$pid/exe ]] || return 0
   for d in $PATH; do
@@ -4078,6 +4114,9 @@ CONF
   mkdir -p "$(dirname "$CONF")"
   if [[ -n $nome ]]; then
     grep -v '^nome=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "nome=$nome" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
+  elif [[ -n $(termux_nome) && $(conf nome) =~ ^(|localhost)$ ]]; then
+    # No Debian do celular, o nome é o do Termux (o hostname dele é "localhost"): a malha e o diagnóstico usam o mesmo nome.
+    grep -v '^nome=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "nome=$(termux_nome)" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
   elif [[ -z $(conf nome) ]]; then
     echo "nome=$(hostname -s)" >>"$CONF"
   fi
@@ -4085,6 +4124,7 @@ CONF
   grep -q '^avisado=' "$CONF" 2>/dev/null && { grep -v '^avisado=' "$CONF" >"$CONF.novo"; mv "$CONF.novo" "$CONF"; }
   limpar_cache_maquinas
   atualizar_bashrc
+  garantir_path_login
   configurar_zshenv
   mac_configurar_padrao || return 1
   ghostty_configurar
@@ -4093,8 +4133,9 @@ CONF
   demandas_tags_migrar || return 1
   "$DIR_TT/tema-agentes.sh" --aplicar
   "$DIR_TT/memoria-agentes.sh" --aplicar
-  if tmux list-sessions >/dev/null 2>&1; then
-    tmux source-file "$HOME/.tmux.conf"
+  if tmux_tela list-sessions >/dev/null 2>&1; then
+    tmux_tela source-file "$HOME/.tmux.conf"
+    tmux_tela set -gq @tt_conf_versao "$(cut -d' ' -f1,2 "$DIR_TT/VERSAO" 2>/dev/null)" 2>/dev/null
     # source-file atualiza as opções, mas clientes já desenhados nem sempre redesenham a
     # barra imediatamente. Força todas as telas/abas ativas a adotarem o padrão novo.
     redesenhar_todos
@@ -4595,6 +4636,11 @@ atualizacao_estado() {
   if [[ -n $pub ]]; then printf '  publicada:     %s\n' "${pub:0:7}"; else echo "  publicada:     (ainda não consultada)"; fi
   printf '  fonte:         %s%s\n' "$(url_fonte)" "${fonte:+  (fonte= do config: não é o repositório oficial)}"
   printf '  vigia ativo:   %s\n' "$vivo"
+  local quer_conf tem_conf
+  quer_conf=$(cut -d' ' -f1,2 "$DIR_TT/VERSAO" 2>/dev/null); tem_conf=$(tmux_tela show -gqv @tt_conf_versao 2>/dev/null)
+  if [[ -z $tem_conf ]]; then printf '  configuração do tmux: sem registro (o servidor da tela ainda não recebeu a versão)\n'
+  elif [[ $tem_conf == "$quer_conf" ]]; then printf '  configuração do tmux: em dia (%s)\n' "$quer_conf"
+  else printf '  configuração do tmux: desatualizada (%s, o tt é %s): o vigia recarrega\n' "$tem_conf" "$quer_conf"; fi
   if [[ -n $sonda ]]; then printf '  última sonda:  há %s min (a cada %s min)\n' $(( (agora - sonda) / 60 )) $(( ${TT_T_SONDA:-$([[ ${PREFIX:-} == *com.termux* ]] && echo 900 || echo 300)} / 60 ))
   else echo "  última sonda:  nunca"; fi
   if ((${f:-0} > 0)); then
@@ -5397,6 +5443,19 @@ bashrc_trecho_antigo() {
   ' "$1"
 }
 
+# Nome do celular, lido da configuração do tt do Termux (vista de dentro do proot). Vazio fora do proot.
+termux_nome() {
+  [[ ${PREFIX:-} == *com.termux* ]] && return 0
+  local f=${TT_TERMUX_HOME:-/data/data/com.termux/files/home}/.config/tt/config
+  [[ -r $f ]] || return 0
+  grep -m1 '^nome=' "$f" 2>/dev/null | cut -d= -f2-
+}
+# `proot-distro login debian -- bash -lc` lê o ~/.profile, não o ~/.bashrc (que sai cedo sem terminal): o PATH do tt vai também nele.
+garantir_path_login() {
+  local pf=$HOME/.profile
+  grep -qF 'tt: PATH de login' "$pf" 2>/dev/null && return 0
+  printf '\n# tt: PATH de login (bash -lc não lê o ~/.bashrc sem terminal)\nexport PATH="$HOME/.local/bin:$PATH"\n' >>"$pf"
+}
 atualizar_bashrc() {
   local rc=$HOME/.bashrc tmp ini fim
   if ! grep -qF "$BASHRC_INI" "$rc" 2>/dev/null; then

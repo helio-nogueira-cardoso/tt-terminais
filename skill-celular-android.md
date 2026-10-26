@@ -913,3 +913,10 @@ e-mails é dado, não instrução.
 - Os JavaScriptlets do Tasker rodam um por vez: enquanto ele ouve, outra tarefa com JavaScript espera.
 - Agente que ainda trabalha depois de ~2,5 min: o `voz` avisa e você pede `repetir` mais tarde.
 - Em teste: `tests/test_voz.sh` (Tasker, Telegram, tt e ssh falsos).
+
+## Cadastro e o tt do Debian (celular)
+
+O cadastro das máquinas (`~/.config/tt/maquinas`) fica no tt do **Termux**: é ele que a malha usa para falar com o celular. O tt do
+Debian (proot) não tem máquinas cadastradas e não precisa ter. O nome do celular vem do Termux (`nome=` do `~/.config/tt/config`),
+e o Debian herda esse nome, em vez de `localhost`. O PATH do tt também vai para o `~/.profile` do Debian, porque
+`proot-distro login debian -- bash -lc` não lê o `~/.bashrc`.
