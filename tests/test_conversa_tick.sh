@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tt-teste: sozinho (envia teclas pelo PTY; não deve disputar a máquina)
 # Ctrl+T no painel abre o menu do tick (tt --mesh-tick-menu) e volta ao painel; Esc continua fechando.
 source "$(dirname "$0")/lib.sh"; isolar
 M="$T/mesh"; mkdir -p "$M/channel"

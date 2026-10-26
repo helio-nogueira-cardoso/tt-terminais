@@ -9576,7 +9576,7 @@ dim_popup() { # cliente largura altura → "-w L -h A", sem passar do tamanho do
   local w=$2 h=$3 cw ch
   read -r cw ch < <(do_cliente "$1" '#{client_width} #{client_height}')
   [[ $cw =~ ^[0-9]+$ ]] && ((cw < w)) && w=$cw
-  [[ $ch =~ ^[0-9]+$ ]] && ((ch < h)) && h=$ch
+  [[ $h != *% && $ch =~ ^[0-9]+$ ]] && ((ch < h)) && h=$ch
   echo "-w $w -h $h"
 }
 
@@ -18296,7 +18296,7 @@ email_comando() {
 conversa_mesh_alternar() { # cliente
   local c=$1 marca="$RT/tt-conversa-aberta"
   if [[ -e $marca ]]; then tmux display-popup -c "$c" -C 2>/dev/null; rm -f "$marca"; return 0; fi
-  tmux display-popup -c "$c" -E -w 46 -h 100% -x R -y 0 -T " conversa do mesh " "sh -c 'touch $marca; $HOME/.local/bin/tt --conversa-mesh --painel; rm -f $marca'"
+  tmux display-popup -c "$c" -E $(dim_popup "$c" 46 100%) -x R -y 0 -T " conversa do mesh " "sh -c 'touch $marca; $HOME/.local/bin/tt --conversa-mesh --painel; rm -f $marca'"
 }
 # --- Tick do mesh (agenda do chefe de cada máquina) -------------------------------------------------------------
 # O intervalo é qualquer número inteiro de minutos (de 1 a TICK_MAX_MIN); a máquina guarda no que tiver: systemd (timer do

@@ -489,6 +489,7 @@ pelos verbos que o próprio `ia-login` usa entre máquinas (todos por ssh no alv
 | `--conferir PROVEDOR CONTA` | imprime o e-mail logado (vazio = ainda sem login); é a prova de que entrou a conta certa |
 | `--encerrar SESSÃO` | mata a sessão (sem isto ela fica 15 min depois do fim) |
 | `--faltas` · `--principal-faltas E-MAIL` | o que falta logar / se a principal já é a conta pedida (o plano do `ia-login`) |
+| `--recursos` | lista os comandos internos que esta versão oferece às outras máquinas (`principal`, `faltas`, `iniciar`, `conferir`); assim uma versão antiga pode ser reconhecida sem chamar um verbo que ela não conhece |
 
 No celular-alvo o `ia-login` do Termux executa o login dentro do proot sozinho; a receita é a mesma.
 

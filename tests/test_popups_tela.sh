@@ -28,6 +28,9 @@ falso "200 50" --fixadas-popup cel; pediu '-w 64 -h 18' "+N das fixadas em tela 
 falso "63 30" --notifs cel; pediu '-w 63 -h 26' "🔔 em 63 colunas deveria pedir 63x26"
 falso "63 12" --notifs cel; pediu '-w 63 -h 12' "🔔 em tela baixa deveria encolher a altura"
 falso "200 50" --notifs cel; pediu '-w 92 -h 26' "🔔 em tela grande deveria manter 92x26"
+# A conversa do mesh ocupa a altura inteira, mas sua largura nominal de 46 colunas precisa caber.
+falso "40 20" --conversa-mesh-alternar cel; pediu '-w 40 -h 100%' "conversa do mesh em 40 colunas deveria encolher a largura"
+falso "200 50" --conversa-mesh-alternar cel; pediu '-w 46 -h 100%' "conversa do mesh deveria manter 46 colunas em tela larga"
 # Itens de menu montados de antemão (botão direito no 📋 e em "sessão ▾"): o popup do item já cabe.
 falso "63 30" --clique-direito tarefas cel %1 0
 grep -h 'nova tarefa' "$TT_RT"/tt-menu-itens.* 2>/dev/null | grep -q -- '-w 63 -h 14' || falhou "item + Nova tarefa do 📋 não cabe em 63 colunas"
