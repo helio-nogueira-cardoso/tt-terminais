@@ -22059,7 +22059,7 @@ case "${1:-}" in
   --malha-vigia) malha_vigia; exit ;;
   --vigia-garantir) vigia_garantir; exit ;;
   --vigia-vivo) vigia_vivo; exit ;;
-  --conversa-mesh) TT_MAQUINA=${TT_MAQUINA:-$MAQUINA} python3 -I "$DIR_TT/conversa-mesh.py" "${2:-}"; exit ;;
+  --conversa-mesh) TT_MAQUINA=${TT_MAQUINA:-$MAQUINA} python3 -I "$DIR_TT/conversa-mesh.py" "${@:2}"; exit ;;
   --malha) malha_completar; malha_estado; exit $? ;;
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;

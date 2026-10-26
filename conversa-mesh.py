@@ -87,9 +87,53 @@ def render(dia):
     return "\n".join(out) + "\n"
 
 
+def enviar(texto):
+    """Grava um recado do dono no canal (from: dono) e tenta o commit e o push do mesh. Devolve (arquivo, situação)."""
+    import secrets, subprocess
+    agora = datetime.datetime.now(datetime.timezone.utc)
+    nome = f"{agora:%Y%m%dT%H%M%SZ}-dono-{secrets.token_hex(2)}.md"
+    caminho = os.path.join(MESH, "channel", nome)
+    with open(caminho, "w", encoding="utf-8") as f:
+        f.write(f"---\nfrom: dono\nto: all\ntopic: recado do dono\n---\n{texto.strip()}\n")
+    def git(*a):
+        return subprocess.run(["git", "-C", MESH, *a], capture_output=True, text=True, timeout=60)
+    git("add", caminho)
+    if git("commit", "-q", "-m", "mesh: recado do dono").returncode != 0:
+        return caminho, "gravado (sem commit)"
+    git("pull", "-q", "--rebase", "--autostash")
+    if git("push", "-q").returncode == 0:
+        return caminho, "publicado no mesh"
+    return caminho, "commitado; envio pendente (sem rede?)"
+
+
+def painel():
+    """Conversa do dia com uma linha para escrever: cada recado vai ao canal. Enter vazio ou q fecha."""
+    linhas = int(os.environ.get("LINES", "40"))
+    while True:
+        sys.stdout.write("\033[2J\033[H")
+        corpo = render(datetime.date.today()).splitlines()
+        sys.stdout.write("\n".join(corpo[-(linhas - 4):]) + "\n\n")
+        try:
+            msg = input("recado (Enter sai)> ").strip()
+        except EOFError:
+            break
+        if not msg or msg == "q":
+            break
+        arq, situacao = enviar(msg)
+        sys.stdout.write(f"  {situacao}: {os.path.basename(arq)}\n")
+        import time; time.sleep(1)
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[1] == "--enviar":
+        arq, situacao = enviar(" ".join(sys.argv[2:]))
+        print(f"{situacao}: {os.path.basename(arq)}")
+        sys.exit(0)
+    if len(sys.argv) > 1 and sys.argv[1] == "--painel":
+        painel()
+        sys.exit(0)
     try:
         dia = dia_alvo(sys.argv[1] if len(sys.argv) > 1 else "")
     except ValueError:
-        sys.exit("uso: tt --conversa-mesh [AAAA-MM-DD|hoje|ontem]")
+        sys.exit("uso: tt --conversa-mesh [AAAA-MM-DD|hoje|ontem] | --painel | --enviar TEXTO")
     sys.stdout.write(render(dia))
