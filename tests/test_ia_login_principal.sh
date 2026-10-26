@@ -128,3 +128,8 @@ grep -q 'sem resposta' <<<"$out" && falhou "o ssh frio não pode virar 'sem resp
 [[ $(cat "$T/ssh-tentativas") == 2 ]] || falhou "esperava 2 tentativas de ssh, houve $(cat "$T/ssh-tentativas")"
 passou 'ssh frio: a 2ª tentativa responde e a máquina não vira "sem resposta"'
 echo "TODOS OS TESTES PASSARAM"
+
+# Regressão (jube42): a ajuda tem a linha do --principal mesmo com a guarda do bash 4+ no topo (antes saía por número de linha).
+ia-login --help 2>/dev/null | grep -q "ia-login --principal CONTA" || falhou 'a ajuda do ia-login perdeu a linha do --principal'
+ia-login --help 2>/dev/null | grep -q "BASH_VERSINFO" && falhou 'a ajuda não deve mostrar a guarda do bash'
+passou 'ajuda do ia-login: linha do --principal presente e sem a guarda do bash'

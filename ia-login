@@ -418,6 +418,9 @@ case ${1:-} in
   --conferir) conferir "$2" "$3" ;;
   --encerrar) encerrar "$2" ;;
   --plano) orquestrar 1 "${@:2}" ;;
-  -h | --help | ajuda) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  # Do título até antes de "Usados entre máquinas", por marcadores e não por número de linha: a guarda do bash 4+ no topo
+  # empurrou o texto, e as outras máquinas detectam o --principal procurando a linha dele nesta ajuda.
+  -h | --help | ajuda) sed -n '/^# ia-login —/,/^# Usados entre máquinas/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' ;;
+  --recursos) echo 'principal faltas iniciar conferir' ;;  # o que esta versão entende entre máquinas
   *) orquestrar 0 "$@" ;;
 esac
