@@ -55,6 +55,10 @@ def mensagens(dia):
         if not m:
             continue  # 0000-seed e afins
         quando = datetime.datetime.strptime(m.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=datetime.timezone.utc).astimezone()
+        agora = datetime.datetime.now().astimezone()
+        if quando > agora + datetime.timedelta(minutes=5):
+            # O nome veio com um horário no futuro (estimado por quem escreveu): vale a hora em que o arquivo foi gravado.
+            quando = datetime.datetime.fromtimestamp(os.path.getmtime(arq)).astimezone()
         if quando.date() != dia:
             continue
         with open(arq, encoding="utf-8", errors="replace") as f:

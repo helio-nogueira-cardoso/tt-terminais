@@ -48,3 +48,10 @@ TT_MESH="$L" TT_BIN="$fake" python3 -I "$RAIZ/conversa-mesh.py" --enviar "oi do 
 for _ in $(seq 1 40); do [[ -s $T/puxou ]] && break; sleep 0.1; done
 grep -q -- '--mesh-puxar' "$T/puxou" 2>/dev/null || falhou 'publicar o recado deveria pedir o puxar nas outras máquinas'
 passou 'recado publicado: pede às outras máquinas que puxem o mesh na hora'
+
+# Horário no nome do arquivo no futuro (estimado por quem escreveu): o painel mostra a hora real da gravação.
+F=$(date -u -d "+3 hours" +%Y%m%dT%H%M%SZ)
+printf -- '---\nfrom: mac\nto: all\ntopic: horario\n---\nmensagem com horario futuro\n' >"$M/channel/${F}-mac-f9.md"
+out=$(TT_MESH="$M" TT_MAQUINA=mac python3 -I "$RAIZ/conversa-mesh.py" "$dia")
+hora_real=$(date +%H:%M); grep -q "$hora_real" <<<"$out" || falhou 'horário no futuro: o painel deveria mostrar a hora real'
+passou 'horário no futuro no nome: o painel mostra a hora real da gravação'
