@@ -172,6 +172,8 @@ def _tecla():
             return "esc"
         if c == b"\x03":
             return "esc"
+        if c == b"\x12":
+            return "atualizar"
         if c in (b"\r", b"\n"):
             return "enter"
         if c == b"\x7f":
@@ -187,6 +189,19 @@ def janela(linhas, altura, desloc):
     desloc = max(0, min(desloc, max(0, total - altura)))
     fim = total - desloc
     return linhas[max(0, fim - altura):fim], desloc
+
+
+def atualizar_mesh():
+    """Traz as mensagens novas do tt-mesh (git pull, com tempo limite). Sem rede ou sem remoto, segue com o que tem."""
+    import subprocess
+    if not os.path.isdir(os.path.join(MESH, ".git")):
+        return False
+    try:
+        r = subprocess.run(["git", "-C", MESH, "pull", "-q", "--rebase", "--autostash"],
+                           capture_output=True, text=True, timeout=10)
+        return r.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
 
 
 MOUSE_LIGA = "\033[?1000h\033[?1006h"   # pede eventos de mouse (SGR): a roda chega ao painel
@@ -243,11 +258,16 @@ def painel():
     sys.stdout.write(MOUSE_LIGA)
     sys.stdout.flush()
     try:
+        est["aviso"] = "atualizando…" if atualizar_mesh() else "sem atualizar (sem rede): mostrando o que já tem"
         desenhar()
         while True:
             tecla = _tecla()
             if tecla == "esc":
                 break
+            if tecla == "atualizar":
+                est["aviso"] = "atualizado" if atualizar_mesh() else "sem atualizar (sem rede)"
+                desenhar()
+                continue
             tratar(tecla)
             desenhar()
     finally:
