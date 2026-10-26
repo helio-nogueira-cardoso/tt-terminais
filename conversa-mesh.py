@@ -225,29 +225,33 @@ MOUSE_DESLIGA = "\033[?1000l\033[?1006l"
 
 def painel():
     """Conversa do dia com a linha de digitação, como o WhatsApp: digita, Enter envia, Esc fecha (ou Ctrl+C).
-    Setas, Page Up/Down, Home, End e a roda do mouse rolam para trás. Sem terminal (teste, pipe), só mostra a conversa."""
+    Setas, Page Up/Down, Home, End, a roda do mouse e Ctrl+R rolam e atualizam. Sem terminal (teste, pipe), só mostra a conversa.
+    Redesenho sem piscar: a tela não é apagada; cada linha é sobrescrita e o cursor fica escondido durante o desenho."""
     if not sys.stdin.isatty():
         sys.stdout.write(render(datetime.date.today()))
         return
-    linhas = int(os.environ.get("LINES", "40"))
-    altura = max(5, linhas - 4)
-    est = {"buf": "", "aviso": "", "desloc": 0}
+    linhas_tela = int(os.environ.get("LINES", "40"))
+    altura = max(5, linhas_tela - 4)
+    est = {"buf": "", "aviso": "", "desloc": 0, "corpo": []}
+
+    def montar():
+        est["corpo"] = render(datetime.date.today()).splitlines()
 
     def desenhar():
-        sys.stdout.write("\033[2J\033[H")
-        corpo = render(datetime.date.today()).splitlines()
-        visivel, d = janela(corpo, altura, est["desloc"])
-        sys.stdout.write("\n".join(visivel) + "\n")
+        visivel, d = janela(est["corpo"], altura, est["desloc"])
+        quadro = ["\033[H"]
+        for linha in visivel + [""] * (altura - len(visivel)):
+            quadro.append(linha + "\033[K\n")
         if d:
-            sys.stdout.write(_c("2", f"  ↓ {d} linha(s) abaixo · End volta ao fim") + "\n")
+            quadro.append(_c("2", f"  ↓ {d} linha(s) abaixo · End volta ao fim") + "\033[K\n")
         else:
-            sys.stdout.write((_c("2", est["aviso"]) if est["aviso"] else "") + "\n")
-        sys.stdout.write("\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + est["buf"])
+            quadro.append((_c("2", est["aviso"]) if est["aviso"] else "") + "\033[K\n")
+        quadro.append("\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + est["buf"] + "\033[J")
+        sys.stdout.write("\033[?25l" + "".join(quadro) + "\033[?25h")
         sys.stdout.flush()
 
     def tratar(tecla):
-        total = len(render(datetime.date.today()).splitlines())
-        maximo = max(0, total - altura)
+        maximo = max(0, len(est["corpo"]) - altura)
         if tecla == "up":
             est["desloc"] = min(est["desloc"] + 1, maximo)
         elif tecla == "down":
@@ -265,15 +269,17 @@ def painel():
                 arq, situacao = enviar(est["buf"])
                 est["aviso"] = f"{situacao}: {os.path.basename(arq)}"
                 est["buf"], est["desloc"] = "", 0
+                montar()
         elif tecla == "apagar":
             est["buf"] = est["buf"][:-1]
         elif len(tecla) == 1 and tecla.isprintable():
             est["buf"] += tecla
 
-    sys.stdout.write(MOUSE_LIGA)
+    sys.stdout.write(MOUSE_LIGA + "\033[2J")  # só a abertura apaga a tela
     sys.stdout.flush()
     try:
         est["aviso"] = "atualizando…" if atualizar_mesh() else "sem atualizar (sem rede): mostrando o que já tem"
+        montar()
         desenhar()
         while True:
             tecla = _tecla()
@@ -281,12 +287,12 @@ def painel():
                 break
             if tecla == "atualizar":
                 est["aviso"] = "atualizado" if atualizar_mesh() else "sem atualizar (sem rede)"
-                desenhar()
-                continue
-            tratar(tecla)
+                montar()
+            else:
+                tratar(tecla)
             desenhar()
     finally:
-        sys.stdout.write(MOUSE_DESLIGA + "\n")
+        sys.stdout.write(MOUSE_DESLIGA + "\033[?25h\n")
         sys.stdout.flush()
 
 

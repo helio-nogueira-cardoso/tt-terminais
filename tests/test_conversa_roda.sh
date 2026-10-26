@@ -21,6 +21,10 @@ ler(1.0)
 os.write(fd,b"\x1b[<64;10;5M"); assert b"linha(s) abaixo" in ler(0.8), "roda para cima deveria rolar"
 os.write(fd,b"\x1b[<0;10;5M"); assert b"linha(s) abaixo" in ler(0.8), "clique não deveria voltar ao fim"
 os.write(fd,b"\x1b[<65;10;5M"); assert b"linha(s) abaixo" not in ler(0.8), "roda para baixo deveria voltar ao fim"
+apagou = 0
+for tecla in (b"a", b"b", b"\x1b[A", b"\x1b[B"):
+    os.write(fd, tecla); apagou += ler(0.4).count(b"\x1b[2J")
+assert apagou == 0, "o redesenho não pode apagar a tela a cada tecla (pisca)"
 os.write(fd,b"\x1b"); fim=ler(0.8)
 assert b"\x1b[?1000l" in fim, "o mouse deveria ser desligado ao sair"
 done,_=os.waitpid(pid, os.WNOHANG)
