@@ -7,3 +7,9 @@ printf '[Timer]\nOnBootSec=3min\nOnUnitActiveSec=10min\n' >"$HOME/.config/system
 grep -q '^OnUnitActiveSec=20min$' "$HOME/.config/systemd/user/tt-chief.timer" || falhou 'o timer deveria passar a 20 min'
 "$TT" --mesh-tick ver 2>/dev/null | grep -q 'a cada 20' || falhou 'o ver deveria mostrar 20'
 passou 'tick do mesh: o intervalo muda no agendador da máquina e aparece no ver'
+
+# A tela do tick mostra a tabela das máquinas e sai com Enter (sem terminal interativo).
+out=$(printf '\n' | "$TT" --mesh-tick-menu 2>&1) || falhou 'a tela do tick deveria sair com Enter'
+grep -q 'Tick do mesh' <<<"$out" || falhou 'a tela do tick deveria mostrar o título'
+grep -q 'máquina' <<<"$out" || falhou 'a tela do tick deveria mostrar a tabela das máquinas'
+passou 'tela do tick: mostra as máquinas com o intervalo e sai com Enter'

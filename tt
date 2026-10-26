@@ -18338,14 +18338,50 @@ mesh_puxar() {
     timeout 40 ssh "${SSH_OPC[@]}" "$dest" "bash -lc 'cd ~/tt-mesh && git pull -q --rebase --autostash'" </dev/null >/dev/null 2>&1
   done < <(maquinas)
 }
-mesh_tick_menu() {
-  echo "Tick do mesh (agora):"; mesh_tick_todas ver 2>/dev/null | sed 's/^/  /'; echo
-  echo "Digite os minutos para aplicar em TODAS as máquinas (5, 10, 15, 20, 30 ou 60). Enter cancela:"
-  local n; read -r n
-  case $n in 5|10|15|20|30|60) mesh_tick_todas "$n" ;; "") echo "cancelado" ;; *) echo "use 5, 10, 15, 20, 30 ou 60" ;; esac
-  read -rsn1 -p "(tecla fecha)"
+# Intervalo atual de cada máquina da malha (esta e as cadastradas): "rotulo<TAB>minutos" (minutos vazios se não der para ler).
+mesh_tick_lista() {
+  local dest rot min
+  min=$(mesh_tick_local ver 2>/dev/null | grep -o '[0-9]\+' | head -1); [[ -z $min ]] && min=$(mesh_tick_local ver 2>/dev/null | grep -o '[0-9]\+' | tail -1)
+  printf 'local\t%s\t%s\n' "$(conf nome || hostname -s)" "${min:-?}"
+  while read -r dest rot; do
+    min=$(timeout 30 ssh "${SSH_OPC[@]}" "$dest" "bash -lc '~/.local/bin/tt --mesh-tick ver'" </dev/null 2>/dev/null | grep -o '[0-9]\+' | tail -1)
+    printf 'remoto\t%s\t%s\t%s\n' "$rot" "${min:-?}" "$dest"
+  done < <(maquinas)
 }
-
+mesh_tick_menu() {
+  local linhas n escolha alvo min i=0 tipo rot min_atual dest
+  while :; do
+    clear 2>/dev/null
+    printf '\n  \033[1m🕐 Tick do mesh\033[0m  ·  o chefe de cada máquina roda nesse intervalo\n\n'
+    printf '  \033[2m%-4s %-14s %s\033[0m\n' "nº" "máquina" "intervalo"
+    linhas=()
+    while IFS=$'\t' read -r tipo rot min_atual dest; do
+      i=$((i + 1)); linhas+=("$tipo|$rot|$min_atual|$dest")
+      cor="\033[38;5;78m"; [[ $min_atual == "?" ]] && cor="\033[38;5;244m"
+      printf '  \033[1m%-4s\033[0m %-14s %b%s\033[0m\n' "$i" "$rot" "$cor" "$( [[ $min_atual == "?" ]] && echo "sem resposta" || echo "a cada $min_atual min")"
+    done < <(mesh_tick_lista)
+    printf '\n  \033[2mdigite o nº de uma máquina, ou \033[0m\033[1mT\033[0m\033[2m para todas · Enter fecha\033[0m\n  ➤ '
+    read -r escolha
+    [[ -z $escolha ]] && return 0
+    if [[ $escolha == T || $escolha == t ]]; then
+      printf '  minutos para TODAS (5, 10, 15, 20, 30 ou 60): '; read -r min
+      case $min in 5|10|15|20|30|60) mesh_tick_todas "$min" ;; *) echo "  use 5, 10, 15, 20, 30 ou 60" ;; esac
+    elif [[ $escolha =~ ^[0-9]+$ ]] && ((escolha >= 1 && escolha <= ${#linhas[@]})); then
+      IFS='|' read -r tipo rot min_atual dest <<<"${linhas[escolha - 1]}"
+      printf '  minutos para %s (5, 10, 15, 20, 30 ou 60): ' "$rot"; read -r min
+      case $min in
+        5|10|15|20|30|60)
+          if [[ $tipo == local ]]; then mesh_tick_local "$min"
+          else timeout 60 ssh "${SSH_OPC[@]}" "$dest" "bash -lc '~/.local/bin/tt --mesh-tick $min'" </dev/null 2>/dev/null | tail -1; fi ;;
+        *) echo "  use 5, 10, 15, 20, 30 ou 60" ;;
+      esac
+    else
+      echo "  opção inválida"
+    fi
+    sleep 1
+    i=0
+  done
+}
 botao_email() {
   local cliente=$1 cmd prog dica
   # Sem nenhuma conta ainda: o aerc abriria o próprio assistente em inglês; vai direto ao cadastro do tt.
