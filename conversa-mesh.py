@@ -179,9 +179,12 @@ def _tecla():
                 seq = os.read(fd, 16)
                 if not seq:
                     return "esc"
-                if seq.startswith(b"[<"):  # mouse (SGR): roda para cima (64) e para baixo (65); cliques são ignorados
-                    botao = seq[2:].split(b";", 1)[0]
-                    return {b"64": "up", b"65": "down"}.get(botao, "")
+                if seq.startswith(b"[<"):  # mouse (SGR): roda (64 cima, 65 baixo); clique pressionado (0, M) vira "clique:x:y"
+                    corpo = seq[2:]
+                    partes = corpo.rstrip(b"Mm").split(b";")
+                    if len(partes) == 3 and partes[0] == b"0" and corpo[-1:] == b"M":
+                        return f"clique:{partes[1].decode()}:{partes[2].decode()}"
+                    return {b"64": "up", b"65": "down"}.get(partes[0], "")
                 return {b"[A": "up", b"[B": "down", b"[5~": "pgup", b"[6~": "pgdn",
                         b"[H": "home", b"[1~": "home", b"[F": "end", b"[4~": "end"}.get(seq, "")
             return "esc"
@@ -221,6 +224,7 @@ def atualizar_mesh():
         return False
 
 
+BOTOES = [("atualizar", "↻ atualizar", "48;5;24"), ("tick", "⏱ tick", "48;5;94"), ("fechar", "✕ fechar", "48;5;124")]
 MOUSE_LIGA = "\033[?1000h\033[?1006h"   # pede eventos de mouse (SGR): a roda chega ao painel
 MOUSE_DESLIGA = "\033[?1000l\033[?1006l"
 
@@ -248,7 +252,16 @@ def painel():
             quadro.append(_c("2", f"  ↓ {d} linha(s) abaixo · End volta ao fim") + "\033[K\n")
         else:
             quadro.append((_c("2", est["aviso"]) if est["aviso"] else "") + "\033[K\n")
-        quadro.append("\r\033[K" + _c("2", "^R atualizar · ^T tick · Esc fecha") + "\n\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + est["buf"] + "\033[J")
+        # botões: linha própria (linha altura+2), clicáveis; as posições (x) ficam guardadas para o clique
+        x, botoes, faixa = 2, [], ""
+        for nome, rotulo, cor in BOTOES:
+            trecho = f" {rotulo} "
+            botoes.append((nome, x, x + len(trecho) - 1))
+            faixa += _c(cor + ";38;5;255;1", trecho) + "  "
+            x += len(trecho) + 2
+        est["botoes"] = botoes
+        quadro.append("\r\033[K  " + faixa + "\033[K\n")
+        quadro.append("\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + est["buf"] + "\033[J")
         sys.stdout.write("\033[?25l" + "".join(quadro) + "\033[?25h")
         sys.stdout.flush()
 
@@ -287,6 +300,15 @@ def painel():
             tecla = _tecla()
             if tecla == "esc":
                 break
+            if tecla.startswith("clique:"):
+                _, x, y = tecla.split(":")
+                if int(y) == altura + 2:
+                    alvo = next((n for n, a, b in est.get("botoes", []) if a <= int(x) <= b), None)
+                    if alvo == "fechar":
+                        break
+                    tecla = alvo or ""
+                else:
+                    tecla = ""
             if tecla == "atualizar":
                 est["aviso"] = "atualizado" if atualizar_mesh() else "sem atualizar (sem rede)"
                 montar()
