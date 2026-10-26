@@ -32,3 +32,10 @@ printf '516 2cc4281\n' >"$FAKE_VERSAO"; : >"$FAKE_LOG"
 run
 grep -q 'ARGS=source-file' "$FAKE_LOG" && falhou 'com a mesma versão não pode haver source-file'
 passou 'mesma versão: nenhuma recarga'
+
+# As barras e o redesenho (jube42) falam com o servidor da tela, não com o tmux do PATH (no proot, o do Debian).
+for f in atualizar_barras redesenhar_todos; do
+  corpo=$(awk -v f="$f" '$0 ~ "^"f"\\(\\)" {on=1} on {print} on && /^}/ {exit}' "$TT" | grep -v '^[[:space:]]*#')
+  if grep -qE '(^|[^_a-z-])tmux ' <<<"$corpo"; then falhou "$f ainda chama o tmux do PATH em vez de tmux_tela"; fi
+done
+passou 'barras e redesenho de todos passam pelo servidor da tela'

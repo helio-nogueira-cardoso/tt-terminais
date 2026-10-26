@@ -3895,14 +3895,14 @@ reforcar_padrao() {
 }
 
 redesenhar_todos() {
-  tmux set -gu @tema_hash 2>/dev/null # explícito (sincronizar/instalar): recarrega o tema sempre
+  tmux_tela set -gu @tema_hash 2>/dev/null # explícito (sincronizar/instalar): recarrega o tema sempre
   reforcar_visual
   atualizar_barras
   tema_cliente
   local c
   # Um refresh-client (com ou sem -S) já força a barra a reexpandir — e recria os #() dela (o
   # letreiro de cada cliente): um por cliente, nunca dois.
-  for c in $(tmux list-clients -F '#{client_name}' 2>/dev/null); do tmux refresh-client -t "$c" 2>/dev/null; done
+  for c in $(tmux_tela list-clients -F '#{client_name}' 2>/dev/null); do tmux_tela refresh-client -t "$c" 2>/dev/null; done
   return 0
 }
 
@@ -16569,14 +16569,14 @@ atualizar_barras() {
   # atende um pedido por vez); #{@x} devolve o valor literal, sem expandir o que está dentro. Se a leitura
   # vier incompleta, volta ao show por opção: na dúvida, nunca regrava (cada set redesenha todos os clientes).
   for nome in "${nomes[@]}"; do fmt+="#{@barra_$nome}"$'\x1f'; done
-  if ! sai=$(tmux display-message -p "${fmt}fim" \; show -gqv status 2>/dev/null); then
-    tmux list-sessions >/dev/null 2>&1 || return 0
+  if ! sai=$(tmux_tela display-message -p "${fmt}fim" \; show -gqv status 2>/dev/null); then
+    tmux_tela list-sessions >/dev/null 2>&1 || return 0
   fi
   l1=${sai%%$'\n'*}; [[ $sai == *$'\n'* ]] && st_atual=${sai#*$'\n'}
   IFS=$'\x1f' read -r -a atuais <<<"$l1"
   if ((${#atuais[@]} != ${#nomes[@]} + 1)) || [[ ${atuais[-1]} != fim ]]; then
-    atuais=(); for nome in "${nomes[@]}"; do atuais+=("$(tmux show -gqv "@barra_$nome")"); done
-    st_atual=$(tmux show -gqv status 2>/dev/null)
+    atuais=(); for nome in "${nomes[@]}"; do atuais+=("$(tmux_tela show -gqv "@barra_$nome")"); done
+    st_atual=$(tmux_tela show -gqv status 2>/dev/null)
   fi
   # A faixa ligada ou não decide 6 dos segmentos e o nº de linhas: perguntada uma vez (eram 7 a cada volta).
   faixa_notif_ativa && faixa=1
@@ -16629,7 +16629,7 @@ atualizar_barras() {
   [[ $st_atual == "$st" ]] || lote_add lote set -g status "$st"
   # Tudo o que mudou numa ida só: o servidor aplica os sets juntos e redesenha os clientes UMA vez (cada set
   # separado era um pedido na fila e um redesenho da tela inteira de todos os clientes).
-  ((${#lote[@]})) && tmux "${lote[@]}" 2>/dev/null
+  ((${#lote[@]})) && tmux_tela "${lote[@]}" 2>/dev/null
   # Um refresh-client aqui seria redundante, e recriaria o letreiro (#()) de cada cliente.
   return 0
 }
