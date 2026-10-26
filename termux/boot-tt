@@ -9,7 +9,10 @@ service-daemon start >/dev/null 2>&1   # sshd (sv-enable sshd) e o que mais esti
 command -v sv >/dev/null && sv up sshd >/dev/null 2>&1   # runit (termux-services): religa o sshd se ele morrer
 pgrep -x sshd >/dev/null || sshd
 sleep 5
-tmux has-session 2>/dev/null || tmux new-session -d -s inicio
+# O servidor da tela usa o tmux 3.8 do tt (o mesmo binário que as janelas usam); com o 3.6b do Termux, cliente 3.8 e servidor
+# 3.6b não se entendem direito (cliques e barras falham).
+TMUX_TT="$HOME/.local/share/tt-tmux/bin/tmux"; [ -x "$TMUX_TT" ] || TMUX_TT=tmux
+"$TMUX_TT" has-session 2>/dev/null || "$TMUX_TT" new-session -d -s inicio
 # O processo do proot é o dono: quando ele sai, o proot mata os filhos (o tmux e o vigia), por isso fica de pé.
 pgrep -f 'tt-vigia-loop' >/dev/null || nohup proot-distro login debian -- bash -lc ': tt-vigia-loop; while :; do "$HOME/.local/bin/tt" --vigia-vivo >/dev/null 2>&1 || { tmux kill-session -t tt-vigia 2>/dev/null; tmux new-session -d -s tt-vigia "$HOME/.local/bin/tt --vigia"; }; sleep 60; done' >/dev/null 2>&1 &
 # Rede de segurança do Termux, FORA do proot: a cada 60 s religa o sshd do próprio Termux (mesmo binário, dono da 8022).
