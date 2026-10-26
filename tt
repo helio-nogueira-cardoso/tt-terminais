@@ -16609,6 +16609,7 @@ atualizar_barras() {
         else valor="#{E:@barra_transf}"; fi ;;
       faixa)
         if ((faixa)); then valor="#[range=user|email]#{E:@barra_email}#[norange]#[default] #{E:@barra_tarefas}#[range=user|notifs]#[fg=#a6adc8] 🔔#{E:@barra_notifs_n} #[norange]#[default]"
+          [[ -e $HOME/.config/tt/conversa-mesh.on ]] && valor+=" #[range=user|conversa]#[fg=#a6e3a1,bold] 💬 #[norange]#[default]"
         else valor=""; fi ;;
       faixa_dir)
         # Responsivo por cliente: o letreiro tem prioridade sobre o enfeite. < 120 colunas sai o dia,
@@ -17877,6 +17878,7 @@ clique() {
     entrada) tarefas_filtro_set entrada; abrir_tarefas "$2" ;;   # chip 📥: direto na Entrada
     em_*) email_botao_acao "${faixa#em_}" ;;
     notifs) notifs_popup "$2" ;;
+    conversa) conversa_mesh_alternar "$2" ;;
     notifx) notifs_clique "$2" ;;
     letreiro) letreiro_clique "$2" "${5:-0}" ;;
     relogio) abrir_calendario "$2" ;;
@@ -18289,6 +18291,12 @@ email_comando() {
 # tela atual; ao sair do cliente o popup fecha e não sobra nada (nem sessão, nem shell órfão), então
 # o botão sempre reabre limpo. Se o cliente falhar ao abrir, cai num shell com a mensagem para o
 # erro ficar visível, em vez de o popup sumir num piscar.
+# Abre ou fecha a conversa do mesh (pela faixa ou prefix+M). Fechar usa display-popup -C; a marca some quando o painel sai.
+conversa_mesh_alternar() { # cliente
+  local c=$1 marca="$RT/tt-conversa-aberta"
+  if [[ -e $marca ]]; then tmux display-popup -c "$c" -C 2>/dev/null; rm -f "$marca"; return 0; fi
+  tmux display-popup -c "$c" -E -w 46 -h 100% -x R -y 0 -T " conversa do mesh " "sh -c 'touch $marca; $HOME/.local/bin/tt --conversa-mesh --painel; rm -f $marca'"
+}
 botao_email() {
   local cliente=$1 cmd prog dica
   # Sem nenhuma conta ainda: o aerc abriria o próprio assistente em inglês; vai direto ao cadastro do tt.
@@ -22060,7 +22068,8 @@ case "${1:-}" in
   --vigia-garantir) vigia_garantir; exit ;;
   --vigia-vivo) vigia_vivo; exit ;;
   --conversa-mesh) TT_MAQUINA=${TT_MAQUINA:-$MAQUINA} python3 -I "$DIR_TT/conversa-mesh.py" "${@:2}"; exit ;;
-  --conversa-mesh-ativar|--conversa-mesh-desativar) python3 -I "$DIR_TT/conversa-mesh.py" "--${1#--conversa-mesh-}" "${@:2}"; rc=$?; tmux source-file "$HOME/.tmux.conf" 2>/dev/null; exit $rc ;;
+  --conversa-mesh-ativar|--conversa-mesh-desativar) python3 -I "$DIR_TT/conversa-mesh.py" "--${1#--conversa-mesh-}" "${@:2}"; rc=$?; tmux source-file "$HOME/.tmux.conf" 2>/dev/null; aplicar_fixadas >/dev/null 2>&1; exit $rc ;;
+  --conversa-mesh-alternar) conversa_mesh_alternar "${2:-}"; exit ;;
   --malha) malha_completar; malha_estado; exit $? ;;
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;

@@ -149,22 +149,66 @@ def enviar(texto):
     return caminho, "commitado; envio pendente (sem rede?)"
 
 
+def _tecla():
+    """Uma tecla, sem esperar Enter. Esc sozinho vira "esc"; setas e outras sequências viram "" (ignoradas)."""
+    import select, termios, tty
+    fd = sys.stdin.fileno()
+    antigo = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        c = os.read(fd, 1)
+        if not c:
+            return "esc"  # fim da entrada: sai
+        if c == b"\x1b":
+            if select.select([fd], [], [], 0.05)[0]:
+                if not os.read(fd, 16):
+                    return "esc"
+                return ""
+            return "esc"
+        if c == b"\x03":
+            return "esc"
+        if c in (b"\r", b"\n"):
+            return "enter"
+        if c == b"\x7f":
+            return "apagar"
+        return c.decode("utf-8", "ignore") if c.isascii() or c[:1] >= b"\xc0" else ""
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, antigo)
+
+
 def painel():
-    """Conversa do dia com uma linha para escrever: cada recado vai ao canal. Enter vazio ou q fecha."""
+    """Conversa do dia com a linha de digitação, como o WhatsApp: digita, Enter envia, Esc fecha (ou Ctrl+C).
+    Sem terminal (teste, pipe), só mostra a conversa."""
+    if not sys.stdin.isatty():
+        sys.stdout.write(render(datetime.date.today()))
+        return
     linhas = int(os.environ.get("LINES", "40"))
-    while True:
+    buf, aviso = "", ""
+    def desenhar():
         sys.stdout.write("\033[2J\033[H")
         corpo = render(datetime.date.today()).splitlines()
         sys.stdout.write("\n".join(corpo[-(linhas - 4):]) + "\n")
-        try:
-            msg = input(_c("48;5;22;38;5;255", " mensagem ") + " ➤ ").strip()
-        except EOFError:
+        sys.stdout.write(_c("2", aviso) + "\n" if aviso else "\n")
+        sys.stdout.write("\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + buf)
+        sys.stdout.flush()
+    desenhar()
+    while True:
+        tecla = _tecla()
+        if tecla == "esc":
             break
-        if not msg or msg == "q":
-            break
-        arq, situacao = enviar(msg)
-        sys.stdout.write(f"  {situacao}: {os.path.basename(arq)}\n")
-        import time; time.sleep(1)
+        if tecla == "enter":
+            if buf.strip():
+                arq, situacao = enviar(buf)
+                aviso = f"{situacao}: {os.path.basename(arq)}"
+                buf = ""
+            desenhar()
+            continue
+        if tecla == "apagar":
+            buf = buf[:-1]
+        elif len(tecla) == 1 and tecla.isprintable():
+            buf += tecla
+        desenhar()
+    sys.stdout.write("\n")
 
 
 if __name__ == "__main__":

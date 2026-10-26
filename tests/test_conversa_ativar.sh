@@ -10,3 +10,10 @@ mesh="$T/meu-mesh"; mkdir -p "$mesh/channel"
 [[ -e $HOME/.config/tt/conversa-mesh.on ]] && falhou 'desativar deveria remover o marcador'
 "$TT" --conversa-mesh-ativar "$T/nao-existe" >/dev/null 2>&1 && falhou 'ativar com caminho que não é tt-mesh deveria recusar'
 passou 'plugin da conversa: fica desligado por padrão, liga com o tt-mesh desta pessoa e desliga'
+
+# Controle da conversa: o botão 💬 na primeira faixa só com o plugin ligado; o clique alterna o painel.
+grep -q 'range=user|conversa' "$RAIZ/tt" || falhou 'a primeira faixa deve ter o botão da conversa'
+grep -q 'conversa) conversa_mesh_alternar' "$RAIZ/tt" || falhou 'o clique no botão deve alternar a conversa'
+grep -q 'conversa-mesh-alternar' "$RAIZ/tmux.conf" || falhou 'prefix+M deve usar o mesmo alternador'
+printf '' | python3 -I "$RAIZ/conversa-mesh.py" --painel >/dev/null || falhou 'o painel sem terminal deve sair na hora'
+passou 'controle da conversa: botão na faixa, clique alterna, prefix+M usa o mesmo alternador'
