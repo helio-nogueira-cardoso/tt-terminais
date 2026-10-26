@@ -6818,10 +6818,14 @@ formatar_bloco() {
 # Sessões de uma máquina de fora, consultadas agora (e guardadas no cache). Se ela não responde,
 # imprime a linha de erro.
 bloco_vivo() {
-  local dest=$1 rot=$2 saida st f
+  local dest=$1 rot=$2 saida st f tmp
   f=$(cache_bloco "$rot")
-  saida=$(timeout 4 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --listar-leve" </dev/null 2>/dev/null)
+  # A saída vai para um arquivo, não para um $(…): um processo que sobra do ssh (um mestre do ControlPersist, por exemplo)
+  # herda o pipe e deixava a captura esperar para sempre — o menu de sessões ficava preso (empresa, 26/10).
+  tmp=$(mktemp "$f.ssh.XXXXXX") || return 0
+  timeout 4 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --listar-leve" </dev/null >"$tmp" 2>/dev/null
   st=$?
+  saida=$(cat "$tmp" 2>/dev/null); rm -f "$tmp"
   if ((st != 0)); then
     printf '!erro\t\033[90m✗ sem resposta de %s\033[0m\n' "$rot"
   elif [[ -n $saida ]]; then
