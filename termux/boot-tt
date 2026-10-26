@@ -6,8 +6,12 @@
 termux-wake-lock
 export SVDIR=$PREFIX/var/service LOGDIR=$PREFIX/var/log
 service-daemon start >/dev/null 2>&1   # sshd (sv-enable sshd) e o que mais estiver habilitado
+command -v sv >/dev/null && sv up sshd >/dev/null 2>&1   # runit (termux-services): religa o sshd se ele morrer
 pgrep -x sshd >/dev/null || sshd
 sleep 5
 tmux has-session 2>/dev/null || tmux new-session -d -s inicio
 # O processo do proot é o dono: quando ele sai, o proot mata os filhos (o tmux e o vigia), por isso fica de pé.
 pgrep -f 'tt-vigia-loop' >/dev/null || nohup proot-distro login debian -- bash -lc ': tt-vigia-loop; while :; do "$HOME/.local/bin/tt" --vigia-vivo >/dev/null 2>&1 || { tmux kill-session -t tt-vigia 2>/dev/null; tmux new-session -d -s tt-vigia "$HOME/.local/bin/tt --vigia"; }; sleep 60; done' >/dev/null 2>&1 &
+# Rede de segurança do Termux, FORA do proot: a cada 60 s religa o sshd do próprio Termux (mesmo binário, dono da 8022).
+# Não sobe nenhum sshd do Debian. Quando o runit já cuida, é só redundância.
+pgrep -f ': sshd-watch' >/dev/null || nohup sh -c ': sshd-watch; while :; do pgrep -x sshd >/dev/null || { sshd >/dev/null 2>&1 && mkdir -p "$HOME/.local/state/tt" && echo "$(date "+%F %T") sshd religado pelo laço do boot" >>"$HOME/.local/state/tt/sshd.log"; }; sleep 60; done' >/dev/null 2>&1 &
