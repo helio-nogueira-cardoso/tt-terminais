@@ -18299,36 +18299,167 @@ conversa_mesh_alternar() { # cliente
   tmux display-popup -c "$c" -E -w 46 -h 100% -x R -y 0 -T " conversa do mesh " "sh -c 'touch $marca; $HOME/.local/bin/tt --conversa-mesh --painel; rm -f $marca'"
 }
 # --- Tick do mesh (agenda do chefe de cada máquina) -------------------------------------------------------------
-# Lê/grava o intervalo do tick nesta máquina: systemd (timer do usuário), cron (Linux e Termux) ou launchd (Mac).
-mesh_tick_local() { # ver | N
+# O intervalo é qualquer número inteiro de minutos (de 1 a TICK_MAX_MIN); a máquina guarda no que tiver: systemd (timer do
+# usuário), cron (Linux e Termux) ou launchd (Mac). Toda saída começa pelo agendador ("systemd: a cada 8 min"), para quem
+# lê de longe (a tela do tick, pelo ssh) separar o resultado de qualquer outro ruído.
+TICK_MAX_MIN=525600 # um ano
+
+# "8", "8m", "8 min", "2h", "1h30", "1h 30min" → minutos. Falha se não for isso, se der 0 ou passar do teto.
+tick_minutos() {
+  local t=${1,,} n
+  t=${t//[[:space:]]/}
+  if [[ $t =~ ^([0-9]{1,7})(m|min|mins|minuto|minutos)?$ ]]; then n=$((10#${BASH_REMATCH[1]}))
+  elif [[ $t =~ ^([0-9]{1,7})(h|hora|horas)([0-9]{1,7})?(m|min|mins|minuto|minutos)?$ ]]; then
+    n=$((10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[3]:-0}))
+  else return 1; fi
+  ((n >= 1 && n <= TICK_MAX_MIN)) || return 1
+  echo "$n"
+}
+tick_texto_seg() { # segundos → "N min" (ou "N s" quando não fecha em minutos)
+  local s=${1:-}
+  [[ $s =~ ^[0-9]+$ ]] || { echo '?'; return; }
+  if ((s > 0 && s % 60 == 0)); then echo "$((s / 60)) min"; else echo "$s s"; fi
+}
+tick_duracao_seg() { # duração do systemd ("5min", "1h 30min", "90s", "300" = segundos) → segundos
+  awk -v d="$1" 'BEGIN {
+    s = 0; n = split(d, p, /[ \t]+/)
+    for (i = 1; i <= n; i++) {
+      if (!match(p[i], /^[0-9]+/)) continue
+      v = substr(p[i], 1, RLENGTH) + 0; u = substr(p[i], RLENGTH + 1)
+      if (u == "" || u ~ /^(s|sec|second|seconds)$/) f = 1
+      else if (u ~ /^(m|min|minute|minutes)$/) f = 60
+      else if (u ~ /^(h|hr|hour|hours)$/) f = 3600
+      else if (u ~ /^(d|day|days)$/) f = 86400
+      else if (u ~ /^(w|week|weeks)$/) f = 604800
+      else f = 0
+      s += v * f
+    }
+    print s
+  }'
+}
+# Linha do cron → TICK_CRON_MIN (minutos; vazio se a agenda não é uma que o tt entenda) e TICK_CRON_CMD (o comando).
+# Entende a agenda nativa (*/N, a cada hora, a cada H horas) e a do próprio tt para os intervalos que o cron não faz
+# (ver tick_cron_linha).
+tick_cron_decompor() {
+  local l=$1 m h dm mo dw n
+  local gate='^\* \* \* \* \* \[ \$\(\( \$\(date \+\\%s\) / 60 \\% ([0-9]+) \)\) -eq 0 \] && \( (.*) \)$'
+  TICK_CRON_MIN= TICK_CRON_CMD=
+  if [[ $l =~ $gate ]]; then TICK_CRON_MIN=${BASH_REMATCH[1]} TICK_CRON_CMD=${BASH_REMATCH[2]}; return 0; fi
+  read -r m h dm mo dw TICK_CRON_CMD <<<"$l"
+  [[ $dm$mo$dw == '***' ]] || return 0
+  if [[ $h == '*' ]]; then
+    case $m in
+      '*') TICK_CRON_MIN=1 ;;
+      0) TICK_CRON_MIN=60 ;;
+      '*/'*) n=${m#*/}; [[ $n =~ ^[0-9]+$ ]] && ((n >= 1)) && TICK_CRON_MIN=$n ;;
+    esac
+  elif [[ $m == 0 ]]; then
+    case $h in
+      0) TICK_CRON_MIN=1440 ;;
+      '*/'*) n=${h#*/}; [[ $n =~ ^[0-9]+$ ]] && ((n >= 1)) && TICK_CRON_MIN=$((n * 60)) ;;
+    esac
+  fi
+  return 0
+}
+# N CMD → a linha do crontab. O cron só sabe "a cada N min" quando N divide 60 (e "a cada H h" quando H divide 24); para
+# qualquer outro (8, 45, 123…) a linha roda a cada minuto e só dispara quando os minutos desde 1970 são múltiplo de N.
+tick_cron_linha() {
+  local n=$1 cmd=$2 g
+  if ((n == 1)); then printf '* * * * * %s\n' "$cmd"
+  elif ((n < 60 && 60 % n == 0)); then printf '*/%s * * * * %s\n' "$n" "$cmd"
+  elif ((n == 60)); then printf '0 * * * * %s\n' "$cmd"
+  elif ((n == 1440)); then printf '0 0 * * * %s\n' "$cmd"
+  elif ((n % 60 == 0 && 1440 % n == 0)); then printf '0 */%s * * * %s\n' "$((n / 60))" "$cmd"
+  else
+    g='[ $(( $(date +\%s) / 60 \% '$n' )) -eq 0 ]'
+    printf '* * * * * %s && ( %s )\n' "$g" "$cmd"
+  fi
+}
+# ver | N (minutos, ou 2h…): lê/grava o intervalo do tick desta máquina e diz como ficou.
+mesh_tick_local() {
   local n=${1:-ver} arq=$HOME/.config/systemd/user/tt-chief.timer plist=$HOME/Library/LaunchAgents/com.helio.tt-chief.plist cr
+  if [[ $n != ver ]]; then
+    n=$(tick_minutos "$n") || { printf 'intervalo inválido: use minutos, de 1 a %s (ex.: 8, 123, 2h)\n' "$TICK_MAX_MIN"; return 2; }
+  fi
   cr=$(crontab -l 2>/dev/null | grep 'tt-chief' | head -1)
   if [[ -f $arq ]]; then
-    if [[ $n == ver ]]; then printf 'systemd: a cada %s\n' "$(sed -n 's/^OnUnitActiveSec=//p' "$arq" | head -1)"; return 0; fi
-    sed -i -E "s/^OnUnitActiveSec=.*/OnUnitActiveSec=${n}min/" "$arq"
-    systemctl --user daemon-reload >/dev/null 2>&1; systemctl --user restart tt-chief.timer >/dev/null 2>&1
+    if [[ $n == ver ]]; then
+      printf 'systemd: a cada %s\n' "$(tick_texto_seg "$(tick_duracao_seg "$(sed -n 's/^OnUnitActiveSec=//p' "$arq" | head -1)")")"; return 0
+    fi
+    if grep -q '^OnUnitActiveSec=' "$arq"; then sed -i -E "s/^OnUnitActiveSec=.*/OnUnitActiveSec=${n}min/" "$arq"
+    else sed -i -E "/^\[Timer\]/a OnUnitActiveSec=${n}min" "$arq"; fi
+    sed -i -E "/^Description=/s/a cada [0-9]+ ?min/a cada ${n} min/" "$arq"
+    local rt=${XDG_RUNTIME_DIR:-/run/user/$UID} # o ssh não traz a sessão do usuário: sem isto o systemctl --user falha calado
+    if ! { XDG_RUNTIME_DIR=$rt DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-unix:path=$rt/bus} \
+             systemctl --user daemon-reload && XDG_RUNTIME_DIR=$rt DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-unix:path=$rt/bus} \
+             systemctl --user restart tt-chief.timer; } >/dev/null 2>&1; then
+      printf 'systemd: o arquivo do timer foi ajustado para %s min, mas o systemd não recarregou (rode: systemctl --user daemon-reload && systemctl --user restart tt-chief.timer)\n' "$n"
+      return 1
+    fi
     printf 'systemd: a cada %s min\n' "$n"
   elif [[ -n $cr ]]; then
-    local sched; if ((n >= 60)); then sched="0 * * * *"; else sched="*/$n * * * *"; fi
-    if [[ $n == ver ]]; then printf 'cron: %s\n' "${cr%% tt-chief*}"; return 0; fi
-    { crontab -l 2>/dev/null | grep -v 'tt-chief'; printf '%s %s\n' "$sched" "${cr#* * * * * }"; } | crontab - 2>/dev/null
+    tick_cron_decompor "$cr"
+    if [[ $n == ver ]]; then
+      if [[ -n $TICK_CRON_MIN ]]; then printf 'cron: a cada %s min\n' "$TICK_CRON_MIN"
+      else local m h dm mo dw; read -r m h dm mo dw _ <<<"$cr"; printf 'cron: agenda própria (%s %s %s %s %s)\n' "$m" "$h" "$dm" "$mo" "$dw"; fi
+      return 0
+    fi
+    { crontab -l 2>/dev/null | grep -v 'tt-chief'; tick_cron_linha "$n" "$TICK_CRON_CMD"; } | crontab - 2>/dev/null ||
+      { printf 'cron: o crontab recusou a nova agenda\n'; return 1; }
     printf 'cron: a cada %s min\n' "$n"
   elif [[ -f $plist ]]; then
-    if [[ $n == ver ]]; then printf 'launchd: a cada %s s\n' "$(awk '/StartInterval/{getline; gsub(/[^0-9]/,""); print; exit}' "$plist")"; return 0; fi
-    /usr/libexec/PlistBuddy -c "Set :StartInterval $((n * 60))" "$plist" 2>/dev/null || sed -i '' -E "/StartInterval/{n;s/<integer>[0-9]+<\/integer>/<integer>$((n * 60))<\/integer>/;}" "$plist"
-    launchctl unload "$plist" 2>/dev/null; launchctl load "$plist" 2>/dev/null
+    if [[ $n == ver ]]; then
+      printf 'launchd: a cada %s\n' "$(tick_texto_seg "$(awk '/StartInterval/{getline; gsub(/[^0-9]/,""); print; exit}' "$plist")")"; return 0
+    fi
+    local tmp; tmp=$(mktemp "$plist.XXXXXX") || return 1
+    awk -v s=$((n * 60)) 'p ~ /StartInterval/ && /<integer>/ { sub(/<integer>[0-9]+<\/integer>/, "<integer>" s "</integer>") } { print; p = $0 }' "$plist" >"$tmp" && cat "$tmp" >"$plist"
+    rm -f "$tmp"
+    if tem_cmd launchctl; then launchctl unload "$plist" 2>/dev/null; launchctl load "$plist" 2>/dev/null; fi
     printf 'launchd: a cada %s min\n' "$n"
   else
     printf 'sem agendador do tick nesta máquina\n'; return 1
   fi
 }
-mesh_tick_todas() { # N: esta máquina e as da malha
-  local n=$1 dest rot
-  mesh_tick_local "$n"
+# Pergunta ao tt de outra máquina (ver | N) e devolve a linha do agendador de lá. rc 1 = sem resposta; rc 3 = respondeu, mas
+# o tt dela é de antes do --mesh-tick (precisa de um tt --sincronizar).
+mesh_tick_remoto() { # destino ver|N
+  local saida linha
+  saida=$(timeout 60 ssh "${SSH_OPC[@]}" "$1" "bash -lc '~/.local/bin/tt --mesh-tick $2'" </dev/null 2>&1) || true
+  linha=$(grep -E '^(systemd|cron|launchd): |^sem agendador|^intervalo inválido' <<<"$saida" | tail -1)
+  [[ -n $linha ]] && { printf '%s\n' "$linha"; return 0; }
+  [[ -z ${saida//[[:space:]]/} ]] && return 1
+  return 3
+}
+# Aplica (ou lê, com "ver") numa máquina e grava o resultado em ARQ: "ok|erro<TAB>rótulo<TAB>texto". Só é "ok" se a
+# máquina confirmou o intervalo pedido.
+mesh_tick_um() { # arquivo local|remoto rótulo destino ver|minutos
+  local arq=$1 tipo=$2 rot=$3 dest=$4 n=$5 linha rc=0 st=ok
+  if [[ $tipo == local ]]; then linha=$(mesh_tick_local "$n" 2>&1) || rc=$?; linha=${linha##*$'\n'}
+  else linha=$(mesh_tick_remoto "$dest" "$n") || rc=$?; fi
+  case $rc in
+    0) [[ $n == ver || $linha == *": a cada $n min" ]] || st=erro ;;
+    3) st=erro; linha='tt antigo demais para o tick: rode tt --sincronizar nela' ;;
+    *) st=erro; [[ -n $linha ]] || linha='sem resposta' ;;
+  esac
+  printf '%s\t%s\t%s\n' "$st" "$rot" "$linha" >"$arq"
+}
+# N (ou ver): esta máquina e as da malha, todas ao mesmo tempo. Uma linha por máquina; sai 1 se alguma não confirmou.
+mesh_tick_todas() {
+  local n=$1 d dest rot i=0 j rc=0 st nome linha
+  if [[ $n != ver ]]; then n=$(tick_minutos "$n") || { printf 'intervalo inválido: use minutos, de 1 a %s (ex.: 8, 123, 2h)\n' "$TICK_MAX_MIN"; return 2; }; fi
+  d=$(mktemp -d) || return 1
+  nome=$(conf nome) || nome=$(hostname -s)
+  par mesh_tick_um "$d/0" local "$nome" "" "$n"
   while read -r dest rot; do
-    printf '%s: ' "$rot"
-    timeout 60 ssh "${SSH_OPC[@]}" "$dest" "bash -lc '~/.local/bin/tt --mesh-tick $n'" </dev/null 2>/dev/null | tail -1 || echo "sem resposta"
+    i=$((i + 1)); par mesh_tick_um "$d/$i" remoto "$rot" "$dest" "$n"
   done < <(maquinas)
+  par_fim
+  for ((j = 0; j <= i; j++)); do
+    IFS=$'\t' read -r st rot linha <"$d/$j"
+    printf '%s: %s\n' "$rot" "$linha"; [[ $st == ok ]] || rc=1
+  done
+  rm -rf "$d"
+  return $rc
 }
 # Puxa o repositório do mesh nesta máquina e nas da malha: a mensagem recém-enviada fica disponível em todas.
 mesh_puxar() {
@@ -18338,48 +18469,75 @@ mesh_puxar() {
     timeout 40 ssh "${SSH_OPC[@]}" "$dest" "bash -lc 'cd ~/tt-mesh && git pull -q --rebase --autostash'" </dev/null >/dev/null 2>&1
   done < <(maquinas)
 }
-# Intervalo atual de cada máquina da malha (esta e as cadastradas): "rotulo<TAB>minutos" (minutos vazios se não der para ler).
+# Como está o tick em cada máquina (esta e as cadastradas), consultando todas ao mesmo tempo:
+# "local|remoto<TAB>rótulo<TAB>agendador: a cada N min | ?  motivo<TAB>destino ssh" por linha, na ordem do cadastro.
 mesh_tick_lista() {
-  local dest rot min
-  min=$(mesh_tick_local ver 2>/dev/null | grep -o '[0-9]\+' | head -1); [[ -z $min ]] && min=$(mesh_tick_local ver 2>/dev/null | grep -o '[0-9]\+' | tail -1)
-  printf 'local\t%s\t%s\n' "$(conf nome || hostname -s)" "${min:-?}"
+  local d dest rot i=0 j st linha nome
+  local -a dests=('')
+  d=$(mktemp -d) || return 1
+  nome=$(conf nome) || nome=$(hostname -s)
+  par mesh_tick_um "$d/0" local "$nome" "" ver
   while read -r dest rot; do
-    min=$(timeout 30 ssh "${SSH_OPC[@]}" "$dest" "bash -lc '~/.local/bin/tt --mesh-tick ver'" </dev/null 2>/dev/null | grep -o '[0-9]\+' | tail -1)
-    printf 'remoto\t%s\t%s\t%s\n' "$rot" "${min:-?}" "$dest"
+    i=$((i + 1)); dests[i]=$dest; par mesh_tick_um "$d/$i" remoto "$rot" "$dest" ver
   done < <(maquinas)
+  par_fim
+  for ((j = 0; j <= i; j++)); do
+    IFS=$'\t' read -r st rot linha <"$d/$j"
+    [[ $st == ok ]] || linha="?  $linha"
+    printf '%s\t%s\t%s\t%s\n' "$([[ $j == 0 ]] && echo local || echo remoto)" "$rot" "$linha" "${dests[j]}"
+  done
+  rm -rf "$d"
 }
+# A tela: a tabela das máquinas e, embaixo, o resultado da última mudança (fica na tela até a próxima).
+# Digite "3" ou "T" e depois o intervalo; ou os dois de uma vez ("3 8", "T 15"). Qualquer valor de 1 minuto em diante.
 mesh_tick_menu() {
-  local linhas n escolha alvo min i=0 tipo rot min_atual dest
+  local -a linhas=() tipos=() rots=() dests=()
+  local tipo rot texto dest escolha resto min i aviso='' alvo st linha d j f cor agendador intervalo verde=$'\033[38;5;78m' cinza=$'\033[38;5;244m' verm=$'\033[38;5;203m' off=$'\033[0m'
   while :; do
     clear 2>/dev/null
-    printf '\n  \033[1m🕐 Tick do mesh\033[0m  ·  o chefe de cada máquina roda nesse intervalo\n\n'
-    printf '  \033[2m%-4s %-14s %s\033[0m\n' "nº" "máquina" "intervalo"
-    linhas=()
-    while IFS=$'\t' read -r tipo rot min_atual dest; do
-      i=$((i + 1)); linhas+=("$tipo|$rot|$min_atual|$dest")
-      cor="\033[38;5;78m"; [[ $min_atual == "?" ]] && cor="\033[38;5;244m"
-      printf '  \033[1m%-4s\033[0m %-14s %b%s\033[0m\n' "$i" "$rot" "$cor" "$( [[ $min_atual == "?" ]] && echo "sem resposta" || echo "a cada $min_atual min")"
-    done < <(mesh_tick_lista)
-    printf '\n  \033[2mdigite o nº de uma máquina, ou \033[0m\033[1mT\033[0m\033[2m para todas · Enter fecha\033[0m\n  ➤ '
-    read -r escolha
-    [[ -z $escolha ]] && return 0
-    if [[ $escolha == T || $escolha == t ]]; then
-      printf '  minutos para TODAS (5, 10, 15, 20, 30 ou 60): '; read -r min
-      case $min in 5|10|15|20|30|60) mesh_tick_todas "$min" ;; *) echo "  use 5, 10, 15, 20, 30 ou 60" ;; esac
-    elif [[ $escolha =~ ^[0-9]+$ ]] && ((escolha >= 1 && escolha <= ${#linhas[@]})); then
-      IFS='|' read -r tipo rot min_atual dest <<<"${linhas[escolha - 1]}"
-      printf '  minutos para %s (5, 10, 15, 20, 30 ou 60): ' "$rot"; read -r min
-      case $min in
-        5|10|15|20|30|60)
-          if [[ $tipo == local ]]; then mesh_tick_local "$min"
-          else timeout 60 ssh "${SSH_OPC[@]}" "$dest" "bash -lc '~/.local/bin/tt --mesh-tick $min'" </dev/null 2>/dev/null | tail -1; fi ;;
-        *) echo "  use 5, 10, 15, 20, 30 ou 60" ;;
-      esac
-    else
-      echo "  opção inválida"
-    fi
-    sleep 1
+    printf '\n  \033[1m🕐 Tick do mesh\033[0m  ·  o chefe de cada máquina roda nesse intervalo\n\n  \033[2mconsultando as máquinas…\033[0m'
+    mapfile -t linhas < <(mesh_tick_lista)
+    printf '\r\033[2K  \033[2m%-3s %-14s %-9s %s\033[0m\n' "n." "maquina" "agenda" "intervalo"
+    tipos=() rots=() dests=()
     i=0
+    for linha in "${linhas[@]}"; do
+      IFS=$'\t' read -r tipo rot texto dest <<<"$linha"
+      i=$((i + 1)); tipos[i]=$tipo rots[i]=$rot dests[i]=$dest
+      if [[ $texto == '?'* ]]; then agendador='-' intervalo="${texto#\?  }"; cor=$cinza
+      else agendador=${texto%%: *} intervalo=${texto#*: }; cor=$verde; fi
+      printf '  \033[1m%-3s\033[0m %-14s %-9s %b%s%b\n' "$i" "$rot" "$agendador" "$cor" "$intervalo" "$off"
+    done
+    [[ -n $aviso ]] && printf '\n%s\n' "$aviso"
+    printf '\n  \033[2mdigite o nº da máquina (ou \033[0m\033[1mT\033[0m\033[2m para todas) e o intervalo: 1, 3, 8, 123 minutos, ou 2h · Enter fecha\033[0m\n  ➤ '
+    read -r escolha resto || return 0
+    [[ -z $escolha || $escolha == [qQ] ]] && return 0
+    if [[ $escolha == [Tt] ]]; then alvo=T
+    elif [[ $escolha =~ ^[0-9]+$ ]] && ((escolha >= 1 && escolha <= i)); then alvo=$escolha
+    else aviso="  ${verm}✘ \"$escolha\" não é uma máquina da lista (1 a $i) nem T${off}"; continue; fi
+    if [[ -z $resto ]]; then
+      if [[ $alvo == T ]]; then printf '  minutos para TODAS (1, 3, 8, 123… ou 2h): '; else printf '  minutos para %s (1, 3, 8, 123… ou 2h): ' "${rots[alvo]}"; fi
+      read -r resto || return 0
+    fi
+    [[ -z $resto ]] && { aviso=''; continue; }
+    min=$(tick_minutos "$resto") || { aviso="  ${verm}✘ \"$resto\" não vale: digite minutos de 1 a $TICK_MAX_MIN (ex.: 8, 123) ou horas (2h, 1h30)${off}"; continue; }
+    printf '\n  \033[2maplicando %s min…\033[0m' "$min"
+    d=$(mktemp -d)
+    if [[ $alvo == T ]]; then
+      for ((j = 1; j <= i; j++)); do
+        par mesh_tick_um "$d/$j" "${tipos[j]}" "${rots[j]}" "${dests[j]}" "$min"
+      done
+      par_fim
+    else
+      mesh_tick_um "$d/$alvo" "${tipos[alvo]}" "${rots[alvo]}" "${dests[alvo]}" "$min"
+    fi
+    aviso=''
+    for f in "$d"/*; do
+      [[ -f $f ]] || continue
+      IFS=$'\t' read -r st rot linha <"$f"
+      if [[ $st == ok ]]; then aviso+="  ${verde}✔${off} $rot: ${linha#*: }"$'\n'; else aviso+="  ${verm}✘${off} $rot: $linha"$'\n'; fi
+    done
+    aviso=${aviso%$'\n'}
+    rm -rf "$d"
   done
 }
 botao_email() {
