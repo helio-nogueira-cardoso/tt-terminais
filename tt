@@ -22060,6 +22060,7 @@ case "${1:-}" in
   --vigia-garantir) vigia_garantir; exit ;;
   --vigia-vivo) vigia_vivo; exit ;;
   --conversa-mesh) TT_MAQUINA=${TT_MAQUINA:-$MAQUINA} python3 -I "$DIR_TT/conversa-mesh.py" "${@:2}"; exit ;;
+  --conversa-mesh-ativar|--conversa-mesh-desativar) python3 -I "$DIR_TT/conversa-mesh.py" "--${1#--conversa-mesh-}" "${@:2}"; rc=$?; tmux source-file "$HOME/.tmux.conf" 2>/dev/null; exit $rc ;;
   --malha) malha_completar; malha_estado; exit $? ;;
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;
