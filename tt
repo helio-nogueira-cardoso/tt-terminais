@@ -18493,6 +18493,7 @@ mesh_tick_lista() {
 mesh_tick_menu() {
   local -a linhas=() tipos=() rots=() dests=()
   local tipo rot texto dest escolha resto min i aviso='' alvo st linha d j f cor agendador intervalo verde=$'\033[38;5;78m' cinza=$'\033[38;5;244m' verm=$'\033[38;5;203m' off=$'\033[0m'
+  local mouse_rx='^'$'\033''\[<[0-9]+;[0-9]+;[0-9]+[mM]'
   while :; do
     clear 2>/dev/null
     printf '\n  \033[1m🕐 Tick do mesh\033[0m  ·  o chefe de cada máquina roda nesse intervalo\n\n  \033[2mconsultando as máquinas…\033[0m'
@@ -18510,6 +18511,9 @@ mesh_tick_menu() {
     [[ -n $aviso ]] && printf '\n%s\n' "$aviso"
     printf '\n  \033[2mdigite o nº da máquina (ou \033[0m\033[1mT\033[0m\033[2m para todas) e o intervalo: 1, 3, 8, 123 minutos, ou 2h · Enter fecha\033[0m\n  ➤ '
     read -r escolha resto || return 0
+    # Um clique que abriu a tela pode deixar o mouse-up SGR antes da primeira tecla.
+    # Remova só eventos completos no começo; texto inválido continua sendo recusado.
+    while [[ $escolha =~ $mouse_rx ]]; do escolha=${escolha#"${BASH_REMATCH[0]}"}; done
     [[ -z $escolha || $escolha == [qQ] ]] && return 0
     if [[ $escolha == [Tt] ]]; then alvo=T
     elif [[ $escolha =~ ^[0-9]+$ ]] && ((escolha >= 1 && escolha <= i)); then alvo=$escolha

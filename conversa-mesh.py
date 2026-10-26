@@ -318,13 +318,18 @@ def painel():
                 montar()
             elif tecla == "tick":
                 # Menu do tick (o mesmo do menu de administração): roda com o terminal normal e volta ao painel.
-                sys.stdout.write("\033[2J")
+                # O clique pode deixar o evento de soltura do mouse no stdin do menu.
+                # Desligue o protocolo de mouse durante a tela filha e religue ao voltar.
+                sys.stdout.write(MOUSE_DESLIGA + "\033[2J")
                 sys.stdout.flush()
                 import subprocess
                 try:
                     subprocess.run([os.environ.get("TT_BIN", "tt"), "--mesh-tick-menu"])
                 except OSError:
                     est["aviso"] = "tt não encontrado: o menu do tick não abriu"
+                finally:
+                    sys.stdout.write(MOUSE_LIGA)
+                    sys.stdout.flush()
                 est["aviso"] = est["aviso"] or "tick ajustado"
                 montar()
             else:

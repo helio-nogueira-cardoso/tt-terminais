@@ -132,15 +132,19 @@ grep -q '^OnUnitActiveSec=123min$' "$ARQ" || falhou 'a tela deveria aceitar 123 
 # T = todas.
 printf 'T 3\n\n' | "$TT" --mesh-tick-menu >/dev/null 2>&1
 grep -q '^OnUnitActiveSec=3min$' "$ARQ" || falhou 'T deveria aplicar a todas (inclui esta)'
+# O primeiro T vindo de um popup pode ter o mouse-up SGR do clique ainda no stdin.
+out=$(printf '\033[<0;7;9mT 4\n\n' | "$TT" --mesh-tick-menu 2>&1)
+grep -q '^OnUnitActiveSec=4min$' "$ARQ" || falhou 'T após mouse-up residual deveria aplicar a todas'
+! grep -q 'não é uma máquina' <<<"$out" || falhou 'mouse-up residual não deveria contaminar o primeiro T'
 # Entrada ruim: diz o motivo e não muda nada.
 out=$(printf '1 banana\n\n' | "$TT" --mesh-tick-menu 2>&1)
 grep -q '✘' <<<"$out" || falhou 'valor inválido deveria aparecer com ✘'
-grep -q '^OnUnitActiveSec=3min$' "$ARQ" || falhou 'valor inválido não pode mexer no timer'
+grep -q '^OnUnitActiveSec=4min$' "$ARQ" || falhou 'valor inválido não pode mexer no timer'
 out=$(printf '9 5\n\n' | "$TT" --mesh-tick-menu 2>&1)
 grep -q 'não é uma máquina' <<<"$out" || falhou 'número de máquina inexistente deveria ser avisado'
 # Fim da entrada (sem Enter final) não pode deixar a tela em laço.
 printf '' | timeout 20 "$TT" --mesh-tick-menu >/dev/null 2>&1 || falhou 'sem entrada a tela deveria sair, não ficar em laço'
-passou 'tela do tick: "1 8", passo a passo (123), T para todas, entrada ruim avisada, fim de entrada sai'
+passou 'tela do tick: "1 8", passo a passo (123), T para todas mesmo com mouse-up residual, entrada ruim avisada, fim de entrada sai'
 
 # --- outras máquinas, pelo ssh (falso: roda o tt isolado com o HOME da "outra máquina") ------------------------------------
 # bom = responde e muda; velho = tt de antes do --mesh-tick; mudo = não responde. O ssh de verdade usaria login shell (PATH
