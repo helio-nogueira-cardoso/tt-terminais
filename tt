@@ -9863,6 +9863,7 @@ menu_admin() {
     printf -- '-\t\t\n'
     ((atras)) && printf 'u\t  ⟳ Atualizar as desatualizadas (%s)\t%s\n' "$(versao_humana)" "$(popup_tt "$c" sincronizar "$EU --sincronizar; read -rsn1 -p '(tecla fecha)'")"
     (($(versao_github) > vl)) && printf 'g\t  ⟳ Atualizar do GitHub (%s → %s)\t%s\n' "$(versao_humana)" "$(versao_github_rotulo)" "$(popup_tt "$c" "atualizar do GitHub" "$EU --atualizar --todas; read -rsn1 -p '(tecla fecha)'")"
+    printf 'k\t  🕐 Tick do mesh (intervalo em todas as máquinas)…\t%s\n' "$(popup_tt "$c" "tick do mesh" "$EU --mesh-tick-menu")"
     printf 'a\t  ＋ Cadastrar máquina…\t%s\n' "$(popup_tt "$c" "cadastrar máquina" "$EU --cadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'n\t  📰 Novidades do tt…\t%s\n' "$(popup_tt "$c" "📰 novidades do tt" "$EU --novidades")"
@@ -18297,6 +18298,54 @@ conversa_mesh_alternar() { # cliente
   if [[ -e $marca ]]; then tmux display-popup -c "$c" -C 2>/dev/null; rm -f "$marca"; return 0; fi
   tmux display-popup -c "$c" -E -w 46 -h 100% -x R -y 0 -T " conversa do mesh " "sh -c 'touch $marca; $HOME/.local/bin/tt --conversa-mesh --painel; rm -f $marca'"
 }
+# --- Tick do mesh (agenda do chefe de cada máquina) -------------------------------------------------------------
+# Lê/grava o intervalo do tick nesta máquina: systemd (timer do usuário), cron (Linux e Termux) ou launchd (Mac).
+mesh_tick_local() { # ver | N
+  local n=${1:-ver} arq=$HOME/.config/systemd/user/tt-chief.timer plist=$HOME/Library/LaunchAgents/com.helio.tt-chief.plist cr
+  cr=$(crontab -l 2>/dev/null | grep 'tt-chief' | head -1)
+  if [[ -f $arq ]]; then
+    if [[ $n == ver ]]; then printf 'systemd: a cada %s\n' "$(sed -n 's/^OnUnitActiveSec=//p' "$arq" | head -1)"; return 0; fi
+    sed -i -E "s/^OnUnitActiveSec=.*/OnUnitActiveSec=${n}min/" "$arq"
+    systemctl --user daemon-reload >/dev/null 2>&1; systemctl --user restart tt-chief.timer >/dev/null 2>&1
+    printf 'systemd: a cada %s min\n' "$n"
+  elif [[ -n $cr ]]; then
+    local sched; if ((n >= 60)); then sched="0 * * * *"; else sched="*/$n * * * *"; fi
+    if [[ $n == ver ]]; then printf 'cron: %s\n' "${cr%% tt-chief*}"; return 0; fi
+    { crontab -l 2>/dev/null | grep -v 'tt-chief'; printf '%s %s\n' "$sched" "${cr#* * * * * }"; } | crontab - 2>/dev/null
+    printf 'cron: a cada %s min\n' "$n"
+  elif [[ -f $plist ]]; then
+    if [[ $n == ver ]]; then printf 'launchd: a cada %s s\n' "$(awk '/StartInterval/{getline; gsub(/[^0-9]/,""); print; exit}' "$plist")"; return 0; fi
+    /usr/libexec/PlistBuddy -c "Set :StartInterval $((n * 60))" "$plist" 2>/dev/null || sed -i '' -E "/StartInterval/{n;s/<integer>[0-9]+<\/integer>/<integer>$((n * 60))<\/integer>/;}" "$plist"
+    launchctl unload "$plist" 2>/dev/null; launchctl load "$plist" 2>/dev/null
+    printf 'launchd: a cada %s min\n' "$n"
+  else
+    printf 'sem agendador do tick nesta máquina\n'; return 1
+  fi
+}
+mesh_tick_todas() { # N: esta máquina e as da malha
+  local n=$1 dest rot
+  mesh_tick_local "$n"
+  while read -r dest rot; do
+    printf '%s: ' "$rot"
+    timeout 60 ssh "${SSH_OPC[@]}" "$dest" "bash -lc '~/.local/bin/tt --mesh-tick $n'" </dev/null 2>/dev/null | tail -1 || echo "sem resposta"
+  done < <(maquinas)
+}
+# Puxa o repositório do mesh nesta máquina e nas da malha: a mensagem recém-enviada fica disponível em todas.
+mesh_puxar() {
+  local dest rot
+  (cd "$HOME/tt-mesh" 2>/dev/null && git pull -q --rebase --autostash >/dev/null 2>&1)
+  while read -r dest rot; do
+    timeout 40 ssh "${SSH_OPC[@]}" "$dest" "bash -lc 'cd ~/tt-mesh && git pull -q --rebase --autostash'" </dev/null >/dev/null 2>&1
+  done < <(maquinas)
+}
+mesh_tick_menu() {
+  echo "Tick do mesh (agora):"; mesh_tick_todas ver 2>/dev/null | sed 's/^/  /'; echo
+  echo "Digite os minutos para aplicar em TODAS as máquinas (5, 10, 15, 20, 30 ou 60). Enter cancela:"
+  local n; read -r n
+  case $n in 5|10|15|20|30|60) mesh_tick_todas "$n" ;; "") echo "cancelado" ;; *) echo "use 5, 10, 15, 20, 30 ou 60" ;; esac
+  read -rsn1 -p "(tecla fecha)"
+}
+
 botao_email() {
   local cliente=$1 cmd prog dica
   # Sem nenhuma conta ainda: o aerc abriria o próprio assistente em inglês; vai direto ao cadastro do tt.
@@ -22070,6 +22119,9 @@ case "${1:-}" in
   --conversa-mesh) TT_MAQUINA=${TT_MAQUINA:-$MAQUINA} python3 -I "$DIR_TT/conversa-mesh.py" "${@:2}"; exit ;;
   --conversa-mesh-ativar|--conversa-mesh-desativar) python3 -I "$DIR_TT/conversa-mesh.py" "--${1#--conversa-mesh-}" "${@:2}"; rc=$?; tmux source-file "$HOME/.tmux.conf" 2>/dev/null; aplicar_fixadas >/dev/null 2>&1; exit $rc ;;
   --conversa-mesh-alternar) conversa_mesh_alternar "${2:-}"; exit ;;
+  --mesh-tick) if [[ ${3:-} == --todas ]]; then mesh_tick_todas "${2:-ver}"; else mesh_tick_local "${2:-ver}"; fi; exit ;;
+  --mesh-tick-menu) mesh_tick_menu; exit ;;
+  --mesh-puxar) mesh_puxar; exit 0 ;;
   --malha) malha_completar; malha_estado; exit $? ;;
   --desregistrar) desregistrar "$2"; exit ;;
   --candidatas) candidatas; exit ;;

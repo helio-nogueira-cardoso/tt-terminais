@@ -141,12 +141,27 @@ def enviar(texto):
     def git(*a):
         return subprocess.run(["git", "-C", MESH, *a], capture_output=True, text=True, timeout=60)
     git("add", caminho)
-    if git("commit", "-q", "-m", "mesh: recado do dono").returncode != 0:
+    identidade = []
+    if not git("config", "--get", "user.email").stdout.strip():
+        identidade = ["-c", "user.name=tt-mesh", "-c", "user.email=tt-mesh@localhost"]  # sem identidade no git: só para este commit
+    if subprocess.run(["git", "-C", MESH, *identidade, "commit", "-q", "-m", "mesh: recado do dono"],
+                      capture_output=True).returncode != 0:
         return caminho, "gravado (sem commit)"
     git("pull", "-q", "--rebase", "--autostash")
     if git("push", "-q").returncode == 0:
+        _puxar_nas_outras()
         return caminho, "publicado no mesh"
     return caminho, "commitado; envio pendente (sem rede?)"
+
+
+def _puxar_nas_outras():
+    """Pede às outras máquinas da malha que puxem o mesh já (tt --mesh-puxar), em segundo plano."""
+    import subprocess
+    try:
+        subprocess.Popen([os.environ.get("TT_BIN", "tt"), "--mesh-puxar"], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
 
 
 def _tecla():

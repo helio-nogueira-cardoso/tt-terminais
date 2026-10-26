@@ -35,3 +35,14 @@ v, d = cm.janela(linhas, 4, 3); assert v == ["3", "4", "5", "6"] and d == 3, (v,
 v, d = cm.janela(linhas, 4, 99); assert v == ["0", "1", "2", "3"] and d == 6, (v, d)
 PY
 passou 'rolagem do painel: a janela anda para trás e para nas pontas'
+
+# Recado publicado dispara o puxar nas outras máquinas (tt --mesh-puxar), para ficar disponível na hora.
+fake="$T/tt-falso"; printf '#!/bin/sh\necho "$@" >>"%s/puxou"\n' "$T" >"$fake"; chmod +x "$fake"
+R="$T/remoto-tick.git"; L="$T/local-tick"
+git init -q --bare -b main "$R"; git init -q -b main "$L"; git -C "$L" remote add origin "$R"
+git -C "$L" -c user.email=t@t -c user.name=t commit -q --allow-empty -m base; git -C "$L" push -q -u origin main 2>/dev/null
+mkdir -p "$L/channel"
+TT_MESH="$L" TT_BIN="$fake" python3 -I "$RAIZ/conversa-mesh.py" --enviar "oi do dono" >/dev/null
+for _ in $(seq 1 40); do [[ -s $T/puxou ]] && break; sleep 0.1; done
+grep -q -- '--mesh-puxar' "$T/puxou" 2>/dev/null || falhou 'publicar o recado deveria pedir o puxar nas outras máquinas'
+passou 'recado publicado: pede às outras máquinas que puxem o mesh na hora'
