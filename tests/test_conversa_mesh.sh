@@ -24,3 +24,14 @@ arq=$(ls "$G"/channel/*-dono-*.md 2>/dev/null | head -1)
 grep -q '^from: dono$' "$arq" && grep -q 'reunião amanhã' "$arq" || falhou 'recado sem from: dono ou sem o texto'
 git -C "$G" log --oneline | grep -q 'recado do dono' || falhou 'o recado deveria ficar commitado no mesh'
 passou 'recado do dono: vira mensagem do canal (from: dono) e fica commitado'
+
+# Rolagem (painel): a janela visível anda para trás e não passa do começo nem do fim.
+python3 -I - "$RAIZ/conversa-mesh.py" <<'PY' || falhou 'janela de rolagem errada'
+import importlib.util, sys
+sp = importlib.util.spec_from_file_location("cm", sys.argv[1]); cm = importlib.util.module_from_spec(sp); sp.loader.exec_module(cm)
+linhas = [str(i) for i in range(10)]
+v, d = cm.janela(linhas, 4, 0); assert v == ["6", "7", "8", "9"] and d == 0, (v, d)
+v, d = cm.janela(linhas, 4, 3); assert v == ["3", "4", "5", "6"] and d == 3, (v, d)
+v, d = cm.janela(linhas, 4, 99); assert v == ["0", "1", "2", "3"] and d == 6, (v, d)
+PY
+passou 'rolagem do painel: a janela anda para trás e para nas pontas'

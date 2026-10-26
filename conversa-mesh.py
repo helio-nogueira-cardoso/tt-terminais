@@ -161,9 +161,11 @@ def _tecla():
             return "esc"  # fim da entrada: sai
         if c == b"\x1b":
             if select.select([fd], [], [], 0.05)[0]:
-                if not os.read(fd, 16):
+                seq = os.read(fd, 16)
+                if not seq:
                     return "esc"
-                return ""
+                return {b"[A": "up", b"[B": "down", b"[5~": "pgup", b"[6~": "pgdn",
+                        b"[H": "home", b"[1~": "home", b"[F": "end", b"[4~": "end"}.get(seq, "")
             return "esc"
         if c == b"\x03":
             return "esc"
@@ -176,19 +178,32 @@ def _tecla():
         termios.tcsetattr(fd, termios.TCSADRAIN, antigo)
 
 
+def janela(linhas, altura, desloc):
+    """As `altura` linhas visíveis de `linhas`, `desloc` linhas para trás do fim (0 = o mais recente)."""
+    total = len(linhas)
+    desloc = max(0, min(desloc, max(0, total - altura)))
+    fim = total - desloc
+    return linhas[max(0, fim - altura):fim], desloc
+
+
 def painel():
     """Conversa do dia com a linha de digitação, como o WhatsApp: digita, Enter envia, Esc fecha (ou Ctrl+C).
-    Sem terminal (teste, pipe), só mostra a conversa."""
+    Setas, Page Up/Down, Home e End rolam para trás. Sem terminal (teste, pipe), só mostra a conversa."""
     if not sys.stdin.isatty():
         sys.stdout.write(render(datetime.date.today()))
         return
     linhas = int(os.environ.get("LINES", "40"))
-    buf, aviso = "", ""
+    altura = max(5, linhas - 4)
+    buf, aviso, desloc = "", "", 0
     def desenhar():
         sys.stdout.write("\033[2J\033[H")
         corpo = render(datetime.date.today()).splitlines()
-        sys.stdout.write("\n".join(corpo[-(linhas - 4):]) + "\n")
-        sys.stdout.write(_c("2", aviso) + "\n" if aviso else "\n")
+        visivel, d = janela(corpo, altura, desloc)
+        sys.stdout.write("\n".join(visivel) + "\n")
+        if d:
+            sys.stdout.write(_c("2", f"  ↓ {d} linha(s) abaixo · End volta ao fim") + "\n")
+        else:
+            sys.stdout.write((_c("2", aviso) if aviso else "") + "\n")
         sys.stdout.write("\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + buf)
         sys.stdout.flush()
     desenhar()
@@ -196,14 +211,25 @@ def painel():
         tecla = _tecla()
         if tecla == "esc":
             break
-        if tecla == "enter":
+        total = len(render(datetime.date.today()).splitlines())
+        if tecla == "up":
+            desloc = min(desloc + 1, max(0, total - altura))
+        elif tecla == "down":
+            desloc = max(desloc - 1, 0)
+        elif tecla == "pgup":
+            desloc = min(desloc + altura // 2, max(0, total - altura))
+        elif tecla == "pgdn":
+            desloc = max(desloc - altura // 2, 0)
+        elif tecla == "home":
+            desloc = max(0, total - altura)
+        elif tecla == "end":
+            desloc = 0
+        elif tecla == "enter":
             if buf.strip():
                 arq, situacao = enviar(buf)
                 aviso = f"{situacao}: {os.path.basename(arq)}"
-                buf = ""
-            desenhar()
-            continue
-        if tecla == "apagar":
+                buf, desloc = "", 0
+        elif tecla == "apagar":
             buf = buf[:-1]
         elif len(tecla) == 1 and tecla.isprintable():
             buf += tecla
