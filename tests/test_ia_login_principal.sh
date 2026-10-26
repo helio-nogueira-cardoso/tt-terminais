@@ -133,3 +133,8 @@ echo "TODOS OS TESTES PASSARAM"
 ia-login --help 2>/dev/null | grep -q "ia-login --principal CONTA" || falhou 'a ajuda do ia-login perdeu a linha do --principal'
 ia-login --help 2>/dev/null | grep -q "BASH_VERSINFO" && falhou 'a ajuda não deve mostrar a guarda do bash'
 passou 'ajuda do ia-login: linha do --principal presente e sem a guarda do bash'
+
+# jube42: a sonda por recurso só chama --recursos quando a ajuda de lá o lista (ia-login antigo não o conhece).
+ia-login --help 2>/dev/null | grep -q -- '--recursos' || falhou 'a ajuda deve anunciar --recursos (a sonda depende disso)'
+ia-login --recursos 2>/dev/null | grep -qw principal || falhou '--recursos deve listar principal'
+passou 'sonda: --recursos anunciado na ajuda e lista principal'

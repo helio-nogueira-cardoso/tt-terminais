@@ -16,10 +16,11 @@ fi
 #   ia-login [máquina...]      plano + logins (sem argumento: esta máquina e todas as do tt)
 #   ia-login --plano [máq...]  só o plano
 #   ia-login --principal CONTA|E-MAIL [--plano] [máq...]
+#   ia-login --recursos        o que esta versão entende entre máquinas (principal, faltas, iniciar, conferir)
 #                              troca a conta PRINCIPAL (a de ~/.claude, a do "claude" puro) das máquinas para
 #                              essa conta: pula as que já estão nela e faz o resto como os logins acima
 # Usados entre máquinas (pelo próprio ia-login, via ssh):
-#   --faltas | --principal-faltas E | --iniciar P C E | --tela S | --codigo S X | --enter S | --conferir P C | --encerrar S
+#   --faltas | --principal-faltas E | --iniciar P C E | --tela S | --codigo S X | --enter S | --conferir P C | --encerrar S | --recursos
 set -uo pipefail
 
 AQUI=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -135,7 +136,8 @@ principal_faltas() { # e-mail
   local alvo=$1 atual
   if [[ -n $PROOT ]]; then
     # ia-login mais velho (sem --principal) trataria o argumento como nome de máquina e abriria o plano completo.
-    no_proot ia-login --help | grep -q 'ia-login --principal CONTA' && no_proot ia-login --principal-faltas "$alvo" || echo '#sem-suporte'
+    # Só pergunta --recursos se a ajuda de lá o lista: um ia-login antigo trataria o argumento como nome de máquina.
+    no_proot ia-login --help | grep -q -- '--recursos' && no_proot ia-login --recursos | grep -qw principal && no_proot ia-login --principal-faltas "$alvo" || echo '#sem-suporte'
     return 0
   fi
   [[ -x $CLAUDE_BIN ]] || return 0
@@ -254,7 +256,7 @@ montar_plano() {
       ( local_rc=1
         for _ in 1 2; do
           timeout "${EM_TIMEOUT:-25}" ssh -n -o BatchMode=yes -o ConnectTimeout=6 "$dest" \
-            "$PATH_REMOTO; export PATH; if ia-login --help 2>/dev/null | grep -q 'ia-login --principal CONTA'; then ia-login --principal-faltas $(printf '%q' "$PRINCIPAL_ALVO"); else echo '#sem-suporte'; fi" \
+            "$PATH_REMOTO; export PATH; if ia-login --help 2>/dev/null | grep -q -- '--recursos' && ia-login --recursos 2>/dev/null | grep -qw principal; then ia-login --principal-faltas $(printf '%q' "$PRINCIPAL_ALVO"); else echo '#sem-suporte'; fi" \
             >"$tmp/$rot.tsv" 2>/dev/null
           local_rc=$?; ((local_rc == 0)) && break; sleep 1
         done
