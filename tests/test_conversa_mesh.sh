@@ -8,12 +8,14 @@ dia=$(date +%F)
 hora=$(date -u +%Y%m%dT%H%M%SZ)
 printf -- '---\nfrom: dell\nto: all\ntopic: teste de conversa\n---\nOi, Teo, o canal chegou.\n' >"$M/channel/${hora}-dell-a1.md"
 printf -- '---\nfrom: mac\nto: all\ntopic: teste de conversa\n---\nRecebido, Vito.\n' >"$M/channel/${hora}-mac-b2.md"
+printf -- '---\nfrom: dono\nto: all\ntopic: teste de conversa\n---\nMensagem minha do dono.\n' >"$M/channel/${hora}-dono-b3.md"
 printf -- '---\nfrom: dell\nto: all\ntopic: de outro dia\n---\nisto nao entra\n' >"$M/channel/arquivo/20200101T000000Z-dell-c3.md"
 out=$(TT_MESH="$M" TT_MAQUINA=mac python3 -I "$RAIZ/conversa-mesh.py" "$dia")
 grep -q 'Vito' <<<"$out" && grep -q 'dell' <<<"$out" || falhou 'a persona da carta deveria dar o nome à máquina'
 grep -q 'Oi, Teo' <<<"$out" || falhou 'a mensagem do dia deveria aparecer'
 grep -q 'isto nao entra' <<<"$out" && falhou 'mensagem de outro dia não deveria aparecer'
-linha_mac=$(grep 'Recebido' <<<"$out"); [[ $linha_mac =~ ^[[:space:]]{14,} ]] || falhou 'a própria máquina deveria ficar à direita'
+linha_dono=$(grep 'Mensagem minha' <<<"$out"); [[ $linha_dono =~ ^[[:space:]]{8,} ]] || falhou 'a mensagem do dono deveria ficar à direita'
+linha_mac=$(grep 'Recebido' <<<"$out"); [[ $linha_mac =~ ^[[:space:]]{8,} ]] && falhou 'mensagem de outra máquina não deve ficar à direita'
 passou 'conversa do mesh: lê o tt-mesh de quem roda, filtra o dia, usa persona e põe a própria máquina à direita'
 
 # Recado do dono: grava no canal como from: dono, commita no mesh (sem remoto aqui, o push fica pendente).

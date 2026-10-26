@@ -116,10 +116,10 @@ def render(dia, largura=None):
             topico_ant = topico
         if maquina not in cores:
             cores[maquina] = CORES_MAQUINA[len(cores) % len(CORES_MAQUINA)]
-        eu = maquina == ME
+        eu = maquina == "dono"  # à direita (verde) só as mensagens do dono; cada máquina fica à esquerda, com a sua cor
         nome = nomes.get(maquina, maquina)
         hora = quando.strftime("%H:%M")
-        cab = _c(cores[maquina] + ";1", nome) + _c("2", "  " + maquina) if not eu else _c("2", "você · " + maquina)
+        cab = _c(cores[maquina] + ";1", nome) + _c("2", "  " + maquina) if not eu else _c("2", "você")
         linhas = []
         for linha in (corpo or "(vazio)").splitlines() or [""]:
             linhas.extend(textwrap.wrap(linha, largura - 8) or [""])
