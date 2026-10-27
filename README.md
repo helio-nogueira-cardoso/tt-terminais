@@ -391,7 +391,9 @@ principal e um perfil logados no mesmo e-mail) são a mesma janela de uso: o `ia
 juntas e nunca passa a tarefa de uma para a outra.
 No macOS o Claude Code guarda a credencial no Keychain (serviço `Claude Code-credentials`, com
 `-<8 hex do sha256 da pasta>` nos perfis), não no `.credentials.json`: o `ia-conta` e o `ia-login` consultam
-só a existência dela no `login.keychain` (sem ler o segredo; funciona por ssh).
+só a existência dela no `login.keychain` (sem ler o segredo; funciona por ssh). O rotador usa a mesma
+checagem para incluir esses perfis. Cache de janela que já acabou aparece como uso desconhecido,
+sem sugerir uma medição atual de 0% e sem remover bloqueio recente por limite.
 
 **Logar o que falta, de um lugar só:** `ia-login` pergunta a cada máquina do tt o que falta (contas do
 Claude do cadastro que ela não tem, perfis sem credencial, Codex/Kiro instalados e deslogados),

@@ -87,6 +87,16 @@ mesmo_par(){ local p x; p=$(par "$1"); for x in "${contas[@]}"; do [ "$(par "$x"
 marca(){ local x; for x in $(mesmo_par "$1"); do printf '%s\t%s\t%s\n' "$x" "$2" "$now" >> "$STATE"; done; }
 
 # Motivo para nao usar a conta (vazio = pode usar).
+tem_credencial(){ local dir=$1 svc='Claude Code-credentials' h
+  [ -s "$dir/.credentials.json" ] && return 0
+  [ "$(uname -s 2>/dev/null)" = Darwin ] && command -v security >/dev/null 2>&1 || return 1
+  if [ "$dir" != "$HOME/.claude" ]; then
+    if command -v shasum >/dev/null 2>&1; then h=$(printf %s "$dir" | shasum -a 256); else h=$(printf %s "$dir" | sha256sum); fi
+    svc+="-${h:0:8}"
+  fi
+  # Só existência, como ia-conta/ia-login; sem -w e sem ler/copiar a credencial.
+  security find-generic-password -s "$svc" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1
+}
 indisponivel(){
   case $1 in
     # Sem .credentials.json a principal ainda pode valer (Keychain no macOS, chave de API, Bedrock):
@@ -96,7 +106,7 @@ indisponivel(){
            elif ! "$CODEX" login status >/dev/null 2>&1; then echo "sem login (codex login)"; fi ;;
     kiro)  if [ -z "$KIRO" ]; then echo "kiro-cli nao instalado"
            elif ! timeout 20 "$KIRO" whoami >/dev/null 2>&1; then echo "sem login (kiro-cli login)"; fi ;;
-    *)     [ -s "$RAIZ/$1/.credentials.json" ] || echo "sem credencial (ia-conta adicionar $1)" ;;
+    *)     tem_credencial "$RAIZ/$1" || echo "sem credencial (ia-conta adicionar $1)" ;;
   esac; }
 
 # Uso da janela (contas-uso.py): preenche U_PICO/U_VOLTA/U_TEXTO. TTL em segundos (cache do helper).
@@ -119,6 +129,12 @@ carregar_uso(){ local ttl=$1 c args=() pico volta texto fonte em folga modelos; 
     U_PICO[$c]=${pico#-}; U_VOLTA[$c]=${volta#-}; U_TEXTO[$c]=${texto#-}; U_FONTE[$c]=$fonte; U_FOLGA[$c]=${folga#-}
     U_MODELOS[$c]=${modelos#-}
     [ "$fonte" = desconhecido ] && U_TEXTO[$c]=""
+    # Uma janela antiga que virou não é uma medição de 0% agora. Sem consulta atual,
+    # usa a prioridade de desconhecido e mantém bloqueios por limite do próprio CLI.
+    if [ "$fonte" = reiniciou ]; then
+      U_PICO[$c]=""; U_VOLTA[$c]=""; U_FOLGA[$c]=""; U_MODELOS[$c]=""
+      U_TEXTO[$c]='uso desconhecido (cache vencido)'
+    elif [ "$fonte" = cache ]; then U_TEXTO[$c]+=' (cache)'; fi
   done <<<"$(python3 -I "$USO_PY" --ttl "$ttl" --modelos "${args[@]}" 2>/dev/null)"
 }
 # Conta cheia pelo uso consultado: bloqueia ate a janela virar e diz que sim.

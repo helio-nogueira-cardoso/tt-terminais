@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.11.50 · 27/10/2026
+- **🚀 Rotador reconhece os logins do Mac:** contas do Claude com credencial no Chaves passam a participar da seleção e da execução sem tela. Antes o seletor as mostrava conectadas, mas o rotador exigia um arquivo e as excluía como deslogadas.
+- **Uso antigo não parece cota livre:** quando a janela do cache já terminou e não há consulta atual, o rotador informa uso desconhecido. Bloqueios recentes por limite continuam valendo.
+
 ## v2.11.49 · 27/10/2026
 - **📸 Restaurar um snapshot traz sessões que você alcança de verdade:** a sessão recriada volta com o mesmo código interno que tinha. Antes ela nascia com um código novo, e as fixadas restauradas apontavam para o antigo: o clique na fixada não chegava à sessão e, minutos depois, o vigia apagava a fixada como se a sessão tivesse sido fechada.
 - **O snapshot "restaurado de …" já vem com os agentes:** ele era gravado logo depois de mandar retomar as conversas, antes de os agentes subirem, e saía só com os shells. Como é o mais novo da lista, restaurar de novo a partir dele trazia sessões sem agente, que o vigia fechava 5 minutos depois como vazias. Agora ele espera os agentes subirem (até 90 s).

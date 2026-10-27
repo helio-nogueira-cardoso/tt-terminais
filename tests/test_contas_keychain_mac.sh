@@ -35,6 +35,8 @@ printf 'claude\tmac1@x.com\tmac1\t1\nclaude\tmac2@x.com\tmac2\t1\n' >"$XDG_CONFI
 # No Linux o Keychain não conta: mac1 segue sem login.
 out=$(ia-conta listar --rapido)
 grep -Eq '^mac1 .*sem login' <<<"$out" || falhou "Linux: mac1 deveria estar sem login: $out"
+status=$(CLAUDE_ROT_USO=0 ia-rot --claude-only --status)
+grep -q $'^mac1\tdeslogada\t' <<<"$status" || falhou 'rotador Linux aceitou Keychain do macOS'
 
 export PATH=$F:$PATH
 out=$(ia-conta listar --rapido)
@@ -47,6 +49,30 @@ faltas=$(ia-login --faltas)
 [[ $(ia-conta mac1 2>&1) == "rodou $R/mac1" ]] || falhou 'conta do Keychain não abriu'
 ia-conta mac2 >/dev/null 2>&1 && falhou 'conta sem login abriu'
 passou 'macOS: login no Keychain conta como conectado (listar, faltas, abrir); sem credencial segue cobrado'
+
+# O rotador deve usar a mesma detecção, inclusive sem sessão gráfica/por ssh. Não lê segredos.
+status=$(CLAUDE_ROT_USO=0 ia-rot --claude-only --status)
+grep -q $'^mac1\tdisponivel\t' <<<"$status" || falhou "rotador recusou login do Keychain: $status"
+grep -q $'^mac2\tdeslogada\t' <<<"$status" || falhou 'rotador aceitou perfil sem credencial'
+melhor=$(CLAUDE_ROT_USO=0 ia-rot --claude-only --melhor --exceto principal)
+[[ ${melhor%%$'\t'*} == mac1 ]] || falhou "rotador não escolheu perfil do Keychain: $melhor"
+resp=$(CLAUDE_ROT_USO=0 ia-rot --claude-only --exceto principal -p 'oi' </dev/null)
+[[ $resp == "rodou $R/mac1" ]] || falhou 'rotação sem tela não abriu perfil do Keychain'
+passou 'rotador: status, seleção e execução sem tela reconhecem o Keychain e recusam conta sem login'
+
+# Cache de janela encerrada não prova uso atual zero nem derruba bloqueio recente.
+rm -f "$HOME/.cache/claude-rot.current"
+agora=$(date +%s)
+cat >"$HOME/.cache/claude-rot.uso.json" <<EOF
+{"mac1":{"alvo":"$R/mac1","quando":$((agora - 86400)),"janelas":[["5h",10,$((agora - 3600))]],"modelos":[["fable",0,$((agora - 3600))]]}}
+EOF
+status=$(ia-rot --claude-only --status)
+grep -q $'^mac1\tdisponivel\tuso desconhecido (cache vencido)' <<<"$status" || falhou "cache antigo virou uso atual: $status"
+printf 'mac1\t%s\t%s\n' "$((agora + 3600))" "$agora" >"$HOME/.cache/claude-rot.state"
+status=$(ia-rot --claude-only --status)
+grep -q $'^mac1\tesgotada\t' <<<"$status" || falhou 'cache vencido removeu bloqueio por limite'
+ia-rot --claude-only --melhor --exceto principal >/dev/null 2>&1 && falhou 'seleção ignorou limite vigente'
+passou 'cache vencido é desconhecido e preserva o bloqueio recente por limite'
 
 for n in rodar naoexiste; do
   ia-conta "$n" >/dev/null 2>&1 && falhou "ia-conta $n deveria falhar"
