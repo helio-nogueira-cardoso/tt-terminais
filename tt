@@ -750,6 +750,7 @@ vigiar() {
       ultima_sonda=$agora
       ("$EU" --sondar-atualizacao >>"$log" 2>&1 &)
     fi
+    (atualizar_nativo &) >/dev/null 2>&1 # proot: mantém a cópia nativa do Termux na mesma versão
     # O painel de trabalho de cada sessão (painel_base) e o Claude de cada um: uma ida ao tmux e um ps por
     # volta (eram uma ida ao tmux e um ps por sessão). O ps guardado vale só para este laço.
     local -A B_PASTA=() B_PID=() B_SOB=() V_CL=()
@@ -16634,6 +16635,24 @@ atualizar_barras_fundo() {
 # No proot do celular o vigia roda com outro chão (/root) e outra config; o servidor da tela é o do Termux, que lê
 # o tt NATIVO (caminhos do Termux, config do Termux). Calcular a barra aqui gravaria caminhos do proot (ticker e conversa
 # sumiam) e apagaria a faixa (config sem faixa_notif). Então o proot só pede ao servidor da tela que rode o tt nativo.
+# O proot e o Termux têm cada um a sua cópia do tt (/root e a home do Termux): a atualização do vigia só chegava à do
+# proot, e o tt nativo (o que desenha a barra) ficava para trás. Se a nativa difere da daqui, roda o --atualizar dela
+# com o bash do Termux (o instalador só copia arquivos). Nunca baixa versão: o --atualizar nativo recusa rebaixar.
+atualizar_nativo() {
+  [[ ${PREFIX:-} == *com.termux* ]] && return 0
+  local home=${TT_TERMUX_HOME:-/data/data/com.termux/files/home} px=${TT_TMUX_TELA_PREFIX:-/data/data/com.termux/files/usr}
+  local aqui nativa
+  aqui=$(cut -d' ' -f1,2 "$DIR_TT/VERSAO" 2>/dev/null); nativa=$(cut -d' ' -f1,2 "$home/.local/share/tt/VERSAO" 2>/dev/null)
+  [[ -n $aqui && -n $nativa && $aqui != "$nativa" && -x $px/bin/bash && -x $home/.local/bin/tt ]] || return 0
+  (( ${nativa%% *} < ${aqui%% *} )) || return 0
+  local trava=$RT/tt-atualizar-nativo-$UID.lock
+  [[ -d $trava && -n $(find "$trava" -maxdepth 0 -mmin -10 2>/dev/null) ]] && return 0 # em andamento (ou falhou há pouco)
+  rm -rf "$trava"; mkdir "$trava" 2>/dev/null || return 0
+  echo "$(date '+%F %T') tt nativo do Termux em $nativa, aqui $aqui: atualizando a cópia nativa" >>"$HOME/.cache/tt-vigia.log"
+  env -i HOME="$home" PREFIX="$px" PATH="$home/.local/bin:$px/bin:/system/bin" TMPDIR="$px/tmp" TMUX_TMPDIR="$px/var/run" \
+    "$px/bin/bash" "$home/.local/bin/tt" --atualizar >>"$HOME/.cache/tt-vigia.log" 2>&1
+  rmdir "$trava" 2>/dev/null
+}
 barras_nativas() {
   [[ ${PREFIX:-} == *com.termux* ]] && return 1
   local home=${TT_TERMUX_HOME:-/data/data/com.termux/files/home}
