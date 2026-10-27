@@ -3,7 +3,7 @@
 # Lê channel/ e channel/arquivo/ do enxame (TT_MESH, padrão ~/tt-mesh): cada mensagem é um arquivo
 # AAAAMMDDTHHMMSSZ-maquina-rand.md (UTC). Mostra o dia em ordem, com o nome e o tom da persona de cada máquina
 # (## Personas da carta), a máquina de quem lê à direita. Saída pensada para um painel estreito do tmux.
-import datetime, glob, os, re, sys, textwrap
+import datetime, glob, os, re, sys, unicodedata
 
 def _mesh_configurado():
     """O tt-mesh desta pessoa: TT_MESH, ou o caminho guardado ao ativar o plugin (tt --conversa-mesh-ativar)."""
@@ -82,6 +82,67 @@ def mensagens(dia):
 COR = sys.stdout.isatty() and os.environ.get("TT_CORES", "1") != "0"
 def _c(codigo, texto):
     return f"\033[{codigo}m{texto}\033[0m" if COR else texto
+
+
+_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def largura_visual(texto):
+    """Número de colunas de terminal ocupadas pelo texto (sem sequências ANSI)."""
+    texto = _ANSI.sub("", texto)
+    total, grupo, juntando, regionais = 0, 0, False, 0
+    for c in texto:
+        cp = ord(c)
+        if (unicodedata.category(c).startswith("M") or c == "\u200d" or
+                0x1F3FB <= cp <= 0x1F3FF or 0xE0020 <= cp <= 0xE007F):
+            juntando = c == "\u200d"
+            continue
+        emoji = 0x1F000 <= cp <= 0x1FAFF or 0x1F1E6 <= cp <= 0x1F1FF or 0x2600 <= cp <= 0x27BF
+        colunas = 2 if emoji or unicodedata.east_asian_width(c) in ("W", "F") else 1
+        if juntando or (0x1F1E6 <= cp <= 0x1F1FF and regionais == 1):
+            grupo = max(grupo, colunas)
+            juntando = False
+            regionais = 0
+        else:
+            total += grupo
+            grupo = colunas
+            regionais = 1 if 0x1F1E6 <= cp <= 0x1F1FF else 0
+    return total + grupo
+
+
+def preencher_visual(texto, largura):
+    return texto + " " * max(0, largura - largura_visual(texto))
+
+
+def quebrar_visual(texto, largura):
+    """Quebra por palavras sem exceder colunas, mesmo com emoji ou caracteres largos."""
+    if largura < 1:
+        return [texto] if texto else [""]
+    palavras = texto.split()
+    if not palavras:
+        return [""]
+    linhas, atual = [], ""
+    for palavra in palavras:
+        partes, parte = [], ""
+        for caractere in palavra:
+            if parte and largura_visual(parte + caractere) > largura:
+                partes.append(parte)
+                parte = ""
+            parte += caractere
+        if parte:
+            partes.append(parte)
+        for parte in partes:
+            candidata = (atual + " " + parte).strip()
+            if atual and largura_visual(candidata) > largura:
+                linhas.append(atual)
+                atual = parte
+            else:
+                atual = candidata
+    if atual:
+        linhas.append(atual)
+    return linhas or [""]
+
+
 CORES_MAQUINA = ["38;5;208", "38;5;78", "38;5;141", "38;5;81", "38;5;215", "38;5;250"]
 DIAS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 
@@ -89,14 +150,14 @@ DIAS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 def _balao(linhas, eu, largura):
     """Balão de texto dentro de um painel de `largura` colunas: à direita se for a própria máquina, à esquerda se não."""
     fundo = "48;5;22" if eu else "48;5;236"
-    dentro = max(len(l) for l in linhas) if linhas else 0  # o balão se ajusta ao texto, como no WhatsApp
+    dentro = max((largura_visual(l) for l in linhas), default=0)  # o balão se ajusta ao texto, como no WhatsApp
     dentro = min(dentro, largura - 6)
     saida = []
     for l in linhas:
-        texto = " " + l.ljust(dentro) + " "
+        texto = " " + preencher_visual(l, dentro) + " "
         bloco = _c(f"{fundo};38;5;255", texto)
         if eu:
-            saida.append(" " * max(largura - len(texto), 0) + bloco)
+            saida.append(" " * max(largura - largura_visual(texto), 0) + bloco)
         else:
             saida.append("  " + bloco)
     return saida
@@ -117,7 +178,10 @@ def render(dia, largura=None):
     topico_ant = None
     for quando, maquina, topico, corpo in msgs:
         if topico != topico_ant and topico:
-            out.append(_c("2", ("  ┄ " + topico[:largura - 8] + " ┄").center(largura)))
+            titulo = "  ┄ " + topico + " ┄"
+            if largura_visual(titulo) > largura:
+                titulo = "  ┄ " + quebrar_visual(topico, max(1, largura - 6))[0] + " ┄"
+            out.append(_c("2", " " * max(0, (largura - largura_visual(titulo)) // 2) + titulo))
             topico_ant = topico
         if maquina not in cores:
             cores[maquina] = CORES_MAQUINA[len(cores) % len(CORES_MAQUINA)]
@@ -127,9 +191,13 @@ def render(dia, largura=None):
         cab = _c(cores[maquina] + ";1", nome) + _c("2", "  " + maquina) if not eu else _c("2", "você")
         linhas = []
         for linha in (corpo or "(vazio)").splitlines() or [""]:
-            linhas.extend(textwrap.wrap(linha, largura - 8) or [""])
-        linhas[-1] = linhas[-1] + "  " + _c("2", hora)
-        out.append(("" if eu else "  ") + cab if not eu else cab.rjust(largura))
+            linhas.extend(quebrar_visual(linha, largura - 8))
+        horario = "  " + _c("2", hora)
+        if largura_visual(linhas[-1] + horario) <= largura - 6:
+            linhas[-1] += horario
+        else:
+            linhas.append(horario.strip())
+        out.append(("" if eu else "  ") + cab if not eu else " " * max(0, largura - largura_visual(cab)) + cab)
         out.extend(_balao(linhas, eu, largura))
         out.append("")
     return "\n".join(out) + "\n"
@@ -171,41 +239,50 @@ def _puxar_nas_outras():
 
 def _tecla():
     """Uma tecla, sem esperar Enter. Esc sozinho vira "esc"; setas e outras sequências viram "" (ignoradas)."""
-    import select, termios, tty
+    import select
     fd = sys.stdin.fileno()
-    antigo = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        c = os.read(fd, 1)
-        if not c:
-            return "esc"  # fim da entrada: sai
-        if c == b"\x1b":
-            if select.select([fd], [], [], 0.05)[0]:
-                seq = os.read(fd, 16)
-                if not seq:
-                    return "esc"
-                if seq.startswith(b"[<"):  # mouse (SGR): roda (64 cima, 65 baixo); clique pressionado (0, M) vira "clique:x:y"
-                    corpo = seq[2:]
-                    partes = corpo.rstrip(b"Mm").split(b";")
-                    if len(partes) == 3 and partes[0] == b"0" and corpo[-1:] == b"M":
-                        return f"clique:{partes[1].decode()}:{partes[2].decode()}"
-                    return {b"64": "up", b"65": "down"}.get(partes[0], "")
-                return {b"[A": "up", b"[B": "down", b"[5~": "pgup", b"[6~": "pgdn",
-                        b"[H": "home", b"[1~": "home", b"[F": "end", b"[4~": "end"}.get(seq, "")
-            return "esc"
-        if c == b"\x03":
-            return "esc"
-        if c == b"\x12":
-            return "atualizar"
-        if c == b"\x14":
-            return "tick"
-        if c in (b"\r", b"\n"):
-            return "enter"
-        if c == b"\x7f":
-            return "apagar"
-        return c.decode("utf-8", "ignore") if c.isascii() or c[:1] >= b"\xc0" else ""
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, antigo)
+    c = os.read(fd, 1)
+    if not c:
+        return "esc"  # fim da entrada: sai
+    if c == b"\x1b":
+        if select.select([fd], [], [], 0.05)[0]:
+            seq = bytearray()
+            while len(seq) < 32 and select.select([fd], [], [], 0.05)[0]:
+                parte = os.read(fd, 1)
+                if not parte:
+                    break
+                seq.extend(parte)
+                if parte in (b"M", b"m") or (seq[:1] == b"[" and parte.isalpha()):
+                    break
+            if not seq:
+                return "esc"
+            seq = bytes(seq)
+            if seq.startswith(b"[<"):  # mouse SGR: clique pressionado vira "clique:x:y".
+                partes = seq[2:-1].split(b";") if seq[-1:] in (b"M", b"m") else []
+                if len(partes) == 3:
+                    try:
+                        botao, x, y = (int(p) for p in partes)
+                    except ValueError:
+                        return ""
+                    if botao == 0 and seq[-1:] == b"M":
+                        return f"clique:{x}:{y}"
+                    if botao in (64, 65):
+                        return {64: "up", 65: "down"}[botao]
+                return ""
+            return {b"[A": "up", b"[B": "down", b"[5~": "pgup", b"[6~": "pgdn",
+                    b"[H": "home", b"[1~": "home", b"[F": "end", b"[4~": "end"}.get(seq, "")
+        return "esc"
+    if c == b"\x03":
+        return "esc"
+    if c == b"\x12":
+        return "atualizar"
+    if c == b"\x14":
+        return "tick"
+    if c in (b"\r", b"\n"):
+        return "enter"
+    if c == b"\x7f":
+        return "apagar"
+    return c.decode("utf-8", "ignore") if c.isascii() or c[:1] >= b"\xc0" else ""
 
 
 def janela(linhas, altura, desloc):
@@ -241,45 +318,65 @@ def painel():
     if not sys.stdin.isatty():
         sys.stdout.write(render(datetime.date.today()))
         return
-    linhas_tela = int(os.environ.get("LINES", "40"))
-    altura = max(5, linhas_tela - 5)
-    est = {"buf": "", "aviso": "", "desloc": 0, "corpo": []}
+    def dimensoes():
+        try:
+            colunas, linhas = os.get_terminal_size(sys.stdout.fileno())
+        except OSError:
+            colunas, linhas = 0, 0
+        if colunas < 12 or linhas < 10:
+            colunas = max(colunas, int(os.environ.get("COLUMNS", "44")))
+            linhas = max(linhas, int(os.environ.get("LINES", "40")))
+        return max(12, colunas), max(5, linhas - 5)
+
+    largura, altura = dimensoes()
+    est = {"buf": "", "aviso": "", "desloc": 0, "corpo": [], "frame": None,
+           "largura": largura, "altura": altura}
 
     def montar():
-        est["corpo"] = render(datetime.date.today()).splitlines()
+        est["corpo"] = render(datetime.date.today(), est["largura"]).splitlines()
 
     def desenhar():
-        visivel, d = janela(est["corpo"], altura, est["desloc"])
-        quadro = ["\033[H"]
-        for linha in visivel + [""] * (altura - len(visivel)):
-            quadro.append(linha + "\033[K\n")
+        h = est["altura"]
+        visivel, d = janela(est["corpo"], h, est["desloc"])
+        quadro = visivel + [""] * (h - len(visivel))
         if d:
-            quadro.append(_c("2", f"  ↓ {d} linha(s) abaixo · End volta ao fim") + "\033[K\n")
+            quadro.append(_c("2", f"  ↓ {d} linha(s) abaixo · End volta ao fim"))
         else:
-            quadro.append((_c("2", est["aviso"]) if est["aviso"] else "") + "\033[K\n")
-        # botões: linha própria (linha altura+2), clicáveis; as posições (x) ficam guardadas para o clique
+            quadro.append(_c("2", est["aviso"]) if est["aviso"] else "")
+        # Botões na linha h+2. A largura do terminal vem do tty, não do LINES herdado pelo popup.
         x, botoes, faixa = 2, [], ""
         for nome, rotulo, cor in BOTOES:
             trecho = f" {rotulo} "
-            botoes.append((nome, x, x + len(trecho) - 1))
+            botoes.append((nome, x, x + largura_visual(trecho) - 1))
             faixa += _c(cor + ";38;5;255;1", trecho) + "  "
-            x += len(trecho) + 2
+            x += largura_visual(trecho) + 2
         est["botoes"] = botoes
-        quadro.append("\r\033[K  " + faixa + "\033[K\n")
-        quadro.append("\r\033[K" + _c("48;5;22;38;5;255", " mensagem ") + " ➤ " + est["buf"] + "\033[J")
-        sys.stdout.write("\033[?25l" + "".join(quadro) + "\033[?25h")
+        quadro.append("  " + faixa)
+        quadro.append(_c("48;5;22;38;5;255", " mensagem ") + " ➤ " + est["buf"])
+        anterior = est["frame"] or [None] * len(quadro)
+        saida = []
+        for indice, linha in enumerate(quadro):
+            if indice >= len(anterior) or anterior[indice] != linha:
+                saida.append(f"\033[{indice + 1};1H" + linha + "\033[K")
+        if len(anterior) > len(quadro):
+            for indice in range(len(quadro), len(anterior)):
+                saida.append(f"\033[{indice + 1};1H\033[K")
+        est["frame"] = quadro
+        if saida:
+            sys.stdout.write("".join(saida))
         sys.stdout.flush()
 
     def tratar(tecla):
-        maximo = max(0, len(est["corpo"]) - altura)
+        h = est["altura"]
+        maximo = max(0, len(est["corpo"]) - h)
         if tecla == "up":
             est["desloc"] = min(est["desloc"] + 1, maximo)
         elif tecla == "down":
             est["desloc"] = max(est["desloc"] - 1, 0)
         elif tecla == "pgup":
-            est["desloc"] = min(est["desloc"] + altura // 2, maximo)
+            est["desloc"] = min(est["desloc"] + h // 2, maximo)
         elif tecla == "pgdn":
-            est["desloc"] = max(est["desloc"] - altura // 2, 0)
+            est["desloc"] = max(est["desloc"] - h // 2, 0)
         elif tecla == "home":
             est["desloc"] = maximo
         elif tecla == "end":
@@ -295,7 +392,11 @@ def painel():
         elif len(tecla) == 1 and tecla.isprintable():
             est["buf"] += tecla
 
-    sys.stdout.write(MOUSE_LIGA + "\033[2J")  # só a abertura apaga a tela
+    import termios, tty
+    fd = sys.stdin.fileno()
+    modo_terminal = termios.tcgetattr(fd)
+    tty.setraw(fd)
+    sys.stdout.write(MOUSE_LIGA + "\033[?25l\033[2J")  # cursor oculto enquanto o painel estiver aberto
     sys.stdout.flush()
     try:
         est["aviso"] = "atualizando…" if atualizar_mesh() else "sem atualizar (sem rede): mostrando o que já tem"
@@ -305,9 +406,15 @@ def painel():
             tecla = _tecla()
             if tecla == "esc":
                 break
+            novas_largura, nova_altura = dimensoes()
+            if (novas_largura, nova_altura) != (est["largura"], est["altura"]):
+                est["largura"], est["altura"], est["desloc"], est["frame"] = novas_largura, nova_altura, 0, None
+                montar()
+                desenhar()
+                continue
             if tecla.startswith("clique:"):
                 _, x, y = tecla.split(":")
-                if int(y) == altura + 2:
+                if int(y) == est["altura"] + 2:
                     alvo = next((n for n, a, b in est.get("botoes", []) if a <= int(x) <= b), None)
                     if alvo == "fechar":
                         break
@@ -325,18 +432,29 @@ def painel():
                 sys.stdout.flush()
                 import subprocess
                 try:
-                    subprocess.run([os.environ.get("TT_BIN", "tt"), "--mesh-tick-menu"])
-                except OSError:
-                    est["aviso"] = "tt não encontrado: o menu do tick não abriu"
+                    candidato = os.environ.get("TT_BIN") or os.path.join(os.path.expanduser("~"), ".local", "bin", "tt")
+                    if not os.path.isfile(candidato):
+                        import shutil
+                        candidato = shutil.which("tt") or candidato
+                    termios.tcsetattr(fd, termios.TCSADRAIN, modo_terminal)
+                    r = subprocess.run([candidato, "--mesh-tick-menu"])
+                    if r.returncode:
+                        est["aviso"] = f"menu do tick terminou com erro ({r.returncode})"
+                    else:
+                        est["aviso"] = "tick ajustado"
+                except OSError as e:
+                    est["aviso"] = f"não abriu o menu do tick: {e.strerror}"
                 finally:
-                    sys.stdout.write(MOUSE_LIGA)
+                    tty.setraw(fd)
+                    sys.stdout.write(MOUSE_LIGA + "\033[?25l\033[2J")
                     sys.stdout.flush()
-                est["aviso"] = est["aviso"] or "tick ajustado"
+                    est["frame"] = None
                 montar()
             else:
                 tratar(tecla)
             desenhar()
     finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, modo_terminal)
         sys.stdout.write(MOUSE_DESLIGA + "\033[?25h\n")
         sys.stdout.flush()
 

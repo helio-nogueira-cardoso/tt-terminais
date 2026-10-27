@@ -46,6 +46,70 @@ v, d = cm.janela(linhas, 4, 99); assert v == ["0", "1", "2", "3"] and d == 6, (v
 PY
 passou 'rolagem do painel: a janela anda para trás e para nas pontas'
 
+# Largura visual: caracteres largos, emoji e marcas combinantes não podem quebrar balões ou cliques.
+python3 -I - "$RAIZ/conversa-mesh.py" <<'PY' || falhou 'medição de colunas Unicode errada'
+import importlib.util, sys
+sp = importlib.util.spec_from_file_location("cm", sys.argv[1]); cm = importlib.util.module_from_spec(sp); sp.loader.exec_module(cm)
+assert cm.largura_visual("é 界 🙂") == 7
+assert cm.largura_visual("e\u0301") == 1
+assert cm.largura_visual("👩🏽‍💻 🇧🇷") == 5
+assert cm.largura_visual("\x1b[31m界\x1b[0m") == 2
+for texto in ("texto com palavras", "漢字とemoji 🙂🙂", "e\u0301" * 20, "x" * 40):
+    for linha in cm.quebrar_visual(texto, 8):
+        assert cm.largura_visual(linha) <= 8, repr(linha)
+for eu in (True, False):
+    for linha in cm._balao(cm.quebrar_visual("漢字とemoji 🙂🙂", 8), eu, 16):
+        assert cm.largura_visual(linha) <= 16, repr(linha)
+PY
+passou 'conversa do mesh: largura de balões e quebra contam colunas Unicode'
+
+# O clique no botão Tick usa as dimensões reais do PTY e chama o tt local.
+python3 -I - "$RAIZ/conversa-mesh.py" "$T" <<'PY' || falhou 'clique no botão Tick não abriu o menu'
+import fcntl, os, pty, select, struct, subprocess, sys, termios, time
+script, raiz = sys.argv[1:]
+marcador = os.path.join(raiz, "tick-abriu")
+fake = os.path.join(raiz, "tt-falso-painel")
+with open(fake, "w", encoding="utf-8") as f:
+    f.write("#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"" + marcador + "\"\n")
+os.chmod(fake, 0o755)
+master, slave = pty.openpty()
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 60, 0, 0))
+env = dict(os.environ, TT_MESH=os.path.join(raiz, "mesh"), TT_BIN=fake, TT_CORES="0")
+os.makedirs(os.path.join(env["TT_MESH"], "channel"), exist_ok=True)
+p = subprocess.Popen([sys.executable, "-I", script, "--painel"], stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True)
+os.close(slave)
+saida = bytearray()
+deadline = time.monotonic() + 3
+while time.monotonic() < deadline and b"tick" not in saida:
+    if select.select([master], [], [], 0.1)[0]:
+        try: saida.extend(os.read(master, 4096))
+        except OSError: break
+assert b"tick" in saida, "painel não desenhou o botão"
+inicio = len(saida)
+os.write(master, b"a")
+deadline = time.monotonic() + 3
+while time.monotonic() < deadline and b"\xe2\x9e\xa4 a\x1b[K" not in saida[inicio:]:
+    if select.select([master], [], [], 0.1)[0]:
+        try: saida.extend(os.read(master, 4096))
+        except OSError: break
+delta = bytes(saida[inicio:])
+assert b"\xe2\x9e\xa4 a\x1b[K" in delta, "tecla não apareceu no campo de mensagem"
+assert b"\x1b[1;1H" not in delta, "digitar repintou a tela inteira"
+os.write(master, b"\x1b[<0;20;21M\x1b[<0;20;21m")
+deadline = time.monotonic() + 3
+while time.monotonic() < deadline and not os.path.exists(marcador):
+    if select.select([master], [], [], 0.1)[0]:
+        try: saida.extend(os.read(master, 4096))
+        except OSError: break
+assert os.path.exists(marcador), f"clique não chamou TT_BIN --mesh-tick-menu; rc={p.poll()}, saída={bytes(saida[-1000:])!r}"
+time.sleep(0.1)
+os.write(master, b"\x1b")
+try: p.wait(timeout=5)
+except subprocess.TimeoutExpired: p.kill(); raise
+os.close(master)
+PY
+passou 'conversa do mesh: botão Tick abre o menu pelo clique SGR'
+
 # Recado publicado dispara o puxar nas outras máquinas (tt --mesh-puxar), para ficar disponível na hora.
 fake="$T/tt-falso"; printf '#!/bin/sh\necho "$@" >>"%s/puxou"\n' "$T" >"$fake"; chmod +x "$fake"
 R="$T/remoto-tick.git"; L="$T/local-tick"
