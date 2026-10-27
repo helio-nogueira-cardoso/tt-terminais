@@ -564,7 +564,9 @@ conf_em_dia() {
   [[ $tem == "$quer" ]] && return 0
   mkdir -p "$HOME/.cache" 2>/dev/null
   echo "$(date '+%F %T') tmux com configuração ${tem:-desconhecida}, instalada $quer: recarregando" 2>/dev/null >>"$HOME/.cache/tt-vigia.log"
-  tmux_tela source-file "$HOME/.tmux.conf" 2>/dev/null
+  local conf=$HOME/.tmux.conf
+  [[ ${PREFIX:-} != *com.termux* ]] && conf=${TT_TERMUX_HOME:-/data/data/com.termux/files/home}/.tmux.conf # o servidor da tela é do Termux
+  tmux_tela source-file "$conf" 2>/dev/null
   tmux_tela set -gq @tt_conf_versao "$quer" 2>/dev/null
   redesenhar_todos 2>/dev/null
 }
@@ -16629,7 +16631,19 @@ atualizar_barras_fundo() {
 # Recalcula as faixas da barra (fixadas, atalhos, transferências) e as guarda em opções do tmux,
 # que a barra só lê. Só grava o que mudou: cada set-option redesenha a tela inteira de todos os
 # clientes (o miolo da faixa nem passa por aqui — é o letreiro-tt.py, ver barra_notifs_fmt).
+# No proot do celular o vigia roda com outro chão (/root) e outra config; o servidor da tela é o do Termux, que lê
+# o tt NATIVO (caminhos do Termux, config do Termux). Calcular a barra aqui gravaria caminhos do proot (ticker e conversa
+# sumiam) e apagaria a faixa (config sem faixa_notif). Então o proot só pede ao servidor da tela que rode o tt nativo.
+barras_nativas() {
+  [[ ${PREFIX:-} == *com.termux* ]] && return 1
+  local home=${TT_TERMUX_HOME:-/data/data/com.termux/files/home}
+  [[ -x $home/.local/bin/tt ]] || return 1
+  tmux_tela list-sessions >/dev/null 2>&1 || return 1
+  [[ ${TT_BARRAS_NATIVAS:-1} == 0 ]] && return 1
+  tmux_tela run-shell -b "TT_COMPLETO=1 $(printf %q "$home/.local/bin/tt") --barras >/dev/null 2>&1" 2>/dev/null
+}
 atualizar_barras() {
+  barras_nativas && return 0
   local nome valor fmt="" i sai l1 st_atual="" faixa=0 st _qn v_tarefas v_versao fx_visivel=1
   local -a nomes=(fixadas atalhos transf versao tarefas email data hora notifs notifs_n notifs_slot transf0 faixa faixa_dir lado1 fim0 fixadas_ocultas) atuais=() lote=()
   # Os valores atuais (e o status) numa ida só ao tmux (eram 16 show, um por opção, e o servidor do tmux
