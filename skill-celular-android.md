@@ -515,6 +515,7 @@ No celular-alvo o `ia-login` do Termux executa o login dentro do proot sozinho; 
    | site | botão `Continuar com o Google` / `Continue with Google` | toca |
    | google | `Fazer Login com o Google`, `Sign in with Google`, `Escolha uma conta`… | exige o e-mail esperado na página (senão para, saída 2); toca em `Continuar` / `Continue`, ou na própria conta |
    | humano | texto de senha, duas etapas, CAPTCHA, "confirme que é você", passkey | para (saída 2), deixa o login aberto e avisa o dono |
+   | sem plano | `É necessário ter Claude Max ou Pro` / `requires Claude Max or Pro` | para (saída 2): o site está numa conta sem plano; sair dela é do dono (ou com o pedido dele) |
    | erro | `Invalid code`, `expired`, `Something went wrong`, `access_denied` | para (saída 1) |
    | carregando | nada reconhecido | espera `PAUSA` e relê, até o `LIMITE` (saída 5) |
 
@@ -539,7 +540,7 @@ para: não autoriza, não entrega, não troca login. `DEPURAR=1` mostra em que t
 
 ```bash
 # login_pelo_celular ALVO CELULAR E-MAIL [CONTA]
-#   Loga o Claude em ALVO (usuario@host do `tt --maquinas`) usando o navegador do CELULAR: o script anda pelo login do
+#   Loga o Claude em ALVO (usuario@host do `tt --maquinas`, ou . para esta máquina, sem ssh) usando o navegador do CELULAR: o script anda pelo login do
 #   site, pela conta do Google e pelo consentimento ("Autorizar"), lê o código da página e o entrega ao alvo.
 #   CONTA: principal (padrão: a de ~/.claude) ou o apelido de um perfil.
 #   Ambiente, tudo opcional:
@@ -573,7 +574,7 @@ login_pelo_celular() (
     done
     return "$r"
   }
-  ia()    { sshx "$alvo" "$pre ia-login $*"; }
+  ia()    { if [[ $alvo == . ]]; then bash -c "$pre ia-login $*" </dev/null; else sshx "$alvo" "$pre ia-login $*"; fi; }
   ui()    { sshx "$celular" "$cpre $cel ui $(printf '%q' "$1")"; }
   shcel() { sshx "$celular" "$cpre $cel sh $(printf '%q' "$1")"; }
   tem()   { grep -qiE -- "$1" <<<"$pagina"; }
@@ -694,6 +695,7 @@ login_pelo_celular() (
     [[ -n $code ]] && break
     if   tem ' (t|d)="(Autorizar|Authorize|Permitir|Allow)"'; then estado=consentimento
     elif tem ' (t|d)="(Continuar com o Google|Continue with Google)"'; then estado=site
+    elif tem ' (t|d)="[^"]*(Claude Max ou Pro|Claude Max or Pro)'; then estado=semplano
     elif tem ' (t|d)="[^"]*(senha|password|duas etapas|2-step|captcha|robô|not a robot|confirme que é você|verify it.s you|atividade incomum|unusual activity|passkey|chave de acesso)'; then estado=humano
     elif tem ' (t|d)="[^"]*(Invalid (code|request)|expired|expirou|Something went wrong|Algo deu errado|access_denied)'; then estado=erro
     elif tem 'Fazer Login com o Google|Sign in with Google|Escolha uma conta|Choose an account'; then estado=google
@@ -714,9 +716,10 @@ login_pelo_celular() (
         [[ -z ${ENSAIO:-} ]] || { say "ensaio: cheguei ao consentimento${quem:+ (conectado como $quem)}; não autorizei nada"; exit 0; }
         tocar "$botao" ;;
       site) tocar 'Continuar com o Google|Continue with Google' ;;
+      semplano) parar 2 "o claude.ai do celular está numa conta sem plano Max/Pro: saia dela (claude.ai/logout) e rode de novo" ;;
       google)
         grep -qiF -- "$email" <<<"$pagina" || parar 2 "o Google não mostra $email (outra conta ou pede entrar): escolha a conta no celular"
-        tocar 'Continuar|Continue' || tocar "$(sed 's/[][.*^$+?(){}|\\]/\\&/g' <<<"$email")" ;;
+        tocar 'Continuar|Continue' || tocar "$(sed 's/[].*^$+?(){}|\\[]/\\&/g' <<<"$email")" ;;
       humano) parar 2 "o celular pede algo que só o dono faz (senha, verificação, CAPTCHA ou outra conta)" ;;
       erro) parar 1 "a página de login mostrou um erro: $(grep -E ' (t|d)="' <<<"$pagina" | mascarar | cut -c1-120 | head -n 3 | paste -sd'|')" ;;
     esac
@@ -737,8 +740,9 @@ login_pelo_celular() (
   if [[ -n ${ENSAIO:-} ]]; then say "ensaio: li o código (${#code} caracteres) e não o entreguei"; exit 0; fi
 
   # 5) entrega pelo stdin do ssh (o printf é builtin: o código não aparece em ps aqui), espera o fim e confere
+  if [[ $alvo == . ]]; then entregar=(bash -s); else entregar=(timeout 60 ssh -o BatchMode=yes -o ConnectTimeout=10 "$alvo" bash -s); fi
   printf '%s\n' "$pre ia-login --codigo $sess '$code' >/dev/null" |
-    timeout 60 ssh -o BatchMode=yes -o ConnectTimeout=10 "$alvo" bash -s || parar 1 "não consegui entregar o código (a conexão caiu?): refaça do início"
+    "${entregar[@]}" || parar 1 "não consegui entregar o código (a conexão caiu?): refaça do início"
   code=''
   for i in $(seq 60); do
     t=$(ia --tela "$sess")
@@ -753,7 +757,7 @@ login_pelo_celular() (
 )
 ```
 
-Uso: `login_pelo_celular usuario@alvo usuario@celular conta@exemplo.com` (a principal) ou
+Uso: `login_pelo_celular usuario@alvo usuario@celular conta@exemplo.com` (a principal; `.` no lugar de `usuario@alvo` = esta máquina) ou
 `… conta@exemplo.com trabalho` (o perfil `trabalho`). Várias máquinas: uma de cada vez, o mesmo celular serve a todas.
 Primeira vez num celular ou numa conta: rode antes com `ENSAIO=1`.
 
@@ -799,6 +803,7 @@ Primeira vez num celular ou numa conta: rode antes com `ENSAIO=1`.
 | `ABORT frente=com.termux` | o Termux voltou à frente entre duas chamadas | um lote só: `abrir PKG/ATIV ; assenta N ; …` |
 | `comando desconhecido: in` | `in PKG` no meio do lote | só no começo da linha, e nunca num lote que começa por `abrir` |
 | `NAO_ACHEI` e a tela já mostra o passo seguinte | a página andou antes do toque (redirecionamento) | releia (`tela`) antes de tocar de novo |
+| a página diz "É necessário ter Claude Max ou Pro para conectar ao Claude Code" | o claude.ai do navegador está numa conta sem plano (o `login_hint` do link não troca a conta aberta) | saída 2. Com o pedido do dono: abrir `https://claude.ai/logout` no navegador, tocar em "Sair" e rodar de novo; o login passa pelo Google, onde a função só escolhe o e-mail esperado. Vários perfis seguidos: sair antes de cada um (depois de um login, o site fica na conta que acabou de entrar) |
 | a página abre em "Entrar" (e-mail já preenchido) | sessão do site vencida; o Google segue logado | a função toca "Continuar com o Google" e depois "Continuar" na conta já selecionada; nas vezes seguintes o link vai direto ao consentimento |
 | o "código" lido não tem `#` ou tem outro tamanho | você leu a barra de endereço ou outro texto | o certo é o `TextView` sob "Cole isso em Claude Code" |
 | `[ia-login: fim 1]` com "Invalid code" ou expirado | link/código de outra sessão, repetido ou velho (valem uma vez e poucos minutos) | recomece do passo 1; nunca reaproveite entre alvos |

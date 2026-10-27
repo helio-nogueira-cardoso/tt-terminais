@@ -8,6 +8,7 @@ vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu admin
 - **O `ia-conta listar` diz como consertar:** perfil numa conta que outra pasta já tem e que não é a do cadastro sai em "Perfis logados numa conta que não é a do cadastro", com o comando `ia-conta adicionar PERFIL --email E-MAIL-CERTO` (abra o link numa janela anônima, para o navegador não reaproveitar a conta aberta). A lista também resume as pastas que são a mesma conta.
 - **O rotador conta cada conta uma vez:** o `ia-rot --status` mostra a pasta repetida como `mesma-conta`; o `--exceto` de uma conta tira as outras pastas dela; o limite de uma bloqueia as outras e a passagem nunca cai numa delas.
 - **O `ia-login` refaz esses logins:** o plano mostra `conta errada (hoje: …)` e faz o login do perfil na conta do cadastro. Só quando a conta de agora já está noutra pasta da máquina; um login único nunca é trocado.
+- **📱 Login pelo celular (skill `celular-android`) mais firme:** no seletor de contas do Google sem botão "Continuar", a função não tocava em nada (o escape do e-mail quebrava o `sed`); agora toca na linha do e-mail esperado. A página "É necessário ter Claude Max ou Pro" (o site do celular numa conta sem plano) para na hora com o motivo, em vez de esperar 3 minutos. E o alvo pode ser `.`, a própria máquina, sem ssh.
 
 - **💬 Nome inteiro na conversa do mesh:** persona com nome de mais de uma palavra aparecia só com a primeira (o Mac saía como "Pedro"). Agora vale o nome inteiro da carta, até o travessão da descrição: "Pedro Estevão".
 

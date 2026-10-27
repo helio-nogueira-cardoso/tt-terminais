@@ -362,6 +362,41 @@ rodar $ALVO $CEL_HOST $EMAIL
 chamou 'abrir org.mozilla.firefox/org.mozilla.fenix.HomeActivity' || falhou "firefox: não abriu pela atividade resolvida: $(cat "$FAKE_DIR/chamadas.log" | head -5)"
 passou 'sem navegador conhecido: para; só o Firefox: resolve a atividade principal e o usa'
 
+# 15b) o claude.ai do navegador numa conta sem plano: para (2) sem tocar no upgrade e devolve o celular
+cenario; pg 1 <<'EOF'
+      [45,923,1035,1084] TextView t="É necessário ter Claude Max ou Pro para conectar ao Claude Code"
+      [227,1339,852,1435] View {c} d="Faça upgrade para Max ou Pro"
+EOF
+rodar $ALVO $CEL_HOST $EMAIL
+((RC == 2)) && grep -q 'sem plano' "$T/saida.txt" && ! chamou 'tap:Faça' || falhou "conta sem plano: saída $RC: $(cat "$T/saida.txt")"
+devolveu_o_celular 'sem plano'; passou 'conta do site sem plano Max/Pro: para logo (saída 2), sem esperar o tempo esgotar'
+
+# 15c) seletor de contas do Google sem "Continuar" (só as linhas das contas, como no Chrome de 27/10/2026): toca na linha
+#      do e-mail esperado, escapado para a expressão (o escape antigo, [][.…], quebrava o sed e nada era tocado)
+cenario; pg 1 <<EOF
+      [64,105,1015,220] TextView t="Escolha uma conta" id="headingText"
+      [19,420,1060,614] View {c} d="Outra Pessoa outra.pessoa@exemplo.com"
+      [180,518,1015,580] TextView t="outra.pessoa@exemplo.com"
+      [19,611,1060,808] View {c} d="Conta Certa $EMAIL"
+      [180,712,1015,774] TextView t="$EMAIL"
+EOF
+printf '0|Continuar com o Google|1|\n1|Conta Certa %s|2|\n2|Autorizar|3|\n3|guias|4|nativo\n4|Fechar guia Authentication code|5|nativo\n' "$EMAIL" >"$FAKE_DIR/trans"
+rodar $ALVO $CEL_HOST $EMAIL
+((RC == 0)) && chamou "tap:Conta Certa $EMAIL" && ! chamou 'tap:Outra Pessoa' || falhou "seletor de contas: saída $RC: $(cat "$T/saida.txt")"
+limpo 'seletor de contas'; passou 'seletor de contas do Google sem Continuar: toca só na linha do e-mail esperado'
+
+# 15d) alvo "." (esta máquina): os verbos do ia-login e a entrega do código rodam aqui, sem ssh para o alvo
+cenario
+cat >"$T/fake/bin/ia-login" <<'FAKE'
+#!/usr/bin/env bash
+exec ssh u@alvo "ia-login $(printf '%q ' "$@")"
+FAKE
+chmod +x "$T/fake/bin/ia-login"
+rodar . $CEL_HOST $EMAIL
+rm -f "$T/fake/bin/ia-login"
+((RC == 0)) && chamou 'codigo-entregue' && [[ $(cat "$FAKE_DIR/codigo_recebido") == "$CODIGO" ]] || falhou "alvo local: saída $RC: $(cat "$T/saida.txt")"
+limpo 'alvo local'; passou 'alvo "." usa o ia-login desta máquina, sem ssh'
+
 # 16) a documentação e o ia-login concordam: todo verbo interno do ia-login está descrito na skill
 for v in $(grep -m1 -- '--faltas | --principal-faltas' "$RAIZ/ia-login" | grep -oE -- '--[a-z-]+'); do
   grep -q -- "$v" "$RAIZ/skill-celular-android.md" || falhou "o verbo $v do ia-login não está descrito na skill celular-android"
