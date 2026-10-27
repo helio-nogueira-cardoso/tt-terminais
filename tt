@@ -11728,7 +11728,7 @@ tarefa_restaurar()       { tarefas_arquivo_mudar restaurar "$@" >/dev/null; }
 # Histórico em texto (CLI): data de arquivamento, ☑/☐ de antes, texto e id; mais recentes primeiro.
 tarefas_arquivadas_listar() {
   [[ -s $CONF_TAREFAS ]] || return 0
-  local agora tz; read -r agora tz < <(tarefas_relogio)
+  local agora tz; read -r agora tz <<<"$(tarefas_relogio)"
   LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" "$TAREFAS_AWK"'
     NF >= 5 && $2 == "arquivada" && mv($6, "pai") == "" {
       a = mv($6, "arq"); e = a; sub(/:.*/, "", e); civil(dia(e + 0))
@@ -14064,7 +14064,7 @@ tarefas_lembrete() {
   [[ -s $CONF_TAREFAS ]] || return 0
   local arq agora tz ant chave quando txt
   arq=$(tarefas_lembrete_arq); mkdir -p "$ESTADO_DIR"; touch "$arq"
-  read -r agora tz < <(tarefas_relogio); ant=$(( ${TT_TAREFAS_ANTECEDENCIA:-10} * 60 ))
+  read -r agora tz <<<"$(tarefas_relogio)"; ant=$(( ${TT_TAREFAS_ANTECEDENCIA:-10} * 60 ))
   # Com horário: avisa quando faltam ANT segundos (ou já passou), uma vez por prazo (id|epoch).
   # Sem horário: uma vez por dia enquanto vence hoje ou está atrasada (id|AAAAMMDD).
   while IFS=$'\t' read -r chave quando txt; do
@@ -14207,7 +14207,7 @@ tarefas_relogio() { # -> "agora deslocamento-do-fuso-em-segundos"
 # não passou fica âmbar. Uma passada só; serve às abas do painel e ao botão da barra.
 tarefas_contagens() {
   [[ -s $CONF_TAREFAS ]] || { echo "0 0 0 0 0 0 0 0"; return 0; }
-  local agora tz; read -r agora tz < <(tarefas_relogio)
+  local agora tz; read -r agora tz <<<"$(tarefas_relogio)"
   LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" "$TAREFAS_AWK"'
     NF >= 5 && valida($1, $2) && !($1 in v) && mv($6, "pai") == "" {
       v[$1] = 1; t++
@@ -14460,14 +14460,14 @@ tt_epoch_de() { # "YYYY-MM-DD[ HH:MM]"
 tarefas_dias_ate() { # epoch
   local ep=$1 agora tz
   [[ -n $ep ]] || return 1
-  read -r agora tz < <(tarefas_relogio)
+  read -r agora tz <<<"$(tarefas_relogio)"
   echo $(( (ep + tz) / 86400 - (agora + tz) / 86400 ))
 }
 
 # Rótulo do prazo de uma tarefa (o mesmo da lista, sem cores): "hoje", "amanhã", "sex 10/10"...
 tarefas_prazo_texto() { # epoch [1 = com horário]
   [[ -n $1 ]] || return 0
-  local agora tz; read -r agora tz < <(tarefas_relogio)
+  local agora tz; read -r agora tz <<<"$(tarefas_relogio)"
   LC_ALL=C awk -v NOW="$agora" -v TZOFF="$tz" -v P="$1" -v H="${2:-}" "$TAREFAS_AWK"'
     BEGIN { HOJE = dia(NOW); civil(HOJE); ANO = CY; split("dom seg ter qua qui sex sáb", DOW, " ")
             print quando(P) (H == 1 ? " às " hhmm(P) : "") }'
@@ -14667,7 +14667,7 @@ tarefas_lista_fzf() { # [busca]
   local filtro exp agora tz arq=$CONF_TAREFAS
   filtro=$(tarefas_filtro); filtro=${filtro:-todas}
   exp=$(sed -n 's/^exp=//p' "$(tarefas_estado_arq)" 2>/dev/null | tr '\n' ',')
-  read -r agora tz < <(tarefas_relogio)
+  read -r agora tz <<<"$(tarefas_relogio)"
   [[ -f $arq ]] || arq=/dev/null
   local tprop=""; [[ $filtro == entrada ]] && tprop=$(tarefas_props_resumo)
   TQ=$q TQL=${q,,} TEXP=",$exp" TPROP="$tprop" LC_ALL=C \
@@ -15733,7 +15733,7 @@ calendario_tui() { # modo [epoch-ou-dia] [1 = com horário] [id da tarefa]
   [[ $modo == prazo || $modo == agenda ]] || { ini=$modo; modo=prazo; }
   local agora tz hoje foco hora="" hbuf="" msg="" tecla resto
   local teste=${TT_CAL_TECLAS:-} ti=0 ult_clique="" ult_t=0
-  read -r agora tz < <(tarefas_relogio); hoje=$(( (agora + tz) / 86400 )); foco=$hoje
+  read -r agora tz <<<"$(tarefas_relogio)"; hoje=$(( (agora + tz) / 86400 )); foco=$hoje
   if [[ $ini =~ ^[0-9]+$ ]]; then
     if ((ini > 1000000)); then
       foco=$(( (ini + tz) / 86400 ))
