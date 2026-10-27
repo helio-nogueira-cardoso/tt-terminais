@@ -20,7 +20,8 @@ fi
 #                              troca a conta PRINCIPAL (a de ~/.claude, a do "claude" puro) das máquinas para
 #                              essa conta: pula as que já estão nela e faz o resto como os logins acima
 # Usados entre máquinas (pelo próprio ia-login, via ssh):
-#   --faltas | --principal-faltas E | --iniciar P C E | --tela S | --codigo S X | --enter S | --conferir P C | --encerrar S | --recursos
+#   --faltas | --principal-faltas E | --iniciar P C E | --tela S | --codigo S X | --enter S | --conferir P C | --encerrar S |
+#   --repetido E C (0 = o e-mail E está noutra pasta do Claude daqui, fora C) | --recursos
 set -uo pipefail
 
 AQUI=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -79,7 +80,33 @@ email_claude() { # pasta → e-mail logado (vazio se não há login)
   return 0
 }
 
-email_cache() { local f=$1/.account-email; [[ -s $f ]] && head -n 1 "$f"; return 0; }
+# E-mail logado na pasta sem chamar o Claude: o oauthAccount.emailAddress do arquivo de configuração dele (o .config.json
+# antigo, se houver; senão ~/.claude.json na principal e o .claude.json da pasta num perfil), que todo login grava e de
+# onde o "auth status" o lê; sem ele, o cache do ia-conta. O cache sozinho mentia depois de um /login de dentro do Claude
+# (não passa pelo ia-conta): o perfil já estava noutra conta e o plano não via nada.
+email_local() {
+  local dir=${1%/} f e=""
+  if [[ -s $dir/.config.json ]]; then f=$dir/.config.json; elif [[ $dir == "$BASE" ]]; then f=$HOME/.claude.json; else f=$dir/.claude.json; fi
+  [[ -f $f ]] && e=$(awk '/"oauthAccount"[[:space:]]*:/ { o = 1 }
+    o && /"emailAddress"[[:space:]]*:/ { sub(/.*"emailAddress"[[:space:]]*:[[:space:]]*"/, ""); sub(/".*/, ""); print; exit }' "$f" 2>/dev/null)
+  [[ -n $e ]] || { f=$dir/.account-email; [[ -s $f ]] && e=$(head -n 1 "$f"); }
+  [[ -n $e ]] && printf '%s\n' "$e"
+  return 0
+}
+
+# 0 = EMAIL está logado noutra pasta do Claude daqui (a principal ou um perfil que não é NOME).
+repetido_aqui() { # e-mail nome
+  local email=$1 nome=$2 dir
+  [[ -n $email ]] || return 1
+  [[ $nome != principal ]] && tem_credencial "$BASE" && [[ $(email_local "$BASE") == "$email" ]] && return 0
+  for dir in "$RAIZ"/*/; do
+    dir=${dir%/}; [[ -d $dir && ! -L $dir && ${dir##*/} != "$nome" ]] || continue
+    [[ ${dir##*/} =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || continue
+    case ${dir##*/} in codex | kiro) continue ;; esac
+    tem_credencial "$dir" && [[ $(email_local "$dir") == "$email" ]] && return 0
+  done
+  return 1
+}
 
 # Cadastro normalizado: "provedor<TAB>e-mail<TAB>apelido" das contas vivas.
 cadastro() {
@@ -87,20 +114,21 @@ cadastro() {
   return 0
 }
 
-# O que falta aqui: "provedor<TAB>conta<TAB>e-mail esperado<TAB>situação" (falta | sem login | nome ocupado).
+# O que falta aqui: "provedor<TAB>conta<TAB>e-mail esperado<TAB>situação" (falta | sem login | nome ocupado |
+# conta errada (hoje: E), quando o perfil com o apelido está noutra conta que outra pasta daqui já tem).
 # E-mail desconhecido sai "-": o read do bash junta tabs seguidos (campo vazio deslocaria as colunas).
 faltas() {
   if [[ -n $PROOT ]]; then no_proot ia-login --faltas; return; fi
   local dir nome email apelido p esperado tem
   local -A email_de=() sem_cred=()
   if [[ -x $CLAUDE_BIN ]]; then
-    tem_credencial "$BASE" && email_de[principal]=$(email_cache "$BASE")
+    tem_credencial "$BASE" && email_de[principal]=$(email_local "$BASE")
     for dir in "$RAIZ"/*/; do
       dir=${dir%/}; [[ -d $dir && ! -L $dir ]] || continue
       nome=${dir##*/}
       [[ $nome =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || continue # travas não precisam de login
       case $nome in codex | kiro) continue ;; esac # não são perfis do Claude
-      if tem_credencial "$dir"; then email_de[$nome]=$(email_cache "$dir"); else sem_cred[$nome]=1; fi
+      if tem_credencial "$dir"; then email_de[$nome]=$(email_local "$dir"); else sem_cred[$nome]=1; fi
     done
     # Perfis sem credencial: entram com o e-mail que o cadastro dá ao apelido (se der).
     for nome in "${!sem_cred[@]}"; do
@@ -112,7 +140,10 @@ faltas() {
       tem=""
       for nome in "${!email_de[@]}"; do [[ ${email_de[$nome]} == "$email" ]] && tem=1; done
       [[ -n $tem || -n ${sem_cred[$apelido]:-} ]] && continue
-      if [[ -n ${email_de[$apelido]:-} || $apelido == principal ]]; then
+      if [[ $apelido != principal && -n ${email_de[$apelido]:-} ]] && repetido_aqui "${email_de[$apelido]}" "$apelido"; then
+        # O perfil entrou numa conta que outra pasta daqui já tem: refazer o login nele não tira conta nenhuma da máquina.
+        printf 'claude\t%s\t%s\tconta errada (hoje: %s)\n' "$apelido" "$email" "${email_de[$apelido]}"
+      elif [[ -n ${email_de[$apelido]:-} || $apelido == principal ]]; then
         printf 'claude\t%s\t%s\tnome ocupado\n' "$apelido" "$email"
       else
         printf 'claude\t%s\t%s\tfalta\n' "$apelido" "$email"
@@ -146,12 +177,21 @@ principal_faltas() { # e-mail
   printf 'claude\tprincipal\t%s\t%s\n' "$alvo" "$( [[ -n $atual ]] && echo "trocar (hoje: $atual)" || echo 'sem login')"
 }
 
+# Exceção ao "nunca loga por cima": o perfil do Claude está numa conta que não é a pedida e que outra pasta daqui já tem
+# (a situação "conta errada" das faltas). O login novo não tira conta nenhuma da máquina.
+pode_refazer() { # provedor conta e-mail-pedido e-mail-de-agora
+  [[ $1 == claude && -n $3 && $4 != "$3" ]] || return 1
+  if [[ -n $PROOT ]]; then no_proot ia-login --repetido "$4" "$2"; else repetido_aqui "$4" "$2"; fi
+}
+
 iniciar() {
   local p=$1 c=$2 e=${3:-} s cmd args
   # Nunca abre login de conta já logada: o `codex login` derruba a credencial que existe ao começar
   # (aconteceu no dell, 06/10), e o do Claude grava por cima do perfil. A principal é a exceção pedida:
   # só chega aqui pelo --principal, que já conferiu que a principal daqui não é a conta pedida.
-  [[ $c != principal ]] && [[ -n $(conferir "$p" "$c") ]] && die "$p $c já está logada aqui; nada iniciado"
+  local atual=""
+  [[ $c != principal ]] && atual=$(conferir "$p" "$c")
+  [[ -z $atual ]] || pode_refazer "$p" "$c" "$e" "$atual" || die "$p $c já está logada aqui; nada iniciado"
   s="login-$p-$c"
   tm kill-session -t "=$s" 2>/dev/null
   local ia_conta=$IA_CONTA
@@ -293,7 +333,10 @@ mostrar_plano() {
   { printf 'MÁQUINA\tPROVEDOR\tCONTA\tE-MAIL ESPERADO\tSITUAÇÃO\n'
     for l in "${PLANO[@]}"; do
       IFS=$'\t' read -r rot dest p c e sit <<<"$l"
-      case $sit in 'nome ocupado') sit="nome ocupado por outro e-mail (ia-conta renomear $c <outro> antes)" ;; esac
+      case $sit in
+        'nome ocupado') sit="nome ocupado por outro e-mail (ia-conta renomear $c <outro> antes)" ;;
+        'conta errada'*) sit="$sit: o login refaz o perfil na conta certa (abra o link numa janela anônima)" ;;
+      esac
       printf '%s\t%s\t%s\t%s\t%s\n' "$rot" "$p" "$c" "$e" "$sit"
     done; } | tabela
 }
@@ -368,12 +411,15 @@ conferir_email() {
   return 0
 }
 
+# Situações do plano que viram login: falta, perfil sem login, troca da principal e perfil na conta errada.
+a_fazer() { [[ $1 == falta || $1 == 'sem login' || $1 == trocar* || $1 == 'conta errada'* ]]; }
+
 orquestrar() {
   local so_plano=$1; shift
   local l rot dest p c e sit n=0 total=0 ok=0 resp
   echo 'Perguntando às máquinas o que falta…'
   montar_plano "$@"
-  for l in "${PLANO[@]}"; do IFS=$'\t' read -r rot dest p c e sit <<<"$l"; [[ $sit == falta || $sit == 'sem login' || $sit == trocar* ]] && total=$((total + 1)); done
+  for l in "${PLANO[@]}"; do IFS=$'\t' read -r rot dest p c e sit <<<"$l"; a_fazer "$sit" && total=$((total + 1)); done
   if ((${#PLANO[@]} == 0)); then
     if [[ -n $PRINCIPAL_ALVO ]]; then echo "Nada a fazer: a principal de todas as máquinas já é $PRINCIPAL_ALVO."
     else echo 'Nada a fazer: todas as contas do cadastro estão logadas em todas as máquinas.'; fi
@@ -388,7 +434,7 @@ orquestrar() {
   [[ -z $resp || $resp == [sS]* ]] || { echo 'Nada feito.'; return 0; }
   for l in "${PLANO[@]}"; do
     IFS=$'\t' read -r rot dest p c e sit <<<"$l"
-    [[ $sit == falta || $sit == 'sem login' || $sit == trocar* ]] || continue
+    a_fazer "$sit" || continue
     n=$((n + 1))
     printf '\n[%d/%d] %s · %s · %s%s\n' "$n" "$total" "$rot" "$p" "$c" "$( [[ $e != - ]] && echo " ($e)")"
     if um_login "$rot" "$dest" "$p" "$c" "$e"; then ok=$((ok + 1)); RESULTADO+=("✓ $rot $p $c"); else RESULTADO+=("✗ $rot $p $c"); fi
@@ -418,11 +464,12 @@ case ${1:-} in
   --codigo) codigo "$2" "$3" ;;
   --enter) enter "$2" ;;
   --conferir) conferir "$2" "$3" ;;
+  --repetido) repetido_aqui "$2" "$3" ;;
   --encerrar) encerrar "$2" ;;
   --plano) orquestrar 1 "${@:2}" ;;
   # Do título até antes de "Usados entre máquinas", por marcadores e não por número de linha: a guarda do bash 4+ no topo
   # empurrou o texto, e as outras máquinas detectam o --principal procurando a linha dele nesta ajuda.
   -h | --help | ajuda) sed -n '/^# ia-login —/,/^# Usados entre máquinas/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' ;;
-  --recursos) echo 'principal faltas iniciar conferir' ;;  # o que esta versão entende entre máquinas
+  --recursos) echo 'principal faltas iniciar conferir repetido' ;;  # o que esta versão entende entre máquinas
   *) orquestrar 0 "$@" ;;
 esac

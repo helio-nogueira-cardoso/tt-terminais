@@ -952,7 +952,12 @@ F4→`dbn`, F5→`tela`, F6→`sair`, F7→`ant`, F8→`zm`, F9→`jn`, F10→`d
   para pessoas, `ia-login [máquina…]`, `--plano` e `--principal CONTA|E-MAIL [--plano]`. Os verbos que ele usa entre
   máquinas, por ssh, e que um agente pode dirigir à mão: `--faltas`, `--principal-faltas E`, `--iniciar PROVEDOR CONTA
   [E-MAIL]` (imprime a sessão `login-PROVEDOR-CONTA`), `--tela S`, `--codigo S TEXTO`, `--enter S`, `--conferir
-  PROVEDOR CONTA` (o e-mail logado), `--encerrar S`. Para logar sem o dono copiar link nem colar código, o agente usa o
+  PROVEDOR CONTA` (o e-mail logado), `--encerrar S`, `--repetido E C` (0 = o e-mail E está noutra pasta do Claude daqui).
+  O e-mail de cada pasta do Claude (ia-conta, ia-rot, ia-login) é o `oauthAccount.emailAddress` do arquivo de configuração
+  do Claude (`.claude.json` da pasta; `~/.claude.json` na principal; o `.config.json` antigo, se houver), o mesmo que o
+  `claude auth status` mostra; o `.account-email` é só reserva. Um `/login` de dentro do Claude troca a conta sem passar
+  pelo ia-conta: o `listar` avisa o perfil na conta errada, o `ia-rot --status` mostra `mesma-conta` e o plano do
+  `ia-login` mostra `conta errada (hoje: E)` e refaz o login. Para logar sem o dono copiar link nem colar código, o agente usa o
   navegador do celular: skill `celular-android`, seção 14 (função `login_pelo_celular`). O `--iniciar` repete o
   `new-session` se o tmux ainda derruba o servidor da sessão anterior (corrida do tmux 3.6).
 

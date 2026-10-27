@@ -410,7 +410,7 @@ espelha o pacote no proot que já tem `/root/.local/share/tt` (links, skill, cad
 `ia-login` do Termux pergunta ao proot o que falta e roda lá os logins.
 
 **Logar sem abrir link nem colar código (pelo celular).** O `ia-login` conversa com cada máquina por poucos verbos
-(`--iniciar`, `--tela`, `--codigo`, `--enter`, `--conferir`, `--encerrar`, `--faltas`, `--principal-faltas`; ver o
+(`--iniciar`, `--tela`, `--codigo`, `--enter`, `--conferir`, `--encerrar`, `--faltas`, `--principal-faltas`, `--repetido`; ver o
 cabeçalho do script), e isso permite que um agente de IA faça o ciclo inteiro por você: com o celular montado pelo tt
 (controle rápido da tela) e o navegador dele logado na conta, ele abre o link no celular, anda pelo login do site e do
 Google, toca em "Autorizar" (depois de conferir o "Conectado como …" da página), lê o código e o entrega ao alvo — uma

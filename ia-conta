@@ -64,6 +64,24 @@ tem_credencial() {
   security find-generic-password -s "$svc" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1
 }
 
+# Arquivo de configuração do Claude da pasta, pela regra do próprio Claude Code: o .config.json antigo, se houver; senão
+# ~/.claude.json na principal e o .claude.json da pasta num perfil (CLAUDE_CONFIG_DIR).
+config_claude() {
+  local dir=${1%/}
+  if [[ -s $dir/.config.json ]]; then printf '%s\n' "$dir/.config.json"
+  elif [[ $dir == "$BASE" ]]; then printf '%s\n' "$HOME/.claude.json"
+  else printf '%s\n' "$dir/.claude.json"; fi
+}
+
+# E-mail da conta logada na pasta segundo o próprio Claude: o oauthAccount.emailAddress do arquivo de configuração, que
+# todo login grava (inclusive o /login de dentro de uma sessão, que não passa pelo ia-conta) e de onde o
+# "claude auth status" o lê. Um awk, sem CLI nem rede; vazio se o arquivo não tem a conta.
+email_config() {
+  awk '/"oauthAccount"[[:space:]]*:/ { o = 1 }
+       o && /"emailAddress"[[:space:]]*:/ { sub(/.*"emailAddress"[[:space:]]*:[[:space:]]*"/, ""); sub(/".*/, ""); print; exit }' \
+    "$(config_claude "$1")" 2>/dev/null || true
+}
+
 # Estes dados são independentes da conta e permanecem canônicos em ~/.claude. O link é criado
 # uma única vez por perfil; assim, uma conversa iniciada por qualquer conta pode ser retomada por
 # todas as outras, sem copiar nem dividir o histórico local.
@@ -489,13 +507,14 @@ cadastro_gravar() {
 
 provedor_de() { case $1 in codex | kiro) echo "$1" ;; *) echo claude ;; esac; }
 
-# E-mail da conta local C só por cache (sem chamar CLI nem rede): o do Claude fica na pasta da
-# conta; o do Codex e o do Kiro, no cache que o listar grava.
+# E-mail da conta local C sem chamar CLI nem rede: o do Claude é o do arquivo de configuração da pasta (email_config;
+# sem ele, o cache .account-email); o do Codex e o do Kiro, o do cache que o listar grava.
 email_local() {
-  local f
+  local f e
   case $1 in
     codex | kiro) awk -F'\t' -v c="$1" '$1 == c { print $2 }' "$EMAILS_CACHE" 2>/dev/null | tail -n 1 ;;
-    *) f=$(pasta_claude "$1")/.account-email; [[ -s $f ]] && head -n 1 "$f" ;;
+    *) f=$(pasta_claude "$1"); e=$(email_config "$f")
+       if [[ -n $e ]]; then printf '%s\n' "$e"; else f+=/.account-email; [[ -s $f ]] && head -n 1 "$f"; fi ;;
   esac
   return 0
 }
@@ -543,10 +562,25 @@ cadastro_registrar() {
 # Depois da tabela: contas do Claude do cadastro que faltam aqui (o Claude é o único provedor com
 # vários perfis por máquina; Codex e Kiro têm um login só) e apelidos locais diferentes (só rótulo).
 cadastro_resumo() { # linhas "conta<TAB>provedor<TAB>e-mail" daqui
-  local locais=$1 p email nome ts c n faltam="" difere=""
+  local locais=$1 p email nome ts c n faltam="" difere="" errada="" repetida="" esperado mesma
+  local -A errado=()
   [[ -s $CADASTRO ]] || return 0
+  # Perfil logado numa conta que não é a dele: o cadastro dá ao apelido outro e-mail, e o de agora é o de outra pasta daqui
+  # (um /login de dentro do Claude entra com a conta que o navegador tem aberta). O conserto é logar o perfil de novo na
+  # conta do cadastro: nenhuma conta sai da máquina. Renomear (a dica de "faltam aqui") deixaria duas pastas na mesma conta.
+  while IFS=$'\t' read -r c p email; do
+    [[ $p == claude && $c != principal && -n $c ]] || continue
+    esperado=$(cadastro_par "$c" claude); esperado=${esperado%%$'\n'*}; esperado=${esperado#*$'\t'}
+    [[ -n $esperado && $esperado != "$email" ]] || continue
+    mesma=$(awk -F'\t' -v c="$c" -v e="$email" '$1 != c && $2 == "claude" && $3 == e { printf "%s%s", s, $1; s = ", " }' <<<"$locais")
+    [[ -n $mesma ]] || continue
+    errado[$c]=1
+    errada+="  $c  está em $email (a mesma conta de $mesma), mas no cadastro é $esperado"$'\n'
+    errada+="    → ia-conta adicionar $c --email $esperado  (abra o link numa janela anônima: o navegador não reaproveita a conta aberta)"$'\n'
+  done <<<"$locais"
   while IFS=$'\t' read -r p email nome ts; do
     [[ $p == claude && $nome != - ]] || continue
+    [[ -n ${errado[$nome]:-} ]] && continue
     awk -F'\t' -v e="$email" '$2 == "claude" && $3 == e { f = 1 } END { exit !f }' <<<"$locais" && continue
     # O nome já é de outra conta daqui: adicionar por cima trocaria o login dela.
     c=$(awk -F'\t' -v n="$nome" '$1 == n { print $3 }' <<<"$locais")
@@ -558,10 +592,18 @@ cadastro_resumo() { # linhas "conta<TAB>provedor<TAB>e-mail" daqui
     fi
   done <<<"$(cadastro_linhas)"
   while IFS=$'\t' read -r c p email; do
-    [[ $p == claude && $c != principal ]] || continue
+    [[ $p == claude && $c != principal && -z ${errado[$c]:-} ]] || continue
     n=$(cadastro_nome claude "$email")
-    [[ -n $n && $n != - && $n != "$c" ]] && difere+="  $c  é \"$n\" no cadastro  → ia-conta renomear $c $n"$'\n'
+    [[ -n $n && $n != - && $n != "$c" ]] || continue
+    # O apelido do e-mail já é de outra pasta daqui na mesma conta: renomear para ele não tem como dar certo.
+    if awk -F'\t' -v n="$n" -v e="$email" '$1 == n && $2 == "claude" && $3 == e { f = 1 } END { exit !f }' <<<"$locais"; then
+      repetida+="  $c  é a mesma conta de $n ($email)  → ia-conta remover $c, ou logue-o na conta certa: ia-conta adicionar $c --email E-MAIL"$'\n'
+    else
+      difere+="  $c  é \"$n\" no cadastro  → ia-conta renomear $c $n"$'\n'
+    fi
   done <<<"$locais"
+  [[ -n $errada ]] && printf '\nPerfis logados numa conta que não é a do cadastro (Claude):\n%s' "$errada"
+  [[ -n $repetida ]] && printf '\nPerfis repetidos, na conta de outra pasta daqui (Claude):\n%s' "$repetida"
   [[ -n $faltam ]] && printf '\nNo cadastro das máquinas, faltam aqui (Claude):\n%s' "$faltam"
   [[ -n $difere ]] && printf '\nApelidos diferentes do cadastro (opcional, só rótulo):\n%s' "$difere"
   return 0
@@ -696,7 +738,17 @@ listar() {
   # A principal por último: com o mesmo e-mail de um perfil, o nome do perfil é o que vale.
   printf '%s' "$locais" | awk -F'\t' '$1 != "principal" { print } $1 == "principal" { p = $0 } END { if (p != "") print p }' |
     cadastro_registrar
+  mesma_conta_resumo "$locais"
   cadastro_resumo "$locais"
+}
+
+# Pastas do Claude daqui logadas na mesma conta (o mesmo e-mail): é uma cota só, e o ia-rot a conta uma vez.
+mesma_conta_resumo() {
+  local saida
+  saida=$(awk -F'\t' '$2 == "claude" && $3 ~ /@/ { if (!($3 in n)) ordem[++k] = $3; n[$3]++; l[$3] = l[$3] (l[$3] == "" ? "" : ", ") $1 }
+    END { for (i = 1; i <= k; i++) if (n[ordem[i]] > 1) printf "  %s  %s\n", ordem[i], l[ordem[i]] }' <<<"$1")
+  [[ -n $saida ]] && printf '\nA mesma conta em mais de uma pasta (uma cota só; o ia-rot conta uma vez):\n%s\n' "$saida"
+  return 0
 }
 
 # Conta desta sessão: IA_CONTA (posta pelo ia-conta e pelo ia-rot), senão a pasta do
@@ -745,13 +797,22 @@ uso_contas() {
 }
 
 claude_status_email() {
-  local config_dir=$1 saida email cache_dir cache tentativa
+  local config_dir=$1 saida email cache_dir cache tentativa conf
   cache_dir=${config_dir:-$BASE}
   cache="$cache_dir/.account-email"
-  # O e-mail de uma credencial não muda (um novo login apaga o cache em entrar).
+  # Vale o e-mail do arquivo de configuração do Claude (o mesmo que o "auth status" mostra); o cache só serve sem ele.
+  # Um /login de dentro do Claude troca a conta da pasta sem passar pelo ia-conta: o cache antigo fazia o listar e o
+  # ia-rot mostrarem a conta de antes (27/10/2026: seis perfis em duas contas, com folga que não existia).
+  conf=$(email_config "$cache_dir")
   if [[ -s $cache ]]; then
     IFS= read -r email <"$cache" || true
-    [[ -n $email ]] && { printf '%s\n' "$email"; return 0; }
+    [[ -n $email && ( -z $conf || $email == "$conf" ) ]] && { printf '%s\n' "$email"; return 0; }
+  fi
+  if [[ -n $conf ]]; then
+    printf '%s\n' "$conf" >"$cache"
+    chmod 600 "$cache"
+    printf '%s\n' "$conf"
+    return 0
   fi
   for tentativa in 1 2 3; do
     if [[ -n $config_dir ]]; then

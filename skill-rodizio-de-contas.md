@@ -13,7 +13,14 @@ gerenciadas pelo tt-terminais:
 - Sub-agentes rodam no modelo do agente que os chama: não peça outro modelo ao chamar um sub-agente (o tt liga `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, que ignora o pedido).
 
 O uso é por conta, somado entre todas as sessões que usam a mesma conta. Por isso ele pode subir
-mesmo quando você trabalha pouco.
+mesmo quando você trabalha pouco. Duas pastas do Claude logadas no mesmo e-mail são a mesma cota: o
+`ia-rot --status` mostra a repetida como `mesma-conta` e ela nunca recebe a passagem da outra.
+
+**Não troque de conta com `/login` de dentro do Claude** num perfil do tt: ele entra com a conta que o
+navegador tem aberta, e o perfil passa a ser outra conta (o que já deixou seis perfis em duas contas). Se o
+`ia-conta listar` disser "Perfis logados numa conta que não é a do cadastro", o conserto é o que ele mostra:
+`ia-conta adicionar PERFIL --email E-MAIL-CERTO`, com o link aberto numa janela anônima (ou o plano do
+`ia-login`, que mostra `conta errada` e refaz esses logins).
 
 ## Quando consultar
 

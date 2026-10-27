@@ -13,7 +13,8 @@ fi
 # Codex e Kiro so entram com -p: o prompt vai para `codex exec` / `kiro-cli chat --no-interactive`.
 #
 #   ia-rot [--claude-only] [--exceto CONTA]... <argumentos do claude>
-#   ia-rot --status                    TSV: conta<TAB>estado<TAB>detalhe (detalhe traz o uso)
+#   ia-rot --status                    TSV: conta<TAB>estado<TAB>detalhe (detalhe traz o uso); estado mesma-conta =
+#                                      outra pasta logada na mesma conta (mesmo e-mail) de uma ja listada
 #   ia-rot --passar ARQUIVO [--de CONTA] [--yolo] [--sem-tmux] [--claude-only]
 #       Passagem de tarefa: abre a proxima conta/agente disponivel (que nao seja CONTA, a desta sessao)
 #       mandando ler ARQUIVO e continuar. Dentro do tmux, numa janela nova da mesma sessao (interativo);
@@ -77,14 +78,42 @@ blk(){ local b p=${U_PICO[$1]:-} hora
     if [ "${U_FONTE[$1]:-}" = ao-vivo ] || [ -z "$hora" ]; then printf '%s\t0\t%s\n' "$1" "$now" >> "$STATE"; b=0; fi
   fi
   echo "$b"; }
-# Identidade da conta: o par provedor:e-mail (o e-mail do Claude vem do cache que o ia-conta grava na
-# pasta). Duas contas com o mesmo par sao a mesma janela de uso: bloqueiam juntas e uma nunca recebe a
-# passagem da outra. Sem e-mail conhecido, a conta e a propria identidade.
-par(){ local f
-  case $1 in codex|kiro) echo "$1"; return ;; principal) f=$HOME/.claude/.account-email ;; *) f=$RAIZ/$1/.account-email ;; esac
-  if [ -s "$f" ]; then echo "claude:$(head -n 1 "$f")"; else echo "conta:$1"; fi; }
-mesmo_par(){ local p x; p=$(par "$1"); for x in "${contas[@]}"; do [ "$(par "$x")" = "$p" ] && echo "$x"; done; }
+# Identidade da conta: o par provedor:e-mail. O e-mail do Claude e o do arquivo de configuracao da pasta
+# (oauthAccount.emailAddress do .claude.json, ou do ~/.claude.json na principal; o .config.json antigo, se houver), que
+# todo login grava, inclusive o /login de dentro de uma sessao, que nao passa pelo ia-conta; sem ele, o cache que o
+# ia-conta grava na pasta. Duas contas com o mesmo par sao a mesma janela de uso: bloqueiam juntas, uma nunca recebe a
+# passagem da outra nem a vaga dela num --exceto, e o --status mostra a repetida como mesma-conta. Sem e-mail
+# conhecido, a conta e a propria identidade. Um awk para todas as pastas, uma vez por execucao (pares_carregar).
+declare -A PAR=()
+pares_carregar(){ local c d f arqs=() linha e
+  [ -n "${PAR[principal]:-}" ] && return 0
+  declare -A dir_de=()
+  for c in "${contas[@]}"; do
+    case $c in codex|kiro) PAR[$c]=$c; continue ;; principal) d=$HOME/.claude; f=$HOME/.claude.json ;; *) d=$RAIZ/$c; f=$d/.claude.json ;; esac
+    [ -s "$d/.config.json" ] && f=$d/.config.json
+    dir_de[$f]=$c; PAR[$c]=conta:$c
+    [ -f "$f" ] && arqs+=("$f")
+  done
+  if [ ${#arqs[@]} -gt 0 ]; then
+    while IFS=$'\t' read -r f e; do [ -n "$e" ] && [ -n "${dir_de[$f]:-}" ] && PAR[${dir_de[$f]}]=claude:$e; done <<<"$(
+      awk 'FNR == 1 { o = 0; feito = 0 } feito { next } /"oauthAccount"[[:space:]]*:/ { o = 1 }
+           o && /"emailAddress"[[:space:]]*:/ { e = $0; sub(/.*"emailAddress"[[:space:]]*:[[:space:]]*"/, "", e); sub(/".*/, "", e)
+             print FILENAME "\t" e; feito = 1 }' "${arqs[@]}" 2>/dev/null)"
+  fi
+  for c in "${contas[@]}"; do
+    [ "${PAR[$c]}" = "conta:$c" ] || continue
+    case $c in principal) f=$HOME/.claude/.account-email ;; *) f=$RAIZ/$c/.account-email ;; esac
+    [ -s "$f" ] && { IFS= read -r linha <"$f"; [ -n "$linha" ] && PAR[$c]=claude:$linha; }
+  done
+  return 0; }
+par(){ pares_carregar; if [ -n "${PAR[$1]:-}" ]; then echo "${PAR[$1]}"; else echo "conta:$1"; fi; }
+mesmo_par(){ local p x; pares_carregar; p=$(par "$1"); for x in "${contas[@]}"; do [ "${PAR[$x]}" = "$p" ] && echo "$x"; done; }
 marca(){ local x; for x in $(mesmo_par "$1"); do printf '%s\t%s\t%s\n' "$x" "$2" "$now" >> "$STATE"; done; }
+# Excluir uma conta (--exceto) exclui a janela de uso dela: as outras pastas na mesma conta saem junto.
+if [ "$EXCETO" != " " ]; then
+  pares_carregar
+  for x in $EXCETO; do for y in $(mesmo_par "$x"); do case "$EXCETO" in *" $y "*) ;; *) EXCETO+="$y " ;; esac; done; done
+fi
 
 # Motivo para nao usar a conta (vazio = pode usar).
 tem_credencial(){ local dir=$1 svc='Claude Code-credentials' h
@@ -203,13 +232,28 @@ fi
 if [ "$STATUS" = 1 ]; then
   cur=$(cat "$CUR" 2>/dev/null)
   carregar_uso 120 "${contas[@]}"
+  pares_carregar
+  # Em cada par vale uma pasta com login: a principal, senao a que tem o apelido do e-mail no cadastro, senao a 1a; as
+  # outras pastas na mesma conta saem como mesma-conta (nao somam folga).
+  declare -A dono=() apelido=()
+  while IFS=$'\t' read -r x y; do [ -n "$y" ] && apelido[claude:$x]=$y; done <<<"$(awk -F'\t' -v OFS='\t' \
+    'NF == 3 && $1 ~ /@/ { print $1, $2; next } NF >= 4 && $1 == "claude" && $3 != "-" { print $2, $3 }' \
+    "${XDG_CONFIG_HOME:-$HOME/.config}/tt/contas-ia" 2>/dev/null)"
+  for passo in 1 2 3; do for c in "${contas[@]}"; do
+    case ${PAR[$c]} in claude:*) ;; *) continue ;; esac
+    [ -z "${dono[${PAR[$c]}]:-}" ] || continue
+    case $passo in 1) [ "$c" = principal ] || continue ;; 2) [ "${apelido[${PAR[$c]}]:-}" = "$c" ] || continue ;; esac
+    [ -z "$(indisponivel "$c")" ] && dono[${PAR[$c]}]=$c
+  done; done
   for c in "${contas[@]}"; do
     b=$(blk "$c"); motivo=$(indisponivel "$c"); u=${U_TEXTO[$c]:-}
+    d=${dono[${PAR[$c]}]:-}
     if [[ -z $motivo ]] && cheia_pelo_uso "$c"; then b=$(blk "$c"); fi
-    if [ -n "$b" ] && [ "$b" -gt "$now" ] 2>/dev/null; then printf '%s\tesgotada\treseta %s%s\n' "$c" "$(fmt_epoch "$b" '+%d/%m %H:%M')" "${u:+ · $u}"
+    if [[ -z $motivo && -n $d && $d != "$c" ]]; then printf '%s\tmesma-conta\tde %s (%s)%s\n' "$c" "$d" "${PAR[$c]#claude:}" "${u:+ · $u}"
+    elif [ -n "$b" ] && [ "$b" -gt "$now" ] 2>/dev/null; then printf '%s\tesgotada\treseta %s%s\n' "$c" "$(fmt_epoch "$b" '+%d/%m %H:%M')" "${u:+ · $u}"
     elif [[ $motivo == *"nao instalado" ]]; then printf '%s\tausente\t%s\n' "$c" "$motivo"
     elif [ -n "$motivo" ]; then printf '%s\tdeslogada\t%s\n' "$c" "$motivo"
-    elif [ "$c" = "$cur" ]; then printf '%s\tem-uso\t%s\n' "$c" "$u"
+    elif [ "$c" = "$cur" ] || { [ -n "$cur" ] && [ -n "${PAR[$cur]:-}" ] && [ "${PAR[$cur]}" = "${PAR[$c]}" ]; }; then printf '%s\tem-uso\t%s\n' "$c" "$u"
     else printf '%s\tdisponivel\t%s\n' "$c" "$u"; fi
   done
   exit 0

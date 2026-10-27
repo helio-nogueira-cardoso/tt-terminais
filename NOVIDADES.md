@@ -4,6 +4,11 @@ Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
 ## v2.11.58 · 28/10/2026
+- **🔄 Perfil do Claude logado na conta errada aparece:** um `/login` de dentro do Claude troca a conta da pasta sem passar pelo `ia-conta`, e o tt continuava mostrando o e-mail de antes (guardado em cache). Assim, perfis diferentes eram a mesma conta sem ninguém ver: numa máquina, seis perfis eram duas contas, e o rotador mostrava folga que não existia. Agora o e-mail de cada pasta é o que o próprio Claude grava no login (o mesmo do `claude auth status`), lido sem abrir o Claude.
+- **O `ia-conta listar` diz como consertar:** perfil numa conta que outra pasta já tem e que não é a do cadastro sai em "Perfis logados numa conta que não é a do cadastro", com o comando `ia-conta adicionar PERFIL --email E-MAIL-CERTO` (abra o link numa janela anônima, para o navegador não reaproveitar a conta aberta). A lista também resume as pastas que são a mesma conta.
+- **O rotador conta cada conta uma vez:** o `ia-rot --status` mostra a pasta repetida como `mesma-conta`; o `--exceto` de uma conta tira as outras pastas dela; o limite de uma bloqueia as outras e a passagem nunca cai numa delas.
+- **O `ia-login` refaz esses logins:** o plano mostra `conta errada (hoje: …)` e faz o login do perfil na conta do cadastro. Só quando a conta de agora já está noutra pasta da máquina; um login único nunca é trocado.
+
 - **💬 Nome inteiro na conversa do mesh:** persona com nome de mais de uma palavra aparecia só com a primeira (o Mac saía como "Pedro"). Agora vale o nome inteiro da carta, até o travessão da descrição: "Pedro Estevão".
 
 ## v2.11.51 · 27/10/2026

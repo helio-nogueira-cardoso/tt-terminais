@@ -482,14 +482,15 @@ pelos verbos que o próprio `ia-login` usa entre máquinas (todos por ssh no alv
 
 | Verbo do `ia-login` | O que faz |
 |---|---|
-| `--iniciar PROVEDOR CONTA [E-MAIL]` | abre a sessão `login-PROVEDOR-CONTA` com o login rodando e imprime o nome dela. `claude principal E-MAIL` troca a conta de `~/.claude`; `claude APELIDO E-MAIL` loga um perfil; `codex codex` e `kiro kiro` usam o fluxo de dispositivo. Recusa conta já logada (exceto a principal) e recria a sessão se ela já existir |
+| `--iniciar PROVEDOR CONTA [E-MAIL]` | abre a sessão `login-PROVEDOR-CONTA` com o login rodando e imprime o nome dela. `claude principal E-MAIL` troca a conta de `~/.claude`; `claude APELIDO E-MAIL` loga um perfil; `codex codex` e `kiro kiro` usam o fluxo de dispositivo. Recusa conta já logada (exceto a principal, e o perfil do Claude que está numa conta que não é a pedida e que outra pasta do alvo já tem: a situação `conta errada` das faltas) e recria a sessão se ela já existir |
 | `--tela SESSÃO` | imprime a tela da sessão (`capture-pane -J`: o link de ~500 caracteres do Claude vem inteiro) |
 | `--codigo SESSÃO TEXTO` | digita TEXTO na sessão e dá Enter (o "Paste code here" do Claude) |
 | `--enter SESSÃO` | só o Enter (perguntas de padrão, como região do Kiro) |
 | `--conferir PROVEDOR CONTA` | imprime o e-mail logado (vazio = ainda sem login); é a prova de que entrou a conta certa |
 | `--encerrar SESSÃO` | mata a sessão (sem isto ela fica 15 min depois do fim) |
-| `--faltas` · `--principal-faltas E-MAIL` | o que falta logar / se a principal já é a conta pedida (o plano do `ia-login`) |
-| `--recursos` | lista os comandos internos que esta versão oferece às outras máquinas (`principal`, `faltas`, `iniciar`, `conferir`); assim uma versão antiga pode ser reconhecida sem chamar um verbo que ela não conhece |
+| `--faltas` · `--principal-faltas E-MAIL` | o que falta logar / se a principal já é a conta pedida (o plano do `ia-login`); `conta errada (hoje: E)` = perfil logado numa conta que outra pasta já tem (um `/login` de dentro do Claude), que o plano refaz |
+| `--repetido E-MAIL CONTA` | sai 0 se E-MAIL está logado noutra pasta do Claude do alvo (a principal ou outro perfil); o `--iniciar` do Termux pergunta ao proot |
+| `--recursos` | lista os comandos internos que esta versão oferece às outras máquinas (`principal`, `faltas`, `iniciar`, `conferir`, `repetido`); assim uma versão antiga pode ser reconhecida sem chamar um verbo que ela não conhece |
 
 No celular-alvo o `ia-login` do Termux executa o login dentro do proot sozinho; a receita é a mesma.
 
