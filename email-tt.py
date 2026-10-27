@@ -768,7 +768,7 @@ def outlook_apagar(c, mid):
 
 def graph_apagar(c, mid):
     """DELETE pelo Graph (só com Mail.ReadWrite no Graph, como num app próprio)."""
-    return _ms_apagar("https://graph.microsoft.com/v1.0/me/messages/" + urllib.parse.quote(mid, safe=""), graph_token(c))
+    return _ms_apagar(GRAPH_API + "/me/messages/" + urllib.parse.quote(mid, safe=""), graph_token(c))
 
 
 def graph_lixeira(c, esvaziar=False):
@@ -784,7 +784,7 @@ def graph_lixeira(c, esvaziar=False):
             r = graph_get(c, caminho)
             ids.extend(x["id"] for x in r.get("value", []) if x.get("id"))
             proxima = r.get("@odata.nextLink", "")
-            caminho = proxima[len("https://graph.microsoft.com/v1.0"):] if proxima.startswith("https://graph.microsoft.com/v1.0/") else ""
+            caminho = proxima[len(GRAPH_API):] if proxima.startswith(GRAPH_API + "/") else ""
         return p.get("displayName") or "Itens Excluídos", ids, max(int(p.get("totalItemCount") or 0) - len(ids), 0)
     nome, ids, outros = listar()
     print(f"pasta={nome}")
@@ -1135,6 +1135,7 @@ def testar(c):
 
 _GRAPH_TOKENS = {}   # (conta, recurso) → (access token, quando renovar): um processo renovava a cada chamada
 GRAPH_TOKEN_VALIDADE = 45 * 60   # o access token da Microsoft vale ~60-90 min
+GRAPH_API = os.environ.get("TT_EMAIL_GRAPH_API") or "https://graph.microsoft.com/v1.0"  # a variável é só dos testes
 
 
 def graph_token(c, recurso="https://graph.microsoft.com/.default"):
@@ -1152,7 +1153,7 @@ def graph_token(c, recurso="https://graph.microsoft.com/.default"):
 
 
 def graph_get(c, caminho):
-    req = urllib.request.Request("https://graph.microsoft.com/v1.0" + caminho,
+    req = urllib.request.Request(GRAPH_API + caminho,
                                 headers={"Authorization": "Bearer " + graph_token(c),
                                          "Prefer": 'outlook.body-content-type="text"'})
     with urllib.request.urlopen(req, timeout=TIMEOUT, context=contexto_ssl()) as r:
@@ -1369,6 +1370,34 @@ def graph_enviar(c, destinatarios, mensagem):
     return outlook_postar(c, corpo)
 
 
+OUTLOOK_ENVIADOS_ESPERA = 15  # s que o envio espera a mensagem aparecer nos Itens Enviados (TT_EMAIL_ENVIADO_ESPERA; 0 = não confere)
+
+
+def outlook_enviados_recentes(c):
+    r = graph_get(c, "/me/mailFolders/sentitems/messages?$top=10&$orderby=sentDateTime%20desc"
+                     "&$select=id,subject,internetMessageId,toRecipients,ccRecipients,bccRecipients")
+    return r.get("value", [])
+
+
+def outlook_message_id(c, assunto, destinatarios, antes, espera):
+    """Message-ID que o Outlook deu ao que acabou de sair. O sendmail não devolve nada e grava um id próprio (o da
+    mensagem montada não chega a ele): procura nos Itens Enviados a mensagem nova (fora de `antes`, os ids de antes
+    do envio) com o mesmo assunto e os mesmos destinatários. Vazio se ela não aparecer em `espera` segundos."""
+    alvo = {a.lower() for _, a in email_lib.utils.getaddresses(destinatarios) if a}
+    assunto = " ".join(assunto.split())   # o Outlook pode normalizar espaços; diferença aqui custaria a espera inteira
+    limite = time.monotonic() + espera
+    while True:
+        for x in outlook_enviados_recentes(c):
+            quem = {r.get("emailAddress", {}).get("address", "").lower()
+                    for k in ("toRecipients", "ccRecipients", "bccRecipients") for r in x.get(k) or []} - {""}
+            if x.get("id") not in antes and " ".join(str(x.get("subject") or "").split()) == assunto and quem == alvo \
+                    and x.get("internetMessageId"):
+                return x["internetMessageId"]
+        if time.monotonic() >= limite:
+            return ""
+        time.sleep(1)
+
+
 def outlook_postar(c, corpo):
     token = graph_token(c, "https://outlook.office.com/.default")
     req = urllib.request.Request(OUTLOOK_API + "/me/sendmail", data=json.dumps(corpo).encode("utf-8"),
@@ -1566,8 +1595,15 @@ def enviar(caminho_conf, args):
         for p in m.iter_attachments():
             print(f"# anexo: {p.get_filename()} ({len(p.get_payload(decode=True) or b'')} bytes, {p.get_content_type()})")
         return 0
+    antes = None
     try:
         if conta_graph(c):
+            try:
+                espera = float(os.environ.get("TT_EMAIL_ENVIADO_ESPERA") or OUTLOOK_ENVIADOS_ESPERA)
+                # Os Itens Enviados de antes do envio: a mesma mensagem mandada de novo não é confundida com esta.
+                antes = {x.get("id") for x in outlook_enviados_recentes(c)} if espera > 0 else None
+            except Exception:
+                antes = None   # sem leitura pelo Graph o envio segue; só não há como dar o Message-ID do Outlook
             outlook_postar(c, outlook_json(m))
             aviso = ""
         else:
@@ -1579,7 +1615,16 @@ def enviar(caminho_conf, args):
                 aviso = f"enviado, mas não gravei a cópia nos enviados: {erro_curto(e)}"
     except Exception as e:
         print(f"✗ não enviado: {erro_curto(e)}", file=sys.stderr); return 1
-    print(f"✓ enviado de {c.get('endereco')} para {', '.join(destinatarios)} por {caminho} · Message-ID: {m['Message-ID']}")
+    mid = m["Message-ID"]
+    if conta_graph(c):   # o Outlook grava outro Message-ID: o da mensagem montada não serve para responder nem achar
+        mid = "não conferido nos Itens Enviados"
+        if antes is not None:
+            try:
+                mid = outlook_message_id(c, str(m.get("Subject", "")), destinatarios, antes, espera) or \
+                    "ainda não apareceu nos Itens Enviados"
+            except Exception:
+                pass
+    print(f"✓ enviado de {c.get('endereco')} para {', '.join(destinatarios)} por {caminho} · Message-ID: {mid}")
     if aviso:
         print(f"⚠ {aviso}", file=sys.stderr)
     return 0
@@ -1688,15 +1733,16 @@ def _graph_nomes(mensagens, anterior, destino):
     return nomes, refazer, True
 
 
-def graph_sync(c, base, limite, completo=False):
+def graph_sync(c, base, limite, completo=False, enviados=False):
     """Espelha o INBOX como maildir; no modo completo, também Enviados/Lixeira/Rascunhos/Spam/
-    Arquivo. O id do Graph é a verdade e dá o nome do arquivo: a pasta é atualizada no lugar, sem
-    duplicar quando o cliente renomeia arquivos ao marcar lido/arquivar."""
+    Arquivo; com enviados, só Enviados (o que o tt --email-enviar acabou de mandar). O id do Graph é a
+    verdade e dá o nome do arquivo: a pasta é atualizada no lugar, sem duplicar quando o cliente
+    renomeia arquivos ao marcar lido/arquivar."""
     from email.message import EmailMessage
     from email.utils import formataddr, format_datetime
     from datetime import datetime
     import hashlib
-    pastas = [("inbox", "INBOX")] + (GRAPH_PASTAS_EXTRA if completo else [])
+    pastas = GRAPH_PASTAS_EXTRA[:1] if enviados else [("inbox", "INBOX")] + (GRAPH_PASTAS_EXTRA if completo else [])
     total = 0
     for wk, nome_pasta in pastas:
         destino = os.path.join(base, nome_pasta)
@@ -1716,9 +1762,9 @@ def graph_sync(c, base, limite, completo=False):
                 r = graph_get(c, caminho)
                 mensagens.extend(r.get("value", [])[:teto - len(mensagens)])
                 proxima = r.get("@odata.nextLink", "")
-                if proxima and not proxima.startswith("https://graph.microsoft.com/v1.0/"):
+                if proxima and not proxima.startswith(GRAPH_API + "/"):
                     raise RuntimeError("Graph devolveu paginação fora do endpoint esperado")
-                caminho = proxima[len("https://graph.microsoft.com/v1.0"):] if proxima else ""
+                caminho = proxima[len(GRAPH_API):] if proxima else ""
         except urllib.error.HTTPError as e:
             if e.code == 404:   # pasta inexistente nesta conta: ignora
                 continue
@@ -1905,7 +1951,7 @@ def graph_classificar(c, limite=500):
 
     def req(metodo, caminho, corpo=None):
         data = json.dumps(corpo).encode() if corpo is not None else None
-        r = urllib.request.Request("https://graph.microsoft.com/v1.0" + caminho, data=data,
+        r = urllib.request.Request(GRAPH_API + caminho, data=data,
                                    headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"},
                                    method=metodo)
         with urllib.request.urlopen(r, timeout=TIMEOUT, context=contexto_ssl()) as resp:
@@ -2672,7 +2718,8 @@ def main(a):
         return testar_graph(c)
     if cmd == "graph-sync":
         try:
-            return graph_sync(c, a[2], int(a[3]) if len(a) > 3 else 500, len(a) > 4 and a[4] == "completo")
+            modo = a[4] if len(a) > 4 else ""
+            return graph_sync(c, a[2], int(a[3]) if len(a) > 3 else 500, modo == "completo", modo == "enviados")
         except Exception as e:
             print(f"✗ {erro_curto(e)}", file=sys.stderr); return 1
     if cmd == "graph-classificar":

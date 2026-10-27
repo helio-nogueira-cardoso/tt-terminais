@@ -19836,11 +19836,13 @@ email_idle_parar() {
   rm -f "$f"; return 0
 }
 
-email_sync() { # slug [inbox|completo] [vigia]
+email_sync() { # slug [inbox|completo|lixeira|enviados] [vigia]
   local slug=${1:?} modo=${2:-inbox} quem=${3:-} rc lock dir alvo teto ini fim st agora
   local -A E=(); email_ler "$slug" 2>/dev/null || true
-  # Conta do Microsoft Graph: inbox ou completo (o INBOX e as pastas padrão); lixeira própria não há.
+  # Conta do Microsoft Graph: inbox, completo (o INBOX e as pastas padrão) ou enviados (só Enviados, depois do
+  # tt --email-enviar); lixeira própria não há. No mbsync, Enviados não tem canal próprio: vem na volta completa.
   if email_graph; then [[ $modo == lixeira ]] && return 0; email_graph_sync "$slug" "$modo" "$quem"; return $?; fi
+  [[ $modo == enviados ]] && return 0
   rc=$(email_mbsyncrc "$slug")
   command -v "$(mbsync_bin)" >/dev/null || return 0
   [[ -f $rc ]] || return 0
@@ -20871,6 +20873,15 @@ email_conta_resolver() { # slug|nome|endereço → slug
   done
   return 1
 }
+# Conta do Graph com espelho: o que o tt --email-enviar acabou de mandar já aparece em Enviados. Essa pasta só vem
+# na volta completa, que com o IDLE de pé pode demorar até 2 h (o e-mail estava no Outlook e não no aerc).
+email_enviados_atualizar() { # slug
+  local -A E=(); email_ler "$1" 2>/dev/null || return 0
+  email_graph && [[ ${E[sync_local]:-} == 1 ]] || return 0
+  email_sync "$1" enviados || echo "⚠ e-mail enviado; a pasta Enviados do espelho atualiza na próxima sincronização completa" >&2
+  return 0
+}
+
 email_enviar_cli() {
   local conta="" s padrao ensaio=0 ui=0 proprio=0 destino=0 arg id rc n enviados=0
   local -a resto=() tarefas=() assuntos=() corpos=() bases=()
@@ -20918,8 +20929,9 @@ email_enviar_cli() {
     fi
   fi
   if ((${#tarefas[@]} == 0)); then
-    python3 "$EMAIL_PY" enviar "$(email_conf_arq "$s")" "${resto[@]}"
-    return $?
+    python3 "$EMAIL_PY" enviar "$(email_conf_arq "$s")" "${resto[@]}" || return $?
+    ((ensaio)) || email_enviados_atualizar "$s"
+    return 0
   fi
   ((destino)) || { echo '✗ envio de tarefa exige --para ENDEREÇO' >&2; return 2; }
   local -a ids=(); local vistos=' '
@@ -20946,13 +20958,16 @@ email_enviar_cli() {
   for ((n = 0; n < ${#ids[@]}; n++)); do
     printf '\nTarefa %s (%s/%s)\n' "$(tarefa_slug "${ids[n]}")" "$((n + 1))" "${#ids[@]}"
     printf '%s' "${corpos[n]}" | python3 "$EMAIL_PY" enviar "$(email_conf_arq "$s")" "${resto[@]}" --assunto "${assuntos[n]}" || {
-      rc=$?; echo "✗ lote interrompido: $enviados e-mail(s) já enviado(s); falhou na tarefa ${ids[n]}." >&2; return "$rc";
+      rc=$?; echo "✗ lote interrompido: $enviados e-mail(s) já enviado(s); falhou na tarefa ${ids[n]}." >&2
+      ((enviados)) && email_enviados_atualizar "$s"
+      return "$rc";
     }
     if ((!ensaio)); then
       enviados=$((enviados + 1))
       tarefa_base_gravar "${ids[n]}" "${bases[n]}" || echo "⚠ e-mail enviado; não consegui guardar a base da tarefa ${ids[n]}" >&2
     fi
   done
+  ((enviados)) && email_enviados_atualizar "$s"
   return 0
 }
 
@@ -21011,7 +21026,7 @@ email_testar_slug() {
 # TT_EMAIL_GRAPH_MAX, 500 por padrão). O aerc continua lendo maildir; o vigia chama por aqui e, como
 # no mbsync, respeita a espera depois de uma rodada ruim. Conta sem token nesta máquina não vai à rede:
 # a causa fica no .erro (pedir um token com o refresh token vazio dava só "'access_token'" a cada volta).
-email_graph_sync() { # slug [inbox|completo] [vigia]
+email_graph_sync() { # slug [inbox|completo|enviados] [vigia]
   local slug=${1:?} modo=${2:-inbox} quem=${3:-} conf dir ini fim st lock
   conf=$(email_conf_arq "$slug"); [[ -f $conf ]] || return 1
   dir="${ESTADO_DIR:?}/email-sync"; mkdir -p "$dir"
@@ -21019,21 +21034,25 @@ email_graph_sync() { # slug [inbox|completo] [vigia]
   email_sync_dispensavel "$slug" "$modo" "$quem" "$(date +%s)" && return 0
   lock="$EMAIL_MBSYNC_DIR/$slug.lock"; mkdir -p "$EMAIL_MBSYNC_DIR"
   exec 9>"$lock" 2>/dev/null || return 0
-  flock -n 9 || { printf 'pulada\t%s\t%s\t0\n' "$(date +%s)" "$(date +%s)" >>"$dir/$slug"; return 0; }
+  # Enviados vem logo depois de um envio: uma rodada do vigia em curso (segundos, no Graph) é esperada, não pulada.
+  if [[ $modo == enviados ]]; then flock -w "${TT_EMAIL_ENVIADOS_TRAVA:-20}" 9; else flock -n 9; fi ||
+    { printf 'pulada\t%s\t%s\t0\n' "$(date +%s)" "$(date +%s)" >>"$dir/$slug"; return 0; }
   ini=$(date +%s); printf '%s\t%s\n' "$modo" "$ini" >"$dir/$slug.andamento"
   local assinatura; assinatura=$(email_inbox_assinatura "$slug")
-  # Modo completo: além do INBOX, espelha Enviados/Lixeira/Rascunhos/Spam/Arquivo (o Python decide).
+  # Modo completo: além do INBOX, espelha Enviados/Lixeira/Rascunhos/Spam/Arquivo; enviados, só Enviados (o Python decide).
   if email_sem_token "$slug"; then echo "conta ainda não autorizada nesta máquina: tt --email-autorizar $slug" >"$dir/$slug.erro.tmp"; st=1
   else
     # Conta com classificar=1 (token de escrita Mail.ReadWrite): organiza o INBOX no servidor por regra
     # ANTES de espelhar, para o maildir já vir organizado. Best-effort: nunca derruba o sync. Sem token, nem tenta
     # (ia à Microsoft a cada volta só para falhar, e o .classif guardava o erro de login como se fosse da classificação).
-    grep -q '^classificar=1' "$conf" && timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-classificar "$conf" "${TT_EMAIL_GRAPH_MAX:-500}" >"$dir/$slug.classif" 2>&1
+    [[ $modo != enviados ]] && grep -q '^classificar=1' "$conf" && timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-classificar "$conf" "${TT_EMAIL_GRAPH_MAX:-500}" >"$dir/$slug.classif" 2>&1
     timeout ${TT_EMAIL_GRAPH_TETO:-240} python3 "$EMAIL_PY" graph-sync "$conf" "$(email_maildir "$slug")" "${TT_EMAIL_GRAPH_MAX:-500}" "$modo" >"$dir/$slug.saida.tmp" 2>"$dir/$slug.erro.tmp"; st=$?
   fi
   fim=$(date +%s); printf '%s\t%s\t%s\t%s\n' "$modo" "$ini" "$fim" "$st" >>"$dir/$slug"
   tail -n 200 "$dir/$slug" >"$dir/$slug.tmp" 2>/dev/null && mv "$dir/$slug.tmp" "$dir/$slug"
-  if ((st == 0)); then rm -f "$dir/$slug.erro" "$dir/$slug.erro.tmp" "$dir/$slug.espera" "$dir/$slug.falhas"
+  if [[ $modo == enviados ]]; then   # cortesia do envio: não mexe no erro nem na espera da conta; a falha só avisa quem enviou
+    ((st == 0)) || email_sem_segredo <"$dir/$slug.erro.tmp" | tail -n 1 >&2; rm -f "$dir/$slug.erro.tmp"
+  elif ((st == 0)); then rm -f "$dir/$slug.erro" "$dir/$slug.erro.tmp" "$dir/$slug.espera" "$dir/$slug.falhas"
     [[ $modo == completo ]] && rm -f "$dir/$slug.erro-completo"
   else { ((st == 124)) && echo "tempo esgotado (${TT_EMAIL_GRAPH_TETO:-240} s)"; tail -n 5 "$dir/$slug.erro.tmp" 2>/dev/null; } | email_sem_segredo >"$dir/$slug.erro"; rm -f "$dir/$slug.erro.tmp"
     [[ $modo == completo ]] && cp -f "$dir/$slug.erro" "$dir/$slug.erro-completo"

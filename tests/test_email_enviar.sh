@@ -8,8 +8,11 @@ source "$(dirname "$0")/lib.sh"; isolar
 command -v python3 >/dev/null || { echo "ok: sem python3, nada a testar"; exit 0; }
 SRV=$T/srv; mkdir -p "$SRV"
 cat >"$SRV/falso.py" <<'EOF'
-import base64, json, os, socketserver, sys, threading, http.server
+import base64, json, os, socketserver, sys, threading, http.server, urllib.parse
 pasta = sys.argv[1]
+enviados = []   # os Itens Enviados do Outlook falso: o que passou pelo sendmail, o mais novo primeiro
+def graph_end(r):
+    e = r["EmailAddress"]; return {"emailAddress": {"address": e["Address"], "name": e.get("Name", "")}}
 class Smtp(socketserver.StreamRequestHandler):
     def handle(self):
         w = lambda s: self.wfile.write((s + "\r\n").encode())
@@ -43,10 +46,34 @@ class Http(http.server.BaseHTTPRequestHandler):
             r = json.dumps({"access_token": "tok-falso"}).encode(); self.send_response(200)
         else:
             n = len(os.listdir(pasta))
-            json.dump({"path": self.path, "auth": self.headers.get("Authorization"), "corpo": json.loads(dados)},
+            corpo = json.loads(dados)
+            json.dump({"path": self.path, "auth": self.headers.get("Authorization"), "corpo": corpo},
                       open(f"{pasta}/outlook-{n}.json", "w"))
+            if corpo.get("SaveToSentItems"):   # como o Outlook: o Message-ID é dele, não o da mensagem montada
+                m, k = corpo["Message"], len(enviados)
+                enviados.insert(0, {"id": f"Env{k}", "internetMessageId": f"<outlook-{k}@falso.test>",
+                                    "subject": m["Subject"], "isRead": True, "lastModifiedDateTime": f"2026-10-27T13:00:{k:02d}Z",
+                                    "sentDateTime": f"2026-10-27T13:00:{k:02d}Z", "from": {"emailAddress": {"address": "eu@empresa.com"}},
+                                    "body": {"contentType": m["Body"]["ContentType"].lower(), "content": m["Body"]["Content"]},
+                                    **{c: [graph_end(r) for r in m.get(o, [])] for c, o in (("toRecipients", "ToRecipients"),
+                                       ("ccRecipients", "CcRecipients"), ("bccRecipients", "BccRecipients"))}})
             r = b""; self.send_response(202)
         self.send_header("Content-Length", str(len(r))); self.end_headers(); self.wfile.write(r)
+    def do_GET(self):
+        open(f"{pasta}/../gets.log", "a").write(self.path + "\n")
+        u = urllib.parse.urlsplit(self.path); q = urllib.parse.parse_qs(u.query)
+        # ../ocultar: a mensagem mais nova ainda não aparece nos Itens Enviados (o Outlook demora a gravar)
+        visiveis = enviados[1:] if os.path.exists(f"{pasta}/../ocultar") else enviados
+        if u.path == "/v1.0/me/mailFolders/sentitems/messages":
+            r, st = {"value": visiveis[:int(q.get("$top", ["10"])[0])]}, 200
+        elif u.path.startswith("/v1.0/me/messages/"):
+            achadas = [x for x in visiveis if x["id"] == urllib.parse.unquote(u.path.rsplit("/", 1)[1])]
+            r, st = (achadas[0], 200) if achadas else ({"error": {"message": "não existe"}}, 404)
+        else:
+            r, st = {"error": {"message": "pasta inexistente"}}, 404
+        r = json.dumps(r).encode(); self.send_response(st)
+        self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(r)))
+        self.end_headers(); self.wfile.write(r)
 socketserver.TCPServer.allow_reuse_address = True
 s = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Smtp); h = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Http)
 open(f"{pasta}/../portas", "w").write(f"{s.server_address[1]} {h.server_address[1]}\n")
@@ -55,7 +82,7 @@ EOF
 mkdir -p "$SRV/caixa"; python3 "$SRV/falso.py" "$SRV/caixa" & PID_SRV=$!
 for _ in $(seq 50); do [[ -s $SRV/portas ]] && break; sleep 0.1; done
 read -r PS PH <"$SRV/portas"
-export TT_EMAIL_OUTLOOK_API="http://127.0.0.1:$PH/api/v2.0"
+export TT_EMAIL_OUTLOOK_API="http://127.0.0.1:$PH/api/v2.0" TT_EMAIL_GRAPH_API="http://127.0.0.1:$PH/v1.0"
 E=$HOME/.config/tt/email; mkdir -p "$E" "$HOME/.secrets"
 printf 'nome=Pessoal\nendereco=eu@exemplo.com\nusuario=eu@exemplo.com\nnome_exibicao=Hélio Teste\nprovedor=outro\nauth=senha\nsmtp_host=127.0.0.1\nsmtp_porta=%s\nsmtp_seg=nenhuma\n' "$PS" >"$E/pessoal.conf"
 printf 'segredo-smtp' >"$HOME/.secrets/aerc-pessoal.txt"
@@ -112,6 +139,44 @@ a = m["Attachments"]; assert len(a) == 1 and a[0]["Name"] == "relatório.txt"
 assert base64.b64decode(a[0]["ContentBytes"]).decode() == "conteúdo do anexo ç\n"
 EOF
 passou 'Microsoft/Graph: API do Outlook com HTML, anexo, Cco e Reply-To; conta pelo nome'
+
+# 3b) Outlook: o Message-ID informado é o que o Outlook gravou nos Itens Enviados (a API não usa o da mensagem
+#     montada); a mesma mensagem duas vezes não confunde; demora em aparecer não segura o envio nem inventa um id
+MD=$HOME/.cache/tt/maildir/trabalho; ESTADO=$HOME/.local/state/tt/email-sync
+out=$("$TT" --email-enviar --conta trabalho --para x@y.com,w@y.com --cc c@y.com --assunto "Confere enviados" --corpo "um") ||
+  falhou 'envio pelo Outlook (3b) falhou'
+[[ $out == *"Message-ID: <outlook-"*"@falso.test>" ]] || falhou "Message-ID não é o do Outlook: $out"
+mid1=${out##*Message-ID: }
+out=$("$TT" --email-enviar --conta trabalho --para x@y.com,w@y.com --cc c@y.com --assunto "Confere enviados" --corpo "um")
+mid2=${out##*Message-ID: }
+[[ $mid2 == "<outlook-"*"@falso.test>" && $mid2 != "$mid1" ]] || falhou "a 2ª cópia deu o Message-ID da 1ª ($mid1 / $mid2)"
+[[ ! -d $MD ]] || falhou 'conta sem espelho (sync_local) não deveria sincronizar'
+touch "$SRV/ocultar"
+rc=0; out=$(TT_EMAIL_ENVIADO_ESPERA=1 "$TT" --email-enviar --conta trabalho --para x@y.com --assunto "Demora" --corpo "d") || rc=$?
+rm -f "$SRV/ocultar"
+[[ $rc == 0 && $out == "✓ enviado"*"ainda não apareceu nos Itens Enviados"* ]] || falhou "mensagem que demora: rc $rc: $out"
+[[ $out != *"@empresa.com>"* ]] || falhou "mostrou o Message-ID local, que o Outlook não usa: $out"
+passou 'Outlook: Message-ID dos Itens Enviados (cópias repetidas distintas; sem inventar id quando demora)'
+
+# 3c) Conta com espelho: o que acabou de sair já está em Enviados (a volta completa, que traz essa pasta, pode
+#     demorar horas); só essa pasta, sem tocar no INBOX; o ensaio não vai ao Graph nem ao espelho
+printf 'sync_local=1\n' >>"$E/trabalho.conf"
+mkdir -p "$ESTADO"; printf 'erro do INBOX\n' >"$ESTADO/trabalho.erro"; printf '9999999999\n' >"$ESTADO/trabalho.espera"
+out=$("$TT" --email-enviar --conta trabalho --para x@y.com --assunto "Vai para Enviados" --corpo "corpo em enviados") ||
+  falhou 'envio com espelho falhou'
+[[ $(cat "$ESTADO/trabalho.erro" "$ESTADO/trabalho.espera" 2>&1) == $'erro do INBOX\n9999999999' ]] ||
+  falhou 'atualizar Enviados mexeu no erro ou na espera da conta'
+rm -f "$ESTADO/trabalho.erro" "$ESTADO/trabalho.espera"
+mid=${out##*Message-ID: }
+grep -rqF "Message-ID: $mid" "$MD/Enviados" 2>/dev/null || falhou "Enviados do espelho sem a mensagem $mid: $(ls -R "$MD" 2>&1)"
+grep -rqF 'corpo em enviados' "$MD/Enviados" || falhou 'Enviados do espelho sem o corpo'
+[[ ! -d $MD/INBOX ]] || falhou 'atualizar Enviados não deveria mexer no INBOX'
+grep -q $'^enviados\t' "$ESTADO/trabalho" || falhou 'rodada de Enviados não ficou no registro'
+"$TT" --email-sync-estado | grep -q 'enviados' && falhou 'o estado deveria seguir mostrando só inbox e completo'
+: >"$SRV/gets.log"; antes=$(ls "$SRV/caixa" | wc -l)
+"$TT" --email-enviar --conta trabalho --para x@y.com --assunto "só ver" --corpo "c" --ensaio >/dev/null || falhou 'ensaio falhou'
+[[ ! -s $SRV/gets.log && $(ls "$SRV/caixa" | wc -l) == "$antes" ]] || falhou "ensaio foi ao Graph: $(cat "$SRV/gets.log")"
+passou 'Outlook com espelho: Enviados atualizado logo após o envio, sem INBOX; ensaio não sai da máquina'
 
 # 4) sendmail do aerc nas contas Graph: mensagem crua no stdin, envelope nos argumentos (o Cco só no envelope)
 printf 'From: eu@empresa.com\nTo: x@y.com\nSubject: do aerc\nContent-Type: text/plain; charset=utf-8\n\ncorpo do aerc ç\n' |
@@ -178,6 +243,11 @@ assert "tt:2 estado=aberta" in body, body
 assert "Descrição da subtarefa." in body
 EOF
 passou 'tt --email-enviar --tarefa: tarefa completa com IDs e subtarefas pelo transporte SMTP'
+
+# A tarefa pela conta do Graph com espelho também cai em Enviados logo depois do envio
+out=$("$TT" --email-enviar --conta trabalho --para netto@x.com --tarefa "$TID") || falhou 'tarefa pelo Outlook falhou'
+grep -rqF "~$TID" "$MD/Enviados" || falhou "tarefa enviada pelo Outlook não apareceu em Enviados: $out"
+passou 'tarefa pelo Outlook: Enviados do espelho atualizado depois do lote'
 
 # O receptor usa seu próprio perfil: só o remetente autorizado entra, e a atualização exige aprovação.
 mkdir -p "$T/receptor/.config/tt" "$T/receptor/.cache/tt/maildir/recebida/INBOX/new" "$T/receptor/rt"

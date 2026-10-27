@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.11.48 · 27/10/2026
+- **📧 O que você envia já aparece em Enviados:** numa conta Microsoft com espelho local, o `tt --email-enviar` atualiza a pasta Enviados do espelho assim que o e-mail sai. Antes ele já estava no Outlook, mas só chegava ao aerc na sincronização completa, que pode levar até 2 horas.
+- **Message-ID certo nas contas Microsoft:** o Outlook grava um Message-ID próprio e o tt mostrava o da mensagem que ele montou, que não servia para responder nem para achar o e-mail. Agora mostra o que está nos Itens Enviados; se a mensagem demorar a aparecer, diz isso em vez de mostrar um identificador que não existe.
+
 ## v2.11.10 · 24/10/2026
 - **Saída de uma conexão presa:** Ctrl+B Esc e o menu ⋯ → Recuperar tela abrem a central local. Uma falha limpa o quadro antigo e oferece Reconectar ou Central, sem escrever sequências estranhas por cima da interface. A tentativa tem prazo e pode ser cancelada; a sessão de trabalho é preservada.
 - **E-mail sem cascata:** navegar de dentro da janela age na tela que a abriu. Trocas nativas recebem proteção imediata de tamanho e retorno verificado; uma falha fecha só a vista, preservando o aerc. A partida do cliente no Mac também deixa de provocar recriações por confundir `env` com um aerc encerrado.

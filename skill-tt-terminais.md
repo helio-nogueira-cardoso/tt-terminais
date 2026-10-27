@@ -1172,9 +1172,17 @@ montagem e o envio são do `email-tt.py enviar CONF OPÇÕES…` (o `tt` resolve
   aceita `In-Reply-To`, então resposta não se encadeia lá). Demais → `smtp_enviar` (TLS, STARTTLS ou nenhuma;
   `credencial`: senha de `~/.secrets/aerc-<slug>.txt`, `cred_cmd` ou XOAUTH2 com token renovado). Cópia nos
   enviados: Gmail, Microsoft e Outlook guardam sozinhos; os outros recebem APPEND IMAP em `pasta_enviados`
-  (falha aqui só avisa: o e-mail já saiu).
+  (falha aqui só avisa: o e-mail já saiu). Conta Graph com espelho (`sync_local=1`): logo depois do envio,
+  `email_enviados_atualizar` roda `email_sync SLUG enviados` (`graph-sync … enviados`: só a pasta Enviados, espera a
+  trava até `TT_EMAIL_ENVIADOS_TRAVA`=20 s, sem classificar o INBOX; não mexe no `.erro` nem na espera da conta e a
+  falha só avisa quem enviou), porque a volta completa, a única
+  que traz Enviados, pode demorar até 2 h com o IDLE de pé. O registro ganha linhas `enviados`, que o estado ignora.
 - **Saída:** `✓ enviado de A para B, C por SMTP host|Outlook (API REST) · Message-ID: <…>`; rc 0 enviado, 1
   falhou (`✗ não enviado: motivo`), 2 uso errado (conta, destinatário, assunto, arquivo, opção). `--ajuda` mostra o uso.
+  No Outlook o Message-ID é o que ele gravou (o sendmail não usa o da mensagem montada): `outlook_message_id` acha a
+  mensagem nova nos Itens Enviados pelo Graph (assunto e destinatários, fora dos ids de antes do envio), esperando até
+  `TT_EMAIL_ENVIADO_ESPERA`=15 s (0 não confere); sem ela, `ainda não apareceu nos Itens Enviados` (ou `não conferido…`).
+  `TT_EMAIL_GRAPH_API` troca a base do Graph, só nos testes.
 - **Agente de IA:** o verbo envia na hora, sem perguntar. Antes de mandar a terceiros, mostre ao usuário o
   `--ensaio` e confirme; entre as contas do próprio usuário, só com o pedido dele. Nunca ponha senha, token ou
   segredo no corpo. Para compartilhar tarefas pelo transporte configurado, use `--tarefa ID` (repetível; também `--task`):

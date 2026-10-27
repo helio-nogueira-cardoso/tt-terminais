@@ -675,7 +675,10 @@ Os campos têm nome em português, como no resto do tt, e aceitam o equivalente 
 Sem `--conta`, vale a chave `email_padrao=` da configuração (`~/.config/tt/config`) ou a única conta
 cadastrada; com várias e sem padrão, o tt para e lista as contas. A cópia nos **enviados** fica com o
 provedor no Gmail, na Microsoft e no caminho da API do Outlook; nos outros, o tt grava a cópia pelo IMAP na
-pasta de enviados da conta. No fim imprime `✓ enviado … · Message-ID: <…>`. Código de saída: 0 enviado,
+pasta de enviados da conta. Numa conta Microsoft com espelho local, a pasta Enviados do espelho é
+atualizada logo depois do envio, e o e-mail já aparece no aerc. No fim imprime `✓ enviado … · Message-ID: <…>`;
+no caminho da API do Outlook, é o Message-ID que o Outlook gravou nos Itens Enviados (o que serve para
+`--em-resposta-a` e para achar a mensagem). Código de saída: 0 enviado,
 1 falhou (servidor, login, rede; a mensagem diz por quê), 2 uso errado (conta, destinatário, assunto ou
 anexo faltando, opção desconhecida). No caminho da API do Outlook os anexos somam no máximo 3 MB e a
 resposta não se encadeia na conversa (a API não aceita `In-Reply-To`).
