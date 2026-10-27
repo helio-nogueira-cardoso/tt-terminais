@@ -202,6 +202,9 @@ EOF
 tmux new-session -d -s jan "$B/agente-gancho.sh"; tmux set-option -t '=jan:' @tt_voz 1; v "aba jan" >/dev/null
 rm -f "$EST/retorno" "$EST/chamadas"
 J=$T/janela; mkdir -p "$J"
+# O cenário testa o envio à sessão escolhida e seus ganchos. Desligar apenas o
+# cérebro persistente ainda permite chamar ia-rot/HTTP e exceder o prazo da tela.
+printf -- '-\n' >"$HOME/.config/tt-voz/cerebro"
 tmux new-session -d -s conversa -x 110 -y 30 -e VOZ_T_RETORNO=1 -e VOZ_PLIM=0 -e VOZ_FALA=nenhum -e VOZ_CEREBRO_VIVO=0 \
   -e PATH="$PATH" -e VOZ_BIN="$V" -e VOZ_RETORNO_POLL=1 "bash '$V' --conversa --digitar; echo SAIU=\$? >'$J/saiu'; sleep 60"
 tela() { tmux capture-pane -p -J -t '=conversa:' 2>/dev/null; }

@@ -80,6 +80,12 @@ passou 'clique promove a ponte correta sem arrastar outra tela; renomeação pre
 
 # Mede a rota completa da barra até a tela pronta (SSH/PTY/tmux isolados).
 # A versão anterior ainda exige o tt remoto para voltar a uma ponte já ativada.
+# Duas telas e duas fixadas: as quatro preparações precisam terminar antes da
+# contagem. Esperar só uma ready mistura SSH especulativo com o custo do clique.
+aquecimento_completo() {
+  pre_estado | python3 -c 'import json,sys; p=json.load(sys.stdin).get("pontes",[]); sys.exit(not (len(p)==4 and all(i["state"] in ("ready","active") for i in p)))'
+}
+espera aquecimento_completo
 ssh_antes=$(wc -l <"$TT_TEST_PRE_REMOTE/ssh.log")
 ponte_cliente=$(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c="$cliente" '$1==c {print $2}')
 python3 - "$TT" "$cliente" "fx$chave" "$ponte_cliente" "fora-$$" <<'PY_BENCH'

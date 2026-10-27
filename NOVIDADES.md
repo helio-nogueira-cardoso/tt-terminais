@@ -3,7 +3,7 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
-## v2.11.50 · 27/10/2026
+## v2.11.51 · 27/10/2026
 - **🚀 Rotador reconhece os logins do Mac:** contas do Claude com credencial no Chaves passam a participar da seleção e da execução sem tela. Antes o seletor as mostrava conectadas, mas o rotador exigia um arquivo e as excluía como deslogadas.
 - **Uso antigo não parece cota livre:** quando a janela do cache já terminou e não há consulta atual, o rotador informa uso desconhecido. Bloqueios recentes por limite continuam valendo.
 
