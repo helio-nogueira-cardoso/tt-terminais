@@ -540,7 +540,15 @@ tmux_tela() {
   local px=${TT_TMUX_TELA_PREFIX:-/data/data/com.termux/files/usr}
   local bin=${TT_TMUX_TELA_BIN:-/data/data/com.termux/files/home/.local/share/tt-tmux/bin/tmux}
   if [[ ${PREFIX:-} != *com.termux* && -x $px/bin/sshd && -x $bin ]]; then
-    TMUX_TMPDIR=$px/var/run command "$bin" "$@"
+    # O servidor da tela roda com o uid do Termux (ex.: tmux-10236); no proot o uid é 0 e o tmux procuraria tmux-0, onde
+    # não há servidor (o vigia nunca recarregava a configuração e o canto ficava com a versão velha). Acha o socket real.
+    local d sock=""
+    for d in "$px"/var/run/tmux-*; do
+      [[ ${d##*/tmux-} == "$UID" ]] && continue
+      [[ -S $d/default ]] && sock=$d/default
+    done
+    if [[ -n $sock ]]; then command "$bin" -S "$sock" "$@"
+    else TMUX_TMPDIR=$px/var/run command "$bin" "$@"; fi
   else
     tmux "$@"
   fi
