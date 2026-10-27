@@ -215,7 +215,8 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   Testes: `tests/test_ssh_mestra_presa.sh`, classe `SemTravar` em `tests/test_precarregar_fluxo_modelo.py`.
   Bilhete: 3 = sessão não existe (sai do histórico se tem ID: `forget`), 5 = tmux de lá lento (passageiro).
   `erros.log` do coordenador: voltas do laço > 2 s (fase a fase) e coordenadores encerrados como travados.
-- **Identidade:** `@tt_session_id` é UUID persistente de 32 hex, atribuído uma vez sob trava e checagem de colisão.
+- **Identidade:** `@tt_session_id` é UUID persistente de 32 hex, atribuído uma vez sob trava e checagem de colisão (a restauração de um
+  snapshot devolve à sessão recriada o código que ela tinha, pela mesma trava: ver "Snapshots do estado").
   Nome só na descoberta inicial de legado sem ID. Havendo ID, não aceitar fallback por nome em clique, cache,
   reconciliação ou reconexão; exclusão/recriação é outra sessão. ID duplicado/ausente é recusa, nunca desempate
   por nome. `$N`/servidor são endereços de execução, conferidos junto ao UUID. Teste: `test_sessoes_identidade.sh`.
@@ -862,6 +863,14 @@ e os instaladores da pasta do usuário ficam no `tt`.
   `proot-distro login debian --shared-tmp -- bash -lc 'cd PASTA; …'`). `ia-conta retomar`: claude `--dangerously-skip-permissions --resume`, codex
   `resume ID --dangerously-bypass-approvals-and-sandbox`, kiro `--v3 --trust-all-tools --resume-id`; sem a conversa aqui (`sessoes-ia.py existe`), sessão
   nova do mesmo agente. Arquivo novo do pacote: `snapshots-tt.py`. Teste: `tests/test_snapshots.sh`.
+- Identidade na restauração: a linha `S` guarda o `@tt_session_id` (snapshots antigos: vale o código da fixada desta máquina). A sessão recriada
+  adota esse código por `precarregar_py identidade $N CÓDIGO` (`ensure_identity(sid, wanted)` do `precarregar_remoto.py`: mesma trava; só se a
+  sessão não tem código e nenhuma viva o usa). É a exceção à regra "recriar é outra sessão": sem ela, a fixada restaurada apontava para um código
+  que ninguém tinha, o clique não chegava e o vigia a apagava. Sessão do snapshot viva com outro nome (mesmo código) conta como existente e a
+  fixada leva o nome de agora; a junção do aditivo deduplica pelo código. A fixada de uma sessão recriada leva o código que ela tem de fato.
+  A recriada recebe `@tt_restaurada=1`, que o `fechar_vazias_expiradas` respeita (o shell novo, sem histórico, parecia "vazio abandonado").
+  O "restaurado de …" sai em 2º plano (`snapshot_restaurado_gravar`): espera o `conversa_do_painel` de cada painel retomado dar o código, até
+  `TT_SNAP_RESTAURO_ESPERA` (90 s); a marca `.restaurando` só sai depois dele. Gravado na hora, saía sem os agentes, e restaurá-lo trazia só shells.
 
 ### Busca na conversa inteira (`busca-tt.py`)
 - Escopo **conversa** da central (`^e`: tudo → nomes → conversa): índice SQLite FTS5 (`~/.cache/tt/busca.db`, `TT_BUSCA_DB`) da conversa

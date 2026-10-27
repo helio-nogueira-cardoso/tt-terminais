@@ -88,6 +88,11 @@ perguntado a cada vez**: *aditivo* (padrão: recria só o que falta e não fecha
 *substituir* (deixa igual ao snapshot: fecha o que não está nele, menos a sessão em uso e as ocultas, e as fixadas ficam como estavam;
 pede "sim"). Antes de restaurar o tt grava o estado de agora, então a restauração também se desfaz.
 
+A sessão recriada volta com o **mesmo código estável** que tinha (`@tt_session_id`): as fixadas, os cliques e as pontes das outras máquinas
+continuam chegando a ela. Uma sessão que existe com outro nome (renomeada depois do snapshot) é reconhecida pelo código e não é recriada. A sessão
+restaurada também não é fechada como "vazia abandonada" pelo vigia. O snapshot "restaurado de …" é gravado quando os agentes retomados já subiram
+(até 90 s, `TT_SNAP_RESTAURO_ESPERA`), para que restaurá-lo de novo traga os agentes, e não só os shells.
+
 **Cada agente de IA é retomado na mesma conversa**, do jeito da máquina e sempre sem pedir permissões (`ia-conta retomar`):
 
 | Agente | Comando |

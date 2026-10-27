@@ -38,8 +38,10 @@ def tmux(*args):
         return 124, ""
 
 
-def ensure_identity(sid):
+def ensure_identity(sid, wanted=""):
     # Grava UMA vez. Trava por socket (canônico) também cobre criadores concorrentes.
+    # wanted: adota esse código em vez de sortear um (a sessão recriada por um snapshot volta com o código que tinha). Só se a
+    # sessão ainda não tem código e nenhuma outra o usa; senão, nada muda e o código que ela tem (ou vazio) volta.
     fmt = SEP.join(["#{@tt_session_id}", "#{host}", "#{socket_path}", "#{pid}",
                     "#{start_time}", "#{session_id}", "#{session_created}"])
     def read():
@@ -72,12 +74,17 @@ def ensure_identity(sid):
         if rc:
             return ""
         used = set(ids.splitlines())
-        for _ in range(16):
-            stable = uuid.uuid4().hex
-            if stable not in used:
-                break
+        if wanted:
+            if wanted in used:
+                return ""
+            stable = wanted
         else:
-            return ""
+            for _ in range(16):
+                stable = uuid.uuid4().hex
+                if stable not in used:
+                    break
+            else:
+                return ""
         target = fields[5] + ":"
         set_id = shlex.join(["set-option", "-q", "-t", target, "@tt_session_id", stable])
         inner = shlex.join(["if-shell", "-F", "-t", target, "#{==:#{@tt_session_id},}", set_id])
@@ -322,8 +329,11 @@ def main(argv):
         expected = {"sid": sid, "server": server, "id": stable} if sid and server else None
         print(json.dumps({"target": remote_target(name, stable, expected, allow_special=True)}))
         return 0
-    if len(argv) == 2 and argv[0] == "identidade":
-        value = ensure_identity(argv[1])
+    if len(argv) in (2, 3) and argv[0] == "identidade":
+        wanted = argv[2] if len(argv) == 3 else ""
+        if wanted and not re.fullmatch(r"[0-9a-f]{32}", wanted):
+            return 2
+        value = ensure_identity(argv[1], wanted)
         if value:
             print(value)
         return 0 if value else 1

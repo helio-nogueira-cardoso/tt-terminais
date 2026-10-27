@@ -72,31 +72,43 @@ for i in 1 2 3 4 5 6 7; do tmux rename-window -t "=alfa:$(tmux list-windows -t =
 # --- restaurar: aditivo recria o que falta e não mexe no que existe
 ID=$("$TT" --snapshots-listar | sed -n 1p | cut -f1)
 tmux kill-session -t =alfa; tmux kill-session -t =beta
-# agente de mentira do ia-conta: registra os argumentos (é o que o painel restaurado executa)
+# agente de mentira do ia-conta: registra os argumentos (é o que o painel restaurado executa) e, como um agente de verdade, só
+# sobe alguns segundos depois, com a conversa na linha de comando.
 cat >"$HOME/.local/bin/ia-conta" <<FIM
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >>"$T/retomar.log"
+sleep 2; exec "$T/agente/claude" --dangerously-skip-permissions --resume "\$3"
 FIM
 chmod +x "$HOME/.local/bin/ia-conta"
+# O "restaurado de …" é gravado em 2º plano, quando os agentes retomados já subiram: espera ele terminar.
+espera_restauro() {
+  local i
+  for i in $(seq 150); do [[ -e $TT_RT/tt-snap-$(id -u).restaurando ]] || return 0; sleep 0.2; done
+  falhou 'o snapshot "restaurado de" não terminou'
+}
 tmux new-session -d -s gama -c "$T"   # sessão que o snapshot não tem
 out=$("$TT" --snapshot-restaurar "$ID" aditivo gama 2>&1)
 tmux has-session -t =alfa && tmux has-session -t =beta || falhou "aditivo não recriou: $out"
 tmux has-session -t =gama || falhou 'aditivo não pode fechar sessão que não está no snapshot'
 [[ $(tmux list-windows -t =alfa: | wc -l | tr -d ' ') == 3 ]] || falhou "alfa deveria ter 3 abas: $(tmux list-windows -t =alfa:)"
 [[ $(tmux list-panes -t =alfa:segunda | wc -l | tr -d ' ') == 2 ]] || falhou 'a aba "segunda" deveria ter 2 painéis'
-sleep 2
+espera_restauro
 grep -q "retomar claude $CONV" "$T/retomar.log" 2>/dev/null || falhou "o agente não foi retomado na mesma conversa: $(cat "$T/retomar.log" 2>/dev/null)"
 mot=$("$TT" --snapshots-listar | sed -n 1p | cut -f3); [[ $mot == *"restaurado de"* ]] || falhou "restaurar deveria gravar 'restaurado de': $mot"
 mot=$("$TT" --snapshots-listar | cut -f3); [[ $mot == *"antes de restaurar"* ]] || falhou 'restaurar deveria gravar o estado de antes'
+# Gravado na hora, o "restaurado de" saía sem os agentes (eles levam segundos para subir); restaurar ESSE snapshot, o mais novo
+# da lista, trazia só shells, que o vigia fechava 5 min depois como vazias.
+ver=$("$TT" --snapshot-ver "$("$TT" --snapshots-listar | sed -n 1p | cut -f1)")
+[[ $ver == *"claude 0aaa1111"* ]] || falhou "o 'restaurado de' deveria ter o agente retomado: $ver"
 
 # aditivo de novo: tudo existe, nada muda
 n=$(tmux list-windows -t =alfa: | wc -l | tr -d ' ')
-"$TT" --snapshot-restaurar "$ID" aditivo gama >/dev/null 2>&1
+"$TT" --snapshot-restaurar "$ID" aditivo gama >/dev/null 2>&1; espera_restauro
 [[ $(tmux list-windows -t =alfa: | wc -l | tr -d ' ') == "$n" ]] || falhou 'aditivo duplicou abas de sessão que já existia'
 
 # --- substituir fecha o que não está no snapshot (menos a sessão em uso e as ocultas)
 tmux new-session -d -s _oculta -c "$T"; tmux new-session -d -s delta -c "$T"
-"$TT" --snapshot-restaurar "$ID" substituir gama >/dev/null 2>&1
+"$TT" --snapshot-restaurar "$ID" substituir gama >/dev/null 2>&1; espera_restauro
 tmux has-session -t =delta 2>/dev/null && falhou 'substituir deveria fechar "delta"'
 tmux has-session -t =_oculta || falhou 'substituir não pode fechar sessão oculta'
 tmux has-session -t =gama || falhou 'substituir não pode fechar a sessão em uso'
@@ -109,8 +121,52 @@ printf '%s\talfa\tc1\n%s\tbeta\tc2\n' "$("$TT" --nome)" "$("$TT" --nome)" >"$FIX
 printf '%s\tbeta\tc2\n%s\talfa\tc1\n' "$("$TT" --nome)" "$("$TT" --nome)" >"$FIX"   # ordem invertida
 ID2=$("$TT" --snapshots-listar | sed -n 1p | cut -f1)
 printf '%s\talfa\tc1\n%s\tzeta\tc9\n' "$("$TT" --nome)" "$("$TT" --nome)" >"$FIX"
-"$TT" --snapshot-restaurar "$ID2" substituir gama >/dev/null 2>&1
+"$TT" --snapshot-restaurar "$ID2" substituir gama >/dev/null 2>&1; espera_restauro
 [[ $(cut -f2 "$FIX" | tr '\n' ' ') == "alfa beta " ]] || falhou "substituir deveria deixar as fixadas do snapshot: $(cat "$FIX")"
+
+# --- identidade: a sessão restaurada volta com o MESMO código estável (@tt_session_id) e a fixada dela continua valendo. Sem isso
+# a fixada restaurada apontava para um código que nenhuma sessão tinha: o clique não chegava à sessão e o vigia apagava a fixada
+# ("sessão não existe mais neste tmux"). A restauração parecia feita, mas não era alcançável.
+export TT_SNAP_MAX=50   # este bloco restaura o mesmo snapshot várias vezes (cada uma grava dois)
+NOME=$("$TT" --nome)
+tmux new-session -d -s kapa -c "$T"; tmux new-session -d -s lambda -c "$T"
+IDK=$("$TT" --session-id kapa); IDL=$("$TT" --session-id lambda)
+[[ $IDK =~ ^[0-9a-f]{32}$ && $IDL =~ ^[0-9a-f]{32}$ ]] || falhou "sem código estável: '$IDK' '$IDL'"
+printf '%s\tkapa\t%s\n%s\tlambda\t%s\n' "$NOME" "$IDK" "$NOME" "$IDL" >"$FIX"
+"$TT" --snapshot-agora >/dev/null
+ID3=$("$TT" --snapshots-listar | sed -n 1p | cut -f1)
+tmux kill-session -t =kapa; tmux kill-session -t =lambda
+"$TT" --snapshot-restaurar "$ID3" aditivo gama >/dev/null 2>&1; espera_restauro
+[[ $(tmux show-options -qv -t =kapa: @tt_session_id) == "$IDK" ]] || falhou "kapa voltou sem o código dela"
+[[ $(tmux show-options -qv -t =lambda: @tt_session_id) == "$IDL" ]] || falhou "lambda voltou sem o código dela"
+TT_RECONC_IMEDIATO=1 "$TT" --reconciliar-fixadas
+grep -q "kapa	$IDK" "$FIX" && grep -q "lambda	$IDL" "$FIX" || falhou "a fixada restaurada não sobreviveu à conferência: $(cat "$FIX")"
+# Sessão que existe com outro nome (renomeada depois do snapshot; o código é o mesmo): o aditivo não cria uma segunda, e a fixada
+# não fica duplicada (uma pelo nome antigo, outra pelo novo).
+tmux rename-session -t =kapa kapa2
+"$TT" --snapshot-restaurar "$ID3" aditivo gama >/dev/null 2>&1; espera_restauro
+tmux has-session -t =kapa 2>/dev/null && falhou 'o aditivo recriou "kapa", que existe renomeada (mesmo código)'
+[[ $(tmux list-sessions -F '#{@tt_session_id}' | grep -c "$IDK") == 1 ]] || falhou 'código estável repetido em duas sessões'
+[[ $(grep -c "$IDK" "$FIX") == 1 ]] || falhou "fixada duplicada pela sessão renomeada: $(cat "$FIX")"
+# Snapshot de antes desta correção: as sessões sem o código; o das fixadas (que sempre o tiveram) vale para a sessão fixada.
+python3 -I - "$TT_SNAP_DIR/$ID3.json" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1], encoding="utf-8"))
+for ss in s["sessoes"]:
+    ss.pop("id", None)
+json.dump(s, open(sys.argv[1], "w", encoding="utf-8"))
+PY
+tmux kill-session -t =kapa2; tmux kill-session -t =lambda
+"$TT" --snapshot-restaurar "$ID3" aditivo gama >/dev/null 2>&1; espera_restauro
+[[ $(tmux show-options -qv -t =kapa: @tt_session_id) == "$IDK" ]] || falhou "snapshot antigo: kapa sem o código da fixada"
+[[ $(tmux show-options -qv -t =lambda: @tt_session_id) == "$IDL" ]] || falhou "snapshot antigo: lambda sem o código da fixada"
+
+# --- sessão restaurada não é "vazia abandonada": o vigia fecha sessão nova sem uso há 5 min, e a restaurada (um shell recém-aberto,
+# sem histórico) caía nessa regra. A sessão nova comum continua sendo fechada.
+tmux new-session -d -s mu -c "$T"
+TT_VAZIA_LIMITE=0 TT_SO_CARREGAR=1 bash -c 'source "$1"; fechar_vazias_expiradas "$(date +%s)"' _ "$TT" >/dev/null 2>&1
+tmux has-session -t =mu 2>/dev/null && falhou 'a sessão vazia comum deveria ter sido fechada'
+tmux has-session -t =lambda 2>/dev/null || falhou 'a sessão restaurada não pode ser fechada como vazia abandonada'
 
 # --- agente recém-retomado, ainda sem o sessions/<pid>.json: o Claude só o grava depois da pergunta "confia nesta pasta?", que na
 # home ele faz toda vez. Vale o código da linha de comando (o ia-conta retomar do snapshot), e a conversa de OUTRO Claude vivo da

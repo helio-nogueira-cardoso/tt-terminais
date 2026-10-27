@@ -1064,18 +1064,19 @@ fechar_vazias() {
   echo "$n"
 }
 
-# Fecha sessões vazias abandonadas. Sessões anexadas e sessões usadas como ponte são preservadas.
+# Fecha sessões vazias abandonadas. Sessões anexadas, sessões usadas como ponte e sessões recriadas por um snapshot
+# (@tt_restaurada: o shell recém-aberto não tem histórico, mas a sessão foi pedida) são preservadas.
 fechar_vazias_expiradas() {
-  local agora=$1 limite=${TT_VAZIA_LIMITE:-300} s criada anexada ponte idade n=0
+  local agora=$1 limite=${TT_VAZIA_LIMITE:-300} s criada anexada ponte rest idade n=0
   local -a cand=()
-  while IFS='|' read -r s criada anexada ponte; do
+  while IFS='|' read -r s criada anexada ponte rest; do
     [[ -n $s && $criada =~ ^[0-9]+$ ]] || continue
     ((anexada > 0)) && continue
-    [[ -n $ponte || $s == _* ]] && continue
+    [[ -n $ponte || -n $rest || $s == _* ]] && continue
     idade=$((agora - criada))
     ((idade >= limite)) || continue
     cand+=("$s")
-  done < <(tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{@ponte}' 2>/dev/null)
+  done < <(tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{@ponte}|#{@tt_restaurada}' 2>/dev/null)
   while IFS= read -r s; do
     [[ -n $s ]] && tmux kill-session -t "=$s" && n=$((n + 1))
   done < <(sessoes_vazias_de "${cand[@]}")
@@ -1443,12 +1444,12 @@ snapshot_capturar() { # [motivo] [--forcar]
   fi
   tmp=$(mktemp -d "$RT/tt-snap-p.XXXXXX") || { rmdir "$trava"; return 1; }
   local -a ORDEM=() P_S=() P_W=() P_WN=() P_WL=() P_WA=() P_PI=() P_PA=() P_ID=() P_PP=() P_PC=()
-  local -A VISTA=()
-  while IFS= read -r s; do
-    [[ -n $s && $s != _* ]] || continue
-    [[ -z $(tmux show-options -qv -t "=$s:" @ponte 2>/dev/null) ]] || continue # ponte para outra máquina: não é daqui
-    VISTA[$s]=1; ORDEM+=("$s")
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  local -A VISTA=() SID=()
+  local sid sp
+  while IFS=$SNAP_US read -r s sid sp; do
+    [[ -n $s && $s != _* && -z $sp ]] || continue # ponte para outra máquina: não é daqui
+    VISTA[$s]=1; SID[$s]=$sid; ORDEM+=("$s")
+  done < <(tmux list-sessions -F "#{session_name}${SNAP_US}#{@tt_session_id}${SNAP_US}#{@ponte}" 2>/dev/null)
   while IFS=$SNAP_US read -r fl s w wn wl wa pi pa pid pp pc br; do
     [[ $fl != 1 && -n ${VISTA[$s]:-} && -z $br ]] || continue
     P_S+=("$s") P_W+=("$w") P_WN+=("$wn") P_WL+=("$wl") P_WA+=("$wa") P_PI+=("$pi") P_PA+=("$pa") P_ID+=("$pid") P_PP+=("$pp") P_PC+=("$pc")
@@ -1459,7 +1460,7 @@ snapshot_capturar() { # [motivo] [--forcar]
   foco=$(tmux list-clients -F '#{client_activity} #{session_name}' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
   {
     printf 'M%s%s%s%s\n' "$SNAP_US" "$MAQUINA" "$SNAP_US" "$foco"
-    n=0; for s in "${ORDEM[@]}"; do n=$((n + 1)); printf 'S%s%s%s%s\n' "$SNAP_US" "$n" "$SNAP_US" "$s"; done
+    n=0; for s in "${ORDEM[@]}"; do n=$((n + 1)); printf 'S%s%s%s%s%s%s\n' "$SNAP_US" "$n" "$SNAP_US" "$s" "$SNAP_US" "${SID[$s]}"; done
     for k in "${!P_ID[@]}"; do
       s=${P_S[k]} w=${P_W[k]}
       if [[ $ult != "$s|$w" ]]; then
@@ -1521,8 +1522,9 @@ snapshot_restaurar_fixadas() { # modo linhas…
   if [[ $modo == substituir ]]; then
     : >"$novo"; for l in "$@"; do printf '%s\n' "$l" >>"$novo"; done
   else
+    # Uma por sessão: pelo código estável (a mesma sessão renomeada não vira duas) e, sem ele, pelo nome.
     { grep -v '^\s*$' "$CONF_FIX" 2>/dev/null; for l in "$@"; do printf '%s\n' "$l"; done; } |
-      awk -F'\t' '!(($1 FS $2) in v) { v[$1 FS $2] = 1; print }' >"$novo"
+      awk -F'\t' '{ k = $1 FS ($3 != "" ? "#" $3 : $2) } !(k in v) { v[k] = 1; print }' >"$novo"
   fi
   mv "$novo" "$CONF_FIX"
   marcar_fixadas
@@ -1543,28 +1545,38 @@ snap_fechar_janela() { # sessão janela layout painel-ativo janela-ativa
 # Restaura o snapshot ID. aditivo: só recria o que falta (sessão que já existe fica como está; as fixadas que faltam voltam).
 # substituir: deixa igual ao snapshot (fecha o que não está nele, recria o que existe; a sessão em uso e as ocultas ficam; as
 # fixadas ficam exatamente como no snapshot). Antes de tudo grava um snapshot do estado de agora: a restauração também se desfaz.
+# A sessão recriada volta com o MESMO código estável (@tt_session_id) que tinha: fixadas, cliques e pontes acham a sessão pelo
+# código, e com um código novo a fixada restaurada não levava a lugar nenhum (o vigia a apagava como "sessão que não existe mais").
+# É a exceção consciente à regra "recriar é outra sessão": a restaurada continua a mesma conversa. O código vem da linha S
+# (snapshots novos) ou, nos antigos, da fixada desta máquina; só é adotado se nenhuma sessão viva o usa.
 snapshot_restaurar() { # id modo [sessão-em-uso]
-  local id=$1 modo=${2:-aditivo} atual=${3:-} dados rot t a b c d e f g h i s
+  local id=$1 modo=${2:-aditivo} atual=${3:-} dados rot t a b c d e f g h i s sid sp sn
   [[ $modo == aditivo || $modo == substituir ]] || { echo "tt: modo '$modo' (use aditivo ou substituir)" >&2; return 2; }
   dados=$(snap_py dados "$id") || { echo "tt: snapshot '$id' não encontrado" >&2; return 1; }
   rot=$(snapshot_rotulo "$id")
   : >"$RT/tt-snap-$UID.restaurando"
   snapshot_capturar "antes de restaurar $rot" --forcar >/dev/null 2>&1
-  local -a SESS=() FIX=()
-  local -A EXISTE=() NO=()
-  while IFS=$SNAP_US read -r t a b _; do
-    case $t in S) SESS+=("$b"); NO[$b]=1 ;; esac
+  local -a SESS=() FIX=() AGS=()
+  local -A EXISTE=() SID=() VIVA=() OUTRO=() NOVA=()
+  while IFS=$SNAP_US read -r t a b c _; do
+    case $t in
+      S) SESS+=("$b"); [[ $c =~ ^[0-9a-f]{32}$ ]] && SID[$b]=$c ;;
+      F) [[ $a == "$MAQUINA" && -z ${SID[$b]:-} && $c =~ ^[0-9a-f]{32}$ ]] && SID[$b]=$c ;;
+    esac
   done <<<"$dados"
-  while IFS= read -r s; do [[ -n $s ]] && EXISTE[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
-  if [[ $modo == substituir ]]; then
-    for s in "${!EXISTE[@]}"; do
-      [[ $s == _* || $s == "$atual" ]] && continue
-      [[ -z $(tmux show-options -qv -t "=$s:" @ponte 2>/dev/null) ]] || continue
-      tmux kill-session -t "=$s" 2>/dev/null; unset "EXISTE[$s]"
-    done
-  fi
+  # As sessões de agora, numa ida só; no substituir, já fecha as que não ficam (ocultas, pontes e a em uso ficam).
+  while IFS=$SNAP_US read -r s sid sp; do
+    [[ -n $s ]] || continue
+    if [[ $modo == substituir && $s != _* && $s != "$atual" && -z $sp ]]; then tmux kill-session -t "=$s" 2>/dev/null; continue; fi
+    EXISTE[$s]=1; [[ -n $sid ]] && VIVA[$sid]=$s
+  done < <(tmux list-sessions -F "#{session_name}${SNAP_US}#{@tt_session_id}${SNAP_US}#{@ponte}" 2>/dev/null)
+  # Sessão do snapshot que existe com outro nome (renomeada depois; o código é o mesmo): é ela, não se cria uma segunda.
+  for s in "${SESS[@]}"; do
+    sid=${SID[$s]:-}
+    [[ -z ${EXISTE[$s]:-} && -n $sid && -n ${VIVA[$sid]:-} ]] && { EXISTE[$s]=1; OUTRO[$s]=${VIVA[$sid]}; }
+  done
   # Monta, na ordem do arquivo: S… (só nomes), depois W/P de cada janela. A janela é criada no 1º painel dela.
-  local cs="" cw="" lay="" wn="" wat="" pativo="" novas=0 pid cmd pasta_ok primeira=0 opt
+  local cs="" cw="" lay="" wn="" wat="" pativo="" pid cmd pasta_ok primeira=0 opt
   while IFS=$SNAP_US read -r t a b c d e f g h i; do
     case $t in
       W) # a=sessão b=índice c=nome d=layout e=ativa
@@ -1577,9 +1589,13 @@ snapshot_restaurar() { # id modo [sessão-em-uso]
         if ((primeira)); then
           primeira=0
           if ! tmux has-session -t "=$cs" 2>/dev/null; then
-            pid=$(tmux new-session -d -s "$cs" -n "$wn" ${pasta_ok[@]+"${pasta_ok[@]}"} -P -F '#{pane_id}' 2>/dev/null)
-            novas=$((novas + 1))
-            opt=$(tmux display-message -p -t "$pid" '#{window_index}' 2>/dev/null)
+            pid=$(tmux new-session -d -s "$cs" -n "$wn" ${pasta_ok[@]+"${pasta_ok[@]}"} -P \
+              -F "#{pane_id}${SNAP_US}#{session_id}${SNAP_US}#{window_index}" 2>/dev/null)
+            IFS=$SNAP_US read -r pid sn opt <<<"$pid"
+            NOVA[$cs]=1
+            # Marca de restaurada: o vigia não a fecha como "vazia abandonada" (um shell recém-aberto, sem histórico, parece uma).
+            tmux set-option -q -t "=$cs:" @tt_restaurada 1 2>/dev/null
+            [[ -n ${SID[$cs]:-} && -n $sn ]] && precarregar_py identidade "$sn" "${SID[$cs]}" >/dev/null 2>&1
             [[ -n $opt && $opt != "$cw" ]] && tmux move-window -d -s "=$cs:$opt" -t "=$cs:$cw" >/dev/null 2>&1
           else
             pid=$(tmux new-window -d -t "=$cs:$cw" -n "$wn" ${pasta_ok[@]+"${pasta_ok[@]}"} -P -F '#{pane_id}' 2>/dev/null) ||
@@ -1593,16 +1609,53 @@ snapshot_restaurar() { # id modo [sessão-em-uso]
         if [[ -n $f && -n $g ]]; then
           cmd=$(snapshot_cmd_agente "$f" "$g" "$h" "$d")
           tmux send-keys -t "$pid" -l -- "$cmd" 2>/dev/null; tmux send-keys -t "$pid" Enter 2>/dev/null
+          AGS+=("$pid")
         fi ;;
-      F) FIX+=("$a"$'\t'"$b"$'\t'"$c") ;;
+      F) # a=máquina b=sessão c=código
+        if [[ $a == "$MAQUINA" && -n ${OUTRO[$b]:-} ]]; then
+          b=${OUTRO[$b]} # a sessão está viva com outro nome: a fixada leva o nome de agora
+        elif [[ $a == "$MAQUINA" && -n ${NOVA[$b]:-} ]]; then
+          sid=$(session_id "$b") && [[ -n $sid ]] && c=$sid # recriada: a fixada leva o código que a sessão tem de fato
+        fi
+        FIX+=("$a"$'\t'"$b"$'\t'"$c") ;;
     esac
   done <<<"$dados"
   snap_fechar_janela "$cs" "$cw" "$lay" "$pativo" "$wat"
-  for s in "${SESS[@]}"; do [[ -n ${EXISTE[$s]:-} ]] && echo "= $s: já existia, mantida" || echo "+ $s: recriada"; done
+  for s in "${SESS[@]}"; do
+    if [[ -n ${OUTRO[$s]:-} ]]; then echo "= $s: já existia (agora ${OUTRO[$s]}), mantida"
+    elif [[ -n ${EXISTE[$s]:-} ]]; then echo "= $s: já existia, mantida"
+    else echo "+ $s: recriada"; fi
+  done
   snapshot_restaurar_fixadas "$modo" ${FIX[@]+"${FIX[@]}"}
-  rm -f "$RT/tt-snap-$UID.restaurando"
-  snapshot_capturar "restaurado de $rot" --forcar >/dev/null 2>&1
+  # O "restaurado de …" sai em 2º plano, quando os agentes retomados já subiram (a marca .restaurando segura os eventos até lá).
+  ( trap '' HUP; snapshot_restaurado_gravar "$rot" ${AGS[@]+"${AGS[@]}"} ) </dev/null >/dev/null 2>&1 &
   echo "✓ snapshot restaurado ($modo). Cada agente de IA foi retomado na mesma conversa, sem pedir permissões."
+}
+
+# Grava o snapshot "restaurado de …" quando o agente de cada painel retomado já responde (com a conversa), ou depois de
+# TT_SNAP_RESTAURO_ESPERA s (90). Gravado na hora, saía sem os agentes (eles levam segundos para subir): esse snapshot, o mais
+# novo da lista, é o que se restaura de novo, e trazia só shells, que o vigia fechava 5 min depois como sessões vazias.
+snapshot_restaurado_gravar() { # rótulo painel…
+  local rot=$1 agora fim p prov cod
+  local -a falta=()
+  local -A VIVO=()
+  shift
+  printf -v agora '%(%s)T' -1; fim=$((agora + ${TT_SNAP_RESTAURO_ESPERA:-90}))
+  while (($#)) && ((agora < fim)); do
+    sleep 2
+    VIVO=(); while IFS= read -r p; do VIVO[$p]=1; done < <(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)
+    PS_CACHE=$(ps -eo pid=,ppid=,comm= 2>/dev/null)
+    falta=()
+    for p; do
+      [[ -n ${VIVO[$p]:-} ]] || continue # painel fechado: não espera por ele
+      prov="" cod=""; read -r prov _ cod < <(conversa_do_painel "$p" 2>/dev/null) || true
+      [[ -n $cod ]] || falta+=("$p")
+    done
+    set -- ${falta[@]+"${falta[@]}"}
+    printf -v agora '%(%s)T' -1
+  done
+  snapshot_capturar "restaurado de $rot" --forcar >/dev/null 2>&1
+  rm -f "$RT/tt-snap-$UID.restaurando"
 }
 
 # Pergunta SEMPRE o modo (aditivo é o padrão e não perde nada; substituir pede confirmação) e restaura.

@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.11.49 · 27/10/2026
+- **📸 Restaurar um snapshot traz sessões que você alcança de verdade:** a sessão recriada volta com o mesmo código interno que tinha. Antes ela nascia com um código novo, e as fixadas restauradas apontavam para o antigo: o clique na fixada não chegava à sessão e, minutos depois, o vigia apagava a fixada como se a sessão tivesse sido fechada.
+- **O snapshot "restaurado de …" já vem com os agentes:** ele era gravado logo depois de mandar retomar as conversas, antes de os agentes subirem, e saía só com os shells. Como é o mais novo da lista, restaurar de novo a partir dele trazia sessões sem agente, que o vigia fechava 5 minutos depois como vazias. Agora ele espera os agentes subirem (até 90 s).
+- **Sessão restaurada não é fechada como vazia:** um shell restaurado ainda sem uso não é mais confundido com uma sessão abandonada.
+- **Sessão renomeada depois do snapshot:** o modo aditivo a reconhece pelo código e não cria uma segunda com o nome antigo, nem duplica a fixada dela.
+
 ## v2.11.48 · 27/10/2026
 - **📧 O que você envia já aparece em Enviados:** numa conta Microsoft com espelho local, o `tt --email-enviar` atualiza a pasta Enviados do espelho assim que o e-mail sai. Antes ele já estava no Outlook, mas só chegava ao aerc na sincronização completa, que pode levar até 2 horas.
 - **Message-ID certo nas contas Microsoft:** o Outlook grava um Message-ID próprio e o tt mostrava o da mensagem que ele montou, que não servia para responder nem para achar o e-mail. Agora mostra o que está nos Itens Enviados; se a mensagem demorar a aparecer, diz isso em vez de mostrar um identificador que não existe.

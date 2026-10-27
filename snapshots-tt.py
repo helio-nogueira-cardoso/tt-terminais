@@ -13,7 +13,7 @@ IA de cada painel (provedor, código da conversa, conta) e as fixadas na ordem. 
 
 Dados (uma linha por item; campos separados por 0x1F, que não é espaço: campo vazio não desloca as colunas no `read` do bash):
   M  maquina  foco(sessão em uso)
-  S  ordem  sessao
+  S  ordem  sessao  id(o @tt_session_id: o código estável que fixadas e cliques usam; vazio se a sessão ainda não tem)
   W  sessao  indice  nome  layout  ativa(0|1)
   P  sessao  janela  painel  pasta  programa  provedor  codigo  conta  ativo(0|1)
   F  maquina  sessao  chave                         (fixadas, na ordem)
@@ -43,7 +43,7 @@ def parse(texto):
         if t == "M":
             snap["maquina"], snap["foco"] = c[1], c[2]
         elif t == "S":
-            s = {"nome": c[2], "ordem": int(c[1] or 0), "janelas": []}
+            s = {"nome": c[2], "ordem": int(c[1] or 0), "id": c[3], "janelas": []}
             por_s[c[2]] = s
             snap["sessoes"].append(s)
         elif t == "W" and c[1] in por_s:
@@ -154,7 +154,7 @@ def cmd_dados(i):
         return 1
     out = ["M\x1f%s\x1f%s" % (s.get("maquina", ""), s.get("foco", ""))]
     for ss in s["sessoes"]:
-        out.append("S\x1f%d\x1f%s" % (ss["ordem"], ss["nome"]))
+        out.append("S\x1f%d\x1f%s\x1f%s" % (ss["ordem"], ss["nome"], ss.get("id", "")))
         for w in ss["janelas"]:
             out.append("W\x1f%s\x1f%d\x1f%s\x1f%s\x1f%d" % (ss["nome"], w["indice"], w["nome"], w["layout"], 1 if w["ativa"] else 0))
             for p in w["paineis"]:
