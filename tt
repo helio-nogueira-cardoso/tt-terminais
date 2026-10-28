@@ -10986,7 +10986,7 @@ aplicar_fixadas() {
   local sess marca l lista alvo dest d r aceso
   local -A fix=() fixr=() rot=(); local -a lote=()
   # 0x1F separa os campos: @tt_fixada vazio no meio sumiria com o TAB (espaço em branco do IFS).
-  lista=$(tmux list-sessions -F $'#{session_name}\x1f#{@tt_fixada}\x1f#{@ponte_alvo}' 2>/dev/null) || return 0
+  lista=$(tmux list-sessions -F $'#{session_name}\x1f#{@tt_fixada}\x1f#{@ponte_alvo}' 2>/dev/null) || { barras_nativas || :; return 0; }
   if [[ -f $CONF_FIX ]]; then
     while IFS= read -r l || [[ -n $l ]]; do
       [[ $l =~ ^[[:space:]]*$ || $l != *$'\t'* ]] && continue

@@ -61,3 +61,11 @@ rmdir "$XDG_CONFIG_HOME/tt/fixadas.trava"
 wait
 lista | grep -q 'teste:beta' && falha '✕ com apertar e soltar lentos fixou de novo'
 passou '✕ lento (apertar e soltar juntos) desafixa de vez'
+
+# tmux local falho (proot: socket padrão sem acesso, rc=1) não pode sair de aplicar_fixadas sem tentar a
+# delegação ao tt nativo (s23: --barras rc=0 e @barra_versao velha); com tmux local ok, não delega antes da hora.
+rastro="$XDG_CONFIG_HOME/barras-nativas"; : >"$rastro"
+tmux_falho() { (cd / && RASTRO=$rastro TT_COMPLETO=1 TT_SO_CARREGAR=1 bash -c 'source "$1/tt"; tmux() { return 1; }; barras_nativas() { echo chamou >>"$RASTRO"; }; aplicar_fixadas' _ "$TT_DIR"); }
+tmux_falho
+[[ $(<"$rastro") == chamou ]] || falha 'tmux local falho não tentou a delegação nativa'
+passou 'tmux local falho ainda tenta barras_nativas'
