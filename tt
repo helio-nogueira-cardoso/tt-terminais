@@ -762,9 +762,12 @@ vigiar() {
     local -A B_PASTA=() B_PID=() B_SOB=() V_CL=()
     local bp bc bd bi bo bt ntit ndado criada
     PS_CACHE=$(ps -eo pid=,ppid=,comm=)
-    while IFS=$'\x1f' read -r s bp bc bd bi bo bt; do B_PASTA[$s]=$bd B_PID[$s]=$bi B_SOB[$s]=$bo; done < <(paineis_base)
-    while read -r bp bi; do V_CL[$bp]=$bi; done < <(claude_por_painel "$(printf '%s\n' "${B_PID[@]}")")
-    while IFS=$'\x1f' read -r s sid atividade entrada pasta ponte ntit ndado criada; do
+    _vg_pb=$(paineis_base)
+    while IFS=$'\x1f' read -r s bp bc bd bi bo bt && [[ -n $s ]]; do B_PASTA[$s]=$bd B_PID[$s]=$bi B_SOB[$s]=$bo; done <<<"$_vg_pb"
+    _vg_cl=$(claude_por_painel "$(printf '%s\n' "${B_PID[@]}")")
+    while read -r bp bi && [[ -n $bp ]]; do V_CL[$bp]=$bi; done <<<"$_vg_cl"
+    _vg_ls=$(tmux list-sessions -F $'#{session_name}\x1f#{session_id}\x1f#{window_activity}\x1f#{session_activity}\x1f#{pane_current_path}\x1f#{@ponte}\x1f#{@nome_titulo}\x1f#{@nome_dado}\x1f#{session_created}' 2>/dev/null)
+    while IFS=$'\x1f' read -r s sid atividade entrada pasta ponte ntit ndado criada && [[ -n $s ]]; do
       # Pontes mostram uma sessão de outra máquina: o nome delas é o da ponte, nunca do vigia.
       # Sessões "_nome" são ocultas de propósito (infraestrutura): ninguém as renomeia.
       [[ -n $ponte || $s == _* ]] && continue
@@ -779,7 +782,7 @@ vigiar() {
       # longo da conversa). Depois a sessão segue as mesmas revisões das outras, logo abaixo.
       pid=${V_CL[${B_PID[$s]:-x}]:-} id=""
       if [[ -n $pid ]]; then
-        read -r id st rot < <(claude_info "$pid")
+        read -r id st rot <<<"$(claude_info "$pid")"
         if titulo=$(titulo_claude "${id:-x}"); then
           if [[ $titulo != "$ntit" ]]; then
             if nome=$(renomear "$s" "$(slug "$titulo")" auto); then
@@ -871,7 +874,7 @@ vigiar() {
       nome=$(renomear "$s" "$nome" auto) || continue
       V_INTER[$sid]=0 V_PED[$sid]=0 V_NOMEADO[$sid]=$agora
       echo "$(date '+%F %T') $s → $nome ($motivo)" >>"$log"
-    done < <(tmux list-sessions -F $'#{session_name}\x1f#{session_id}\x1f#{window_activity}\x1f#{session_activity}\x1f#{pane_current_path}\x1f#{@ponte}\x1f#{@nome_titulo}\x1f#{@nome_dado}\x1f#{session_created}' 2>/dev/null)
+    done <<<"$_vg_ls"
     unset PS_CACHE
     declare -p V_EM V_INTER V_PASTA V_PRIMEIRA V_ESPERA V_NOMEADO V_PED V_ENT V_ARQ V_TAM >"$estado_vigia.$$" 2>/dev/null && mv -f "$estado_vigia.$$" "$estado_vigia"
     # Um primeiro nome pendente encurta o sono: o nome sai ~1 min após a interação, não até 2 min.
@@ -9565,18 +9568,18 @@ reforcar_visual() {
   local wo='^(window-style|window-active-style|pane-colours|window-status-format|window-status-current-format|pane-border-style|pane-active-border-style|pane-border-format|mode-style|popup-style|popup-border-style|popup-border-lines)(\[[0-9]+\])? '
   local po='^(window-style|window-active-style|pane-colours|pane-border-style|pane-active-border-style|mode-style)(\[[0-9]+\])? '
   # Sem -g, show-options lista só o que foi definido localmente naquele alvo (o desvio).
-  while read -r id; do
-    while read -r linha; do opt=${linha%% *}; opt=${opt%%\[*}; cmds+=(set-option -su -t "$id" "$opt" ';')
-    done < <(tmux show-options -t "$id" 2>/dev/null | grep -E "$so" | sort -u -k1,1)
-  done < <(tmux list-sessions -F '#{session_id}' 2>/dev/null)
-  while read -r id; do
-    while read -r linha; do opt=${linha%% *}; opt=${opt%%\[*}; cmds+=(set-option -wu -t "$id" "$opt" ';')
-    done < <(tmux show-options -w -t "$id" 2>/dev/null | grep -E "$wo" | sort -u -k1,1)
-  done < <(tmux list-windows -a -F '#{window_id}' 2>/dev/null | sort -u)
-  while read -r id; do
-    while read -r linha; do opt=${linha%% *}; opt=${opt%%\[*}; cmds+=(set-option -pu -t "$id" "$opt" ';')
-    done < <(tmux show-options -p -t "$id" 2>/dev/null | grep -E "$po" | sort -u -k1,1)
-  done < <(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)
+  while read -r id && [[ -n $id ]]; do
+    while read -r linha && [[ -n $linha ]]; do opt=${linha%% *}; opt=${opt%%\[*}; cmds+=(set-option -su -t "$id" "$opt" ';')
+    done <<<"$(tmux show-options -t "$id" 2>/dev/null | grep -E "$so" | sort -u -k1,1)"
+  done <<<"$(tmux list-sessions -F '#{session_id}' 2>/dev/null)"
+  while read -r id && [[ -n $id ]]; do
+    while read -r linha && [[ -n $linha ]]; do opt=${linha%% *}; opt=${opt%%\[*}; cmds+=(set-option -wu -t "$id" "$opt" ';')
+    done <<<"$(tmux show-options -w -t "$id" 2>/dev/null | grep -E "$wo" | sort -u -k1,1)"
+  done <<<"$(tmux list-windows -a -F '#{window_id}' 2>/dev/null | sort -u)"
+  while read -r id && [[ -n $id ]]; do
+    while read -r linha && [[ -n $linha ]]; do opt=${linha%% *}; opt=${opt%%\[*}; cmds+=(set-option -pu -t "$id" "$opt" ';')
+    done <<<"$(tmux show-options -p -t "$id" 2>/dev/null | grep -E "$po" | sort -u -k1,1)"
+  done <<<"$(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)"
   if ((${#cmds[@]})); then tmux "${cmds[@]}" 2>/dev/null; VISUAL_MUDOU=1; fi
   return 0
 }
