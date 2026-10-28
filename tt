@@ -6010,6 +6010,19 @@ ponte_registrar() { # ponte dest id srv nome
 
 # Toda ponte que o tt encerra por conta própria deixa rastro: antes sumia calada e o cliente pulava
 # para outra sessão "sem motivo".
+# Motivo de um clique ou comando que voltou sem trocar nem avisar (dono, 28/10: fixada que vai para outra ou para lugar nenhum).
+# Mesma pasta de log_troca; quem lê o log distingue pela palavra "clique". Nunca falha nem muda o retorno de quem chama.
+log_clique() { # motivo [detalhe]
+  { mkdir -p "$HOME/.cache"; printf '%s %s clique motivo=%s %s pai=%s\n' "$(date '+%F %T')" "$MAQUINA" "$1" "${2:-}" \
+      "$(ps -o comm= -p "$PPID" 2>/dev/null | tr -d '\n')"; } 2>/dev/null >>"$HOME/.cache/tt-troca.log"
+  return 0
+}
+# Sonda de ponte que NAO achou a sessao (dono, 28/10): grava ramo, rc, identidade procurada e o que voltou. So os resultados
+# ruins (poucos por dia); o "achou" nao gera linha. Mesmo arquivo do "ponte encerrada", para ler os dois juntos.
+log_sonda() { # ramo rc destino nome detalhe
+  { mkdir -p "$HOME/.cache"; printf '%s sonda ramo=%s rc=%s destino=%s nome=%s %s\n' "$(date '+%F %T')" "$1" "$2" "$3" "$4" "${5:-}"; } 2>/dev/null >>"$HOME/.cache/tt-vigia.log"
+  return 0
+}
 log_ponte() { # ponte texto
   { mkdir -p "$HOME/.cache"; echo "$(date '+%F %T') $2 [ponte $1]" >>"$HOME/.cache/tt-vigia.log"; } 2>/dev/null
   return 0
@@ -6130,15 +6143,18 @@ sessao_remota_existe() {
 # Uma única consulta ssh. Imprime "id|start_time|nome-atual". Retorno:
 #   0 achou · 1 o destino respondeu e a sessão não existe · 2 sem resposta (rede/ssh): não concluir nada.
 resolver_remota() { # dest nome [id tmux] [start_time] [UUID persistente]
-  local dest=$1 nome=$2 id=${3:-} srv=${4:-} uuid=${5:-} out rc
+  local dest=$1 nome=$2 id=${3:-} srv=${4:-} uuid=${5:-} out rc n
   [[ -n $dest && $dest != : ]] || return 2
   if [[ -n $uuid ]]; then
     precarregar_py resolver "$dest" "$nome" "$uuid" "$id" "$srv"
-    return $?
+    rc=$?
+    ((rc == 0)) || log_sonda uuid "$rc" "$dest" "$nome" "uuid=$uuid sid=$id srv=$srv"
+    return $rc
   fi
   out=$(timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO tmux list-sessions -F '#{session_id}|#{start_time}|#{session_name}'" </dev/null 2>/dev/null)
   rc=$?
-  ((rc == 0 || rc == 1)) || return 2   # 124 (timeout), 255 (ssh) ou outro: não sabemos
+  ((rc == 0 || rc == 1)) || { log_sonda ssh "$rc" "$dest" "$nome" "id=$id srv=$srv sem-resposta"; return 2; }   # 124 (timeout), 255 (ssh) ou outro: não sabemos
+  n=$(printf '%s\n' "$out" | grep -c . || true)
   printf '%s\n' "$out" | awk -F'|' -v id="$id" -v srv="$srv" -v nome="$nome" '
     NF >= 3 {
       n = $3; for (i = 4; i <= NF; i++) n = n "|" $i
@@ -6147,6 +6163,7 @@ resolver_remota() { # dest nome [id tmux] [start_time] [UUID persistente]
     }
     END { if (!achou && id == "" && porNome != "") { print porNome; exit 0 } exit !achou }
   ' && return 0
+  log_sonda ssh "$rc" "$dest" "$nome" "id=$id srv=$srv sessoes=${n:-0}"
   return 1
 }
 
@@ -6768,9 +6785,9 @@ ir_para() {
   fi
   if [[ $dest != . ]]; then entrar_remoto "$dest" "$s"; return; fi
   if [[ -n ${TT_PRE_IDENTIDADE:-} ]]; then
-    [[ $TT_PRE_IDENTIDADE =~ ^[0-9a-f]{32}$ ]] || return 1
+    [[ $TT_PRE_IDENTIDADE =~ ^[0-9a-f]{32}$ ]] || { log_clique uuid-malformado "id=$TT_PRE_IDENTIDADE destino=$dest:$s"; return 1; }
     alvo_id=$(session_by_id "$TT_PRE_IDENTIDADE" tmux)
-    [[ -n $alvo_id ]] || return 1
+    [[ -n $alvo_id ]] || { log_clique uuid-sem-sessao "id=$TT_PRE_IDENTIDADE destino=$dest:$s"; return 1; }
   fi
   precarregar_cancelar "${TT_CLIENTE:-}"
   sair_menu
@@ -16133,6 +16150,7 @@ remover_fixada() {
   fi
   awk -F'\t' -v r="$r" -v s="$s" -v id="$id" '!($1 == r && ($2 == s || (id != "" && $3 == id)))' "$CONF_FIX" >"$CONF_FIX.novo"
   mv "$CONF_FIX.novo" "$CONF_FIX"
+  log_clique desafixada "alvo=$r:$s id=${id:-}"
   marcar_fixadas
   destravar_fixadas
   aplicar_fixadas
@@ -16785,7 +16803,7 @@ ir_fixada() {
     [[ $k == "$chave" ]] && break
     r=""; s=""
   done < <(fixadas)
-  [[ -n $s ]] || return 0
+  [[ -n $s ]] || { log_clique sem-fixada "chave=$chave cliente=$c"; return 0; }
   # O encaminhador pode estar frio (ex.: só há uma ponte, sem janela física nesta máquina).
   # Inicia-o aqui antes de decidir por SSH; o cliente aninhado só encaminha, nunca prepara.
   if [[ -n $c ]] && precarregar_ativo && precarregar_py revisit "$c" "$r" "$s" "$id" >/dev/null 2>&1; then return 0; fi

@@ -400,6 +400,70 @@ def send_request(folder, data, timeout=3):
             raise UncertainReply from exc
 
 
+def origem_do_pedido():
+    """Quem pediu a navegacao (dono, 28/10): nomes dos ate 4 processos ancestrais deste cliente, do mais proximo ao mais longe
+    (ex.: bash<tmux, ou bash<claude<node para um agente). Linux le /proc, sem processo novo; macOS usa um unico ps (~62 ms),
+    por isso so roda DEPOIS da resposta do coordenador, fora do caminho do clique."""
+    try:
+        pai = {}
+        if os.path.isdir("/proc/self"):
+            def ler(pid):
+                dados = Path("/proc/%d/stat" % pid).read_text()
+                resto = dados.rsplit(")", 1)
+                return int(resto[1].split()[1]), dados[dados.index("(") + 1:dados.rindex(")")]
+        else:
+            import subprocess  # só no macOS: o cliente curto não o carrega no topo
+            saida = subprocess.run(["ps", "-axo", "pid=,ppid=,comm="], capture_output=True, text=True, timeout=2).stdout
+            for linha in saida.splitlines():
+                p = linha.split(None, 2)
+                if len(p) == 3:
+                    pai[int(p[0])] = (int(p[1]), p[2])
+            def ler(pid):
+                return pai[pid]
+        nomes, pid = [], os.getppid()
+        for _ in range(4):
+            if pid <= 1:
+                break
+            ppid, nome = ler(pid)
+            nomes.append(os.path.basename(nome.strip()).replace(" ", "_")[:20] or "?")
+            pid = ppid
+        return "<".join(nomes)
+    except Exception:
+        return "?"
+
+
+def registrar_pedido(op, data, response):
+    """Uma linha no tt-troca.log dizendo quem pediu a navegacao (dono, 28/10). Depois da resposta: a tela ja trocou.
+    Casa com a linha de troca do coordenador por cliente e hora."""
+    try:
+        linha = "%s %s cliente=%s pedido=%s op=%s dest=%s id=%s tratado=%d\n" % (
+            time.strftime("%Y-%m-%d %H:%M:%S"), socket.gethostname().split(".")[0], data.get("client", "?"),
+            origem_do_pedido(), op, data.get("dest", "?"), data.get("id", "") or "-", 1 if response.get("handled") else 0)
+        fd = os.open(os.path.expanduser("~/.cache/tt-troca.log"), os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            os.write(fd, linha.encode("utf-8"))
+        finally:
+            os.close(fd)
+    except Exception:
+        pass
+
+
+def registrar_inicio():
+    """Que processo esta vivo e com que codigo (dono, 28/10): pid, revisao instalada e blob git deste arquivo, no tt-vigia.log.
+    Sem isso nenhum log diz qual precarregador atendia um clique. Nunca falha nem atrasa o daemon."""
+    try:
+        dados = Path(__file__).resolve().read_bytes()
+        blob = hashlib.sha1(b"blob %d\0" % len(dados) + dados).hexdigest()[:12]
+        try:
+            versao = (HERE / "VERSAO").read_text().strip()
+        except OSError:
+            versao = "?"
+        with open(os.path.expanduser("~/.cache/tt-vigia.log"), "a", encoding="utf-8") as f:
+            f.write("%s precarregador iniciado pid=%d rev=%s blob=%s\n" % (time.strftime("%F %T"), os.getpid(), versao, blob))
+    except Exception:
+        pass
+
+
 class Coordinator:
     def __init__(self, folder):
         self.folder = folder
@@ -1227,6 +1291,7 @@ class Coordinator:
                 alive.write_text(str(os.getpid()))  # antes de tudo: o vivo velho de outro pid nunca fica valendo
             except OSError:
                 pass  # disco cheio: só não há o sinal de vida (o cliente trata como versão antiga)
+            registrar_inicio()
             beat = time.time()
             self.reap_orphans()
             address = self.folder / "socket"
@@ -1467,6 +1532,7 @@ def main(argv):
     if op == "status":
         print(format_status(response) if human else json.dumps(response, ensure_ascii=False, indent=2))
     if op in ("navigate", "revisit"):
+        registrar_pedido(op, data, response)
         return 0 if response.get("handled") else 1
     return 0
 
