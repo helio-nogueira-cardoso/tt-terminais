@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Roda do mouse no painel da conversa: para cima rola, para baixo volta, clique não mexe; o mouse é ligado e desligado.
+# Roda do mouse no painel da conversa: para cima rola (3 linhas por giro), para baixo volta, clique não mexe; o mouse é ligado e desligado.
 # Usa um pseudo-terminal de verdade (Python pty) e um mesh falso com mensagens de sobra.
 source "$(dirname "$0")/lib.sh"; isolar
 M="$T/mesh"; mkdir -p "$M/channel"; git -C "$M" init -q
@@ -18,8 +18,10 @@ def ler(t=0.6):
             except OSError: break
     return out
 ler(1.0)
-os.write(fd,b"\x1b[<64;10;5M"); assert b"linha(s) abaixo" in ler(0.8), "roda para cima deveria rolar"
-os.write(fd,b"\x1b[<0;10;5M"); apos = ler(0.8); assert apos == b"" or b"linha(s) abaixo" in apos, "clique não deveria voltar ao fim"  # sem repintar (nada mudou) também vale
+os.write(fd,b"\x1b[<64;10;5M"); assert b"3 linha(s) abaixo" in ler(0.8), "roda para cima deveria rolar (3 linhas por giro)"
+os.write(fd,b"\x1b[<64;10;5M"); assert b"6 linha(s) abaixo" in ler(0.8), "a roda continua rolando"
+os.write(fd,b"\x1b[<0;10;5M\x1b[<0;10;5m"); ler(0.6)   # clique na conversa não mexe na posição…
+os.write(fd,b"\x1b[<65;10;5M"); assert b"3 linha(s) abaixo" in ler(0.8), "clique não deveria voltar ao fim (6 - 3 = 3 linhas abaixo)"
 os.write(fd,b"\x1b[<65;10;5M"); assert b"linha(s) abaixo" not in ler(0.8), "roda para baixo deveria voltar ao fim"
 apagou = 0
 for tecla in (b"a", b"b", b"\x1b[A", b"\x1b[B"):
