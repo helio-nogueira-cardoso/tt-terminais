@@ -34,6 +34,7 @@ def _contexto_ssl():
 
 import concurrent.futures
 import datetime
+import hashlib
 import json
 import os
 import pathlib
@@ -68,8 +69,28 @@ def pct(v):
     return None if v is None else max(0, min(100, round(float(v))))
 
 
+def credencial_claude(pasta):
+    """claudeAiOauth da pasta. No macOS o Claude Code guarda o login no Chaves (serviço "Claude
+    Code-credentials", mais "-<8 hex do sha256 da pasta>" fora da ~/.claude), como no tem_credencial
+    do ia-conta; o .credentials.json fica de reserva (ali ele pode ser sobra antiga). Por ssh o Chaves
+    costuma estar trancado: sem resposta dele, vale o arquivo."""
+    chaves = pathlib.Path.home() / "Library/Keychains/login.keychain-db"
+    if chaves.exists() and shutil.which("security"):
+        servico = "Claude Code-credentials"
+        if pasta.rstrip("/") != str(pathlib.Path.home() / ".claude"):
+            servico += "-" + hashlib.sha256(pasta.encode()).hexdigest()[:8]
+        try:
+            r = subprocess.run(["security", "find-generic-password", "-s", servico, "-w", str(chaves)],
+                               capture_output=True, text=True, timeout=TIMEOUT)
+            if r.returncode == 0 and r.stdout.strip():
+                return json.loads(r.stdout).get("claudeAiOauth") or {}
+        except (subprocess.TimeoutExpired, ValueError):
+            pass
+    return json.loads((pathlib.Path(pasta) / ".credentials.json").read_text()).get("claudeAiOauth") or {}
+
+
 def claude(pasta):
-    cred = json.loads((pathlib.Path(pasta) / ".credentials.json").read_text()).get("claudeAiOauth") or {}
+    cred = credencial_claude(pasta)
     if not cred.get("accessToken"):
         raise LookupError("sem credencial")
     if cred.get("expiresAt", 0) / 1000 < AGORA + 30:

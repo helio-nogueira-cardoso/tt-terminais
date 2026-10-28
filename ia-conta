@@ -53,14 +53,19 @@ perfil() { printf '%s/%s' "$RAIZ" "$1"; }
 # "Claude Code-credentials", mais "-<8 hex do sha256 da pasta>" com CLAUDE_CONFIG_DIR), não no
 # .credentials.json. Só a existência é consultada (sem -w, o segredo não sai), pelo caminho do
 # login.keychain: por ssh ele fica fora da lista de busca e a consulta sem caminho não acha nada.
-tem_credencial() {
+servico_chaves() {
   local dir=$1 svc='Claude Code-credentials' h
-  [[ -s $dir/.credentials.json ]] && return 0
   [[ $(uname -s 2>/dev/null) == Darwin ]] && command -v security >/dev/null 2>&1 || return 1
   if [[ $dir != "$BASE" ]]; then
     if command -v shasum >/dev/null 2>&1; then h=$(printf %s "$dir" | shasum -a 256); else h=$(printf %s "$dir" | sha256sum); fi
     svc+="-${h:0:8}"
   fi
+  printf '%s' "$svc"
+}
+tem_credencial() {
+  local svc
+  [[ -s $1/.credentials.json ]] && return 0
+  svc=$(servico_chaves "$1") || return 1
   security find-generic-password -s "$svc" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1
 }
 
@@ -429,10 +434,19 @@ alvo_uso() {
 
 # Token do Claude vencido (ou perto de vencer): a consulta de uso precisa de um válido.
 token_vencido() {
+  local svc chaves="$HOME/Library/Keychains/login.keychain-db"
+  # No macOS vale o Chaves, como no contas-uso.py (um .credentials.json ali pode ser sobra antiga).
+  # O segredo vai do Chaves direto ao python, que só olha a validade.
+  if svc=$(servico_chaves "$1") && security find-generic-password -s "$svc" "$chaves" >/dev/null 2>&1; then
+    security find-generic-password -s "$svc" -w "$chaves" 2>/dev/null | validade_vencida
+  elif [[ -s $1/.credentials.json ]]; then validade_vencida <"$1/.credentials.json"
+  else return 1; fi
+}
+validade_vencida() {
   python3 -I -c '
 import json, sys, time
-c = json.load(open(sys.argv[1])).get("claudeAiOauth") or {}
-sys.exit(0 if c.get("expiresAt", 0) / 1000 < time.time() + 60 else 1)' "$1/.credentials.json" 2>/dev/null
+c = json.load(sys.stdin).get("claudeAiOauth") or {}
+sys.exit(0 if c.get("expiresAt", 0) / 1000 < time.time() + 60 else 1)' 2>/dev/null
 }
 
 # Quem renova é o próprio Claude, ao iniciar (antes mesmo de ler o prompt): sem prompt, ele renova e
@@ -447,7 +461,7 @@ renovar_tokens() {
   for c in "$@"; do
     case $c in codex | kiro) continue ;; esac
     dir=$(pasta_claude "$c")
-    [[ -s $dir/.credentials.json ]] && token_vencido "$dir" || continue
+    token_vencido "$dir" || continue
     if [[ $c == principal ]]; then
       (cd /tmp && env -u CLAUDE_CONFIG_DIR timeout 30 "$CLAUDE_BIN" -p --no-session-persistence </dev/null >/dev/null 2>&1) &
     else
