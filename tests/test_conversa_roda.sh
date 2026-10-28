@@ -19,7 +19,7 @@ def ler(t=0.6):
     return out
 ler(1.0)
 os.write(fd,b"\x1b[<64;10;5M"); assert b"linha(s) abaixo" in ler(0.8), "roda para cima deveria rolar"
-os.write(fd,b"\x1b[<0;10;5M"); assert b"linha(s) abaixo" in ler(0.8), "clique não deveria voltar ao fim"
+os.write(fd,b"\x1b[<0;10;5M"); apos = ler(0.8); assert apos == b"" or b"linha(s) abaixo" in apos, "clique não deveria voltar ao fim"  # sem repintar (nada mudou) também vale
 os.write(fd,b"\x1b[<65;10;5M"); assert b"linha(s) abaixo" not in ler(0.8), "roda para baixo deveria voltar ao fim"
 apagou = 0
 for tecla in (b"a", b"b", b"\x1b[A", b"\x1b[B"):
