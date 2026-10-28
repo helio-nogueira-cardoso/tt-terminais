@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.11.62 · 28/10/2026
+- **🏷️ Renomear um perfil no Mac não perde mais o login:** no macOS o login de cada perfil do Claude fica no Chaves, num item que leva a pasta no nome. O `ia-conta renomear` só movia a pasta: o perfil renomeado ficava sem login e o antigo sobrava no Chaves. Agora o login vai junto para o nome novo, e o segredo passa de um comando a outro sem aparecer na linha de comando. Com o Chaves trancado (por ssh), o renomear recusa sem mexer em nada: rode numa janela da tela.
+
 ## v2.11.61 · 28/10/2026
 - **🔄 Perfil do Claude logado na conta errada aparece:** um `/login` de dentro do Claude troca a conta da pasta sem passar pelo `ia-conta`, e o tt continuava mostrando o e-mail de antes (guardado em cache). Assim, perfis diferentes eram a mesma conta sem ninguém ver: numa máquina, seis perfis eram duas contas, e o rotador mostrava folga que não existia. Agora o e-mail de cada pasta é o que o próprio Claude grava no login (o mesmo do `claude auth status`), lido sem abrir o Claude.
 - **O `ia-conta listar` diz como consertar:** perfil numa conta que outra pasta já tem e que não é a do cadastro sai em "Perfis logados numa conta que não é a do cadastro", com o comando `ia-conta adicionar PERFIL --email E-MAIL-CERTO` (abra o link numa janela anônima, para o navegador não reaproveitar a conta aberta). A lista também resume as pastas que são a mesma conta.

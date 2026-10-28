@@ -69,6 +69,35 @@ tem_credencial() {
   security find-generic-password -s "$svc" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1
 }
 
+# Mover a pasta de um perfil no macOS deixaria o login para trás: o item do Chaves leva o hash da pasta no nome
+# (servico_chaves). chaves_copiar DE PARA copia o item para o nome da pasta nova e confere a cópia; o segredo vai de
+# um security a outro pelo python e pela entrada do "security -i", nunca pela linha de comando. Sem item, nada a
+# fazer; falha se não consegue ler ou gravar (por ssh o Chaves costuma estar trancado).
+chaves_copiar() {
+  local de para
+  de=$(servico_chaves "$1") || return 0
+  para=$(servico_chaves "$2")
+  security find-generic-password -s "$de" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || return 0
+  python3 -I - "$de" "$para" "$HOME/Library/Keychains/login.keychain-db" <<'PY'
+import re, subprocess, sys
+de, para, chaves = sys.argv[1:]
+def security(*args, entrada=None):
+    return subprocess.run(["security", *args], input=entrada, capture_output=True)
+conta = re.search(rb'"acct"<blob>="(.*)"', security("find-generic-password", "-s", de, chaves).stdout)
+segredo = security("find-generic-password", "-s", de, "-w", chaves).stdout.rstrip(b"\n")
+if not conta or not segredo:
+    sys.exit(1)
+comando = 'add-generic-password -U -a "%s" -s "%s" -X %s "%s"\n' % (conta.group(1).decode(), para, segredo.hex(), chaves)
+security("-i", entrada=comando.encode())
+sys.exit(0 if security("find-generic-password", "-s", para, "-w", chaves).stdout.rstrip(b"\n") == segredo else 1)
+PY
+}
+chaves_apagar() {
+  local svc
+  svc=$(servico_chaves "$1") || return 0
+  security delete-generic-password -s "$svc" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || true
+}
+
 # Arquivo de configuração do Claude da pasta, pela regra do próprio Claude Code: o .config.json antigo, se houver; senão
 # ~/.claude.json na principal e o .claude.json da pasta num perfil (CLAUDE_CONFIG_DIR).
 config_claude() {
@@ -320,7 +349,10 @@ renomear() {
   [[ -d $dir && ! -L $dir ]] || die "não existe a conta '$velho' (veja: ia-conta listar)"
   [[ -e $destino || -L $destino ]] && die "já existe uma conta '$novo'"
   recusar_em_uso "$velho"
+  chaves_copiar "$dir" "$destino" ||
+    die "o login de '$velho' fica no Chaves do macOS e não consegui movê-lo para '$novo' (por ssh ele fica trancado): rode numa janela da tela"
   mv "$dir" "$destino"
+  chaves_apagar "$dir"
   apagar_atalho "$velho"
   criar_atalho "$novo"
   trocar_nome_estado "$velho" "$novo"
