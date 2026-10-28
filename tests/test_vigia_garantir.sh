@@ -5,6 +5,21 @@
 #  - TT_SEM_VIGIA_AUTO=1 desliga (é o que a suíte usa);
 #  - salto do relógio entre duas voltas do vigia (a máquina dormiu): a malha só é conferida TT_POS_WAKE s depois.
 source "$(dirname "$0")/lib.sh"; isolar; instalar_isolado # antes do tmux: instalar com servidor de pé religaria o vigia
+# S23: Debian instalado não substitui o perfil nativo que tem máquinas ou e-mail.
+(
+  TT_SO_CARREGAR=1 source "$TT_DIR/tt"
+  PREFIX=/data/data/com.termux/files/usr
+  distro_proot() { return 0; }
+  email_slugs() { :; }
+  CONF_MAQ=$T/maquinas-vigia
+  vigia_no_debian || falhou 'perfil nativo vazio deveria delegar ao Debian'
+  echo 'host usuario maquina' >"$CONF_MAQ"
+  vigia_no_debian && falhou 'perfil com máquinas não pode ficar sem vigia'
+  : >"$CONF_MAQ"
+  email_slugs() { echo gmail; }
+  vigia_no_debian && falhou 'perfil com e-mail não pode ficar sem vigia'
+  passou 'vigia nativo preservado quando Debian não atende o perfil'
+)
 unset TT_SEM_VIGIA_AUTO
 tmux -f /dev/null new -d -s s 'sleep 600'
 pidf="$TT_RT/tt-vigia-$(id -u).pid"

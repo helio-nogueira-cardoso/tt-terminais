@@ -508,8 +508,14 @@ faxina_vigia() {
 # Vigia parado (morto de fora, servidor trocado): ninguém o religava, e com ele morto nada sincroniza (e-mail,
 # fixadas, malha, atualização). Quem usa a barra o religa: cada clique e cada cliente que se anexa chamam isto,
 # que confere no máximo a cada 30 s (marca em $RT) e só age com o tmux de pé. TT_SEM_VIGIA_AUTO=1 desliga (testes).
-# No Termux com um Debian (proot-distro), o vigia é o do Debian: o do Termux seria um segundo, com outro RT (pidfile).
-vigia_no_debian() { [[ ${PREFIX:-} == *com.termux* ]] && distro_proot >/dev/null 2>&1; }
+# Termux sem máquinas nem contas pode delegar ao Debian; um perfil nativo ativo precisa do próprio vigia.
+vigia_no_debian() {
+  # Perfis distintos: o Debian não lê as máquinas nem as contas do Termux.
+  # Havendo trabalho no perfil nativo, ele precisa do seu próprio vigia.
+  [[ ${PREFIX:-} == *com.termux* && ! -s $CONF_MAQ ]] || return 1
+  [[ -z $(email_slugs) ]] || return 1
+  distro_proot >/dev/null 2>&1
+}
 vigia_garantir() {
   [[ ${TT_SEM_VIGIA_AUTO:-} == 1 ]] && return 0
   vigia_no_debian && return 0
@@ -1752,11 +1758,11 @@ busca_indexar() {
   fi
   arq=$(mktemp "$RT/tt-busca.XXXXXX") || { rmdir "$trava"; return 1; }
   while IFS=$'\x1f' read -r fl s p br; do
-    [[ $fl != 1 && $s != _* && -z $br ]] || continue
+    [[ -n $p && $fl != 1 && $s != _* && -z $br ]] || continue
     prov=""; id=""
-    read -r prov pid id < <(conversa_do_painel "$p" 2>/dev/null) || true
+    read -r prov pid id <<<"$(conversa_do_painel "$p" 2>/dev/null)" || true
     printf '%s\t%s\t%s\t%s\n' "$s" "$p" "$prov" "$id"
-  done < <(tmux list-panes -a -F $'#{pane_floating_flag}\x1f#{session_name}\x1f#{pane_id}\x1f#{@ponte}' 2>/dev/null) >"$arq"
+  done <<<"$(tmux list-panes -a -F $'#{pane_floating_flag}\x1f#{session_name}\x1f#{pane_id}\x1f#{@ponte}' 2>/dev/null)" >"$arq"
   nice -n 10 python3 -I "$DIR_TT/busca-tt.py" indexar "$arq"
   # as conversas antigas de TODAS as contas (não só as dos painéis abertos): mais novas primeiro, por volta num orçamento de tempo
   nice -n 10 python3 -I "$DIR_TT/busca-tt.py" conversas-indexar --dias "${TT_BUSCA_DIAS:-120}" --orcamento "${TT_BUSCA_ORCAMENTO:-60}" || true
@@ -8522,7 +8528,7 @@ checar_coletar() {
   else checar_linha separacao ok "pacote completo e sem arquivos do usuário; perfil sem código"; fi
   if [[ -e $REPO_TT/.git ]]; then
     lst=()
-    while IFS= read -r x; do [[ -n $x ]] && lst+=("${x:3}"); done < <(git -C "$REPO_TT" status --porcelain --untracked-files=no -- "${ARQUIVOS_FONTE[@]}" .gitignore 2>/dev/null)
+    while IFS= read -r x; do [[ -n $x ]] && lst+=("${x:3}"); done <<<"$(git -C "$REPO_TT" status --porcelain --untracked-files=no -- "${ARQUIVOS_FONTE[@]}" .gitignore 2>/dev/null)"
     if ((${#lst[@]})); then checar_linha clone aviso "clone de desenvolvimento com arquivo versionado mudado e não gravado: ${lst[*]} (trava a atualização)" "tt --repo-checar (e --corrigir para o .gitignore)"
     else checar_linha clone ok "clone de desenvolvimento ${REPO_TT/#"$HOME"/"~"} sem mudança que trave a atualização"; fi
   fi
@@ -8538,7 +8544,7 @@ checar_coletar() {
       continue
     fi
     # Os comandos (✕ Apagar, ▤ Arquivar) têm para onde mandar a mensagem?
-    IFS=$'\t' read -r st erro m < <(email_cmds_estado "$slug")
+    IFS=$'\t' read -r st erro m <<<"$(email_cmds_estado "$slug")"
     [[ -n $st ]] && checar_linha "email-cmd:$slug" "$st" "$erro" "$m"
     if [[ ${E[sync_local]:-} != 1 ]]; then
       checar_linha "email:$slug" aviso "conta sem espelho local: sem aviso de e-mail novo, contador do 📧 e demandas [tt]" "tt --pedir-sudo email-espelho"
@@ -8655,7 +8661,7 @@ elif est: print("ok\t" + (d.get("Self") or {}).get("DNSName", "").split(".")[0])
   while IFS=$'\t' read -r f _ _ _ d; do
     [[ -n $f ]] || continue
     lst+=("$f"); [[ $d == essencial ]] && x=1
-  done < <(sudo_pendencias 2>/dev/null)
+  done <<<"$(sudo_pendencias 2>/dev/null)"
   if ((${#lst[@]})); then checar_linha pendencias "$([[ -n $x ]] && echo falha || echo aviso)" "falta instalar: ${lst[*]}" "tt --pedir-sudo ${lst[*]} (sudo só se funcionar sem senha: sudo -n true)"
   else checar_linha pendencias ok "nada essencial ou de recurso faltando"; fi
 
@@ -8685,7 +8691,7 @@ elif est: print("ok\t" + (d.get("Self") or {}).get("DNSName", "").split(".")[0])
   # serviços do usuário reiniciando sem parar (guarda dos serviços; só com systemd do usuário)
   if servicos_ok; then
     lst=()
-    while IFS=$'\x1f' read -r f _; do [[ -n $f ]] && lst+=("$f"); done < <(servicos_em_loop)
+    while IFS=$'\x1f' read -r f _; do [[ -n $f ]] && lst+=("$f"); done <<<"$(servicos_em_loop)"
     if ((${#lst[@]})); then
       checar_linha servicos falha "serviço do usuário reiniciando sem parar: ${lst[*]}" "tt --servicos vigiar (o vigia faz em até 5 min): guarda, causa e uma pergunta no 🔔"
     else
@@ -22865,7 +22871,7 @@ case "${1:-}" in
   --renomear) if (($# >= 3)); then renomear "$2" "$3"; else renomear_interativo "${2:-$(tmux display-message -p '#{session_name}')}"; fi; exit ;;
   --nomear-todas) nomear_todas; exit ;;
   --nomear-todas-local) nomear_todas_local; exit ;;
-  --vigia) vigia_no_debian && exit 0; vigiar; exit ;;  # no Termux com Debian, o vigia é o do Debian
+  --vigia) vigia_no_debian && exit 0; vigiar; exit ;;  # delega ao Debian apenas quando o perfil nativo está vazio
   --rapido) rapido_cmd "${2:-status}"; exit $? ;;
   --janela) PATH=${_TT_PATH_ORIGEM:-$PATH}; unset _TT_PATH_ORIGEM; exec "$TT_TMUX_BIN" new-session -s "$(proximo_nome)" ;;
   -h | --help | ajuda) ajuda; exit 0 ;;

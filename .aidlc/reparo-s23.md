@@ -1,0 +1,1 @@
+Fluxo express: corrigir busca/checagem sem /dev/fd no proot e manter vigia nativo quando o perfil Termux tem máquinas ou contas que o Debian não lê. Validar busca, checagem, vigia e portabilidade em ambiente isolado; instalar no S23 e registrar resultado no Mesh.

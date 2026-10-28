@@ -95,3 +95,13 @@ l=$("$RAIZ/tt" --listar-busca informacao)
 printf '%s' "$l" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null ||
   falhou "trecho da central com caractere partido: '$l'"
 echo 'ok: busca na conversa inteira e no scrollback inteiro (FTS5), reindexação incremental e verbos do tt'
+
+# Coleta vazia não pode virar um painel vazio (here-string em proot sem /dev/fd).
+(
+  TT_SO_CARREGAR=1 source "$TT_DIR/tt"
+  busca_ativa() { return 0; }
+  tmux() { :; }
+  nice() { [[ $* != *' indexar '* ]] || [[ ! -s ${@: -1} ]] || exit 1; }
+  busca_indexar || falhou 'coleta sem painéis gerou registro vazio'
+  passou 'indexador aceita coleta vazia sem painel fantasma'
+)
