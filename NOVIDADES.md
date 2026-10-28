@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.11.58 · 28/10/2026
+- **💬 Nome inteiro na conversa do mesh:** persona com nome de mais de uma palavra aparecia só com a primeira (o Mac saía como "Pedro"). Agora vale o nome inteiro da carta, até o travessão da descrição: "Pedro Estevão".
+
 ## v2.11.51 · 27/10/2026
 - **🚀 Rotador reconhece os logins do Mac:** contas do Claude com credencial no Chaves passam a participar da seleção e da execução sem tela. Antes o seletor as mostrava conectadas, mas o rotador exigia um arquivo e as excluía como deslogadas.
 - **Uso antigo não parece cota livre:** quando a janela do cache já terminou e não há consulta atual, o rotador informa uso desconhecido. Bloqueios recentes por limite continuam valendo.

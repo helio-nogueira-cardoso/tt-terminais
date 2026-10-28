@@ -29,7 +29,8 @@ def personas():
     try:
         with open(os.path.join(MESH, "mission.md"), encoding="utf-8") as f:
             for linha in f:
-                m = re.match(r"- \*\*([\w-]+)\*\* · (\w+)", linha)
+                # O nome vai até o travessão da descrição: "Pedro Estevão" é o nome inteiro, não "Pedro".
+                m = re.match(r"- \*\*([\w-]+)\*\* · (\w[^—\n]*?)\s*(?:—|$)", linha)
                 if m:
                     nomes[m.group(1)] = m.group(2)
     except OSError:

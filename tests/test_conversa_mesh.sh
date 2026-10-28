@@ -3,7 +3,7 @@
 # da carta e põe a própria máquina à direita. Isola HOME; o mesh é um falso.
 source "$(dirname "$0")/lib.sh"; isolar
 M="$T/mesh"; mkdir -p "$M/channel/arquivo"
-printf '## Personas\n- **dell** · Vito — coordenador.\n- **mac** · Teo — prático.\n' >"$M/mission.md"
+printf '## Personas\n- **dell** · Vito — coordenador.\n- **mac** · Teo — prático.\n- **book** · Ana Lúcia — detalhista.\n- **s23** · Lua\n' >"$M/mission.md"
 dia=$(date +%F)
 hora=$(date -u +%Y%m%dT%H%M%SZ)
 printf -- '---\nfrom: dell\nto: all\ntopic: teste de conversa\n---\nOi, Teo, o canal chegou.\n' >"$M/channel/${hora}-dell-a1.md"
@@ -17,6 +17,14 @@ grep -q 'isto nao entra' <<<"$out" && falhou 'mensagem de outro dia não deveria
 linha_dono=$(grep 'Mensagem minha' <<<"$out"); [[ $linha_dono =~ ^[[:space:]]{8,} ]] || falhou 'a mensagem do dono deveria ficar à direita'
 linha_mac=$(grep 'Recebido' <<<"$out"); [[ $linha_mac =~ ^[[:space:]]{8,} ]] && falhou 'mensagem de outra máquina não deve ficar à direita'
 passou 'conversa do mesh: lê o tt-mesh de quem roda, filtra o dia, usa persona e põe a própria máquina à direita'
+
+# Nome de persona com mais de uma palavra sai inteiro (até o travessão da descrição), com acento.
+printf -- '---\nfrom: book\nto: all\ntopic: nome composto\n---\nOi do book.\n' >"$M/channel/${hora}-book-d4.md"
+printf -- '---\nfrom: s23\nto: all\ntopic: nome composto\n---\nOi do celular.\n' >"$M/channel/${hora}-s23-d5.md"
+out=$(TT_MESH="$M" TT_MAQUINA=mac python3 -I "$RAIZ/conversa-mesh.py" "$dia")
+grep -q 'Ana Lúcia' <<<"$out" || falhou "nome composto da persona deveria sair inteiro: $out"
+grep -q 'Lua' <<<"$out" || falhou 'persona sem descrição deveria sair'
+passou 'persona com nome composto (Ana Lúcia) e sem descrição saem inteiras'
 
 # Recado do dono: grava no canal como from: dono, commita no mesh (sem remoto aqui, o push fica pendente).
 G="$T/mesh-git"; mkdir -p "$G/channel"; git -C "$G" init -q && git -C "$G" -c user.email=t@t -c user.name=t commit -q --allow-empty -m base
