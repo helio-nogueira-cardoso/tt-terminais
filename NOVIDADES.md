@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.11.69 · 28/10/2026
+- **🚀 As contas do Claude voltam a abrir no Mac:** o tema dos agentes (que o vigia aplica a cada 5 minutos) gravava `{"theme": "dark"}` como arquivo no perfil que ainda não tinha o `settings.json`. Depois disso o `ia-conta` recusava abrir a conta ("o perfil 'itau' já tem 'settings.json' próprio; não vou substituí-lo") e o 🚀 terminava com código 1. Aconteceu nos quatro perfis do Mac em 20/10. Agora o tema só mexe no `settings.json` que o perfil tem de verdade: sem o arquivo, quem cria é o `ia-conta` (o link para o principal), e um link nunca vira arquivo.
+
 ## v2.11.62 · 28/10/2026
 - **🏷️ Renomear um perfil no Mac não perde mais o login:** no macOS o login de cada perfil do Claude fica no Chaves, num item que leva a pasta no nome. O `ia-conta renomear` só movia a pasta: o perfil renomeado ficava sem login e o antigo sobrava no Chaves. Agora o login vai junto para o nome novo, e o segredo passa de um comando a outro sem aparecer na linha de comando. Com o Chaves trancado (por ssh), o renomear recusa sem mexer em nada: rode numa janela da tela.
 

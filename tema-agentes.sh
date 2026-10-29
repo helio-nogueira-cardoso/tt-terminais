@@ -10,6 +10,8 @@ json_theme() {
 import json, os, sys, tempfile
 
 path, key, value = sys.argv[1:]
+# Grava no arquivo de destino: o os.replace sobre um link simbólico troca o link por um arquivo comum.
+path = os.path.realpath(path)
 try:
     with open(path, encoding="utf-8") as source:
         data = json.load(source)
@@ -83,11 +85,13 @@ claude_theme() {
   if command -v claude >/dev/null 2>&1 || [[ -d $HOME/.claude ]]; then
     json_theme "$HOME/.claude/settings.json" theme dark || true
   fi
-  # Perfis de claude-conta guardam credenciais separadas, mas também podem ter settings próprios.
-  # Só a chave visual é alterada; links simbólicos para a configuração compartilhada são seguros.
+  # Perfis de claude-conta guardam credenciais separadas, mas também podem ter settings próprios: só esses recebem
+  # a chave visual. Sem o arquivo, quem cria é o ia-conta (link para o principal); um arquivo criado aqui fazia o
+  # ia-conta recusar o perfil ("já tem 'settings.json' próprio", Mac, 20/10). Link: o principal já recebeu o tema acima.
   for perfil in "$HOME"/.local/share/claude-contas/*; do
     [[ -d $perfil ]] || continue
     [[ ${perfil##*/} =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || continue # travas (.lock) não são perfis
+    [[ -f $perfil/settings.json && ! -L $perfil/settings.json ]] || continue
     json_theme "$perfil/settings.json" theme dark || true
   done
 }
