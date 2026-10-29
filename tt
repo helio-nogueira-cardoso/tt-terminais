@@ -11056,7 +11056,20 @@ demandas_ui() {
 }
 
 # Liga/desliga a 2ª linha e força a barra a se redesenhar já (o #() da barra muda de comando).
+# Aplica a lista às sessões. Duas aplicações ao mesmo tempo (uma de fixar/receber, outra de reexecução ou do vigia) podem terminar fora de ordem: a que
+# leu a lista antiga e gravou por último deixaria as marcas velhas com a lista nova já em vigor. Quem aplica confere, ao terminar, se a lista ainda é a que
+# viu ao começar e, se mudou, aplica de novo (até 3 passadas; a última a terminar sempre viu a lista em vigor). Sem trava: leitura do arquivo por builtin.
 aplicar_fixadas() {
+  local ini fim n
+  for ((n = 0; n < 3; n++)); do
+    ini=""; { IFS= read -rd '' ini <"$CONF_FIX"; } 2>/dev/null || :
+    aplicar_fixadas_uma
+    fim=""; { IFS= read -rd '' fim <"$CONF_FIX"; } 2>/dev/null || :
+    [[ $ini == "$fim" ]] && break
+  done
+  return 0
+}
+aplicar_fixadas_uma() {
   # A faixa permanece visível mesmo vazia (o marcador deixa claro onde as fixadas aparecerão): o nº de linhas da
   # barra (status) é conferido e gravado pelo atualizar_barras, no fim, junto com o resto.
   # Marca nas sessões daqui (@tt_fixada): o 📌 ao lado do nome, na barra, fica aceso nas fixadas.

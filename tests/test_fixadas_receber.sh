@@ -293,4 +293,16 @@ LISTA=$D/tres com_tmux 'aplicar_fixadas() { receber_fixadas 300 </dev/null; }'
 [[ $(cat "$CF.recusada" 2>/dev/null) == 300 && $(n "$CF") == 3 ]] || falhou "27d: a remoção da pendência 200 apagou a recusa 300 que chegou no meio (pend=$(cat "$CF.recusada" 2>/dev/null) n=$(n "$CF"))"
 propagar
 nada_enviado || falhou "27d: propagou com a recusa 300 aberta: $(ls "$CAP")"
+# 28) duas aplicações ao mesmo tempo: a A leu a lista antiga e demora para gravar as marcas (o gancho dorme no primeiro lote_add); no meio chega a lista nova e a
+# B aplica tudo. A lista antiga não pode terminar por último e deixar "velha" fixada com a lista nova já em vigor
+rtmux set -q -u -t =nova: @tt_fixada; rtmux set -q -u -t =velha: @tt_fixada
+local_com 300 1; printf 'm1\tvelha\tidvelha\n' >"$CF"
+env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 PATH="$RP" \
+  bash -c 'source "$1"; eval "orig_$(declare -f lote_add)"; lote_add() { sleep 2; orig_lote_add "$@"; }; aplicar_fixadas' _ "$ROOT/tt" </dev/null >/dev/null 2>&1 &
+sleep 0.7   # a A já leu a lista antiga e está dormindo
+printf 'm1\tnova\tidnova\n' >"$CF"; echo 301 >"$CF.v"
+env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 PATH="$RP" \
+  bash -c 'source "$1"; aplicar_fixadas' _ "$ROOT/tt" </dev/null >/dev/null 2>&1
+wait
+[[ $(marca nova) == 1 && -z $(marca velha) ]] || falhou "28: a aplicação com a lista antiga terminou por último (nova=[$(marca nova)] velha=[$(marca velha)])"
 echo "ok: test_fixadas_receber"
