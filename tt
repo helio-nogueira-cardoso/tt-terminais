@@ -10120,13 +10120,13 @@ receber_fixadas() {
   tmp=$(mktemp "$CONF_FIX.XXXXXX"); cat >"$tmp"
   travar_fixadas || { rm -f "$tmp"; return 1; }
   if [[ $v =~ ^[0-9]+$ ]] && ((v > $(versao_fixadas))); then
-    local antes depois
+    local antes depois origem=${SSH_CLIENT:-local}; origem=${origem%% *}  # sem ssh (o puxar_fixadas roda local) a variavel nao existe: set -u abortava aqui
     antes=$(grep -vc '^\s*$' "$CONF_FIX" 2>/dev/null); depois=$(grep -vc '^\s*$' "$tmp" 2>/dev/null)
     if ((${depois:-0} == 0 && ${antes:-0} >= 2)); then  # uma lista vazia que apaga 2+ de uma vez nao e um "desafixar": recusa
-      fixadas_log "lista recebida (v$v) VAZIA recusada: a daqui tem ${antes} fixada(s): origem ${SSH_CLIENT%% *}"
+      fixadas_log "lista recebida (v$v) VAZIA recusada: a daqui tem ${antes} fixada(s): origem $origem"
       rm -f "$tmp"; destravar_fixadas; return 0
     fi
-    ((${depois:-0} < ${antes:-0})) && { fixadas_log "lista recebida (v$v) tem ${depois:-0} fixada(s) e a daqui tinha ${antes:-0}: origem ${SSH_CLIENT%% *}"; cp -f "$CONF_FIX" "$CONF_FIX.prev" 2>/dev/null; }
+    ((${depois:-0} < ${antes:-0})) && { fixadas_log "lista recebida (v$v) tem ${depois:-0} fixada(s) e a daqui tinha ${antes:-0}: origem $origem"; cp -f "$CONF_FIX" "$CONF_FIX.prev" 2>/dev/null; }
     mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"
     destravar_fixadas
     aplicar_fixadas
