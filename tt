@@ -10126,7 +10126,7 @@ marcar_fixadas() { date +%s%N >"$CONF_FIX.v"; snapshot_evento fixadas; precarreg
 # Recebe a lista de outra máquina (stdin) com a versão V. Só aceita se for mais nova que a daqui:
 # uma máquina que volta atrasada nunca desfaz uma mudança mais recente.
 receber_fixadas() {
-  local v=${1:-0} tmp
+  local v=${1:-0} tmp pend
   mkdir -p "$CONF_DIR"
   tmp=$(mktemp "$CONF_FIX.XXXXXX"); cat >"$tmp"
   travar_fixadas || { rm -f "$tmp"; return 1; }
@@ -10138,7 +10138,11 @@ receber_fixadas() {
       # (a daqui passa a ser a recebida). Enquanto existir, propagar_fixadas não envia nada. Saída manual: mover fixadas e fixadas.v para o lado.
       # Falha fechada: a pendência é gravada ANTES de recusar, inteira (temporário + mv). Se não der para gravar, não se recusa: aceitar a vazia
       # iguala a lista daqui à das outras, e recusar sem poder bloquear a propagação ressuscitaria as antigas. Morrer depois de gravar deixa a pendência.
-      if { echo "$v" >"$CONF_FIX.recusada.novo" && mv -f "$CONF_FIX.recusada.novo" "$CONF_FIX.recusada"; } 2>/dev/null; then
+      # A pendência guarda a MAIOR versão recusada (sob a trava): uma recusa menor depois (300, depois 200) não a rebaixa, senão uma lista
+      # intermediária (250) a limparia com a 300 ainda sem reconciliar.
+      pend=0; [[ -e $CONF_FIX.recusada ]] && { read -r pend <"$CONF_FIX.recusada"; } 2>/dev/null; [[ ${pend:-} =~ ^[0-9]+$ ]] || pend=0
+      ((v > pend)) && pend=$v
+      if { echo "$pend" >"$CONF_FIX.recusada.novo" && mv -f "$CONF_FIX.recusada.novo" "$CONF_FIX.recusada"; } 2>/dev/null; then
         fixadas_log "lista recebida (v$v) VAZIA recusada: a daqui tem ${antes} fixada(s): origem $origem; propagacao bloqueada ate aceitar uma lista (saida manual: mover fixadas e fixadas.v para o lado)"
         rm -f "$tmp"; destravar_fixadas; return 0
       fi
@@ -10154,6 +10158,13 @@ receber_fixadas() {
     destravar_fixadas
     aplicar_fixadas
   else
+    # Reexecução da MESMA lista já aplicada (versão igual à daqui e conteúdo idêntico): se a execução anterior morreu entre gravar fixadas.v e remover
+    # a pendência, ela ficaria presa até haver versão maior. Só limpa se a versão daqui alcança a maior recusada, na mesma trava. Uma edição local
+    # (versão acima de qualquer remota) ou uma lista diferente não entram aqui.
+    if [[ -e $CONF_FIX.recusada && $v =~ ^[0-9]+$ ]] && ((v == $(versao_fixadas))) && cmp -s "$tmp" "$CONF_FIX"; then
+      { read -r pend <"$CONF_FIX.recusada"; } 2>/dev/null; [[ ${pend:-} =~ ^[0-9]+$ ]] || pend=0
+      ((v >= pend)) && rm -f "$CONF_FIX.recusada"
+    fi
     destravar_fixadas
     rm -f "$tmp"
   fi

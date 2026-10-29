@@ -195,4 +195,34 @@ local_com 100 3
 rmdir "$CF.trava" 2>/dev/null   # a trava ficou com o processo que morreu (sai sozinha em 20 s)
 echo 999 >"$CF.v"; propagar
 nada_enviado || falhou "propagou depois da morte com a pendência gravada: $(ls "$CAP")"
+# 22) a pendência guarda a MAIOR versão recusada: 100 → recusa 300 → recusa 200 mantém 300; uma lista 250 é aceita mas não limpa; 350 limpa
+local_com 100 3; receber 300 "$D/vazia"; receber 200 "$D/vazia"
+[[ $(cat "$CF.recusada" 2>/dev/null) == 300 ]] || falhou "recusa menor rebaixou a pendência (pend=$(cat "$CF.recusada" 2>/dev/null))"
+receber 250 "$D/uma"
+[[ $(n "$CF") == 1 && $(ver) == 250 && $(cat "$CF.recusada" 2>/dev/null) == 300 ]] || falhou "a 250 limpou a pendência 300 (n=$(n "$CF") v=$(ver) pend=$(cat "$CF.recusada" 2>/dev/null))"
+echo 999 >"$CF.v"; propagar
+nada_enviado || falhou "propagou com a recusa 300 ainda sem reconciliar: $(ls "$CAP")"
+echo 250 >"$CF.v"; receber 350 "$D/tres"
+[[ ! -e $CF.recusada ]] || falhou "a 350 (acima da maior recusada) não limpou a pendência"
+
+# 23) queda entre gravar fixadas.v e remover a pendência: a reexecução idêntica da lista aplicada limpa se a versão daqui alcança a recusada, e não limpa
+# se a pendência é maior que a versão daqui
+local_com 250 1; cp "$CF" "$D/aplicada"; echo 200 >"$CF.recusada"   # estado pós-queda: lista e versão 250 gravadas, pendência 200 ficou
+receber 250 "$D/aplicada"
+[[ ! -e $CF.recusada ]] || falhou "a reexecução idêntica não limpou a pendência 200 com a versão daqui em 250"
+local_com 250 1; cp "$CF" "$D/aplicada"; echo 300 >"$CF.recusada"
+receber 250 "$D/aplicada"
+[[ $(cat "$CF.recusada" 2>/dev/null) == 300 ]] || falhou "a reexecução limpou uma pendência (300) maior que a versão daqui (250)"
+echo 999 >"$CF.v"; propagar
+nada_enviado || falhou "propagou com a pendência 300 aberta: $(ls "$CAP")"
+
+# 24) uma edição local (versão acima da recusada) não limpa a pendência, nem com lista velha nem com a mesma versão e outro conteúdo
+local_com 100 3; receber 200 "$D/vazia"
+echo 999 >"$CF.v"
+receber 150 "$D/uma"
+[[ $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "edição local + lista velha limparam a pendência (pend=$(cat "$CF.recusada" 2>/dev/null))"
+receber 999 "$D/uma"   # mesma versão que a daqui, conteúdo diferente (daqui 3 linhas, recebida 1)
+[[ $(cat "$CF.recusada" 2>/dev/null) == 200 && $(n "$CF") == 3 ]] || falhou "versão igual com conteúdo diferente limpou a pendência ou mexeu na lista"
+propagar
+nada_enviado || falhou "propagou com a pendência 200 aberta depois de edição local: $(ls "$CAP")"
 echo "ok: test_fixadas_receber"
