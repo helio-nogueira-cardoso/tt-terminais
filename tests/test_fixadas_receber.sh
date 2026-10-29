@@ -244,12 +244,39 @@ receber 200 "$D/vazia"
 env_dest() { env -u SSH_CLIENT HOME="$DST/home" XDG_CONFIG_HOME="$DST/home/.config" TT_MACHINE=m2 TT_SO_CARREGAR=1 bash -c 'source "$1"; receber_fixadas "$2"' _ "$ROOT/tt" "$@"; }
 env_dest 100 <"$(ls "$CAP"/envio.* | grep -v '\.cmd$' | head -1)" >/dev/null 2>&1
 [[ $(n "$CFD") == 3 && $(cat "$CFD.v") == 100 ]] || falhou "o destino atrasado não recebeu o envio já decidido (n=$(n "$CFD") v=$(cat "$CFD.v" 2>/dev/null))"
-# a vazia v200 chega ao destino pelo caminho real da volta: o vigia roda "tt --puxar-fixadas" ao iniciar e a cada 5 min; ele pergunta a versão de cada
-# máquina por ssh (aqui, um ssh de mentira diz que a origem está na 200), lê a lista dela (vazia) e entrega ao receber_fixadas por pipe
-mkdir -p "$D/sshpull"; printf '#!/usr/bin/env bash\ncase "$*" in *fixadas.v*) echo 200 ;; *) : ;; esac\n' >"$D/sshpull/ssh"; chmod +x "$D/sshpull/ssh"
-env -u SSH_CLIENT HOME="$DST/home" XDG_CONFIG_HOME="$DST/home/.config" TT_MACHINE=m2 TT_SO_CARREGAR=1 PATH="$D/sshpull:$PATH" \
-  bash -c 'source "$1"; maquinas() { printf "origem\tm1\n"; }; puxar_fixadas' _ "$ROOT/tt" >/dev/null 2>&1
-[[ $(n "$CFD") == 3 && $(cat "$CFD.recusada" 2>/dev/null) == 200 && $(n "$CF") == 3 && $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "estado final: destino n=$(n "$CFD") pend=$(cat "$CFD.recusada" 2>/dev/null); origem n=$(n "$CF") pend=$(cat "$CF.recusada" 2>/dev/null)"
+# A v200 vazia vem de uma TERCEIRA máquina (m3) e chega ao destino pelo caminho real da volta: o vigia roda "tt --puxar-fixadas" ao iniciar e a cada 5 min;
+# ele pergunta a versão de cada máquina por ssh, lê a lista da mais nova e entrega ao receber_fixadas por pipe. O ssh de mentira lê os ARQUIVOS das
+# máquinas declaradas: m1 = a origem montada acima ($D/home: v100, 3 fixadas, pendência 200) e m3 = $M3 (vazia, v200); INDISP lista as que não respondem.
+M3=$D/m3home; mkdir -p "$M3/.config/tt" "$D/sshpull"; : >"$M3/.config/tt/fixadas"; echo 200 >"$M3/.config/tt/fixadas.v"
+cat >"$D/sshpull/ssh" <<'EOS'
+#!/usr/bin/env bash
+a=("$@"); host=${a[${#a[@]}-2]}; cmd=${a[${#a[@]}-1]}
+[[ ,${INDISP:-}, == *",$host,"* ]] && exit 255
+case $host in m1) h=$HOME_M1 ;; m3) h=$HOME_M3 ;; *) exit 255 ;; esac
+case $cmd in
+  *fixadas.v*) cat "$h/.config/tt/fixadas.v" 2>/dev/null || echo 0 ;;
+  *) cat "$h/.config/tt/fixadas" 2>/dev/null ;;
+esac
+EOS
+chmod +x "$D/sshpull/ssh"
+dest_env() { env -u SSH_CLIENT HOME="$DST/home" XDG_CONFIG_HOME="$DST/home/.config" TT_MACHINE=m2 TT_SO_CARREGAR=1 HOME_M1="$D/home" HOME_M3="$M3" "$@"; }
+puxar_dest() { # [MAQUINAS_FORA]
+  dest_env INDISP="${1:-}" PATH="$D/sshpull:$PATH" bash -c 'source "$1"; maquinas() { printf "m1\tm1\nm3\tm3\n"; }; puxar_fixadas' _ "$ROOT/tt" >/dev/null 2>&1
+}
+propagar_dest() { dest_env CAP="$CAP" bash -c 'source "$1"; maquinas() { printf "p1\tm1\np3\tm3\n"; }; propagar_fixadas' _ "$ROOT/tt" >/dev/null 2>&1; }
+# 26a) m3 responde: o destino lê a v200 vazia da m3, recusa e fica bloqueado como a origem (nada novo sai dele)
+rm -f "$CAP"/envio.*
+puxar_dest
+[[ $(n "$CFD") == 3 && $(cat "$CFD.recusada" 2>/dev/null) == 200 && $(n "$CF") == 3 && $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "26a: estado final: destino n=$(n "$CFD") pend=$(cat "$CFD.recusada" 2>/dev/null); origem n=$(n "$CF") pend=$(cat "$CF.recusada" 2>/dev/null)"
+propagar_dest
+nada_enviado || falhou "26a: o destino com a pendência 200 propagou: $(cat "$CAP"/envio.*.cmd 2>/dev/null)"
+# 26b) m3 fora do ar: o destino (v100, 3 fixadas) não viu a v200 e não tem como recusá-la. O bloqueio é LOCAL, de quem recebeu a v200 (a origem, por exemplo), e
+# NÃO se estende ao destino: ele continua propagando a v100, que as máquinas que já têm a v200 ignoram (versão menor). Contrato registrado, não escondido.
+rm -f "$CFD.recusada" "$CAP"/envio.*
+puxar_dest m3
+[[ ! -e $CFD.recusada && $(n "$CFD") == 3 && $(cat "$CFD.v") == 100 ]] || falhou "26b: com a m3 fora o destino mudou (n=$(n "$CFD") v=$(cat "$CFD.v" 2>/dev/null) pend=$([[ -e $CFD.recusada ]] && echo sim || echo nao))"
+propagar_dest
+[[ $(envios 2) == 2 && $(cat "$CAP"/envio.*.cmd | grep -c -- '--receber-fixadas 100$') == 2 ]] || falhou "26b: com a m3 fora o destino sem pendência deveria propagar a v100 (envios=$(envios 0); $(cat "$CAP"/envio.*.cmd 2>/dev/null))"
 
 # 27) interrupção REAL (SIGKILL) com tmux de verdade: o que se confere é o estado das sessões (@tt_fixada, o 📌), não um arquivo-marcador.
 # A pendência só sai DEPOIS de a lista ser aplicada às sessões; morrer antes de aplicar ou antes de remover deixa a pendência (propagação bloqueada)
@@ -305,4 +332,17 @@ env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1
   bash -c 'source "$1"; aplicar_fixadas' _ "$ROOT/tt" </dev/null >/dev/null 2>&1
 wait
 [[ $(marca nova) == 1 && -z $(marca velha) ]] || falhou "28: a aplicação com a lista antiga terminou por último (nova=[$(marca nova)] velha=[$(marca velha)])"
+# 29) duas listas ACEITAS disputando as mesmas sessões, com a pendência da recusa no meio: a mais nova é o estado final. A primeira (v250: só "velha") é aceita e
+# demora para gravar as marcas (gancho no primeiro lote_add); a segunda (v260: só "nova") chega no meio e aplica tudo. Depois, um replay da v260 não muda nada
+rtmux set -q -u -t =nova: @tt_fixada; rtmux set -q -u -t =velha: @tt_fixada
+local_com 100 3; receber 200 "$D/vazia"
+printf 'm1\tvelha\tidvelha\n' >"$D/so_velha"
+env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 PATH="$RP" \
+  bash -c 'source "$1"; eval "orig_$(declare -f lote_add)"; lote_add() { sleep 2; orig_lote_add "$@"; }; receber_fixadas 250' _ "$ROOT/tt" <"$D/so_velha" >/dev/null 2>&1 &
+sleep 0.7   # a primeira já gravou a lista v250 e está dormindo antes de gravar as marcas
+com_tmux '' 260
+wait
+[[ $(marca nova) == 1 && -z $(marca velha) && $(ver) == 260 && $(n "$CF") == 1 && ! -e $CF.recusada ]] || falhou "29: a lista mais nova não é o estado final (nova=[$(marca nova)] velha=[$(marca velha)] v=$(ver) n=$(n "$CF") pend=$([[ -e $CF.recusada ]] && echo sim || echo nao))"
+com_tmux '' 260
+[[ $(marca nova) == 1 && -z $(marca velha) && $(ver) == 260 ]] || falhou "29: o replay da v260 mudou o estado (nova=[$(marca nova)] velha=[$(marca velha)] v=$(ver))"
 echo "ok: test_fixadas_receber"
