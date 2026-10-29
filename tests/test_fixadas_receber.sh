@@ -28,8 +28,21 @@ n() { local c; c=$(grep -vc '^[[:space:]]*$' "$1" 2>/dev/null); echo "${c:-0}"; 
 ver() { cat "$CF.v" 2>/dev/null || echo 0; }
 local_com() { # V N: lista local com N fixadas na versão V (e sem o .prev de um caso anterior)
   : >"$CF"; local i; for ((i = 1; i <= $2; i++)); do printf 'm1\ts%s\tid%s\n' "$i" "$i" >>"$CF"; done
-  echo "$1" >"$CF.v"; rm -f "$CF.prev" "$LOG"
+  echo "$1" >"$CF.v"; rm -f "$CF.prev" "$CF.recusada" "$LOG" "$CAP"/envio.*
 }
+# ssh de mentira: guarda o comando remoto (envio.XXXX.cmd) e a lista que seguiria no stdin (envio.XXXX)
+CAP=$D/cap; mkdir -p "$CAP"
+printf '#!/usr/bin/env bash\nf=$(mktemp "$CAP/envio.XXXXXX"); printf "%%s\\n" "$*" >"$f.cmd"; cat >"$f"; exit 0\n' >"$D/bin/ssh"; chmod +x "$D/bin/ssh"
+# propagar: roda propagar_fixadas em processo novo (vale como reinício) com dois destinos de mentira
+propagar() {
+  env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 CAP="$CAP" \
+    bash -c 'source "$1"; maquinas() { printf "dest1\tm2\ndest2\tm3\n"; }; propagar_fixadas' _ "$ROOT/tt" >/dev/null 2>&1
+}
+envios() { # N: espera até 5 s pelos N envios do ssh falso e diz quantos chegaram
+  local i c=0; for ((i = 0; i < 50; i++)); do c=$(ls "$CAP" 2>/dev/null | grep -vc '\.cmd$'); ((c >= $1)) && break; sleep 0.1; done; echo "$c"
+}
+nada_enviado() { sleep 1; [[ -z $(ls "$CAP") ]]; } # ausência não tem o que esperar: o ssh sairia em segundo plano, então dá 1 s antes de concluir
+listas_enviadas() { local f; for f in "$CAP"/envio.*; do case $f in *.cmd) ;; *) n "$f" ;; esac; done | tr '\n' ' '; }
 : >"$D/vazia"
 printf 'm1\tnova\tidnova\n' >"$D/uma"
 printf 'm1\ta\tida\nm1\tb\tidb\nm1\tc\tidc\n' >"$D/tres"
@@ -76,4 +89,48 @@ local_com 100 3; receber 200 "$D/vazia"; receber 300 "$D/uma"
 local_com 100 3; receber 200 "$D/vazia" SSH_CLIENT="9.9.9.9 51234 22"
 grep -q 'VAZIA recusada.*origem 9.9.9.9' "$LOG" || falhou "o rastro nao traz a origem do ssh: $(cat "$LOG" 2>/dev/null)"
 [[ $(n "$CF") == 3 && $(ver) == 100 ]] || falhou "vazia nova chegando por ssh apagou as locais (n=$(n "$CF") v=$(ver))"
+
+# 10) versão velha ou igual e desafixar a última não deixam pendência; a recusa deixa (a versão recusada)
+local_com 100 3; receber 100 "$D/vazia"; receber 50 "$D/vazia"
+[[ ! -e $CF.recusada ]] || falhou "versão velha criou pendência"
+local_com 100 1; receber 200 "$D/vazia"
+[[ ! -e $CF.recusada ]] || falhou "desafixar a última criou pendência"
+local_com 100 3; receber 200 "$D/vazia"
+[[ $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "a recusa não gravou a pendência (v200): $(ls "$D/home/.config/tt")"
+
+# 11) com a recusa pendente, uma mudança local (a versão sobe) NÃO envia a lista velha a nenhum destino, mesmo em outro processo
+echo 999 >"$CF.v"
+propagar
+nada_enviado || falhou "propagou com recusa pendente: $(ls "$CAP")"
+grep -q 'propagacao bloqueada: recusa pendente (v200)' "$LOG" || falhou "sem rastro do bloqueio: $(cat "$LOG" 2>/dev/null)"
+[[ $(n "$CF") == 3 ]] || falhou "o bloqueio mexeu na lista daqui"
+
+# 12) saída manual (fixadas e fixadas.v para o lado): a vazia v200 é aceita, a pendência some e só então se propaga, sem nada antigo
+local_com 100 3; receber 200 "$D/vazia"
+mkdir -p "$D/bk"; mv "$CF" "$CF.v" "$D/bk/"
+receber 200 "$D/vazia"
+[[ $(n "$CF") == 0 && $(ver) == 200 && ! -e $CF.recusada ]] || falhou "saída manual (n=$(n "$CF") v=$(ver) pend=$([[ -e $CF.recusada ]] && echo sim || echo nao))"
+propagar
+[[ $(envios 2) == 2 ]] || falhou "depois da saída manual deveria enviar aos 2 destinos (enviou $(envios 0))"
+[[ $(listas_enviadas) == "0 0 " ]] || falhou "a saída manual republicou fixadas antigas: $(listas_enviadas)"
+cat "$CAP"/envio.*.cmd | grep -c -- '--receber-fixadas 200$' | grep -qx 2 || falhou "versão enviada diferente de 200: $(cat "$CAP"/envio.*.cmd)"
+[[ $(n "$D/bk/fixadas") == 3 && $(cat "$D/bk/fixadas.v") == 100 ]] || falhou "o backup mudou"
+
+# 13) reversão: devolver o backup volta ao estado inicial e a vazia v200 é recusada de novo, com a pendência e o bloqueio
+mv -f "$D/bk/fixadas" "$CF"; mv -f "$D/bk/fixadas.v" "$CF.v"; rm -f "$CAP"/envio.*
+receber 200 "$D/vazia"
+[[ $(n "$CF") == 3 && $(ver) == 100 && $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "reversão (n=$(n "$CF") v=$(ver))"
+propagar
+nada_enviado || falhou "propagou depois da reversão: $(ls "$CAP")"
+
+# 14) recuperação por lista nova não vazia: aceita, a pendência some e a propagação volta (com a lista recebida, 1 linha)
+local_com 100 3; receber 200 "$D/vazia"; receber 300 "$D/uma"
+[[ $(n "$CF") == 1 && $(ver) == 300 && ! -e $CF.recusada ]] || falhou "lista nova não limpou a pendência (n=$(n "$CF") v=$(ver))"
+propagar
+[[ $(envios 2) == 2 && $(listas_enviadas) == "1 1 " ]] || falhou "propagação não voltou: $(listas_enviadas)"
+
+# 15) sem pendência (desafixar a última aceito) a propagação segue normal: 2 destinos, lista vazia, a versão aceita
+local_com 100 1; receber 200 "$D/vazia"
+propagar
+[[ $(envios 2) == 2 && $(listas_enviadas) == "0 0 " ]] || falhou "propagação normal quebrou: $(listas_enviadas)"
 echo "ok: test_fixadas_receber"

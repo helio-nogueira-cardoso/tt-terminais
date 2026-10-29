@@ -10079,9 +10079,17 @@ fixada_chave_em() { # VAR máquina sessão [id]
 # máquina (a barra que aparece é a de lá).
 versao_fixadas_em() { printf '%s %s\n' "$1" "$(timeout 6 ssh "${SSH_OPC[@]}" "$1" 'cat ~/.config/tt/fixadas.v 2>/dev/null || echo 0' </dev/null 2>/dev/null)"; }
 propagar_fixadas() {
-  local dest rot v
+  local dest rot v pend
+  # Recusa pendente (receber_fixadas recusou uma lista vazia que apagaria 2+): a lista daqui pode estar velha, e enviá-la com a versão
+  # de agora ressuscitaria nas outras o que o dono tirou. Fica sem enviar, a qualquer destino, até receber_fixadas aceitar uma lista.
+  if [[ -e $CONF_FIX.recusada ]]; then
+    { read -r pend <"$CONF_FIX.recusada"; } 2>/dev/null
+    fixadas_log "propagacao bloqueada: recusa pendente (v${pend:-?}); a lista daqui nao foi enviada"
+    return 0
+  fi
   v=$(versao_fixadas)
   while read -r dest rot; do
+    [[ -e $CONF_FIX.recusada ]] && break # a recusa pode chegar no meio da volta: os destinos que faltam não recebem
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-fixadas $v" <"$CONF_FIX" >/dev/null 2>&1 &)
   done < <(maquinas)
 }
@@ -10123,11 +10131,14 @@ receber_fixadas() {
     local antes depois origem=${SSH_CLIENT:-local}; origem=${origem%% *}  # sem ssh (o puxar_fixadas roda local) a variavel nao existe: set -u abortava aqui
     antes=$(grep -vc '^\s*$' "$CONF_FIX" 2>/dev/null); depois=$(grep -vc '^\s*$' "$tmp" 2>/dev/null)
     if ((${depois:-0} == 0 && ${antes:-0} >= 2)); then  # uma lista vazia que apaga 2+ de uma vez nao e um "desafixar": recusa
-      fixadas_log "lista recebida (v$v) VAZIA recusada: a daqui tem ${antes} fixada(s): origem $origem"
+      # A recusa deixa a pendência em fixadas.recusada (a versão recusada): sobrevive a reinício e só some quando esta função aceita uma lista
+      # (a daqui passa a ser a recebida). Enquanto existir, propagar_fixadas não envia nada. Saída manual: mover fixadas e fixadas.v para o lado.
+      echo "$v" >"$CONF_FIX.recusada"
+      fixadas_log "lista recebida (v$v) VAZIA recusada: a daqui tem ${antes} fixada(s): origem $origem; propagacao bloqueada ate aceitar uma lista (saida manual: mover fixadas e fixadas.v para o lado)"
       rm -f "$tmp"; destravar_fixadas; return 0
     fi
     ((${depois:-0} < ${antes:-0})) && { fixadas_log "lista recebida (v$v) tem ${depois:-0} fixada(s) e a daqui tinha ${antes:-0}: origem $origem"; cp -f "$CONF_FIX" "$CONF_FIX.prev" 2>/dev/null; }
-    mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"
+    mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"; rm -f "$CONF_FIX.recusada"
     destravar_fixadas
     aplicar_fixadas
   else
