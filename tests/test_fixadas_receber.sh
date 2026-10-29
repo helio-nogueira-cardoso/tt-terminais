@@ -177,4 +177,22 @@ receber 200 "$D/vazia"; echo 999 >"$CF.v"
 [[ $(cat "$CAP"/envio.*.cmd | grep -c -- '--receber-fixadas 100$') == 2 && $(listas_enviadas) == "3 3 " ]] || falhou "envio iniciado antes da recusa com versão/lista inesperada: $(cat "$CAP"/envio.*.cmd) / $(listas_enviadas)"
 propagar; sleep 1
 [[ $(envios 0) == 2 ]] || falhou "saiu envio novo depois da recusa (agora $(envios 0))"
+# 20) falha fechada: se a pendência não puder ser gravada (aqui, um diretório com o nome do temporário), a vazia é ACEITA em vez de recusada sem
+# bloqueio: a lista daqui iguala a das outras e a propagação leva a lista nova, sem nada antigo
+local_com 100 3; mkdir "$CF.recusada.novo"
+receber 200 "$D/vazia"
+[[ $(n "$CF") == 0 && $(ver) == 200 && ! -e $CF.recusada ]] || falhou "pendência não gravável: a lista não foi igualada (n=$(n "$CF") v=$(ver) pend=$([[ -e $CF.recusada ]] && echo sim || echo nao))"
+grep -q 'VAZIA aceita: nao deu para gravar a pendencia' "$LOG" || falhou "sem rastro da recusa que não pôde ser gravada: $(cat "$LOG" 2>/dev/null)"
+propagar
+[[ $(envios 2) == 2 && $(listas_enviadas) == "0 0 " ]] || falhou "depois da falha de gravação saiu estado antigo: $(listas_enviadas)"
+rmdir "$CF.recusada.novo"
+
+# 21) morrer (SIGKILL) logo depois de gravar a pendência, no primeiro log da recusa, deixa a pendência: a propagação segue bloqueada
+local_com 100 3
+{ env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 \
+    bash -c 'source "$1"; fixadas_log() { kill -9 $$; }; receber_fixadas 200' _ "$ROOT/tt" </dev/null >/dev/null 2>&1; } 2>/dev/null || true
+[[ $(cat "$CF.recusada" 2>/dev/null) == 200 && $(n "$CF") == 3 && $(ver) == 100 ]] || falhou "a morte depois de gravar perdeu a pendência (pend=$(cat "$CF.recusada" 2>/dev/null) n=$(n "$CF") v=$(ver))"
+rmdir "$CF.trava" 2>/dev/null   # a trava ficou com o processo que morreu (sai sozinha em 20 s)
+echo 999 >"$CF.v"; propagar
+nada_enviado || falhou "propagou depois da morte com a pendência gravada: $(ls "$CAP")"
 echo "ok: test_fixadas_receber"

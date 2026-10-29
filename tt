@@ -10136,9 +10136,14 @@ receber_fixadas() {
     if ((${depois:-0} == 0 && ${antes:-0} >= 2)); then  # uma lista vazia que apaga 2+ de uma vez nao e um "desafixar": recusa
       # A recusa deixa a pendência em fixadas.recusada (a versão recusada): sobrevive a reinício e só some quando esta função aceita uma lista
       # (a daqui passa a ser a recebida). Enquanto existir, propagar_fixadas não envia nada. Saída manual: mover fixadas e fixadas.v para o lado.
-      echo "$v" >"$CONF_FIX.recusada"
-      fixadas_log "lista recebida (v$v) VAZIA recusada: a daqui tem ${antes} fixada(s): origem $origem; propagacao bloqueada ate aceitar uma lista (saida manual: mover fixadas e fixadas.v para o lado)"
-      rm -f "$tmp"; destravar_fixadas; return 0
+      # Falha fechada: a pendência é gravada ANTES de recusar, inteira (temporário + mv). Se não der para gravar, não se recusa: aceitar a vazia
+      # iguala a lista daqui à das outras, e recusar sem poder bloquear a propagação ressuscitaria as antigas. Morrer depois de gravar deixa a pendência.
+      if { echo "$v" >"$CONF_FIX.recusada.novo" && mv -f "$CONF_FIX.recusada.novo" "$CONF_FIX.recusada"; } 2>/dev/null; then
+        fixadas_log "lista recebida (v$v) VAZIA recusada: a daqui tem ${antes} fixada(s): origem $origem; propagacao bloqueada ate aceitar uma lista (saida manual: mover fixadas e fixadas.v para o lado)"
+        rm -f "$tmp"; destravar_fixadas; return 0
+      fi
+      rm -f "$CONF_FIX.recusada.novo" 2>/dev/null
+      fixadas_log "lista recebida (v$v) VAZIA aceita: nao deu para gravar a pendencia da recusa (recusar sem bloquear a propagacao ressuscitaria as fixadas antigas): origem $origem"
     fi
     ((${depois:-0} < ${antes:-0})) && { fixadas_log "lista recebida (v$v) tem ${depois:-0} fixada(s) e a daqui tinha ${antes:-0}: origem $origem"; cp -f "$CONF_FIX" "$CONF_FIX.prev" 2>/dev/null; }
     mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"
