@@ -101,6 +101,7 @@ A "principal" é a credencial de `~/.claude` (o `claude` puro); os perfis (`clau
 O usuário pode pedir que a principal passe a ser outra conta:
 
 ```bash
+ia-login --consistencia                        # o mapa conta↔e-mail é o mesmo em todas as máquinas? (a principal não entra)
 ia-login --principal CONTA|E-MAIL --plano      # o que mudaria, em todas as máquinas do tt
 ia-login --principal CONTA|E-MAIL [máquina…]   # troca (o usuário abre o link e cola o código)
 ia-conta adicionar principal [--email E]       # só esta máquina

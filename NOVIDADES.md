@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.12.0 · 29/10/2026
+- **🧭 `ia-login --consistencia` confere as contas de IA entre as máquinas:** acusa (1) conta do cadastro logada com outro e-mail, (2) a mesma conta com e-mails diferentes em máquinas diferentes e (3) o mesmo e-mail com nomes de conta diferentes entre máquinas. A conta principal não entra: ela não precisa seguir conta nenhuma. O `ia-login --plano` passa a mostrar essas inconsistências também. Máquina sem resposta, ou com o tt velho, fica de fora com um aviso (`tt --sincronizar`). Sai 1 quando acha algo.
+
 ## v2.11.69 · 28/10/2026
 - **🚀 As contas do Claude voltam a abrir no Mac:** o tema dos agentes (que o vigia aplica a cada 5 minutos) gravava `{"theme": "dark"}` como arquivo no perfil que ainda não tinha o `settings.json`. Depois disso o `ia-conta` recusava abrir a conta ("o perfil 'itau' já tem 'settings.json' próprio; não vou substituí-lo") e o 🚀 terminava com código 1. Aconteceu nos quatro perfis do Mac em 20/10. Agora o tema só mexe no `settings.json` que o perfil tem de verdade: sem o arquivo, quem cria é o `ia-conta` (o link para o principal), e um link nunca vira arquivo.
 
