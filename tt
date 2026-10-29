@@ -10126,7 +10126,7 @@ marcar_fixadas() { date +%s%N >"$CONF_FIX.v"; snapshot_evento fixadas; precarreg
 # Recebe a lista de outra máquina (stdin) com a versão V. Só aceita se for mais nova que a daqui:
 # uma máquina que volta atrasada nunca desfaz uma mudança mais recente.
 receber_fixadas() {
-  local v=${1:-0} tmp pend
+  local v=${1:-0} tmp pend limpou=0
   mkdir -p "$CONF_DIR"
   tmp=$(mktemp "$CONF_FIX.XXXXXX"); cat >"$tmp"
   travar_fixadas || { rm -f "$tmp"; return 1; }
@@ -10160,13 +10160,15 @@ receber_fixadas() {
   else
     # Reexecução da MESMA lista já aplicada (versão igual à daqui e conteúdo idêntico): se a execução anterior morreu entre gravar fixadas.v e remover
     # a pendência, ela ficaria presa até haver versão maior. Só limpa se a versão daqui alcança a maior recusada, na mesma trava. Uma edição local
-    # (versão acima de qualquer remota) ou uma lista diferente não entram aqui.
+    # (versão acima de qualquer remota) ou uma lista diferente não entram aqui. A execução que morreu também não chegou a aplicar a lista às
+    # sessões: quem limpa a pendência aqui aplica (aplicar_fixadas é idempotente), fora da trava como no caminho normal.
     if [[ -e $CONF_FIX.recusada && $v =~ ^[0-9]+$ ]] && ((v == $(versao_fixadas))) && cmp -s "$tmp" "$CONF_FIX"; then
       { read -r pend <"$CONF_FIX.recusada"; } 2>/dev/null; [[ ${pend:-} =~ ^[0-9]+$ ]] || pend=0
-      ((v >= pend)) && rm -f "$CONF_FIX.recusada"
+      ((v >= pend)) && rm -f "$CONF_FIX.recusada" && limpou=1
     fi
     destravar_fixadas
     rm -f "$tmp"
+    if ((limpou)); then aplicar_fixadas; fi
   fi
 }
 

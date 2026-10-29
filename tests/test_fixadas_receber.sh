@@ -232,4 +232,37 @@ receber 250 "$D/uma"
 [[ $(cat "$CF.recusada" 2>/dev/null) == 300 && $(n "$CF") == 3 && $(ver) == 999 ]] || falhou "a 250 após a alteração local mexeu na pendência, na lista ou na versão (pend=$(cat "$CF.recusada" 2>/dev/null) n=$(n "$CF") v=$(ver))"
 propagar
 nada_enviado || falhou "propagou depois da alteração local + lista 250 com a recusa 300 aberta: $(ls "$CAP")"
+# 26) o envio já iniciado antes da recusa (caso 19) chega a um destino atrasado (v50, 1 fixada) DEPOIS da recusa daqui: o destino aceita a v100, porque
+# o envio foi decidido antes da v200 existir aqui (ordem válida), e quando a vazia v200 chegar a ele também é recusada. O que se afirma é o estado final:
+# nenhuma fixada some em nenhuma das duas máquinas e as duas ficam bloqueadas, sem que o destino fique com a v100 em silêncio
+local_com 100 3
+DST=$D/dest; mkdir -p "$DST/home/.config/tt"; printf 'nome=m2\n' >"$DST/home/.config/tt/config"; CFD=$DST/home/.config/tt/fixadas
+printf 'm2\told\tidold\n' >"$CFD"; echo 50 >"$CFD.v"; rm -f "$CFD.prev" "$CFD.recusada"
+propagar ATRASO=1
+receber 200 "$D/vazia"
+[[ $(envios 2) == 2 ]] || falhou "os envios iniciados antes da recusa não terminaram (chegaram $(envios 0))"
+env_dest() { env -u SSH_CLIENT HOME="$DST/home" XDG_CONFIG_HOME="$DST/home/.config" TT_MACHINE=m2 TT_SO_CARREGAR=1 bash -c 'source "$1"; receber_fixadas "$2"' _ "$ROOT/tt" "$@"; }
+env_dest 100 <"$(ls "$CAP"/envio.* | grep -v '\.cmd$' | head -1)" >/dev/null 2>&1
+[[ $(n "$CFD") == 3 && $(cat "$CFD.v") == 100 ]] || falhou "o destino atrasado não recebeu o envio já decidido (n=$(n "$CFD") v=$(cat "$CFD.v" 2>/dev/null))"
+env_dest 200 </dev/null >/dev/null 2>&1
+[[ $(n "$CFD") == 3 && $(cat "$CFD.recusada" 2>/dev/null) == 200 && $(n "$CF") == 3 && $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "estado final: destino n=$(n "$CFD") pend=$(cat "$CFD.recusada" 2>/dev/null); origem n=$(n "$CF") pend=$(cat "$CF.recusada" 2>/dev/null)"
+
+# 27) interrupção REAL (SIGKILL) entre gravar lista e versão e remover a pendência: a reexecução idêntica remove a pendência E aplica a lista
+# (sem isso a pendência sairia e as sessões ficariam no estado antigo)
+local_com 100 3; rm -f "$D/aplicou"
+receber 200 "$D/vazia"
+{ env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 APLICOU="$D/aplicou" \
+    bash -c 'source "$1"; aplicar_fixadas() { echo aplicou >>"$APLICOU"; }; rm() { [[ "$*" == *.recusada ]] && kill -9 $$; command rm "$@"; }; receber_fixadas 250' _ "$ROOT/tt" <"$D/uma" >/dev/null 2>&1; } 2>/dev/null || true
+[[ $(n "$CF") == 1 && $(ver) == 250 && $(cat "$CF.recusada" 2>/dev/null) == 200 && ! -e $D/aplicou ]] || falhou "a morte antes de remover a pendência não deixou o estado esperado (n=$(n "$CF") v=$(ver) pend=$(cat "$CF.recusada" 2>/dev/null) aplicou=$([[ -e $D/aplicou ]] && echo sim || echo nao))"
+rmdir "$CF.trava" 2>/dev/null
+propagar
+nada_enviado || falhou "propagou com a pendência 200 aberta depois da queda: $(ls "$CAP")"
+env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 APLICOU="$D/aplicou" \
+  bash -c 'source "$1"; aplicar_fixadas() { echo aplicou >>"$APLICOU"; }; receber_fixadas 250' _ "$ROOT/tt" <"$D/uma" >/dev/null 2>&1
+[[ ! -e $CF.recusada && -s $D/aplicou ]] || falhou "a reexecução idêntica não limpou a pendência e aplicou a lista (pend=$([[ -e $CF.recusada ]] && echo sim || echo nao) aplicou=$(cat "$D/aplicou" 2>/dev/null))"
+# uma reexecução idêntica SEM pendência não reaplica nada
+rm -f "$D/aplicou"
+env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 APLICOU="$D/aplicou" \
+  bash -c 'source "$1"; aplicar_fixadas() { echo aplicou >>"$APLICOU"; }; receber_fixadas 250' _ "$ROOT/tt" <"$D/uma" >/dev/null 2>&1
+[[ ! -e $D/aplicou ]] || falhou "a reexecução idêntica sem pendência reaplicou a lista"
 echo "ok: test_fixadas_receber"
