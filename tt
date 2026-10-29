@@ -10122,7 +10122,11 @@ receber_fixadas() {
   if [[ $v =~ ^[0-9]+$ ]] && ((v > $(versao_fixadas))); then
     local antes depois
     antes=$(grep -vc '^\s*$' "$CONF_FIX" 2>/dev/null); depois=$(grep -vc '^\s*$' "$tmp" 2>/dev/null)
-    ((${depois:-0} < ${antes:-0})) && fixadas_log "lista recebida (v$v) tem ${depois:-0} fixada(s) e a daqui tinha ${antes:-0}: origem ${SSH_CLIENT%% *}"
+    if ((${depois:-0} == 0 && ${antes:-0} >= 2)); then  # uma lista vazia que apaga 2+ de uma vez nao e um "desafixar": recusa
+      fixadas_log "lista recebida (v$v) VAZIA recusada: a daqui tem ${antes} fixada(s): origem ${SSH_CLIENT%% *}"
+      rm -f "$tmp"; destravar_fixadas; return 0
+    fi
+    ((${depois:-0} < ${antes:-0})) && { fixadas_log "lista recebida (v$v) tem ${depois:-0} fixada(s) e a daqui tinha ${antes:-0}: origem ${SSH_CLIENT%% *}"; cp -f "$CONF_FIX" "$CONF_FIX.prev" 2>/dev/null; }
     mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"
     destravar_fixadas
     aplicar_fixadas
