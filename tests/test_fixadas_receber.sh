@@ -233,7 +233,7 @@ receber 250 "$D/uma"
 propagar
 nada_enviado || falhou "propagou depois da alteração local + lista 250 com a recusa 300 aberta: $(ls "$CAP")"
 # 26) o envio já iniciado antes da recusa (caso 19) chega a um destino atrasado (v50, 1 fixada) DEPOIS da recusa daqui: o destino aceita a v100, porque
-# o envio foi decidido antes da v200 existir aqui (ordem válida), e quando a vazia v200 chegar a ele também é recusada. O que se afirma é o estado final:
+# o envio foi decidido antes da v200 existir aqui (ordem válida), e quando a vazia v200 chegar a ele (pelo puxar_fixadas do vigia) também é recusada. O que se afirma é o estado final:
 # nenhuma fixada some em nenhuma das duas máquinas e as duas ficam bloqueadas, sem que o destino fique com a v100 em silêncio
 local_com 100 3
 DST=$D/dest; mkdir -p "$DST/home/.config/tt"; printf 'nome=m2\n' >"$DST/home/.config/tt/config"; CFD=$DST/home/.config/tt/fixadas
@@ -244,25 +244,53 @@ receber 200 "$D/vazia"
 env_dest() { env -u SSH_CLIENT HOME="$DST/home" XDG_CONFIG_HOME="$DST/home/.config" TT_MACHINE=m2 TT_SO_CARREGAR=1 bash -c 'source "$1"; receber_fixadas "$2"' _ "$ROOT/tt" "$@"; }
 env_dest 100 <"$(ls "$CAP"/envio.* | grep -v '\.cmd$' | head -1)" >/dev/null 2>&1
 [[ $(n "$CFD") == 3 && $(cat "$CFD.v") == 100 ]] || falhou "o destino atrasado não recebeu o envio já decidido (n=$(n "$CFD") v=$(cat "$CFD.v" 2>/dev/null))"
-env_dest 200 </dev/null >/dev/null 2>&1
+# a vazia v200 chega ao destino pelo caminho real da volta: o vigia roda "tt --puxar-fixadas" ao iniciar e a cada 5 min; ele pergunta a versão de cada
+# máquina por ssh (aqui, um ssh de mentira diz que a origem está na 200), lê a lista dela (vazia) e entrega ao receber_fixadas por pipe
+mkdir -p "$D/sshpull"; printf '#!/usr/bin/env bash\ncase "$*" in *fixadas.v*) echo 200 ;; *) : ;; esac\n' >"$D/sshpull/ssh"; chmod +x "$D/sshpull/ssh"
+env -u SSH_CLIENT HOME="$DST/home" XDG_CONFIG_HOME="$DST/home/.config" TT_MACHINE=m2 TT_SO_CARREGAR=1 PATH="$D/sshpull:$PATH" \
+  bash -c 'source "$1"; maquinas() { printf "origem\tm1\n"; }; puxar_fixadas' _ "$ROOT/tt" >/dev/null 2>&1
 [[ $(n "$CFD") == 3 && $(cat "$CFD.recusada" 2>/dev/null) == 200 && $(n "$CF") == 3 && $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "estado final: destino n=$(n "$CFD") pend=$(cat "$CFD.recusada" 2>/dev/null); origem n=$(n "$CF") pend=$(cat "$CF.recusada" 2>/dev/null)"
 
-# 27) interrupção REAL (SIGKILL) entre gravar lista e versão e remover a pendência: a reexecução idêntica remove a pendência E aplica a lista
-# (sem isso a pendência sairia e as sessões ficariam no estado antigo)
-local_com 100 3; rm -f "$D/aplicou"
+# 27) interrupção REAL (SIGKILL) com tmux de verdade: o que se confere é o estado das sessões (@tt_fixada, o 📌), não um arquivo-marcador.
+# A pendência só sai DEPOIS de a lista ser aplicada às sessões; morrer antes de aplicar ou antes de remover deixa a pendência (propagação bloqueada)
+# e a reexecução idêntica aplica e remove. Sessões: "nova" está na lista recebida; "velha" estava fixada e sai dela.
+RP=${PATH#"$D/bin:"}   # o PATH sem o tmux de mentira: aqui o tmux é o isolado do tmux-isolado.sh
+rtmux() { PATH=$RP tmux "$@"; }
+marca() { rtmux show-options -qv -t "=$1:" @tt_fixada 2>/dev/null; }
+rtmux -f /dev/null new -d -s nova 'sleep 600'; rtmux new -d -s velha 'sleep 600'
+estado_antigo() { rtmux set -q -u -t =nova: @tt_fixada; rtmux set -q -t =velha: @tt_fixada 1; }
+com_tmux() { # CÓDIGO_DO_BASH [V]: roda receber_fixadas V (250) com a lista $LISTA ("uma"), tmux de verdade, depois de CÓDIGO (funções trocadas)
+  env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 PATH="$RP" \
+    bash -c 'source "$1"; eval "$2"; receber_fixadas "$3"' _ "$ROOT/tt" "$1" "${2:-250}" <"${LISTA:-$D/uma}" >/dev/null 2>&1
+}
+# 27a) morre ANTES de aplicar
+local_com 100 3; estado_antigo
 receber 200 "$D/vazia"
-{ env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 APLICOU="$D/aplicou" \
-    bash -c 'source "$1"; aplicar_fixadas() { echo aplicou >>"$APLICOU"; }; rm() { [[ "$*" == *.recusada ]] && kill -9 $$; command rm "$@"; }; receber_fixadas 250' _ "$ROOT/tt" <"$D/uma" >/dev/null 2>&1; } 2>/dev/null || true
-[[ $(n "$CF") == 1 && $(ver) == 250 && $(cat "$CF.recusada" 2>/dev/null) == 200 && ! -e $D/aplicou ]] || falhou "a morte antes de remover a pendência não deixou o estado esperado (n=$(n "$CF") v=$(ver) pend=$(cat "$CF.recusada" 2>/dev/null) aplicou=$([[ -e $D/aplicou ]] && echo sim || echo nao))"
+{ com_tmux 'aplicar_fixadas() { kill -9 $$; }'; } 2>/dev/null || true
 rmdir "$CF.trava" 2>/dev/null
+[[ $(n "$CF") == 1 && $(ver) == 250 && $(cat "$CF.recusada" 2>/dev/null) == 200 && -z $(marca nova) && $(marca velha) == 1 ]] || falhou "27a: estado depois da morte antes de aplicar (n=$(n "$CF") v=$(ver) pend=$(cat "$CF.recusada" 2>/dev/null) nova=[$(marca nova)] velha=[$(marca velha)])"
 propagar
-nada_enviado || falhou "propagou com a pendência 200 aberta depois da queda: $(ls "$CAP")"
-env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 APLICOU="$D/aplicou" \
-  bash -c 'source "$1"; aplicar_fixadas() { echo aplicou >>"$APLICOU"; }; receber_fixadas 250' _ "$ROOT/tt" <"$D/uma" >/dev/null 2>&1
-[[ ! -e $CF.recusada && -s $D/aplicou ]] || falhou "a reexecução idêntica não limpou a pendência e aplicou a lista (pend=$([[ -e $CF.recusada ]] && echo sim || echo nao) aplicou=$(cat "$D/aplicou" 2>/dev/null))"
-# uma reexecução idêntica SEM pendência não reaplica nada
-rm -f "$D/aplicou"
-env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 APLICOU="$D/aplicou" \
-  bash -c 'source "$1"; aplicar_fixadas() { echo aplicou >>"$APLICOU"; }; receber_fixadas 250' _ "$ROOT/tt" <"$D/uma" >/dev/null 2>&1
-[[ ! -e $D/aplicou ]] || falhou "a reexecução idêntica sem pendência reaplicou a lista"
+nada_enviado || falhou "27a: propagou com a pendência 200 aberta: $(ls "$CAP")"
+com_tmux ''
+[[ ! -e $CF.recusada && $(marca nova) == 1 && -z $(marca velha) ]] || falhou "27a: a reexecução idêntica não aplicou e limpou (pend=$([[ -e $CF.recusada ]] && echo sim || echo nao) nova=[$(marca nova)] velha=[$(marca velha)])"
+# 27b) morre DEPOIS de aplicar e ANTES de remover a pendência
+local_com 100 3; estado_antigo
+receber 200 "$D/vazia"
+{ com_tmux 'rm() { [[ "$*" == *.recusada ]] && kill -9 $$; command rm "$@"; }'; } 2>/dev/null || true
+rmdir "$CF.trava" 2>/dev/null
+[[ $(cat "$CF.recusada" 2>/dev/null) == 200 && $(marca nova) == 1 && -z $(marca velha) ]] || falhou "27b: estado depois da morte antes de remover (pend=$(cat "$CF.recusada" 2>/dev/null) nova=[$(marca nova)] velha=[$(marca velha)])"
+propagar
+nada_enviado || falhou "27b: propagou com a pendência 200 aberta: $(ls "$CAP")"
+com_tmux ''
+[[ ! -e $CF.recusada && $(marca nova) == 1 && -z $(marca velha) ]] || falhou "27b: a reexecução não removeu a pendência (nova=[$(marca nova)] velha=[$(marca velha)])"
+# 27c) a reexecução idêntica SEM pendência não reaplica nada
+estado_antigo; com_tmux ''
+[[ $(marca velha) == 1 && -z $(marca nova) ]] || falhou "27c: a reexecução idêntica sem pendência reaplicou a lista (nova=[$(marca nova)] velha=[$(marca velha)])"
+# 27d) uma recusa nova (v300) que chega entre a aplicação e a remoção troca a pendência por 300: a remoção que esperava a 200 não a apaga
+local_com 100 3; estado_antigo
+receber 200 "$D/vazia"
+LISTA=$D/tres com_tmux 'aplicar_fixadas() { receber_fixadas 300 </dev/null; }'
+[[ $(cat "$CF.recusada" 2>/dev/null) == 300 && $(n "$CF") == 3 ]] || falhou "27d: a remoção da pendência 200 apagou a recusa 300 que chegou no meio (pend=$(cat "$CF.recusada" 2>/dev/null) n=$(n "$CF"))"
+propagar
+nada_enviado || falhou "27d: propagou com a recusa 300 aberta: $(ls "$CAP")"
 echo "ok: test_fixadas_receber"
