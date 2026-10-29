@@ -10080,6 +10080,10 @@ fixada_chave_em() { # VAR máquina sessão [id]
 versao_fixadas_em() { printf '%s %s\n' "$1" "$(timeout 6 ssh "${SSH_OPC[@]}" "$1" 'cat ~/.config/tt/fixadas.v 2>/dev/null || echo 0' </dev/null 2>/dev/null)"; }
 propagar_fixadas() {
   local dest rot v pend
+  # A versão se lê ANTES de olhar a pendência: a recusa só existe se a versão recusada era maior que a daqui naquela hora, e a daqui só
+  # sobe; então todo envio que passa pela checagem leva uma versão menor que a recusada (as máquinas que já a têm o ignoram). Lida depois,
+  # uma mudança local entre a recusa e a leitura enviaria a lista velha com versão nova.
+  v=$(versao_fixadas)
   # Recusa pendente (receber_fixadas recusou uma lista vazia que apagaria 2+): a lista daqui pode estar velha, e enviá-la com a versão
   # de agora ressuscitaria nas outras o que o dono tirou. Fica sem enviar, a qualquer destino, até receber_fixadas aceitar uma lista.
   if [[ -e $CONF_FIX.recusada ]]; then
@@ -10087,7 +10091,6 @@ propagar_fixadas() {
     fixadas_log "propagacao bloqueada: recusa pendente (v${pend:-?}); a lista daqui nao foi enviada"
     return 0
   fi
-  v=$(versao_fixadas)
   while read -r dest rot; do
     [[ -e $CONF_FIX.recusada ]] && break # a recusa pode chegar no meio da volta: os destinos que faltam não recebem
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-fixadas $v" <"$CONF_FIX" >/dev/null 2>&1 &)
@@ -10128,7 +10131,7 @@ receber_fixadas() {
   tmp=$(mktemp "$CONF_FIX.XXXXXX"); cat >"$tmp"
   travar_fixadas || { rm -f "$tmp"; return 1; }
   if [[ $v =~ ^[0-9]+$ ]] && ((v > $(versao_fixadas))); then
-    local antes depois origem=${SSH_CLIENT:-local}; origem=${origem%% *}  # sem ssh (o puxar_fixadas roda local) a variavel nao existe: set -u abortava aqui
+    local antes depois pend origem=${SSH_CLIENT:-local}; origem=${origem%% *}  # sem ssh (o puxar_fixadas roda local) a variavel nao existe: set -u abortava aqui
     antes=$(grep -vc '^\s*$' "$CONF_FIX" 2>/dev/null); depois=$(grep -vc '^\s*$' "$tmp" 2>/dev/null)
     if ((${depois:-0} == 0 && ${antes:-0} >= 2)); then  # uma lista vazia que apaga 2+ de uma vez nao e um "desafixar": recusa
       # A recusa deixa a pendência em fixadas.recusada (a versão recusada): sobrevive a reinício e só some quando esta função aceita uma lista
@@ -10138,7 +10141,11 @@ receber_fixadas() {
       rm -f "$tmp"; destravar_fixadas; return 0
     fi
     ((${depois:-0} < ${antes:-0})) && { fixadas_log "lista recebida (v$v) tem ${depois:-0} fixada(s) e a daqui tinha ${antes:-0}: origem $origem"; cp -f "$CONF_FIX" "$CONF_FIX.prev" 2>/dev/null; }
-    mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"; rm -f "$CONF_FIX.recusada"
+    mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"
+    if [[ -e $CONF_FIX.recusada ]]; then # a pendência só some se a lista aceita é tão nova quanto a recusada (uma intermediária não reconcilia)
+      { read -r pend <"$CONF_FIX.recusada"; } 2>/dev/null; [[ ${pend:-} =~ ^[0-9]+$ ]] || pend=0
+      ((v >= pend)) && rm -f "$CONF_FIX.recusada"
+    fi
     destravar_fixadas
     aplicar_fixadas
   else

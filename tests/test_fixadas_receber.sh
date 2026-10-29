@@ -32,11 +32,24 @@ local_com() { # V N: lista local com N fixadas na versão V (e sem o .prev de um
 }
 # ssh de mentira: guarda o comando remoto (envio.XXXX.cmd) e a lista que seguiria no stdin (envio.XXXX)
 CAP=$D/cap; mkdir -p "$CAP"
-printf '#!/usr/bin/env bash\nf=$(mktemp "$CAP/envio.XXXXXX"); printf "%%s\\n" "$*" >"$f.cmd"; cat >"$f"; exit 0\n' >"$D/bin/ssh"; chmod +x "$D/bin/ssh"
+printf '#!/usr/bin/env bash\n[[ -n ${ATRASO:-} ]] && sleep "$ATRASO"\nf=$(mktemp "$CAP/envio.XXXXXX"); printf "%%s\\n" "$*" >"$f.cmd"; cat >"$f"; exit 0\n' >"$D/bin/ssh"; chmod +x "$D/bin/ssh"
 # propagar: roda propagar_fixadas em processo novo (vale como reinício) com dois destinos de mentira
-propagar() {
-  env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 CAP="$CAP" \
+propagar() { # [VAR=valor...]
+  env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 CAP="$CAP" "$@" \
     bash -c 'source "$1"; maquinas() { printf "dest1\tm2\ndest2\tm3\n"; }; propagar_fixadas' _ "$ROOT/tt" >/dev/null 2>&1
+}
+# propagar_gancho versao|maquinas: no ponto indicado da propagação, outro processo faria a recusa da vazia v200 e uma mudança local (a versão sobe
+# para 999); aqui o gancho faz as duas coisas na hora, e a ordem fica exata
+propagar_gancho() {
+  env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1 TT_SO_CARREGAR=1 CAP="$CAP" GANCHO="$1" \
+    bash -c 'source "$1"
+      gancho() { receber_fixadas 200 </dev/null; echo 999 >"$CONF_FIX.v"; }
+      maquinas() { [[ $GANCHO == maquinas ]] && gancho; printf "dest1\tm2\ndest2\tm3\n"; }
+      if [[ $GANCHO == versao ]]; then
+        eval "orig_$(declare -f versao_fixadas)"
+        versao_fixadas() { versao_fixadas() { orig_versao_fixadas; }; gancho; orig_versao_fixadas; }
+      fi
+      propagar_fixadas' _ "$ROOT/tt" >/dev/null 2>&1
 }
 envios() { # N: espera até 5 s pelos N envios do ssh falso e diz quantos chegaram
   local i c=0; for ((i = 0; i < 50; i++)); do c=$(ls "$CAP" 2>/dev/null | grep -vc '\.cmd$'); ((c >= $1)) && break; sleep 0.1; done; echo "$c"
@@ -133,4 +146,35 @@ propagar
 local_com 100 1; receber 200 "$D/vazia"
 propagar
 [[ $(envios 2) == 2 && $(listas_enviadas) == "0 0 " ]] || falhou "propagação normal quebrou: $(listas_enviadas)"
+# 16) uma lista intermediária (mais nova que a daqui, mais velha que a recusada) é aceita, mas NÃO limpa a pendência; versão velha também não
+local_com 100 3; receber 200 "$D/vazia"; receber 50 "$D/uma"
+[[ $(cat "$CF.recusada" 2>/dev/null) == 200 && $(n "$CF") == 3 ]] || falhou "versão velha mexeu na pendência ou na lista"
+receber 150 "$D/uma"
+[[ $(n "$CF") == 1 && $(ver) == 150 && $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "a intermediária limpou a pendência (n=$(n "$CF") v=$(ver) pend=$(cat "$CF.recusada" 2>/dev/null))"
+echo 999 >"$CF.v"; propagar
+nada_enviado || falhou "propagou com a pendência ainda aberta depois de uma intermediária: $(ls "$CAP")"
+echo 150 >"$CF.v"; receber 300 "$D/uma"
+[[ ! -e $CF.recusada && $(ver) == 300 ]] || falhou "a lista tão nova quanto a recusada não limpou a pendência"
+
+# 17) ordem exata, recusa + mudança local ANTES da leitura da versão: a versão lida é a de depois e a pendência já existe, então não envia (dois destinos)
+local_com 100 3
+propagar_gancho versao
+[[ $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "o gancho não recusou (pend=$(cat "$CF.recusada" 2>/dev/null))"
+nada_enviado || falhou "enviou a lista velha com a versão nova (recusa antes da leitura da versão): $(cat "$CAP"/envio.*.cmd 2>/dev/null)"
+
+# 18) recusa + mudança local NO MEIO da volta dos destinos: nenhum dos dois recebe
+local_com 100 3
+propagar_gancho maquinas
+[[ $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "o gancho não recusou"
+nada_enviado || falhou "enviou depois da recusa, no meio da volta: $(cat "$CAP"/envio.*.cmd 2>/dev/null)"
+
+# 19) envio já iniciado antes da recusa que termina depois dela: leva a versão de antes (100, menor que a recusada 200) e a lista de antes,
+# então as máquinas que já têm a v200 o ignoram; e nenhum envio novo sai depois
+local_com 100 3
+propagar ATRASO=1
+receber 200 "$D/vazia"; echo 999 >"$CF.v"
+[[ $(envios 2) == 2 ]] || falhou "os 2 envios já iniciados deveriam terminar (chegaram $(envios 0))"
+[[ $(cat "$CAP"/envio.*.cmd | grep -c -- '--receber-fixadas 100$') == 2 && $(listas_enviadas) == "3 3 " ]] || falhou "envio iniciado antes da recusa com versão/lista inesperada: $(cat "$CAP"/envio.*.cmd) / $(listas_enviadas)"
+propagar; sleep 1
+[[ $(envios 0) == 2 ]] || falhou "saiu envio novo depois da recusa (agora $(envios 0))"
 echo "ok: test_fixadas_receber"
