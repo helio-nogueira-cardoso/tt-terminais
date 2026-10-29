@@ -1607,6 +1607,9 @@ def try_fixed(args):
                     "order": time.monotonic_ns(), "expires": time.monotonic() + 3}
             folder = runtime()
             response = send_request(folder, data)
+            # Registra o pedido tambem no caminho rapido (antes so o main registrava). Custo sincrono medido no Mac: ~41 ms de mediana (ps + gravacao),
+            # pago antes do return ou do fallback. Limite: UncertainReply nao registra; ausencia de pedido= NAO descarta uma tentativa de clique.
+            registrar_pedido("revisit", data, response)
             if response.get("handled"):
                 return 0
             break
