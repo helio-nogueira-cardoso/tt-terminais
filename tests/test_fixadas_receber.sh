@@ -15,6 +15,7 @@ mkdir -p "$D/home/.config/tt" "$D/bin"
 printf 'nome=m1\n' >"$D/home/.config/tt/config"
 CF=$D/home/.config/tt/fixadas; LOG=$D/home/.cache/tt-fixadas.log
 falhou() { echo "FALHOU: $*" >&2; exit 1; }
+passou() { echo "  ok $*"; }   # o que foi observado nos casos 26-29, para a saída crua mostrar o estado e não só o veredito
 # tmux de mentira: sem servidor (o aplicar_fixadas volta cedo, sem tocar em nada)
 printf '#!/usr/bin/env bash\nexit 1\n' >"$D/bin/tmux"; chmod +x "$D/bin/tmux"; export PATH="$D/bin:$PATH"
 # receber V ARQUIVO [VAR=valor...]: roda receber_fixadas com a lista do ARQUIVO no stdin. SSH_CLIENT sai do ambiente (o puxar_fixadas roda
@@ -270,6 +271,7 @@ puxar_dest
 [[ $(n "$CFD") == 3 && $(cat "$CFD.recusada" 2>/dev/null) == 200 && $(n "$CF") == 3 && $(cat "$CF.recusada" 2>/dev/null) == 200 ]] || falhou "26a: estado final: destino n=$(n "$CFD") pend=$(cat "$CFD.recusada" 2>/dev/null); origem n=$(n "$CF") pend=$(cat "$CF.recusada" 2>/dev/null)"
 propagar_dest
 nada_enviado || falhou "26a: o destino com a pendência 200 propagou: $(cat "$CAP"/envio.*.cmd 2>/dev/null)"
+passou "26a (m3 no ar): m2 leu a v200 vazia da m3 e recusou: pendência=$(cat "$CFD.recusada") fixadas=$(n "$CFD"); nada propagou (envios=$(ls "$CAP" | grep -vc '\.cmd$'))"
 # 26b) m3 fora do ar: o destino (v100, 3 fixadas) não viu a v200 e não tem como recusá-la. O bloqueio é LOCAL, de quem recebeu a v200 (a origem, por exemplo), e
 # NÃO se estende ao destino: ele continua propagando a v100, que as máquinas que já têm a v200 ignoram (versão menor). Contrato registrado, não escondido.
 rm -f "$CFD.recusada" "$CAP"/envio.*
@@ -277,6 +279,7 @@ puxar_dest m3
 [[ ! -e $CFD.recusada && $(n "$CFD") == 3 && $(cat "$CFD.v") == 100 ]] || falhou "26b: com a m3 fora o destino mudou (n=$(n "$CFD") v=$(cat "$CFD.v" 2>/dev/null) pend=$([[ -e $CFD.recusada ]] && echo sim || echo nao))"
 propagar_dest
 [[ $(envios 2) == 2 && $(cat "$CAP"/envio.*.cmd | grep -c -- '--receber-fixadas 100$') == 2 ]] || falhou "26b: com a m3 fora o destino sem pendência deveria propagar a v100 (envios=$(envios 0); $(cat "$CAP"/envio.*.cmd 2>/dev/null))"
+passou "26b (m3 fora): m2 sem pendência, v$(cat "$CFD.v"), fixadas=$(n "$CFD"); propagou aos 2 destinos (destino v<versão>): $(awk '{for (i = 1; i <= NF; i++) if ($i ~ /^p[0-9]+$/) d = $i; printf "%s v%s; ", d, $NF}' "$CAP"/envio.*.cmd)"
 
 # 27) interrupção REAL (SIGKILL) com tmux de verdade: o que se confere é o estado das sessões (@tt_fixada, o 📌), não um arquivo-marcador.
 # A pendência só sai DEPOIS de a lista ser aplicada às sessões; morrer antes de aplicar ou antes de remover deixa a pendência (propagação bloqueada)
@@ -300,6 +303,7 @@ propagar
 nada_enviado || falhou "27a: propagou com a pendência 200 aberta: $(ls "$CAP")"
 com_tmux ''
 [[ ! -e $CF.recusada && $(marca nova) == 1 && -z $(marca velha) ]] || falhou "27a: a reexecução idêntica não aplicou e limpou (pend=$([[ -e $CF.recusada ]] && echo sim || echo nao) nova=[$(marca nova)] velha=[$(marca velha)])"
+passou "27a (SIGKILL antes de aplicar): a pendência ficou e bloqueou o envio; a reexecução aplicou e removeu: nova=[$(marca nova)] velha=[$(marca velha)] pendência=$([[ -e $CF.recusada ]] && echo sim || echo nao)"
 # 27b) morre DEPOIS de aplicar e ANTES de remover a pendência
 local_com 100 3; estado_antigo
 receber 200 "$D/vazia"
@@ -310,9 +314,11 @@ propagar
 nada_enviado || falhou "27b: propagou com a pendência 200 aberta: $(ls "$CAP")"
 com_tmux ''
 [[ ! -e $CF.recusada && $(marca nova) == 1 && -z $(marca velha) ]] || falhou "27b: a reexecução não removeu a pendência (nova=[$(marca nova)] velha=[$(marca velha)])"
+passou "27b (SIGKILL entre aplicar e remover): a pendência ficou e bloqueou o envio; a reexecução a removeu: nova=[$(marca nova)] velha=[$(marca velha)] pendência=$([[ -e $CF.recusada ]] && echo sim || echo nao)"
 # 27c) a reexecução idêntica SEM pendência não reaplica nada
 estado_antigo; com_tmux ''
 [[ $(marca velha) == 1 && -z $(marca nova) ]] || falhou "27c: a reexecução idêntica sem pendência reaplicou a lista (nova=[$(marca nova)] velha=[$(marca velha)])"
+passou "27c (reexecução sem pendência): não reaplicou: nova=[$(marca nova)] velha=[$(marca velha)]"
 # 27d) uma recusa nova (v300) que chega entre a aplicação e a remoção troca a pendência por 300: a remoção que esperava a 200 não a apaga
 local_com 100 3; estado_antigo
 receber 200 "$D/vazia"
@@ -320,6 +326,7 @@ LISTA=$D/tres com_tmux 'aplicar_fixadas() { receber_fixadas 300 </dev/null; }'
 [[ $(cat "$CF.recusada" 2>/dev/null) == 300 && $(n "$CF") == 3 ]] || falhou "27d: a remoção da pendência 200 apagou a recusa 300 que chegou no meio (pend=$(cat "$CF.recusada" 2>/dev/null) n=$(n "$CF"))"
 propagar
 nada_enviado || falhou "27d: propagou com a recusa 300 aberta: $(ls "$CAP")"
+passou "27d (recusa v300 no meio da aplicação): pendência=$(cat "$CF.recusada") fixadas=$(n "$CF"); nada propagou"
 # 28) duas aplicações ao mesmo tempo: a A leu a lista antiga e demora para gravar as marcas (o gancho dorme no primeiro lote_add); no meio chega a lista nova e a
 # B aplica tudo. A lista antiga não pode terminar por último e deixar "velha" fixada com a lista nova já em vigor
 rtmux set -q -u -t =nova: @tt_fixada; rtmux set -q -u -t =velha: @tt_fixada
@@ -332,6 +339,7 @@ env -u SSH_CLIENT HOME="$D/home" XDG_CONFIG_HOME="$D/home/.config" TT_MACHINE=m1
   bash -c 'source "$1"; aplicar_fixadas' _ "$ROOT/tt" </dev/null >/dev/null 2>&1
 wait
 [[ $(marca nova) == 1 && -z $(marca velha) ]] || falhou "28: a aplicação com a lista antiga terminou por último (nova=[$(marca nova)] velha=[$(marca velha)])"
+passou "28 (duas aplicações ao mesmo tempo): a lista nova venceu: nova=[$(marca nova)] velha=[$(marca velha)]"
 # 29) duas listas ACEITAS disputando as mesmas sessões, com a pendência da recusa no meio: a mais nova é o estado final. A primeira (v250: só "velha") é aceita e
 # demora para gravar as marcas (gancho no primeiro lote_add); a segunda (v260: só "nova") chega no meio e aplica tudo. Depois, um replay da v260 não muda nada
 rtmux set -q -u -t =nova: @tt_fixada; rtmux set -q -u -t =velha: @tt_fixada
@@ -345,4 +353,5 @@ wait
 [[ $(marca nova) == 1 && -z $(marca velha) && $(ver) == 260 && $(n "$CF") == 1 && ! -e $CF.recusada ]] || falhou "29: a lista mais nova não é o estado final (nova=[$(marca nova)] velha=[$(marca velha)] v=$(ver) n=$(n "$CF") pend=$([[ -e $CF.recusada ]] && echo sim || echo nao))"
 com_tmux '' 260
 [[ $(marca nova) == 1 && -z $(marca velha) && $(ver) == 260 ]] || falhou "29: o replay da v260 mudou o estado (nova=[$(marca nova)] velha=[$(marca velha)] v=$(ver))"
+passou "29 (duas listas aceitas v250/v260 na mesma sessão, replay da v260): estado final nova=[$(marca nova)] velha=[$(marca velha)] versão=$(ver) fixadas=$(n "$CF")"
 echo "ok: test_fixadas_receber"
