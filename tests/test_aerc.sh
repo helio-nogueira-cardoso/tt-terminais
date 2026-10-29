@@ -32,8 +32,9 @@ bl=$(sed -n '/# >>> tt (saída rápida/,/# <<< tt (saída rápida/p' "$B")
 [[ $(sed -n 2p <<<"$bl") == \#* || $(sed -n 2p <<<"$bl") == '[messages]' ]] || true
 awk '/# >>> tt \(saída rápida/ { b = 1; next } b && /^\[/ { exit } b && /=/ { print "solta: " $0; e = 1 } END { exit e }' "$B" || falhou 'linha de atalho solta antes do 1º cabeçalho do bloco (cairia em [terminal])'
 for k in 'u = :read -t' '\* = :flag -t' 'f = :forward' 'M = :move' 'Y = :copy' 'F = :filter -X Seen'; do
-  sed -n '/# >>> tt (saída rápida/,$p' "$B" | sed -n '/^\[messages\]/,/^\[view\]/p' | grep -q "^$k" || falhou "atalho na lista: $k"
-  sed -n '/# >>> tt (saída rápida/,$p' "$B" | sed -n '/^\[view\]/,$p' | grep -q "^${k%% = *} = " || [[ $k == F* ]] || falhou "atalho na leitura: $k"
+  # grep sem -q: com -q ele sai no 1º casamento e o sed anterior leva SIGPIPE (141), que o pipefail do lib.sh vira falha (a saída da seção [view] tem ~36 KB)
+  sed -n '/# >>> tt (saída rápida/,$p' "$B" | sed -n '/^\[messages\]/,/^\[view\]/p' | grep "^$k" >/dev/null || falhou "atalho na lista: $k"
+  sed -n '/# >>> tt (saída rápida/,$p' "$B" | sed -n '/^\[view\]/,$p' | grep "^${k%% = *} = " >/dev/null || [[ $k == F* ]] || falhou "atalho na leitura: $k"
 done
 [[ $(grep -c '# >>> tt (saída rápida' "$B") == 1 ]] || falhou 'bloco de atalhos duplicado'
 grep -q '^<C-p> = :prev-tab' "$B" || falhou 'atalhos do dono sumiram'
