@@ -16,11 +16,12 @@ fi
 #   ia-login [máquina...]      plano + logins (sem argumento: esta máquina e todas as do tt)
 #   ia-login --plano [máq...]  só o plano
 #   ia-login --principal CONTA|E-MAIL [--plano] [máq...]
+#   ia-login --consistencia [máq...]  confere se o mapa conta↔e-mail é o mesmo em todas as máquinas (sai 1 se não)
 #   ia-login --recursos        o que esta versão entende entre máquinas (principal, faltas, iniciar, conferir)
 #                              troca a conta PRINCIPAL (a de ~/.claude, a do "claude" puro) das máquinas para
 #                              essa conta: pula as que já estão nela e faz o resto como os logins acima
 # Usados entre máquinas (pelo próprio ia-login, via ssh):
-#   --faltas | --principal-faltas E | --iniciar P C E | --tela S | --codigo S X | --enter S | --conferir P C | --encerrar S |
+#   --faltas | --inventario | --principal-faltas E | --iniciar P C E | --tela S | --codigo S X | --enter S | --conferir P C | --encerrar S |
 #   --repetido E C (0 = o e-mail E está noutra pasta do Claude daqui, fora C) | --recursos
 set -uo pipefail
 
@@ -160,6 +161,54 @@ faltas() {
     printf 'kiro\tkiro\t%s\tsem login\n' "${esperado:--}"
   fi
   return 0
+}
+
+# Inventário: "conta<TAB>e-mail" de cada perfil do Claude logado aqui. A principal não entra: ela não segue conta nenhuma
+# esperada (pode ser a de qualquer perfil, e cada máquina pode ter a sua).
+inventario() {
+  if [[ -n $PROOT ]]; then no_proot ia-login --recursos | grep -qw inventario && no_proot ia-login --inventario; return 0; fi
+  [[ -x $CLAUDE_BIN ]] || return 0
+  local dir nome email
+  for dir in "$RAIZ"/*/; do
+    dir=${dir%/}; [[ -d $dir && ! -L $dir ]] || continue
+    nome=${dir##*/}
+    [[ $nome =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || continue
+    case $nome in codex | kiro) continue ;; esac
+    tem_credencial "$dir" || continue
+    email=$(email_local "$dir"); [[ -n $email ]] && printf '%s\t%s\n' "$nome" "$email"
+  done
+  return 0
+}
+
+# Análise (pura, lê do stdin "máquina<TAB>conta<TAB>e-mail"; o cadastro entra como máquina "(cadastro)").
+# Três regras, e só elas: (1) conta mapeada logada com outro e-mail; (2) a mesma conta com e-mails diferentes entre máquinas;
+# (3) o mesmo e-mail com nomes de conta diferentes entre máquinas. Sai 1 se achar algo.
+analisar_consistencia() {
+  awk -F'\t' '
+    function lista(a,   k, o) { o = ""; for (k in a) o = o (o == "" ? "" : ", ") k; return o }
+    NF >= 3 && $2 != "" && $3 != "" {
+      m = $1; c = $2; e = $3
+      if (m == "(cadastro)") { cad[c] = e; cadn[e] = c }
+      else { seen[m SUBSEP c] = e; maq[m] = 1 }
+      em_c[c, e] = 1; cs[c] = 1
+      nm_e[e, c] = 1; es[e] = 1
+      onde[c SUBSEP e] = onde[c SUBSEP e] (onde[c SUBSEP e] == "" ? "" : ", ") m
+      onde_e[e SUBSEP c] = onde_e[e SUBSEP c] (onde_e[e SUBSEP c] == "" ? "" : ", ") m
+    }
+    END {
+      for (k in seen) { split(k, p, SUBSEP)
+        if ((p[2] in cad) && cad[p[2]] != seen[k]) { r++; printf "(1) %s: a conta %s está logada com %s, mas o cadastro mapeia %s\n", p[1], p[2], seen[k], cad[p[2]] } }
+      for (c in cs) { delete t; n = 0
+        for (k in em_c) { split(k, p, SUBSEP); if (p[1] == c) { t[p[2]] = 1; n++ } }
+        if (n > 1) { r++; o = ""; for (e in t) o = o (o == "" ? "" : "; ") e " (" onde[c SUBSEP e] ")"
+          printf "(2) a conta %s tem e-mails diferentes entre máquinas: %s\n", c, o } }
+      for (e in es) { delete t; n = 0
+        for (k in nm_e) { split(k, p, SUBSEP); if (p[1] == e) { t[p[2]] = 1; n++ } }
+        if (n > 1) { r++; o = ""; for (c in t) o = o (o == "" ? "" : "; ") c " (" onde_e[e SUBSEP c] ")"
+          printf "(3) o e-mail %s tem nomes de conta diferentes entre máquinas: %s\n", e, o } }
+      exit r > 0 ? 1 : 0
+    }' | sort
+  return "${PIPESTATUS[0]}"
 }
 
 # Troca da principal (--principal): uma linha do plano se a principal daqui não é a conta pedida.
@@ -414,6 +463,13 @@ conferir_email() {
 # Situações do plano que viram login: falta, perfil sem login, troca da principal e perfil na conta errada.
 a_fazer() { [[ $1 == falta || $1 == 'sem login' || $1 == trocar* || $1 == 'conta errada'* ]]; }
 
+# O plano também acusa contas com e-mail ou nome divergente entre máquinas (só imprime se achar algo; a principal não conta).
+consistencia_no_plano() {
+  [[ -n $PRINCIPAL_ALVO ]] && return 0
+  local r; r=$(consistencia "$@" 2>&1) && return 0
+  echo; printf '%s\n' "$r"; return 1
+}
+
 orquestrar() {
   local so_plano=$1; shift
   local l rot dest p c e sit n=0 total=0 ok=0 resp
@@ -422,10 +478,11 @@ orquestrar() {
   for l in "${PLANO[@]}"; do IFS=$'\t' read -r rot dest p c e sit <<<"$l"; a_fazer "$sit" && total=$((total + 1)); done
   if ((${#PLANO[@]} == 0)); then
     if [[ -n $PRINCIPAL_ALVO ]]; then echo "Nada a fazer: a principal de todas as máquinas já é $PRINCIPAL_ALVO."
-    else echo 'Nada a fazer: todas as contas do cadastro estão logadas em todas as máquinas.'; fi
+    else echo 'Nada a fazer: todas as contas do cadastro estão logadas em todas as máquinas.'; consistencia_no_plano "$@" || return 1; fi
     return 0
   fi
   echo; mostrar_plano
+  consistencia_no_plano "$@"
   ((${#NAO_USA[@]})) && echo "(sem contas de IA para logar: ${NAO_USA[*]})"
   echo
   ((total)) || { echo 'Nenhum login a fazer daqui (veja a situação acima).'; return 0; }
@@ -443,6 +500,52 @@ orquestrar() {
   ((ok == total))
 }
 
+# Coleta o inventário de cada máquina (em paralelo) e imprime "máquina<TAB>conta<TAB>e-mail" + o cadastro.
+# Máquina sem resposta ou com ia-login velho (sem o recurso "inventario") vai para o stderr como aviso, sem entrar na análise.
+coletar_inventario() {
+  local tmp rot dest p f c e
+  local -a pids=()
+  tmp=$(mktemp -d)
+  while IFS=$'\t' read -r dest rot; do
+    if (($#)) && ! printf '%s\n' "$@" | grep -qxF -- "$rot"; then continue; fi
+    if [[ $dest == . ]]; then
+      ( "$AQUI/ia-login" --inventario </dev/null >"$tmp/$rot.tsv" 2>/dev/null; echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) & pids+=($!)
+    else
+      ( timeout "${EM_TIMEOUT:-25}" ssh -n -o BatchMode=yes -o ConnectTimeout=6 "$dest" \
+          "$PATH_REMOTO; export PATH; if ia-login --help 2>/dev/null | grep -q -- '--recursos' && ia-login --recursos 2>/dev/null | grep -qw inventario; then ia-login --inventario; else echo '#sem-suporte'; fi" \
+          >"$tmp/$rot.tsv" 2>/dev/null
+        echo $? >"$tmp/$rot.rc"; echo "$dest" >"$tmp/$rot.dest" ) & pids+=($!)
+    fi
+  done <<<"$(maquinas)"
+  for p in ${pids[@]+"${pids[@]}"}; do wait "$p" 2>/dev/null; done
+  for f in $(ls "$tmp"/*.dest 2>/dev/null | sort); do
+    rot=$(basename "$f" .dest)
+    case $(cat "$tmp/$rot.rc") in
+      0) ;;
+      127) continue ;; # sem ia-login (celular: os agentes ficam no proot)
+      *) echo "aviso: $rot não respondeu; não entrou na conferência" >&2; continue ;;
+    esac
+    if grep -q '^#sem-suporte' "$tmp/$rot.tsv" 2>/dev/null; then
+      echo "aviso: $rot tem o tt velho (tt --sincronizar); não entrou na conferência" >&2; continue
+    fi
+    while IFS=$'\t' read -r c e; do [[ -n $c && $c != '#'* ]] && printf '%s\t%s\t%s\n' "$rot" "$c" "$e"; done <"$tmp/$rot.tsv"
+  done
+  rm -rf "$tmp"
+  cadastro | awk -F'\t' '$1 == "claude" { printf "(cadastro)\t%s\t%s\n", $3, $2 }'
+}
+
+# Confere o mapa conta↔e-mail entre todas as máquinas. 0 = coerente; 1 = achou inconsistência.
+consistencia() {
+  local dados achados rc
+  [[ -z ${IA_LOGIN_SEM_PUXAR:-} ]] && command -v tt >/dev/null 2>&1 && tt --puxar-contas-ia >/dev/null 2>&1
+  dados=$(coletar_inventario "$@")
+  achados=$(analisar_consistencia <<<"$dados"); rc=$?
+  if ((rc == 0)); then echo 'Consistente: cada conta mapeada tem o mesmo e-mail e o mesmo nome em todas as máquinas.'; return 0; fi
+  echo 'Inconsistências nas contas de IA:'; sed 's/^/  /' <<<"$achados"
+  echo '  (conserto: ia-conta renomear / ia-login CONTA MÁQUINA — o login refaz o perfil na conta certa)'
+  return 1
+}
+
 # CONTA (apelido do cadastro) ou e-mail → e-mail.
 resolver_alvo() {
   local a=$1 e
@@ -454,6 +557,9 @@ resolver_alvo() {
 
 case ${1:-} in
   --faltas) faltas ;;
+  --inventario) inventario ;;
+  --analisar-consistencia) analisar_consistencia ;;
+  --consistencia) consistencia "${@:2}" ;;
   --principal-faltas) principal_faltas "$2" ;;
   --principal)
     [[ -n ${2:-} ]] || die 'uso: ia-login --principal CONTA|E-MAIL [--plano] [máquina...]'
@@ -470,6 +576,6 @@ case ${1:-} in
   # Do título até antes de "Usados entre máquinas", por marcadores e não por número de linha: a guarda do bash 4+ no topo
   # empurrou o texto, e as outras máquinas detectam o --principal procurando a linha dele nesta ajuda.
   -h | --help | ajuda) sed -n '/^# ia-login —/,/^# Usados entre máquinas/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' ;;
-  --recursos) echo 'principal faltas iniciar conferir repetido' ;;  # o que esta versão entende entre máquinas
+  --recursos) echo 'principal faltas iniciar conferir repetido inventario consistencia' ;;  # o que esta versão entende entre máquinas
   *) orquestrar 0 "$@" ;;
 esac
