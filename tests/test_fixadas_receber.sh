@@ -225,4 +225,11 @@ receber 999 "$D/uma"   # mesma versão que a daqui, conteúdo diferente (daqui 3
 [[ $(cat "$CF.recusada" 2>/dev/null) == 200 && $(n "$CF") == 3 ]] || falhou "versão igual com conteúdo diferente limpou a pendência ou mexeu na lista"
 propagar
 nada_enviado || falhou "propagou com a pendência 200 aberta depois de edição local: $(ls "$CAP")"
+# 25) sequência do Pedro Estevão: local 100 → recusa 300 → alteração local (999) → recebe a lista 250 → propaga: a recusa 300 continua e nada sai
+local_com 100 3; receber 300 "$D/vazia"
+echo 999 >"$CF.v"   # alteração local: a versão sobe para 999, sem aceitar nada remoto
+receber 250 "$D/uma"
+[[ $(cat "$CF.recusada" 2>/dev/null) == 300 && $(n "$CF") == 3 && $(ver) == 999 ]] || falhou "a 250 após a alteração local mexeu na pendência, na lista ou na versão (pend=$(cat "$CF.recusada" 2>/dev/null) n=$(n "$CF") v=$(ver))"
+propagar
+nada_enviado || falhou "propagou depois da alteração local + lista 250 com a recusa 300 aberta: $(ls "$CAP")"
 echo "ok: test_fixadas_receber"
