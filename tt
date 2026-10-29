@@ -10086,6 +10086,8 @@ propagar_fixadas() {
   v=$(versao_fixadas)
   # Recusa pendente (receber_fixadas recusou uma lista vazia que apagaria 2+): a lista daqui pode estar velha, e enviá-la com a versão
   # de agora ressuscitaria nas outras o que o dono tirou. Fica sem enviar, a qualquer destino, até receber_fixadas aceitar uma lista.
+  # O bloqueio é LOCAL: vale para a máquina que recebeu a vazia. Uma que não a viu (puxar_fixadas só busca lista de versão MAIOR e não olha a pendência
+  # dos outros) segue propagando a sua lista, de versão menor que a recusada, que quem já tem a vazia ignora; ao receber a vazia, ela também recusa.
   if [[ -e $CONF_FIX.recusada ]]; then
     { read -r pend <"$CONF_FIX.recusada"; } 2>/dev/null
     fixadas_log "propagacao bloqueada: recusa pendente (v${pend:-?}); a lista daqui nao foi enviada"
