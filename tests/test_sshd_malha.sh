@@ -4,12 +4,12 @@
 # a malha anuncia a porta real, e fora da malha (sem outras máquinas) nada é aberto. Portas altas de teste no
 # lugar da 22 e da 8022 (TT_SSHD_PORTA_SISTEMA, TT_SSHD_PORTA) e sem sudo (TT_SSHD_SEM_SUDO).
 source "$(dirname "$0")/lib.sh"; isolar
-sshd_bin=""; for b in /usr/sbin/sshd /usr/local/sbin/sshd; do [[ -x $b ]] && sshd_bin=$b; done
+# Mesma descoberta e mesma ordem do sshd_bin() do tt: a fixture nao pode faltar quando o tt encontraria (e subiria) um sshd.
+sshd_bin=""; for b in /usr/sbin/sshd /usr/local/sbin/sshd /opt/homebrew/sbin/sshd "${PREFIX:-/nonexistent}/bin/sshd" "$(command -v sshd 2>/dev/null)"; do
+  [[ -n $b && -x $b ]] && { sshd_bin=$b; break; }
+done
 porta_livre() { python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'; }
 porta_liberada() { python3 -I -c 'import socket,sys; s=socket.socket(); s.bind(("127.0.0.1", int(sys.argv[1]))); s.close()' "$1"; }
-porta_sistema=$(porta_livre); porta_tt=$(porta_livre)
-while [[ $porta_sistema == "$porta_tt" ]]; do porta_tt=$(porta_livre); done
-export TT_SSHD_SEM_SUDO=1 TT_SSHD_PORTA_SISTEMA=$porta_sistema TT_SSHD_PORTA=$porta_tt
 ES=$HOME/.local/state/tt
 fixture_pid=
 fixture_started=0
@@ -23,16 +23,19 @@ limpar_fixture() {
 }
 limpar_teste() { local st=$?; set +e; limpar_fixture || { echo 'FALHOU — a porta do fixture SSH continuou ocupada após a limpeza' >&2; st=1; }; parar; (exit "$st"); limpar_isolado; }
 trap limpar_teste EXIT
-if [[ -n $sshd_bin ]]; then
-  # Instalação também garante SSH fora da malha. Um serviço autenticável na porta de sistema isolada
-  # mantém essa etapa fora do socket 22 real; depois ele sai e o teste exercita o sshd do usuário.
+# Sobe o sshd fixture (autenticavel, chave efemera) numa porta sorteada. Sortear e soltar deixa uma janela em que outro processo toma a porta:
+# se o fixture nao ficar pronto, mata e repete com outra porta (ate 5 vezes). Sai 0 com TT_SSHD_PORTA_SISTEMA apontando para ele.
+subir_fixture() {
+  local tentativa porta pronto _
   fixture_dir=$HOME/.local/state/tt-fixture
   mkdir -p "$fixture_dir" "$ES/sshd" "$HOME/.ssh"; chmod 700 "$fixture_dir" "$ES/sshd" "$HOME/.ssh"
   ssh-keygen -q -t ed25519 -N '' -f "$fixture_dir/host_key"
   ssh-keygen -q -t ed25519 -N '' -f "$fixture_dir/client_key"
   cp "$fixture_dir/client_key.pub" "$HOME/.ssh/authorized_keys"; chmod 600 "$HOME/.ssh/authorized_keys"
-  cat >"$fixture_dir/sshd_config" <<FIM
-Port $TT_SSHD_PORTA_SISTEMA
+  for tentativa in 1 2 3 4 5; do
+    porta=${TT_TEST_PORTA_FORCADA:-$(porta_livre)}; TT_TEST_PORTA_FORCADA=  # gancho de teste: 1a tentativa numa porta ja ocupada, para exercitar a repeticao
+    cat >"$fixture_dir/sshd_config" <<FIM
+Port $porta
 ListenAddress 127.0.0.1
 HostKey $fixture_dir/host_key
 PidFile $fixture_dir/sshd.pid
@@ -45,14 +48,29 @@ UsePAM no
 PermitRootLogin no
 Subsystem sftp internal-sftp
 FIM
-  "$sshd_bin" -D -e -f "$fixture_dir/sshd_config" -E "$fixture_dir/sshd.log" & fixture_pid=$!; fixture_started=1
-  pronto=0
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if ssh -i "$fixture_dir/client_key" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=1 -p "$TT_SSHD_PORTA_SISTEMA" "$(id -un)@127.0.0.1" true >/dev/null 2>&1; then pronto=1; break; fi
-    sleep 0.1
+    export TT_SSHD_PORTA_SISTEMA=$porta
+    "$sshd_bin" -D -e -f "$fixture_dir/sshd_config" -E "$fixture_dir/sshd.log" & fixture_pid=$!; fixture_started=1
+    pronto=0
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      if ssh -i "$fixture_dir/client_key" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=1 -p "$porta" "$(id -un)@127.0.0.1" true >/dev/null 2>&1; then pronto=1; break; fi
+      sleep 0.1
+    done
+    [[ $pronto == 1 ]] && return 0
+    kill "$fixture_pid" 2>/dev/null; wait "$fixture_pid" 2>/dev/null; fixture_pid=; fixture_started=0
   done
-  [[ $pronto == 1 ]] || falhou 'o sshd fixture não ficou pronto para login por chave'
+  return 1
+}
+export TT_SSHD_SEM_SUDO=1
+if [[ -n $sshd_bin ]]; then
+  # Instalação também garante SSH fora da malha. Um serviço autenticável na porta de sistema isolada
+  # mantém essa etapa fora do socket 22 real; depois ele sai e o teste exercita o sshd do usuário.
+  subir_fixture || falhou 'o sshd fixture não ficou pronto para login por chave (5 portas tentadas)'
+else
+  export TT_SSHD_PORTA_SISTEMA=$(porta_livre)
 fi
+porta_tt=$(porta_livre)
+while [[ $porta_tt == "$TT_SSHD_PORTA_SISTEMA" ]]; do porta_tt=$(porta_livre); done
+export TT_SSHD_PORTA=$porta_tt
 [[ ${TT_TEST_FALHAR_INSTALACAO:-0} != 1 ]] || falhou 'falha de instalação injetada para verificar limpeza do fixture'
 instalar_isolado
 if [[ -n $fixture_pid ]]; then limpar_fixture || falhou 'fixture SSH não liberou a porta após instalação'; fi
