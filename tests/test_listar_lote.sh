@@ -10,6 +10,7 @@ real=$(command -v tmux)
 # tmux que registra cada chamada; com TT_LENTO=S, cada capture-pane demora S segundos (servidor ocupado)
 cat >"$T/bin/tmux" <<EOF
 #!/bin/sh
+[ "\$1" = -u ] && shift   # o tt chama tmux -u (2.12.1)
 echo "\$*" >>"$T/log/\${TT_CONTA:-geral}"
 case "\$1" in capture-pane) [ -n "\${TT_LENTO:-}" ] && sleep "\$TT_LENTO" ;; esac
 exec $real "\$@"

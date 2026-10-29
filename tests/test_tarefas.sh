@@ -30,6 +30,7 @@ printf 'nome=A\n' >"$C/config"
 # display-popup registra os argumentos no log, para checar a ancoragem do slide-over.
 cat >"$TEST_DIR/bin/tmux" <<'TMUX'
 #!/usr/bin/env bash
+[[ ${1:-} == -u ]] && shift  # o tt chama tmux -u (2.12.1)
 case ${1:-} in
   list-sessions) exit 1 ;;
   display-popup) printf '%s\n' "$*" >>"$TT_TMUX_LOG"; exit 0 ;;
@@ -91,6 +92,7 @@ echo "ok: merge por tarefa (recencia e precedencia de remocao)"
 # Stub com client_width conhecido para checar o calculo de x. do_cliente usa list-clients -F.
 cat >"$TEST_DIR/bin/tmux" <<'TMUX'
 #!/usr/bin/env bash
+[[ ${1:-} == -u ]] && shift  # o tt chama tmux -u (2.12.1)
 case ${1:-} in
   display-popup) printf '%s\n' "$*" >>"$TT_TMUX_LOG"; exit 0 ;;
   list-sessions) exit 0 ;;
@@ -114,6 +116,7 @@ grep -Fq '📋 tarefas' "$TEST_DIR/popup.log" || fail "slide-over deveria mostra
 # tela estreita (celular): ocupa a largura toda, ancorada em x=0
 cat >"$TEST_DIR/bin/tmux" <<'TMUX'
 #!/usr/bin/env bash
+[[ ${1:-} == -u ]] && shift  # o tt chama tmux -u (2.12.1)
 case ${1:-} in
   display-popup) printf '%s\n' "$*" >>"$TT_TMUX_LOG"; exit 0 ;;
   list-sessions) exit 0 ;;

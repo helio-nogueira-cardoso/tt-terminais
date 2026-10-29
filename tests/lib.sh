@@ -52,7 +52,7 @@ isolar() {
       for c in bash python3 tmux fzf rg; do ln -sf "$(command -v "$c")" "$T/basebin/$c" 2>/dev/null || true; done
       ln -sf "$RAIZ/tests/macos-bin/script" "$T/basebin/script"  # script(1) do util-linux, sobre pty (ver macos-bin/script)
       export PATH="$T/basebin:$PATH"
-      TT_PATH_BASE="$T/basebin:$(tr ':' '\n' <<<"$PATH" | grep -F gnubin | paste -sd: -):/usr/bin:/bin"
+      TT_PATH_BASE="$T/basebin:$(tr ':' '\n' <<<"$PATH" | { grep -F gnubin || true; } | paste -sd: -):/usr/bin:/bin"
       TT_PATH_BASE=${TT_PATH_BASE//::/:}
     fi
   fi

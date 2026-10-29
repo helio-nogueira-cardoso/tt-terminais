@@ -20,6 +20,7 @@ mkdir -p "$D/bin"
 cat >"$D/bin/tmux" <<'TMUX'
 #!/usr/bin/env bash
 [[ -e $TT_T_DIR/fora ]] && { echo "no server running" >&2; exit 1; }
+[[ ${1:-} == -u ]] && shift   # o wrapper do tt passa -u (UTF-8) antes do comando, como o tmux de verdade aceita
 case ${1:-} in
   list-sessions) while IFS=$'\t' read -r n i; do printf '%s\t%s\n' "$n" "$i"; done <"$TT_T_DIR/sessoes" ;;
   has-session) n=${3#=}; cut -f1 "$TT_T_DIR/sessoes" | grep -qxF "$n" ;;

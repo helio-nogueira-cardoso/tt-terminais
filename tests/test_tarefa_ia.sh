@@ -21,6 +21,7 @@ printf 'nome=A\ntarefas_sync=off\n' >"$T/home/.config/tt/config"
 # tmux de mentira: registra as chamadas; display-message devolve a pasta do projeto
 cat >"$T/bin/tmux" <<FIM
 #!/usr/bin/env bash
+[[ \${1:-} == -u ]] && shift   # o tt chama tmux -u (2.12.1)
 echo "\$*" >>"$T/tmux.log"
 case \${1:-} in
   has-session) exit 1;;

@@ -10,7 +10,7 @@ tt() { "$TT" "$@"; }
 
 # tmux de registro: anota cada display-popup que o tt pede e repassa ao tmux de verdade.
 REAL=$(command -v tmux); mkdir -p "$T/binlog"; LOG=$T/popups.log; : >"$LOG"
-printf '#!/usr/bin/env bash\n[[ ${1:-} == display-popup ]] && printf "%%s\\n" "$*" >>%q\nexec %q "$@"\n' "$LOG" "$REAL" >"$T/binlog/tmux"
+printf '#!/usr/bin/env bash\n[[ ${1:-} == -u ]] && shift   # o tt chama tmux -u (2.12.1)\n[[ ${1:-} == display-popup ]] && printf "%%s\\n" "$*" >>%q\nexec %q "$@"\n' "$LOG" "$REAL" >"$T/binlog/tmux"
 chmod +x "$T/binlog/tmux"; export PATH="$T/binlog:$PATH"
 
 uso=$(tmux list-commands new-pane 2>/dev/null) || uso=""

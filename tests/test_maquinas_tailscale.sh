@@ -25,6 +25,7 @@ exit 0
 FIM
 cat >"$B/tmux" <<'FIM'
 #!/usr/bin/env bash
+[[ ${1:-} == -u ]] && shift   # o tt chama tmux -u (2.12.1)
 printf '%s\n' "$*" >>"$T/tmux.log"
 case ${1:-} in has-session) exit 1 ;; esac
 exit 0

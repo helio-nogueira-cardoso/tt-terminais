@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.12.1 · 29/10/2026
+- **🧷 Uma lista de fixadas vazia vinda de outra máquina não apaga mais 2 ou mais fixadas de uma vez:** um `cat` vazio por ssh (conexão que caiu, arquivo no meio da regravação) chegava como "lista vazia nova" e desafixava tudo. Agora a máquina recusa essa lista, guarda a sua em `fixadas.prev` e deixa a pendência `fixadas.recusada`; enquanto ela existir, a máquina não propaga a própria lista (o bloqueio é local, de quem recebeu a vazia). A pendência sai quando uma lista tão nova quanto a recusada é aceita e aplicada às sessões; se travar, a saída manual é mover `fixadas` e `fixadas.v` para o lado. Desafixar a última continua valendo, e duas aplicações da lista ao mesmo tempo não terminam mais com a lista antiga.
+- **🧷 As fixadas voltam a casar em ambientes sem locale UTF-8 (cron, systemd, launchd):** os comandos `tmux` do `tt` passam `-u`, para o tmux 3.8 não trocar o separador `\x1f` dos `-F` por `_`. No Mac, sem isso, a lista aplicava nome nenhum. Vale no `tt` completo e na partida rápida gerada.
+
 ## v2.12.0 · 29/10/2026
 - **🧭 `ia-login --consistencia` confere as contas de IA entre as máquinas:** acusa (1) conta do cadastro logada com outro e-mail, (2) a mesma conta com e-mails diferentes em máquinas diferentes e (3) o mesmo e-mail com nomes de conta diferentes entre máquinas. A conta principal não entra: ela não precisa seguir conta nenhuma. O `ia-login --plano` passa a mostrar essas inconsistências também. Máquina sem resposta, ou com o tt velho, fica de fora com um aviso (`tt --sincronizar`). Sai 1 quando acha algo.
 

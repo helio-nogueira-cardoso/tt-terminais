@@ -10,6 +10,7 @@ source "$(dirname "$0")/lib.sh"; isolar
 mkdir -p "$T/falso"
 cat >"$T/falso/tmux" <<'TMUX'
 #!/usr/bin/env bash
+[[ ${1:-} == -u ]] && shift  # o tt chama tmux -u (2.12.1)
 case ${1:-} in
   # só o tamanho responde; o resto (ex.: #{window_modal_pane}, "já há uma janela aberta") vem vazio
   list-clients) [[ $* == *client_width* ]] && printf 'cel\t%s\n' "${TT_TESTE_TELA:-63 30}" || printf 'cel\t\n' ;;

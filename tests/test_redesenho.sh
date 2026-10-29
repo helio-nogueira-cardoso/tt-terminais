@@ -17,6 +17,7 @@ passou 'letreiro por #() persistente: sem set-option por passo, sem refresh forÃ
 
 mkdir -p "$T/shim"; cat >"$T/shim/tmux" <<SH
 #!/usr/bin/env bash
+[[ \${1:-} == -u ]] && shift   # o tt chama tmux -u (2.12.1)
 case \$1 in set|set-option|source-file) echo "\$*" >>"$T/escritas" ;; esac
 exec $(command -v tmux) "\$@"
 SH

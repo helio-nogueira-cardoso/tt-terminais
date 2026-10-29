@@ -10,6 +10,7 @@ passou 'saída sincronizada ativa: redesenhos chegam em bloco, sem o cursor corr
 
 mkdir -p "$T/shim"; cat >"$T/shim/tmux" <<SH
 #!/usr/bin/env bash
+[[ \${1:-} == -u ]] && shift   # o tt chama tmux -u (2.12.1)
 case \$1 in set|set-option|source-file|refresh-client) echo "\$*" >>"$T/escritas" ;; esac
 exec $(command -v tmux) "\$@"
 SH

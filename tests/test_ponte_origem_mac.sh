@@ -38,6 +38,7 @@ FIM
 mv "$B/remoto-tt" "$T/remoto-tt"
 cat >"$B/tmux" <<'FIM'
 #!/usr/bin/env bash
+[[ ${1:-} == -u ]] && shift   # o tt chama tmux -u (2.12.1)
 printf '%s %s\n' "${TT_FALSO_REMOTO:+[lá]}" "$*" >>"$T/tmux.log"
 case ${1:-} in
   has-session) [[ -n ${TT_FALSO_REMOTO:-} ]] && exit "$(cat "$T/remoto-sessao" 2>/dev/null || echo 0)"; exit 1 ;;

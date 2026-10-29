@@ -1977,13 +1977,14 @@ tmux_alinhar() {
 }
 tmux_alinhar
 export TT_TMUX_BIN
-_tmux_real() { command "$TT_TMUX_BIN" "$@"; }
+_tmux_real() { command "$TT_TMUX_BIN" -u "$@"; }
 # Todo `tmux` chamado por código do tt passa por aqui: o display-popup vira janela flutuante quando ela está
 # ligada (popup_janela, mais abaixo); o resto vai ao tmux do servidor.
+# -u: sem locale UTF-8 (cron, systemd, launchd, env limpo) o tmux 3.8 troca o \x1f dos -F por "_" e as listas não casam mais
 tmux() {
   if [[ ${1:-} == display-popup ]]; then popup_janela "${@:2}"; return; fi
   [[ ${1:-} == switch-client ]] && log_troca "${@:2}"
-  command "$TT_TMUX_BIN" "$@"
+  command "$TT_TMUX_BIN" -u "$@"
 }
 ATALHOS_PADRAO=${TT_ATALHOS_PADRAO:-$DIR_TT/atalhos-padrao}
 CONF_ATALHOS=$CONF_DIR/atalhos
@@ -10079,9 +10080,22 @@ fixada_chave_em() { # VAR máquina sessão [id]
 # máquina (a barra que aparece é a de lá).
 versao_fixadas_em() { printf '%s %s\n' "$1" "$(timeout 6 ssh "${SSH_OPC[@]}" "$1" 'cat ~/.config/tt/fixadas.v 2>/dev/null || echo 0' </dev/null 2>/dev/null)"; }
 propagar_fixadas() {
-  local dest rot v
+  local dest rot v pend
+  # A versão se lê ANTES de olhar a pendência: a recusa só existe se a versão recusada era maior que a daqui naquela hora, e a daqui só
+  # sobe; então todo envio que passa pela checagem leva uma versão menor que a recusada (as máquinas que já a têm o ignoram). Lida depois,
+  # uma mudança local entre a recusa e a leitura enviaria a lista velha com versão nova.
   v=$(versao_fixadas)
+  # Recusa pendente (receber_fixadas recusou uma lista vazia que apagaria 2+): a lista daqui pode estar velha, e enviá-la com a versão
+  # de agora ressuscitaria nas outras o que o dono tirou. Fica sem enviar, a qualquer destino, até receber_fixadas aceitar uma lista.
+  # O bloqueio é LOCAL: vale para a máquina que recebeu a vazia. Uma que não a viu (puxar_fixadas só busca lista de versão MAIOR e não olha a pendência
+  # dos outros) segue propagando a sua lista, de versão menor que a recusada, que quem já tem a vazia ignora; ao receber a vazia, ela também recusa.
+  if [[ -e $CONF_FIX.recusada ]]; then
+    { read -r pend <"$CONF_FIX.recusada"; } 2>/dev/null
+    fixadas_log "propagacao bloqueada: recusa pendente (v${pend:-?}); a lista daqui nao foi enviada"
+    return 0
+  fi
   while read -r dest rot; do
+    [[ -e $CONF_FIX.recusada ]] && break # a recusa pode chegar no meio da volta: os destinos que faltam não recebem
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-fixadas $v" <"$CONF_FIX" >/dev/null 2>&1 &)
   done < <(maquinas)
 }
@@ -10112,23 +10126,64 @@ destravar_fixadas() { rmdir "$CONF_FIX.trava" 2>/dev/null; return 0; }
 versao_fixadas() { local v; v=$(cat "$CONF_FIX.v" 2>/dev/null); echo "${v:-0}"; }
 marcar_fixadas() { date +%s%N >"$CONF_FIX.v"; snapshot_evento fixadas; precarregar_evento evento; }
 
+# Remove a pendência da recusa de lista vazia (fixadas.recusada) DEPOIS de a lista que a reconcilia ter sido aplicada às sessões, e só se ela segue
+# com o valor lido antes (uma recusa nova, de versão maior, no intervalo a trocou e fica). Sem a trava, a pendência fica (falha fechada: a próxima lista
+# aceita ou a reexecução idêntica da mesma a remove). Quem morrer antes do rm deixa a pendência e a propagação bloqueada.
+limpar_pendencia_fixadas() { # VALOR_LIDO
+  local atual
+  travar_fixadas || return 0
+  { read -r atual <"$CONF_FIX.recusada"; } 2>/dev/null
+  if [[ ${atual:-} == "$1" ]]; then rm -f "$CONF_FIX.recusada"; fi
+  destravar_fixadas
+}
+
 # Recebe a lista de outra máquina (stdin) com a versão V. Só aceita se for mais nova que a daqui:
 # uma máquina que volta atrasada nunca desfaz uma mudança mais recente.
 receber_fixadas() {
-  local v=${1:-0} tmp
+  local v=${1:-0} tmp pend limpar=""
   mkdir -p "$CONF_DIR"
   tmp=$(mktemp "$CONF_FIX.XXXXXX"); cat >"$tmp"
   travar_fixadas || { rm -f "$tmp"; return 1; }
   if [[ $v =~ ^[0-9]+$ ]] && ((v > $(versao_fixadas))); then
-    local antes depois
+    local antes depois pend origem=${SSH_CLIENT:-local}; origem=${origem%% *}  # sem ssh (o puxar_fixadas roda local) a variavel nao existe: set -u abortava aqui
     antes=$(grep -vc '^\s*$' "$CONF_FIX" 2>/dev/null); depois=$(grep -vc '^\s*$' "$tmp" 2>/dev/null)
-    ((${depois:-0} < ${antes:-0})) && fixadas_log "lista recebida (v$v) tem ${depois:-0} fixada(s) e a daqui tinha ${antes:-0}: origem ${SSH_CLIENT%% *}"
+    if ((${depois:-0} == 0 && ${antes:-0} >= 2)); then  # uma lista vazia que apaga 2+ de uma vez nao e um "desafixar": recusa
+      # A recusa deixa a pendência em fixadas.recusada (a versão recusada): sobrevive a reinício e só some quando esta função aceita uma lista
+      # (a daqui passa a ser a recebida). Enquanto existir, propagar_fixadas não envia nada. Saída manual: mover fixadas e fixadas.v para o lado.
+      # Falha fechada: a pendência é gravada ANTES de recusar, inteira (temporário + mv). Se não der para gravar, não se recusa: aceitar a vazia
+      # iguala a lista daqui à das outras, e recusar sem poder bloquear a propagação ressuscitaria as antigas. Morrer depois de gravar deixa a pendência.
+      # A pendência guarda a MAIOR versão recusada (sob a trava): uma recusa menor depois (300, depois 200) não a rebaixa, senão uma lista
+      # intermediária (250) a limparia com a 300 ainda sem reconciliar.
+      pend=0; [[ -e $CONF_FIX.recusada ]] && { read -r pend <"$CONF_FIX.recusada"; } 2>/dev/null; [[ ${pend:-} =~ ^[0-9]+$ ]] || pend=0
+      ((v > pend)) && pend=$v
+      if { echo "$pend" >"$CONF_FIX.recusada.novo" && mv -f "$CONF_FIX.recusada.novo" "$CONF_FIX.recusada"; } 2>/dev/null; then
+        fixadas_log "lista recebida (v$v) VAZIA recusada: a daqui tem ${antes} fixada(s): origem $origem; propagacao bloqueada ate aceitar uma lista (saida manual: mover fixadas e fixadas.v para o lado)"
+        rm -f "$tmp"; destravar_fixadas; return 0
+      fi
+      rm -f "$CONF_FIX.recusada.novo" 2>/dev/null
+      fixadas_log "lista recebida (v$v) VAZIA aceita: nao deu para gravar a pendencia da recusa (recusar sem bloquear a propagacao ressuscitaria as fixadas antigas): origem $origem"
+    fi
+    ((${depois:-0} < ${antes:-0})) && { fixadas_log "lista recebida (v$v) tem ${depois:-0} fixada(s) e a daqui tinha ${antes:-0}: origem $origem"; cp -f "$CONF_FIX" "$CONF_FIX.prev" 2>/dev/null; }
     mv "$tmp" "$CONF_FIX"; echo "$v" >"$CONF_FIX.v"
+    if [[ -e $CONF_FIX.recusada ]]; then # a pendência só some se a lista aceita é tão nova quanto a recusada (uma intermediária não reconcilia)
+      { read -r pend <"$CONF_FIX.recusada"; } 2>/dev/null; [[ ${pend:-} =~ ^[0-9]+$ ]] || pend=0
+      ((v >= pend)) && limpar=$pend
+    fi
     destravar_fixadas
     aplicar_fixadas
+    if [[ -n $limpar ]]; then limpar_pendencia_fixadas "$limpar"; fi # só DEPOIS de aplicar: morrer antes deixa a pendência, e a reexecução reaplica
   else
+    # Reexecução da MESMA lista já aplicada (versão igual à daqui e conteúdo idêntico): se a execução anterior morreu entre gravar fixadas.v e remover
+    # a pendência, ela ficaria presa até haver versão maior. Só limpa se a versão daqui alcança a maior recusada, na mesma trava. Uma edição local
+    # (versão acima de qualquer remota) ou uma lista diferente não entram aqui. A execução que morreu pode não ter chegado a aplicar a lista
+    # às sessões: aplica antes de remover a pendência (aplicar_fixadas é idempotente), fora da trava como no caminho normal.
+    if [[ -e $CONF_FIX.recusada && $v =~ ^[0-9]+$ ]] && ((v == $(versao_fixadas))) && cmp -s "$tmp" "$CONF_FIX"; then
+      { read -r pend <"$CONF_FIX.recusada"; } 2>/dev/null; [[ ${pend:-} =~ ^[0-9]+$ ]] || pend=0
+      ((v >= pend)) && limpar=$pend
+    fi
     destravar_fixadas
     rm -f "$tmp"
+    if [[ -n $limpar ]]; then aplicar_fixadas; limpar_pendencia_fixadas "$limpar"; fi
   fi
 }
 
@@ -11004,7 +11059,20 @@ demandas_ui() {
 }
 
 # Liga/desliga a 2ª linha e força a barra a se redesenhar já (o #() da barra muda de comando).
+# Aplica a lista às sessões. Duas aplicações ao mesmo tempo (uma de fixar/receber, outra de reexecução ou do vigia) podem terminar fora de ordem: a que
+# leu a lista antiga e gravou por último deixaria as marcas velhas com a lista nova já em vigor. Quem aplica confere, ao terminar, se a lista ainda é a que
+# viu ao começar e, se mudou, aplica de novo (até 3 passadas; a última a terminar sempre viu a lista em vigor). Sem trava: leitura do arquivo por builtin.
 aplicar_fixadas() {
+  local ini fim n
+  for ((n = 0; n < 3; n++)); do
+    ini=""; { IFS= read -rd '' ini <"$CONF_FIX"; } 2>/dev/null || :
+    aplicar_fixadas_uma
+    fim=""; { IFS= read -rd '' fim <"$CONF_FIX"; } 2>/dev/null || :
+    [[ $ini == "$fim" ]] && break
+  done
+  return 0
+}
+aplicar_fixadas_uma() {
   # A faixa permanece visível mesmo vazia (o marcador deixa claro onde as fixadas aparecerão): o nº de linhas da
   # barra (status) é conferido e gravado pelo atualizar_barras, no fim, junto com o resto.
   # Marca nas sessões daqui (@tt_fixada): o 📌 ao lado do nome, na barra, fica aceso nas fixadas.
