@@ -54,7 +54,7 @@ printf 'nome=remota\nprecarregar=off\n' >"$TT_TEST_PRE_REMOTE/home/.config/tt/co
 R() { env -u TMUX TMUX_TMPDIR="$TT_TEST_PRE_REMOTE/tmux" tmux "$@"; }
 trap 'teste_status=$?; set +e; R kill-server 2>/dev/null; (exit "$teste_status"); limpar_isolado' EXIT
 R -f /dev/null new-session -d -s renomeavel "bash -c 'echo REMOTA_INTEGRADA; while read -r linha; do echo DIGITADO:\"\$linha\"; done'"
-tmux new-session -d -s integrada -e "PATH=$PATH" -e "TT_TEST_PRE_REMOTE=$TT_TEST_PRE_REMOTE" -e TT_T_RECONEXAO=5 \
+tmux new-session -d -s integrada -e "PATH=$PATH" -e "TT_TEST_PRE_REMOTE=$TT_TEST_PRE_REMOTE" -e TT_T_RECONEXAO=5 -e TT_T_EPISODIO=1 \
   "$TT --ponte usuario@destino renomeavel integrada"
 tmux switch-client -c "$c" -t =integrada
 mostra() { fora capture-pane -p -t tela | grep -q "$1"; }
@@ -67,50 +67,39 @@ srv_remoto=$(tmux show-options -qv -t =integrada: @ponte_srv)
 R rename-session -t =renomeavel renomeada
 rc=$(R list-clients -F '#{client_name}' | head -1)
 R detach-client -t "$rc"
-espera mostra Reconectar || falhou 'desconexão não apresentou recuperação'
-fora send-keys -t tela Enter
-espera mostra REMOTA_INTEGRADA || falhou 'reconexão perdeu a sessão renomeada'
+# Desde a 2.13.0 a triagem reconecta sozinha após a queda (sem a tela 'Reconectar').
+reanexou() { [[ -n $(R list-clients -F '#{client_name}' 2>/dev/null | head -1) ]]; }
+espera reanexou || falhou 'reconexão automática não reanexou ao destino'
+sleep 1
+fora send-keys -t tela 'depois-da-queda' Enter
+espera mostra 'DIGITADO:depois-da-queda' || falhou 'reconexão automática perdeu a sessão renomeada'
 [[ $(tmux show-options -qv -t =integrada: @ponte_id) == "$id_remoto" ]] || falhou 'reconexão mudou de identidade'
-R kill-session -t =renomeada
-espera mostra Reconectar || falhou 'fim da sessão não apresentou saída local'
-fora send-keys -t tela Enter
-espera mostra 'não existe mais' || falhou 'alvo ausente não foi confirmado com saída recuperável'
-passou 'ponte instalada recebe teclas, reconecta por identidade após renomeação e oferece saída para alvo ausente'
-
-# N também atravessa a CLI instalada e o supervisor, com um tt remoto mínimo.
-cat >"$TT_TEST_PRE_REMOTE/home/.local/bin/tt" <<'EOF'
+# Desde a 2.13.0, sessão que acabou no destino (código 20) cai na escada automática: cria uma nova
+# pelo tt remoto (N) e segue na ponte, sem a tela 'Reconectar'.
+cat >"$TT_TEST_PRE_REMOTE/home/.local/bin/tt" <<'EOF2'
 #!/usr/bin/env bash
 [[ $1 == --nova ]] || exit 2
 tmux new-session -d -s nova-integrada "bash -c 'echo NOVA_INTEGRADA; while read -r linha; do echo NOVA:\"\$linha\"; done'" || exit
 echo nova-integrada
-EOF
+EOF2
 chmod +x "$TT_TEST_PRE_REMOTE/home/.local/bin/tt"
-tmux set-option -t =integrada: @ponte_uuid aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-tmux set-option -t =integrada: @tt_pre_id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-# A espera já desenhou o erro do alvo ausente. Não digitar por cima do quadro antigo
-# que reaparece por um instante ao fechar um popup, antes de o leitor voltar.
-fora send-keys -t tela n
-espera mostra NOVA_INTEGRADA || falhou 'N não criou e mostrou a nova sessão remota'
+R kill-session -t =renomeada
+espera mostra NOVA_INTEGRADA || falhou 'fim da sessão não criou e mostrou a nova sessão remota (escada automática)'
 novo_id=$(tmux show-options -qv -t =integrada: @ponte_id)
 novo_srv=$(tmux show-options -qv -t =integrada: @ponte_srv)
 # A última sessão anterior terminou: outro servidor pode reutilizar $0; vale id + início.
-[[ -n $novo_id && "$novo_id|$novo_srv" != "$id_remoto|$srv_remoto" ]] || falhou 'N manteve a identidade da sessão antiga'
-[[ $(tmux show-options -qv -t =integrada: @ponte_alvo) == 'usuario@destino|nova-integrada' ]] || falhou 'N guardou o alvo antigo'
+[[ -n $novo_id && "$novo_id|$novo_srv" != "$id_remoto|$srv_remoto" ]] || falhou 'a escada manteve a identidade da sessão antiga'
+[[ $(tmux show-options -qv -t =integrada: @ponte_alvo) == 'usuario@destino|nova-integrada' ]] || falhou 'a escada não guardou o novo alvo'
 [[ -z $(tmux show-options -qv -t =integrada: @ponte_uuid) && -z $(tmux show-options -qv -t =integrada: @tt_pre_id) ]] || falhou 'UUID antigo sobreviveu à criação'
+passou 'ponte instalada recebe teclas, reconecta por identidade após renomeação e, com o alvo ausente, cria sessão nova sozinha'
 fora send-keys -t tela conteudo-novo Enter
 espera mostra 'NOVA:conteudo-novo' || falhou 'nova sessão não recebe digitação'
+sleep 2 # conexão que dura passa a ser episódio novo (TT_T_EPISODIO=1)
 rc=$(R list-clients -F '#{client_name}' | head -1)
 R detach-client -t "$rc"
-espera mostra Reconectar || falhou 'nova sessão não apresentou recuperação ao desconectar'
-espera mostra 'Conexão com.*nova-integrada' || falhou 'recuperação mostra nome antigo após N'
-fora send-keys -t tela Enter
-espera mostra NOVA_INTEGRADA || falhou 'reconexão da nova sessão voltou ao alvo antigo'
-[[ $(R list-sessions -F '#{session_name}' | wc -l) == 1 ]] || falhou 'reconexão criou outra sessão'
-passou 'N cria uma sessão sob supervisão; reconectar preserva o novo alvo sem duplicar criação'
-rc=$(R list-clients -F '#{client_name}' | head -1)
-R detach-client -t "$rc"
-espera mostra Reconectar || falhou 'nova desconexão não apresentou recuperação'
-fora send-keys -t tela v
-espera central || falhou 'V não abriu central a partir de falha real da ponte'
-tmux display-popup -C -c "$c"
-passou 'V abre a central local após desconexão real'
+espera reanexou || falhou 'nova sessão não reconectou sozinha após a queda'
+sleep 1
+fora send-keys -t tela depois-da-nova Enter
+espera mostra 'NOVA:depois-da-nova' || falhou 'reconexão da nova sessão voltou ao alvo antigo'
+(( $(R list-sessions -F '#{session_name}' | wc -l) == 1 )) || falhou 'reconexão criou outra sessão'
+passou 'a sessão nova fica sob supervisão; a reconexão automática preserva o novo alvo sem duplicar criação'

@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.13.4 · 30/10/2026
+- **🧪 Teste da recuperação de tela mais estável:** o `test_recuperar_tela` roda o episódio da ponte com `TT_T_EPISODIO=1` e conta as linhas com `wc -l` sem depender do formato do Linux (no `/bin/bash` 3.2 do Mac, com `wc` do BSD, ele reprovava). Só teste; nenhum código do tt mudou. A asserção do V pela tela real saiu do teste.
+
 ## v2.13.2 · 30/10/2026
 - **🏷️ O vigia deixa rastro de por que deu cada nome:** cada nome sugerido por IA entra em `~/.cache/tt-nomes.log` com a conversa, o título, os pedidos, uma assinatura da tela e o que voltou. Antes o log só dizia "A → B" e, quando uma sessão recebeu o assunto de outra, não havia como saber de onde veio.
 - **🏷️ Sessão que já tem nome não troca para o de outra sessão:** se a revisão sugere o nome de uma sessão que existe, o `-2` deixa de ser aplicado; o nome atual fica e o vigia registra "mantida". O primeiro nome de uma aba genérica continua podendo receber `-2`.
