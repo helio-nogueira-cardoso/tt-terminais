@@ -384,6 +384,30 @@ Botões físicos e Termux:
   do terminal. Para que mudem o volume: `volume-keys = volume` em `~/.termux/termux.properties` e
   `termux-reload-settings`.
 
+Shizuku e `tt-rish` (aprendido em 30/10/2026):
+
+- `tt-rish` **sem `-c` não executa o comando**: abre o shell e, sem tty, a saída volta vazia sem erro. Use sempre
+  `tt-rish -c 'cmd'` (pipes dentro do `-c` funcionam; saída vazia com rc 0 é o sintoma desse erro).
+- `tt-rish --ok` pode terminar em timeout (rc 124) com o Shizuku funcionando. O teste que vale é um comando real:
+  `tt-rish -c 'echo vivo'`.
+- `shizuku-ligar` dizendo "Shizuku já ativo" não garante que o servidor responde: se `tt-rish` falha com
+  "Server is not running" ou trava, rode `shizuku-desligar`, espere 3 s e `shizuku-ligar`. Por ssh, envolva as chamadas em
+  `timeout 40`, porque um `tt-rish` pendurado prende a conexão até o limite da ferramenta.
+- Quando o Shizuku é a janela em foco (`dumpsys window | grep mCurrentFocus`), o celular só está acordado: abra o app
+  desejado com `am start -n PACOTE/ATIVIDADE` ou `monkey -p PACOTE 1`.
+
+Mandar mensagem a uma pessoa (Teams ou parecido) pelo celular:
+
+- `input text` não leva acento. Para texto em português: `scp` do arquivo para o Termux, `termux-clipboard-set < arquivo`
+  (com `timeout 20`), `input tap` na caixa de mensagem e `input keyevent 279` (colar). O `\n` final do arquivo só deixa
+  uma linha em branco, que o app descarta.
+- Antes de enviar, confira sem confiar no colar: role a caixa para o começo (`input swipe x 1000 x 1300 200`, três vezes) e
+  compare começo e fim com o arquivo; um colar repetido duplicaria o texto. Só então toque em enviar.
+- Fluxo de tela barato: `screencap -p /sdcard/x.png`, `cp` para o `~` do Termux, `scp` para a máquina de quem lê. Se a imagem
+  chega reduzida (ex.: 933×2000 para uma tela 1080×2316), multiplique as coordenadas pela razão (1,16) antes do `input tap`.
+- Depois de enviar, feche o teclado (`input keyevent 4`), apague os arquivos temporários do `~` e releia a conversa para
+  confirmar o envio (o ícone de check aparece ao lado da mensagem).
+
 ## 12. Hábitos e regras
 
 - **Leia antes de tocar**: variáveis do Tasker, log, listas e `dumpsys` não mexem na tela. Só use a

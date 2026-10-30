@@ -846,6 +846,12 @@ e os instaladores da pasta do usuário ficam no `tt`.
 ### Nomeador de abas
 - `tt --nomeador [auto|local|claude|nenhum]` — define a fonte do nome automático.
 - `tt --nomeador-local [estado|instalar|remover]` — modelo local llama.cpp.
+- Cada nome sugerido por IA deixa a origem em `~/.cache/tt-nomes.log` (conversa, título, pedidos, assinatura da tela, nome
+  devolvido); o `~/.cache/tt-vigia.log` só diz "A → B" (e "mantida" quando a revisão sugeriria o nome de OUTRA sessão: o `-2`
+  não é aplicado). O vigia renomeia também nomes manuais com o tempo, sempre pelo conteúdo da própria sessão. Para investigar um
+  nome estranho, compare o `tt-nomes.log` com o horário no log do vigia.
+- As skills instaladas em `~/.claude/skills` são regeneradas a partir de `skill-*.md` do repositório a cada atualização do tt:
+  edite o arquivo do repositório, nunca só a cópia instalada (ela é sobrescrita).
 - `tt --nomear-texto` (interno, lê stdin), `--nomeador-ui`, `--sugerir`, `--renomear`,
   `--nomear-todas[-local]`.
 
@@ -1667,6 +1673,10 @@ suportado é: **ssh + `tmux new-session` com o agente como comando** (o mesmo pa
      aparece no histórico de cópias de todas as máquinas (`tt --copias`). É broadcast, não endereçado.
    - **tt-mesh** (canal git append-only entre as sessões-chefe): só se as máquinas participam do
      enxame; é lento (timers de 10–60 min) e é o fluxo do enxame, não um RPC sob demanda.
+     Para postar do Mac: `git pull --rebase --autostash` antes do push (os ticks deixam `log/<maquina>.log` modificado e o
+     `pull --rebase` simples recusa); um arquivo novo por mensagem em `channel/<UTC>-<maquina>-<hex>.md` com `from`, `to`,
+     `topic` e `reply_to`; leia a `mission.md` antes (persona e regras de tom, ex.: o Mac abre com a fórmula da persona ao falar
+     com a empresa). "Conversar no mesh" é postar no canal, não mandar mensagem às sessões listadas por `ListAgents`.
 
 ### O que NÃO existe pronto (componha à mão)
 
