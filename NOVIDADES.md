@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.13.2 · 30/10/2026
+- **🏷️ O vigia deixa rastro de por que deu cada nome:** cada nome sugerido por IA entra em `~/.cache/tt-nomes.log` com a conversa, o título, os pedidos, uma assinatura da tela e o que voltou. Antes o log só dizia "A → B" e, quando uma sessão recebeu o assunto de outra, não havia como saber de onde veio.
+- **🏷️ Sessão que já tem nome não troca para o de outra sessão:** se a revisão sugere o nome de uma sessão que existe, o `-2` deixa de ser aplicado; o nome atual fica e o vigia registra "mantida". O primeiro nome de uma aba genérica continua podendo receber `-2`.
+- **📝 Nome manual também é renomeado com o tempo, pelo conteúdo da própria sessão:** o comentário do `renomear` dizia o contrário.
+
 ## v2.13.1 · 30/10/2026
 - **🔑 Perfil do Claude com o login apagado não conta mais como logado:** quando o refresh do token falha ("OAuth session expired and could not be refreshed"), o Claude zera `accessToken` e `refreshToken` e deixa o `.credentials.json`. O `ia-login`, o `ia-conta` e o `ia-rot` olhavam só se o arquivo existia: o plano dizia "Nada a fazer", a lista dizia "última do rot" e o rodízio seguia escolhendo a conta, então os ticks do mesh na empresa falharam por horas. Agora o perfil aparece como "sem login" (`ia-conta adicionar` ou `ia-login` refazem) e o rodízio o pula. Arquivo sem os campos de token, ou com qualquer token preenchido, vale como antes.
 

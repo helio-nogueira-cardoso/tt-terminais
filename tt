@@ -366,6 +366,20 @@ print("\n".join("- " + p for p in pedidos[-6:]))
 ' 2>/dev/null
 }
 
+# Registra de onde saiu um nome sugerido por IA (conversa, título, pedidos, tela e o que voltou), em ~/.cache/tt-nomes.log.
+# O log do vigia só diz "A → B"; sem a entrada não dá para saber por que uma sessão recebeu o assunto de outra.
+registrar_origem_nome() { # sessão id título pedidos tela sugerido
+  local arq=$HOME/.cache/tt-nomes.log ped sum
+  ped=$(printf '%s' "$4" | tr '\n' '|' | cut -c1-200)
+  sum=$(printf '%s' "$5" | cksum | cut -d' ' -f1)
+  {
+    mkdir -p "${arq%/*}"
+    printf '%s %s conversa=%s título=%s pedidos=%s tela=%s sugerido=%s\n' "$(date '+%F %T')" "$1" "${2:0:8}" "$3" "$ped" "$sum" "${6:-—}" >>"$arq"
+    [[ $(stat -c %s "$arq" 2>/dev/null || echo 0) -gt 262144 ]] && tail -n 500 "$arq" >"$arq.tmp" && mv -f "$arq.tmp" "$arq"
+  } 2>/dev/null
+  return 0
+}
+
 # Sugere um nome para a sessão S: título da conversa, se for Claude; senão pergunta ao Haiku
 # olhando a tela. Com "revisar" no 2º argumento (renomeações seguintes do vigia), uma sessão do
 # Claude não repete o título: o Haiku lê os últimos pedidos e a tela e nomeia a tarefa atual.
@@ -408,6 +422,7 @@ sugerir_nome() {
   fi
   nome=$(slug "${nome:-}")
   [[ $nome == vazio ]] && nome=""
+  registrar_origem_nome "$s" "${id:-}" "$titulo" "$pedidos" "$tela" "${nome:-}"
   [[ -n ${nome:-} ]] && { echo "$nome"; return; }
   # Sem assunto claro: sugere a pasta, e avisa (status 1) para o "nomear todas" deixar como está.
   nome=$(slug "$(basename "$pasta")")
@@ -462,7 +477,8 @@ nomear_texto() {
 
 # Renomeia S para NOVO (ajustado para ser válido e único). Imprime o nome final.
 # Com "auto" no 3º argumento o nome fica marcado como automático (o vigia pode trocá-lo depois);
-# sem ele, é um nome escolhido por você e o vigia nunca mais mexe.
+# sem ele, é um nome escolhido por você. O vigia também renomeia esses com o tempo, pelo conteúdo da própria sessão
+# (@nome_auto só diz quem deu o nome por último; não protege contra as revisões do vigia).
 renomear() {
   local s=$1 novo base n=2 auto=${3:-}
   # Defesa no ponto de escrita: vale também fora do laço do vigia (título, CLI, etc.).
@@ -871,6 +887,13 @@ vigiar() {
         continue
       fi
       [[ $nome == "${s%-[0-9]*}" ]] && { V_INTER[$sid]=0 V_PED[$sid]=0; continue; }
+      # Sessão que já tem nome e recebe de volta o de OUTRA sessão: o "-2" que o renomear acrescentaria é o sinal de um
+      # assunto emprestado. Mantém o nome atual e registra, em vez de trocar o nome certo por um duplicado.
+      if [[ $nome != "$s" ]] && tmux has-session -t "=$nome" 2>/dev/null; then
+        echo "$(date '+%F %T') $s mantida: o nome sugerido ($nome) já é de outra sessão ($motivo)" >>"$log"
+        V_INTER[$sid]=0 V_PED[$sid]=0
+        continue
+      fi
       nome=$(renomear "$s" "$nome" auto) || continue
       V_INTER[$sid]=0 V_PED[$sid]=0 V_NOMEADO[$sid]=$agora
       echo "$(date '+%F %T') $s → $nome ($motivo)" >>"$log"
