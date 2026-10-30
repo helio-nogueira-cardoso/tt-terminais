@@ -116,8 +116,15 @@ if [ "$EXCETO" != " " ]; then
 fi
 
 # Motivo para nao usar a conta (vazio = pode usar).
+# .credentials.json com os tokens zerados: o Claude os apaga quando o refresh falha ("OAuth session expired"); sobra o arquivo
+# (escopos, plano) sem login nenhum. Só vale como zerado se os campos existem E estão todos vazios; sem os campos (ou com
+# qualquer token preenchido, inclusive o de um MCP) vale como antes. Nada do conteúdo sai do grep.
+credencial_zerada() { # arquivo
+  grep -Eq '"(access|refresh)Token"[[:space:]]*:[[:space:]]*""' "$1" 2>/dev/null &&
+    ! grep -Eq '"(access|refresh)Token"[[:space:]]*:[[:space:]]*"[^"]' "$1" 2>/dev/null
+}
 tem_credencial(){ local dir=$1 svc='Claude Code-credentials' h
-  [ -s "$dir/.credentials.json" ] && return 0
+  [ -s "$dir/.credentials.json" ] && ! credencial_zerada "$dir/.credentials.json" && return 0
   [ "$(uname -s 2>/dev/null)" = Darwin ] && command -v security >/dev/null 2>&1 || return 1
   if [ "$dir" != "$HOME/.claude" ]; then
     if command -v shasum >/dev/null 2>&1; then h=$(printf %s "$dir" | shasum -a 256); else h=$(printf %s "$dir" | sha256sum); fi

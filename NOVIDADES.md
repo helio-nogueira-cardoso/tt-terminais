@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.13.1 · 30/10/2026
+- **🔑 Perfil do Claude com o login apagado não conta mais como logado:** quando o refresh do token falha ("OAuth session expired and could not be refreshed"), o Claude zera `accessToken` e `refreshToken` e deixa o `.credentials.json`. O `ia-login`, o `ia-conta` e o `ia-rot` olhavam só se o arquivo existia: o plano dizia "Nada a fazer", a lista dizia "última do rot" e o rodízio seguia escolhendo a conta, então os ticks do mesh na empresa falharam por horas. Agora o perfil aparece como "sem login" (`ia-conta adicionar` ou `ia-login` refazem) e o rodízio o pula. Arquivo sem os campos de token, ou com qualquer token preenchido, vale como antes.
+
 ## v2.13.0 · 30/10/2026
 - **🔁 A ponte se recupera sozinha depois de uma queda:** quando a conexão cai, o tt reconecta uma vez; se não der, abre uma sessão nova no destino e, por último, uma nova local. A tela de escolha só aparece se tudo falhar. Ctrl-C (código 130) é cancelamento seu e vai direto à tela; o código 20 pula a reconexão e o 22 vai direto à sessão local.
 - **🍎 Teste de retentativa da ponte roda no Mac:** o `sed -i` sem sufixo quebrava no sed do macOS; agora é portável (achado do Pedro Estevão).

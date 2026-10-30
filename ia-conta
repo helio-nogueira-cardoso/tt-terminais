@@ -62,9 +62,16 @@ servico_chaves() {
   fi
   printf '%s' "$svc"
 }
+# .credentials.json com os tokens zerados: o Claude os apaga quando o refresh falha ("OAuth session expired"); sobra o arquivo
+# (escopos, plano) sem login nenhum. Só vale como zerado se os campos existem E estão todos vazios; sem os campos (ou com
+# qualquer token preenchido, inclusive o de um MCP) vale como antes. Nada do conteúdo sai do grep.
+credencial_zerada() { # arquivo
+  grep -Eq '"(access|refresh)Token"[[:space:]]*:[[:space:]]*""' "$1" 2>/dev/null &&
+    ! grep -Eq '"(access|refresh)Token"[[:space:]]*:[[:space:]]*"[^"]' "$1" 2>/dev/null
+}
 tem_credencial() {
   local svc
-  [[ -s $1/.credentials.json ]] && return 0
+  [[ -s $1/.credentials.json ]] && ! credencial_zerada "$1/.credentials.json" && return 0
   svc=$(servico_chaves "$1") || return 1
   security find-generic-password -s "$svc" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1
 }
