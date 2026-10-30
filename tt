@@ -6099,9 +6099,31 @@ ponte_esperar() { # ponte título motivo — 0 reconectar, 11 nova; central volt
   done
 }
 
+# Triagem pós-queda sem clique: qual é o próximo passo automático depois da falha de código ST, dado o
+# último passo já tentado neste episódio (vazio, reconectar ou nova). Imprime reconectar, nova, local ou tela.
+# 130 é o usuário cancelando: vai direto à tela. 20 (a sessão sumiu) pula a reconexão; 22 (resposta de
+# criação perdida) nunca cria outra sessão no destino, vai para a local.
+ponte_acao_auto() { # ultima st
+  local ultima=$1 st=$2
+  ((st == 130)) && { echo tela; return; }
+  case $ultima in
+    '') case $st in 20) echo nova ;; 22) echo local ;; *) echo reconectar ;; esac ;;
+    reconectar) ((st == 22)) && echo local || echo nova ;;
+    nova) echo local ;;
+    *) echo tela ;;
+  esac
+}
+
+# Último recurso que não depende de rede: sessão nova nesta máquina, e o cliente da ponte vai para ela.
+ponte_local_nova() { # ponte
+  local c
+  c=$(cliente_do_painel) && [[ -n $c ]] && nova_e_ir "$c"
+}
+
 ponte() {
-  local dest=$1 s=$2 ponte=$3 st token motivo tentativa alvo modo=${4:-}
+  local dest=$1 s=$2 ponte=$3 st token motivo tentativa alvo modo=${4:-} t0 ultima="" acao
   while true; do
+    t0=$SECONDS
     token="tt-$BASHPID-$RANDOM-$RANDOM"
     python3 "$DIR_TT/tela-recuperar.py" conectar --token "$token" --prazo "${TT_T_RECONEXAO:-20}" \
       -- "$EU" --ponte-tentar "$dest" "$s" "$ponte" "$token" "$modo" </dev/tty &
@@ -6125,6 +6147,16 @@ ponte() {
     # Uma resposta perdida não autoriza repetir criação de sessão.
     modo=""
     log_ponte "$ponte" "recuperação: código $st; destino $dest|$s"
+    # Conexão que durou é um episódio novo; falha logo de saída continua a escada de passos automáticos.
+    ((SECONDS - t0 >= ${TT_T_EPISODIO:-30})) && ultima=""
+    acao=$(ponte_acao_auto "$ultima" "$st")
+    log_ponte "$ponte" "triagem automática: $acao (código $st, anterior ${ultima:-nenhum})"
+    case $acao in
+      reconectar) ultima=reconectar; continue ;;
+      nova) ultima=nova; modo=nova; continue ;;
+      local) ponte_local_nova && return 0; log_ponte "$ponte" "triagem automática: sessão local falhou" ;;
+    esac
+    ultima=""
     ponte_esperar "$ponte" "Conexão com $(rotulo_de "$dest"):$s" "$motivo"; st=$?
     case $st in 0) ;; 11) modo=nova ;; *) return "$st" ;; esac
   done

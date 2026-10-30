@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rede simulada: retentativas limitadas no supervisor e criação só por escolha explícita.
 source "$(dirname "$0")/lib.sh"; isolar
-for f in ponte_tentar ponte_nova_janela; do
+for f in ponte_tentar ponte_nova_janela ponte_acao_auto; do
   eval "$(sed -n "/^$f() {/,/^}/p" "$TT")"
 done
 LOG=$T/chamadas
@@ -9,7 +9,7 @@ FILA=$T/fila
 resolver_remota() {
   local rc
   rc=$(head -1 "$FILA"); [[ -n $rc ]] || rc=2
-  sed -i '1d' "$FILA"
+  sed -e 1d "$FILA" >"$FILA.n"; mv "$FILA.n" "$FILA"
   printf 'resolver %s %s\n' "$rc" "$2" >>"$LOG"
   [[ $rc == 0 ]] && echo '$17|1792792741|sessao'
   return "$rc"
@@ -58,3 +58,12 @@ rc=0; ponte_tentar usuario@remota antiga ponte token nova >"$T/saida" || rc=$?
 [[ $rc == 22 && $(grep -c '^criar$' "$LOG") == 1 ]] || falhou 'criação incerta foi repetida'
 ! grep -q '^resolver\|^set-option' "$LOG" || falhou 'criação incerta alterou o alvo'
 passou 'criação sem resposta é informada e não se repete automaticamente'
+
+# Triagem automática (2.13.0): reconectar uma vez, nova no destino, nova local; tela só no fim.
+a() { ponte_acao_auto "$@"; }
+[[ $(a '' 21) == reconectar && $(a '' 124) == reconectar && $(a '' 255) == reconectar ]] || falhou 'primeira falha não reconecta'
+[[ $(a reconectar 21) == nova && $(a nova 124) == local && $(a local 21) == tela ]] || falhou 'escada reconectar > nova > local > tela'
+[[ $(a '' 20) == nova ]] || falhou 'sessão sumida (20) não pulou a reconexão'
+[[ $(a '' 22) == local && $(a reconectar 22) == local ]] || falhou 'resposta perdida (22) voltou a criar no destino'
+[[ $(a '' 130) == tela && $(a nova 130) == tela ]] || falhou 'cancelamento (130) não foi à tela'
+passou 'triagem pós-queda: escada automática sem clique, 22 não cria no destino, 130 vai à tela'

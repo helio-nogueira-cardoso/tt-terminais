@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.13.0 · 30/10/2026
+- **🔁 A ponte se recupera sozinha depois de uma queda:** quando a conexão cai, o tt reconecta uma vez; se não der, abre uma sessão nova no destino e, por último, uma nova local. A tela de escolha só aparece se tudo falhar. Ctrl-C (código 130) é cancelamento seu e vai direto à tela; o código 20 pula a reconexão e o 22 vai direto à sessão local.
+- **🍎 Teste de retentativa da ponte roda no Mac:** o `sed -i` sem sufixo quebrava no sed do macOS; agora é portável (achado do Pedro Estevão).
+
 ## v2.12.1 · 29/10/2026
 - **🧷 Uma lista de fixadas vazia vinda de outra máquina não apaga mais 2 ou mais fixadas de uma vez:** um `cat` vazio por ssh (conexão que caiu, arquivo no meio da regravação) chegava como "lista vazia nova" e desafixava tudo. Agora a máquina recusa essa lista, guarda a sua em `fixadas.prev` e deixa a pendência `fixadas.recusada`; enquanto ela existir, a máquina não propaga a própria lista (o bloqueio é local, de quem recebeu a vazia). A pendência sai quando uma lista tão nova quanto a recusada é aceita e aplicada às sessões; se travar, a saída manual é mover `fixadas` e `fixadas.v` para o lado. Desafixar a última continua valendo, e duas aplicações da lista ao mesmo tempo não terminam mais com a lista antiga.
 - **🧷 As fixadas voltam a casar em ambientes sem locale UTF-8 (cron, systemd, launchd):** os comandos `tmux` do `tt` passam `-u`, para o tmux 3.8 não trocar o separador `\x1f` dos `-F` por `_`. No Mac, sem isso, a lista aplicava nome nenhum. Vale no `tt` completo e na partida rápida gerada.
