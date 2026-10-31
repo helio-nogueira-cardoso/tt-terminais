@@ -567,5 +567,57 @@ class Heuristica(unittest.TestCase):
             self.assertEqual(c.machines(), {"dell": "u@dell.exemplo"})
 
 
+class BateriaTermux(unittest.TestCase):
+    """A JVM do `am` leva segundos no celular carregado: cache compartilhado, uma consulta destacada por vez."""
+
+    def setUp(self):
+        import os
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, self.tmp, True)
+        binario = self.tmp / "bin" / "termux-battery-status"
+        binario.parent.mkdir()
+        binario.write_text('#!/bin/sh\necho x >> "%s"\necho \'{"percentage": 42, "status": "CHARGING"}\'\n' % (self.tmp / "chamadas"))
+        binario.chmod(0o755)
+        self.arq = str(self.tmp / "cache" / "tt-bateria.json")
+        for alvo, valor in ((pre, "ARQ_BATERIA"), ):
+            original = getattr(alvo, valor)
+            setattr(alvo, valor, self.arq)
+            self.addCleanup(setattr, alvo, valor, original)
+        caminho = patch.dict(os.environ, {"PATH": str(binario.parent) + os.pathsep + os.environ.get("PATH", "")})
+        caminho.start()
+        self.addCleanup(caminho.stop)
+
+    def esperar(self, condicao):
+        import time
+        fim = time.monotonic() + 10
+        while time.monotonic() < fim and not condicao():
+            time.sleep(.05)
+        self.assertTrue(condicao())
+
+    def chamadas(self):
+        try:
+            return len((self.tmp / "chamadas").read_text().split())
+        except OSError:
+            return 0
+
+    def test_sem_cache_devolve_sem_dado_e_consulta_em_segundo_plano_uma_vez(self):
+        import os
+        self.assertEqual((None, None), pre.bateria_termux())
+        self.assertEqual((None, None), pre.bateria_termux())  # a consulta em curso não é repetida
+        self.esperar(lambda: os.path.exists(self.arq) and not os.path.exists(self.arq + ".consultando"))
+        self.assertEqual((42, True), pre.bateria_termux())
+        self.assertEqual(1, self.chamadas())
+
+    def test_trava_velha_de_consulta_morta_nao_bloqueia(self):
+        import os, time
+        os.makedirs(os.path.dirname(self.arq))
+        Path(self.arq + ".consultando").write_text("")
+        velho = time.time() - 120
+        os.utime(self.arq + ".consultando", (velho, velho))
+        pre.bateria_termux()
+        self.esperar(lambda: os.path.exists(self.arq))
+        self.assertEqual((42, True), pre.bateria_termux())
+
+
 if __name__ == "__main__":
     unittest.main()

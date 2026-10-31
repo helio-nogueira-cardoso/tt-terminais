@@ -2459,6 +2459,43 @@ def gravar_cache(nome, itens):
     escrever_atomico(arq_cache(nome, ".itens"), json.dumps(dados, ensure_ascii=False), 0o600)
 
 
+ARQ_BATERIA = os.path.join(os.path.expanduser("~"), ".cache", "tt-bateria.json")
+
+
+def bateria_termux(validade=120):
+    """(porcentagem, carregando) do Android sem esperar a JVM do `am`, que leva segundos no celular carregado e,
+    cortada por prazo, ficava órfã. Cache em arquivo compartilhado pelos processos do tt; vencido, dispara uma
+    consulta destacada (uma por vez, trava em arquivo) e devolve o último valor conhecido (ou (None, None))."""
+    try:
+        with open(ARQ_BATERIA, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        d = {}
+    if time.time() - d.get("em", 0) >= validade:
+        trava = ARQ_BATERIA + ".consultando"
+        try:
+            if time.time() - os.stat(trava).st_mtime > 90:
+                os.unlink(trava)  # consulta que morreu sem soltar
+        except OSError:
+            pass
+        try:
+            os.makedirs(os.path.dirname(ARQ_BATERIA), mode=0o700, exist_ok=True)
+            os.close(os.open(trava, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+            import subprocess
+            subprocess.Popen(["sh", "-c", 's=$(timeout 60 termux-battery-status 2>/dev/null) && [ -n "$s" ] && '
+                              'printf \'{"em": %s, "dados": %s}\' "$(date +%s)" "$s" >"$1.novo" && mv "$1.novo" "$1"; '
+                              'rm -f "$1.consultando" "$1.novo"', "tt-bateria", ARQ_BATERIA],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        except OSError:
+            pass  # outra consulta já em curso
+    try:
+        dados = d["dados"]
+        return int(dados["percentage"]), str(dados.get("status", "")).upper() in ("CHARGING", "FULL")
+    except (KeyError, TypeError, ValueError):
+        return None, None
+
+
 def bateria():
     """(porcentagem, carregando) ou (None, None). TT_LETREIRO_BATERIA='15 Discharging' força (testes)."""
     v = os.environ.get("TT_LETREIRO_BATERIA", "")
@@ -2475,12 +2512,7 @@ def bateria():
     except (OSError, ValueError):
         pass
     if perfil_maquina() == "celular":
-        try:
-            p = subprocess.run(["termux-battery-status"], capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
-            j = json.loads(p.stdout)
-            return int(j["percentage"]), str(j.get("status", "")).lower() != "discharging"
-        except Exception:
-            pass
+        return bateria_termux()
     return None, None
 
 

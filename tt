@@ -12673,13 +12673,15 @@ notifs_exportar() {
   tar -C "$DIR_NOTIFS" -cf - . 2>/dev/null
 }
 notifs_receber() { # arquivo tar no stdin; origem só pode acrescentar arquivos e marcas lidas
+  # Sem ficar pendurado: quem envia desiste em 8 s (timeout do ssh) e o stdin daqui pode não fechar; e o
+  # redesenho vai para a fila coalescida em 2º plano. Antes, no celular carregado, sobrava um receptor por minuto.
   local tmp
   tmp=$(mktemp -d "$RT/tt-notifs.XXXXXX") || return 1
-  cat >"$tmp/in.tar" || { rm -rf "$tmp"; return 1; }
+  timeout 20 cat >"$tmp/in.tar" || { rm -rf "$tmp"; return 1; }
   if notifs_tar_seguro "$tmp/in.tar" && tar -xf "$tmp/in.tar" -C "$tmp" --no-same-owner --no-same-permissions 2>/dev/null; then
     notifs_mesclar_dir "$tmp"
     notifs_podar
-    atualizar_barras >/dev/null 2>&1
+    atualizar_barras_fundo >/dev/null 2>&1
   fi
   rm -rf "$tmp"
 }

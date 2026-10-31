@@ -1374,6 +1374,43 @@ class Coordinator:
                     alive.unlink(missing_ok=True)
 
 
+ARQ_BATERIA = os.path.join(os.path.expanduser("~"), ".cache", "tt-bateria.json")
+
+
+def bateria_termux(validade=120):
+    """(porcentagem, carregando) do Android sem esperar a JVM do `am`, que leva segundos no celular carregado e,
+    cortada por prazo, ficava órfã. Cache em arquivo compartilhado pelos processos do tt; vencido, dispara uma
+    consulta destacada (uma por vez, trava em arquivo) e devolve o último valor conhecido (ou (None, None))."""
+    try:
+        with open(ARQ_BATERIA, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        d = {}
+    if time.time() - d.get("em", 0) >= validade:
+        trava = ARQ_BATERIA + ".consultando"
+        try:
+            if time.time() - os.stat(trava).st_mtime > 90:
+                os.unlink(trava)  # consulta que morreu sem soltar
+        except OSError:
+            pass
+        try:
+            os.makedirs(os.path.dirname(ARQ_BATERIA), mode=0o700, exist_ok=True)
+            os.close(os.open(trava, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+            import subprocess
+            subprocess.Popen(["sh", "-c", 's=$(timeout 60 termux-battery-status 2>/dev/null) && [ -n "$s" ] && '
+                              'printf \'{"em": %s, "dados": %s}\' "$(date +%s)" "$s" >"$1.novo" && mv "$1.novo" "$1"; '
+                              'rm -f "$1.consultando" "$1.novo"', "tt-bateria", ARQ_BATERIA],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        except OSError:
+            pass  # outra consulta já em curso
+    try:
+        dados = d["dados"]
+        return int(dados["percentage"]), str(dados.get("status", "")).upper() in ("CHARGING", "FULL")
+    except (KeyError, TypeError, ValueError):
+        return None, None
+
+
 def battery():
     """Sonda lenta e cacheada; sem subprocesso por clique. Ausência de dado não é bateria cheia."""
     if sys.platform == "darwin":
@@ -1381,12 +1418,8 @@ def battery():
         found = re.search(r"(\d+)%;", out)
         return (int(found[1]), "AC Power" in out) if found else (None, False)
     if "com.termux" in os.environ.get("PREFIX", ""):
-        _, out = execute(["termux-battery-status"], timeout=1)
-        try:
-            data = json.loads(out)
-            return int(data["percentage"]), data.get("status") in ("CHARGING", "FULL")
-        except (ValueError, KeyError, TypeError):
-            return None, False
+        pct, charging = bateria_termux()
+        return pct, bool(charging)
     for root in Path("/sys/class/power_supply").glob("BAT*"):
         try:
             return int((root / "capacity").read_text()), (root / "status").read_text().strip() != "Discharging"
