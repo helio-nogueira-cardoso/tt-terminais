@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.13.6 · 03/11/2026
+- **📱 Menos processos órfãos no celular:** as leituras de bateria do letreiro e do pré-carregamento compartilham um cache de dois minutos e uma única consulta em segundo plano. Sob carga, o prazo curto não deixa mais JVMs do Android acumuladas.
+- **🔔 Recebimento de notificações com prazo:** `--notifs-receber` para de esperar stdin que o remetente abandonou e agenda o redesenho da barra pela fila coalescida, sem prender um processo por minuto no celular.
+
 ## v2.13.4 · 30/10/2026
 - **🧪 Teste da recuperação de tela mais estável:** o `test_recuperar_tela` roda o episódio da ponte com `TT_T_EPISODIO=1` e conta as linhas com `wc -l` sem depender do formato do Linux (no `/bin/bash` 3.2 do Mac, com `wc` do BSD, ele reprovava). Só teste; nenhum código do tt mudou. A asserção do V pela tela real saiu do teste.
 
