@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.13.7 · 05/11/2026
+- **📬 E-mails sempre do mais recente (no topo) para o mais antigo:** a lista do aerc não tinha ordenação e mostrava o maildir na ordem em que os arquivos foram descobertos pela sincronização, que não é a do tempo (numa conta com 500 e-mails, as mensagens ficavam embaralhadas). O tt agora grava `sort=-r date` e `sort-thread-siblings=true` no `aerc.conf` (as respostas de um fio também vão da mais nova para a mais antiga). Vale pela data do cabeçalho `Date`, não pela hora de chegada: nas contas do Graph a hora do arquivo é a da sincronização. Se você já escolheu um `sort` à mão no `aerc.conf`, ele fica; o aerc em execução lê a mudança ao reiniciar.
+
 ## v2.13.6 · 03/11/2026
 - **📱 Menos processos órfãos no celular:** as leituras de bateria do letreiro e do pré-carregamento compartilham um cache de dois minutos e uma única consulta em segundo plano. Sob carga, o prazo curto não deixa mais JVMs do Android acumuladas.
 - **🔔 Recebimento de notificações com prazo:** `--notifs-receber` para de esperar stdin que o remetente abandonou e agenda o redesenho da barra pela fila coalescida, sem prender um processo por minuto no celular.

@@ -17,6 +17,8 @@ v() { awk -v S="$1" -v K="$2" '/^\[.*\]/ { s = $0; gsub(/^\[|\].*$/, "", s); nex
 grep -q '^dirlist-right={{if .Unread}}' "$C" || falhou 'contagem de não lidas nas pastas ausente'
 [[ $(v ui cache-headers) == true ]] || falhou 'cache-headers=true ausente (consulta de e-mail não é acelerada)'
 [[ $(grep -c '^cache-headers' "$C") == 1 ]] || falhou 'cache-headers duplicado (não idempotente)'
+[[ $(v ui sort) == '-r date' && $(v ui sort-thread-siblings) == true ]] || falhou 'lista não ordenada do mais recente para o mais antigo (sort=-r date)'
+[[ $(grep -c '^sort=' "$C") == 1 && $(grep -c '^sort-thread-siblings=' "$C") == 1 ]] || falhou 'sort duplicado (não idempotente)'
 [[ $(grep -c '^\[ui\]' "$C") == 1 ]] || falhou 'seção [ui] duplicada'
 passou 'visual: tema Catppuccin, pastas em árvore com não lidas, fios, cache de cabeçalhos; escolhas do dono preservadas; idempotente'
 
@@ -70,12 +72,18 @@ passou 'abas: conta ▣ e mensagem ✉ curtas; Ctrl-n/Ctrl-p rolam a barra; Alt-
 if PATH="$HOME_REAL/.local/bin:$PATH" command -v aerc >/dev/null; then
   mkdir -p "$T/maildir/INBOX"/{cur,new,tmp}
   printf 'From: a@exemplo.com\nSubject: Abas do tt\nDate: Thu, 22 Oct 2026 10:00:00 -0300\nMessage-ID: <abas@t>\n\ncorpo\n' >"$T/maildir/INBOX/cur/1:2,"
+  # Duas mais ANTIGAS que a de cima, mas com nome (UID) maior: sem o sort do tt o aerc as poria acima dela.
+  printf 'From: b@exemplo.com\nSubject: Meio do tt\nDate: Mon, 19 Oct 2026 10:00:00 -0300\nMessage-ID: <meio@t>\n\ncorpo\n' >"$T/maildir/INBOX/cur/2:2,"
+  printf 'From: c@exemplo.com\nSubject: Velha do tt\nDate: Mon, 12 Oct 2026 10:00:00 -0300\nMessage-ID: <velha@t>\n\ncorpo\n' >"$T/maildir/INBOX/cur/3:2,"
   printf '[Teste]\nsource = maildir://%s/maildir\nfrom = t@exemplo.com\noutgoing = /bin/true\n' "$T" >"$HOME/.config/aerc/accounts.conf"; chmod 600 "$HOME/.config/aerc/accounts.conf"
   tmux -f /dev/null new -d -s aerc -x 110 -y 20 "env HOME='$HOME_REAL' XDG_CONFIG_HOME='$XDG_CONFIG_HOME' PATH='$HOME_REAL/.local/bin:$PATH' aerc; echo SAIU; sleep 30"
   sleep 3; tela=$(tmux capture-pane -p -t =aerc:)
   grep -q 'SAIU\|error:' <<<"$tela" && falhou "o aerc não abriu com a configuração do tt: $(grep -m1 'error' <<<"$tela")"
   grep -q 'INBOX' <<<"$tela" || falhou "aerc abriu sem a lista de pastas: $(head -3 <<<"$tela")"
   passou 'o aerc real abre com o tema e os atalhos do tt'
+  ordem=$(grep -oE '(Abas|Meio|Velha) do tt' <<<"$tela" | head -3 | tr '\n' ',')
+  [[ $ordem == 'Abas do tt,Meio do tt,Velha do tt,' ]] || falhou "lista fora da ordem do mais recente para o mais antigo (veio: $ordem)"
+  passou 'o aerc real lista do e-mail mais recente (topo) para o mais antigo, mesmo com o nome do arquivo em outra ordem'
   # Mensagem aberta: a aba dela vem para a ponta esquerda da barra (onda em segundo plano).
   tmux send-keys -t =aerc: Enter; sleep 2.5
   [[ $(tmux capture-pane -p -t =aerc: | head -1) == ' ✉ Abas do tt'* ]] || falhou "aba da mensagem aberta não foi para a frente: $(tmux capture-pane -p -t =aerc: | head -1)"

@@ -5271,11 +5271,17 @@ configurar_aerc() {
     aerc_definir "$conf" ui styleset-name default forcar
   fi
   aerc_definir "$conf" ui mouse-enabled true forcar
+  # Ordem da lista: SEMPRE do e-mail mais recente (topo) para o mais antigo, pela data do cabeçalho Date. Sem "sort" o aerc
+  # mostra o maildir na ordem em que descobriu os arquivos (a da sincronização), que não é a do tempo: uma conta recém-espelhada
+  # fica embaralhada. "arrival" não serve (nas contas do Graph o mtime do arquivo é a hora da sincronização) e
+  # sort-thread-siblings põe também as respostas de um fio em ordem de data (senão iriam por UID).
   while IFS='=' read -r k v; do aerc_definir "$conf" ui "$k" "$v"; done <<'UI'
 sidebar-width=24
 dirlist-tree=true
 dirlist-right={{if .Unread}}{{humanReadable .Unread}}{{end}}
 threading-enabled=true
+sort=-r date
+sort-thread-siblings=true
 fuzzy-complete=true
 completion-popovers=true
 timestamp-format=02/01/06
