@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.13.8 · 06/11/2026
+- **🍎 "Vigia parado" falso no Mac, visto por ssh:** no macOS não existe `/run/user`, então a pasta de runtime do tt cai no `$TMPDIR`. O servidor do tmux e o vigia nascem com o `TMPDIR` do usuário (`/var/folders/…/T/`), mas uma sessão ssh não interativa não tem `TMPDIR` e usava `/tmp`: o `tt --checar` por ssh não achava o pidfile e acusava "vigia parado" com ele vivo, e o `vigia_garantir` chamado por ssh podia subir um segundo vigia. Agora, sem `TMPDIR` no macOS, o tt usa o `getconf DARWIN_USER_TEMP_DIR` (o mesmo diretório em qualquer contexto); com `TMPDIR` definido nada muda e nenhum processo extra roda, e no Linux e no Termux tudo segue igual.
+
 ## v2.13.7 · 05/11/2026
 - **📬 E-mails sempre do mais recente (no topo) para o mais antigo:** a lista do aerc não tinha ordenação e mostrava o maildir na ordem em que os arquivos foram descobertos pela sincronização, que não é a do tempo (numa conta com 500 e-mails, as mensagens ficavam embaralhadas). O tt agora grava `sort=-r date` e `sort-thread-siblings=true` no `aerc.conf` (as respostas de um fio também vão da mais nova para a mais antiga). Vale pela data do cabeçalho `Date`, não pela hora de chegada: nas contas do Graph a hora do arquivo é a da sincronização. Se você já escolheu um `sort` à mão no `aerc.conf`, ele fica; o aerc em execução lê a mudança ao reiniciar.
 
