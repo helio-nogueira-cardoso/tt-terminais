@@ -43,6 +43,7 @@ SSH_ARGS = []
 SSH_TELA = ["-o", "ControlPath=none", "-o", "ControlMaster=no"]  # no ssh vale o primeiro valor de cada opção
 REMOTE_PATH = os.environ.get("TT_PRE_PATH_REMOTO", 'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH; ')
 MAX_MESSAGE = 65536
+CLIENTE_ATIVO_S = 600  # cliente tmux sem atividade há mais que isto não conta (scan_clients e ha_cliente_ativo)
 NAV_PREFIX = b"\x1b]777;tt-nav;"
 
 
@@ -231,6 +232,15 @@ def execute(args, timeout=3, **kwargs):
 
 def tmux(*args):
     return execute([TMUX, *args])
+
+
+def ha_cliente_ativo():
+    """Há algum cliente tmux com atividade recente? É a mesma régua do scan_clients: sem um, o coordenador encerra em 60 s."""
+    rc, out = tmux("list-clients", "-F", "#{client_activity}")
+    if rc:
+        return False
+    agora = time.time()
+    return any(linha.strip().isdigit() and agora - int(linha) <= CLIENTE_ATIVO_S for linha in out.splitlines())
 
 
 def atomic_json(path, value):
@@ -563,7 +573,7 @@ class Coordinator:
             c = line.split(SEP)
             if len(c) != 12:
                 continue
-            if not c[3].isdigit() or time.time() - int(c[3]) > 600:
+            if not c[3].isdigit() or time.time() - int(c[3]) > CLIENTE_ATIVO_S:
                 continue
             if c[4].startswith(("tmux", "screen")):
                 nested[c[0]] = {"generation": c[1] + ":" + c[2], "session": c[5]}
@@ -1548,6 +1558,11 @@ def main(argv):
             return 0
         if os.environ.get("TT_PRECARREGAR") == "0" or read_config().get("precarregar") == "off":
             return 1
+        if op == "evento" and not ha_cliente_ativo():
+            # O vigia manda um evento por volta (60 s). Sem cliente ativo o coordenador novo encerraria em 60 s e o próximo
+            # evento subiria outro: um Python por minuto, o dia todo (celular sem cliente, Mac com telas paradas). Cliente
+            # que volta a ficar ativo é pego pelo evento da volta seguinte; anexar e clicar sobem o coordenador na hora.
+            return 0
         with open(folder / "erros.log", "ab", buffering=0) as log:
             subprocess.Popen([sys.executable, str(HERE / "precarregar-tt.py"), "daemon", "--ssh-args", *SSH_ARGS],
                              stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)

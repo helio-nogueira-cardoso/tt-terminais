@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.13.9 · 06/11/2026
+- **🔋 O pré-carregamento deixa de subir um Python por minuto sem ninguém usando:** o vigia manda um evento por volta (60 s) e, sem coordenador no ar, o evento subia um novo. O coordenador só conta clientes tmux com atividade nos últimos 10 min e encerra sozinho após 60 s sem nenhum, então, com as telas paradas (ou sem cliente algum, como no celular), o ciclo "sobe, espera, sai, sobe" nunca parava: centenas de processos por dia, carga e bateria à toa. Agora o evento do vigia só sobe o coordenador se houver um cliente ativo; anexar uma tela e clicar continuam subindo na hora, e um cliente que volta a ficar ativo é pego pela volta seguinte do vigia (até 1 min).
+
 ## v2.13.8 · 06/11/2026
 - **🍎 "Vigia parado" falso no Mac, visto por ssh:** no macOS não existe `/run/user`, então a pasta de runtime do tt cai no `$TMPDIR`. O servidor do tmux e o vigia nascem com o `TMPDIR` do usuário (`/var/folders/…/T/`), mas uma sessão ssh não interativa não tem `TMPDIR` e usava `/tmp`: o `tt --checar` por ssh não achava o pidfile e acusava "vigia parado" com ele vivo, e o `vigia_garantir` chamado por ssh podia subir um segundo vigia. Agora, sem `TMPDIR` no macOS, o tt usa o `getconf DARWIN_USER_TEMP_DIR` (o mesmo diretório em qualquer contexto); com `TMPDIR` definido nada muda e nenhum processo extra roda, e no Linux e no Termux tudo segue igual.
 

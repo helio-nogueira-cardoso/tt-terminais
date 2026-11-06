@@ -619,5 +619,58 @@ class BateriaTermux(unittest.TestCase):
         self.assertEqual((42, True), pre.bateria_termux())
 
 
+class EventoSemClienteAtivo(unittest.TestCase):
+    """O evento do vigia (um por volta, 60 s) não sobe um coordenador que já nasce condenado.
+
+    Sem cliente tmux ativo o coordenador encerra em 60 s, e o evento seguinte subia outro: um Python por minuto, o dia
+    todo (visto no celular sem clientes e num Mac com as duas telas paradas)."""
+
+    def saida(self, *atividades):
+        return 0, "\n".join(str(a) for a in atividades)
+
+    def test_ha_cliente_ativo_usa_a_mesma_regua_do_scan_clients(self):
+        agora = pre.time.time()
+        casos = [
+            ("sem clientes", self.saida(), False),
+            ("um cliente recente", self.saida(int(agora) - 5), True),
+            ("só cliente parado há mais de 600 s", self.saida(int(agora) - pre.CLIENTE_ATIVO_S - 5), False),
+            ("um parado e um recente", self.saida(int(agora) - 5000, int(agora) - 30), True),
+            ("lixo na saída é ignorado", self.saida("", "abc", int(agora) - 9000), False),
+            ("tmux com erro", (1, ""), False),
+        ]
+        for nome, resposta, esperado in casos:
+            with self.subTest(nome), patch.object(pre, "tmux", return_value=resposta):
+                self.assertIs(pre.ha_cliente_ativo(), esperado)
+
+    def evento(self, ativo, op="evento"):
+        """Roda main([op]) com o coordenador fora do ar; devolve (retorno, Popen)."""
+        ambiente = {k: v for k, v in pre.os.environ.items() if k != "TT_PRECARREGAR"}
+        with tempfile.TemporaryDirectory() as pasta, \
+                patch.dict(pre.os.environ, ambiente, clear=True), \
+                patch.object(pre, "runtime", return_value=Path(pasta)), \
+                patch.object(pre, "send_request", side_effect=OSError("sem coordenador")), \
+                patch.object(pre, "read_config", return_value={}), \
+                patch.object(pre, "ha_cliente_ativo", return_value=ativo), \
+                patch.object(pre, "tmux", return_value=(0, "")), \
+                patch.object(pre.time, "sleep"), \
+                patch.object(pre.subprocess, "Popen") as spawn:
+            return pre.main([op]), spawn
+
+    def test_evento_sem_cliente_ativo_nao_sobe_coordenador(self):
+        rc, spawn = self.evento(ativo=False)
+        self.assertEqual(rc, 0)
+        spawn.assert_not_called()
+
+    def test_evento_com_cliente_ativo_sobe_o_coordenador(self):
+        rc, spawn = self.evento(ativo=True)
+        spawn.assert_called_once()
+        self.assertIn("daemon", spawn.call_args.args[0])
+
+    def test_so_o_evento_do_vigia_e_poupado(self):
+        # focus/navigate vêm de um cliente em uso: continuam subindo o coordenador mesmo se a régua falhasse
+        _, spawn = self.evento(ativo=False, op="focus")
+        spawn.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
