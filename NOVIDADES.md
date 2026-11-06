@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.14.0 · 06/11/2026
+- **📦 Consolidação da série 2.13:** fecha a 2.13.7 (e-mails do mais recente para o mais antigo no aerc), a 2.13.8 (runtime estável no macOS entre tmux e ssh, sem "vigia parado" falso) e a 2.13.9 (pré-carregamento sem um Python por minuto à toa), que já estavam no `main` e agora saem sob uma série só, com tag. Quem estava na 2.13.6 recebe as três de uma vez com `tt --atualizar`. Nenhum código mudou além do `MARCO`.
+- **🧭 Aprendizado do enxame que fica fora do tt:** o backoff do `tt-onfailure` (`TT_ONFAILURE_LIMIAR`) mora no repositório tt-mesh e foi validado em produção na empresa: a primeira falha isolada de rede entrou no `unit-failures.tsv` com o canal mudo.
+
 ## v2.13.9 · 06/11/2026
 - **🔋 O pré-carregamento deixa de subir um Python por minuto sem ninguém usando:** o vigia manda um evento por volta (60 s) e, sem coordenador no ar, o evento subia um novo. O coordenador só conta clientes tmux com atividade nos últimos 10 min e encerra sozinho após 60 s sem nenhum, então, com as telas paradas (ou sem cliente algum, como no celular), o ciclo "sobe, espera, sai, sobe" nunca parava: centenas de processos por dia, carga e bateria à toa. Agora o evento do vigia só sobe o coordenador se houver um cliente ativo; anexar uma tela e clicar continuam subindo na hora, e um cliente que volta a ficar ativo é pego pela volta seguinte do vigia (até 1 min).
 
