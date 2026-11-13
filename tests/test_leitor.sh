@@ -47,15 +47,31 @@ open(d + "/conto.fb2", "w").write('<?xml version="1.0"?><FictionBook xmlns="http
     '<binary id="c">QUJD</binary></FictionBook>')
 open(d + "/carta.rtf", "wb").write(rb"{\rtf1\ansi{\fonttbl{\f0 Arial;}}\f0 Ol\'e1, mundo.\par Segunda linha com \u231?edilha.\par}")
 open(d + "/texto.pdf", "wb").write(b"%PDF-1.4 conteudo de mentira\n")
+open(d + "/ordem.pdf", "wb").write(b"%PDF-1.4 ordem das palavras\n")
 open(d + "/foto.bin", "wb").write(b"\x00\x01\x02\x03" * 50)
 PY
 cat >"$T/bin/pdftotext" <<'EOF'
 #!/bin/sh
-# pdftotext falso: 4 páginas, cabeçalho repetido, número no pé, palavra partida na margem e parágrafo que atravessa a página
-printf 'Relatorio Anual\n\nA primeira pagina fala de um as-\nsunto comprido que continua\n\n1\n\f'
-printf 'Relatorio Anual\n\nna pagina seguinte, sem ponto final antes.\n\n2\n\f'
-printf 'Relatorio Anual\n\nOutro paragrafo inteiro.\n\n3\n\f'
-printf 'Relatorio Anual\n\nUltima pagina.\n\n4\n\f'
+# pdftotext falso: 4 páginas, cabeçalho repetido, número no pé, palavra partida na margem e parágrafo que atravessa a página.
+# Para ordem.pdf: o modo padrão tira "Quincas Borba com um gesto de" da linha e a larga depois dela, e apaga o hífen dos
+# pronomes (viramme); o modo -raw (que o leitor também pede) traz a ordem certa e o hífen no fim da linha.
+raw=0; ant=; pen=
+for a in "$@"; do [ "$a" = -raw ] && raw=1; ant=$pen; pen=$a; done
+case $ant in
+*ordem.pdf)
+  if [ $raw = 1 ]; then
+    printf -- '— Nada! interrompeu-me Quincas Borba com um gesto de\nindignação.\nEu viram-\nme ir e trepava-\nlhe ao dorso. Trata-\nse de uma obra; beijá-\nlo na testa e vê-\nlos de longe. Disse-\nme isto, vendo-\nos tristes. Fizeram-\nlhe festa.\n\f'
+    printf 'Meu bom amigo,\nS\nu\na\na\nm\ni\ng\na\n,\nA imagem v inculada não pode ser exibida. Talv ez o arquiv o tenha sido mov ido, renomeado ou excluído. Verifique se o v ínculo aponta para o arquiv o e o local corretos.\n\f'
+  else
+    printf -- '— Nada! interrompeu-me\nindignação.\n\nQuincas\n\nBorba\n\ncom\n\num\n\ngesto\n\nde\n\nEu viramme ir e trepavalhe ao dorso. Tratase de uma obra; beijálo na testa e vêlos de longe. Disseme isto, vendoos tristes. Fizeramlhe festa.\n\f'
+    printf 'Meu bom amigo,\nS\nu\na\na\nm\ni\ng\na\n,\nA imagem v inculada não pode ser exibida. Talv ez o arquiv o tenha sido mov ido, renomeado ou excluído. Verifique se o v ínculo aponta para o arquiv o e o local corretos.\n\f'
+  fi ;;
+*)
+  printf 'Relatorio Anual\n\nA primeira pagina fala de um as-\nsunto comprido que continua\n\n1\n\f'
+  printf 'Relatorio Anual\n\nna pagina seguinte, sem ponto final antes.\n\n2\n\f'
+  printf 'Relatorio Anual\n\nOutro paragrafo inteiro.\n\n3\n\f'
+  printf 'Relatorio Anual\n\nUltima pagina.\n\n4\n\f' ;;
+esac
 EOF
 chmod +x "$T/bin/pdftotext"; export PATH=$T/bin:$PATH
 
@@ -74,6 +90,12 @@ s=$(ex texto.pdf)
 if "$TT" --leitor-extrair "$F/foto.bin" >/dev/null 2>"$T/err"; then falhou 'binário aceito como texto'; fi
 grep -q 'formato não reconhecido' "$T/err" || falhou "erro do binário: $(cat "$T/err")"
 passou 'extração: txt (Latin-1), md, html, epub, docx, odt, fb2, rtf e pdf (cabeçalho, nº de página e hífen de margem saem); binário recusado'
+s=$(ex ordem.pdf)
+[[ $s == *"— Nada! interrompeu-me Quincas Borba com um gesto de indignação."* ]] || falhou "pdf: ordem das palavras da linha desmontada: $s"
+[[ $s == *"Eu viram-me ir e trepava-lhe ao dorso. Trata-se de uma obra; beijá-lo na testa e vê-los de longe. Disse-me isto, vendo-os tristes. Fizeram-lhe festa."* ]] || falhou "pdf: hífen de ênclise perdido: $s"
+[[ $s == *"Meu bom amigo, Suaamiga,"* && $s != *"vinculada"* && $s != *"arquiv o"* ]] || falhou "pdf: letras soltas ou aviso de imagem do Word: $s"
+passou 'pdf: palavras tiradas da linha voltam à ordem (modo -raw), hífen de pronome (viram-me) fica, letra espaçada junta e aviso de imagem do Word sai'
+
 
 # --- 2. Biblioteca -------------------------------------------------------------------------------
 python3 -I - "$F/conto.txt" <<'PY'

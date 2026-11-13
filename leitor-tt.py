@@ -125,6 +125,23 @@ def gravar_json(caminho, valor):
 _ESPACOS = re.compile(r"[ \t\u00a0\u2000-\u200a\u202f\u205f\u3000]+")
 _INVISIVEIS = re.compile("[\u00ad\u200b-\u200d\u2060\ufeff]")
 _FIM_FRASE = ".!?…:;\"”’»)]"
+# Pronomes que seguem um verbo por hífen (viram-me, trepava-lhe, beijá-lo, dir-se-ia): o hífen é da palavra, não da margem.
+_CLITICOS = frozenset("me te se lhe lhes nos vos lo la los las lho lha lhos lhas mo ma mos mas o a os as no na nas".split())
+_LETRA_SOLTA = re.compile(r"(?<!\S)(?:[^\W\d_] ){7,}[^\W\d_](?: ?[,.;:!?])?(?!\S)")  # texto espaçado letra a letra (assinatura)
+_IMAGEM_AUSENTE = re.compile(r"A imagem v ?inculada n[ãa]o pode ser exibida\..*?corretos\.", re.S)  # aviso do Word, não é texto
+
+
+def _enclise_depois(seg):
+    m = re.match(r"[^\W\d_]+", seg)
+    return bool(m) and m.group(0).lower() in _CLITICOS
+
+
+def _unir_hifen(a, b, enclise=False):
+    """Junta o fim de uma linha ao começo da seguinte. Hífen no fim da linha é sílaba partida (some) ou, num texto cujos
+    hifens de margem são todos de ênclise, o hífen verdadeiro do pronome (fica)."""
+    if a.endswith("-") and len(a) > 1 and a[-2].isalpha() and b[:1].islower():
+        return a + b if enclise and _enclise_depois(b) else a[:-1] + b
+    return a + " " + b
 
 
 def limpar(texto):
@@ -146,7 +163,7 @@ def decodificar(dados):
 _CAP_RE = re.compile(r"^(cap[ií]tulo|chapter|parte|part|livro|book|pr[oó]logo|ep[ií]logo|pref[aá]cio|introdu[cç][aã]o)\b.{0,70}$", re.I)
 
 
-def blocos_de_texto(texto, juntar_soltos=False, markdown=False):
+def blocos_de_texto(texto, juntar_soltos=False, markdown=False, enclise=False):
     """Linhas → parágrafos. Com linhas em branco, cada bloco é um parágrafo (as quebras de dentro são da margem, e a
     palavra partida por hífen no fim da linha volta a ser uma); sem nenhuma, cada linha é um parágrafo."""
     texto = texto.replace("\r\n", "\n").replace("\r", "\n")
@@ -166,21 +183,19 @@ def blocos_de_texto(texto, juntar_soltos=False, markdown=False):
             if atual:
                 p = atual[0]
                 for seg in atual[1:]:
-                    if p.endswith("-") and len(p) > 1 and p[-2].isalpha() and seg[:1].islower():
-                        p = p[:-1] + seg
-                    else:
-                        p += " " + seg
+                    p = _unir_hifen(p, seg, enclise)
                 blocos.append(p)
                 atual = []
     else:
         blocos = [l.strip() for l in linhas if l.strip()]
     blocos = [b for b in (limpar(b) for b in blocos) if b]
     if juntar_soltos:  # pdf: um parágrafo partido pela página ou pela coluna volta a ser um
+        blocos = [b for b in (limpar(_LETRA_SOLTA.sub(lambda m: re.sub(r"(?<=[a-zà-ú])(?=[A-ZÀ-Ú])", " ", m.group(0).replace(" ", "")), _IMAGEM_AUSENTE.sub(" ", b)))
+                              for b in blocos) if b]
         juntos = []
         for b in blocos:
             if juntos and juntos[-1][-1] not in _FIM_FRASE and b[:1].islower() and not _CAP_RE.match(b):
-                ant = juntos[-1]
-                juntos[-1] = ant[:-1] + b if ant.endswith("-") and len(ant) > 1 and ant[-2].isalpha() else ant + " " + b
+                juntos[-1] = _unir_hifen(juntos[-1], b, enclise)
             else:
                 juntos.append(b)
         blocos = juntos
@@ -488,10 +503,63 @@ def _rodar(cmd, prazo=180):
     return r.stdout, ""
 
 
+def _pagina_pdf(pad, cru):
+    """A mesma página no modo padrão do pdftotext (que acha parágrafos, mas às vezes tira palavras da linha e as larga
+    depois dela) e no modo -raw (ordem em que o PDF desenha o texto, sem parágrafos). Mesmo texto: fica o padrão. Texto
+    em ordem diferente: fica o que tem menos pedaços soltos de até três palavras, que é o sinal da linha desmontada."""
+    chave = lambda t: re.sub(r"[\s\-*]+", "", t)
+    if chave(pad) == chave(cru):
+        return pad
+
+    def soltos(t):
+        return sum(1 for b in re.split(r"\n\s*\n", t) if 0 < len(b.split()) <= 3)
+    return cru if soltos(cru) < soltos(pad) else pad
+
+
+def _enclise_do_pdf(paginas_cru):
+    """Texto cujos hifens de fim de linha são quase todos de ênclise (viram-me, trepava-lhe): {palavra colada: com hífen}.
+    O modo padrão do pdftotext apaga esse hífen ('atenhome', 'disselhe'); o -raw o conserva, e é dele que se lê.
+    Texto com sílabas partidas na margem (a maioria dos hifens não é de pronome) volta vazio: nada muda."""
+    total, achados = 0, {}
+    for t in paginas_cru:
+        linhas = t.split("\n")
+        for a, b in zip(linhas, linhas[1:]):
+            m = re.search(r"([^\W\d_]+)-$", a)
+            f = re.match(r"[^\W\d_]+", b)
+            if m and f and b[:1].islower():
+                total += 1
+                if f.group(0).lower() in _CLITICOS:
+                    achados[m.group(1) + f.group(0)] = m.group(1) + "-" + f.group(0)
+    return achados if total >= 8 and sum(1 for _ in achados) >= 3 and len(achados) / total >= 0.4 else {}
+
+
+def _texto_pdf(caminho):
+    """(bytes do texto com \\f entre páginas, enclise ligada?) pelo pdftotext; None se ele não existe ou falha."""
+    pad, erro = _rodar(["pdftotext", "-enc", "UTF-8", "-q", caminho, "-"])
+    if pad is None:
+        return None, erro, False
+    cru, _ = _rodar(["pdftotext", "-raw", "-enc", "UTF-8", "-q", caminho, "-"])
+    if cru is None:
+        return pad, "", False
+    pp, pc = decodificar(pad).split("\f"), decodificar(cru).split("\f")
+    if len(pp) != len(pc):
+        return pad, "", False
+    mapa = _enclise_do_pdf(pc)
+    rx = re.compile(r"(?<![\w-])(" + "|".join(re.escape(k) for k in sorted(mapa, key=len, reverse=True)) + r")(?![\w])") if mapa else None
+    saida = []
+    for a, b in zip(pp, pc):
+        e = _pagina_pdf(a, b)
+        if rx is not None and e is a:  # o -raw já traz o hífen; o padrão o perdeu
+            e = rx.sub(lambda m: mapa[m.group(1)], e)
+        saida.append(e)
+    return "\f".join(saida).encode("utf-8"), "", bool(mapa)
+
+
 def extrair_pdf(caminho):
     saida = erro = None
+    enclise = False
     if shutil.which("pdftotext"):
-        saida, erro = _rodar(["pdftotext", "-enc", "UTF-8", "-q", caminho, "-"])
+        saida, erro, enclise = _texto_pdf(caminho)
     if saida is None and shutil.which("mutool"):
         saida, erro = _rodar(["mutool", "draw", "-q", "-F", "txt", "-o", "-", caminho])
         if saida is not None and b"\f" not in saida:
@@ -534,7 +602,7 @@ def extrair_pdf(caminho):
             if norma(linhas[i]) in repetidas or re.fullmatch(r"\s*[-–—]?\s*\d{1,4}\s*[-–—]?\s*", linhas[i]):
                 linhas[i] = ""
         texto.append("\n".join(linhas))
-    blocos = blocos_de_texto("\n\n".join(texto), juntar_soltos=True)
+    blocos = blocos_de_texto("\n\n".join(texto), juntar_soltos=True, enclise=enclise)
     titulo = autor = ""
     if shutil.which("pdfinfo"):  # o título que o próprio pdf declara, quando parece um título
         info, _ = _rodar(["pdfinfo", "-enc", "UTF-8", caminho], 20)
