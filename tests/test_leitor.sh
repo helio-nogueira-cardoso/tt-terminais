@@ -56,7 +56,7 @@ cat >"$T/bin/pdftotext" <<'EOF'
 # Para ordem.pdf: o modo padrão tira "Quincas Borba com um gesto de" da linha e a larga depois dela, e apaga o hífen dos
 # pronomes (viramme); o modo -raw (que o leitor também pede) traz a ordem certa e o hífen no fim da linha.
 raw=0; ant=; pen=
-for a in "$@"; do [ "$a" = -raw ] && raw=1; ant=$pen; pen=$a; done
+for a in "$@"; do { [ "$a" = -raw ] || [ "$a" = -layout ]; } && raw=1; ant=$pen; pen=$a; done
 case $ant in
 *ordem.pdf)
   if [ $raw = 1 ]; then

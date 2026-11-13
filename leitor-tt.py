@@ -513,22 +513,22 @@ def _rodar(cmd, prazo=180):
     return r.stdout, ""
 
 
-def _pagina_pdf(pad, cru):
-    """A mesma página no modo padrão do pdftotext (que acha parágrafos, mas às vezes tira palavras da linha e as larga
-    depois dela) e no modo -raw (ordem em que o PDF desenha o texto, sem parágrafos). Mesmo texto: fica o padrão. Texto
-    em ordem diferente: fica o que tem menos pedaços soltos de até três palavras, que é o sinal da linha desmontada."""
-    chave = lambda t: re.sub(r"[\s\-*]+", "", t)
-    if chave(pad) == chave(cru):
+def _pagina_pdf(pad, cru, lay=None):
+    """A mesma página em três leituras independentes do pdftotext: o modo padrão (acha parágrafos e colunas, mas às vezes
+    tira palavras da linha e as larga depois dela), o -raw (a ordem em que o PDF desenha o texto) e o -layout (a página
+    como ela é vista, linha por linha). Fica o padrão, salvo se o -raw trouxer EXATAMENTE as mesmas palavras separadas
+    por espaço (nada colado, nada perdido: só a ordem muda) e se parecer com o -layout mais que o padrão
+    (voto de dois contra um, por menor que seja a diferença). Sem as mesmas palavras, ou sem o -layout, nunca se troca."""
+    if lay is None:
         return pad
-    # O -raw às vezes cola palavras ("IntermediaçãoFinanceiraeMercados") ou perde espaço: só vale como REORDENAÇÃO, isto é,
-    # quando traz exatamente as mesmas palavras do padrão. Qualquer diferença de palavras e fica o padrão: nenhuma se perde.
-    palavras = lambda t: sorted(re.findall(r"\w+", re.sub(r"(?<=\w)-\n(?=\w)", "", t).lower()))  # sílaba/pronome partido junta
-    if palavras(pad) != palavras(cru):
+    palavras = lambda t: re.sub(r"(?<=\w)-\n(?=\w)", "", t).split()  # sílaba/pronome partido na margem junta
+    a, b = palavras(pad), palavras(cru)
+    if a == b or sorted(a) != sorted(b):
         return pad
-
-    def soltos(t):
-        return sum(1 for b in re.split(r"\n\s*\n", t) if 0 < len(b.split()) <= 3)
-    return cru if soltos(cru) < soltos(pad) else pad
+    c = palavras(lay)
+    import difflib
+    mais = lambda x: difflib.SequenceMatcher(None, x, c, autojunk=False).ratio()
+    return cru if mais(b) > mais(a) else pad
 
 
 def _hifens_firmes_do_pdf(paginas_cru):
@@ -551,21 +551,22 @@ def _hifens_firmes_do_pdf(paginas_cru):
 
 
 def _texto_pdf(caminho):
-    """(bytes do texto com \\f entre páginas, enclise ligada?) pelo pdftotext; None se ele não existe ou falha."""
+    """(bytes do texto com \\f entre páginas, hífen firme ligado?) pelo pdftotext; None se ele não existe ou falha."""
     pad, erro = _rodar(["pdftotext", "-enc", "UTF-8", "-q", caminho, "-"])
     if pad is None:
         return None, erro, False
     cru, _ = _rodar(["pdftotext", "-raw", "-enc", "UTF-8", "-q", caminho, "-"])
-    if cru is None:
+    lay, _ = _rodar(["pdftotext", "-layout", "-enc", "UTF-8", "-q", caminho, "-"])
+    if cru is None or lay is None:
         return pad, "", False
-    pp, pc = decodificar(pad).split("\f"), decodificar(cru).split("\f")
-    if len(pp) != len(pc):
+    pp, pc, pl = decodificar(pad).split("\f"), decodificar(cru).split("\f"), decodificar(lay).split("\f")
+    if not (len(pp) == len(pc) == len(pl)):
         return pad, "", False
     mapa = _hifens_firmes_do_pdf(pc)
     rx = re.compile(r"(?<![\w-])(" + "|".join(re.escape(k) for k in sorted(mapa, key=len, reverse=True)) + r")(?![\w])") if mapa else None
     saida = []
-    for a, b in zip(pp, pc):
-        e = _pagina_pdf(a, b)
+    for a, b, c in zip(pp, pc, pl):
+        e = _pagina_pdf(a, b, c)
         if rx is not None and e is a:  # o -raw já traz o hífen; o padrão o perdeu
             e = rx.sub(lambda m: mapa[m.group(1)], e)
         saida.append(e)
