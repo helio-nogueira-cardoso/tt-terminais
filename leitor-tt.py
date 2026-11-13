@@ -514,6 +514,25 @@ def _rodar(cmd, prazo=180):
 
 
 def _ordem_geometrica(ws):
+    """Ordem de leitura de uma página só pela geometria (com um corte vertical antes, se as letras forem de tamanhos muito
+    diferentes: página de título, número grande ao lado do texto)."""
+    if len(ws) > 3:
+        alt = sorted(w[3] - w[1] for w in ws)
+        if alt[-1] >= 1.8 * alt[len(alt) // 2]:
+            por_x = sorted(ws, key=lambda w: w[0])
+            fim = por_x[0][2]
+            for k in range(1, len(por_x)):
+                if por_x[k][0] - fim >= 0.3 * alt[0]:
+                    esq, dir_ = por_x[:k], por_x[k:]
+                    if all(w[2] <= por_x[k][0] for w in esq):
+                        fe, te = _ordem_geometrica_1(esq)
+                        fd, td = _ordem_geometrica_1(dir_)
+                        return fe + fd, te or td
+                fim = max(fim, por_x[k][2])
+    return _ordem_geometrica_1(ws)
+
+
+def _ordem_geometrica_1(ws):
     """Ordem de leitura de uma página só pela geometria das palavras [(x1, y1, x2, y2, texto)]. Devolve
     (faixas, tabular): cada faixa é uma lista de blocos e cada bloco, uma lista de linhas (listas de palavras).
     Linhas visuais = mesmo centro vertical; trechos de uma linha = separados por vão maior que uma letra e meia; bloco =
@@ -548,6 +567,8 @@ def _ordem_geometrica(ws):
     for li, _ in trechos:
         nt[li] = nt.get(li, 0) + 1
     tabular = any(n >= 2 for n in nt.values())
+    passos = sorted(linhas[k + 1][0] - linhas[k][0] for k in range(len(linhas) - 1) if nt.get(k, 0) >= 2 and nt.get(k + 1, 0) >= 2)
+    passo_linha = passos[len(passos) // 2] if passos else 0  # distância típica entre duas linhas de tabela vizinhas
     bx = [(min(w[0] for w in t), min(w[1] for w in t), max(w[2] for w in t), max(w[3] for w in t)) for _, t in trechos]
     pai = list(range(len(trechos)))
 
@@ -565,6 +586,8 @@ def _ordem_geometrica(ws):
                 break
             if nt[li] >= 2 and nt[lj] >= 2:
                 continue
+            if passo_linha and (nt[li] >= 2 or nt[lj] >= 2) and linhas[lj][0] - linhas[li][0] >= 0.9 * passo_linha:
+                continue  # na tabela, uma linha única à distância de uma linha de tabela é outra linha (cabeçalho de seção), não continuação de célula
             sobre = min(bx[i][2], bx[j][2]) - max(bx[i][0], bx[j][0])
             if sobre > 0.3 * min(bx[i][2] - bx[i][0], bx[j][2] - bx[j][0]) and -0.6 * h <= bx[j][1] - bx[i][3] <= 0.6 * h:
                 pai[raiz(j)] = raiz(i)
