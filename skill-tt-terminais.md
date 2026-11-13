@@ -899,7 +899,7 @@ e os instaladores da pasta do usuário ficam no `tt`.
 - **Leitura na faixa (o modo normal dentro do tmux com a faixa ligada, `leitor_barra_pode`):** `tt --leitor-barra ID|ARQ [--pausado]`
   (é o que o ⏎ da biblioteca e `tt --leitor ARQ` chamam) sobe o motor `leitor-tt.py motor ID --tocar` (um por máquina, se
   desliga do terminal sozinho; já rodando, recebe `abrir ID`) e chama `atualizar_barras`. O motor (`Motor`) guarda o texto, lê
-  comandos do fifo `~/.cache/tt-leitor/barra/ctl`, agenda cada palavra em quadros inteiros da grade `fps_para(ppm)` (8 a 20) e
+  comandos do fifo `~/.cache/tt-leitor/barra/ctl`, agenda cada palavra numa hora exata, ao milissegundo (`GRADE`; `fps_para(ppm)`, 8 a 20, é só o nº de gatilhos por cliente) e
   escreve `roteiro.json` (`pid`, `tocando`, `ppm`, `fps`, `n`, `palavras` = `[hora, texto, letra de foco, posição]` dos próximos
   40 s, `msg`); grava a posição ao pausar, a cada 15 s e ao parar; chama `tt --leitor-sync --quieto`; pausado, adota a posição
   mais nova que a troca trouxer; pausado há 8 h, encerra. Quem pinta é o `letreiro-tt.py` (`leitor_roteiro`, `quadro_leitor`):
@@ -908,7 +908,7 @@ e os instaladores da pasta do usuário ficam no `tt`.
   `letreiro` devolve `leitor⇥ação` e o `letreiro_clique` chama `leitor_ctl` (`tela` abre a biblioteca, `parar` → `leitor_parar`).
   `barra_notifs_fmt` usa o `fps` do motor para o nº de gatilhos e põe um ⌨ quando o cliente está na tabela de teclas
   `tt-leitor` (tmux.conf: cada tecla roda `tt --leitor-ctl AÇÃO` e volta à tabela; tecla sem bind cai no painel). `Ctrl+B L` →
-  `leitor_tecla`: com leitura ligada entra na tabela, sem ela abre a biblioteca. `tt --leitor-ctl AÇÃO` só usa builtins (escreve
+  `leitor_tecla`: numa ponte (`@ponte_alvo`) repassa o atalho ao tmux da outra máquina (`send-prefix` + `L`: a barra visível é a de lá); com leitura ligada entra na tabela, sem ela abre a biblioteca. Tecla `f`/botão `⤢` → `leitor_tela_cheia` (para a faixa, abre `tt --leitor --tela ID` e, ao fechar, `--leitor-barra ID --pausado`). Ritmo: o pintor (`fluxo`) não usa a grade de quadros na leitura; dorme até `leitor_proxima` e chama `disparar` (linha no fifo `$RT/tt-gatilho-PID-K` de um gatilho parado há 1,15 s; o `gatilho-tt.sh` repassa ao tmux na hora); sem fifo (gatilho antigo) volta à grade. `tt --leitor-ctl AÇÃO` só usa builtins (escreve
   no fifo; se o `fps` mudou, refaz a barra); `tt --leitor-parar` encerra o motor, tira os clientes da tabela e refaz a barra.
   `tt --leitor --tela …` e a tecla `T` da biblioteca leem em tela cheia. `TT_LEITOR_BARRA_DIR` troca a pasta (testes).
 - **Respiros** (`Texto.quebra`, `pausa_apos`, `PAUSAS`, `PAUSA_MARCA`): depois da palavra que fecha parágrafo (1), título (2),

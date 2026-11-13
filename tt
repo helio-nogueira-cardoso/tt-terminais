@@ -10474,11 +10474,29 @@ leitor_parar() {
 }
 # Ctrl+B L (e a rota `leitor` do clique): com uma leitura na faixa, o teclado deste cliente passa a ser do leitor
 # (tabela tt-leitor); sem leitura, abre a biblioteca.
-leitor_tecla() { # cliente [pasta]
+# Numa PONTE (a tela mostra a sessão de outra máquina; a barra visível é a de lá) o Ctrl+B é pego pelo tmux daqui:
+# o atalho é repassado ao tmux de lá, que passa o teclado à leitura DELE (ou abre a biblioteca dele). Sem isso, no
+# Mac vendo o Dell, Ctrl+B L abria a biblioteca do Mac e as teclas nunca chegavam à leitura que está na tela.
+leitor_tecla() { # cliente [pasta] [painel]
+  local p=${3:-}
+  if [[ -n $p && -n $(do_cliente "$1" '#{@ponte_alvo}') ]]; then
+    tmux send-prefix -t "$p" \; send-keys -t "$p" L 2>/dev/null; return 0
+  fi
   if leitor_barra_ativo; then
     tmux switch-client -c "$1" -T tt-leitor 2>/dev/null
-    tmux display-message -c "$1" -d 4000 "leitor: Espaço toca/pausa · ← → saltam · ↑ ↓ velocidade · ? todos os atalhos · x fecha · outra tecla devolve o teclado" 2>/dev/null
+    tmux display-message -c "$1" -d 5000 "leitor: Espaço toca/pausa · ← → saltam · ↑ ↓ velocidade · f tela cheia · ? todos os atalhos · x fecha · outra tecla devolve o teclado" 2>/dev/null
   else eval "$(leitor_popup_cmd "$1" "${2:-}")"; fi
+}
+# Tela cheia da leitura que está na faixa (tecla f, botão ⤢): grava o ponto, abre o mesmo texto em letras grandes
+# numa janela do tamanho da tela e, ao fechar, devolve a leitura à faixa, pausada, no ponto em que a tela cheia parou.
+leitor_tela_cheia() { # cliente
+  local c=$1 lid=""
+  leitor_barra_ativo || { eval "$(leitor_popup_cmd "$c")"; return; }
+  lid=$(grep -o '"lid": *"[^"]*"' "$LEITOR_BARRA/roteiro.json" 2>/dev/null | head -n 1)
+  lid=${lid%\"}; lid=${lid##*\"}
+  [[ $lid =~ ^[A-Za-z0-9_.-]+$ ]] || { eval "$(leitor_popup_cmd "$c")"; return; }
+  leitor_parar
+  eval "$EU --popup -c $(q "$c") -E -w 100% -h 100% -T $(q " 📖 leitor rápido · tela cheia ") $(q "$EU --leitor --tela $lid; $EU --leitor-barra $lid --pausado")"
 }
 # Do lado que é chamado por ssh: desligado, responde vazio (quem chama pula esta máquina).
 leitor_remoto() { # inventario|mesclar|empacotar|aplicar
@@ -13823,6 +13841,7 @@ letreiro_clique() { # cliente x
     leitor) # leitura na faixa: o controle tocado (ver quadro_leitor do letreiro-tt.py)
       case $alvo in
         tela) eval "$(leitor_popup_cmd "$c")" ;;
+        cheia) leitor_tela_cheia "$c" ;;
         atalhos) leitor_atalhos "$c" ;;
         parar) leitor_parar ;;
         *) leitor_ctl "$alvo" ;;
@@ -18384,7 +18403,8 @@ clique() {
     fx*) ir_fixada "$2" "$faixa" ;;
     tarefas) abrir_tarefas "$2" ;;
     snapshots) eval "$(popup_tt "$2" "📸 snapshots" "$EU --snapshots")" ;;
-    leitor) leitor_tecla "$2" "${4:-}" ;;
+    leitor) leitor_tecla "$2" "${4:-}" "${3:-}" ;;
+    leitor-cheia) leitor_tela_cheia "$2" ;;
     leitor-tela) eval "$(leitor_popup_cmd "$2" "${4:-}")" ;;
     leitor-atalhos) leitor_atalhos "$2" ;;
     entrada) tarefas_filtro_set entrada; abrir_tarefas "$2" ;;   # chip 📥: direto na Entrada

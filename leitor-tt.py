@@ -1700,12 +1700,16 @@ def cortar(s, n):
 # Na barra do tt a leitura acontece no lugar do letreiro: quem pinta é o letreiro-tt.py de cada cliente (o único
 # caminho que muda a barra sem redesenhar a tela), que só LÊ o roteiro que este motor escreve. O motor é um processo
 # por máquina: guarda o texto, recebe os comandos por um fifo (`tt --leitor-ctl`), agenda cada palavra numa hora
-# exata, alinhada à grade de quadros da barra (1/fps s), grava a posição na biblioteca e chama a troca entre as
-# máquinas ao pausar e ao parar. Pasta: ~/.cache/tt-leitor/barra/{roteiro.json, ctl, pid, fps}.
+# exata (ao milissegundo: GRADE), grava a posição na biblioteca e chama a troca entre as máquinas ao pausar e ao
+# parar. Pasta: ~/.cache/tt-leitor/barra/{roteiro.json, ctl, pid, fps}. O ritmo é o da agenda, não o de uma grade
+# de quadros: o pintor acorda na hora de cada palavra e pede o redesenho na hora (ver disparar no letreiro-tt.py);
+# `fps` só diz quantos gatilhos a barra mantém por cliente (cada um redesenha no máximo 1 vez por segundo).
 
 BARRA = os.environ.get("TT_LEITOR_BARRA_DIR") or os.path.join(CASA, ".cache", "tt-leitor", "barra")
 BARRA_MAX_PALAVRA = 28   # palavra maior que isto é mostrada em pedaços (o miolo da faixa é estreito)
 BARRA_HORIZONTE = 40     # segundos de leitura agendados à frente
+GRADE = 1000             # marcas por segundo da agenda (1 ms): cada palavra dura exatamente o que o ritmo pede
+PALAVRA_MIN = 0.03       # nenhuma palavra fica menos que isto na faixa (s)
 BARRA_OCIOSO = 8 * 3600  # pausado por tanto tempo, o motor devolve a faixa ao letreiro
 
 
@@ -1735,7 +1739,8 @@ def motor_ctl(comando):
 
 
 def fps_para(ppm):
-    """Quadros por segundo da barra para a velocidade: pelo menos dois quadros por palavra comum, de 8 a 20."""
+    """Redesenhos por segundo que a barra aguenta nesta velocidade (pintor + fps-1 gatilhos por cliente): o dobro das
+    palavras por segundo, de 8 a 20. Não é a grade do tempo: a hora de cada palavra é exata (GRADE)."""
     return max(8, min(20, -(-ppm * 2 // 60)))
 
 
@@ -1810,9 +1815,9 @@ class Motor:
 
     def agendar(self, agora):
         """Completa a fila até o horizonte. Cada entrada: [hora, texto, letra de foco, posição, pedaço]."""
-        t, fps = self.txt, self.fps()
+        t, fps = self.txt, GRADE
         if not self.fila:
-            quadro_n = int(agora * fps) + 2
+            quadro_n = int((agora + 0.15) * fps)
             pos, sub, rampa = self.pos, self.sub, (4 if self.prefs["arranque"] else 0)
         else:
             ult = self.fila[-1]
@@ -1828,7 +1833,7 @@ class Motor:
             if rampa > 0:
                 dur *= 1 + 0.25 * rampa
                 rampa -= 1
-            quadros = max(1, int(round(dur * 60.0 / self.prefs["ppm"] * fps)))
+            quadros = max(int(PALAVRA_MIN * fps), int(round(dur * 60.0 / self.prefs["ppm"] * fps)))
             if sub + 1 < len(partes):
                 prox_pos, prox_sub = pos, sub + 1
             else:
@@ -1840,7 +1845,7 @@ class Motor:
             q = t.quebra[pos - 1] if sub == 0 and 0 < pos < t.n else 0
             resp = pausa_apos(q, self.prefs)
             if resp > 0:
-                quadros = max(1, int(round(resp * fps)))
+                quadros = max(int(PALAVRA_MIN * fps), int(round(resp * fps)))
                 self.fila.append([quadro_n / fps, PAUSA_MARCA.get(q, "") if self.prefs["marcas"] else "", 0, pos, 0, quadro_n + quadros, pos, 0, rampa, 2])
                 quadro_n += quadros
             mudou = True
@@ -1858,7 +1863,7 @@ class Motor:
         e = self.fila[0]
         if e[0] <= agora:
             self.pos, self.sub = e[3], e[4]
-        return len(self.fila) == 1 and e[6] >= self.txt.n and agora >= e[5] / self.fps()
+        return len(self.fila) == 1 and e[6] >= self.txt.n and agora >= e[5] / GRADE
 
     # -- comandos --
     def tocar(self):
@@ -2033,7 +2038,7 @@ class Motor:
         gravar_json(os.path.join(BARRA, "roteiro.json"), {
             "v": self.v, "pid": os.getpid(), "lid": self.lid, "titulo": self.meta.get("titulo") or "", "tocando": self.tocando,
             "ppm": self.prefs["ppm"], "fps": self.fps(), "n": t.n, "pos": self.pos, "palavras": palavras,
-            "fim": (self.fila[-1][5] / self.fps()) if self.tocando and self.fila else 0,
+            "fim": (self.fila[-1][5] / GRADE) if self.tocando and self.fila else 0,
             "msg": list(self.msg) if self.msg[1] > time.time() else ["", 0],
             "salto_curto": self.prefs["salto_curto"], "salto_longo": self.prefs["salto_longo"]})
         try:
@@ -2059,7 +2064,7 @@ class Motor:
             while True:
                 agora = time.time()
                 if self.tocando:
-                    prazo = min(10.0, max(0.05, (self.fila[-1][5] / self.fps() - agora) if len(self.fila) == 1 else 10.0))
+                    prazo = min(10.0, max(0.05, (self.fila[-1][5] / GRADE - agora) if len(self.fila) == 1 else 10.0))
                 else:
                     prazo = 30.0
                 if self.msg[1] > agora:
@@ -2483,11 +2488,12 @@ LARANJA = "#fab387"  # a marca do respiro (| * #): outra cor, para ninguém acha
 
 # (seção, nota, [(teclas, o que fazem)]): a tela de atalhos (?), igual na biblioteca, na leitura e na faixa.
 ATALHOS = [
-    ("Na faixa do tt", "Ctrl+B L liga estas teclas; outra tecla desliga", [
+    ("Na faixa do tt", "Ctrl+B L liga estas teclas (também vendo outra máquina: valem para a leitura dela); outra tecla desliga", [
         ("Espaço ⏎", "tocar ou pausar"),
         ("← →", "salto curto para trás / para a frente"),
-        ("PgUp PgDn", "salto longo"),
-        ("↑ ↓", "mais rápido / mais devagar"),
+        ("PgUp PgDn Shift+← Shift+→", "salto longo (o Shift+seta serve ao teclado sem PgUp)"),
+        ("↑ ↓ + = -", "mais rápido / mais devagar"),
+        ("f", "ler em TELA CHEIA, letras grandes (o ⤢ da faixa); ao fechar, a leitura volta à faixa"),
         (", .", "uma palavra para trás / para a frente"),
         ("( )", "frase anterior / próxima"),
         ("{ }", "parágrafo anterior / próximo"),

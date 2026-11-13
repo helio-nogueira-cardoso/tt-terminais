@@ -145,8 +145,10 @@ faixa seguem como sempre), até o ✕.
 - **Toque/clique:** `«` `»` salto longo, `‹` `›` salto curto, `▶`/`‖` (ou a própria palavra) toca e pausa, `−` `+`
   velocidade, o número, a barrinha de progresso e a porcentagem abrem a biblioteca, `?` mostra todos os atalhos, `✕`
   encerra e devolve a faixa ao letreiro. Em tela estreita os controles das pontas saem e a palavra fica.
-- **Teclado:** `Ctrl+B L` passa o teclado ao leitor (aparece um ⌨ na faixa): Espaço toca/pausa, `←` `→` salto curto,
-  `PgUp` `PgDn` longo, `↑` `↓` velocidade, `,` `.` palavra, `(` `)` frase, `{` `}` parágrafo, `[` `]` capítulo, `0`–`9`
+- **Teclado:** `Ctrl+B L` passa o teclado ao leitor (aparece um ⌨ na faixa; vendo a sessão de outra máquina, o
+  atalho vai para a leitura dela, que é a que está na tela): Espaço toca/pausa, `←` `→` salto curto,
+  `PgUp` `PgDn` (ou `Shift+←` `Shift+→`) longo, `↑` `↓` (ou `+` `-`) velocidade, **`f` tela cheia** (o `⤢` da faixa:
+  letras grandes; ao fechar, a leitura volta à faixa), `,` `.` palavra, `(` `)` frase, `{` `}` parágrafo, `[` `]` capítulo, `0`–`9`
   vão a 0%–90%, `Home` começo, `b` marca o ponto, `o` biblioteca e ajustes, `x` encerra e **`?` abre a tela de
   atalhos**. Qualquer outra tecla (ou `q`/Esc) devolve o teclado ao painel; a leitura continua.
 - **Não precisa decorar:** `?` (na faixa, na biblioteca e na tela cheia) abre a mesma tela de atalhos, com as teclas
@@ -158,10 +160,11 @@ faixa seguem como sempre), até o ✕.
 - Sem faixa (fora do tmux, celular com a faixa desligada) ou com `T` na biblioteca / `tt --leitor --tela ARQUIVO`, a
   leitura é em **tela cheia**, com as letras grandes descritas abaixo.
 
-Por dentro: um motor por máquina (`leitor-tt.py motor`) agenda cada palavra numa hora exata, alinhada aos quadros da
-barra (8 a 20 por segundo, conforme a velocidade), e escreve o roteiro em `~/.cache/tt-leitor/barra/`; o
-`letreiro-tt.py` de cada cliente, o único caminho que muda a barra sem redesenhar a tela, só lê o roteiro. Por isso
-todos os terminais mostram a mesma palavra ao mesmo tempo. O ponto é gravado ao pausar, a cada 15 s e ao encerrar.
+Por dentro: um motor por máquina (`leitor-tt.py motor`) agenda cada palavra numa hora exata, ao milissegundo, e
+escreve o roteiro em `~/.cache/tt-leitor/barra/`; o `letreiro-tt.py` de cada cliente, o único caminho que muda a
+barra sem redesenhar a tela, só lê o roteiro: acorda na hora de cada palavra e pede o redesenho na hora (uma linha no
+fifo de um gatilho livre). Por isso o ritmo é o da agenda (a palavra aparece a poucos milissegundos da hora marcada)
+e todos os terminais mostram a mesma palavra ao mesmo tempo. O ponto é gravado ao pausar, a cada 15 s e ao encerrar.
 
 ```
 tt --leitor                    a tela: abas 1 Biblioteca, 2 Arquivos (daqui e das outras máquinas), 3 Máquinas

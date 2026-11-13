@@ -61,6 +61,15 @@ passou 'tty ilegível usa a largura do tmux; processo substituído por um redime
 # O gatilho imprime uma linha vazia ao nascer: sem ela o tmux mostra "<'comando' not ready>" no slot
 g=$(timeout 2 bash "$TT_DIR/gatilho-tt.sh" $$ 1 4 | head -c 1 | od -An -c | tr -d ' ') || true
 [[ $g == '\n' ]] || falhou "o gatilho deveria imprimir uma linha vazia ao nascer (veio [$g])"
+# Pedido do pintor (leitura na faixa: a palavra troca na hora exata, fora da grade): uma linha no fifo do gatilho
+# vira uma linha para o tmux na hora, sem esperar o tique dele.
+gt=$(mktemp -d)
+( TT_RT=$gt timeout 4 bash "$TT_DIR/gatilho-tt.sh" $$ 3 4 >"$gt/saida" ) &
+for _ in {1..40}; do [[ -p $gt/tt-gatilho-$$-3 ]] && break; sleep 0.05; done
+[[ -p $gt/tt-gatilho-$$-3 ]] || falhou 'o gatilho não criou o fifo dos pedidos'
+sleep 0.2; printf '\n' >"$gt/tt-gatilho-$$-3"; sleep 0.3
+[[ $(wc -l <"$gt/saida") -eq 2 ]] || falhou "o gatilho deveria redesenhar na hora ao receber o pedido (linhas: $(wc -l <"$gt/saida"))"
+wait; rm -rf "$gt"
 palavra='bravo|charlie|delta|echo|foxtrot|golf|hotel|india|juliett|kilo|lima|mike|november'
 faixa() { fora capture-pane -p -t "$1" | tail -1; }  # última linha do cliente de fora = faixa de notificações
 

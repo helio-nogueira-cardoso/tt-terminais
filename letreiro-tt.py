@@ -882,8 +882,8 @@ def quadro_leitor(d, orc, agora):
     feito = min(6, (pos + 1) * 6 // n)
     dir_ = [(" − ", "ppm-", L_BOTAO), ("%d" % ppm, "tela", L_BOTAO), (" + ", "ppm+", L_BOTAO), (" ", "tela", L_BOTAO),
             ("━" * feito, "tela", L_FEITO), ("━" * (6 - feito), "tela", L_FALTA), (" %d%% " % pct, "tela", L_BOTAO),
-            (" ? ", "atalhos", L_BOTAO), (" ✕ ", "parar", L_FECHAR)]
-    for e, r in ((esq, dir_), (esq, dir_[:3] + dir_[6:]), (esq[1:4], [dir_[0], dir_[2], dir_[7], dir_[8]]), ([esq[2]], [dir_[8]]), ([], [])):
+            (" ⤢ ", "cheia", L_BOTAO), (" ? ", "atalhos", L_BOTAO), (" ✕ ", "parar", L_FECHAR)]
+    for e, r in ((esq, dir_), (esq, dir_[:3] + dir_[6:]), (esq[1:4], [dir_[0], dir_[2], dir_[7], dir_[8], dir_[9]]), ([esq[2]], [dir_[9]]), ([], [])):
         w = orc - sum(_cels(t) for t, _, _ in e) - sum(_cels(t) for t, _, _ in r)
         if w >= 20 or not e:
             break
@@ -984,6 +984,55 @@ def marca_anim(pid):
     return os.path.join(d, "tt-letreiro-%d.anim" % pid)
 
 
+def arq_gatilho(pid, k):
+    return os.path.join(RT if os.path.isdir(RT) else "/tmp", "tt-gatilho-%s-%d" % (pid, k))
+
+
+_GATILHOS = {}  # k → hora do último pedido
+
+
+def disparar(pid, fps, agora):
+    """Pede ao tmux o redesenho da barra JÁ: uma linha no fifo de um gatilho livre (gatilho-tt.sh), que a repassa ao
+    tmux. Cada #() redesenha no máximo 1 vez por segundo de relógio; por isso o mesmo gatilho só volta a ser usado
+    1,15 s depois, e se usa sempre o parado há mais tempo. False = nenhum livre (ou nenhum com fifo: gatilho antigo)."""
+    for k in sorted(range(1, fps), key=lambda k: _GATILHOS.get(k, 0.0)):
+        if agora - _GATILHOS.get(k, 0.0) < 1.15:
+            return False
+        try:
+            fd = os.open(arq_gatilho(pid, k), os.O_WRONLY | os.O_NONBLOCK)
+        except OSError:
+            continue
+        try:
+            os.write(fd, b"\n")
+            _GATILHOS[k] = agora
+            return True
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+    return False
+
+
+def leitor_proxima(agora):
+    """Hora da próxima troca na faixa da leitura (a palavra seguinte, o fim de um aviso), ou None."""
+    d = _LEITOR["dados"]
+    if not d or not _LEITOR["vivo"]:
+        return None
+    horas = []
+    try:
+        if d.get("tocando"):
+            for e in d["palavras"]:
+                if float(e[0]) > agora:
+                    horas.append(float(e[0]))
+                    break
+        msg = d.get("msg") or ["", 0]
+        if msg[0] and float(msg[1]) > agora:
+            horas.append(float(msg[1]))
+    except (TypeError, ValueError, IndexError, KeyError):
+        return None
+    return min(horas) if horas else None
+
+
 def arq_geo(pid):
     return os.path.join(RT if os.path.isdir(RT) else "/tmp", "tt-letreiro-%s.geo" % pid)
 
@@ -1014,11 +1063,11 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
         pass
     marca = marca_anim(pid)
     ultimo, repetir, impresso_em, ciclo, tocado = None, False, 0.0, 0, 0.0
-    geo_ant, trocado = None, False
+    geo_ant, trocado, sem_fifo = None, False, 0.0
     try:
         while pid_vivo(pid):
             ciclo += 1
-            if ciclo % (5 * max(1, fps)) == 0 and substituido(tty, pid):
+            if ciclo % (5 * max(1, fps)) == 0 and substituido(tty, pid):  # (na leitura o ciclo é de até 50 ms: dá no mesmo)
                 trocado = True
                 return 0
             cfg = ler_conf()
@@ -1027,6 +1076,7 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
             agora = time.time()
             cols = largura(fd, cols_tmux)
             q, anim = _quadro(cfg, cols, ponte, agora, ocupado, fps)
+            lendo = ZONAS_LEITOR is not None
             geo = {"cols": cols, "ocupado": ocupado, "esq": esq, "fps": fps, "ponte": ponte}
             if ZONAS_LEITOR is not None:
                 geo["leitor"] = ZONAS_LEITOR  # onde está cada controle da leitura, para o clique
@@ -1041,7 +1091,24 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
                 # garante que a última mudança seja pintada.
                 emitir(q)
                 repetir = q != ultimo and not (anim and fps > 1)
+                # Leitura: a palavra muda na hora da agenda, não numa grade; o redesenho é pedido agora, pelo fifo de
+                # um gatilho livre. Sem fifo nenhum (gatilho de versão antiga ainda no ar), vale a grade de quadros.
+                if lendo and fps > 1 and q != ultimo and not disparar(pid, fps, agora):
+                    if not any(os.path.exists(arq_gatilho(pid, k)) for k in range(1, fps)):
+                        sem_fifo = agora
                 ultimo, impresso_em = q, agora
+            if lendo and fps > 1 and agora - sem_fifo > 5:
+                if tocado:
+                    try:
+                        os.unlink(marca)
+                    except OSError:
+                        pass
+                    tocado = 0.0
+                prox = leitor_proxima(agora)
+                # acorda na hora exata da próxima palavra; no intervalo, a cada 50 ms, para ver comando novo no roteiro
+                espera = 0.05 if prox is None else min(0.05, prox - time.time() + 0.0005)
+                time.sleep(max(0.001, espera))
+                continue
             if anim and fps > 1:
                 if agora - tocado >= 1:
                     try:
@@ -1064,7 +1131,7 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
     finally:
         # Substituído por um desenhista mais novo do MESMO cliente: a geometria é dele agora (mesmo
         # arquivo); apagá-la deixaria o clique mudo até o tamanho da tela mudar.
-        for arq in (marca,) if trocado else (marca, arq_geo(pid)):
+        for arq in (marca,) if trocado else (marca, arq_geo(pid)) + tuple(arq_gatilho(pid, k) for k in range(1, 21)):
             try:
                 os.unlink(arq)
             except OSError:

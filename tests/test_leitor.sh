@@ -308,12 +308,17 @@ q=$(LT quadro 100); [[ $q == *' ▶ '* && $q != *' « '* ]] || falhou "faixa mé
 # tocar: a palavra anda na hora marcada pelo roteiro e a posição é gravada ao pausar
 "$TT" --leitor-ctl ir 25; "$TT" --leitor-ctl tocar; sleep 0.3
 [[ $(LT quadro 160) == *' ‖ '* && $(LT quadro 160) == *'#[fg=#cdd6f4,bold]'* ]] || falhou "faixa tocando: $(LT quadro 160)"
-python3 -I - "$BARRA/roteiro.json" <<'PY' || falhou 'roteiro fora da grade de quadros'
+python3 -I - "$BARRA/roteiro.json" <<'PY' || falhou 'roteiro: hora das palavras'
 import json, sys
 d = json.load(open(sys.argv[1])); fps = d["fps"]; ts = [p[0] for p in d["palavras"]]
 assert d["tocando"] and len(ts) > 20 and ts == sorted(ts), ts[:5]
-assert all(abs(t * fps - round(t * fps)) < 1e-6 for t in ts), "hora fora da grade"
-assert all(b - a >= 1 / fps - 1e-9 for a, b in zip(ts, ts[1:])), "palavra com menos de um quadro"
+# a hora de cada palavra é exata (ao milissegundo), não arredondada para a grade de quadros da barra: era o
+# arredondamento (a 300 ppm, 200 ou 300 ms, nada no meio) que deixava o ritmo aos trancos
+assert all(abs(t * 1000 - round(t * 1000)) < 1e-3 for t in ts), "hora fora do milissegundo"
+assert all(b - a >= 0.03 - 1e-9 for a, b in zip(ts, ts[1:])), "palavra com menos de 30 ms"
+assert 8 <= fps <= 20, fps
+difs = sorted(set(round((b - a) * 1000) for a, b in zip(ts, ts[1:])))
+assert any(x % round(1000 / fps) for x in difs), "as durações ainda caem todas na grade de quadros: %r" % difs
 PY
 sleep 2.2; "$TT" --leitor-ctl pausar; sleep 0.3
 p_b=$("$TT" --leitor-posicao "$ID" | cut -f1); ((p_b >= 30 && p_b <= 45)) || falhou "em ~2,5 s a 350 ppm deveria andar umas 12 palavras a partir da 25 (ficou em $p_b)"
@@ -460,15 +465,25 @@ python3 -I - "$TT_DIR/tmux.conf" "$TT_DIR/leitor-tt.py" <<'PY' || falhou 'tecla 
 import importlib.util, re, sys
 spec = importlib.util.spec_from_file_location("leitor", sys.argv[2]); l = importlib.util.module_from_spec(spec); spec.loader.exec_module(l)
 teclas = set(re.findall(r"^bind -T tt-leitor '?([^' ]+)'? ", open(sys.argv[1], encoding="utf-8").read(), re.M))
-nomes = {"Space": "Espaço", "Enter": "⏎", "Left": "←", "Right": "→", "PPage": "PgUp", "NPage": "PgDn", "Up": "↑", "Down": "↓", "Escape": "Esc"}
+nomes = {"Space": "Espaço", "Enter": "⏎", "Left": "←", "Right": "→", "PPage": "PgUp", "NPage": "PgDn", "Up": "↑", "Down": "↓", "Escape": "Esc", "S-Left": "Shift+←", "S-Right": "Shift+→"}
 na_tela = set(" ".join(t for t, _ in next(s for s in l.ATALHOS if s[0] == "Na faixa do tt")[2]).split())
 falta = {nomes.get(t, t) for t in teclas if not t.isdigit()} - na_tela
 assert not falta, falta
-assert {str(d) for d in range(10)} <= teclas and {"?", "b", "{", "}"} <= teclas, teclas
+assert {str(d) for d in range(10)} <= teclas and {"?", "b", "{", "}", "f", "+", "-", "S-Left"} <= teclas, teclas
 PY
 "$TT" --leitor-barra "$ID" --pausado; "$TT" --leitor-ctl decimo 5; sleep 0.3; "$TT" --leitor-ctl marcar; sleep 0.3; "$TT" --leitor-ctl pausar; sleep 0.3
 [[ $("$TT" --leitor-posicao "$ID" | cut -f1) == 213 ]] || falhou "tecla 5 da faixa não foi a 50%: $("$TT" --leitor-posicao "$ID")"
 grep -q '"213": {' "$BIB/livros/$ID/estado.json" || falhou "b da faixa não marcou o ponto: $(cat "$BIB/livros/$ID/estado.json")"
 "$TT" --leitor-parar
 grep -q "^    leitor-atalhos) leitor_atalhos " "$TT_DIR/tt" && grep -q "^        atalhos) leitor_atalhos " "$TT_DIR/tt" || falhou 'rota do ? (tecla e botão da faixa)'
-passou 'atalhos: tela única (faixa, tela cheia, biblioteca, arquivos), toda tecla da faixa está nela; 0–9, b e ? na faixa'
+# tela cheia direta (tecla f e botão ⤢ da faixa) e Ctrl+B L repassado numa ponte (a leitura visível é a da outra máquina)
+grep -q "^    leitor-cheia) leitor_tela_cheia " "$TT_DIR/tt" && grep -q "^        cheia) leitor_tela_cheia " "$TT_DIR/tt" || falhou 'rota da tela cheia (tecla f e botão ⤢ da faixa)'
+grep -q "^bind -T tt-leitor f run-shell -b \"~/.local/bin/tt --clique leitor-cheia " "$TT_DIR/tmux.conf" || falhou 'tecla f da tabela tt-leitor'
+grep -q 'send-prefix -t "\$p" .; send-keys -t "\$p" L' "$TT_DIR/tt" || falhou 'Ctrl+B L não é repassado ao tmux da outra máquina numa ponte'
+python3 -I - "$TT_DIR/letreiro-tt.py" <<'PY' || falhou 'botão ⤢ (tela cheia) na faixa'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("lt", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+q, z = m.quadro_leitor({"tocando": False, "palavras": [[0, "casa", 1, 0, 0]], "n": 10, "ppm": 300}, 120, 1)
+assert "⤢" in q and any(a == "cheia" for _, _, a in z), z
+PY
+passou 'atalhos: tela única (faixa, tela cheia, biblioteca, arquivos), toda tecla da faixa está nela; 0–9, b, f e ? na faixa; tela cheia direta; Ctrl+B L repassado na ponte'

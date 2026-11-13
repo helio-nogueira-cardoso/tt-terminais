@@ -3,6 +3,12 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.16.1 · 13/11/2026
+- **🥁 Ritmo do leitor na faixa, agora constante:** cada palavra passa a ter a hora marcada ao milissegundo e a faixa é redesenhada nessa hora. Antes o tempo de cada palavra era arredondado para a grade de quadros da barra (a 300 palavras por minuto, 200 ou 300 ms, nada no meio: uma palavra um pouco mais longa pulava para 50% a mais) e o redesenho oscilava até 30 ms de uma palavra para outra. Medido num terminal de verdade, de 200 a 1000 palavras por minuto: a palavra aparece, em média, de 2 a 6 ms depois da hora marcada.
+- **⌨️ `Ctrl+B L` vendo outra máquina:** com a tela mostrando a sessão de outra máquina (por exemplo, o Mac vendo o Dell), o atalho abria a biblioteca da máquina de cá e as teclas nunca chegavam à leitura que estava na tela. Agora ele vai para a máquina que a tela mostra.
+- **⤢ Tela cheia a um toque:** tecla `f` (depois de `Ctrl+B L`) ou o botão `⤢` da faixa abre a leitura em letras grandes, do ponto em que estava; ao fechar, ela volta à faixa, pausada, no ponto novo.
+- **Teclado sem PgUp/PgDn (MacBook):** `Shift+←` `Shift+→` fazem o salto longo; `+` e `-` mudam a velocidade.
+
 ## v2.16.0 · 13/11/2026
 - **⏸️ Respiros entre parágrafos, títulos e capítulos, com marca própria:** o leitor rápido passa a segurar um instante entre um parágrafo e outro, um pouco mais em volta de um título e um pouco mais ainda entre capítulos (a 300 palavras por minuto: 0,3 s, 0,5 s e 0,9 s; não some em velocidade alta). Em cada respiro aparece, **em laranja** e no lugar do foco, a marca do que acabou: `|` parágrafo, `*` título, `#` capítulo. As palavras de um título passam em outra cor e mais devagar. Vale na faixa e na tela cheia; em ajustes (`o`): "Respiro" (de nenhum a 3×) e "Marca no respiro".
 - **⌨️ Atalhos à vista:** `?` abre a mesma tela de atalhos na faixa, na biblioteca e na tela cheia, com as teclas desenhadas e agrupadas por lugar. A faixa ganhou o botão `?` e as teclas `{` `}` (parágrafo), `0`–`9` (0% a 90% do texto), `b` (marcar o ponto) e ⏎ (tocar/pausar). A última linha de cada tela mostra as teclas que valem ali, e cada uma é também um botão.
