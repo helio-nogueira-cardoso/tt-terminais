@@ -524,7 +524,10 @@ def _ordem_geometrica(ws):
             for k in range(1, len(por_x)):
                 if por_x[k][0] - fim >= 0.3 * alt[0]:
                     esq, dir_ = por_x[:k], por_x[k:]
-                    if all(w[2] <= por_x[k][0] for w in esq):
+                    # o corte vale quando as letras grandes são o grosso de um dos lados (o número grande ao lado do
+                    # título); um título de página ("SUMÁRIO") sobre a coluna de rótulos não separa os rótulos dos valores
+                    grande = lambda lado: sum(w[3] - w[1] >= 1.8 * alt[len(alt) // 2] for w in lado) >= 0.5 * len(lado)
+                    if all(w[2] <= por_x[k][0] for w in esq) and (grande(esq) or grande(dir_)):
                         fe, te = _ordem_geometrica_1(esq)
                         fd, td = _ordem_geometrica_1(dir_)
                         return fe + fd, te or td
@@ -661,13 +664,15 @@ def _pagina_pdf(pad, cru, geo=None):
     if geo is None:
         return pad
     fichas_g, texto_g, tabular = geo
+    # O espaço entre fichas não é ordem: o pdftotext cola "planejar" onde a geometria vê "plane" "jar", e "vieses1" (número
+    # de nota) onde ela vê "vieses" "1". A ordem é a sequência de letras, por isso as fichas se comparam coladas.
     fichas = lambda t: _fichas(re.sub(r"(?<=\w)-\n(?=\w)", "", t).split())
-    f_pad = fichas(pad)
-    if f_pad == fichas_g:
+    f_pad, f_geo = fichas(pad), "".join(fichas_g)
+    if "".join(f_pad) == f_geo:
         return pad
-    if fichas(cru) == fichas_g:
+    if "".join(fichas(cru)) == f_geo:
         return cru
-    if tabular and sorted(f_pad) == sorted(fichas_g):
+    if tabular and sorted(f_pad) == sorted(fichas_g):  # a geometria só substitui com as mesmas palavras (não parte nenhuma)
         return texto_g
     return pad
 

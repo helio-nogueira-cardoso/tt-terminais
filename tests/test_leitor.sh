@@ -661,3 +661,28 @@ q, z = m.quadro_leitor({"tocando": False, "palavras": [[0, "casa", 1, 0, 0]], "n
 assert "⤢" in q and any(a == "cheia" for _, _, a in z), z
 PY
 passou 'atalhos: tela única (faixa, tela cheia, biblioteca, arquivos), toda tecla da faixa está nela; 0–9, b, f e ? na faixa; tela cheia direta; teclas f, ? e o chegam à rota como o tmux as chama; Ctrl+B L repassado na ponte'
+
+# Ordem do PDF: título de página não separa rótulo de valor; o espaço entre palavras não é ordem.
+python3 -I - "$TT_DIR/leitor-tt.py" <<'PY' || falhou 'ordem do PDF: sumário com título grande ou palavra partida pela geometria'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("lt", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+w = lambda x, y, t, h=10: (x, y, x + 6 * len(t), y + h, t)
+# Sumário: "SUMÁRIO" em letra grande no alto, rótulos à esquerda, números à direita, na mesma linha.
+ws = [w(60, 10, "SUMARIO", 24)]
+for i in range(8):
+    ws += [w(60, 60 + 14 * i, "Capitulo"), w(120, 60 + 14 * i, str(i)), w(400, 60 + 14 * i, str(10 * i))]
+faixas, _ = m._ordem_geometrica(ws)
+texto = m._texto_geometrico(faixas)
+assert "Capitulo 3 30" in texto.replace("\n", " "), texto
+# Número grande ao lado do título continua cortado antes da leitura (CVM p. 25).
+ws = [w(20, 20, "1", 40), w(80, 20, "SISTEMA"), w(80, 34, "FINANCEIRO")]
+fx, _ = m._ordem_geometrica(ws)
+assert m._texto_geometrico(fx).split()[0] == "1", fx
+# O espaço não é ordem: 'planejar' (pdftotext) contra 'plane' 'jar' (geometria).
+geo = (m._fichas(["Vamos", "plane", "jar", "bem1"]), "Vamos plane jar bem 1", False)
+assert m._pagina_pdf("Vamos planejar bem1", "x", geo) == "Vamos planejar bem1"
+# Ordem diferente de verdade continua sem prova quando não há tabela.
+geo = (m._fichas(["b", "a"]), "b a", False)
+assert m._pagina_pdf("a b", "c d", geo) == "a b"
+PY
+passou 'ordem do PDF: título grande não separa rótulo de valor, o espaço entre palavras não conta como ordem'
