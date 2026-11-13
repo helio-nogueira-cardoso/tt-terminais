@@ -156,7 +156,7 @@ espera_tela() { # padrão(egrep) [segundos]
 }
 "$TT" --leitor-posicao "$ID" 0 >/dev/null
 X new-session -d -s lt -x 100 -y 30 "TT_LEITOR_CORES=256 '$TT' --leitor --tela; echo SAIU=\$?; exec sleep 600"
-espera_tela 'Leitor rápido.*1 livro'; espera_tela '▌ conto'
+espera_tela 'Leitor rápido.*1 Biblioteca 1'; espera_tela '▌ conto'
 X send-keys -t lt Enter; espera_tela '‖ pausado · 300 ppm'; espera_tela '0% · 1 de 427'
 X send-keys -t lt Up; espera_tela 'pausado · 325 ppm'
 X send-keys -t lt Space; espera_tela '▶ 325 ppm'; espera_tela '‖ pausar'
@@ -167,19 +167,19 @@ espera_tela '(A leitura rápida mostra uma palavra|(palavra ){5})'   # pausado, 
 X send-keys -t lt /; espera_tela 'buscar:'; X send-keys -t lt -l 'cerebro'; X send-keys -t lt Enter; espera_tela '“cerebro” em 4%'
 X send-keys -t lt b; espera_tela 'marcado: Os olhos ficam parados'
 grep -q '"nome": "Os olhos ficam parados' "$BIB/livros/$ID/estado.json" || falhou 'marcador não foi gravado'
-X send-keys -t lt o; espera_tela '┌─ ajustes'; espera_tela 'Tamanho da letra .* 6 linhas'
+X send-keys -t lt o; espera_tela '╭─ ajustes'; espera_tela 'Tamanho da letra .* 6 linhas'
 X send-keys -t lt Down Down Left; espera_tela 'Tamanho da letra .* 5 linhas'
 X send-keys -t lt Escape; espera_tela '▶ tocar'
 grep -q '"tamanho": 5' "$XDG_CONFIG_HOME/tt/leitor.json" && grep -q '"ppm": 325' "$XDG_CONFIG_HOME/tt/leitor.json" || falhou 'preferências não foram gravadas'
-X send-keys -t lt i; espera_tela '┌─ índice'; espera_tela '75%  Capítulo 2'; X send-keys -t lt Down Enter; espera_tela 'conto  ·  Capítulo 2'
+X send-keys -t lt i; espera_tela '╭─ índice'; espera_tela '75%  Capítulo 2'; X send-keys -t lt Down Enter; espera_tela 'conto  ·  Capítulo 2'
 # toque no botão "‹ 5s": volta 5 segundos de leitura (o toque chega como a sequência de mouse do terminal)
 antes=$(tela | grep -Eo '[0-9]+ de 427' | cut -d' ' -f1)
 lin=$(tela | grep -n '‹ 5s' | cut -d: -f1); col=$(($(tela | coluna '‹ 5s') + 2))
 X send-keys -t lt -l $'\033[<0;'"$col;$lin"'M'; X send-keys -t lt -l $'\033[<0;'"$col;$lin"'m'
 espera_tela "‖ pausado"; sleep 0.3
 depois=$(tela | grep -Eo '[0-9]+ de 427' | cut -d' ' -f1); ((depois < antes)) || falhou "toque no botão de voltar não voltou ($antes → $depois)"
-X send-keys -t lt '?'; espera_tela '┌─ ajuda'; X send-keys -t lt x
-X send-keys -t lt q; espera_tela 'Leitor rápido.*1 livro'; espera_tela "lido agora"
+X send-keys -t lt '?'; espera_tela '╭─ atalhos'; X send-keys -t lt x
+X send-keys -t lt q; espera_tela 'Leitor rápido.*1 Biblioteca 1'; espera_tela "lido agora"
 X send-keys -t lt q; espera_tela 'SAIU=0'
 [[ $("$TT" --leitor-posicao "$ID" | cut -f1) == $((depois - 1)) ]] || falhou "sair não gravou a posição ($("$TT" --leitor-posicao "$ID" | cut -f1) × $((depois - 1)))"
 X kill-session -t lt
@@ -330,7 +330,7 @@ rm -f "$TT_RT/tt-letreiro-$$.geo"
 [[ $(LT quadro 160) == *AVISO-FRESCO* || $(LT quadro 160) == *LETREIRO-DE-TESTE* ]] || falhou "parar não devolveu a faixa: $(LT quadro 160)"
 X new-session -d -s lf -x 100 -y 30 "'$TT' --leitor; echo SAIU=\$?; exec sleep 600"
 tela() { X capture-pane -p -t lf; }
-espera_tela '⏎ ler na faixa'; X send-keys -t lf Enter; espera_tela 'SAIU=0'
+espera_tela '⏎ +ler na faixa'; X send-keys -t lf Enter; espera_tela 'SAIU=0'
 [[ -s $BARRA/roteiro.json ]] && grep -q '"tocando": true' "$BARRA/roteiro.json" || falhou '⏎ na biblioteca não pôs a leitura na faixa'
 [[ $(X list-keys -T tt-leitor 2>/dev/null | wc -l) -ge 16 ]] || true
 "$TT" --leitor-ctl pausar; "$TT" --leitor-parar; X kill-session -t lf
@@ -347,3 +347,128 @@ grep -q $'^L\t📖 Leitor rápido' "$TT_DIR/tt" || falhou 'item do menu do paine
 [[ -s $TT_DIR/leitor-tt.py && -s $TT_DIR/leitor-fontes.bin ]] || falhou 'o pacote instalado não traz o leitor e o atlas'
 [[ $("$TT" --leitor-popup-cmd-teste 2>&1 || true) == *"opção desconhecida"* ]] || falhou 'verbo inexistente não foi recusado'
 passou 'contratos: ajuda, Ctrl+B L, rota do clique, item do menu ⋯ e arquivos do pacote'
+
+# --- 9. Respiros: parágrafo < título < capítulo, com a marca de cada um noutra cor --------------------
+printf '# Livro\n\nPrimeiro paragrafo curto aqui.\n\nSegundo paragrafo termina.\n\n## Capitulo dois\n\nTexto do capitulo dois.\n' >"$F/respiro.md"
+IDR=$("$TT" --leitor-add "$F/respiro.md" | cut -f1)
+python3 -I - "$TT_DIR/leitor-tt.py" "$IDR" <<'PY' || falhou 'quebras do texto ou tamanho dos respiros'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("leitor", sys.argv[1]); l = importlib.util.module_from_spec(spec); spec.loader.exec_module(l)
+t = l.Texto(l.ler_texto(sys.argv[2]))
+q = [(t.pal[i], t.quebra[i]) for i in range(t.n) if t.quebra[i]]
+assert q == [("Livro", 2), ("aqui.", 1), ("termina.", 4), ("dois", 2)], q
+assert [t.pal[i] for i in range(t.n) if t.titulo[i]] == ["Livro", "Capitulo", "dois"], "títulos"
+p = dict(l.PADRAO)
+par, tit, cap = (l.pausa_apos(k, p) for k in (1, 2, 4))
+assert 0 < par < tit < cap < 1.2, (par, tit, cap)            # um pouco, e um pouco mais conforme a importância
+assert cap / par < 4, "o capítulo não pode segurar demais"
+assert l.pausa_apos(4, dict(p, respiro=0)) == 0 and l.pausa_apos(0, p) == 0
+assert l.pausa_apos(1, dict(p, ppm=900)) > 0.15, "em velocidade alta o respiro não some"
+assert (l.PAUSA_MARCA[1], l.PAUSA_MARCA[2], l.PAUSA_MARCA[4]) == ("|", "*", "#")
+PY
+"$TT" --leitor-barra "$IDR" || falhou 'respiro: o motor não ligou'
+python3 -I - "$BARRA/roteiro.json" <<'PY' || falhou 'roteiro sem as marcas do respiro na ordem'
+import json, sys
+d = json.load(open(sys.argv[1])); pal = d["palavras"]
+assert [p[1] for p in pal if p[4] == 2] == ["*", "|", "#", "*"], [p[1:] for p in pal]
+assert [p[1] for p in pal if p[4] == 1] == ["Livro", "Capitulo", "dois"], "palavras de título"
+dur = {pal[i][1]: round(pal[i + 1][0] - pal[i][0], 3) for i in range(len(pal) - 1) if pal[i][4] == 2}
+assert dur["|"] < dur["*"] < dur["#"], dur
+PY
+"$TT" --leitor-parar
+python3 -I - "$TT_DIR/letreiro-tt.py" <<'PY' || falhou 'a faixa não pinta a marca do respiro (laranja) nem o título noutra cor'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("letreiro", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+base = {"tocando": True, "n": 10, "ppm": 300}
+q, _ = m.quadro_leitor(dict(base, palavras=[[0, "|", 0, 5, 2]]), 100, 1)
+assert "#[fg=#fab387]|" in q and "#f38ba8" not in q, q      # laranja, sem letra de foco: não é texto
+q, _ = m.quadro_leitor(dict(base, palavras=[[0, "Livro", 1, 0, 1]]), 100, 1)
+assert "#89b4fa,bold" in q and "#f38ba8" in q, q
+q, z = m.quadro_leitor(dict(base, palavras=[[0, "velho", 1, 0]]), 100, 1)     # roteiro sem o tipo (motor antigo)
+assert "#cdd6f4,bold" in q and any(a[2] == "atalhos" for a in z), q
+PY
+[[ $(PY quadro "$IDR" --pos 1 --respiro 4 tamanho=1 --largura 60 --altura 10 | sed -n 4p | tr -d ' ') == '#' ]] || falhou 'tela cheia sem a marca # no respiro do capítulo'
+[[ -z $(PY quadro "$IDR" --pos 1 --respiro 4 tamanho=1 marcas=0 --largura 60 --altura 10 | sed -n 4p | tr -d ' ') ]] || falhou 'marcas=0 deveria deixar o respiro vazio'
+"$TT" --leitor-rm "$IDR" >/dev/null
+passou 'respiros: parágrafo < título < capítulo (sem exagero), marcas | * # no roteiro, laranja na faixa, # na tela cheia, desligáveis'
+
+# --- 10. Onde cada máquina parou e a aba Máquinas ----------------------------------------------------
+"$TT" --leitor-sync >/dev/null
+"$TT" --leitor-posicao "$ID" 50 >/dev/null; sleep 0.05; LA --leitor-posicao "$ID" 300 >/dev/null
+"$TT" --leitor-sync >/dev/null
+python3 -I - "$BIB/livros/$ID/estado.json" "$BIB_D/livros/$ID/estado.json" "$BIB/rede.json" <<'PY' || falhou 'a posição de cada máquina não chegou aos dois lados'
+import json, sys
+a, b, r = (json.load(open(x)) for x in sys.argv[1:4])
+for e in (a, b):
+    assert e["pos"] == 300 and e["maquina"] == "outra", e
+    assert e["por_maquina"]["outra"]["pos"] == 300 and e["por_maquina"]["teste"]["pos"] == 50, e["por_maquina"]
+assert r["outra"]["estado"] == "ok" and r["outra"]["ok"] > 0, r
+PY
+s=$(TT_LEITOR_MAQUINAS=outra PY quadro - --aba maq --largura 110 --altura 20)
+[[ $s == *"● teste"*"esta máquina"* && $s == *"● outra"*"em dia"* && $s == *"lendo  conto"* ]] || falhou "aba Máquinas: $s"
+s=$(TT_LEITOR_MAQUINAS=outra PY quadro - --largura 130 --altura 30)
+[[ $s == *"ONDE CADA MÁQUINA PAROU"* && $s == *"outra "*"70%"* && $s == *"teste "*"11%"* ]] || falhou "painel de detalhes sem o ponto de cada máquina: $s"
+MODO_SSH=antigo "$TT" --leitor-sync >/dev/null
+grep -q '"estado": "pulada"' "$BIB/rede.json" || falhou 'máquina que não respondeu não ficou anotada'
+[[ $(TT_LEITOR_MAQUINAS=outra PY quadro - --aba maq --largura 110 --altura 20) == *"sem resposta"*"em dia"* ]] || falhou 'aba Máquinas não mostra a máquina sem resposta'
+"$TT" --leitor-sync >/dev/null
+passou 'onde cada máquina parou: viaja nos dois sentidos, aparece no livro e na aba Máquinas, com o estado da última troca'
+
+# --- 11. Arquivos: as pastas daqui e das outras máquinas ----------------------------------------------
+mkdir -p "$F/sub" "$D/Livros/mais"
+s=$("$TT" --leitor-ls '' "$F")
+[[ $s == *'"leitor_ls": 1'* && $s == *'["sub", "d"'* && $s == *'["conto.txt", "f"'* && $s == *'["livro.epub", "f"'* && $s != *foto.bin* ]] || falhou "ls daqui: $s"
+[[ $("$TT" --leitor-ls '' /nao/existe) == *'"erro": "'[A-Za-z]* ]] || falhou 'ls de pasta que não existe sem erro'
+printf '# Remota\n\nUm texto que so existe na outra maquina.\n' >"$D/Livros/remota.md"
+printf 'Segundo texto de la, que vem inteiro por ssh.\n' >"$D/Livros/por cat.txt"
+s=$("$TT" --leitor-ls outra "$D/Livros")
+[[ $s == *'["mais", "d"'* && $s == *'["remota.md", "f"'* && $s == *'["por cat.txt", "f"'* ]] || falhou "ls da outra máquina: $s"
+if "$TT" --leitor-ls fantasma / 2>"$T/err"; then falhou 'ls de máquina desconhecida deveria falhar'; fi
+r=$("$TT" --leitor-pegar outra "$D/Livros/remota.md"); IDP=${r%%$'\t'*}
+[[ $IDP =~ ^[0-9a-f]{12}$ && -s $BIB/livros/$IDP/texto.json.gz && -s $BIB/livros/$IDP/original.md && -s $BIB_D/livros/$IDP/texto.json.gz ]] || falhou "pegar (a outra acrescenta e a troca traz): $r"
+cmp -s "$D/Livros/remota.md" "$BIB/livros/$IDP/original.md" || falhou 'o arquivo trazido não é o de lá'
+# a outra não consegue acrescentar (tt antigo): o arquivo vem por ssh e é lido aqui
+cat >"$HOME/.local/bin/ssh" <<'EOF'
+#!/usr/bin/env bash
+cmd=${*: -1}
+printf '%s\n' "$cmd" >>"$SSH_LOG"
+[[ ${MODO_SSH:-} == semadd && $cmd == *--leitor-add* ]] && exit 2
+exec env HOME="$DEST" XDG_CONFIG_HOME="$DEST/.config" TT_MAQUINA= bash -c "$cmd"
+EOF
+r=$(MODO_SSH=semadd "$TT" --leitor-pegar outra "$D/Livros/por cat.txt"); IDC=${r%%$'\t'*}
+[[ $IDC =~ ^[0-9a-f]{12}$ && $r == *$'\tpor cat\tnovo' ]] && cmp -s "$D/Livros/por cat.txt" "$BIB/livros/$IDC/original.txt" || falhou "pegar por ssh quando a outra não acrescenta: $r"
+r=$("$TT" --leitor-pegar outra "$D/Livros/nao-ha.txt" || true); [[ $r == "✗ "* ]] || falhou "pegar arquivo que não existe: $r"
+"$TT" --leitor-rm "$IDP" >/dev/null; "$TT" --leitor-rm "$IDC" >/dev/null; "$TT" --leitor-sync >/dev/null
+# na tela: aba Arquivos, troca de máquina, entra na pasta e traz o arquivo
+printf '# Pela tela\n\nEste veio escolhido na aba Arquivos.\n' >"$D/Livros/pela tela.md"
+X new-session -d -s la -x 120 -y 30 "'$TT' --leitor --tela; echo SAIU=\$?; exec sleep 600"
+tela() { X capture-pane -p -t la; }
+espera_tela 'Leitor rápido.*2 Arquivos'; X send-keys -t la 2; espera_tela 'teste › '
+X send-keys -t la m; espera_tela 'outra › '; X send-keys -t la '~'; espera_tela 'outra › ~ '; espera_tela '▸ Livros/'
+X send-keys -t la Enter; espera_tela 'outra › ~/Livros'; espera_tela 'pela tela.md'
+X send-keys -t la /; X send-keys -t la -l 'pela'; espera_tela 'filtrar pelo nome: pela'; X send-keys -t la Enter; espera_tela '1 item · filtro: pela'
+X send-keys -t la Enter; espera_tela 'veio de outra: pela tela' 30; espera_tela '▌ pela tela'
+X send-keys -t la 3; espera_tela '● outra .*em dia'; X send-keys -t la '?'; espera_tela '╭─ atalhos'; espera_tela 'BIBLIOTECA'; X send-keys -t la x
+X send-keys -t la q; espera_tela 'SAIU=0'; X kill-session -t la
+[[ $("$TT" --leitor-listar) == *"pela tela"* ]] || falhou 'o arquivo escolhido na aba Arquivos não ficou na biblioteca'
+passou 'arquivos: pasta daqui e da outra máquina, trazer (ela acrescenta e a troca traz; ou por ssh), erro limpo; na tela: aba, máquina, pasta, filtro, ⏎ traz'
+
+# --- 12. Atalhos: a mesma tela na biblioteca, na leitura e na faixa; teclas novas da faixa --------------
+s=$(TT_LEITOR_BARRA=1 PY quadro - --atalhos --largura 130 --altura 60)
+[[ $s == *"NA FAIXA DO TT"*"tocar ou pausar"* && $s == *"LEITURA EM TELA CHEIA"* && $s == *"capítulo anterior / próximo"* && $s == *"MOUSE E TOQUE"* ]] || falhou "tela de atalhos: $s"
+python3 -I - "$TT_DIR/tmux.conf" "$TT_DIR/leitor-tt.py" <<'PY' || falhou 'tecla da tabela tt-leitor sem lugar na tela de atalhos (ou o contrário)'
+import importlib.util, re, sys
+spec = importlib.util.spec_from_file_location("leitor", sys.argv[2]); l = importlib.util.module_from_spec(spec); spec.loader.exec_module(l)
+teclas = set(re.findall(r"^bind -T tt-leitor '?([^' ]+)'? ", open(sys.argv[1], encoding="utf-8").read(), re.M))
+nomes = {"Space": "Espaço", "Enter": "⏎", "Left": "←", "Right": "→", "PPage": "PgUp", "NPage": "PgDn", "Up": "↑", "Down": "↓", "Escape": "Esc"}
+na_tela = set(" ".join(t for t, _ in next(s for s in l.ATALHOS if s[0] == "Na faixa do tt")[2]).split())
+falta = {nomes.get(t, t) for t in teclas if not t.isdigit()} - na_tela
+assert not falta, falta
+assert {str(d) for d in range(10)} <= teclas and {"?", "b", "{", "}"} <= teclas, teclas
+PY
+"$TT" --leitor-barra "$ID" --pausado; "$TT" --leitor-ctl decimo 5; sleep 0.3; "$TT" --leitor-ctl marcar; sleep 0.3; "$TT" --leitor-ctl pausar; sleep 0.3
+[[ $("$TT" --leitor-posicao "$ID" | cut -f1) == 213 ]] || falhou "tecla 5 da faixa não foi a 50%: $("$TT" --leitor-posicao "$ID")"
+grep -q '"213": {' "$BIB/livros/$ID/estado.json" || falhou "b da faixa não marcou o ponto: $(cat "$BIB/livros/$ID/estado.json")"
+"$TT" --leitor-parar
+grep -q "^    leitor-atalhos) leitor_atalhos " "$TT_DIR/tt" && grep -q "^        atalhos) leitor_atalhos " "$TT_DIR/tt" || falhou 'rota do ? (tecla e botão da faixa)'
+passou 'atalhos: tela única (faixa, tela cheia, biblioteca, arquivos), toda tecla da faixa está nela; 0–9, b e ? na faixa'

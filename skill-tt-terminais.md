@@ -911,6 +911,21 @@ e os instaladores da pasta do usuário ficam no `tt`.
   `leitor_tecla`: com leitura ligada entra na tabela, sem ela abre a biblioteca. `tt --leitor-ctl AÇÃO` só usa builtins (escreve
   no fifo; se o `fps` mudou, refaz a barra); `tt --leitor-parar` encerra o motor, tira os clientes da tabela e refaz a barra.
   `tt --leitor --tela …` e a tecla `T` da biblioteca leem em tela cheia. `TT_LEITOR_BARRA_DIR` troca a pasta (testes).
+- **Respiros** (`Texto.quebra`, `pausa_apos`, `PAUSAS`, `PAUSA_MARCA`): depois da palavra que fecha parágrafo (1), título (2),
+  seção antes de um título (3) ou capítulo (4) entra um tempo de tela sem palavra, `(palavras × 60/ppm + segundos) × prefs.respiro`
+  (a 300 ppm: 0,30 / 0,54 / 0,86 s), com a marca `|` `*` `#` em laranja no lugar do foco (`prefs.marcas`). No roteiro a
+  entrada ganhou o 5º campo `tipo` (0 palavra, 1 palavra de título, 2 respiro); o `quadro_leitor` pinta o tipo 2 em `L_RESPIRO`
+  sem letra de foco e o tipo 1 em `L_TITULO`. `Texto.titulo` marca o 1º parágrafo do capítulo igual ao título dele e a linha
+  curta sem ponto entre dois parágrafos; capítulo com `"nivel": 2` (`###`, `h3`) pede o respiro de seção, não o de capítulo.
+- **Tela** (`App`): `aba` = `bib` | `arq` | `maq` (`1` `2` `3`, Tab). `bib`: cartões por grupo + painel `_detalhes` (≥ 100 colunas)
+  com `resumo()["maquinas"]` (`estado.por_maquina`: o ponto de cada máquina, mesclado por `mudada`). `arq`: `arq_abrir(maq, onde)`
+  lista por `ls()` (local) ou `tt --leitor-ls RÓTULO PASTA` em 2º plano (`_lancar`/`_conferir_tarefas`); ⏎ num arquivo de outra
+  máquina chama `tt --leitor-pegar` (`leitor_pegar`: `--leitor-add` lá + `leitor_sync --so ID RÓTULO`; se falhar, `ssh cat` e
+  `adicionar` aqui). `maq`: `rede()` junta `rede.json` (`rede-nota RÓTULO ok|pulada|falhou`, gravada pelo `leitor_sync`) com
+  `maquinas/RÓTULO.json`. As outras máquinas chegam por `TT_LEITOR_MAQUINAS` (`leitor_rotulos`). Tela de atalhos: a lista
+  `ATALHOS` (toda tecla da tabela `tt-leitor` tem de estar na seção "Na faixa do tt": o teste confere); `tt --leitor-atalhos
+  [cliente]` e a rota `leitor-atalhos` do `clique()` a abrem sozinha. Comandos novos do motor: `decimo N` (teclas 0–9), `marcar`.
+  `leitor-tt.py quadro - --aba arq|maq --atalhos --respiro Q --cores` desenha qualquer tela sem terminal.
 - `leitor-tt.py` (só stdlib; roda no Termux): extração (`extrair`: txt, md, html, epub, docx, odt, fb2, rtf; pdf por `pdftotext`,
   senão `mutool`, com `pdfinfo` para o título) → `{"titulo","autor","capitulos":[{"titulo","paragrafos":[…]}]}`. Biblioteca em
   `~/.local/share/tt-leitor` (`TT_LEITOR_DIR`): `livros/ID/{meta.json, estado.json, texto.json.gz, original.EXT}`, `lapides.json`,

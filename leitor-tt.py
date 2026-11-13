@@ -6,8 +6,9 @@
 #   2. biblioteca: cada livro é uma pasta em ~/.local/share/tt-leitor/livros/ID (ID = 12 hex do sha256 do arquivo),
 #      com o original, o texto extraído e o estado da leitura; o `tt --leitor-sync` troca tudo entre as máquinas
 #      (inventario → mesclar → pedir → empacotar → aplicar), a posição mais nova vence;
-#   3. tela: biblioteca, leitura (ponto de foco fixo, letras grandes desenhadas com o atlas leitor-fontes.bin),
-#      ajustes, índice, marcadores, busca e ajuda; teclado e mouse/toque.
+#   3. tela: abas Biblioteca, Arquivos (pastas daqui e das outras máquinas) e Máquinas; leitura (ponto de foco fixo,
+#      letras grandes desenhadas com o atlas leitor-fontes.bin, respiros com marca entre parágrafos, títulos e
+#      capítulos), ajustes, índice, marcadores, busca e atalhos; teclado e mouse/toque.
 #
 # Uso (o tt chama; ver `tt --help`):
 #   leitor-tt.py                       biblioteca
@@ -19,6 +20,9 @@
 #   leitor-tt.py estado                resumo (livros, onde estão os originais)
 #   leitor-tt.py posicao ID [N|N%]     lê ou define a posição
 #   leitor-tt.py quadro ID …           um quadro em texto puro (testes)
+#   leitor-tt.py atalhos               a tela de atalhos, sozinha
+#   leitor-tt.py ls [PASTA]            uma pasta em JSON: subpastas e arquivos legíveis (aba Arquivos; "@recentes")
+#   leitor-tt.py rede-nota RÓTULO ok|pulada|falhou   como acabou a troca com a máquina (aba Máquinas)
 #   leitor-tt.py inventario | mesclar ARQ | pedir ARQ [--enviar] [--so ID] | empacotar | aplicar   (sincronização)
 #   leitor-tt.py fontes | fontes-gerar SAÍDA                                                       (atlas de letras)
 import base64
@@ -198,6 +202,8 @@ def capitulos_de_blocos(blocos, markdown=False):
             titulo = b
         if titulo is not None:
             caps.append({"titulo": _md_limpar(titulo) if markdown else titulo, "paragrafos": []})
+            if markdown and m and len(m.group(1)) >= 3:
+                caps[-1]["nivel"] = 2  # ### é seção de um capítulo: o respiro antes dela é menor
             b = caps[-1]["titulo"]
         caps[-1]["paragrafos"].append(b)
     return [c for c in caps if c["paragrafos"]]
@@ -239,6 +245,8 @@ class _Html(HTMLParser):
             return
         if titulo:
             self.caps.append({"titulo": t, "paragrafos": []})
+            if titulo == "h3":
+                self.caps[-1]["nivel"] = 2
         self.caps[-1]["paragrafos"].append(t)
 
     def handle_starttag(self, tag, attrs):
@@ -257,7 +265,7 @@ class _Html(HTMLParser):
         elif tag == "title":
             self.em_title = False
         elif tag in self.BLOCO:
-            self._fechar(titulo=(tag == self.em_titulo))
+            self._fechar(titulo=(tag if tag == self.em_titulo else False))
             if tag == self.em_titulo:
                 self.em_titulo = None
 
@@ -758,6 +766,9 @@ def marcar_posicao(lid, pos, total=None, **extra):
     e["pos"] = max(0, int(pos))
     e["mudada"] = agora_ms()
     e["maquina"] = maquina()
+    pm = e.get("por_maquina") if isinstance(e.get("por_maquina"), dict) else {}
+    pm[maquina()] = {"pos": e["pos"], "mudada": e["mudada"]}  # onde ESTA máquina parou (a posição do livro é a mais nova)
+    e["por_maquina"] = pm
     if total:
         e["concluido"] = e["pos"] >= total - 1
     e.update(extra)
@@ -769,7 +780,18 @@ def resumo(lid):
     meta, est = ler_meta(lid), ler_estado(lid)
     total = max(1, int(meta.get("palavras") or 1))
     pos = min(int(est.get("pos") or 0), total)
+    pm = est.get("por_maquina") if isinstance(est.get("por_maquina"), dict) else {}
+    maqs = {}
+    for k, v in pm.items():
+        try:
+            vp = int(v.get("pos") or 0)
+            maqs[k] = (100 if vp >= total - 1 else vp * 100 // total, int(v.get("mudada") or 0))
+        except (TypeError, ValueError, AttributeError):
+            pass
+    marc = est.get("marcadores") if isinstance(est.get("marcadores"), dict) else {}
     return {"id": lid, "titulo": meta.get("titulo") or "?", "autor": meta.get("autor") or "", "palavras": total, "pos": pos,
+            "maquinas": maqs, "marcadores": sum(1 for v in marc.values() if isinstance(v, dict) and not v.get("removido")),
+            "nome": meta.get("nome") or "",
             "pct": 100 if est.get("concluido") else int(pos * 100 / total), "mudada": int(est.get("mudada") or 0),
             "maquina": est.get("maquina") or "", "adicionada": int(meta.get("adicionada") or 0), "formato": meta.get("formato") or "",
             "bytes": int(meta.get("bytes") or 0), "texto": bool(arquivo_texto(lid)), "original": bool(arquivo_original(lid, meta)),
@@ -794,6 +816,88 @@ def onde_original(lid):
         if (inv.get("livros") or {}).get(lid, {}).get("original"):
             tem.append(n[:-5] if n.endswith(".json") else n)
     return tem
+
+
+REDE = os.path.join(DIR, "rede.json")
+
+
+def rede_nota(rotulo, estado):
+    """A troca com a máquina RÓTULO acabou assim (ok|pulada|falhou): fica para a aba Máquinas."""
+    r = ler_json(REDE, {})
+    if not isinstance(r, dict):
+        r = {}
+    ant = r.get(rotulo) if isinstance(r.get(rotulo), dict) else {}
+    r[rotulo] = {"quando": agora_ms(), "estado": estado, "ok": agora_ms() if estado == "ok" else int(ant.get("ok") or 0)}
+    gravar_json(REDE, r)
+
+
+def rede():
+    """{máquina: {estado, quando, ok, livros, originais}} do que as trocas deixaram anotado aqui."""
+    r = {}
+    notas = ler_json(REDE, {})
+    for k, v in (notas.items() if isinstance(notas, dict) else ()):
+        if isinstance(v, dict):
+            r[k] = {"estado": str(v.get("estado") or ""), "quando": int(v.get("quando") or 0), "ok": int(v.get("ok") or 0), "livros": None, "originais": 0}
+    try:
+        nomes = sorted(os.listdir(MAQUINAS))
+    except OSError:
+        nomes = []
+    for n in nomes:
+        if not n.endswith(".json"):
+            continue
+        inv = ler_json(os.path.join(MAQUINAS, n), {})
+        liv = inv.get("livros") if isinstance(inv.get("livros"), dict) else {}
+        d = r.setdefault(n[:-5], {"estado": "", "quando": 0, "ok": 0, "livros": None, "originais": 0})
+        d["livros"] = len(liv)
+        d["originais"] = sum(1 for i in liv.values() if isinstance(i, dict) and i.get("original"))
+        d["ids"] = set(liv)
+        d["ok"] = max(d["ok"], int(inv.get("quando") or 0))
+    return r
+
+
+LS_MAX = 3000
+
+
+def ls(onde=""):
+    """Uma pasta para o navegador de arquivos (daqui ou, por ssh, de outra máquina): subpastas e os arquivos que o
+    leitor sabe ler. "" = a pasta pessoal; "@recentes" = os arquivos legíveis mais novos das pastas de costume."""
+    exts = tuple("." + f for f in FORMATOS)
+    if onde == "@recentes":
+        itens = []
+        for c in arquivos_recentes(200):
+            try:
+                st = os.stat(c)
+                itens.append([c, "f", st.st_size, int(st.st_mtime)])
+            except OSError:
+                pass
+        return {"leitor_ls": 1, "pasta": "@recentes", "acima": "", "casa": CASA, "itens": itens, "erro": ""}
+    d = os.path.abspath(os.path.expanduser(onde or "~"))
+    r = {"leitor_ls": 1, "pasta": d, "acima": os.path.dirname(d) if d != "/" else "", "casa": CASA, "itens": [], "erro": ""}
+    try:
+        with os.scandir(d) as it:
+            for e in it:
+                if e.name.startswith(".") or len(r["itens"]) >= LS_MAX:
+                    continue
+                try:
+                    if e.is_dir():
+                        r["itens"].append([e.name, "d", 0, int(e.stat().st_mtime)])
+                    elif e.name.lower().endswith(exts) and e.is_file():
+                        st = e.stat()
+                        r["itens"].append([e.name, "f", st.st_size, int(st.st_mtime)])
+                except OSError:
+                    continue
+    except OSError as e:
+        r["erro"] = e.strerror or str(e)
+    r["itens"].sort(key=lambda i: (i[1] != "d", sem_acento(i[0])))
+    return r
+
+
+def tamanho_legivel(n):
+    n = float(n or 0)
+    for u in ("B", "KB", "MB", "GB"):
+        if n < 1024 or u == "GB":
+            return ("%d %s" % (n, u)) if u == "B" else ("%.1f %s" % (n, u)).replace(".", ",")
+        n /= 1024
 
 
 def ha_quanto(ms):
@@ -855,6 +959,17 @@ def mesclar_estado(meu, outro):
         a["pos"] = max(0, int(a.get("pos") or 0))
         a["maquina"] = str(a.get("maquina") or "")[:60]
     a["marcadores"] = ma
+    pm = {k: v for k, v in (a.get("por_maquina") or {}).items() if isinstance(v, dict)} if isinstance(a.get("por_maquina"), dict) else {}
+    if isinstance(b.get("por_maquina"), dict):
+        for k, v in b["por_maquina"].items():
+            try:
+                if (isinstance(v, dict) and re.fullmatch(r"[\w.-]{1,60}", str(k)) and
+                        int(v.get("mudada") or 0) > int((pm.get(k) or {}).get("mudada") or 0) and (k in pm or len(pm) < 32)):
+                    pm[str(k)] = {"pos": max(0, int(v.get("pos") or 0)), "mudada": int(v.get("mudada") or 0)}
+            except (TypeError, ValueError):
+                pass
+    if pm:
+        a["por_maquina"] = pm
     a.setdefault("pos", 0)
     a.setdefault("mudada", 0)
     return a, json.dumps(a, sort_keys=True) != antes
@@ -1381,22 +1496,64 @@ def termina_frase(p):
 
 
 class Texto:
+    """As palavras do livro em sequência, com o que separa uma da outra. `quebra[i]` diz o que vem depois da palavra i:
+    0 nada, 1 fim de parágrafo, 2 fim de um título (o texto dele começa), 3 fim de uma seção (vem um título),
+    4 fim de capítulo. `titulo[i]` = a palavra faz parte de um título."""
+
     def __init__(self, livro):
         self.pal, self.fim_par, self.caps, self.par_ini = [], bytearray(), [], []
+        self.quebra, self.titulo = bytearray(), bytearray()
+        pars = []  # (início, fim, é título, capítulo)
+        niveis = []
         for c in livro.get("capitulos") or []:
             ini = len(self.pal)
+            tit = " ".join((c.get("titulo") or "").split())
+            primeiro = True
             for p in c.get("paragrafos") or []:
                 ws = p.split()
                 if not ws:
                     continue
                 self.par_ini.append(len(self.pal))
+                pars.append([len(self.pal), len(self.pal) + len(ws), bool(primeiro and tit and " ".join(ws) == tit), len(self.caps)])
+                primeiro = False
                 self.pal.extend(ws)
                 self.fim_par.extend(b"\0" * (len(ws) - 1) + b"\1")
             if len(self.pal) > ini:
                 self.caps.append((ini, c.get("titulo") or ""))
+                try:
+                    niveis.append(max(1, int(c.get("nivel") or 1)))
+                except (TypeError, ValueError):
+                    niveis.append(1)
         self.n = len(self.pal)
         if not self.caps:
             self.caps = [(0, "")]
+        self.cap_nivel = niveis or [1]
+        # subtítulo sem marca: linha curta, sem ponto no fim, entre parágrafos de verdade
+        def solta(k):
+            a, b = pars[k][0], pars[k][1]
+            return b - a <= 12 and sum(len(w) for w in self.pal[a:b]) <= 80 and self.pal[b - 1][-1:] not in ".,;:!?…\"”’»)" \
+                and (self.pal[a][:1].isupper() or self.pal[a][:1].isdigit())
+        soltas = [solta(k) for k in range(len(pars))]
+        for k in range(1, len(pars) - 1):
+            if (soltas[k] and not pars[k][2] and not soltas[k - 1] and not soltas[k + 1] and pars[k + 1][3] == pars[k][3]
+                    and pars[k + 1][1] - pars[k + 1][0] > 12):
+                pars[k][2] = True
+        self.quebra = bytearray(self.n)
+        self.titulo = bytearray(self.n)
+        for k, (a, b, tit, cap) in enumerate(pars):
+            if tit:
+                self.titulo[a:b] = b"\1" * (b - a)
+            if k + 1 >= len(pars):
+                q = 0
+            elif pars[k + 1][3] != cap:
+                q = 4 if niveis[pars[k + 1][3]] <= 1 else 3
+            elif tit:
+                q = 2
+            elif pars[k + 1][2]:
+                q = 3
+            else:
+                q = 1
+            self.quebra[b - 1] = q
 
     def _antes(self, lista, i):
         import bisect
@@ -1452,8 +1609,9 @@ def ponto_foco(p):
     return i0 + (0 if n <= 1 else 1 if n <= 5 else 2 if n <= 9 else 3 if n <= 13 else 4)
 
 
-def fator_tempo(p, fim_par, prefs):
-    """Quanto tempo a palavra fica na tela, em múltiplos de 60/ppm: palavra longa, número e pontuação pedem mais."""
+def fator_tempo(p, fim_par, prefs, titulo=False):
+    """Quanto tempo a palavra fica na tela, em múltiplos de 60/ppm: palavra longa, número e pontuação pedem mais.
+    O respiro entre parágrafos, títulos e capítulos é outro tempo, com a tela vazia: ver pausa_apos."""
     f = 1.0
     n = len(p)
     if prefs["longas"] and n > 7:
@@ -1466,11 +1624,28 @@ def fator_tempo(p, fim_par, prefs):
     elif u in ",;:" or p in ("—", "–", "-"):
         extra = 0.5
     if fim_par:
-        extra = max(extra, 1.1) + 0.5
+        extra = max(extra, 1.1)
     f += extra * pont
     if any(c.isdigit() for c in p):
         f += 0.35
+    if titulo:
+        f *= 1.3
     return f
+
+
+# quebra → (palavras de tempo, segundos): o respiro cresce do parágrafo ao capítulo e não some em velocidade alta
+# (um pouco, e um pouco mais conforme a importância: parágrafo < título < capítulo). Em cada respiro a tela mostra,
+# apagada e no lugar do foco, a marca do que acabou: | parágrafo, * título (antes e depois dele), # capítulo.
+PAUSAS = {1: (0.7, 0.16), 2: (1.2, 0.30), 3: (1.2, 0.30), 4: (1.8, 0.50)}
+PAUSA_MARCA = {1: "|", 2: "*", 3: "*", 4: "#"}
+
+
+def pausa_apos(quebra, prefs):
+    """Segundos de tela vazia depois de uma palavra que fecha parágrafo (1), título (2), seção (3) ou capítulo (4)."""
+    if not quebra or not prefs.get("respiro"):
+        return 0.0
+    pal, seg = PAUSAS.get(int(quebra), (0, 0))
+    return (pal * 60.0 / prefs["ppm"] + seg) * prefs["respiro"]
 
 
 def partir(palavra, cabe):
@@ -1645,7 +1820,7 @@ class Motor:
         mudou = False
         while pos < t.n and quadro_n / fps < agora + BARRA_HORIZONTE:
             k, partes, texto, foco = self._entrada(pos, sub)
-            dur = sum(fator_tempo(t.pal[i], t.fim_par[i], self.prefs) for i in range(pos, min(t.n, pos + k)))
+            dur = sum(fator_tempo(t.pal[i], t.fim_par[i], self.prefs, t.titulo[i]) for i in range(pos, min(t.n, pos + k)))
             if k > 1:
                 dur *= 0.9
             if len(partes) > 1:
@@ -1658,9 +1833,16 @@ class Motor:
                 prox_pos, prox_sub = pos, sub + 1
             else:
                 prox_pos, prox_sub = pos + k, 0
-            # [hora, texto, foco, pos, pedaço, quadro seguinte, posição seguinte, pedaço seguinte, rampa que resta]
-            self.fila.append([quadro_n / fps, texto, foco, pos, sub, quadro_n + quadros, prox_pos, prox_sub, rampa])
+            # [hora, texto, foco, pos, pedaço, quadro seguinte, posição seguinte, pedaço seguinte, rampa que resta, tipo]
+            # tipo: 0 palavra, 1 palavra de título, 2 respiro (tela vazia entre parágrafos, títulos e capítulos)
+            self.fila.append([quadro_n / fps, texto, foco, pos, sub, quadro_n + quadros, prox_pos, prox_sub, rampa, int(t.titulo[pos])])
             quadro_n, pos, sub = quadro_n + quadros, prox_pos, prox_sub
+            q = t.quebra[pos - 1] if sub == 0 and 0 < pos < t.n else 0
+            resp = pausa_apos(q, self.prefs)
+            if resp > 0:
+                quadros = max(1, int(round(resp * fps)))
+                self.fila.append([quadro_n / fps, PAUSA_MARCA.get(q, "") if self.prefs["marcas"] else "", 0, pos, 0, quadro_n + quadros, pos, 0, rampa, 2])
+                quadro_n += quadros
             mudou = True
         return mudou
 
@@ -1767,6 +1949,19 @@ class Motor:
                 self.avisar(cortar(t.cap(self.pos)[1] or "parte %d" % (t.cap(self.pos)[0] + 1), 40), 2)
         elif c == "inicio":
             self.ir(0)
+        elif c == "decimo" and arg.isdigit():  # as teclas 0…9: 0%, 10% … 90% do texto
+            self.ir(t.n * min(9, int(arg)) // 10)
+            self.avisar("%d%% do texto" % (min(9, int(arg)) * 10), 1.5)
+        elif c == "marcar":
+            if self.tocando:
+                self.atual(time.time())
+            est = ler_estado(self.lid)
+            ini = t.ini_frase(self.pos)
+            nome = cortar(" ".join(t.pal[ini:ini + 8]), 60)
+            est["marcadores"][str(self.pos)] = {"nome": nome, "mudada": agora_ms(), "removido": False}
+            gravar_estado(self.lid, est)
+            self.estado_mtime, self.falta_sync = self._mtime(), True
+            self.avisar("marcado: " + cortar(nome, 30), 2.5)
         elif c == "ir" and arg:
             try:
                 self.ir(int(float(arg[:-1]) * t.n / 100) if arg.endswith("%") else int(arg))
@@ -1831,10 +2026,10 @@ class Motor:
         self.v += 1
         t = self.txt
         if self.tocando and self.fila:
-            palavras = [e[:4] for e in self.fila]
+            palavras = [e[:4] + [e[9]] for e in self.fila]
         else:
             _, _, texto, foco = self._entrada(self.pos, self.sub)
-            palavras = [[0, texto, foco, self.pos]]
+            palavras = [[0, texto, foco, self.pos, int(t.titulo[self.pos])]]
         gravar_json(os.path.join(BARRA, "roteiro.json"), {
             "v": self.v, "pid": os.getpid(), "lid": self.lid, "titulo": self.meta.get("titulo") or "", "tocando": self.tocando,
             "ppm": self.prefs["ppm"], "fps": self.fps(), "n": t.n, "pos": self.pos, "palavras": palavras,
@@ -1895,6 +2090,8 @@ class Motor:
                         mudou = self.agendar(agora) or mudou
                         if agora - self.salvo_em > 15:
                             self.salvar()
+                        if agora - self.ultimo_sync > 300:  # leitura longa sem pausa: as outras máquinas acompanham
+                            self.sincronizar()
                 else:
                     mudou = self.conferir_rede() or mudou
                     if agora - self.pausado_em > BARRA_OCIOSO:
@@ -1973,7 +2170,7 @@ CORES_FOCO = (("do tema", None), ("vermelho", "#ff5555"), ("laranja", "#ff9e64")
               ("ciano", "#8be9fd"), ("azul", "#5c9dff"), ("magenta", "#ff79c6"), ("igual à letra", "letra"))
 ESTILOS = ("negrito", "normal", "negrito itálico", "itálico")
 PADRAO = {"ppm": 300, "grupo": 1, "fonte": "sans", "tamanho": 6, "traco": "fino", "estilo": "negrito", "tema": "noite",
-          "cor_letra": 0, "cor_foco": 0, "guia": True, "foco_pos": "esquerda", "pontuacao": 1.0, "longas": True, "arranque": True,
+          "cor_letra": 0, "cor_foco": 0, "guia": True, "foco_pos": "esquerda", "pontuacao": 1.0, "respiro": 1.0, "marcas": True, "longas": True, "arranque": True,
           "salto_curto": 5, "salto_longo": 30, "contexto": "pausado", "botoes": True, "retomada": 3, "cores": "auto"}
 PPM_MIN, PPM_MAX = 60, 1500
 SALTOS_CURTOS = (0, 2, 3, 5, 8, 10, 15)
@@ -1984,11 +2181,12 @@ def ler_prefs():
     p = dict(PADRAO)
     lido = ler_json(PREFS, {})
     for k, v in lido.items():
-        if k in PADRAO and type(v) is type(PADRAO[k]) or (k in ("pontuacao",) and isinstance(v, (int, float))):
+        if k in PADRAO and type(v) is type(PADRAO[k]) or (k in ("pontuacao", "respiro") and isinstance(v, (int, float)) and not isinstance(v, bool)):
             p[k] = v
     p["ppm"] = max(PPM_MIN, min(PPM_MAX, int(p["ppm"])))
     p["grupo"] = max(1, min(4, int(p["grupo"])))
     p["pontuacao"] = max(0.0, min(2.0, float(p["pontuacao"])))
+    p["respiro"] = max(0.0, min(3.0, float(p["respiro"])))
     if p["tamanho"] not in TAMANHOS:
         p["tamanho"] = PADRAO["tamanho"]
     if p["traco"] not in TRACOS:
@@ -2281,38 +2479,126 @@ class Tela:
         return eventos
 
 
-AJUDA = """\
-LEITURA
-  Espaço            tocar ou pausar (⏎ também)
-  ↑ ↓               mais rápido / mais devagar (25 palavras por minuto; Shift: 5)
-  ← →               salto curto para trás / para a frente
-  PgUp PgDn         salto longo (também Shift+← →)
-  , .               uma palavra para trás / para a frente
-  ( )               frase anterior / próxima          { }  parágrafo
-  [ ]               capítulo anterior / próximo       Home End  começo e fim
-  0 … 9             vai a 0%, 10% … 90% do texto
-  /  n  N           buscar; próxima e anterior
-  b  m  i           marcar este ponto; marcadores; índice de capítulos
+LARANJA = "#fab387"  # a marca do respiro (| * #): outra cor, para ninguém achar que é texto
 
-APARÊNCIA
-  + -               letra maior / menor (1 = texto do terminal)
-  f  e  r           fonte; estilo (negrito, itálico); traço das letras grandes
-  t  c  v           tema (fundo e cores); cor da letra; cor da letra de foco
-  w                 palavras por vez (1 a 4)
-  d  x              linhas de foco; trecho do texto em volta
-  o                 todos os ajustes
+# (seção, nota, [(teclas, o que fazem)]): a tela de atalhos (?), igual na biblioteca, na leitura e na faixa.
+ATALHOS = [
+    ("Na faixa do tt", "Ctrl+B L liga estas teclas; outra tecla desliga", [
+        ("Espaço ⏎", "tocar ou pausar"),
+        ("← →", "salto curto para trás / para a frente"),
+        ("PgUp PgDn", "salto longo"),
+        ("↑ ↓", "mais rápido / mais devagar"),
+        (", .", "uma palavra para trás / para a frente"),
+        ("( )", "frase anterior / próxima"),
+        ("{ }", "parágrafo anterior / próximo"),
+        ("[ ]", "capítulo anterior / próximo"),
+        ("0 … 9", "vai a 0%, 10% … 90% do texto"),
+        ("Home", "começo do texto"),
+        ("b", "marcar este ponto"),
+        ("o", "abrir a biblioteca"),
+        ("?", "esta tela"),
+        ("x", "fechar a leitura (volta o letreiro)"),
+        ("q Esc", "devolver o teclado; a leitura continua"),
+    ]),
+    ("Leitura em tela cheia", "T na biblioteca; letras grandes", [
+        ("Espaço ⏎", "tocar ou pausar"),
+        ("← →", "salto curto"),
+        ("PgUp PgDn", "salto longo (Shift+← → também)"),
+        ("↑ ↓", "velocidade, de 25 em 25 (Shift: 5)"),
+        (", .", "uma palavra"),
+        ("( )", "frase"),
+        ("{ }", "parágrafo"),
+        ("[ ]", "capítulo"),
+        ("Home End", "começo e fim"),
+        ("0 … 9", "vai a 0%, 10% … 90%"),
+        ("/ n N", "buscar; próxima e anterior"),
+        ("b m", "marcar este ponto; ver os marcadores"),
+        ("i", "índice de capítulos"),
+        ("q Esc", "voltar à biblioteca"),
+    ]),
+    ("Aparência", "na tela cheia", [
+        ("+ -", "letra maior / menor"),
+        ("f e r", "fonte; estilo; traço da letra"),
+        ("t c v", "tema; cor da letra; cor do foco"),
+        ("w", "palavras por vez (1 a 4)"),
+        ("d x", "linhas de foco; trecho em volta"),
+        ("o", "todos os ajustes (ritmo, respiros…)"),
+    ]),
+    ("Biblioteca", "o que está aqui aparece nas outras máquinas", [
+        ("1 2 3", "as três abas (Tab também troca)"),
+        ("↑ ↓", "escolher"),
+        ("⏎", "ler na faixa do tt"),
+        ("T", "ler em tela cheia"),
+        ("a", "acrescentar um arquivo pelo caminho"),
+        ("x", "apagar daqui e das outras máquinas"),
+        ("s", "trocar agora com as outras máquinas"),
+        ("o ?", "ajustes; esta tela"),
+        ("q Esc", "sair"),
+    ]),
+    ("Arquivos", "as pastas desta máquina e das outras", [
+        ("m", "trocar de máquina"),
+        ("⏎ →", "entrar na pasta; acrescentar o arquivo"),
+        ("← ⌫", "pasta de cima"),
+        ("r ~", "arquivos recentes; pasta pessoal"),
+        ("/", "filtrar pelo nome"),
+    ]),
+    ("Mouse e toque", "", [
+        ("toque", "na palavra: tocar ou pausar"),
+        ("roda", "velocidade (na leitura) ou a lista"),
+        ("barra", "de progresso: vai ao ponto tocado"),
+        ("faixa", "« ‹ ▶ › » − + ? ✕ são botões"),
+    ]),
+]
 
-MOUSE E TOQUE
-  toque na palavra  tocar ou pausar            roda  velocidade
-  barra de progresso: vai ao ponto tocado      trecho pausado: toque numa palavra para ir a ela
-  botões da última linha: saltos, tocar, velocidade, tamanho, ajustes
 
-BIBLIOTECA
-  ⏎ lê na faixa do tt, no lugar do letreiro (T lê aqui, em tela cheia, com letras grandes)
-  a acrescentar arquivo (txt, md, html, epub, docx, odt, fb2, rtf, pdf) · x apagar · s sincronizar
-  A posição, os marcadores, o texto e o arquivo de cada livro vão para as suas outras máquinas do tt.
+def _ajustar(segs, w, bg=None):
+    """Os trechos em exatamente `w` células; onde o trecho não tem fundo, entra `bg`."""
+    saida, usado = [], 0
+    for t, fg, b, at in segs:
+        if usado >= w or not t:
+            continue
+        lw = larg(t)
+        if usado + lw > w:  # corte seco: quem quer reticências corta antes
+            corte, lw = [], 0
+            for ch in t:
+                cw = larg_c(ch)
+                if usado + lw + cw > w:
+                    break
+                corte.append(ch)
+                lw += cw
+            t = "".join(corte)
+        saida.append((t, fg, b or bg, at))
+        usado += lw
+    if usado < w:
+        saida.append((" " * (w - usado), None, bg, 0))
+    return saida
 
-  q ou Esc volta; Ctrl+C sai."""
+
+def _larg_segs(segs):
+    return sum(larg(t[0]) for t in segs)
+
+
+def _claro(cor):
+    if not cor:
+        return False
+    r, g, b = _rgb(cor)
+    return (r * 299 + g * 587 + b * 114) / 1000 > 140
+
+
+class Paleta:
+    """As cores da tela a partir do tema: além das cinco do tema, o fundo dos painéis, o da linha escolhida, o das
+    teclas e as de estado. No tema "terminal" (sem cores próprias) quase tudo é None e o realce é negrito/inverso."""
+
+    def __init__(self, tema):
+        self.fundo, self.letra, self.apagado, self.foco, self.destaque, self.letra_w = tema
+        f, l = self.fundo, self.letra
+        self.painel = _mistura(f, l, 0.06) if f and l else None
+        self.realce = _mistura(f, self.destaque, 0.20) if f and self.destaque else None
+        self.tecla = _mistura(f, l, 0.20) if f and l else None
+        self.fraco = _mistura(f, self.apagado, 0.55) if f and self.apagado else self.apagado
+        claro = _claro(f)
+        self.verde, self.amarelo, self.vermelho = ("#2e7d32", "#b26a00", "#c62828") if claro else ("#a6e3a1", "#f9e2af", "#f38ba8")
+        self.laranja = "#c75b12" if claro else LARANJA
 
 
 class App:
@@ -2323,6 +2609,14 @@ class App:
         self.atlas = Atlas()
         self._fontes = {}
         self.modo = "bib"
+        self.aba = "bib"  # bib | arq | maq
+        self.maqs = [m for m in (os.environ.get("TT_LEITOR_MAQUINAS") or "").split() if re.fullmatch(r"[\w.-]{1,60}", m) and m != maquina()]
+        self.arq = {"maq": "", "pasta": "", "acima": "", "casa": CASA, "itens": [], "sel": 0, "rol": 0, "erro": "", "carregando": False,
+                    "filtro": "", "seq": 0, "aberta": False}
+        self.maq_sel = 0
+        self.tarefas = []  # [processo, saída, ao_fim(rc, texto), prazo]
+        self.so_ajuda = False
+        self._rede = None
         self.sobre = None
         self.zonas = []
         self.sujo = True
@@ -2356,6 +2650,7 @@ class App:
         self.salvo_pos = -1
         self.salvo_em = 0
         self.oferta = None
+        self.respiro = 0  # > 0: a tela está no respiro entre parágrafos (o valor é o tipo da quebra)
         self.estado_mtime = 0
         self.media = 1.2
         self._cache_un = {}
@@ -2368,7 +2663,10 @@ class App:
 
     def recarregar(self):
         ant = self.livros[self.sel]["id"] if self.livros and self.sel < len(self.livros) else None
+        self._rede = None
         self.livros = listar()
+        # lendo (do mais recente), para ler, lidos: a ordem da tela
+        self.livros.sort(key=lambda l: (2 if l["concluido"] else 0 if l["pos"] else 1, -max(l["mudada"], l["adicionada"])))
         self.sel = next((i for i, l in enumerate(self.livros) if l["id"] == ant), min(self.sel, max(0, len(self.livros) - 1)))
         self.sujo = True
 
@@ -2471,6 +2769,182 @@ class App:
         except OSError:
             self.sync_proc = None
 
+    def _lancar(self, args, ao_fim, prazo=60):
+        try:
+            f = tempfile.TemporaryFile()
+            p = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError:
+            ao_fim(127, "")
+            return
+        self.tarefas.append([p, f, ao_fim, time.monotonic() + prazo])
+
+    def _conferir_tarefas(self):
+        for t in list(self.tarefas):
+            p, f, ao_fim, prazo = t
+            rc = p.poll()
+            if rc is None and time.monotonic() < prazo:
+                continue
+            if rc is None:
+                try:
+                    os.killpg(p.pid, signal.SIGTERM)
+                except OSError:
+                    pass
+                rc = 124
+            self.tarefas.remove(t)
+            try:
+                f.seek(0)
+                txt = f.read().decode("utf-8", "replace")
+                f.close()
+            except (OSError, ValueError):
+                txt = ""
+            ao_fim(rc, txt)
+            self.sujo = True
+
+    def rede(self):
+        if self._rede is None:
+            self._rede = rede()
+        return self._rede
+
+    # -- aba Arquivos: as pastas daqui e das outras máquinas --
+    def arq_abrir(self, maq=None, onde=None):
+        a = self.arq
+        if maq is not None:
+            a["maq"] = maq
+        if onde is not None:
+            a["pasta"] = onde
+        a.update(sel=0, rol=0, erro="", filtro="", aberta=True)
+        a["seq"] += 1
+        seq = a["seq"]
+        tt = os.environ.get("TT_LEITOR_TT")
+        if not a["maq"]:
+            self._arq_chegou(seq, ls(a["pasta"] or "@recentes"))
+            if a["pasta"] in ("", "@recentes") and not a["itens"]:
+                self._arq_chegou(seq, ls("~"))
+            return
+        if not tt:
+            self._arq_chegou(seq, {"erro": "fora do tt: sem caminho até as outras máquinas"})
+            return
+        a["carregando"], a["itens"] = True, []
+        maq_ = a["maq"]
+
+        def fim(rc, txt):
+            try:
+                d = json.loads(txt)
+                if not isinstance(d, dict) or d.get("leitor_ls") != 1:
+                    raise ValueError
+            except ValueError:
+                d = {"erro": "%s não respondeu (desligada, sem rede ou com um tt mais antigo)" % maq_}
+            if not d.get("erro") and not d.get("itens") and d.get("pasta") == "@recentes" and seq == a["seq"]:
+                return self.arq_abrir(onde="~")  # nada recente lá: começa pela pasta pessoal
+            self._arq_chegou(seq, d)
+        self._lancar([tt, "--leitor-ls", maq_, a["pasta"] or "@recentes"], fim, 40)
+
+    def _arq_chegou(self, seq, d):
+        a = self.arq
+        if seq != a["seq"]:
+            return
+        itens = []
+        for i in d.get("itens") or []:
+            try:
+                nome, tipo, tam, quando = str(i[0]), str(i[1]), int(i[2]), int(i[3])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if nome and tipo in ("d", "f") and not any(ord(c) < 32 or c == "\x7f" for c in nome):
+                itens.append((nome, tipo, tam, quando))
+        a.update(itens=itens, carregando=False, erro=str(d.get("erro") or "")[:200], acima=str(d.get("acima") or ""),
+                 casa=str(d.get("casa") or ""), pasta=str(d.get("pasta") or a["pasta"]))
+        self.sujo = True
+
+    def arq_visiveis(self):
+        a = self.arq
+        f = sem_acento(a["filtro"]).split()
+        if not f:
+            return a["itens"]
+        return [i for i in a["itens"] if all(t in sem_acento(posixpath.basename(i[0])) for t in f)]
+
+    def arq_caminho(self, item):
+        a = self.arq
+        return item[0] if a["pasta"] == "@recentes" or item[0].startswith("/") else posixpath.join(a["pasta"], item[0])
+
+    def arq_entrar(self, i=None):
+        vis = self.arq_visiveis()
+        i = self.arq["sel"] if i is None else i
+        if not (0 <= i < len(vis)):
+            return
+        item = vis[i]
+        cam = self.arq_caminho(item)
+        if item[1] == "d":
+            self.arq_abrir(onde=cam)
+        elif not self.arq["maq"]:
+            self.acrescentar(cam)
+        else:
+            self.arq_pegar(self.arq["maq"], cam)
+
+    def arq_subir(self):
+        a = self.arq
+        if a["pasta"] == "@recentes":
+            self.arq_abrir(onde="~")
+        elif a["acima"]:
+            self.arq_abrir(onde=a["acima"])
+
+    def arq_pegar(self, maq_, caminho):
+        tt = os.environ.get("TT_LEITOR_TT")
+        nome = posixpath.basename(caminho)
+        self.avisar("trazendo %s de %s…" % (cortar(nome, 40), maq_), 3600)
+
+        def fim(rc, txt):
+            linhas = [l for l in txt.splitlines() if l.strip()]
+            partes = linhas[-1].split("\t") if linhas else [""]
+            if rc == 0 and ID_RE.match(partes[0]):
+                self.recarregar()
+                self.aba = "bib"
+                self.sel = next((i for i, l in enumerate(self.livros) if l["id"] == partes[0]), 0)
+                self.avisar("veio de %s: %s" % (maq_, partes[1] if len(partes) > 1 else nome), 6)
+            else:
+                self.avisar("não consegui trazer %s de %s%s" % (cortar(nome, 30), maq_, (": " + cortar(linhas[-1].lstrip("✗ "), 60)) if linhas else ""), 10)
+        self._lancar([tt, "--leitor-pegar", maq_, caminho], fim, 3600)
+
+    def arq_maquina(self, d=1):
+        todas = [""] + self.maqs
+        i = todas.index(self.arq["maq"]) if self.arq["maq"] in todas else 0
+        self.arq_abrir(maq=todas[(i + d) % len(todas)], onde="")
+
+    # -- aba Máquinas --
+    def maq_linhas(self):
+        """[(rótulo, dados da rede ou None)]: esta máquina primeiro, depois as cadastradas e as que já trocaram."""
+        r = self.rede()
+        nomes = list(self.maqs) + sorted(k for k in r if k not in self.maqs and k != maquina())
+        return [(maquina(), None)] + [(n, r.get(n) or {}) for n in nomes]
+
+    def maq_lendo(self, nome):
+        """(título, %, quando) do que a máquina leu por último."""
+        melhor = None
+        for l in self.livros:
+            v = l["maquinas"].get(nome)
+            if v and (melhor is None or v[1] > melhor[2]):
+                melhor = (l["titulo"], v[0], v[1])
+        return melhor
+
+    def sincronizar_uma(self, nome):
+        tt = os.environ.get("TT_LEITOR_TT")
+        if not tt:
+            self.avisar("fora do tt: sem rede para sincronizar")
+            return
+        self.avisar("trocando com %s…" % nome, 120)
+
+        def fim(rc, txt):
+            linhas = [l for l in txt.splitlines() if l.strip()]
+            self.recarregar()
+            self.avisar(linhas[-1] if linhas else "troca com %s terminada" % nome, 6)
+        self._lancar([tt, "--leitor-sync", nome], fim, 3700)
+
+    def trocar_aba(self, aba):
+        self.aba, self.sujo = aba, True
+        if aba == "arq" and not self.arq["aberta"]:
+            self.arq_abrir()
+        if aba == "maq":
+            self._rede = None
+
     def _conferir_sync(self):
         p = self.sync_proc
         if p is None or p.poll() is None:
@@ -2553,7 +3027,7 @@ class App:
     def espera(self):
         t = self.txt
         k, partes = self.unidade()
-        total = sum(fator_tempo(t.pal[i], t.fim_par[i], self.prefs) for i in range(self.pos, min(t.n, self.pos + k)))
+        total = sum(fator_tempo(t.pal[i], t.fim_par[i], self.prefs, t.titulo[i]) for i in range(self.pos, min(t.n, self.pos + k)))
         if k > 1:
             total *= 0.9
         if len(partes) > 1:
@@ -2573,14 +3047,14 @@ class App:
             self.pos = max(self.txt.par(self.pos)[1], self.pos - self.prefs["retomada"])
             self.sub = 0
         self.voltar_ao_tocar = False
-        self.tocando, self.oferta = True, None
+        self.tocando, self.oferta, self.respiro = True, None, 0
         self.rampa = 4 if self.prefs["arranque"] else 0
         self.prox = time.monotonic() + self.espera()
         self.sujo = True
 
     def pausar(self):
         if self.tocando:
-            self.tocando, self.sujo = False, True
+            self.tocando, self.sujo, self.respiro = False, True, 0
             self.voltar_ao_tocar = True
             self.salvar()
 
@@ -2591,7 +3065,7 @@ class App:
         if not self.txt:
             return
         self.pos, self.sub = max(0, min(int(pos), self.txt.n - 1)), 0
-        self.oferta = None
+        self.oferta, self.respiro = None, 0
         self.voltar_ao_tocar = False
         if self.tocando:
             self.rampa = 2 if self.prefs["arranque"] else 0
@@ -2627,9 +3101,15 @@ class App:
         if self.toast and agora > self.toast_fim:
             self.toast, self.sujo = "", True
         self._conferir_sync()
+        if self.tarefas:
+            self._conferir_tarefas()
         if self.modo != "ler" or not self.txt:
             return
-        if self.tocando and agora >= self.prox:
+        if self.tocando and agora >= self.prox and self.respiro:  # o respiro acabou: entra a palavra que já é a atual
+            self.respiro = 0
+            self.prox = max(self.prox, agora - 0.05) + self.espera()
+            self.sujo = True
+        elif self.tocando and agora >= self.prox:
             k, partes = self.unidade()
             if self.sub + 1 < len(partes):
                 self.sub += 1
@@ -2641,7 +3121,15 @@ class App:
                 self.sincronizar(silencio=True)
                 return
             else:
+                q = self.txt.quebra[self.pos + k - 1]
+                resp = pausa_apos(q, self.prefs)
                 self.pos, self.sub = self.pos + k, 0
+                if resp > 0:  # tela vazia antes do parágrafo, do título ou do capítulo que começa
+                    self.respiro = q
+                    self.prox = max(self.prox, agora - 0.05) + resp
+                    self.sujo = True
+                    return
+            self.respiro = 0
             self.prox = max(self.prox, agora - 0.05) + self.espera()
             self.sujo = True
         if self.tocando and agora - self.salvo_em > 15:
@@ -2662,7 +3150,7 @@ class App:
             return 0
         if self.modo == "ler" and self.tocando:
             return max(0.0, min(0.5, self.prox - time.monotonic()))
-        return 0.5 if (self.toast or self.sync_proc) else 2.0
+        return 0.15 if self.tarefas else 0.5 if (self.toast or self.sync_proc) else 2.0
 
     # -- ajustes --
     def itens_ajustes(self):
@@ -2707,7 +3195,11 @@ class App:
             ("Linhas de foco", sn(p["guia"]), troca("guia")),
             ("Posição do foco", "à esquerda do centro" if p["foco_pos"] == "esquerda" else "no centro", ciclo("foco_pos", ["esquerda", "centro"])),
             ("Pausa na pontuação", pont.get(p["pontuacao"], "%.2g×" % p["pontuacao"]), soma("pontuacao", 0.25, 0.0, 2.0, True)),
+            ("Respiro: parágrafo, título, capítulo", pont.get(p["respiro"], "%.2g×" % p["respiro"]) +
+             ("" if not p["respiro"] else " (%.1f / %.1f / %.1f s)" % tuple(pausa_apos(q, p) for q in (1, 2, 4))),
+             soma("respiro", 0.25, 0.0, 3.0, True)),
             ("Mais tempo em palavra longa", sn(p["longas"]), troca("longas")),
+            ("Marca no respiro (| parágrafo, * título, # capítulo)", sn(p["marcas"]), troca("marcas")),
             ("Arranque suave ao tocar", sn(p["arranque"]), troca("arranque")),
             ("Ao retomar, voltar", "%d palavras" % p["retomada"] if p["retomada"] else "nada", passo("retomada", [0, 1, 2, 3, 5, 8, 12])),
             ("Salto curto (← →)", "%d s" % p["salto_curto"] if p["salto_curto"] else "uma frase", passo("salto_curto", list(SALTOS_CURTOS))),
@@ -2821,8 +3313,10 @@ class App:
         if ev[0] == "mouse":
             return self.mouse(*ev[1:])
         if ev[0] == "cola":
-            if self.sobre in ("adicionar", "busca"):
+            if self.sobre in ("adicionar", "busca", "filtro"):
                 self.entrada += ev[1].strip().replace("\n", " ")
+                if self.sobre == "filtro":
+                    self.arq["filtro"] = self.entrada
             elif self.modo == "bib":
                 self.abrir_adicionar()
                 self.entrada = ev[1].strip().split("\n")[0]
@@ -2838,31 +3332,13 @@ class App:
         return self.tecla_ler(k)
 
     def tecla_bib(self, k):
-        n = len(self.livros)
-        if k in ("q", "esc"):
+        if k in ("1", "2", "3"):
+            return self.trocar_aba(("bib", "arq", "maq")[int(k) - 1])
+        if k in ("tab", "s-tab") and not (self.aba == "arq" and k == "tab" and False):
+            ordem = ("bib", "arq", "maq")
+            return self.trocar_aba(ordem[(ordem.index(self.aba) + (1 if k == "tab" else -1)) % 3])
+        if k == "q" or (k == "esc" and not (self.aba == "arq" and self.arq["filtro"])):
             self.sair = True
-        elif k in ("baixo", "j"):
-            self.sel = min(n - 1, self.sel + 1) if n else 0
-        elif k in ("cima", "k"):
-            self.sel = max(0, self.sel - 1)
-        elif k in ("pgdn",):
-            self.sel = min(n - 1, self.sel + 10) if n else 0
-        elif k in ("pgup",):
-            self.sel = max(0, self.sel - 10)
-        elif k in ("home", "g"):
-            self.sel = 0
-        elif k in ("end", "G"):
-            self.sel = max(0, n - 1)
-        elif k in ("enter", " ", "l", "direita") and n:
-            self.ler_livro(self.livros[self.sel]["id"])
-        elif k == "T" and n:
-            self.abrir(self.livros[self.sel]["id"])
-        elif k in ("a", "+", "ins"):
-            self.abrir_adicionar()
-        elif k in ("x", "del") and n:
-            l = self.livros[self.sel]
-            self.confirmar = ("Apagar “%s” daqui e das outras máquinas?" % cortar(l["titulo"], 40), lambda: self._apagar(l["id"]))
-            self.sobre = "confirmar"
         elif k == "s":
             self.sincronizar()
         elif k == "o":
@@ -2871,6 +3347,85 @@ class App:
             self.sobre, self.lista_sel = "ajuda", 0
         elif k == "c-l":
             self.recarregar()
+        elif k in ("a", "ins"):
+            self.abrir_adicionar()
+        elif self.aba == "arq":
+            self.tecla_arq(k)
+        elif self.aba == "maq":
+            self.tecla_maq(k)
+        else:
+            self.tecla_livros(k)
+
+    @staticmethod
+    def _mover(sel, n, k, pagina=10):
+        if k in ("baixo", "j"):
+            return min(n - 1, sel + 1) if n else 0
+        if k in ("cima", "k"):
+            return max(0, sel - 1)
+        if k == "pgdn":
+            return min(n - 1, sel + pagina) if n else 0
+        if k == "pgup":
+            return max(0, sel - pagina)
+        if k in ("home", "g"):
+            return 0
+        if k in ("end", "G"):
+            return max(0, n - 1)
+        return None
+
+    def tecla_livros(self, k):
+        n = len(self.livros)
+        novo = self._mover(self.sel, n, k, 5)
+        if novo is not None:
+            self.sel = novo
+        elif k in ("enter", " ", "l", "direita") and n:
+            self.ler_livro(self.livros[self.sel]["id"])
+        elif k == "T" and n:
+            self.abrir(self.livros[self.sel]["id"])
+        elif k == "+":
+            self.abrir_adicionar()
+        elif k in ("x", "del") and n:
+            l = self.livros[self.sel]
+            self.confirmar = ("Apagar “%s” daqui e das outras máquinas?" % cortar(l["titulo"], 40), lambda: self._apagar(l["id"]))
+            self.sobre = "confirmar"
+
+    def tecla_arq(self, k):
+        a = self.arq
+        vis = self.arq_visiveis()
+        novo = self._mover(a["sel"], len(vis), k)
+        if novo is not None:
+            a["sel"] = novo
+        elif k in ("enter", "direita", "l", " "):
+            self.arq_entrar()
+        elif k in ("esquerda", "h", "backspace"):
+            self.arq_subir()
+        elif k == "m":
+            self.arq_maquina(1)
+        elif k == "M":
+            self.arq_maquina(-1)
+        elif k == "r":
+            self.arq_abrir(onde="@recentes")
+        elif k == "~":
+            self.arq_abrir(onde="~")
+        elif k == "/":
+            self.sobre, self.entrada = "filtro", a["filtro"]
+        elif k == "esc":
+            a["filtro"], a["sel"] = "", 0
+
+    def tecla_maq(self, k):
+        linhas = self.maq_linhas()
+        novo = self._mover(self.maq_sel, len(linhas), k)
+        if novo is not None:
+            self.maq_sel = novo
+        elif k in ("enter", " ") and linhas:
+            nome = linhas[min(self.maq_sel, len(linhas) - 1)][0]
+            if nome == maquina():
+                self.sincronizar()
+            else:
+                self.sincronizar_uma(nome)
+        elif k in ("direita", "l") and linhas:
+            nome = linhas[min(self.maq_sel, len(linhas) - 1)][0]
+            self.aba = "arq"
+            self.arq_abrir(maq="" if nome == maquina() else nome, onde="")
 
     def _apagar(self, lid):
         meta = remover(lid)
@@ -3007,6 +3562,15 @@ class App:
                 self.lista_sel = max(0, self.lista_sel - (1 if k in ("cima", "k") else 10))
             else:
                 self.sobre = None
+                self.sair = self.sair or self.so_ajuda
+        elif s == "filtro":
+            if k == "esc":
+                self.sobre, self.arq["filtro"], self.arq["sel"] = None, "", 0
+            elif k == "enter":
+                self.sobre = None
+            else:
+                self._editar(k)
+                self.arq["filtro"], self.arq["sel"] = self.entrada, 0
         elif s == "ajustes":
             n = len(self.itens_ajustes())
             if k in ("esc", "q", "o"):
@@ -3094,8 +3658,13 @@ class App:
                 self.aj_sel = (self.aj_sel - d) % len(self.itens_ajustes())
             elif self.sobre in ("indice", "marcadores", "adicionar", "ajuda"):
                 self.lista_sel = max(0, self.lista_sel - d * (3 if self.sobre == "ajuda" else 1))
-            elif self.modo == "bib":
-                self.sel = max(0, min(len(self.livros) - 1, self.sel - d))
+            elif self.modo == "bib" and not self.sobre:
+                if self.aba == "arq":
+                    self.arq["sel"] = max(0, min(len(self.arq_visiveis()) - 1, self.arq["sel"] - d * 3))
+                elif self.aba == "maq":
+                    self.maq_sel = max(0, min(len(self.maq_linhas()) - 1, self.maq_sel - d))
+                else:
+                    self.sel = max(0, min(len(self.livros) - 1, self.sel - d))
             elif not self.sobre:
                 self.mudar_ppm(25 * d)
             return
@@ -3107,6 +3676,7 @@ class App:
                 return
         if self.sobre in ("ajuda", "confirmar"):
             self.sobre = None
+            self.sair = self.sair or self.so_ajuda
         elif self.modo == "ler" and not self.sobre and 0 < y < self.H - 3:
             self.alternar()
 
@@ -3123,11 +3693,12 @@ class App:
             base_painel = None
         if self.sobre:
             self.compor_sobre(L, base_painel)
-        if self.toast and not (self.sobre in ("busca", "adicionar")):
+        if self.toast and not (self.sobre in ("busca", "adicionar", "filtro")):
             fundo, letra, apagado, foco, destaque, _ = self.tema()
             y = H - 4 if self.modo == "ler" and H >= 12 and not self.sobre else H - 2
             y = max(1, min(H - 1, y))
-            t = cortar(" " + self.toast + " ", W - 2)
+            giro = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.monotonic() * 8) % 10] + " " if self.tarefas or self.sync_proc else ""
+            t = cortar("  " + giro + self.toast + "  ", W - 2)
             L[y] = [(" " * max(0, (W - larg(t)) // 2), None, None, 0), (t, fundo or None, destaque or None, NEG if fundo else INV)]
         return L
 
@@ -3142,9 +3713,17 @@ class App:
             saida.append(s.rstrip())
         return saida
 
+    def pal(self):
+        return Paleta(self.tema())
+
+    def _tecla(self, P, k):
+        if k in ("…", "/", "·"):
+            return (k, P.apagado, None, 0)
+        return (" %s " % k, P.letra, P.tecla, NEG) if P.tecla else ("[%s]" % k, None, None, NEG)
+
     def _botoes(self, L, y, botoes):
         """Uma linha de botões centrada; os que não cabem (do fim da lista) ficam de fora."""
-        fundo, letra, apagado, foco, destaque, _ = self.tema()
+        P = self.pal()
         W = self.W
         botoes = [b for b in botoes if b[0]]
         while botoes and sum(larg(b[0]) + 3 for b in botoes) - 1 > W - 2:
@@ -3155,76 +3734,441 @@ class App:
         for rot, acao, _prio in botoes:
             t = " " + rot + " "
             if acao:
-                segs.append((t, letra, apagado and _mistura(fundo, apagado, 0.45), 0) if fundo else (t, None, None, INV))
+                segs.append((t, P.letra, P.tecla, 0) if P.tecla else (t, None, None, INV))
                 self.zonas.append((y, x, x + larg(t), lambda _x, a=acao: a()))
             else:
-                segs.append((t, destaque, None, NEG))
+                segs.append((t, P.destaque, None, NEG))
             segs.append((" ", None, None, 0))
             x += larg(t) + 1
         L[y] = segs
 
+    def _rodape(self, L, y, itens):
+        """Dicas de teclas na última linha: [(teclas, rótulo, ação ou None, prioridade)]; as menos importantes saem
+        primeiro quando não cabem. Cada dica é também um botão."""
+        P = self.pal()
+        W = self.W
+
+        def largura(it):
+            return sum(larg(k) + (2 if k not in ("…", "/", "·") else 0) for k in it[0].split()) + len(it[0].split()) + larg(it[1]) + 2
+        itens = [i for i in itens if i]
+        while itens and sum(largura(i) for i in itens) > W - 2:
+            pior = max(i[3] for i in itens)
+            for n in range(len(itens) - 1, -1, -1):
+                if itens[n][3] == pior:
+                    del itens[n]
+                    break
+        segs, x = [(" ", None, None, 0)], 1
+        for teclas, rot, acao, _prio in itens:
+            x0 = x
+            for k in teclas.split():
+                t = self._tecla(P, k)
+                segs.append(t)
+                segs.append((" ", None, None, 0))
+                x += larg(t[0]) + 1
+            segs.append((rot + "  ", P.apagado, None, 0))
+            x += larg(rot) + 2
+            if acao:
+                self.zonas.append((y, x0, x - 1, lambda _x, a=acao: a()))
+        L[y] = segs
+
+    def _estado_maquina(self, P, r):
+        """(cor da bolinha, texto) do que a última troca com a máquina deixou."""
+        if not r or not (r.get("quando") or r.get("ok")):
+            return P.fraco, "ainda não trocou com esta máquina"
+        agora = agora_ms()
+        if r.get("estado") == "falhou":
+            return P.vermelho, "a troca falhou %s%s" % (ha_quanto(r["quando"]), (" · em dia " + ha_quanto(r["ok"])) if r.get("ok") else "")
+        if r.get("estado") == "pulada":
+            return P.amarelo, "sem resposta %s%s" % (ha_quanto(r["quando"]), (" · em dia " + ha_quanto(r["ok"])) if r.get("ok") else "")
+        if r.get("ok") and agora - r["ok"] < 45 * 60 * 1000:
+            return P.verde, "em dia %s" % ha_quanto(r["ok"])
+        return P.amarelo, "última troca %s" % ha_quanto(r.get("ok") or r.get("quando"))
+
+    def _cabecalho(self, L):
+        P = self.pal()
+        W = self.W
+        segs = [(" ▍", P.destaque, None, NEG), ("Leitor rápido", P.letra, None, NEG), ("   ", None, None, 0)]
+        x = _larg_segs(segs)
+        abas = (("bib", "1", "Biblioteca", len(self.livros)), ("arq", "2", "Arquivos", None), ("maq", "3", "Máquinas", len(self.maqs) + 1))
+        curto = W < 72
+        for chave, tecla, nome, n in abas:
+            t = " %s %s%s " % (tecla, nome[:3] if curto else nome, " %d" % n if n is not None and not curto else "")
+            if chave == self.aba:
+                segs.append((t, P.fundo, P.destaque, NEG) if P.fundo and P.destaque else (t, None, None, INV | NEG))
+            else:
+                segs.append((t, P.apagado, None, 0))
+            self.zonas.append((0, x, x + larg(t), lambda _x, c=chave: self.trocar_aba(c)))
+            segs.append((" ", None, None, 0))
+            x += larg(t) + 1
+        r = self.rede()
+        dir_ = []
+        for m in self.maqs:
+            cor, _ = self._estado_maquina(P, r.get(m))
+            item = [("● ", cor, None, 0), (m + "  ", P.apagado, None, 0)]
+            if x + _larg_segs(dir_) + _larg_segs(item) + 2 > W:
+                break
+            dir_ += item
+        if dir_:
+            segs.append((" " * max(1, W - x - _larg_segs(dir_)), None, None, 0))
+            self.zonas.append((0, W - _larg_segs(dir_), W, lambda _x: self.trocar_aba("maq")))
+            segs += dir_
+        L[0] = _ajustar(segs, W, P.painel)
+
     def compor_bib(self, L):
-        fundo, letra, apagado, foco, destaque, _ = self.tema()
-        W, H = self.W, self.H
+        H = self.H
+        self._cabecalho(L)
+        y0, y1 = 2, H - 2
+        na_faixa = os.environ.get("TT_LEITOR_BARRA") == "1"
         n = len(self.livros)
-        titulo = " Leitor rápido"
-        dir_ = "%d %s " % (n, "livro" if n == 1 else "livros") if n else ""
-        L[0] = [(titulo, destaque, None, NEG), (" " * max(1, W - larg(titulo) - larg(dir_)), None, None, 0), (dir_, apagado, None, 0)]
-        topo, base = 2, H - 2
-        if not n:
-            msg = ["Nenhum texto ainda.", "", "a  acrescenta um arquivo (txt, md, html, epub, docx, odt, fb2, rtf, pdf)",
-                   "   ou rode:  tt --leitor ARQUIVO", "", "O que você acrescentar aqui aparece nas suas outras máquinas do tt,",
-                   "com o ponto em que você parou.", "", "?  ajuda     q  sair"]
-            y = max(topo, (H - len(msg)) // 2)
-            for i, m in enumerate(msg):
-                if y + i < base:
-                    L[y + i] = [(" " * max(1, (W - 70) // 2 + 1), None, None, 0), (cortar(m, W - 2), letra if i == 0 else apagado, None, NEG if i == 0 else 0)]
+        if self.aba == "arq":
+            self._aba_arquivos(L, y0, y1)
+            rod = [("⏎", "abrir / acrescentar", self.arq_entrar, 0), ("←", "pasta de cima", self.arq_subir, 1),
+                   ("m", "outra máquina", self.arq_maquina, 1) if self.maqs else None, ("r", "recentes", lambda: self.tecla_arq("r"), 3),
+                   ("~", "pasta pessoal", lambda: self.tecla_arq("~"), 4), ("/", "filtrar", lambda: self.tecla_arq("/"), 2),
+                   ("a", "digitar o caminho", self.abrir_adicionar, 5), ("?", "atalhos", lambda: self.tecla_bib("?"), 2),
+                   ("q", "sair", lambda: self.tecla_bib("q"), 3)]
+        elif self.aba == "maq":
+            self._aba_maquinas(L, y0, y1)
+            rod = [("s", "trocar com todas", self.sincronizar, 0), ("⏎", "trocar só com esta", lambda: self.tecla_maq("enter"), 1),
+                   ("→", "ver os arquivos dela", lambda: self.tecla_maq("direita"), 2), ("?", "atalhos", lambda: self.tecla_bib("?"), 3),
+                   ("q", "sair", lambda: self.tecla_bib("q"), 3)]
         else:
-            vis = max(1, (base - topo) // 2)
-            if self.sel < self.rolagem:
-                self.rolagem = self.sel
-            if self.sel >= self.rolagem + vis:
-                self.rolagem = self.sel - vis + 1
-            self.rolagem = max(0, min(self.rolagem, max(0, n - vis)))
-            for i in range(self.rolagem, min(n, self.rolagem + vis)):
-                l = self.livros[i]
-                y = topo + (i - self.rolagem) * 2
-                sel = i == self.sel
-                marca = "▌ " if sel else "  "
-                pct = "%3d%%" % l["pct"]
-                barra_n = 10 if W >= 70 else 0
-                cheio = round(barra_n * l["pct"] / 100)
-                tit = l["titulo"] + (" — " + l["autor"] if l["autor"] and W >= 60 else "")
-                tit = cortar(tit, W - 4 - barra_n - 8)
-                esp = W - 2 - larg(tit) - barra_n - 7
-                L[y] = [(marca, foco, None, NEG), (tit, letra if sel else letra, None, NEG if sel else 0), (" " * max(1, esp), None, None, 0),
-                        ("━" * cheio, destaque, None, 0), ("━" * (barra_n - cheio), apagado, None, 0), (" " + pct + " ", letra if sel else apagado, None, 0)]
-                resta = (l["palavras"] - l["pos"]) * 60 / self.prefs["ppm"] * 1.2
-                det = []
-                if not l["texto"]:
-                    det.append("texto ainda não chegou (s sincroniza)")
-                elif l["concluido"]:
-                    det.append("lido")
-                elif l["pos"]:
-                    det.append("faltam %s" % duracao(resta))
-                else:
-                    det.append("%s palavras · %s" % (milhar(l["palavras"]), duracao(resta)))
-                if l["mudada"]:
-                    det.append("lido %s%s" % (ha_quanto(l["mudada"]), " em " + l["maquina"] if l["maquina"] and l["maquina"] != maquina() else ""))
-                else:
-                    det.append("acrescentado %s%s" % (ha_quanto(l["adicionada"]), " em " + l["origem"] if l["origem"] and l["origem"] != maquina() else ""))
-                det.append(l["formato"] + ("" if l["original"] else " (arquivo em outra máquina)"))
-                L[y + 1] = [("    " + cortar(" · ".join(det), W - 6), apagado, None, 0)]
-                for yy in (y, y + 1):
-                    self.zonas.append((yy, 0, W, lambda _x, i=i: self._clicar_livro(i)))
+            self._aba_livros(L, y0, y1)
+            rod = [("⏎", "ler na faixa" if na_faixa else "ler", (lambda: self.tecla_livros("enter")) if n else None, 0),
+                   ("T", "tela cheia", lambda: self.tecla_livros("T"), 2) if na_faixa and n else None,
+                   ("2", "procurar arquivos", lambda: self.trocar_aba("arq"), 1),
+                   ("x", "apagar", lambda: self.tecla_livros("x"), 4) if n else None, ("s", "trocar com as máquinas", self.sincronizar, 3),
+                   ("o", "ajustes", lambda: self.tecla_bib("o"), 5), ("?", "atalhos", lambda: self.tecla_bib("?"), 1),
+                   ("q", "sair", lambda: self.tecla_bib("q"), 2)]
         if H >= 6:
-            na_faixa = os.environ.get("TT_LEITOR_BARRA") == "1"
-            self._botoes(L, H - 1, [("⏎ ler na faixa" if na_faixa else "⏎ ler", (lambda: self.tecla_bib("enter")) if n else None, 1),
-                                    ("T tela cheia", (lambda: self.tecla_bib("T")) if n else None, 4) if na_faixa else ("", None, 9),
-                                    ("a acrescentar", self.abrir_adicionar, 0),
-                                    ("x apagar", (lambda: self.tecla_bib("x")) if n else None, 3), ("s sincronizar", self.sincronizar, 2),
-                                    ("o ajustes", lambda: self.tecla_bib("o"), 4), ("? ajuda", lambda: self.tecla_bib("?"), 5),
-                                    ("q sair", lambda: self.tecla_bib("q"), 1)])
+            self._rodape(L, H - 1, rod)
+
+    # -- aba Biblioteca --
+    def _aba_livros(self, L, y0, y1):
+        P = self.pal()
+        W = self.W
+        n = len(self.livros)
+        alt = y1 - y0
+        if not n:
+            msg = [("Sua biblioteca está vazia", P.letra, NEG), ("", None, 0),
+                   ("2   procure um arquivo nesta máquina ou nas outras", P.apagado, 0),
+                   ("a   digite o caminho de um arquivo", P.apagado, 0),
+                   ("    ou, no terminal:  tt --leitor ARQUIVO", P.apagado, 0), ("", None, 0),
+                   ("txt · md · html · epub · docx · odt · fb2 · rtf · pdf", P.fraco, 0), ("", None, 0),
+                   ("O que entra aqui aparece nas suas outras máquinas do tt,", P.apagado, 0),
+                   ("com o ponto em que você parou.", P.apagado, 0)]
+            y = y0 + max(0, (alt - len(msg)) // 2)
+            x = max(2, (W - 56) // 2)
+            for i, (m, cor, at) in enumerate(msg):
+                if y + i < y1:
+                    L[y + i] = [(" " * x, None, None, 0), (cortar(m, W - x - 1), cor, None, at)]
+            return
+        det_w = min(46, W // 3) if W >= 100 and alt >= 12 else 0
+        w = W - det_w - (2 if det_w else 0)
+        compacto = alt < 14
+        h_cartao = 2 if compacto else 4
+        # linhas da lista: títulos de grupo e cartões
+        grupos = ("LENDO", "PARA LER", "LIDOS")
+        itens, ant = [], None
+        for i, l in enumerate(self.livros):
+            g = 2 if l["concluido"] else 0 if l["pos"] else 1
+            if g != ant:
+                itens.append(("grupo", grupos[g], 1 if compacto else 2))
+                ant = g
+            itens.append(("livro", i, h_cartao))
+        topo, tops = 0, []
+        for it in itens:
+            tops.append(topo)
+            topo += it[2]
+        k = next(j for j, it in enumerate(itens) if it[0] == "livro" and it[1] == self.sel)
+        ini = tops[k - 1] if k and itens[k - 1][0] == "grupo" else tops[k]
+        fim = tops[k] + (h_cartao - (0 if compacto else 1))
+        if ini < self.rolagem:
+            self.rolagem = ini
+        if fim > self.rolagem + alt:
+            self.rolagem = fim - alt
+        self.rolagem = max(0, min(self.rolagem, max(0, topo - alt)))
+        for it, t in zip(itens, tops):
+            y = y0 + t - self.rolagem
+            if it[0] == "grupo":
+                yy = y + (it[2] - 1)
+                if y0 <= yy < y1:
+                    L[yy] = _ajustar([(" " + it[1] + " ", P.destaque, None, NEG), ("─" * max(0, w - larg(it[1]) - 3), P.fraco, None, 0)], w)
+                continue
+            i = it[1]
+            l = self.livros[i]
+            sel = i == self.sel
+            bg = P.realce if sel else None
+            marca = ("▌ ", P.foco, bg, NEG) if sel else ("  ", None, bg, 0)
+            if l["concluido"]:
+                chip = ("✓ lido", P.verde)
+            elif not l["texto"]:
+                chip = ("a caminho", P.amarelo)
+            elif l["pos"]:
+                chip = ("%d%%" % l["pct"], P.letra)
+            else:
+                chip = ("novo", P.destaque)
+            resta = (l["palavras"] - l["pos"]) * 60 / self.prefs["ppm"] * 1.2
+            tit = cortar(l["titulo"], max(8, w - 6 - larg(chip[0])))
+            autor = cortar("  " + l["autor"], max(0, w - 6 - larg(chip[0]) - larg(tit))) if l["autor"] else ""
+            esp = max(1, w - 3 - larg(tit) - larg(autor) - larg(chip[0]))
+            l1 = [marca, (tit, P.letra, bg, NEG), (autor, P.apagado, bg, 0), (" " * esp, None, bg, 0), (chip[0] + " ", chip[1], bg, NEG)]
+            det = []
+            if not l["texto"]:
+                det.append("o texto ainda não chegou a esta máquina (s troca agora)")
+            elif l["concluido"]:
+                det.append("%s palavras" % milhar(l["palavras"]))
+            elif l["pos"]:
+                det.append("faltam %s" % duracao(resta))
+            else:
+                det.append("%s palavras · %s de leitura" % (milhar(l["palavras"]), duracao(resta)))
+            if l["mudada"] and (l["pos"] or l["concluido"]):
+                det.append("lido %s%s" % (ha_quanto(l["mudada"]), " em " + l["maquina"] if l["maquina"] and l["maquina"] != maquina() else ""))
+            else:
+                det.append("acrescentado %s%s" % (ha_quanto(l["adicionada"]), " em " + l["origem"] if l["origem"] and l["origem"] != maquina() else ""))
+            det.append(l["formato"])
+            if not det_w:
+                det += ["%s %d%%" % (m, v[0]) for m, v in sorted(l["maquinas"].items()) if m != maquina()][:3]
+            l3 = [("  ", None, bg, 0), (cortar(" · ".join(det), w - 4), P.apagado, bg, 0)]
+            if compacto:
+                linhas = [l1, l3]
+            else:
+                bw = max(4, w - 4)
+                cheio = min(bw, round(bw * l["pct"] / 100)) if l["pos"] or l["concluido"] else 0
+                l2 = [("  ", None, bg, 0), ("━" * cheio, P.verde if l["concluido"] else P.destaque, bg, 0), ("━" * (bw - cheio), P.fraco, bg, 0)]
+                linhas = [l1, l2, l3]
+            for j, segs in enumerate(linhas):
+                yy = y + j
+                if y0 <= yy < y1:
+                    L[yy] = _ajustar(segs, w, bg)
+                    self.zonas.append((yy, 0, w, lambda _x, i=i: self._clicar_livro(i)))
+        if det_w:
+            self._detalhes(L, y0, y1, W - det_w - 1, det_w, self.livros[self.sel])
+
+    def _detalhes(self, L, y0, y1, x, w, l):
+        """O painel à direita: o livro escolhido por inteiro e onde cada máquina parou nele."""
+        P = self.pal()
+        dentro = w - 4
+        corpo = []
+
+        def campo(rot, val, cor=None):
+            corpo.append([("%-11s" % rot, P.apagado, None, 0), (cortar(val, dentro - 11), cor or P.letra, None, 0)])
+        tit = l["titulo"]
+        while tit and len(corpo) < 3:
+            pedaco = tit if larg(tit) <= dentro else tit[:max(1, tit.rfind(" ", 0, dentro) if tit.rfind(" ", 0, dentro) > 8 else dentro - 1)]
+            if len(corpo) == 2 and pedaco != tit:
+                pedaco = cortar(tit, dentro)
+                tit = ""
+            else:
+                tit = tit[len(pedaco):].strip()
+            corpo.append([(cortar(pedaco, dentro), P.letra, None, NEG)])
+        if l["autor"]:
+            corpo.append([(cortar(l["autor"], dentro), P.apagado, None, ITA)])
+        corpo.append([])
+        bw = max(4, dentro - 6)
+        cheio = min(bw, round(bw * l["pct"] / 100))
+        corpo.append([("━" * cheio, P.verde if l["concluido"] else P.destaque, None, 0), ("━" * (bw - cheio), P.fraco, None, 0),
+                      (" %4s" % ("%d%%" % l["pct"]), P.letra, None, NEG)])
+        corpo.append([])
+        resta = (l["palavras"] - l["pos"]) * 60 / self.prefs["ppm"] * 1.2
+        onde = "%s de %s" % (milhar(l["pos"]), milhar(l["palavras"]))
+        campo("posição", onde + (" palavras" if larg(onde) + 9 <= dentro - 11 else ""))
+        if not l["concluido"]:
+            campo("faltam", "%s a %d ppm" % (duracao(resta), self.prefs["ppm"]))
+        campo("formato", "%s · %s" % (l["formato"], tamanho_legivel(l["bytes"])))
+        if l["original"]:
+            campo("arquivo", "nesta máquina")
+        else:
+            fora = onde_original(l["id"])
+            campo("arquivo", ("em " + ", ".join(fora)) if fora else "só o texto", P.amarelo)
+        if not l["texto"]:
+            campo("texto", "ainda não chegou (s troca)", P.amarelo)
+        if l["marcadores"]:
+            campo("marcadores", str(l["marcadores"]))
+        campo("entrou", "%s%s" % (ha_quanto(l["adicionada"]), " em " + l["origem"] if l["origem"] else ""))
+        corpo.append([])
+        corpo.append([("ONDE CADA MÁQUINA PAROU", P.destaque, None, NEG)])
+        nomes = [maquina()] + [m for m in self.maqs] + sorted(m for m in l["maquinas"] if m != maquina() and m not in self.maqs)
+        nw = min(12, max(larg(m) for m in nomes))
+        mb = max(4, dentro - nw - 20)
+        for m in nomes:
+            v = l["maquinas"].get(m)
+            nome = "%-*s" % (nw, cortar(m, nw))
+            if v:
+                c = min(mb, round(mb * v[0] / 100))
+                corpo.append([(nome + " ", P.letra if m == maquina() else P.apagado, None, 0), ("━" * c, P.destaque, None, 0), ("━" * (mb - c), P.fraco, None, 0),
+                              (" %3d%% " % v[0], P.letra, None, 0), (cortar(ha_quanto(v[1]), max(0, dentro - nw - mb - 7)), P.apagado, None, 0)])
+            else:
+                corpo.append([(nome + " ", P.apagado, None, 0), ("━" * mb, P.fraco, None, 0), ("   —", P.fraco, None, 0)])
+        alt = min(y1 - y0, len(corpo) + 2)
+        cx = self._caixa_em(L, x, y0, w, alt, "este texto", corpo)
+        return cx
+
+    def _caixa_em(self, L, x, y, w, h, titulo, corpo, rodape=""):
+        """Caixa de cantos redondos num ponto da tela, por cima do que já está nas linhas."""
+        P = self.pal()
+        bg = P.painel
+
+        def por(yy, segs):
+            if 0 <= yy < len(L):
+                L[yy] = _ajustar(L[yy], x) + _ajustar(segs, w, bg) + [(" " * max(0, self.W - x - w), None, None, 0)]
+        tit = cortar(" " + titulo + " ", w - 4)
+        por(y, [("╭─", P.fraco, None, 0), (tit, P.destaque, None, NEG), ("─" * max(0, w - 3 - larg(tit)) + "╮", P.fraco, None, 0)])
+        for i in range(h - 2):
+            segs = corpo[i] if i < len(corpo) else []
+            por(y + 1 + i, [("│ ", P.fraco, None, 0)] + _ajustar(list(segs), w - 4, bg) + [(" │", P.fraco, None, 0)])
+        rod = cortar(" " + rodape + " ", w - 4) if rodape else ""
+        por(y + h - 1, [("╰─", P.fraco, None, 0), (rod, P.apagado, None, 0), ("─" * max(0, w - 3 - larg(rod)) + "╯", P.fraco, None, 0)])
+        return x + 2
+
+    # -- aba Arquivos --
+    def _aba_arquivos(self, L, y0, y1):
+        P = self.pal()
+        W = self.W
+        a = self.arq
+        col = 22 if W >= 76 and self.maqs else 0
+        if col:
+            L[y0] = _ajustar([(" MÁQUINAS", P.destaque, None, NEG)], col)
+            r = self.rede()
+            for i, m in enumerate([""] + self.maqs):
+                yy = y0 + 2 + i
+                if yy >= y1:
+                    break
+                sel = m == a["maq"]
+                bg = P.realce if sel else None
+                cor = P.verde if not m else self._estado_maquina(P, r.get(m))[0]
+                nome = cortar(m or "esta (%s)" % maquina(), col - 5)
+                L[yy] = _ajustar([("▌" if sel else " ", P.foco, bg, NEG), (" ● ", cor, bg, 0), (nome, P.letra if sel else P.apagado, bg, NEG if sel else 0)], col, bg)
+                self.zonas.append((yy, 0, col, lambda _x, m=m: self.arq_abrir(maq=m, onde="")))
+        x0 = col + (2 if col else 1)
+        w = W - x0 - 1
+        vis = self.arq_visiveis()
+        casa = a["casa"] or CASA
+        onde = "arquivos recentes" if a["pasta"] == "@recentes" else (("~" + a["pasta"][len(casa):]) if casa and a["pasta"].startswith(casa) else a["pasta"])
+        cab = [(a["maq"] or maquina(), P.destaque, None, NEG), (" › ", P.fraco, None, 0), (cortar(onde, max(8, w - 30)), P.letra, None, NEG)]
+        dir_ = "%d %s" % (len(vis), "item" if len(vis) == 1 else "itens") + (" · filtro: " + a["filtro"] if a["filtro"] else "")
+        cab.append((" " * max(1, w - _larg_segs(cab) - larg(dir_)), None, None, 0))
+        cab.append((dir_, P.amarelo if a["filtro"] else P.apagado, None, 0))
+
+        def por(yy, segs):
+            if y0 <= yy < y1:
+                L[yy] = _ajustar(L[yy], x0) + _ajustar(segs, w)
+        por(y0, cab)
+        por(y0 + 1, [("─" * w, P.fraco, None, 0)])
+        topo, alt = y0 + 2, y1 - y0 - 2
+        if a["carregando"]:
+            giro = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.monotonic() * 8) % 10]
+            por(topo + 1, [("  " + giro + " lendo a pasta em %s…" % a["maq"], P.apagado, None, 0)])
+            return
+        if a["erro"]:
+            por(topo + 1, [("  " + cortar(a["erro"], w - 4), P.vermelho, None, 0)])
+            por(topo + 3, [("  ← volta à pasta de cima · m troca de máquina", P.apagado, None, 0)])
+            return
+        if not vis:
+            por(topo + 1, [("  nada aqui que o leitor leia" + (" com esse filtro (Esc limpa)" if a["filtro"] else " (← sobe uma pasta)"), P.apagado, None, 0)])
+            return
+        a["sel"] = max(0, min(a["sel"], len(vis) - 1))
+        if a["sel"] < a["rol"]:
+            a["rol"] = a["sel"]
+        if a["sel"] >= a["rol"] + alt:
+            a["rol"] = a["sel"] - alt + 1
+        a["rol"] = max(0, min(a["rol"], max(0, len(vis) - alt)))
+        tenho = {(l["nome"], l["bytes"]) for l in self.livros}
+        for n in range(alt):
+            i = a["rol"] + n
+            if i >= len(vis):
+                break
+            nome, tipo, tam, quando = vis[i]
+            sel = i == a["sel"]
+            bg = P.realce if sel else None
+            base = posixpath.basename(nome) or nome
+            marca = ("▌", P.foco, bg, NEG) if sel else (" ", None, bg, 0)
+            if tipo == "d":
+                segs = [marca, (" ▸ ", P.destaque, bg, NEG), (cortar(base + "/", w - 6), P.destaque if not sel else P.letra, bg, NEG if sel else 0)]
+            else:
+                ja = (base, tam) in tenho
+                dir_ = "%9s" % tamanho_legivel(tam) + ("  " + time.strftime("%d/%m/%Y", time.localtime(quando)) if w >= 60 else "")
+                if ja:
+                    dir_ = ("✓ na biblioteca  " if w >= 84 else "✓  ") + dir_
+                nm = cortar(base, max(6, w - 6 - larg(dir_)))
+                pasta_ = ""
+                if a["pasta"] == "@recentes":
+                    d = posixpath.dirname(nome)
+                    d = "~" + d[len(casa):] if casa and d.startswith(casa) else d
+                    pasta_ = cortar("  " + d, max(0, w - 6 - larg(dir_) - larg(nm)))
+                esp = max(1, w - 4 - larg(nm) - larg(pasta_) - larg(dir_))
+                segs = [marca, ("   ", None, bg, 0), (nm, P.letra, bg, NEG if sel else 0), (pasta_, P.fraco, bg, 0), (" " * esp, None, bg, 0),
+                        (dir_, P.verde if ja else P.apagado, bg, 0)]
+            yy = topo + n
+            L[yy] = _ajustar(L[yy], x0) + _ajustar(segs, w, bg)
+            self.zonas.append((yy, x0, x0 + w, lambda _x, i=i: self._clicar_arquivo(i)))
+
+    def _clicar_arquivo(self, i):
+        if i == self.arq["sel"]:
+            self.arq_entrar(i)
+        else:
+            self.arq["sel"] = i
+
+    # -- aba Máquinas --
+    def _aba_maquinas(self, L, y0, y1):
+        P = self.pal()
+        W = self.W
+        w = min(W - 2, 110)
+        linhas = self.maq_linhas()
+        self.maq_sel = max(0, min(self.maq_sel, len(linhas) - 1))
+        intro = "Sem servidor no meio: cada máquina troca direto com as outras a biblioteca, o ponto em que você parou, os marcadores e os arquivos."
+        y = y0
+        while intro and y < y0 + 2:
+            corte = len(intro) if larg(intro) <= W - 2 else max(1, intro.rfind(" ", 0, W - 2))
+            L[y] = [(" " + intro[:corte], P.apagado, None, 0)]
+            intro = intro[corte:].strip()
+            y += 1
+        y += 1
+        h = 4 if y1 - y - len(linhas) * 4 >= 0 else 3
+        for i, (nome, r) in enumerate(linhas):
+            if y + h - 1 > y1:
+                break
+            sel = i == self.maq_sel
+            bg = P.realce if sel else None
+            eu = r is None
+            if eu:
+                cor, est = P.verde, "esta máquina"
+                n_liv, n_orig = len(self.livros), sum(1 for l in self.livros if l["original"])
+            else:
+                cor, est = self._estado_maquina(P, r)
+                n_liv, n_orig = r.get("livros"), r.get("originais") or 0
+            marca = ("▌", P.foco, bg, NEG) if sel else (" ", None, bg, 0)
+            esp = max(1, w - 5 - larg(nome) - larg(est))
+            l1 = [marca, (" ● ", cor, bg, 0), (nome, P.letra, bg, NEG), (" " * esp, None, bg, 0), (est + " ", cor if not eu else P.apagado, bg, 0)]
+            if n_liv is None:
+                t2 = "ainda não sei o que ela tem (⏎ troca agora)"
+            else:
+                t2 = "%d %s · %d com o arquivo original" % (n_liv, "texto" if n_liv == 1 else "textos", n_orig)
+                if not eu and "ids" in r:
+                    falta = sum(1 for l in self.livros if l["id"] not in r["ids"])
+                    if falta:
+                        t2 += " · %d daqui ainda não chegaram lá" % falta
+            l2 = [("    ", None, bg, 0), (cortar(t2, w - 6), P.apagado, bg, 0)]
+            lendo = self.maq_lendo(nome)
+            if lendo:
+                bw = 12
+                c = min(bw, round(bw * lendo[1] / 100))
+                tl = cortar(lendo[0], max(6, w - 50))
+                l3 = [("    ", None, bg, 0), ("lendo  ", P.apagado, bg, 0), (tl + "  ", P.letra, bg, 0), ("━" * c, P.destaque, bg, 0), ("━" * (bw - c), P.fraco, bg, 0),
+                      (" %d%%  " % lendo[1], P.letra, bg, 0), (ha_quanto(lendo[2]), P.apagado, bg, 0)]
+            else:
+                l3 = [("    ", None, bg, 0), ("ainda não leu nada por aqui", P.fraco, bg, 0)]
+            for j, segs in enumerate((l1, l2, l3)):
+                if y + j < y1:
+                    L[y + j] = [(" ", None, None, 0)] + _ajustar(segs, w, bg)
+                    self.zonas.append((y + j, 0, W, lambda _x, i=i: self._clicar_maquina(i)))
+            y += h
+
+    def _clicar_maquina(self, i):
+        if i == self.maq_sel:
+            self.tecla_maq("enter")
+        else:
+            self.maq_sel = i
 
     def ler_livro(self, lid, tela=False):
         """Na faixa do tt (quando há faixa: a leitura acontece lá e esta tela fecha) ou, sem ela, aqui."""
@@ -3262,12 +4206,20 @@ class App:
         tit = " " + cortar(self.meta.get("titulo") or "?", max(8, W // 2 - 2))
         if cap and cap != self.meta.get("titulo"):
             tit += "  ·  " + cortar(cap, max(0, W - larg(tit) - 22))
-        est = ("▶ %d ppm " if self.tocando else "‖ pausado · %d ppm ") % p["ppm"]
-        L[0] = [(tit, apagado, None, 0), (" " * max(1, W - larg(tit) - larg(est)), None, None, 0), (est, destaque if self.tocando else apagado, None, 0)]
+        P = self.pal()
+        est = (" ▶ %d ppm " if self.tocando else " ‖ pausado · %d ppm ") % p["ppm"]
+        chip = (est, fundo, destaque, NEG) if self.tocando and fundo and destaque else (est, destaque if self.tocando else apagado, None, NEG)
+        L[0] = _ajustar([(" ▍", destaque, None, NEG), (tit.strip(), letra, None, 0), (" " * max(1, W - larg(tit) - 1 - larg(est)), None, None, 0), chip], W, P.painel)
         # palavra
         _, partes = self.unidade()
         texto = partes[min(self.sub, len(partes) - 1)]
-        des = self.desenho(texto) or ("texto", 1, min(larg(texto), W - 2), cortar(texto, W - 2), None)
+        em_respiro = self.tocando and self.respiro
+        if em_respiro:  # entre parágrafos, títulos e capítulos: só a marca do que acabou, noutra cor
+            texto = PAUSA_MARCA.get(self.respiro, "") if p["marcas"] else ""
+            letra_w = foco = P.laranja
+        elif t.titulo[self.pos]:
+            letra_w = destaque or letra_w
+        des = self.desenho(texto or " ") or ("texto", 1, min(larg(texto), W - 2), cortar(texto, W - 2), None)
         col, util = self.area_palavra()
         alt = des[1]
         guia = p["guia"] and base - 1 >= alt + 4
@@ -3290,9 +4242,14 @@ class App:
             x = max(1, min(W - 1 - cols, x))
             for i, linha in enumerate(linhas):
                 L[y0 + i] = [(" " * x, None, None, 0)] + [(s, foco if dest else letra_w, None, 0) for s, dest in linha]
+            if em_respiro and not texto:
+                for i in range(len(linhas)):
+                    L[y0 + i] = []
         else:
             _, _, cols, s, f = des
             attr = (NEG if "negrito" in p["estilo"] else 0) | (ITA if "itálico" in p["estilo"] else 0)
+            if em_respiro:
+                f = 0 if s.strip() else None
             if f is not None and f < len(s):
                 x = max(1, min(W - 1 - cols, col - larg(s[:f])))
                 L[y0] = [(" " * x, None, None, 0), (s[:f], letra_w, None, attr), (s[f], foco, None, attr | NEG), (s[f + 1:], letra_w, None, attr)]
@@ -3308,7 +4265,19 @@ class App:
         if rodape >= 2:
             cheio = round((W - 2) * (self.pos + 1) / max(1, t.n)) if t.n > 1 else W - 2
             yb = base
-            L[yb] = [(" ", None, None, 0), ("━" * cheio, destaque, None, 0), ("─" * (W - 2 - cheio), apagado, None, 0)]
+            # a barra de progresso, com um tracinho onde começa cada capítulo
+            marcas = {c[0] * (W - 2) // max(1, t.n) for c, nv in zip(t.caps[1:], t.cap_nivel[1:]) if nv <= 1}
+            if len(marcas) > (W - 2) // 3:
+                marcas = set()
+            barra, x = [(" ", None, None, 0)], 0
+            while x < W - 2:
+                tick = x in marcas
+                x1 = x + 1
+                while not tick and x1 < W - 2 and x1 not in marcas and (x1 < cheio) == (x < cheio):
+                    x1 += 1
+                barra.append((("╋" if x < cheio else "┿") if tick else ("━" if x < cheio else "─") * (x1 - x), destaque if x < cheio else P.fraco, None, 0))
+                x = x1
+            L[yb] = barra
             self.zonas.append((yb, 1, W - 1, lambda x: self.ir(x * t.n // max(1, W - 2))))
             ys = base + 1
         else:
@@ -3331,7 +4300,7 @@ class App:
                 (sc + " ›", lambda: self.saltar(1), 1), (sl + " »", lambda: self.saltar(1, True), 2),
                 ("−", lambda: self.mudar_ppm(-25), 3), ("%d ppm" % p["ppm"], None, 3), ("+", lambda: self.mudar_ppm(25), 3),
                 ("A−", lambda: self.ajuste_rapido("Tamanho", -1), 5), ("A+", lambda: self.ajuste_rapido("Tamanho", 1), 5),
-                ("≡ ajustes", lambda: self.tecla_ler("o"), 4), ("✕", self.fechar_livro, 6)])
+                ("≡ ajustes", lambda: self.tecla_ler("o"), 4), ("? atalhos", lambda: self.tecla_ler("?"), 4), ("✕", self.fechar_livro, 6)])
         return None
 
     def _compor_contexto(self, L, y0, alt):
@@ -3375,22 +4344,56 @@ class App:
 
     def _caixa(self, L, titulo, linhas, largura, y0=None, altura=None, rodape=""):
         """Caixa com borda sobre a tela. `linhas`: listas de trechos. Devolve (x de dentro, y da 1ª linha, linhas visíveis)."""
-        fundo, letra, apagado, foco, destaque, _ = self.tema()
         W, H = self.W, self.H
         w = max(10, min(W - 2, largura))
         h = min(H - 2 if altura is None else altura, len(linhas) + 2 if altura is None else altura)
         h = max(3, min(H, h))
         x = (W - w) // 2
         y = max(0, (H - h) // 2) if y0 is None else y0
-        tit = cortar(" " + titulo + " ", w - 4)
-        L[y] = [(" " * x, None, None, 0), ("┌─", apagado, None, 0), (tit, destaque, None, NEG), ("─" * max(0, w - 3 - larg(tit)) + "┐", apagado, None, 0)]
-        for i in range(h - 2):
-            segs = linhas[i] if i < len(linhas) else []
-            usado = sum(larg(s[0]) for s in segs)
-            L[y + 1 + i] = [(" " * x, None, None, 0), ("│ ", apagado, None, 0)] + list(segs) + [(" " * max(0, w - 3 - usado), None, None, 0), ("│", apagado, None, 0)]
-        rod = cortar(" " + rodape + " ", w - 4) if rodape else ""
-        L[y + h - 1] = [(" " * x, None, None, 0), ("└─", apagado, None, 0), (rod, apagado, None, 0), ("─" * max(0, w - 3 - larg(rod)) + "┘", apagado, None, 0)]
+        self._caixa_em(L, x, y, w, h, titulo, linhas, rodape)
         return x + 2, y + 1, h - 2
+
+    def _linhas_atalhos(self, colw, ncol):
+        """A tela de atalhos em `ncol` colunas de `colw` células: seções inteiras, teclas desenhadas como teclas."""
+        P = self.pal()
+        secoes = list(ATALHOS)
+        primeiro = "Na faixa do tt" if (self.so_ajuda or self.modo != "ler") and os.environ.get("TT_LEITOR_BARRA") == "1" else \
+            "Leitura em tela cheia" if self.modo == "ler" else "Biblioteca"
+        secoes.sort(key=lambda s_: s_[0] != primeiro)
+        tw = 15
+        blocos = []
+        for nome, nota, linhas in secoes:
+            b = [[(nome.upper(), P.destaque, None, NEG)]]
+            if nota:
+                b.append([(cortar(nota, colw), P.fraco, None, ITA)])
+            for teclas, desc in linhas:
+                ks = [self._tecla(P, k) for k in teclas.split()]
+                lw = sum(larg(k[0]) for k in ks) + len(ks) - 1
+                segs = [(" " * max(0, tw - lw), None, None, 0)]
+                for n, k in enumerate(ks):
+                    segs.append(k)
+                    if n < len(ks) - 1:
+                        segs.append((" ", None, None, 0))
+                segs.append(("  " + cortar(desc, colw - tw - 2), P.letra, None, 0))
+                b.append(segs)
+            b.append([])
+            blocos.append(b)
+        total = sum(len(b) for b in blocos)
+        alvo = -(-total // ncol)
+        cols = [[]]
+        for b in blocos:
+            if cols[-1] and len(cols[-1]) + len(b) - 1 > alvo and len(cols) < ncol:
+                cols.append([])
+            cols[-1] += b
+        linhas = []
+        for r in range(max(len(c) for c in cols)):
+            segs = []
+            for n, c in enumerate(cols):
+                segs += _ajustar(c[r] if r < len(c) else [], colw) + ([("   ", None, None, 0)] if n < len(cols) - 1 else [])
+            linhas.append(segs)
+        while linhas and not any(t[0].strip() for t in linhas[-1]):
+            linhas.pop()
+        return linhas
 
     def compor_sobre(self, L, base_painel):
         fundo, letra, apagado, foco, destaque, _ = self.tema()
@@ -3400,12 +4403,18 @@ class App:
             self._caixa(L, "confirmar", [[(cortar(self.confirmar[0], W - 8), letra, None, 0)], [], [("s  sim      qualquer outra tecla  não", apagado, None, 0)]],
                         max(44, larg(self.confirmar[0]) + 4))
         elif s == "ajuda":
-            linhas = AJUDA.split("\n")
+            ncol = max(1, min(3, (W - 6) // 53))
+            colw = min(56, (W - 6 - 3 * (ncol - 1)) // ncol)
+            linhas = self._linhas_atalhos(colw, ncol)
             vis = H - 4
             self.lista_sel = max(0, min(self.lista_sel, max(0, len(linhas) - vis)))
-            corpo = [[(cortar(l, W - 6), destaque if l and not l.startswith(" ") else letra, None, NEG if l and not l.startswith(" ") else 0)]
-                     for l in linhas[self.lista_sel:self.lista_sel + vis]]
-            self._caixa(L, "ajuda", corpo, max(larg(l) for l in linhas) + 4, rodape="↑ ↓ rolam · qualquer tecla fecha")
+            corpo = linhas[self.lista_sel:self.lista_sel + vis]
+            self._caixa(L, "atalhos", corpo, ncol * colw + 3 * (ncol - 1) + 4,
+                        rodape=("↑ ↓ rolam · " if len(linhas) > vis else "") + "qualquer outra tecla fecha")
+        elif s == "filtro":
+            y = max(1, H - 2)
+            L[y] = [(cortar(" filtrar pelo nome: " + self.entrada + "▏", W - 1), letra, None, NEG)]
+            L[H - 1] = [(" ⏎ fica com o filtro · Esc limpa", apagado, None, 0)]
         elif s == "ajustes":
             itens = self.itens_ajustes()
             w = min(W - 2, 74)
@@ -3520,6 +4529,9 @@ def arquivos_recentes(limite=300):
                 conta += 1
                 if a.lower().endswith(exts) and not a.startswith("."):
                     c = os.path.join(d, a)
+                    if c in vistos:
+                        continue
+                    vistos.add(c)
                     try:
                         achados.append((os.path.getmtime(c), c))
                     except OSError:
@@ -3530,7 +4542,7 @@ def arquivos_recentes(limite=300):
     return [c for _, c in achados[:limite]]
 
 
-def interface(abrir=None):
+def interface(abrir=None, ajuda=False):
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise Erro("a tela do leitor precisa de um terminal (tt --leitor-listar e tt --leitor-add funcionam sem)")
     prefs = ler_prefs()
@@ -3543,6 +4555,8 @@ def interface(abrir=None):
             direto = app.abrir(abrir)
         else:
             direto = False
+        if ajuda:  # a tela de atalhos sozinha (o ? da faixa): fecha com qualquer tecla
+            app.sobre, app.so_ajuda, app.lista_sel = "ajuda", True, 0
         while not app.sair:
             if tela.redim:
                 app.W, app.H = tela.tamanho()
@@ -3598,9 +4612,10 @@ def _reabrir_terminal():
 
 
 def cmd_quadro(args):
-    """Um quadro em texto puro: leitor-tt.py quadro ID [--pos N] [--largura L] [--altura A] [chave=valor…] [--json]."""
+    """Um quadro em texto puro: leitor-tt.py quadro ID|- [--pos N] [--largura L] [--altura A] [--aba bib|arq|maq]
+    [--pasta P] [--sel N] [--atalhos] [--respiro Q] [--cores] [chave=valor…] [--json]."""
     lid = resolver(args[0]) if args and args[0] != "-" else None
-    op = {"--pos": None, "--largura": "80", "--altura": "24"}
+    op = {"--pos": None, "--largura": "80", "--altura": "24", "--aba": "bib", "--pasta": None, "--sel": None, "--respiro": None}
     prefs = ler_prefs()
     em_json = False
     i = 1
@@ -3613,12 +4628,24 @@ def cmd_quadro(args):
             em_json = True
         elif a == "--tocando":
             op["tocando"] = True
+        elif a in ("--atalhos", "--cores"):
+            op[a] = True
         elif "=" in a:
             k, v = a.split("=", 1)
             if k in PADRAO:
                 prefs[k] = type(PADRAO[k])(v) if not isinstance(PADRAO[k], bool) else v in ("1", "sim", "true")
         i += 1
-    app = App(prefs, int(op["--largura"]), int(op["--altura"]), 0)
+    app = App(prefs, int(op["--largura"]), int(op["--altura"]), 24 if op.get("--cores") else 0)
+    if op["--sel"] is not None:
+        app.sel = max(0, min(len(app.livros) - 1, int(op["--sel"])))
+    if op["--aba"] != "bib" and not lid:
+        if op["--aba"] == "arq":
+            app.aba = "arq"
+            app.arq_abrir(onde=op["--pasta"] or "")
+        else:
+            app.trocar_aba(op["--aba"])
+    if op.get("--atalhos"):
+        app.sobre = "ajuda"
     if lid:
         if not app.abrir(lid):
             raise Erro(app.toast or "não abriu")
@@ -3626,6 +4653,11 @@ def cmd_quadro(args):
         if op["--pos"] is not None:
             app.ir(int(op["--pos"]))
         app.tocando = bool(op.get("tocando"))
+        if op["--respiro"] is not None:
+            app.tocando, app.respiro = True, int(op["--respiro"])
+    if op.get("--cores"):
+        print("\n".join(app.linhas()))
+        return
     linhas = app.texto_puro()
     if em_json:
         _, partes = app.unidade() if lid else (0, [""])
@@ -3645,6 +4677,8 @@ def principal(argv):
         return 0
     if cmd == "tela":
         interface()
+    elif cmd == "atalhos":
+        interface(ajuda=True)
     elif cmd == "ler":
         if not args:
             interface()
@@ -3727,6 +4761,11 @@ def principal(argv):
             fora = onde_original(l["id"])
             print("  %s %3d%%  %s%s" % (l["id"], l["pct"], cortar(l["titulo"], 50),
                   "" if l["original"] else ("  · arquivo em: " + ", ".join(fora) if fora else "  · só o texto")))
+    elif cmd == "ls":
+        json.dump(ls(args[0] if args else ""), sys.stdout, ensure_ascii=False)
+        print()
+    elif cmd == "rede-nota":
+        rede_nota(re.sub(r"[^\w.-]", "-", args[0])[:60], args[1] if len(args) > 1 else "ok")
     elif cmd == "inventario":
         json.dump(inventario(), sys.stdout, ensure_ascii=False)
         print()

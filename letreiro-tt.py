@@ -819,6 +819,7 @@ DIR_LEITOR = os.environ.get("TT_LEITOR_BARRA_DIR") or os.path.join(HOME, ".cache
 _LEITOR = {"mt": None, "dados": None, "visto": 0.0, "vivo": False, "mudou": 0.0}
 ZONAS_LEITOR = None
 L_PALAVRA, L_FOCO, L_PAUSADA, L_BOTAO, L_TOCAR, L_FECHAR = "#cdd6f4", "#f38ba8", "#a6adc8", "#7f849c", "#a6e3a1", "#6c7086"
+L_TITULO, L_RESPIRO, L_FEITO, L_FALTA = "#89b4fa", "#fab387", "#89b4fa", "#45475a"  # título; marca | * # do respiro; progresso
 
 
 def leitor_roteiro():
@@ -867,19 +868,22 @@ def quadro_leitor(d, orc, agora):
         if atual is None and pal:
             atual = pal[0]
         texto, foco, pos = (str(atual[1]), int(atual[2]), int(atual[3])) if atual else ("", -1, 0)
+        tipo = int(atual[4]) if atual and len(atual) > 4 else 0  # 0 palavra, 1 palavra de título, 2 respiro (marca | * #)
         n = max(1, int(d.get("n") or 1))
         ppm = int(d.get("ppm") or 0)
         msg = d.get("msg") or ["", 0]
         aviso = str(msg[0]) if msg[0] and float(msg[1]) > agora else ""
     except (TypeError, ValueError, IndexError):
-        texto, foco, pos, n, ppm, aviso = "", -1, 0, 1, 0, ""
+        texto, foco, pos, n, ppm, aviso, tipo = "", -1, 0, 1, 0, "", 0
     texto = "".join(c for c in texto if c >= " " and c != "\x7f")
     pct = min(100, (pos + 1) * 100 // n)
     esq = [(" « ", "longo-", L_BOTAO), (" ‹ ", "curto-", L_BOTAO), (" ‖ " if tocando else " ▶ ", "alternar", L_TOCAR),
            (" › ", "curto+", L_BOTAO), (" » ", "longo+", L_BOTAO)]
-    dir_ = [(" − ", "ppm-", L_BOTAO), ("%d" % ppm, "tela", L_BOTAO), (" + ", "ppm+", L_BOTAO), (" %d%% " % pct, "tela", L_BOTAO),
-            (" ✕ ", "parar", L_FECHAR)]
-    for e, r in ((esq, dir_), (esq[1:4], [dir_[0], dir_[2], dir_[4]]), ([esq[2]], [dir_[4]]), ([], [])):
+    feito = min(6, (pos + 1) * 6 // n)
+    dir_ = [(" − ", "ppm-", L_BOTAO), ("%d" % ppm, "tela", L_BOTAO), (" + ", "ppm+", L_BOTAO), (" ", "tela", L_BOTAO),
+            ("━" * feito, "tela", L_FEITO), ("━" * (6 - feito), "tela", L_FALTA), (" %d%% " % pct, "tela", L_BOTAO),
+            (" ? ", "atalhos", L_BOTAO), (" ✕ ", "parar", L_FECHAR)]
+    for e, r in ((esq, dir_), (esq, dir_[:3] + dir_[6:]), (esq[1:4], [dir_[0], dir_[2], dir_[7], dir_[8]]), ([esq[2]], [dir_[8]]), ([], [])):
         w = orc - sum(_cels(t) for t, _, _ in e) - sum(_cels(t) for t, _, _ in r)
         if w >= 20 or not e:
             break
@@ -903,8 +907,10 @@ def quadro_leitor(d, orc, agora):
         else:
             ini = (w - total) // 2
         ini = max(0, min(w - total, ini))
-        cor = L_PALAVRA if tocando else L_PAUSADA
-        if 0 <= foco < len(gs):
+        cor = L_TITULO if tipo == 1 else L_PALAVRA if tocando else L_PAUSADA
+        if tipo == 2:  # o respiro: a marca do que acabou, noutra cor, no lugar do foco (não é texto)
+            corpo = "#[fg=%s]%s" % (L_RESPIRO, esc("".join(gs)))
+        elif 0 <= foco < len(gs):
             corpo = "#[fg=%s,bold]%s#[fg=%s]%s#[fg=%s]%s#[nobold]" % (cor, esc("".join(gs[:foco])), L_FOCO, esc(gs[foco]), cor, esc("".join(gs[foco + 1:])))
         else:
             corpo = "#[fg=%s,bold]%s#[nobold]" % (cor, esc("".join(gs)))

@@ -139,17 +139,22 @@ Enquanto a leitura estiver ligada o miolo é só dela: letreiro, aviso novo e tr
 faixa seguem como sempre), até o ✕.
 
 ```
- « ‹ ▶ › »            palavra            − 300 + 42% ✕
+ « ‹ ▶ › »            palavra            − 300 + ━━━━━━ 42% ? ✕
 ```
 
 - **Toque/clique:** `«` `»` salto longo, `‹` `›` salto curto, `▶`/`‖` (ou a própria palavra) toca e pausa, `−` `+`
-  velocidade, o número e a porcentagem abrem a biblioteca, `✕` encerra e devolve a faixa ao letreiro. Em tela estreita
-  os controles das pontas saem e a palavra fica.
+  velocidade, o número, a barrinha de progresso e a porcentagem abrem a biblioteca, `?` mostra todos os atalhos, `✕`
+  encerra e devolve a faixa ao letreiro. Em tela estreita os controles das pontas saem e a palavra fica.
 - **Teclado:** `Ctrl+B L` passa o teclado ao leitor (aparece um ⌨ na faixa): Espaço toca/pausa, `←` `→` salto curto,
-  `PgUp` `PgDn` longo, `↑` `↓` velocidade, `,` `.` palavra, `(` `)` frase, `[` `]` capítulo, `Home` começo, `o`
-  biblioteca e ajustes, `x` encerra. Qualquer outra tecla (ou `q`/Esc) devolve o teclado ao painel; a leitura continua.
+  `PgUp` `PgDn` longo, `↑` `↓` velocidade, `,` `.` palavra, `(` `)` frase, `{` `}` parágrafo, `[` `]` capítulo, `0`–`9`
+  vão a 0%–90%, `Home` começo, `b` marca o ponto, `o` biblioteca e ajustes, `x` encerra e **`?` abre a tela de
+  atalhos**. Qualquer outra tecla (ou `q`/Esc) devolve o teclado ao painel; a leitura continua.
+- **Não precisa decorar:** `?` (na faixa, na biblioteca e na tela cheia) abre a mesma tela de atalhos, com as teclas
+  desenhadas e agrupadas por lugar: na faixa, em tela cheia, aparência, biblioteca, arquivos, mouse e toque. A última
+  linha de cada tela mostra as teclas que valem ali, e cada uma é também um botão.
 - **Comandos:** `tt --leitor ARQUIVO` já começa na faixa; `tt --leitor-ctl AÇÃO` (alternar, tocar, pausar, curto-,
-  curto+, longo-, longo+, palavra±, frase±, par±, cap±, inicio, ppm+, ppm-, `ir N` ou `ir N%`) e `tt --leitor-parar`.
+  curto+, longo-, longo+, palavra±, frase±, par±, cap±, inicio, `decimo N`, marcar, ppm+, ppm-, `ir N` ou `ir N%`),
+  `tt --leitor-parar` e `tt --leitor-atalhos`.
 - Sem faixa (fora do tmux, celular com a faixa desligada) ou com `T` na biblioteca / `tt --leitor --tela ARQUIVO`, a
   leitura é em **tela cheia**, com as letras grandes descritas abaixo.
 
@@ -159,13 +164,16 @@ barra (8 a 20 por segundo, conforme a velocidade), e escreve o roteiro em `~/.ca
 todos os terminais mostram a mesma palavra ao mesmo tempo. O ponto é gravado ao pausar, a cada 15 s e ao encerrar.
 
 ```
-tt --leitor                    a biblioteca (⏎ lê na faixa, T em tela cheia, a acrescenta, x apaga, s sincroniza)
+tt --leitor                    a tela: abas 1 Biblioteca, 2 Arquivos (daqui e das outras máquinas), 3 Máquinas
 tt --leitor ARQUIVO            acrescenta e já começa a ler (txt, md, html, epub, docx, odt, fb2, rtf, pdf)
 comando | tt --leitor -        lê o que vier pelo stdin
 tt --leitor-ctl AÇÃO           controla a leitura da faixa       tt --leitor-parar   encerra e devolve a faixa
 tt --leitor-add ARQUIVO…       só acrescenta        tt --leitor-listar [--tsv]     tt --leitor-rm ID
 tt --leitor-estado             livros daqui e em que máquina está cada arquivo original
 tt --leitor-sync [rótulo…]     troca agora com as outras máquinas   tt --leitor-baixar ID  traz o original
+tt --leitor-ls [RÓTULO] [PASTA]   uma pasta daqui ou de outra máquina, em JSON (o que a aba Arquivos mostra)
+tt --leitor-pegar RÓTULO CAMINHO  põe na biblioteca um arquivo que está em outra máquina
+tt --leitor-atalhos            a tela de atalhos
 tt --leitor-posicao ID [N|N%]  lê ou define o ponto da leitura      tt --leitor-extrair ARQUIVO  o texto, sem guardar
 ```
 
@@ -178,9 +186,16 @@ trecho do texto em volta; `o` abre todos os ajustes (com a palavra ao vivo em ci
 toque na palavra toca/pausa, a roda muda a velocidade, a barra de progresso leva ao ponto tocado, uma palavra do trecho
 pausado leva a ela, e a última linha tem botões para tudo isso.
 
-**O ritmo acompanha o texto:** vírgula, ponto e fim de parágrafo seguram a palavra um pouco mais; palavra comprida e
-número também; os primeiros instantes depois de tocar são mais lentos, e a leitura retoma três palavras antes de onde
-parou. Tudo isso se ajusta em `o`. Palavra que não cabe na largura da tela encolhe e, se ainda assim não couber, é
+**O ritmo acompanha o texto:** vírgula e ponto seguram a palavra um pouco mais; palavra comprida e número também; os
+primeiros instantes depois de tocar são mais lentos, e a leitura retoma três palavras antes de onde parou.
+
+**Respiros entre as partes:** entre um parágrafo e outro a leitura segura um instante; em volta de um título, um
+pouco mais; entre capítulos, um pouco mais ainda (a 300 palavras por minuto: 0,3 s, 0,5 s e 0,9 s). Em cada respiro
+aparece, **em laranja** e no lugar do foco, a marca do que acabou, para ninguém confundir com o texto: `|` parágrafo,
+`*` título (antes e depois dele), `#` capítulo. As palavras de um título passam em outra cor e um pouco mais devagar.
+O respiro não some em velocidade alta (parte dele é tempo fixo). Em `o`: "Respiro" (de nenhum a 3×) e "Marca no
+respiro" (sim/não). Título é o que o arquivo marca como tal (`#` do Markdown, `h1`–`h3`, estilos do Word, "Capítulo
+N") e também a linha curta, sem ponto no fim, entre dois parágrafos de verdade. Tudo isso se ajusta em `o`. Palavra que não cabe na largura da tela encolhe e, se ainda assim não couber, é
 mostrada em pedaços.
 
 **Letras grandes:** o terminal não troca de fonte nem de tamanho, então o leitor desenha as letras. O tamanho vai de 1
@@ -192,10 +207,27 @@ Dziedzic), Fira Sans (© The Mozilla Foundation e Telefonica S.A.) e Quicksand (
 a SIL Open Font License 1.1. Nove temas de fundo e cores (noite, preto, grafite, sépia, papel, fósforo, âmbar,
 contraste e "terminal", que não pinta o fundo), mais a cor da letra e a da letra de foco à parte.
 
-**Biblioteca e rede:** cada texto vira uma pasta em `~/.local/share/tt-leitor/livros/CÓDIGO` (o código são 12 hex do
+**A tela** (`tt --leitor`, `Ctrl+B L` sem leitura ligada) tem três abas, trocadas por `1` `2` `3` ou Tab:
+
+- **Biblioteca:** os textos em cartões, agrupados em *lendo*, *para ler* e *lidos*, cada um com a barra de progresso e
+  quanto falta. Em tela larga, um painel à direita mostra o texto escolhido por inteiro e **onde cada máquina parou**
+  nele. `⏎` lê na faixa, `T` em tela cheia, `x` apaga (daqui e das outras), `s` troca agora.
+- **Arquivos:** as pastas **desta máquina e das outras**, para achar o que ler sem sair da tela. À esquerda, as
+  máquinas (`m` troca); à direita, a pasta: subpastas e só os arquivos que o leitor lê, com tamanho, data e um ✓ nos
+  que já estão na biblioteca. Começa nos arquivos recentes; `⏎`/`→` entra na pasta ou acrescenta o arquivo, `←` sobe,
+  `~` pasta pessoal, `r` recentes, `/` filtra pelo nome, `a` digita um caminho. Um arquivo de outra máquina é
+  acrescentado **lá** (que tem o arquivo e as ferramentas dela) e vem na hora com o texto e o original; se ela não
+  conseguir, o arquivo vem por ssh e é lido aqui.
+- **Máquinas:** cada máquina com o estado da última troca (em dia, sem resposta, falhou), quantos textos e arquivos
+  tem, quantos daqui ainda não chegaram lá e o que ela leu por último. `s` troca com todas, `⏎` só com a escolhida, `→`
+  abre os arquivos dela. As bolinhas do cabeçalho mostram o mesmo estado em qualquer aba.
+
+**Biblioteca e rede:** a troca é **direta entre as máquinas, sem servidor no meio**: cada uma fala com cada outra por
+ssh, e o que uma aprende de outra segue adiante na troca seguinte. Cada texto vira uma pasta em `~/.local/share/tt-leitor/livros/CÓDIGO` (o código são 12 hex do
 sha256 do arquivo: o mesmo arquivo é o mesmo livro em qualquer máquina) com o arquivo original, o texto extraído e o
 estado da leitura. As máquinas cadastradas trocam tudo: ao pausar, ao fechar o texto, ao acrescentar e, pelo vigia, a
-cada 10 minutos (`TT_T_LEITOR`). A **posição mais nova vence**; marcadores se somam; apagar um livro apaga nas outras
+cada 10 minutos (`TT_T_LEITOR`). A **posição mais nova vence** (e cada livro guarda também, à parte, o ponto em que **cada máquina** parou; numa
+leitura longa sem pausa a troca sai a cada 5 minutos); marcadores se somam; apagar um livro apaga nas outras
 (e ele não volta sozinho). O **texto extraído viaja sempre**, e por isso um PDF acrescentado no computador abre no
 celular, que não tem `pdftotext`. O **arquivo original** viaja até `leitor_original_max_mb` (200; `0` = nunca) e
 `tt --leitor-baixar CÓDIGO` o traz assim mesmo. Com um texto aberto e pausado, se outra máquina avançar nele, a tela

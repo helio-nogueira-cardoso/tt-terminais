@@ -41,7 +41,7 @@
 #   tt --busca [estado|agora|on|off|consultar T]  busca na conversa inteira e no scrollback (central: ^e → "conversa")
 #   tt --mac [status|ativar|atalhos]  atalhos no Mac: Option como Meta (Terminal.app, Ghostty, iTerm2) e a tabela Linux → Mac
 #   tt --ghostty [status|configurar]  Ghostty, o terminal padrão do tt: instalado? configuração do tt (tema, Option, ssh)
-#   tt --leitor [ARQ|ID|-]  leitura rápida: as palavras passam na faixa, no lugar do letreiro (txt md html epub docx odt fb2 rtf pdf); -ctl -parar -add -listar -rm -sync
+#   tt --leitor [ARQ|ID|-]  leitura rápida: as palavras passam na faixa, no lugar do letreiro (txt md html epub docx odt fb2 rtf pdf); -ctl -parar -add -listar -rm -sync -ls -pegar -atalhos
 #
 # Menu: Enter entra; ^n nova; ^r renomeia; ^x fecha; ^a dá nome às genéricas. As palavras do
 # cabeçalho são clicáveis. ^f (ou clique) filtra por máquina; a busca procura em nome, máquina,
@@ -10353,10 +10353,64 @@ leitor_abrir() {
       local r; r=$(leitor_py adicionar -) || return 1
       leitor_barra "${r%%$'\t'*}"; return
     fi
-    TT_LEITOR_BARRA=1 TT_RECEBIDOS=$(pasta_recebidos 2>/dev/null) leitor_py tela; return
+    TT_LEITOR_BARRA=1 TT_LEITOR_MAQUINAS=$(leitor_rotulos) TT_RECEBIDOS=$(pasta_recebidos 2>/dev/null) leitor_py tela; return
   fi
-  if (($#)); then TT_RECEBIDOS=$(pasta_recebidos 2>/dev/null) leitor_py ler "$@"
-  else TT_RECEBIDOS=$(pasta_recebidos 2>/dev/null) leitor_py tela; fi
+  if (($#)); then TT_LEITOR_MAQUINAS=$(leitor_rotulos) TT_RECEBIDOS=$(pasta_recebidos 2>/dev/null) leitor_py ler "$@"
+  else TT_LEITOR_MAQUINAS=$(leitor_rotulos) TT_RECEBIDOS=$(pasta_recebidos 2>/dev/null) leitor_py tela; fi
+}
+# As outras máquinas cadastradas (rótulos numa linha): as abas Arquivos e Máquinas da tela do leitor.
+leitor_rotulos() {
+  local dest rot saida=""
+  leitor_ativo || return 0
+  while read -r dest rot; do [[ -n $rot && $dest != . ]] && saida+="$rot "; done < <(maquinas)
+  printf '%s' "${saida% }"
+}
+# Rótulo → destino do ssh.
+leitor_dest() {
+  local dest rot
+  while read -r dest rot; do [[ $rot == "$1" && $dest != . ]] && { printf '%s\n' "$dest"; return 0; }; done < <(maquinas)
+  return 1
+}
+# tt --leitor-ls [RÓTULO] [PASTA]: uma pasta (subpastas e arquivos que o leitor lê) em JSON, daqui ou de outra máquina.
+# PASTA vazia = arquivos recentes. É o que a aba Arquivos da tela mostra.
+leitor_ls() {
+  local rot=${1:-} onde=${2:-} dest
+  if [[ -z $rot || $rot == "$MAQUINA" ]]; then leitor_py ls "${onde:-@recentes}"; return; fi
+  leitor_ativo || { echo "leitor: troca desligada nesta máquina (leitor_sync=0)" >&2; return 1; }
+  dest=$(leitor_dest "$rot") || { echo "leitor: não conheço a máquina $rot (tt --maquinas)" >&2; return 1; }
+  timeout 30 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --leitor-ls '' $(q "${onde:-@recentes}")" </dev/null 2>/dev/null
+}
+# tt --leitor-pegar RÓTULO CAMINHO: põe na biblioteca um arquivo que está em outra máquina. Primeiro quem acrescenta é
+# ela (tem o arquivo e as ferramentas de lá: o pdf abre no celular) e a troca traz texto e original; se ela não
+# conseguir (tt antigo, formato sem ferramenta lá), o arquivo vem por ssh e é lido aqui. Imprime "id<TAB>título<TAB>…".
+leitor_pegar() {
+  local rot=${1:-} cam=${2:-} dest r="" id tmp nome
+  [[ -n $rot && -n $cam ]] || { echo "uso: tt --leitor-pegar RÓTULO CAMINHO" >&2; return 2; }
+  dest=$(leitor_dest "$rot") || { echo "✗ não conheço a máquina $rot"; return 1; }
+  r=$(timeout 900 ssh "${SSH_OPC[@]}" "$dest" "TT_LEITOR_SEM_FUNDO=1 $TT_REMOTO --leitor-add $(q "$cam")" </dev/null 2>/dev/null)
+  r=${r##*$'\n'}; id=${r%%$'\t'*}
+  if [[ $id =~ ^[0-9a-f]{12}$ ]]; then
+    leitor_sync --quieto --so "$id" "$rot" >/dev/null 2>&1
+    if leitor_py listar --tsv 2>/dev/null | awk -F'\t' -v i="$id" '$1 == i && $9 == 1 { ok = 1 } END { exit !ok }'; then
+      printf '%s\n' "$r"; return 0
+    fi
+  fi
+  tmp=$(mktemp -d "$RT/tt-leitor-pegar.XXXXXX") || return 1
+  nome=${cam##*/}
+  if timeout 3600 ssh "${SSH_OPC[@]}" "$dest" "cat -- $(q "$cam")" </dev/null >"$tmp/$nome" 2>/dev/null && [[ -s $tmp/$nome ]]; then
+    r=$(leitor_py adicionar "$tmp/$nome" 2>&1); id=$?
+    rm -rf "$tmp"; printf '%s\n' "$r"
+    ((id == 0)) && leitor_sync_fundo
+    return $id
+  fi
+  rm -rf "$tmp"; echo "✗ não consegui ler $nome em $rot"; return 1
+}
+# tt --leitor-atalhos [cliente]: a tela de atalhos do leitor (o ? da faixa e da tabela de teclas).
+leitor_atalhos() {
+  local c=${1:-}
+  if [[ -n $c && -n ${TMUX:-} ]]; then
+    eval "$EU --popup -c $(q "$c") -E -w 100% -h 100% -T $(q " ⌨ atalhos do leitor ") $(q "TT_LEITOR_BARRA=1 $EU --leitor-atalhos")"
+  else TT_LEITOR_BARRA=${TT_LEITOR_BARRA:-$(leitor_barra_pode && echo 1)} leitor_py atalhos; fi
 }
 # --- Leitura na faixa: as palavras passam no lugar do letreiro, com os controles ao lado ---------------------------------
 # `tt --leitor-barra ID|ARQ` liga o motor (leitor-tt.py motor: um por máquina) e o miolo da faixa passa a ser só
@@ -10423,7 +10477,7 @@ leitor_parar() {
 leitor_tecla() { # cliente [pasta]
   if leitor_barra_ativo; then
     tmux switch-client -c "$1" -T tt-leitor 2>/dev/null
-    tmux display-message -c "$1" -d 2500 "leitor: Espaço toca/pausa · ← → saltam · ↑ ↓ velocidade · o biblioteca · x fecha · outra tecla devolve o teclado" 2>/dev/null
+    tmux display-message -c "$1" -d 4000 "leitor: Espaço toca/pausa · ← → saltam · ↑ ↓ velocidade · ? todos os atalhos · x fecha · outra tecla devolve o teclado" 2>/dev/null
   else eval "$(leitor_popup_cmd "$1" "${2:-}")"; fi
 }
 # Do lado que é chamado por ssh: desligado, responde vazio (quem chama pula esta máquina).
@@ -10469,6 +10523,7 @@ leitor_sync() {
       fi
     fi
     [[ $st == ok ]] && n_ok=$((n_ok + 1))
+    leitor_py rede-nota "$rot" "$st" 2>/dev/null # a aba Máquinas mostra como foi a última troca com cada uma
     if [[ -z $quieto ]]; then printf '%-12s %-7s%s\n' "$rot" "$st" "$linha"
     elif [[ -n $linha || $st == falhou ]]; then printf -v agora '%(%F %T)T' -1; printf '%s %-12s %-7s%s\n' "$agora" "$rot" "$st" "$linha"; fi
   done < <(maquinas)
@@ -13768,6 +13823,7 @@ letreiro_clique() { # cliente x
     leitor) # leitura na faixa: o controle tocado (ver quadro_leitor do letreiro-tt.py)
       case $alvo in
         tela) eval "$(leitor_popup_cmd "$c")" ;;
+        atalhos) leitor_atalhos "$c" ;;
         parar) leitor_parar ;;
         *) leitor_ctl "$alvo" ;;
       esac ;;
@@ -18330,6 +18386,7 @@ clique() {
     snapshots) eval "$(popup_tt "$2" "📸 snapshots" "$EU --snapshots")" ;;
     leitor) leitor_tecla "$2" "${4:-}" ;;
     leitor-tela) eval "$(leitor_popup_cmd "$2" "${4:-}")" ;;
+    leitor-atalhos) leitor_atalhos "$2" ;;
     entrada) tarefas_filtro_set entrada; abrir_tarefas "$2" ;;   # chip 📥: direto na Entrada
     em_*) email_botao_acao "${faixa#em_}" ;;
     notifs) notifs_popup "$2" ;;
@@ -23120,6 +23177,9 @@ case "${1:-}" in
   --leitor-ctl) shift; leitor_ctl "$@"; exit ;;
   --leitor-parar) leitor_parar; exit ;;
   --leitor-sync) shift; leitor_sync "$@"; exit ;;
+  --leitor-ls) shift; leitor_ls "$@"; exit ;;
+  --leitor-pegar) shift; leitor_pegar "$@"; exit ;;
+  --leitor-atalhos) shift; leitor_atalhos "$@"; exit ;;
   --leitor-baixar) [[ -n ${2:-} ]] || { echo "uso: tt --leitor-baixar ID" >&2; exit 2; }; leitor_sync --so "$2"; exit ;;
   --leitor-inventario | --leitor-mesclar | --leitor-empacotar | --leitor-aplicar) leitor_remoto "${1#--leitor-}"; exit ;;
   --sessoes-ia) shift; sessoes_ia_cmd "$@"; exit ;;
