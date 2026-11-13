@@ -48,6 +48,24 @@ open(d + "/conto.fb2", "w").write('<?xml version="1.0"?><FictionBook xmlns="http
 open(d + "/carta.rtf", "wb").write(rb"{\rtf1\ansi{\fonttbl{\f0 Arial;}}\f0 Ol\'e1, mundo.\par Segunda linha com \u231?edilha.\par}")
 open(d + "/texto.pdf", "wb").write(b"%PDF-1.4 conteudo de mentira\n")
 open(d + "/ordem.pdf", "wb").write(b"%PDF-1.4 ordem das palavras\n")
+def _bbox(paginas):  # o que o pdftotext -bbox devolve: palavras com caixa, linhas a cada 14 pt
+    from xml.sax.saxutils import escape
+    out = ['<doc>']
+    for linhas in paginas:
+        out.append('<page width="595" height="842">')
+        for n, linha in enumerate(linhas):
+            for k, w in enumerate(linha.split(" ")):
+                out.append('<word xMin="%d" yMin="%d" xMax="%d" yMax="%d">%s</word>' % (20 + 14 * k, 100 + 14 * n, 32 + 14 * k, 110 + 14 * n, escape(w)))
+        out.append('</page>')
+    out.append('</doc>')
+    return "\n".join(out) + "\n"
+open(d + "/ordem.bbox.xml", "w").write(_bbox([
+    ["— Nada! interrompeu-me Quincas Borba com um gesto de", "indignação.", "Eu viram-", "me ir e trepava-", "lhe ao dorso. Trata-", "se de uma obra; beijá-",
+     "lo na testa e vê-", "los de longe. Disse-", "me isto, vendo-", "os tristes. Fizeram-", "lhe festa. O el-", "rei sorriu."],
+    ["Fim do trecho.", "CAPÍTULO LIII / . . . . .", "Virgília é que já se não lembrava da meia dobra."],
+    ["O caminho do seu", "coração de volta."],
+    ["Meu bom amigo,", "S", "u", "a", "a", "m", "i", "g", "a", ",", "A imagem v inculada não pode ser exibida. Talv ez o arquiv o tenha sido mov ido, renomeado ou excluído. Verifique se o v ínculo aponta para o arquiv o e o local corretos."]]))
+
 open(d + "/foto.bin", "wb").write(b"\x00\x01\x02\x03" * 50)
 PY
 cat >"$T/bin/pdftotext" <<'EOF'
@@ -55,8 +73,11 @@ cat >"$T/bin/pdftotext" <<'EOF'
 # pdftotext falso: 4 páginas, cabeçalho repetido, número no pé, palavra partida na margem e parágrafo que atravessa a página.
 # Para ordem.pdf: o modo padrão tira "Quincas Borba com um gesto de" da linha e a larga depois dela, e apaga o hífen dos
 # pronomes (viramme); o modo -raw (que o leitor também pede) traz a ordem certa e o hífen no fim da linha.
-raw=0; ant=; pen=
-for a in "$@"; do { [ "$a" = -raw ] || [ "$a" = -layout ]; } && raw=1; ant=$pen; pen=$a; done
+raw=0; bbox=0; ant=; pen=
+for a in "$@"; do [ "$a" = -raw ] && raw=1; [ "$a" = -bbox ] && bbox=1; ant=$pen; pen=$a; done
+if [ $bbox = 1 ]; then
+  case $ant in *ordem.pdf) cat "${ant%.pdf}.bbox.xml"; exit 0 ;; *) exit 0 ;; esac
+fi
 case $ant in
 *ordem.pdf)
   if [ $raw = 1 ]; then

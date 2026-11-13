@@ -513,22 +513,112 @@ def _rodar(cmd, prazo=180):
     return r.stdout, ""
 
 
-def _pagina_pdf(pad, cru, lay=None):
-    """A mesma página em três leituras independentes do pdftotext: o modo padrão (acha parágrafos e colunas, mas às vezes
-    tira palavras da linha e as larga depois dela), o -raw (a ordem em que o PDF desenha o texto) e o -layout (a página
-    como ela é vista, linha por linha). Fica o padrão, salvo se o -raw trouxer EXATAMENTE as mesmas palavras separadas
-    por espaço (nada colado, nada perdido: só a ordem muda) e se parecer com o -layout mais que o padrão
-    (voto de dois contra um, por menor que seja a diferença). Sem as mesmas palavras, ou sem o -layout, nunca se troca."""
-    if lay is None:
+def _ordem_geometrica(ws):
+    """Ordem de leitura de uma página só pela geometria das palavras [(x1, y1, x2, y2, texto)]: linhas visuais (mesmo
+    centro vertical); trechos de uma linha separados por vão maior que uma letra e meia; blocos = trechos que continuam
+    na linha de baixo (parágrafo, célula); faixas = blocos que se sobrepõem na vertical, lidos da esquerda para a
+    direita; faixas de cima para baixo. Em texto corrido de uma coluna não há o que decidir: é de cima para baixo."""
+    if not ws:
+        return []
+    h = sorted(w[3] - w[1] for w in ws)[len(ws) // 2] or 1.0
+    ws = sorted(ws, key=lambda w: ((w[1] + w[3]) / 2, w[0]))
+    linhas = []
+    for w in ws:
+        c = (w[1] + w[3]) / 2
+        if linhas and abs(c - linhas[-1][0]) <= 0.5 * h:
+            L = linhas[-1]
+            L[1].append(w)
+            L[0] = (L[0] * (len(L[1]) - 1) + c) / len(L[1])
+        else:
+            linhas.append([c, [w]])
+    trechos = []
+    for li, (_, lw) in enumerate(linhas):
+        lw.sort(key=lambda w: w[0])
+        atual = [lw[0]]
+        for a, b in zip(lw, lw[1:]):
+            if b[0] - a[2] > 1.1 * h:
+                trechos.append((li, atual))
+                atual = [b]
+            else:
+                atual.append(b)
+        trechos.append((li, atual))
+    bx = [(min(w[0] for w in t), min(w[1] for w in t), max(w[2] for w in t), max(w[3] for w in t)) for _, t in trechos]
+    pai = list(range(len(trechos)))
+
+    def raiz(i):
+        while pai[i] != i:
+            pai[i] = pai[pai[i]]
+            i = pai[i]
+        return i
+    for i, (li, _) in enumerate(trechos):
+        for j in range(i + 1, len(trechos)):
+            lj = trechos[j][0]
+            if lj == li:
+                continue
+            if lj > li + 1:
+                break
+            sobre = min(bx[i][2], bx[j][2]) - max(bx[i][0], bx[j][0])
+            if sobre > 0.3 * min(bx[i][2] - bx[i][0], bx[j][2] - bx[j][0]) and -0.6 * h <= bx[j][1] - bx[i][3] <= 0.6 * h:
+                pai[raiz(j)] = raiz(i)
+    grupos = {}
+    for i in range(len(trechos)):
+        grupos.setdefault(raiz(i), []).append(i)
+    blocos = sorted(((min(bx[i][1] for i in ids), max(bx[i][3] for i in ids), min(bx[i][0] for i in ids), ids)
+                     for ids in grupos.values()), key=lambda b: (b[0], b[2]))
+    faixas = []
+    for b in blocos:
+        if faixas and b[0] < faixas[-1][0] - 0.3 * h:
+            faixas[-1][1].append(b)
+            faixas[-1][0] = max(faixas[-1][0], b[1])
+        else:
+            faixas.append([b[1], [b]])
+    saida = []
+    for _, fx in faixas:
+        for _, _, _, ids in sorted(fx, key=lambda b: (b[2], b[0])):
+            for i in sorted(ids, key=lambda i: (trechos[i][0], bx[i][0])):
+                saida.extend(w[4] for w in trechos[i][1])
+    return saida
+
+
+def _fichas(palavras):
+    """Palavras → fichas para comparar a ordem: sem pontuação nem caixa; sílaba ou pronome partido na margem
+    ('atenho-' 'me') junta numa só, como no texto."""
+    saida, i = [], 0
+    while i < len(palavras):
+        w = palavras[i]
+        if w.endswith("-") and len(w) > 1 and i + 1 < len(palavras) and palavras[i + 1][:1].islower():
+            w, i = w[:-1] + palavras[i + 1], i + 1
+        saida.append(re.sub(r"[\W_]+", "", w.lower()))
+        i += 1
+    return [x for x in saida if x]
+
+
+def _geometria_pdf(caminho):
+    """Uma lista por página com as fichas na ordem geométrica (pdftotext -bbox); None se falhar."""
+    xml, _ = _rodar(["pdftotext", "-bbox", "-enc", "UTF-8", "-q", caminho, "-"])
+    if xml is None:
+        return None
+    import html
+    paginas = []
+    for pg in xml.decode("utf-8", "replace").split("<page ")[1:]:
+        ws = [(float(a), float(b), float(c), float(d), tok)
+              for a, b, c, d, w in re.findall(r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(.*?)</word>', pg)
+              for tok in html.unescape(w).split()]
+        paginas.append(_fichas(_ordem_geometrica(ws)))
+    return paginas
+
+
+def _pagina_pdf(pad, cru, geo=None):
+    """Escolhe a leitura de uma página entre o modo padrão do pdftotext (acha parágrafos e colunas, mas às vezes tira
+    palavras da linha e as larga depois dela) e o -raw (a ordem em que o PDF desenha o texto). O juiz é a geometria
+    (_ordem_geometrica): fica o padrão se ele a reproduz; o -raw só se for ELE que a reproduz, palavra por palavra
+    (então nada se perde nem se cola, só a ordem muda). Se nenhum dos dois a reproduz (tabela, coluna), fica o padrão."""
+    if geo is None:
         return pad
-    palavras = lambda t: re.sub(r"(?<=\w)-\n(?=\w)", "", t).split()  # sílaba/pronome partido na margem junta
-    a, b = palavras(pad), palavras(cru)
-    if a == b or sorted(a) != sorted(b):
+    fichas = lambda t: _fichas(re.sub(r"(?<=\w)-\n(?=\w)", "", t).split())
+    if fichas(pad) == geo:
         return pad
-    c = palavras(lay)
-    import difflib
-    mais = lambda x: difflib.SequenceMatcher(None, x, c, autojunk=False).ratio()
-    return cru if mais(b) > mais(a) else pad
+    return cru if fichas(cru) == geo else pad
 
 
 def _hifens_firmes_do_pdf(paginas_cru):
@@ -556,17 +646,17 @@ def _texto_pdf(caminho):
     if pad is None:
         return None, erro, False
     cru, _ = _rodar(["pdftotext", "-raw", "-enc", "UTF-8", "-q", caminho, "-"])
-    lay, _ = _rodar(["pdftotext", "-layout", "-enc", "UTF-8", "-q", caminho, "-"])
-    if cru is None or lay is None:
+    geo = _geometria_pdf(caminho)
+    if cru is None or not geo:
         return pad, "", False
-    pp, pc, pl = decodificar(pad).split("\f"), decodificar(cru).split("\f"), decodificar(lay).split("\f")
-    if not (len(pp) == len(pc) == len(pl)):
+    pp, pc = decodificar(pad).split("\f"), decodificar(cru).split("\f")
+    if not (len(pp) == len(pc) == len(geo) or (len(pp) == len(pc) == len(geo) + 1 and not pp[-1].strip())):
         return pad, "", False
     mapa = _hifens_firmes_do_pdf(pc)
     rx = re.compile(r"(?<![\w-])(" + "|".join(re.escape(k) for k in sorted(mapa, key=len, reverse=True)) + r")(?![\w])") if mapa else None
     saida = []
-    for a, b, c in zip(pp, pc, pl):
-        e = _pagina_pdf(a, b, c)
+    for i, (a, b) in enumerate(zip(pp, pc)):
+        e = _pagina_pdf(a, b, geo[i] if i < len(geo) else None)
         if rx is not None and e is a:  # o -raw já traz o hífen; o padrão o perdeu
             e = rx.sub(lambda m: mapa[m.group(1)], e)
         saida.append(e)
