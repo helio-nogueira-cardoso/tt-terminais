@@ -701,6 +701,12 @@ vigiar() {
       ultima_leitor=$agora
       mkdir -p "${LEITOR_LOG%/*}"; ("$EU" --leitor-sync --quieto >>"$LEITOR_LOG" 2>&1 &)
     fi
+    # Leitor rápido: livro lido por um extrator antigo é lido de novo, sem perder o ponto (o extrator novo vence na troca).
+    ((${ultima_reimp:-0} == 0)) && ultima_reimp=$((agora - 3600 + 180))
+    if ((t_leitor > 0)) && ((agora - ultima_reimp >= 3600)); then
+      ultima_reimp=$agora
+      mkdir -p "${LEITOR_LOG%/*}"; ("$EU" --leitor-reimportar --quieto >>"$LEITOR_LOG" 2>&1 </dev/null &)
+    fi
     # Conversas das IAs (Claude, Codex, Kiro) entre as máquinas: a cada TT_T_SESSOES_IA (1800 s; 0 desliga).
     # A primeira volta espera 5 min do início do vigia (ele reinicia a cada versão nova).
     local t_sessoes_ia=${TT_T_SESSOES_IA:-1800}
@@ -23200,6 +23206,8 @@ case "${1:-}" in
   --leitor-barra) shift; leitor_barra "$@"; exit ;;
   --leitor-ctl) shift; leitor_ctl "$@"; exit ;;
   --leitor-parar) leitor_parar; exit ;;
+  --leitor-reimportar) shift; leitor_py reimportar "$@"; rc=$?; leitor_sync_fundo; exit $rc ;;
+  --leitor-conferir) shift; leitor_py conferir "$@"; exit ;;
   --leitor-sync) shift; leitor_sync "$@"; exit ;;
   --leitor-ls) shift; leitor_ls "$@"; exit ;;
   --leitor-pegar) shift; leitor_pegar "$@"; exit ;;

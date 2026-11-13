@@ -892,7 +892,7 @@ e os instaladores da pasta do usuário ficam no `tt`.
 - `tt --leitor [ARQUIVO|ID|-]` (menu ⋯ → 📖, `Ctrl+B L` → rota `leitor` do `clique()` → `leitor_popup_cmd`: janela de 100% × 100%):
   leitura de uma palavra por vez no mesmo lugar da tela (RSVP). Sem argumento abre a biblioteca; arquivo é acrescentado e aberto;
   `-` lê o stdin. `--leitor-add ARQ…` (imprime `id⇥título⇥novo|já estava`), `--leitor-listar [--tsv]` (`id pct pos palavras título
-  mudada máquina formato tem_texto tem_original`), `--leitor-rm ID`, `--leitor-extrair ARQ`, `--leitor-posicao ID [N|N%]`
+  mudada máquina formato tem_texto tem_original`), `--leitor-rm ID`, `--leitor-extrair ARQ`, `--leitor-conferir [ID]` (a conferência guardada na meta: letras que faltam/sobram, páginas por OCR, em branco e sem prova), `--leitor-reimportar [ID…] [--forcar]` (lê de novo o original com o extrator de hoje, `EXTRATOR` em `leitor-tt.py`; remapeia posição e marcadores pelas palavras em volta; o vigia faz 1×/h; o `extrator` maior vence na troca e o estado leva `sobre`=sha do texto, só se soma com o mesmo texto), `--leitor-posicao ID [N|N%]`
   (`pos⇥total⇥mudada⇥máquina`), `--leitor-estado`, `--leitor-sync [--quieto] [--so ID] [rótulo…]`, `--leitor-baixar ID`. ID = código,
   prefixo (4+ hex) ou pedaço do título. Internos (chamados por ssh): `--leitor-inventario`, `--leitor-mesclar` (inventário no
   stdin), `--leitor-empacotar` (lista `id⇥texto|original` no stdin → tar), `--leitor-aplicar` (tar no stdin).

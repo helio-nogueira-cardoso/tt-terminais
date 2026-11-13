@@ -681,8 +681,74 @@ assert m._texto_geometrico(fx).split()[0] == "1", fx
 # O espaço não é ordem: 'planejar' (pdftotext) contra 'plane' 'jar' (geometria).
 geo = (m._fichas(["Vamos", "plane", "jar", "bem1"]), "Vamos plane jar bem 1", False)
 assert m._pagina_pdf("Vamos planejar bem1", "x", geo) == "Vamos planejar bem1"
-# Ordem diferente de verdade continua sem prova quando não há tabela.
+# Palavra solta fora do lugar volta para onde a geometria a põe; letras que não batem ficam como o pdftotext leu (página incerta).
 geo = (m._fichas(["b", "a"]), "b a", False)
-assert m._pagina_pdf("a b", "c d", geo) == "a b"
+assert m._pagina_pdf_modo("a b", "c d", geo) == ("b a", "reparada")
+geo = (m._fichas(["b", "c"]), "b c", False)
+assert m._pagina_pdf_modo("a b", "c d", geo) == ("a b", "incerta")
 PY
 passou 'ordem do PDF: título grande não separa rótulo de valor, o espaço entre palavras não conta como ordem'
+
+# Palavra partida (epub vindo de PDF, uma linha por <p>): reúne pelo vocabulário do livro, sem inventar nem mexer em endereço.
+python3 -I - "$TT_DIR/leitor-tt.py" <<'PY' || falhou 'costura de palavras partidas'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("lt", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+base = ["O ideal democrático supõe o envolvi-", "mento dos cidadãos em diferentes ativida-", "des da vida política e candidatar-", "se aos cargos. Veja o texto completo."]
+linhas = base * 12 + ["Veja http://x.org/intangible-", "asset-value/ e os polí", "ticos que fazem política. Os políticos votam,", "a atividade e o envolvimento seguem. Fim."]
+caps = [{"titulo": "", "paragrafos": linhas}]
+m.costurar({"capitulos": caps}, linhas=True)
+t = " ".join(caps[0]["paragrafos"])
+assert "envolvimento dos" in t and "atividades da" in t, t
+assert "envolvi-" not in t and "ativida- " not in t, t
+assert "candidatar-se" in t, t               # pronome: o hífen é da palavra
+assert "http://x.org/intangible- asset-value/" in t, t     # endereço: nada é mexido (não vira "intangibleasset")
+assert "políticos que" in t and "polí ticos" not in t, t
+assert len(caps[0]["paragrafos"]) < len(linhas) / 3, len(caps[0]["paragrafos"])
+PY
+passou 'palavras partidas: sílaba reunida, pronome com hífen, pedaços soltos pelo vocabulário, endereço intacto, linhas soltas de epub viram parágrafo'
+
+# Reimportar: o livro lido por um extrator antigo é lido de novo, a posição e os marcadores vão para o mesmo ponto do texto
+# novo, a conferência (letras da fonte contra o livro) fica na meta e a troca entre máquinas não mistura posições de textos diferentes.
+printf '<html><body>' >"$F/fatiado.html"
+for i in $(seq 1 60); do printf '<p>Ele continuava a pensar na importan-</p><p>cia da questão número %d e na maneira de a resolver.</p>\n' "$i" >>"$F/fatiado.html"; done
+printf '</body></html>\n' >>"$F/fatiado.html"
+r=$("$TT" --leitor-add "$F/fatiado.html"); RID=${r%%$'\t'*}
+python3 -I - "$BIB/livros/$RID" <<'PY' || falhou 'preparar livro de extrator antigo'
+import gzip, json, sys
+d = sys.argv[1]
+t = json.load(gzip.open(d + "/texto.json.gz", "rt", encoding="utf-8"))
+ps = [p for c in t["capitulos"] for p in c["paragrafos"]]
+velho = {"titulo": t["titulo"], "autor": "", "capitulos": [{"titulo": "", "paragrafos": [x for p in ps for x in p.replace("importância", "importan- cia").split(". ")][:0] or ["Ele continuava a pensar na importan-", "cia da questão número %d e na maneira de a resolver." % 1] * 90}]}
+with gzip.GzipFile(d + "/texto.json.gz", "wb", mtime=0) as g:
+    g.write(json.dumps(velho, ensure_ascii=False, sort_keys=True).encode())
+m = json.load(open(d + "/meta.json")); m["extrator"] = 0; m.pop("conferencia", None)
+json.dump(m, open(d + "/meta.json", "w"))
+json.dump({"pos": 300, "mudada": 5, "marcadores": {"300": {"nome": "aqui", "mudada": 5, "removido": False}}}, open(d + "/estado.json", "w"))
+PY
+saida=$("$TT" --leitor-reimportar "$RID") || falhou "reimportar saiu com erro: $saida"
+[[ $saida == *reimportado* ]] || falhou "reimportar não refez o livro de extrator antigo: $saida"
+[[ $("$TT" --leitor-reimportar "$RID") == *"em dia"* ]] || falhou 'reimportar refez o que já estava em dia'
+python3 -I - "$BIB/livros/$RID" <<'PY' || falhou 'texto, posição e conferência depois de reimportar'
+import gzip, json, sys
+d = sys.argv[1]
+t = json.load(gzip.open(d + "/texto.json.gz", "rt", encoding="utf-8"))
+txt = " ".join(p for c in t["capitulos"] for p in c["paragrafos"])
+assert "importan-" not in txt and "importancia" in txt, txt[:200]
+e = json.load(open(d + "/estado.json"))
+assert e.get("sobre") and 0 < e["pos"] < 300 and list(e["marcadores"]) == [str(e["pos"])], e
+m = json.load(open(d + "/meta.json"))
+assert m["extrator"] >= 3 and m["conferencia"]["faltam"] == 0 and m["conferencia"]["sobram"] == 0, m
+PY
+"$TT" --leitor-conferir "$RID" | grep -q 'faltam 0 · sobram 0' || falhou 'conferir não mostra a conferência'
+python3 -I - "$TT_DIR/leitor-tt.py" <<'PY' || falhou 'estado de textos diferentes não se mistura'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("lt", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+meu = {"pos": 10, "mudada": 1, "sobre": "novo", "marcadores": {}}
+assert m.mesclar_estado(meu, {"pos": 99, "mudada": 9, "marcadores": {}})[0]["pos"] == 10   # o outro ainda lê o texto velho
+assert m.mesclar_estado(meu, {"pos": 99, "mudada": 9, "sobre": "novo", "marcadores": {}})[0]["pos"] == 99
+velho = {"capitulos": [{"titulo": "", "paragrafos": ["um dois tres qua- tro cinco seis sete oito nove dez onze doze treze"]}]}
+novo = {"capitulos": [{"titulo": "", "paragrafos": ["um dois tres quatro cinco seis sete oito nove dez onze doze treze"]}]}
+e = m.remapear_estado({"pos": 8, "mudada": 1, "marcadores": {"8": {"nome": "x", "mudada": 1}}}, velho, novo, "s")
+assert e["pos"] == 7 and e["sobre"] == "s" and "7" in e["marcadores"], e  # "qua-" "tro" viraram uma palavra: o ponto anda uma
+PY
+passou 'reimportar: texto refeito pelo extrator novo, posição e marcadores no mesmo ponto, conferência na meta, em dia não refaz, estados de textos diferentes não se misturam'

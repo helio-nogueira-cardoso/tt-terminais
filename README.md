@@ -179,6 +179,7 @@ tt --leitor-ls [RÓTULO] [PASTA]   uma pasta daqui ou de outra máquina, em JSON
 tt --leitor-pegar RÓTULO CAMINHO  põe na biblioteca um arquivo que está em outra máquina
 tt --leitor-atalhos            a tela de atalhos
 tt --leitor-posicao ID [N|N%]  lê ou define o ponto da leitura      tt --leitor-extrair ARQUIVO  o texto, sem guardar
+tt --leitor-conferir [ID]      letras que faltam/sobram, páginas por OCR e páginas sem prova   tt --leitor-reimportar [ID…]  lê de novo com o extrator de hoje, sem perder o ponto
 ```
 
 **Na leitura em tela cheia:** Espaço toca e pausa; `↑` `↓` mudam a velocidade (25 palavras por minuto; com Shift, 5); `←` `→` dão o

@@ -25,6 +25,7 @@
 #   leitor-tt.py rede-nota RÓTULO ok|pulada|falhou   como acabou a troca com a máquina (aba Máquinas)
 #   leitor-tt.py inventario | mesclar ARQ | pedir ARQ [--enviar] [--so ID] | empacotar | aplicar   (sincronização)
 #   leitor-tt.py fontes | fontes-gerar SAÍDA                                                       (atlas de letras)
+import collections
 import base64
 import gzip
 import hashlib
@@ -319,6 +320,15 @@ def _local(tag):
     return tag.rsplit("}", 1)[-1] if isinstance(tag, str) else ""
 
 
+_HTML_FORA = re.compile(r"(?is)<(script|style|svg|noscript|template|nav|math|iframe|select|button|form|title)\b.*?</\1\s*>")
+
+
+def _letras_html(texto):
+    """Letras de um html lidas por outro caminho (tira as marcas com uma expressão, sem o parser): é a fonte da conferência."""
+    import html as _h
+    return _letras(_h.unescape(re.sub(r"<[^>]*>", " ", _HTML_FORA.sub(" ", texto))))
+
+
 def extrair_epub(caminho):
     with zipfile.ZipFile(caminho) as z:
         try:
@@ -341,7 +351,7 @@ def extrair_epub(caminho):
             elif nome == "itemref" and e.get("idref"):
                 ordem.append(e.get("idref"))
         nomes = set(z.namelist())
-        caps = []
+        caps, fonte = [], collections.Counter()
         for ref in ordem:
             href, tipo, props = itens.get(ref, ("", "", ""))
             if not href or "nav" in props.split() or (tipo and "html" not in tipo and "xml" not in tipo):
@@ -349,20 +359,23 @@ def extrair_epub(caminho):
             alvo = posixpath.normpath(posixpath.join(base, unquote(href.split("#")[0])))
             if alvo not in nomes:
                 continue
-            doc = extrair_html(decodificar(z.read(alvo)))
+            bruto = decodificar(z.read(alvo))
+            fonte.update(_letras_html(bruto))
+            doc = extrair_html(bruto)
             for c in doc["capitulos"]:
                 if not c["titulo"] and caps:
                     caps[-1]["paragrafos"].extend(c["paragrafos"])
                 else:
                     caps.append(c)
-    return {"titulo": titulo, "autor": autor, "capitulos": caps}
+    return {"titulo": titulo, "autor": autor, "capitulos": caps, "_fonte": {"letras": fonte}}
 
 
 def extrair_docx(caminho):
     W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
     with zipfile.ZipFile(caminho) as z:
         try:
-            doc = ET.fromstring(z.read("word/document.xml"))
+            bruto_docx = z.read("word/document.xml")
+            doc = ET.fromstring(bruto_docx)
         except (KeyError, ET.ParseError) as e:
             raise Erro("docx sem word/document.xml legível (%s)" % e)
         titulo = autor = ""
@@ -390,7 +403,9 @@ def extrair_docx(caminho):
         if re.match(r"(?i)^(heading|t[ií]tulo|title|cabe[cç]alho)\s*[1-3]?$", estilo):
             caps.append({"titulo": t, "paragrafos": []})
         caps[-1]["paragrafos"].append(t)
-    return {"titulo": titulo, "autor": autor, "capitulos": [c for c in caps if c["paragrafos"]]}
+    import html as _h
+    fonte = _letras(_h.unescape(" ".join(re.findall(r"<w:t(?:\s[^>]*)?>([^<]*)</w:t>", decodificar(bruto_docx)))))
+    return {"titulo": titulo, "autor": autor, "capitulos": [c for c in caps if c["paragrafos"]], "_fonte": {"letras": fonte}}
 
 
 def extrair_odt(caminho):
@@ -410,7 +425,8 @@ def extrair_odt(caminho):
         if nome == "h":
             caps.append({"titulo": t, "paragrafos": []})
         caps[-1]["paragrafos"].append(t)
-    return {"titulo": "", "autor": "", "capitulos": [c for c in caps if c["paragrafos"]]}
+    return {"titulo": "", "autor": "", "capitulos": [c for c in caps if c["paragrafos"]],
+            "_fonte": {"letras": _letras("".join(doc.itertext()))}}
 
 
 def extrair_fb2(dados):
@@ -624,6 +640,11 @@ def _texto_geometrico(faixas):
     return "\n\n".join("\n".join(" ".join(l) for bloco in fx for l in bloco) for fx in faixas)
 
 
+def _letras(texto):
+    """As letras e algarismos de um texto, contados (NFKC, sem caixa): o que sobra ou falta entre a fonte e o livro."""
+    return collections.Counter(c for c in unicodedata.normalize("NFKC", texto).casefold() if c.isalnum())
+
+
 def _fichas(palavras):
     """Palavras → fichas para comparar a ordem: sem pontuação nem caixa; sílaba ou pronome partido na margem
     ('atenho-' 'me') junta numa só, como no texto."""
@@ -650,31 +671,119 @@ def _geometria_pdf(caminho):
               for a, b, c, d, w in re.findall(r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(.*?)</word>', pg)
               for tok in html.unescape(w).split()]
         faixas, tab = _ordem_geometrica(ws)
-        paginas.append((_fichas([w for fx in faixas for bloco in fx for l in bloco for w in l]), _texto_geometrico(faixas), tab))
+        paginas.append((_fichas([w for fx in faixas for bloco in fx for l in bloco for w in l]), _texto_geometrico(faixas), tab,
+                        _letras(" ".join(w[4] for w in ws))))
     return paginas
 
 
-def _pagina_pdf(pad, cru, geo=None):
-    """Escolhe a leitura de uma página: o modo padrão do pdftotext (acha parágrafos e colunas, mas às vezes tira
-    palavras da linha e as larga depois dela), o -raw (a ordem em que o PDF desenha o texto) ou a própria geometria.
-    O juiz é a geometria (_ordem_geometrica): fica o padrão se ele a reproduz; o -raw só se for ELE que a reproduz,
-    palavra por palavra (nada se perde nem se cola, só a ordem muda). Nenhum dos dois a reproduz e a página tem tabela
-    ou sumário: lê-se a geometria, linha a linha (cada rótulo com o seu valor), desde que traga exatamente as mesmas
-    palavras do padrão. Fora disso, fica o padrão."""
+def _parecido(a, b):
+    import difflib
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio()
+
+
+def _ficha1(t):
+    return re.sub(r"[\W_]+", "", t.lower())
+
+
+def _reparar(pad, texto_g, voc):
+    """Reparos locais do modo padrão do pdftotext, guiados pela geometria, sem refazer a página: (1) um trecho que ele
+    larga longe do lugar ('prazos' e 'tributação' trocadas de célula) volta para onde a geometria o põe; (2) uma palavra
+    colada que o livro não tem em outro lugar, feita de palavras que ele tem e que a geometria vê separadas ('dedaRiscos' =
+    'de' 'da' 'Riscos'), volta a ser as palavras. Ao contrário ('planejar' contra 'plane' 'jar'), a palavra do pdftotext existe
+    no livro e fica. Linhas e parágrafos do pdftotext ficam. Devolve o novo texto ou None se nada se mexeu."""
+    import difflib
+    linhas = [l.split() for l in pad.split("\n")]
+    gt = texto_g.split()
+    G = [_ficha1(t) for t in gt]
+    mudou = False
+    pulados = set()  # pares já vistos que nada mudam (a geometria parte uma palavra que o livro confirma inteira)
+    conhecida = lambda t: voc.get(t.strip(_BORDA + _PONTA).lower(), 0)
+    for _ in range(60):
+        plano = [(li, k) for li, l in enumerate(linhas) for k in range(len(l))]
+        P = [_ficha1(linhas[li][k]) for li, k in plano]
+        ops = difflib.SequenceMatcher(None, P, G, autojunk=False).get_opcodes()
+        pad_runs = [(a1, a2) for o, a1, a2, b1, b2 in ops if o in ("delete", "replace") and a2 > a1]
+        geo_runs = [(b1, b2) for o, a1, a2, b1, b2 in ops if o in ("insert", "replace") and b2 > b1]
+        achou = None
+        for a1, a2 in pad_runs:
+            if a2 - a1 > 12:
+                continue
+            junto = "".join(P[a1:a2])
+            for b1, b2 in geo_runs:
+                if b2 - b1 <= 12 and "".join(G[b1:b2]) == junto and (tuple(P[a1:a2]), tuple(G[b1:b2])) not in pulados:
+                    achou = (a1, a2, b1, b2)
+                    break
+            if achou:
+                break
+        if not achou:
+            break
+        a1, a2, b1, b2 = achou
+        antigos = [linhas[li][k] for li, k in plano[a1:a2]]
+        novos = gt[b1:b2]
+        parte = len(novos) > len(antigos) or [_ficha1(t) for t in novos] != [_ficha1(t) for t in antigos]
+        # a geometria só desfaz a cola quando o livro confirma: a palavra de cima é desconhecida, as de baixo são conhecidas
+        if parte and not (any(conhecida(t) <= 1 for t in antigos) and all(conhecida(t) >= 3 for t in novos)):
+            novos = antigos
+        # onde a geometria põe o trecho: antes da primeira palavra seguinte que as duas leituras concordam
+        destino = len(plano)
+        for o, c1, c2, d1, d2 in ops:
+            if o == "equal" and d1 >= b2:
+                destino = c1
+                break
+        no_lugar = any(o == "replace" and (c1, c2, d1, d2) == (a1, a2, b1, b2) for o, c1, c2, d1, d2 in ops)
+        if no_lugar and novos == antigos:
+            pulados.add((tuple(P[a1:a2]), tuple(G[b1:b2])))
+            continue
+        if no_lugar:
+            li0, k0 = plano[a1]
+            for li, k in sorted(plano[a1:a2], reverse=True):
+                del linhas[li][k]
+            linhas[li0][k0:k0] = novos
+        else:
+            if destino >= len(plano):
+                li_d, k_d = len(linhas) - 1, len(linhas[-1])
+            else:
+                li_d, k_d = plano[destino]
+            antes = sum(1 for li, k in plano[a1:a2] if li == li_d and k < k_d)
+            for li, k in sorted(plano[a1:a2], reverse=True):
+                del linhas[li][k]
+            linhas[li_d][k_d - antes:k_d - antes] = novos
+        mudou = True
+    return "\n".join(" ".join(l) for l in linhas) if mudou else None
+
+
+def _pagina_pdf_modo(pad, cru, geo=None, voc=None):
+    """(texto, modo) de uma página. Modos: 'padrao', 'raw', 'geometria' (ordem provada pela geometria das palavras) e
+    'incerta' (nenhuma leitura reproduz a geometria palavra por palavra: fica a mais parecida com ela, e o livro registra
+    a página). O modo padrão do pdftotext acha parágrafos e colunas, mas às vezes tira palavras da linha e as larga depois
+    dela; o -raw é a ordem em que o PDF desenha o texto; a geometria (_ordem_geometrica) é o juiz. O espaço entre palavras
+    não é ordem. A geometria só vira o texto quando a página tem tabela ou sumário e traz exatamente as mesmas palavras."""
     if geo is None:
-        return pad
-    fichas_g, texto_g, tabular = geo
-    # O espaço entre fichas não é ordem: o pdftotext cola "planejar" onde a geometria vê "plane" "jar", e "vieses1" (número
-    # de nota) onde ela vê "vieses" "1". A ordem é a sequência de letras, por isso as fichas se comparam coladas.
+        return pad, "padrao"
+    fichas_g, texto_g, tabular = geo[:3]
     fichas = lambda t: _fichas(re.sub(r"(?<=\w)-\n(?=\w)", "", t).split())
     f_pad, f_geo = fichas(pad), "".join(fichas_g)
     if "".join(f_pad) == f_geo:
-        return pad
-    if "".join(fichas(cru)) == f_geo:
-        return cru
+        return pad, "padrao"
+    f_cru = fichas(cru)
+    if "".join(f_cru) == f_geo:
+        return cru, "raw"
     if tabular and sorted(f_pad) == sorted(fichas_g):  # a geometria só substitui com as mesmas palavras (não parte nenhuma)
-        return texto_g
-    return pad
+        return texto_g, "geometria"
+    rep = _reparar(pad, texto_g, voc if voc is not None else {})
+    if rep is not None and "".join(fichas(rep)) == f_geo:
+        return rep, "reparada"
+    # nenhuma prova: a leitura mais parecida com a geometria, desde que não perca nem invente letra
+    letras = sorted(f_geo)
+    cand = [(_parecido("".join(f_pad), f_geo), 1, pad)]
+    if sorted("".join(f_cru)) == letras:
+        cand.append((_parecido("".join(f_cru), f_geo), 0, cru))
+    cand.sort(key=lambda c: (c[0], c[1]), reverse=True)
+    return cand[0][2], "incerta"
+
+
+def _pagina_pdf(pad, cru, geo=None):
+    return _pagina_pdf_modo(pad, cru, geo)[0]
 
 
 def _hifens_firmes_do_pdf(paginas_cru):
@@ -696,34 +805,100 @@ def _hifens_firmes_do_pdf(paginas_cru):
     return achados if total >= 8 and clit / total >= 0.6 else {}
 
 
+def _ocr_idiomas():
+    """Idiomas do tesseract a usar (português e inglês quando houver); None se não há tesseract ou pdftoppm."""
+    if not (shutil.which("tesseract") and shutil.which("pdftoppm")):
+        return None
+    saida, _ = _rodar(["tesseract", "--list-langs"], 20)
+    tem = set((saida or b"").decode("utf-8", "replace").split())
+    langs = [l for l in ("por", "eng") if l in tem]
+    return "+".join(langs) if langs else ""
+
+
+def _paginas_com_imagem(caminho):
+    """Páginas (1, 2, …) que têm imagem: sem texto e com imagem, a página é figura ou digitalização e pede OCR."""
+    saida, _ = _rodar(["pdfimages", "-list", caminho], 120) if shutil.which("pdfimages") else (None, "")
+    pgs = set()
+    for linha in (saida or b"").decode("utf-8", "replace").splitlines()[2:]:
+        c = linha.split()
+        if c and c[0].isdigit():
+            pgs.add(int(c[0]))
+    return pgs
+
+
+def _ocr_pagina(caminho, n, langs):
+    """Texto de uma página lido por OCR (pdftoppm + tesseract); vazio se não deu."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="tt-ocr-") as d:
+        base = os.path.join(d, "p")
+        _, erro = _rodar(["pdftoppm", "-r", "250", "-gray", "-png", "-f", str(n), "-l", str(n), caminho, base], 240)
+        imgs = sorted(f for f in os.listdir(d) if f.endswith(".png"))
+        if not imgs:
+            return ""
+        cmd = ["tesseract", os.path.join(d, imgs[0]), "-", "--psm", "3"] + (["-l", langs] if langs else [])
+        saida, _ = _rodar(cmd, 240)
+        return decodificar(saida or b"").strip()
+
+
 def _texto_pdf(caminho):
-    """(bytes do texto com \\f entre páginas, hífen firme ligado?) pelo pdftotext; None se ele não existe ou falha."""
+    """(bytes do texto com \\f entre páginas, erro, hífen firme ligado?, resumo) pelo pdftotext; bytes None se ele não existe
+    ou falha. O resumo diz quantas páginas, em que modo cada uma foi lida, quais ficaram incertas e as letras da fonte."""
     pad, erro = _rodar(["pdftotext", "-enc", "UTF-8", "-q", caminho, "-"])
     if pad is None:
-        return None, erro, False
+        return None, erro, False, {}
     cru, _ = _rodar(["pdftotext", "-raw", "-enc", "UTF-8", "-q", caminho, "-"])
     geo = _geometria_pdf(caminho)
     if cru is None or not geo:
-        return pad, "", False
+        return pad, "", False, {"sem_geometria": True}
     pp, pc = decodificar(pad).split("\f"), decodificar(cru).split("\f")
     if not (len(pp) == len(pc) == len(geo) or (len(pp) == len(pc) == len(geo) + 1 and not pp[-1].strip())):
-        return pad, "", False
+        return pad, "", False, {"sem_geometria": True}
     mapa = _hifens_firmes_do_pdf(pc)
     rx = re.compile(r"(?<![\w-])(" + "|".join(re.escape(k) for k in sorted(mapa, key=len, reverse=True)) + r")(?![\w])") if mapa else None
-    saida = []
+    saida, modos, incertas, letras = [], {}, [], collections.Counter()
+    brancas, ocr, sem_leitura = [], [], []
+    voc = {}
+    for t in " ".join(pp).split():
+        w = t.strip(_BORDA + _PONTA).lower()
+        voc[w] = voc.get(w, 0) + 1
+    com_imagem = langs = None
     for i, (a, b) in enumerate(zip(pp, pc)):
-        e = _pagina_pdf(a, b, geo[i] if i < len(geo) else None)
+        g = geo[i] if i < len(geo) else None
+        if not a.strip() and i < len(geo):  # página sem texto: em branco, ou figura/digitalização que o OCR lê
+            if com_imagem is None:
+                com_imagem, langs = _paginas_com_imagem(caminho), _ocr_idiomas()
+            if i + 1 not in com_imagem:
+                brancas.append(i + 1)
+                saida.append("")
+                continue
+            t = _ocr_pagina(caminho, i + 1, langs) if langs is not None else ""
+            if t:
+                ocr.append(i + 1)
+                modos["ocr"] = modos.get("ocr", 0) + 1
+                letras.update(_letras(t))
+            else:
+                sem_leitura.append(i + 1)
+            saida.append(t)
+            continue
+        e, modo = _pagina_pdf_modo(a, b, g, voc)
+        modos[modo] = modos.get(modo, 0) + 1
+        if modo == "incerta":
+            incertas.append(i + 1)
+        if g is not None:
+            letras.update(g[3])
         if rx is not None and e is a:  # o -raw já traz o hífen; o padrão o perdeu
             e = rx.sub(lambda m: mapa[m.group(1)], e)
         saida.append(e)
-    return "\f".join(saida).encode("utf-8"), "", bool(mapa)
+    return "\f".join(saida).encode("utf-8"), "", bool(mapa), {"paginas": len(geo), "modos": modos, "incertas": incertas, "letras": letras,
+                                                              "brancas": brancas, "ocr": ocr, "sem_leitura": sem_leitura}
 
 
 def extrair_pdf(caminho):
     saida = erro = None
     hifen_firme = False
+    resumo = {}
     if shutil.which("pdftotext"):
-        saida, erro, hifen_firme = _texto_pdf(caminho)
+        saida, erro, hifen_firme, resumo = _texto_pdf(caminho)
     if saida is None and shutil.which("mutool"):
         saida, erro = _rodar(["mutool", "draw", "-q", "-F", "txt", "-o", "-", caminho])
         if saida is not None and b"\f" not in saida:
@@ -755,7 +930,7 @@ def extrair_pdf(caminho):
                 if k:
                     conta[k] = conta.get(k, 0) + 1
             repetidas.update(k for k, n in conta.items() if n >= max(3, len(paginas) * 0.4) and len(k) <= 90)
-    texto = []
+    texto, tirado = [], collections.Counter()
     for p in paginas:
         linhas = list(p)
         for fim in (False, True):
@@ -764,8 +939,11 @@ def extrair_pdf(caminho):
                 break
             i = idx[-1 if fim else 0]
             if norma(linhas[i]) in repetidas or re.fullmatch(r"\s*[-–—]?\s*\d{1,4}\s*[-–—]?\s*", linhas[i]):
+                tirado.update(_letras(linhas[i]))  # cabeçalho, rodapé e número de página: saem de propósito, e a conferência sabe
                 linhas[i] = ""
         texto.append("\n".join(linhas))
+    for m in _IMAGEM_AUSENTE.finditer(" ".join(texto).replace("\n", " ")):  # aviso do Word, não é texto do livro: sai e a conferência sabe
+        tirado.update(_letras(m.group(0)))
     blocos = blocos_de_texto("\n\n".join(texto), juntar_soltos=True, hifen_firme=hifen_firme)
     titulo = autor = ""
     if shutil.which("pdfinfo"):  # o título que o próprio pdf declara, quando parece um título
@@ -777,7 +955,12 @@ def extrair_pdf(caminho):
                 titulo = valor[:200]
             elif chave == "Author" and valor:
                 autor = valor[:120]
-    return {"titulo": titulo, "autor": autor, "capitulos": capitulos_de_blocos(blocos)}
+    livro = {"titulo": titulo, "autor": autor, "capitulos": capitulos_de_blocos(blocos)}
+    if resumo.get("letras") is not None:
+        livro["_fonte"] = {"letras": resumo["letras"], "tirado": tirado, "paginas": resumo["paginas"], "modos": resumo["modos"],
+                           "incertas": resumo["incertas"], "brancas": resumo["brancas"], "ocr": resumo["ocr"],
+                           "sem_leitura": resumo["sem_leitura"]}
+    return livro
 
 
 def formato_de(nome, dados=b""):
@@ -812,6 +995,119 @@ def formato_de(nome, dados=b""):
     return "txt"
 
 
+_BORDA = "(\"“‘'«[¿¡"
+_PONTA = "\"”’'»)].,;:!?…"
+_CURTAS = frozenset(("e", "ou"))  # "pré- e pós-guerra": o hífen suspende o composto, não parte palavra
+
+
+def _vocabulario(paragrafos):
+    """Palavras do livro (minúsculas, sem pontuação nas pontas) e quantas vezes cada uma aparece inteira."""
+    v = {}
+    for p in paragrafos:
+        anterior = ""
+        for t in p.split():
+            partido = anterior.endswith("-")  # o pedaço de baixo de uma palavra partida não é palavra do livro
+            anterior = t
+            w = t.strip(_BORDA + _PONTA).lower()
+            if w and not partido and not t.endswith("-"):
+                v[w] = v.get(w, 0) + 1
+    return v
+
+
+def _unir_linhas_soltas(caps):
+    """Epub feito de PDF: cada linha da página virou um <p>, e a frase atravessa vários 'parágrafos'. Uma linha que não fecha
+    frase e tem o comprimento de uma linha cheia continua na seguinte (sem hífen resolvido aqui: isso é da costura)."""
+    todos = [p for c in caps for p in c["paragrafos"]]
+    if len(todos) < 40:
+        return
+    comp = sorted(len(p) for p in todos)
+    if comp[len(comp) // 2] >= 90 or sum(p[-1] not in _FIM_FRASE for p in todos) < 0.4 * len(todos):
+        return  # parágrafos de verdade
+    hif = sorted(len(p) for p in todos if p.endswith("-"))  # linha que termina em hífen é linha cheia: mede a largura da margem
+    cheia = 0.8 * hif[len(hif) // 2] if len(hif) >= 10 else 0.6 * comp[int(len(comp) * 0.9)]
+    for c in caps:
+        saida = []
+        for i, p in enumerate(c["paragrafos"]):
+            ant = saida[-1] if saida else None
+            titulo = i == 0 and p == c["titulo"]
+            if ant is not None and not (i == 1 and c["paragrafos"][0] == c["titulo"]) and not titulo and not _CAP_RE.match(p) \
+                    and ((ant.endswith("-") and ant[-2:-1].isalpha() and p[:1].islower()) or (ant[-1] not in _FIM_FRASE and len(ant) >= cheia)):
+                saida[-1] = ant + " " + p
+            else:
+                saida.append(p)
+        c["paragrafos"] = saida
+
+
+def _costurar_palavras(caps):
+    """Palavra partida na margem que o texto não reuniu, decidida pelo vocabulário do próprio livro:
+    'acon- tecimentos' (sílaba: reúne; hífen de pronome ou de composto, que o livro grafa assim: conserva) e 'polí ticos'
+    (duas pontas que nunca aparecem sozinhas, e coladas são uma palavra do livro)."""
+    voc = _vocabulario([p for c in caps for p in c["paragrafos"]])
+    n = lambda w: voc.get(w, 0)
+    miolo = lambda t: t.strip(_BORDA + _PONTA).lower()
+    for c in caps:
+        novos = []
+        for p in c["paragrafos"]:
+            tk, i, saida = p.split(" "), 0, []
+            while i < len(tk):
+                a = tk[i]
+                b = tk[i + 1] if i + 1 < len(tk) else ""
+                m = re.match(r"([^\W\d_]+)(.*)$", b)
+                if m and b[:1].islower():
+                    nucleo, resto = m.group(1), m.group(2)
+                    if a.endswith("-") and len(a) > 2 and a[-2].isalpha() and nucleo.lower() not in _CURTAS and len(nucleo) > 1 and not re.search(r"[/@:]", a + b):
+                        base = miolo(a[:-1])
+                        com, sem = n(base + "-" + nucleo.lower()), n(base + nucleo.lower())
+                        hifen = com > sem or (not sem and nucleo.lower() in _CLITICOS)
+                        # sem prova no livro, só reúne se o pedaço de baixo ou o de cima nunca aparece como palavra (é sílaba); texto de
+                        # colunas embaralhadas ('pla-' / 'confirmam') fica como veio
+                        if hifen or sem or n(nucleo.lower()) <= 1 or not n(base):
+                            saida.append(a + nucleo + resto if hifen else a[:-1] + nucleo + resto)
+                            i += 2
+                            continue
+                    if a[-1:].isalpha() and a.strip(_BORDA).isalpha() and len(a) > 1 and len(nucleo) > 1 and not resto.strip(_PONTA) \
+                            and n(a.strip(_BORDA).lower()) <= 3 and n(nucleo.lower()) <= 3 and n(a.strip(_BORDA).lower() + nucleo.lower()) >= 1:
+                        saida.append(a + nucleo + resto)
+                        i += 2
+                        continue
+                saida.append(a)
+                i += 1
+            novos.append(" ".join(saida))
+        c["paragrafos"] = novos
+
+
+EXTRATOR = 3  # sobe quando o extrator passa a ler melhor: o texto de extrator maior vence na troca entre máquinas
+
+
+def conferir(livro, fonte):
+    """Nada some e nada sobra: as letras do livro contra as da fonte (lidas por outro caminho), descontado o que o extrator
+    tira de propósito (cabeçalho, rodapé e número de página do PDF). Registra também páginas sem texto e páginas incertas."""
+    texto = _letras(" ".join(p for c in livro["capitulos"] for p in c["paragrafos"]))
+    esperado = collections.Counter(fonte.get("letras") or {})
+    esperado.subtract(fonte.get("tirado") or {})
+    esperado = +esperado
+    faltam, sobram = esperado - texto, texto - esperado
+    r = {"ok": not faltam and not sobram and not fonte.get("incertas") and not fonte.get("sem_leitura"),
+         "letras": sum(esperado.values()), "faltam": sum(faltam.values()), "sobram": sum(sobram.values()), "extrator": EXTRATOR}
+    if faltam:
+        r["faltam_exemplo"] = dict(faltam.most_common(8))
+    if sobram:
+        r["sobram_exemplo"] = dict(sobram.most_common(8))
+    for k in ("paginas", "modos", "incertas", "brancas", "ocr", "sem_leitura"):
+        if fonte.get(k):
+            r[k] = fonte[k]
+    return r
+
+
+def costurar(livro, linhas=False):
+    """Ajusta o texto extraído: linhas soltas de epub viram parágrafos e as palavras partidas voltam a ser uma."""
+    caps = livro["capitulos"]
+    if linhas:
+        _unir_linhas_soltas(caps)
+    _costurar_palavras(caps)
+    return livro
+
+
 def extrair(caminho, nome=None):
     """Arquivo → {"titulo", "autor", "capitulos": [{"titulo", "paragrafos": [...]}]} (Erro se não der)."""
     nome = nome or os.path.basename(caminho)
@@ -841,12 +1137,19 @@ def extrair(caminho, nome=None):
                 livro = extrair_fb2(dados)
             elif fmt == "html":
                 livro = extrair_html(decodificar(dados))
+                livro["_fonte"] = {"letras": _letras_html(decodificar(dados))}
             else:
                 livro = {"titulo": "", "autor": "", "capitulos": capitulos_de_blocos(blocos_de_texto(decodificar(dados), markdown=(fmt == "md")), markdown=(fmt == "md"))}
+                if fmt == "txt":
+                    livro["_fonte"] = {"letras": _letras(decodificar(dados))}
     except zipfile.BadZipFile:
         raise Erro("%s: o arquivo está corrompido (não abre como %s)" % (nome, fmt))
     if not any(c["paragrafos"] for c in livro["capitulos"]):
         raise Erro("%s: não achei texto para ler" % nome)
+    costurar(livro, linhas=fmt in ("epub", "html"))
+    fonte = livro.pop("_fonte", None)
+    if fonte:
+        livro["conferencia"] = conferir(livro, fonte)
     if not livro.get("titulo"):
         base = os.path.splitext(nome)[0]
         livro["titulo"] = limpar(re.sub(r"[_]+" if " " in base else r"[_-]+", " ", base)) or "sem título"
@@ -953,6 +1256,7 @@ def adicionar(caminho, nome=None, titulo=None):
         return lid, meta, False
     livro = extrair(caminho, nome)
     fmt = livro.pop("formato")
+    conferencia = livro.pop("conferencia", None)
     corpo = json.dumps({"titulo": livro["titulo"], "autor": livro.get("autor", ""), "capitulos": livro["capitulos"]},
                        ensure_ascii=False, sort_keys=True).encode("utf-8")
     os.makedirs(d, exist_ok=True)
@@ -962,7 +1266,9 @@ def adicionar(caminho, nome=None, titulo=None):
     gravar(os.path.join(d, "texto.json.gz"), buf.getvalue())
     meta = {"id": lid, "titulo": titulo or livro["titulo"], "autor": livro.get("autor", ""), "nome": nome, "formato": fmt,
             "bytes": tam, "palavras": contar_palavras(livro), "adicionada": agora_ms(), "maquina": maquina(),
-            "texto_sha": hashlib.sha256(corpo).hexdigest()[:16], "original": ""}
+            "texto_sha": hashlib.sha256(corpo).hexdigest()[:16], "original": "", "extrator": EXTRATOR}
+    if conferencia:
+        meta["conferencia"] = conferencia
     _guardar_original(lid, meta, caminho, nome)
     lap = lapides()
     if lid in lap:  # acrescentar de novo, de propósito, vale mais que a remoção antiga
@@ -971,6 +1277,41 @@ def adicionar(caminho, nome=None, titulo=None):
     if not os.path.isfile(os.path.join(d, "estado.json")):
         gravar_estado(lid, {"pos": 0, "mudada": 0, "marcadores": {}})
     return lid, meta, True
+
+
+def reimportar(lid, forcar=False):
+    """Lê de novo o original com o extrator de hoje e troca o texto do livro; a posição de leitura e os marcadores vão para o
+    mesmo ponto do texto novo. Devolve (feito?, meta). Sem o original aqui, o texto novo chega pela rede de quem o tem."""
+    meta = ler_meta(lid)
+    orig = arquivo_original(lid, meta)
+    if not orig:
+        raise Erro("o original de “%s” não está nesta máquina (tt --leitor-baixar %s o traz)" % (meta.get("titulo", lid), lid))
+    if not forcar and int(meta.get("extrator") or 0) >= EXTRATOR:
+        return False, meta
+    velho = ler_texto(lid) if arquivo_texto(lid) else None
+    livro = extrair(orig, meta.get("nome") or None)
+    livro.pop("formato", None)
+    conferencia = livro.pop("conferencia", None)
+    corpo = json.dumps({"titulo": livro["titulo"], "autor": livro.get("autor", ""), "capitulos": livro["capitulos"]},
+                       ensure_ascii=False, sort_keys=True).encode("utf-8")
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0) as g:
+        g.write(corpo)
+    sha = hashlib.sha256(corpo).hexdigest()[:16]
+    d = pasta(lid)
+    if velho is not None:
+        estado = ler_estado(lid)
+        novo_estado = remapear_estado(estado, velho, livro, sha)
+    else:
+        novo_estado = dict(ler_estado(lid), sobre=sha)
+    gravar(os.path.join(d, "texto.json.gz"), buf.getvalue())
+    meta = dict(meta, texto_sha=sha, palavras=contar_palavras(livro), extrator=EXTRATOR)
+    meta.pop("conferencia", None)
+    if conferencia:
+        meta["conferencia"] = conferencia
+    gravar_json(os.path.join(d, "meta.json"), meta)
+    gravar_estado(lid, novo_estado)
+    return True, meta
 
 
 def _guardar_original(lid, meta, caminho, nome):
@@ -1327,7 +1668,56 @@ def limite_original():
 
 def meta_vence(a, b):
     """True se a meta `a` é a que fica quando as duas máquinas extraíram o mesmo arquivo por conta própria."""
-    return (int(a.get("adicionada") or 0), a.get("texto_sha") or "") < (int(b.get("adicionada") or 0), b.get("texto_sha") or "")
+    ka = (-int(a.get("extrator") or 0), int(a.get("adicionada") or 0), a.get("texto_sha") or "")
+    kb = (-int(b.get("extrator") or 0), int(b.get("adicionada") or 0), b.get("texto_sha") or "")
+    return ka < kb
+
+
+def _fichas_livro(livro):
+    return [_ficha1(w) for c in livro.get("capitulos") or [] for p in c.get("paragrafos") or [] for w in p.split()]
+
+
+def mapa_posicoes(velho, novo):
+    """Função posição-no-texto-velho → posição-no-texto-novo, pelas palavras em volta (quatro seguidas, a ocorrência mais
+    perto do lugar proporcional), para o texto trocado por uma extração melhor não levar ninguém para outro ponto do livro."""
+    fv, fn = _fichas_livro(velho), _fichas_livro(novo)
+    if fv == fn:
+        return lambda p: p
+    grams = {}
+    for i in range(len(fn) - 3):
+        grams.setdefault(tuple(fn[i:i + 4]), []).append(i)
+    razao = (len(fn) / len(fv)) if fv else 1.0
+
+    def mapa(pos):
+        pos = max(0, int(pos))
+        esperado = pos * razao
+        for desvio in range(0, 12):
+            i = pos + desvio
+            if i + 4 > len(fv):
+                break
+            c = grams.get(tuple(fv[i:i + 4]))
+            if c:
+                return max(0, min(len(fn) - 1 if fn else 0, min(c, key=lambda x: abs(x - esperado)) - desvio))
+        return max(0, min(len(fn) - 1 if fn else 0, int(round(esperado))))
+    return mapa
+
+
+def remapear_estado(estado, velho, novo, sha_novo):
+    """O estado de leitura (posição, marcadores, posição de cada máquina) levado do texto velho para o novo."""
+    mapa = mapa_posicoes(velho, novo)
+    e = dict(estado)
+    e["pos"] = mapa(e.get("pos") or 0)
+    marc = {}
+    for k, v in (e.get("marcadores") or {}).items():
+        if isinstance(v, dict) and re.fullmatch(r"\d{1,9}", str(k)):
+            n = str(mapa(int(k)))
+            if n not in marc or int(v.get("mudada") or 0) > int(marc[n].get("mudada") or 0):
+                marc[n] = v
+    e["marcadores"] = marc
+    if isinstance(e.get("por_maquina"), dict):
+        e["por_maquina"] = {k: dict(v, pos=mapa(v.get("pos") or 0)) for k, v in e["por_maquina"].items() if isinstance(v, dict)}
+    e["sobre"] = sha_novo
+    return e
 
 
 def mesclar_estado(meu, outro):
@@ -1335,6 +1725,8 @@ def mesclar_estado(meu, outro):
     a = dict(meu or {})
     b = outro or {}
     antes = json.dumps(a, sort_keys=True)
+    if (a.get("sobre") or "") != (b.get("sobre") or ""):
+        return a, False  # posições de textos diferentes (uma extração melhor trocou o texto): só se somam quando os dois chegarem ao mesmo
     ma = dict(a.get("marcadores") or {})
     for k, v in (b.get("marcadores") or {}).items():
         if isinstance(v, dict) and re.fullmatch(r"\d{1,9}", str(k)) and int(v.get("mudada") or 0) > int((ma.get(k) or {}).get("mudada") or 0):
@@ -1370,7 +1762,7 @@ def meta_limpa(m):
         r = {"id": str(m["id"]), "titulo": str(m.get("titulo") or "?")[:300], "autor": str(m.get("autor") or "")[:200],
              "nome": os.path.basename(str(m.get("nome") or ""))[:200], "formato": str(m.get("formato") or "")[:12],
              "bytes": int(m.get("bytes") or 0), "palavras": int(m.get("palavras") or 0), "adicionada": int(m.get("adicionada") or 0),
-             "maquina": str(m.get("maquina") or "")[:60], "texto_sha": str(m.get("texto_sha") or "")[:16], "original": ""}
+             "maquina": str(m.get("maquina") or "")[:60], "texto_sha": str(m.get("texto_sha") or "")[:16], "original": "", "extrator": int(m.get("extrator") or 0)}
     except (KeyError, TypeError, ValueError):
         return None
     o = str(m.get("original") or "")
@@ -1596,6 +1988,11 @@ def aplicar(entrada):
                     if arquivo_texto(lid) and not (local.get("texto_sha") != meta["texto_sha"] and meta_vence(meta, local)):
                         continue
                     os.makedirs(d, exist_ok=True)
+                    if arquivo_texto(lid):  # texto de outra extração: a leitura daqui vai para o mesmo ponto do texto novo
+                        try:
+                            gravar_estado(lid, remapear_estado(ler_estado(lid), ler_texto(lid), livro, meta["texto_sha"]))
+                        except (Erro, OSError, ValueError):
+                            pass
                     os.replace(tmp, os.path.join(d, "texto.json.gz"))
                     novo = dict(meta, original=local.get("original") or "")
                     gravar_json(os.path.join(d, "meta.json"), novo)
@@ -5140,6 +5537,43 @@ def principal(argv):
                 print("## %s\n" % c["titulo"])
             for p in c["paragrafos"]:
                 print(p + "\n")
+    elif cmd == "reimportar":
+        forcar, quieto = "--forcar" in args, "--quieto" in args
+        refs = [a for a in args if not a.startswith("--")]
+        alvos = [resolver(r) for r in refs] if refs else [i for i in ids() if arquivo_original(i)]
+        rc = 0
+        for lid in alvos:
+            try:
+                feito, meta = reimportar(lid, forcar)
+            except Erro as e:
+                rc = 1
+                print("%s\terro\t%s" % (lid, e))
+                continue
+            c = meta.get("conferencia") or {}
+            if feito or not quieto:
+                print("%s\t%s\t%s" % (lid, "reimportado" if feito else "em dia",
+                                      "conferência %s" % ("ok" if c.get("ok") else "com ressalvas (tt --leitor-conferir %s)" % lid[:6]) if c else ""))
+        return rc
+    elif cmd == "conferir":
+        alvos = [resolver(a) for a in args] if args else ids()
+        for lid in alvos:
+            meta = ler_meta(lid)
+            c = meta.get("conferencia")
+            if not c:
+                print("%s\t%s\t(sem conferência: extrator %s; tt --leitor-reimportar %s refaz)" % (lid, meta.get("titulo", ""), meta.get("extrator", 0), lid[:6]))
+                continue
+            print("%s\t%s" % (lid, meta.get("titulo", "")))
+            print("   letras da fonte %d · faltam %d · sobram %d · %s" % (c.get("letras", 0), c.get("faltam", 0), c.get("sobram", 0),
+                                                                          "ok" if c.get("ok") else "com ressalvas"))
+            if c.get("paginas"):
+                print("   páginas %d · lidas por: %s" % (c["paginas"], ", ".join("%s %d" % (k, v) for k, v in sorted((c.get("modos") or {}).items()))))
+            for chave, rotulo in (("incertas", "ordem não provada (ficou a leitura mais parecida com a geometria)"), ("brancas", "em branco"),
+                                  ("ocr", "lidas por OCR"), ("sem_leitura", "figura sem texto lido (falta OCR: instale tesseract e poppler)")):
+                if c.get(chave):
+                    print("   %s: %s" % (rotulo, " ".join(map(str, c[chave]))))
+            for chave in ("faltam_exemplo", "sobram_exemplo"):
+                if c.get(chave):
+                    print("   %s: %s" % (chave.replace("_", " "), c[chave]))
     elif cmd == "posicao":
         lid = resolver(args[0])
         total = int(ler_meta(lid).get("palavras") or 0)
