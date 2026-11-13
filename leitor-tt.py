@@ -520,6 +520,11 @@ def _pagina_pdf(pad, cru):
     chave = lambda t: re.sub(r"[\s\-*]+", "", t)
     if chave(pad) == chave(cru):
         return pad
+    # O -raw às vezes cola palavras ("IntermediaçãoFinanceiraeMercados") ou perde espaço: só vale como REORDENAÇÃO, isto é,
+    # quando traz exatamente as mesmas palavras do padrão. Qualquer diferença de palavras e fica o padrão: nenhuma se perde.
+    palavras = lambda t: sorted(re.findall(r"\w+", re.sub(r"(?<=\w)-\n(?=\w)", "", t).lower()))  # sílaba/pronome partido junta
+    if palavras(pad) != palavras(cru):
+        return pad
 
     def soltos(t):
         return sum(1 for b in re.split(r"\n\s*\n", t) if 0 < len(b.split()) <= 3)
