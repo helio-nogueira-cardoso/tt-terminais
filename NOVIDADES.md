@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.16.3 · 13/11/2026
+- **🥁 Leitura na faixa sem travadas:** com várias telas abertas no mesmo tt (outras janelas, o celular, o Mac vendo o Dell), a cada palavra todas redesenhavam a própria barra e a palavra da tela em uso atrasava (medido com 11 telas: 65 a 120 ms na mediana, picos de 500 ms e palavras puladas). Agora só a **tela em uso** (a que recebeu tecla ou toque por último) mostra as palavras, no ritmo exato: 3 ms de atraso na mediana e 12 ms no pior caso, com as mesmas 11 telas. As outras mostram "📖 lendo em outra tela"; um toque ou uma tecla em qualquer uma traz a leitura para ela.
+- **Sem o soluço a cada 2 segundos:** uma conferência interna do desenhista da barra (15 a 40 ms) rodava no meio da contagem do tempo; saiu do caminho. Parada ou pausada, a leitura também deixou de gastar processador em cada tela (era ~3,5% por tela, o tempo todo).
+- **Teclas `f` (tela cheia) e `?` (atalhos) da leitura na faixa:** não faziam nada na 2.16.1 (os botões `⤢` e `?` funcionavam); corrigidas.
+
 ## v2.16.1 · 13/11/2026
 - **🥁 Ritmo do leitor na faixa, agora constante:** cada palavra passa a ter a hora marcada ao milissegundo e a faixa é redesenhada nessa hora. Antes o tempo de cada palavra era arredondado para a grade de quadros da barra (a 300 palavras por minuto, 200 ou 300 ms, nada no meio: uma palavra um pouco mais longa pulava para 50% a mais) e o redesenho oscilava até 30 ms de uma palavra para outra. Medido num terminal de verdade, de 200 a 1000 palavras por minuto: a palavra aparece, em média, de 2 a 6 ms depois da hora marcada.
 - **⌨️ `Ctrl+B L` vendo outra máquina:** com a tela mostrando a sessão de outra máquina (por exemplo, o Mac vendo o Dell), o atalho abria a biblioteca da máquina de cá e as teclas nunca chegavam à leitura que estava na tela. Agora ele vai para a máquina que a tela mostra.

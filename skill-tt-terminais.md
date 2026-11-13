@@ -902,7 +902,7 @@ e os instaladores da pasta do usuário ficam no `tt`.
   comandos do fifo `~/.cache/tt-leitor/barra/ctl`, agenda cada palavra numa hora exata, ao milissegundo (`GRADE`; `fps_para(ppm)`, 8 a 20, é só o nº de gatilhos por cliente) e
   escreve `roteiro.json` (`pid`, `tocando`, `ppm`, `fps`, `n`, `palavras` = `[hora, texto, letra de foco, posição]` dos próximos
   40 s, `msg`); grava a posição ao pausar, a cada 15 s e ao parar; chama `tt --leitor-sync --quieto`; pausado, adota a posição
-  mais nova que a troca trouxer; pausado há 8 h, encerra. Quem pinta é o `letreiro-tt.py` (`leitor_roteiro`, `quadro_leitor`):
+  mais nova que a troca trouxer; pausado há 8 h, encerra. Quem pinta é o `letreiro-tt.py` (`leitor_roteiro`, `quadro_leitor`): só o cliente EM USO (`leitor_foco`: o tty com a hora de leitura mais nova, folga de 8,5 s; os ttys dos outros vêm do `tt-letreiro-PID.geo`) mostra as palavras e pede redesenho por palavra, os demais mostram "📖 lendo em outra tela" (zona `foco`, clique = nada) e não redesenham; a varredura do /proc (`substituido_fundo`) corre noutro fio;
   com motor vivo o miolo da faixa é SÓ da leitura (antes de aviso fresco, transferência e letreiro), a letra de foco fica a 40%
   da área da palavra, e cada controle vira uma zona `[x0, x1, ação]` na geometria do cliente (`geo["leitor"]`); o clique no range
   `letreiro` devolve `leitor⇥ação` e o `letreiro_clique` chama `leitor_ctl` (`tela` abre a biblioteca, `parar` → `leitor_parar`).

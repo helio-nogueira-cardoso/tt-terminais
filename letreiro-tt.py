@@ -50,6 +50,7 @@ import time
 
 
 import glob
+import threading
 import json
 import re
 import shutil
@@ -721,7 +722,7 @@ def acao_clique(cfg, geo, x, agora, ponte=False):
         rel = x - geo["esq"] - LADO
         for zona in geo.get("leitor") or []:
             if zona[0] <= rel < zona[1]:
-                return "leitor\t%s" % zona[2]
+                return "nada\t" if zona[2] == "foco" else "leitor\t%s" % zona[2]
         return "nada\t"
     alvo = item_sob_mouse(cfg, geo, x, agora, ponte)
     if alvo is None:
@@ -853,6 +854,55 @@ def _cels(t):
     return sum(larg(g) for g in grafemas(t))
 
 
+# Só a tela EM USO mostra as palavras, no ritmo exato. Cada cliente do tmux tem o seu pintor e, a cada palavra, todos
+# pediam o redesenho da própria barra: com uma dúzia de clientes (outras janelas, o celular, as pontes) o tmux, que
+# é um processo só, passava o tempo redesenhando barras que ninguém olha e a palavra da tela em uso atrasava de
+# 60 a 500 ms (medido). "Em uso" = o cliente que recebeu tecla ou toque por último: a hora de leitura do tty dele
+# (st_atime, a mesma que o `w` mostra como ocioso; o sistema a anota em passos de 8 s). As outras telas mostram um
+# aviso parado; um toque ou uma tecla em qualquer uma delas traz a leitura para ela.
+FOCO = True
+_FOCO = {"em": 0.0, "tty": {}}
+FOCO_FOLGA = 8.5
+
+
+def leitor_foco(tty, pid, agora):
+    """True se este cliente é a tela em uso (ou se não dá para saber). Refaz a conta 1 vez por segundo."""
+    global FOCO
+    if agora - _FOCO["em"] < 1 and agora >= _FOCO["em"]:
+        return FOCO
+    _FOCO["em"] = agora
+    try:
+        meu = os.stat(tty).st_atime
+    except OSError:
+        FOCO = True
+        return True
+    d = RT if os.path.isdir(RT) else "/tmp"
+    maior = 0.0
+    try:
+        nomes = os.listdir(d)
+    except OSError:
+        nomes = []
+    for n in nomes:
+        if not (n.startswith("tt-letreiro-") and n.endswith(".geo")):
+            continue
+        p = n[12:-4]
+        if not p.isdigit() or int(p) == pid:
+            continue
+        try:
+            mt = os.stat(os.path.join(d, n)).st_mtime_ns
+            visto = _FOCO["tty"].get(p)
+            if visto is None or visto[0] != mt:
+                with open(os.path.join(d, n)) as f:
+                    visto = (mt, str(json.load(f).get("tty") or ""))
+                _FOCO["tty"][p] = visto
+            if visto[1] and pid_vivo(int(p)):
+                maior = max(maior, os.stat(visto[1]).st_atime)
+        except (OSError, ValueError, AttributeError):
+            continue
+    FOCO = meu >= maior - FOCO_FOLGA
+    return FOCO
+
+
 def quadro_leitor(d, orc, agora):
     """(corpo de exatamente `orc` células, zonas de clique) da leitura na faixa."""
     tocando = bool(d.get("tocando"))
@@ -893,7 +943,15 @@ def quadro_leitor(d, orc, agora):
         partes.append("#[fg=%s%s]%s#[nobold]" % (cor, ",bold" if ac == "alternar" else "", esc(t)))
         zonas.append([x, x + _cels(t), ac])
         x += _cels(t)
-    if aviso:
+    fora = tocando and not FOCO  # a leitura corre noutra tela: aqui, um aviso parado (ver leitor_foco)
+    if fora:
+        for t in ("📖 lendo em outra tela · toque aqui ou tecle algo para ler nesta", "📖 lendo em outra tela · toque para ler aqui", "📖 em outra tela", "📖"):
+            if _cels(t) <= w:
+                break
+        t = cortar(t, w)
+        sobra = w - _cels(t)
+        miolo = " " * (sobra // 2) + "#[fg=%s]%s" % (L_PAUSADA, esc(t)) + " " * (sobra - sobra // 2)
+    elif aviso:
         t = cortar(aviso, w)
         sobra = w - _cels(t)
         miolo = " " * (sobra // 2) + "#[fg=%s,italics]%s#[noitalics]" % (AVISO, esc(t)) + " " * (sobra - sobra // 2)
@@ -916,7 +974,7 @@ def quadro_leitor(d, orc, agora):
             corpo = "#[fg=%s,bold]%s#[nobold]" % (cor, esc("".join(gs)))
         miolo = " " * ini + corpo + " " * (w - total - ini)
     partes.append(miolo)
-    zonas.append([x, x + w, "alternar"])
+    zonas.append([x, x + w, "foco" if fora else "alternar"])
     x += w
     for t, ac, cor in r:
         partes.append("#[fg=%s]%s" % (cor, esc(t)))
@@ -958,6 +1016,29 @@ def substituido(tty, pid):
                 return True
         except (OSError, ValueError, IndexError):
             continue
+    return False
+
+
+_SUBST = {"fio": None, "sim": False}
+
+
+def substituido_fundo(tty, pid):
+    """O mesmo que substituido, sem parar o relógio: a varredura do /proc leva de 15 a 40 ms (mais com a máquina
+    carregada) e, feita no laço da leitura, atrasava uma palavra a cada 2 s. Aqui ela corre noutro fio e a resposta
+    vale na volta seguinte."""
+    if not TEM_PROC:
+        return substituido(tty, pid)
+    if _SUBST["sim"]:
+        return True
+    fio = _SUBST["fio"]
+    if fio is None or not fio.is_alive():
+        def conferir():
+            try:
+                _SUBST["sim"] = substituido(tty, pid)
+            except Exception:
+                pass
+        fio = _SUBST["fio"] = threading.Thread(target=conferir, daemon=True)
+        fio.start()
     return False
 
 
@@ -1063,11 +1144,18 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
         pass
     marca = marca_anim(pid)
     ultimo, repetir, impresso_em, ciclo, tocado = None, False, 0.0, 0, 0.0
-    geo_ant, trocado, sem_fifo = None, False, 0.0
+    geo_ant, trocado, sem_fifo, lendo, conferido = None, False, 0.0, False, time.time()
+    arq_roteiro = os.path.join(DIR_LEITOR, "roteiro.json")
     try:
         while pid_vivo(pid):
             ciclo += 1
-            if ciclo % (5 * max(1, fps)) == 0 and substituido(tty, pid):  # (na leitura o ciclo é de até 50 ms: dá no mesmo)
+            if lendo:  # na leitura as voltas não têm tamanho fixo: confere por tempo, e sem parar o relógio
+                if time.time() - conferido > 3:
+                    conferido = time.time()
+                    if substituido_fundo(tty, pid):
+                        trocado = True
+                        return 0
+            elif ciclo % (5 * max(1, fps)) == 0 and substituido(tty, pid):
                 trocado = True
                 return 0
             cfg = ler_conf()
@@ -1075,9 +1163,11 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
                 return 0
             agora = time.time()
             cols = largura(fd, cols_tmux)
+            if leitor_roteiro() is not None:
+                leitor_foco(tty, pid, agora)
             q, anim = _quadro(cfg, cols, ponte, agora, ocupado, fps)
             lendo = ZONAS_LEITOR is not None
-            geo = {"cols": cols, "ocupado": ocupado, "esq": esq, "fps": fps, "ponte": ponte}
+            geo = {"cols": cols, "ocupado": ocupado, "esq": esq, "fps": fps, "ponte": ponte, "tty": tty}
             if ZONAS_LEITOR is not None:
                 geo["leitor"] = ZONAS_LEITOR  # onde está cada controle da leitura, para o clique
             if geo != geo_ant or not os.path.exists(arq_geo(pid)):
@@ -1104,10 +1194,23 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
                     except OSError:
                         pass
                     tocado = 0.0
-                prox = leitor_proxima(agora)
-                # acorda na hora exata da próxima palavra; no intervalo, a cada 50 ms, para ver comando novo no roteiro
-                espera = 0.05 if prox is None else min(0.05, prox - time.time() + 0.0005)
-                time.sleep(max(0.001, espera))
+                # Acorda na hora exata da próxima palavra (só a tela em uso as mostra). Até lá, a cada 50 ms, só olha
+                # se o roteiro mudou (um comando: responde na hora em qualquer tela); o quadro inteiro é refeito na
+                # hora da palavra ou 1 vez por segundo (foco, largura, configuração), não 20 vezes por segundo.
+                d = _LEITOR["dados"] or {}
+                prox = leitor_proxima(agora) if FOCO or not d.get("tocando") else None
+                limite = min(prox, agora + 1.0) if prox is not None else agora + 1.0
+                mt = _LEITOR["mt"]
+                while True:
+                    falta = limite - time.time()
+                    if falta <= 0:
+                        break
+                    time.sleep(max(0.0005, min(0.05, falta + 0.0003)))
+                    try:
+                        if os.stat(arq_roteiro).st_mtime_ns != mt:
+                            break
+                    except OSError:
+                        break
                 continue
             if anim and fps > 1:
                 if agora - tocado >= 1:

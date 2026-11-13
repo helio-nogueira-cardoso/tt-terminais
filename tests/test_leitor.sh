@@ -339,6 +339,49 @@ espera_tela '⏎ +ler na faixa'; X send-keys -t lf Enter; espera_tela 'SAIU=0'
 [[ -s $BARRA/roteiro.json ]] && grep -q '"tocando": true' "$BARRA/roteiro.json" || falhou '⏎ na biblioteca não pôs a leitura na faixa'
 [[ $(X list-keys -T tt-leitor 2>/dev/null | wc -l) -ge 16 ]] || true
 "$TT" --leitor-ctl pausar; "$TT" --leitor-parar; X kill-session -t lf
+# Só a tela em uso mostra as palavras (e pede um redesenho por palavra): cada cliente tem o seu pintor, e todos
+# redesenhando a cada palavra atrasavam a leitura de 60 a 500 ms com uma dúzia de clientes. "Em uso" = o tty que
+# recebeu tecla ou toque por último (hora de leitura do tty). As outras mostram um aviso parado; o toque nele não
+# pausa nem comanda nada (o próprio toque já torna aquela a tela em uso).
+"$TT" --leitor-barra "$ID" --pausado; "$TT" --leitor-ctl ir 25; "$TT" --leitor-ctl tocar; sleep 0.3
+python3 -I - "$TT_DIR/letreiro-tt.py" "$T" <<'PY' || falhou 'foco da leitura: a tela em uso (e só ela) deveria mostrar as palavras'
+import importlib.util, json, os, sys, time
+sp = importlib.util.spec_from_file_location("lt", sys.argv[1]); lt = importlib.util.module_from_spec(sp); sp.loader.exec_module(lt)
+T = sys.argv[2]
+rt = os.path.join(T, "rt-foco"); os.makedirs(rt); lt.RT = rt
+eu, outro, morto = os.path.join(T, "tty-eu"), os.path.join(T, "tty-outro"), os.path.join(T, "tty-morto")
+for f in (eu, outro, morto):
+    open(f, "w").close()
+agora = time.time()
+def usado(arq, ha):  # a tela recebeu uma tecla há `ha` segundos
+    os.utime(arq, (agora - ha, agora))
+def foco():
+    lt._FOCO["em"] = 0.0
+    return lt.leitor_foco(eu, 111, agora)
+json.dump({"tty": outro}, open(os.path.join(rt, "tt-letreiro-%d.geo" % os.getppid()), "w"))  # um cliente vivo
+json.dump({"tty": morto}, open(os.path.join(rt, "tt-letreiro-999999999.geo"), "w"))          # um que já morreu
+usado(eu, 5); usado(outro, 500); usado(morto, 0)
+assert foco(), "a tela usada por último deveria ter a leitura (cliente morto não conta)"
+usado(eu, 500); usado(outro, 5)
+assert not foco(), "com outra tela usada depois, esta deveria ceder"
+d = lt.leitor_roteiro()
+assert d and d.get("tocando"), d
+corpo, zonas = lt.quadro_leitor(d, 110, agora)
+assert "lendo em outra tela" in corpo and "#f38ba8" not in corpo, corpo
+assert [z[2] for z in zonas if z[2] in ("foco", "alternar")] == ["alternar", "foco"], zonas  # ‖ segue valendo; o miolo só traz a leitura
+x = next(z for z in zonas if z[2] == "foco")
+geo = {"esq": 0, "leitor": zonas}
+assert lt.acao_clique({}, geo, x[0] + lt.LADO + 2, agora) == "nada\t", "o toque no aviso não pode pausar"
+assert lt.quadro_leitor(d, 30, agora)[0].count("📖") == 1  # estreito: o aviso encolhe, não some
+usado(eu, 9); usado(outro, 5)  # as duas em uso quase juntas (o sistema anota a hora em passos de 8 s): as duas leem
+assert foco()
+assert lt.leitor_foco(os.path.join(T, "nao-existe"), 111, agora + 2), "sem saber a hora do tty, a leitura aparece"
+corpo, zonas = lt.quadro_leitor(d, 110, agora)
+assert "lendo em outra tela" not in corpo and "#f38ba8" in corpo, corpo
+PY
+grep -q 'substituido_fundo' "$TT_DIR/letreiro-tt.py" || falhou 'a varredura do /proc voltou ao laço da leitura (atrasa uma palavra a cada 2 s)'
+"$TT" --leitor-ctl pausar; "$TT" --leitor-parar
+passou 'faixa: só a tela em uso mostra as palavras; as outras, um aviso parado que o toque traz para si'
 if "$TT" --leitor-ctl tocar 2>"$T/err"; then falhou 'ctl sem leitura deveria falhar'; fi
 grep -q 'nenhuma leitura na faixa' "$T/err" || falhou 'mensagem do ctl sem leitura'
 grep -q '^    leitor) # leitura na faixa' "$TT_DIR/tt" && grep -q '^bind -T tt-leitor Space run-shell -b "~/.local/bin/tt --leitor-ctl alternar" \\; switch-client -T tt-leitor' "$TT_DIR/tmux.conf" || falhou 'clique do letreiro ou tabela de teclas do leitor'
