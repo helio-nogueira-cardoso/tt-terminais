@@ -60,10 +60,12 @@ for a in "$@"; do [ "$a" = -raw ] && raw=1; ant=$pen; pen=$a; done
 case $ant in
 *ordem.pdf)
   if [ $raw = 1 ]; then
-    printf -- '— Nada! interrompeu-me Quincas Borba com um gesto de\nindignação.\nEu viram-\nme ir e trepava-\nlhe ao dorso. Trata-\nse de uma obra; beijá-\nlo na testa e vê-\nlos de longe. Disse-\nme isto, vendo-\nos tristes. Fizeram-\nlhe festa.\n\f'
+    printf -- '— Nada! interrompeu-me Quincas Borba com um gesto de\nindignação.\nEu viram-\nme ir e trepava-\nlhe ao dorso. Trata-\nse de uma obra; beijá-\nlo na testa e vê-\nlos de longe. Disse-\nme isto, vendo-\nos tristes. Fizeram-\nlhe festa. O el-\nrei sorriu.\n\f'
+    printf 'Fim do trecho.\n\nCAPÍTULO LIII / . . . . .\nVirgília é que já se não lembrava da meia dobra.\n\f'
     printf 'Meu bom amigo,\nS\nu\na\na\nm\ni\ng\na\n,\nA imagem v inculada não pode ser exibida. Talv ez o arquiv o tenha sido mov ido, renomeado ou excluído. Verifique se o v ínculo aponta para o arquiv o e o local corretos.\n\f'
   else
-    printf -- '— Nada! interrompeu-me\nindignação.\n\nQuincas\n\nBorba\n\ncom\n\num\n\ngesto\n\nde\n\nEu viramme ir e trepavalhe ao dorso. Tratase de uma obra; beijálo na testa e vêlos de longe. Disseme isto, vendoos tristes. Fizeramlhe festa.\n\f'
+    printf -- '— Nada! interrompeu-me\nindignação.\n\nQuincas\n\nBorba\n\ncom\n\num\n\ngesto\n\nde\n\nEu viramme ir e trepavalhe ao dorso. Tratase de uma obra; beijálo na testa e vêlos de longe. Disseme isto, vendoos tristes. Fizeramlhe festa. O elrei sorriu.\n\f'
+    printf 'Fim do trecho.\n\nCAPÍTULO LIII / . . . . .\nVirgília é que já se não lembrava da meia dobra.\n\f'
     printf 'Meu bom amigo,\nS\nu\na\na\nm\ni\ng\na\n,\nA imagem v inculada não pode ser exibida. Talv ez o arquiv o tenha sido mov ido, renomeado ou excluído. Verifique se o v ínculo aponta para o arquiv o e o local corretos.\n\f'
   fi ;;
 *)
@@ -92,7 +94,8 @@ grep -q 'formato não reconhecido' "$T/err" || falhou "erro do binário: $(cat "
 passou 'extração: txt (Latin-1), md, html, epub, docx, odt, fb2, rtf e pdf (cabeçalho, nº de página e hífen de margem saem); binário recusado'
 s=$(ex ordem.pdf)
 [[ $s == *"— Nada! interrompeu-me Quincas Borba com um gesto de indignação."* ]] || falhou "pdf: ordem das palavras da linha desmontada: $s"
-[[ $s == *"Eu viram-me ir e trepava-lhe ao dorso. Trata-se de uma obra; beijá-lo na testa e vê-los de longe. Disse-me isto, vendo-os tristes. Fizeram-lhe festa."* ]] || falhou "pdf: hífen de ênclise perdido: $s"
+[[ $s == *"Eu viram-me ir e trepava-lhe ao dorso. Trata-se de uma obra; beijá-lo na testa e vê-los de longe. Disse-me isto, vendo-os tristes. Fizeram-lhe festa. O el-rei sorriu."* ]] || falhou "pdf: hífen de ênclise ou de palavra composta perdido: $s"
+[[ $s == *$'\n## CAPÍTULO LIII / . . . . .\n'* && $s == *$'\nVirgília é que já se não lembrava da meia dobra.'* ]] || falhou "pdf: título de capítulo em maiúsculas colado no texto: $s"
 [[ $s == *"Meu bom amigo, Suaamiga,"* && $s != *"vinculada"* && $s != *"arquiv o"* ]] || falhou "pdf: letras soltas ou aviso de imagem do Word: $s"
 passou 'pdf: palavras tiradas da linha voltam à ordem (modo -raw), hífen de pronome (viram-me) fica, letra espaçada junta e aviso de imagem do Word sai'
 

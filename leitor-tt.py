@@ -126,6 +126,7 @@ _ESPACOS = re.compile(r"[ \t\u00a0\u2000-\u200a\u202f\u205f\u3000]+")
 _INVISIVEIS = re.compile("[\u00ad\u200b-\u200d\u2060\ufeff]")
 _FIM_FRASE = ".!?…:;\"”’»)]"
 # Pronomes que seguem um verbo por hífen (viram-me, trepava-lhe, beijá-lo, dir-se-ia): o hífen é da palavra, não da margem.
+_CAP_LINHA = re.compile(r"^(CAP[ÍI]TULO|PR[ÓO]LOGO|EP[ÍI]LOGO|PREF[ÁA]CIO)\b.{0,70}$")  # título de capítulo em maiúsculas, numa linha só
 _CLITICOS = frozenset("me te se lhe lhes nos vos lo la los las lho lha lhos lhas mo ma mos mas o a os as no na nas".split())
 _LETRA_SOLTA = re.compile(r"(?<!\S)(?:[^\W\d_] ){7,}[^\W\d_](?: ?[,.;:!?])?(?!\S)")  # texto espaçado letra a letra (assinatura)
 _IMAGEM_AUSENTE = re.compile(r"A imagem v ?inculada n[ãa]o pode ser exibida\..*?corretos\.", re.S)  # aviso do Word, não é texto
@@ -136,11 +137,12 @@ def _enclise_depois(seg):
     return bool(m) and m.group(0).lower() in _CLITICOS
 
 
-def _unir_hifen(a, b, enclise=False):
-    """Junta o fim de uma linha ao começo da seguinte. Hífen no fim da linha é sílaba partida (some) ou, num texto cujos
-    hifens de margem são todos de ênclise, o hífen verdadeiro do pronome (fica)."""
+def _unir_hifen(a, b, hifen_firme=False):
+    """Junta o fim de uma linha ao começo da seguinte. Hífen no fim da linha é sílaba partida (some) ou, num texto que
+    não parte sílaba na margem (os hifens de fim de linha são de pronome, viram-me, ou de palavra composta), o hífen
+    verdadeiro da palavra (fica)."""
     if a.endswith("-") and len(a) > 1 and a[-2].isalpha() and b[:1].islower():
-        return a + b if enclise and _enclise_depois(b) else a[:-1] + b
+        return a + b if hifen_firme else a[:-1] + b
     return a + " " + b
 
 
@@ -163,7 +165,7 @@ def decodificar(dados):
 _CAP_RE = re.compile(r"^(cap[ií]tulo|chapter|parte|part|livro|book|pr[oó]logo|ep[ií]logo|pref[aá]cio|introdu[cç][aã]o)\b.{0,70}$", re.I)
 
 
-def blocos_de_texto(texto, juntar_soltos=False, markdown=False, enclise=False):
+def blocos_de_texto(texto, juntar_soltos=False, markdown=False, hifen_firme=False):
     """Linhas → parágrafos. Com linhas em branco, cada bloco é um parágrafo (as quebras de dentro são da margem, e a
     palavra partida por hífen no fim da linha volta a ser uma); sem nenhuma, cada linha é um parágrafo."""
     texto = texto.replace("\r\n", "\n").replace("\r", "\n")
@@ -173,19 +175,27 @@ def blocos_de_texto(texto, juntar_soltos=False, markdown=False, enclise=False):
     blocos = []
     if tem_branco:
         atual = []
+
+        def fechar():
+            nonlocal atual
+            if atual:
+                p = atual[0]
+                for seg in atual[1:]:
+                    p = _unir_hifen(p, seg, hifen_firme)
+                blocos.append(p)
+                atual = []
         for l in linhas + [""]:
             if l.strip():
+                if juntar_soltos and _CAP_LINHA.match(l.strip()):  # pdf: o título não fica colado no texto que vem depois
+                    fechar()
+                    blocos.append(l.strip())
+                    continue
                 if markdown and atual and re.match(r"\s*([-*+]|\d+[.)])\s+|#{1,6}\s|>", l):
                     blocos.append(" ".join(atual))  # item de lista, título ou citação começa parágrafo novo
                     atual = []
                 atual.append(l.strip())
                 continue
-            if atual:
-                p = atual[0]
-                for seg in atual[1:]:
-                    p = _unir_hifen(p, seg, enclise)
-                blocos.append(p)
-                atual = []
+            fechar()
     else:
         blocos = [l.strip() for l in linhas if l.strip()]
     blocos = [b for b in (limpar(b) for b in blocos) if b]
@@ -195,7 +205,7 @@ def blocos_de_texto(texto, juntar_soltos=False, markdown=False, enclise=False):
         juntos = []
         for b in blocos:
             if juntos and juntos[-1][-1] not in _FIM_FRASE and b[:1].islower() and not _CAP_RE.match(b):
-                juntos[-1] = _unir_hifen(juntos[-1], b, enclise)
+                juntos[-1] = _unir_hifen(juntos[-1], b, hifen_firme)
             else:
                 juntos.append(b)
         blocos = juntos
@@ -213,7 +223,7 @@ def capitulos_de_blocos(blocos, markdown=False):
             b = _md_limpar(b)
             if not b:
                 continue
-        if titulo is None and len(b) <= 80 and _CAP_RE.match(b) and b[-1] not in ".,;":
+        if titulo is None and len(b) <= 80 and _CAP_RE.match(b) and (b[-1] not in ".,;" or _CAP_LINHA.match(b)):
             titulo = b
         if titulo is not None:
             caps.append({"titulo": _md_limpar(titulo) if markdown else titulo, "paragrafos": []})
@@ -516,11 +526,13 @@ def _pagina_pdf(pad, cru):
     return cru if soltos(cru) < soltos(pad) else pad
 
 
-def _enclise_do_pdf(paginas_cru):
-    """Texto cujos hifens de fim de linha são quase todos de ênclise (viram-me, trepava-lhe): {palavra colada: com hífen}.
-    O modo padrão do pdftotext apaga esse hífen ('atenhome', 'disselhe'); o -raw o conserva, e é dele que se lê.
-    Texto com sílabas partidas na margem (a maioria dos hifens não é de pronome) volta vazio: nada muda."""
-    total, achados = 0, {}
+def _hifens_firmes_do_pdf(paginas_cru):
+    """Texto que não parte sílaba na margem: a maioria dos hifens de fim de linha é de pronome (viram-me, trepava-lhe) e
+    o resto é de palavra composta (el-rei, Nhã-loló). Devolve {palavra colada: com hífen}, porque o modo padrão do
+    pdftotext apaga esse hífen ('atenhome', 'elrei') e o -raw o conserva. Com sílabas partidas na margem (a maioria
+    dos hifens não é de pronome), volta vazio e nada muda."""
+    total = clit = 0
+    achados = {}
     for t in paginas_cru:
         linhas = t.split("\n")
         for a, b in zip(linhas, linhas[1:]):
@@ -528,9 +540,9 @@ def _enclise_do_pdf(paginas_cru):
             f = re.match(r"[^\W\d_]+", b)
             if m and f and b[:1].islower():
                 total += 1
-                if f.group(0).lower() in _CLITICOS:
-                    achados[m.group(1) + f.group(0)] = m.group(1) + "-" + f.group(0)
-    return achados if total >= 8 and sum(1 for _ in achados) >= 3 and len(achados) / total >= 0.4 else {}
+                clit += f.group(0).lower() in _CLITICOS
+                achados[m.group(1) + f.group(0)] = m.group(1) + "-" + f.group(0)
+    return achados if total >= 8 and clit / total >= 0.6 else {}
 
 
 def _texto_pdf(caminho):
@@ -544,7 +556,7 @@ def _texto_pdf(caminho):
     pp, pc = decodificar(pad).split("\f"), decodificar(cru).split("\f")
     if len(pp) != len(pc):
         return pad, "", False
-    mapa = _enclise_do_pdf(pc)
+    mapa = _hifens_firmes_do_pdf(pc)
     rx = re.compile(r"(?<![\w-])(" + "|".join(re.escape(k) for k in sorted(mapa, key=len, reverse=True)) + r")(?![\w])") if mapa else None
     saida = []
     for a, b in zip(pp, pc):
@@ -557,9 +569,9 @@ def _texto_pdf(caminho):
 
 def extrair_pdf(caminho):
     saida = erro = None
-    enclise = False
+    hifen_firme = False
     if shutil.which("pdftotext"):
-        saida, erro, enclise = _texto_pdf(caminho)
+        saida, erro, hifen_firme = _texto_pdf(caminho)
     if saida is None and shutil.which("mutool"):
         saida, erro = _rodar(["mutool", "draw", "-q", "-F", "txt", "-o", "-", caminho])
         if saida is not None and b"\f" not in saida:
@@ -602,7 +614,7 @@ def extrair_pdf(caminho):
             if norma(linhas[i]) in repetidas or re.fullmatch(r"\s*[-–—]?\s*\d{1,4}\s*[-–—]?\s*", linhas[i]):
                 linhas[i] = ""
         texto.append("\n".join(linhas))
-    blocos = blocos_de_texto("\n\n".join(texto), juntar_soltos=True, enclise=enclise)
+    blocos = blocos_de_texto("\n\n".join(texto), juntar_soltos=True, hifen_firme=hifen_firme)
     titulo = autor = ""
     if shutil.which("pdfinfo"):  # o título que o próprio pdf declara, quando parece um título
         info, _ = _rodar(["pdfinfo", "-enc", "UTF-8", caminho], 20)
