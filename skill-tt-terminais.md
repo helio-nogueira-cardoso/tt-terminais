@@ -888,6 +888,54 @@ e os instaladores da pasta do usuário ficam no `tt`.
   (`--busca-consulta` por ssh, `TT_T_BUSCA_REMOTA`=5 s) e filtra as listas guardadas. `busca_conversa=0`/`tt --busca off` desliga.
   Arquivo novo do pacote: `busca-tt.py` em `ARQUIVOS_FONTE`. Teste: `tests/test_busca_conversa.sh`.
 
+### Leitor rápido (`leitor-tt.py`, `leitor-fontes.bin`)
+- `tt --leitor [ARQUIVO|ID|-]` (menu ⋯ → 📖, `Ctrl+B L` → rota `leitor` do `clique()` → `leitor_popup_cmd`: janela de 100% × 100%):
+  leitura de uma palavra por vez no mesmo lugar da tela (RSVP). Sem argumento abre a biblioteca; arquivo é acrescentado e aberto;
+  `-` lê o stdin. `--leitor-add ARQ…` (imprime `id⇥título⇥novo|já estava`), `--leitor-listar [--tsv]` (`id pct pos palavras título
+  mudada máquina formato tem_texto tem_original`), `--leitor-rm ID`, `--leitor-extrair ARQ`, `--leitor-posicao ID [N|N%]`
+  (`pos⇥total⇥mudada⇥máquina`), `--leitor-estado`, `--leitor-sync [--quieto] [--so ID] [rótulo…]`, `--leitor-baixar ID`. ID = código,
+  prefixo (4+ hex) ou pedaço do título. Internos (chamados por ssh): `--leitor-inventario`, `--leitor-mesclar` (inventário no
+  stdin), `--leitor-empacotar` (lista `id⇥texto|original` no stdin → tar), `--leitor-aplicar` (tar no stdin).
+- **Leitura na faixa (o modo normal dentro do tmux com a faixa ligada, `leitor_barra_pode`):** `tt --leitor-barra ID|ARQ [--pausado]`
+  (é o que o ⏎ da biblioteca e `tt --leitor ARQ` chamam) sobe o motor `leitor-tt.py motor ID --tocar` (um por máquina, se
+  desliga do terminal sozinho; já rodando, recebe `abrir ID`) e chama `atualizar_barras`. O motor (`Motor`) guarda o texto, lê
+  comandos do fifo `~/.cache/tt-leitor/barra/ctl`, agenda cada palavra em quadros inteiros da grade `fps_para(ppm)` (8 a 20) e
+  escreve `roteiro.json` (`pid`, `tocando`, `ppm`, `fps`, `n`, `palavras` = `[hora, texto, letra de foco, posição]` dos próximos
+  40 s, `msg`); grava a posição ao pausar, a cada 15 s e ao parar; chama `tt --leitor-sync --quieto`; pausado, adota a posição
+  mais nova que a troca trouxer; pausado há 8 h, encerra. Quem pinta é o `letreiro-tt.py` (`leitor_roteiro`, `quadro_leitor`):
+  com motor vivo o miolo da faixa é SÓ da leitura (antes de aviso fresco, transferência e letreiro), a letra de foco fica a 40%
+  da área da palavra, e cada controle vira uma zona `[x0, x1, ação]` na geometria do cliente (`geo["leitor"]`); o clique no range
+  `letreiro` devolve `leitor⇥ação` e o `letreiro_clique` chama `leitor_ctl` (`tela` abre a biblioteca, `parar` → `leitor_parar`).
+  `barra_notifs_fmt` usa o `fps` do motor para o nº de gatilhos e põe um ⌨ quando o cliente está na tabela de teclas
+  `tt-leitor` (tmux.conf: cada tecla roda `tt --leitor-ctl AÇÃO` e volta à tabela; tecla sem bind cai no painel). `Ctrl+B L` →
+  `leitor_tecla`: com leitura ligada entra na tabela, sem ela abre a biblioteca. `tt --leitor-ctl AÇÃO` só usa builtins (escreve
+  no fifo; se o `fps` mudou, refaz a barra); `tt --leitor-parar` encerra o motor, tira os clientes da tabela e refaz a barra.
+  `tt --leitor --tela …` e a tecla `T` da biblioteca leem em tela cheia. `TT_LEITOR_BARRA_DIR` troca a pasta (testes).
+- `leitor-tt.py` (só stdlib; roda no Termux): extração (`extrair`: txt, md, html, epub, docx, odt, fb2, rtf; pdf por `pdftotext`,
+  senão `mutool`, com `pdfinfo` para o título) → `{"titulo","autor","capitulos":[{"titulo","paragrafos":[…]}]}`. Biblioteca em
+  `~/.local/share/tt-leitor` (`TT_LEITOR_DIR`): `livros/ID/{meta.json, estado.json, texto.json.gz, original.EXT}`, `lapides.json`,
+  `maquinas/RÓTULO.json` (o que cada máquina disse ter). ID = 12 hex do sha256 do arquivo. A posição (`estado.pos`) é o índice da
+  palavra no texto extraído, por isso o texto viaja junto (duas extrações diferentes do mesmo arquivo: fica a da meta mais antiga,
+  `meta_vence`). Preferências por máquina em `~/.config/tt/leitor.json` (`PADRAO` no topo da seção de preferências).
+- Troca (`leitor_sync`, uma por vez pela trava `$RT/tt-leitor-UID.trava`): para cada máquina, `--leitor-inventario` de lá →
+  `mesclar` aqui (estados: `mudada` maior vence; marcadores por posição; lápides; livro novo nasce só com a meta) → inventário
+  daqui para o `--leitor-mesclar` de lá → `pedir` (o que puxar) e `pedir --enviar` (o que levar) → tar. Texto sempre; original até
+  `leitor_original_max_mb` de quem recebe (200; 0 nunca; `--so ID` fura). `aplicar` só aceita `ID/(meta.json|estado.json|
+  texto.json.gz|original)`, confere o sha256 do original contra o ID e o do texto contra `meta.texto_sha`, e não cria livro sem
+  um arquivo válido. Quando roda: ao pausar/fechar/acrescentar (a tela chama `tt --leitor-sync` em 2º plano por `TT_LEITOR_TT`),
+  `--leitor-add`/`--leitor-rm` (`leitor_sync_fundo`; `TT_LEITOR_SEM_FUNDO=1` desliga, testes) e o vigia a cada `TT_T_LEITOR` (600 s;
+  log `~/.cache/tt-leitor.log`, só quando algo andou). `leitor_sync=0` tira a máquina (responde vazio; quem chama marca `pulada`).
+- Tela (`App` compõe linhas de trechos `(texto, cor, fundo, atributos)`; `Tela` pinta só as linhas que mudaram, mouse SGR,
+  colagem, ESC sozinho espera `TT_ESC_SEQ`): modos biblioteca e leitura; por cima, ajustes (`o`), ajuda (`?`), índice (`i`),
+  marcadores (`m`), busca (`/`), acrescentar (`a`) e confirmação. Toda ação de mouse é uma zona `(linha, x0, x1, função)` registrada
+  na composição e chama a mesma função da tecla. Letras grandes: `Atlas`/`Fonte`/`letras_grandes` (alturas 8–24 guardadas com
+  ajuste fino + matriz de 48; traços `fino`, `pontos`, `blocos`, `cheio`); `desenho()` encolhe a palavra que não cabe até o piso
+  legível e `partir()` a divide. Foco: `ponto_foco`; tempo: `fator_tempo` × 60/ppm. Cores: `modo_cores` (24 bits, 256 ou nenhuma;
+  `TT_LEITOR_CORES` força). Sem tela: `leitor-tt.py quadro ID [--pos N] [--largura L] [--altura A] [chave=valor…] [--json]`
+  imprime um quadro em texto puro (os testes conferem a coluna do foco e os tempos por ele).
+- Atlas: `leitor-tt.py fontes-gerar leitor-fontes.bin` (precisa do Pillow e das fontes; só no desenvolvimento). Família nova =
+  linha em `FAMILIAS_GERAR` + regerar. Teste: `tests/test_leitor.sh`.
+
 ### Atalhos no Mac (`tt --mac`)
 - `tt --mac [status|ativar|atalhos]`: no macOS Ctrl+clique vira botão direito, Ctrl+Shift+V não existe (Cmd+V) e F1–F10 pedem fn.
   O `tmux.conf` liga `M-MouseDown1Pane`/`M-SecondClick1Pane` como o Ctrl (Option+clique abre link), a tabela `tt-botoes`
@@ -984,7 +1032,7 @@ Ranges e destino:
 | `painel` | status-right (⋯) | `menu_painel` | — |
 | `email` | status-right (📧) | `botao_email` | `menu_email` |
 | `tarefas` | 2ª linha, à direita (📋 N) | `abrir_tarefas` | `menu_tarefas` |
-| `letreiro` | 3ª linha, miolo (texto do letreiro; desenhado pelo `letreiro-tt.py`) | `letreiro_clique` (ação do item sob o mouse ou pausa) | — |
+| `letreiro` | 3ª linha, miolo (texto do letreiro; desenhado pelo `letreiro-tt.py`; com uma leitura ligada, a palavra e os controles do leitor) | `letreiro_clique` (ação do item sob o mouse ou pausa; na leitura, o controle tocado → `leitor_ctl`) | — |
 | `fx<chave>` | faixa de fixadas | `ir_fixada` | `menu_fixada` |
 | `fxx<chave>` | faixa de fixadas (✕) | `desafixar_item` | `desafixar_item` |
 | `fixmais` | chip `+N ▾` da faixa de fixadas | `fixadas_popup` | `fixadas_agrupar` (as de uma máquina lado a lado); a roda: `tt --rolar fixmais ±1` → `fixadas_girar` |
@@ -1011,7 +1059,7 @@ cima, as escondidas com a última visível (`mover_fixada VIS N`) e, para baixo,
 direito no chip e `^g` no popup = `fixadas_agrupar` (`tt --fixadas-agrupar`: as de uma máquina lado a lado, máquinas
 na ordem da 1ª aparição, estável; sem mudança não grava nem propaga).
 
-Binds de teclado (prefixo `Ctrl+B`): `s` central, `t` tarefas, `|` split horizontal, `-` split
+Binds de teclado (prefixo `Ctrl+B`): `s` central, `t` tarefas, `L` leitor rápido, `|` split horizontal, `-` split
 vertical, `c` janela nova, `r` recarrega config, `m` menu do painel, `y` histórico de cópias, `N`
 renomear sessão, `F1..F10` botões. Mouse: Ctrl + arrastar/duplo/triplo clique copiam (sem modificador vão ao programa; o Ctrl+arrastar = painel flutuante do tmux 3.8 fica desligado); botão do meio cola;
 `MouseDown/Up1Status*` → `--clique` (o 6º argumento é o evento, `d` ao pressionar e `u` ao soltar: o 📌 `fixar` ignora o `u`; sem ele, CLI e testes, age sempre); `MouseUp3Status*` → `--clique-direito`; `WheelUp/DownStatus` em `maquina`/`sessao` →
@@ -1069,7 +1117,7 @@ de tarefas; só cache) e `tarefas-git.ok` (epoch da última troca boa), `tarefas
 ControlPath do ssh, transferências em andamento.
 
 ### Pacote `~/.local/share/tt/`
-`ARQUIVOS_FONTE` (lista no `tt`): `tt email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf
+`ARQUIVOS_FONTE` (lista no `tt`): `tt leitor-tt.py leitor-fontes.bin email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf
 tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile
 README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
 skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py
@@ -1094,6 +1142,7 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
 - Fontes do letreiro: toda volta, `ticker_atualizar_fontes` (= `letreiro-fontes.py atualizar`: migra o que for antigo, respeita TTL, janela,
   cota, espera após erro e modo economia, e recompila `_roda.json`); desligado com `ticker_ligado=0`.
 - E-mail (sync local) a cada `TT_EMAIL_SYNC` s (default 120; 300 ocioso; 0 desliga): `--email-sync --vigia`.
+- Leitor rápido a cada `TT_T_LEITOR` s (600; 0 desliga), com outras máquinas cadastradas e `leitor_sync` ≠ 0: `--leitor-sync --quieto`.
 - Padrão visual + memória a cada 300 s: `--reforcar-padrao`, `--memoria-agentes`.
 - Atualização: sonda leve a cada `TT_T_SONDA` s (300; 900 no Termux) com `--sondar-atualizacao` e busca completa a cada `TT_T_ATUALIZACAO` s (21600) com `--garantir-atualizacao`.
 - Hora confiável a cada `TT_T_HORA` s (21600; 15 min enquanto não houver medida): `--hora --sincronizar`.

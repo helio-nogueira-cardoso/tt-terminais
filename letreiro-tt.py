@@ -643,6 +643,14 @@ def _quadro(cfg, cols, ponte, agora, ocupado=OCUPADO, fps=1):
     except ValueError:
         maxima = 400
     orc = min(orc, max(8, min(maxima, 400)))
+    global ZONAS_LEITOR
+    lendo = leitor_roteiro()
+    if lendo is not None:  # leitura na faixa: o miolo é só dela (letreiro, avisos e transferências esperam)
+        corpo, ZONAS_LEITOR = quadro_leitor(lendo, orc, agora)
+        # anima também nos 20 s depois de cada comando: pausado, um toque em "tocar" responde na hora
+        return "  #[fg=%s]│#[range=user|letreiro]#[fg=%s]  %s  #[norange]#[fg=%s]│#[default]#[bg=%s]  " % (
+            CINZA, TEXTO, corpo, CINZA, FUNDO), bool(lendo.get("tocando")) or time.time() - _LEITOR["mudou"] < 20
+    ZONAS_LEITOR = None
     try:
         slot = int(os.environ.get("TT_NOTIF_SLOT") or 10)
     except ValueError:
@@ -709,6 +717,12 @@ def item_sob_mouse(cfg, geo, x, agora, ponte=False):
 def acao_clique(cfg, geo, x, agora, ponte=False):
     """'acao<TAB>alvo' para um clique na coluna x: a ação do item sob o mouse (cadastrada na fonte) ou,
     sem ação, alternar a pausa (ticker_pausa=nunca desliga)."""
+    if leitor_roteiro() is not None:  # leitura na faixa: o clique é dela, nunca do letreiro que está por baixo
+        rel = x - geo["esq"] - LADO
+        for zona in geo.get("leitor") or []:
+            if zona[0] <= rel < zona[1]:
+                return "leitor\t%s" % zona[2]
+        return "nada\t"
     alvo = item_sob_mouse(cfg, geo, x, agora, ponte)
     if alvo is None:
         return "nada\t"
@@ -793,6 +807,116 @@ def largura(fd, tmux=0):
         except OSError:
             pass
     return tmux if tmux > 0 else 80
+
+
+# --- Leitor rápido na faixa -------------------------------------------------------------------------------------------
+# Com uma leitura ligada (`tt --leitor-barra`), o miolo da faixa é TODO dela: nem letreiro, nem aviso fresco, nem
+# transferência entram. O motor (leitor-tt.py motor) escreve ~/.cache/tt-leitor/barra/roteiro.json com as próximas
+# palavras e a hora exata de cada uma, na grade de quadros da barra; aqui só se lê o roteiro e se desenha a palavra
+# da vez com a letra de foco numa coluna fixa, entre os controles. Cada controle vira uma zona (x0, x1, ação) na
+# geometria do cliente, e o clique (acao_clique) devolve "leitor<TAB>ação". Sem motor vivo, o roteiro é ignorado.
+DIR_LEITOR = os.environ.get("TT_LEITOR_BARRA_DIR") or os.path.join(HOME, ".cache", "tt-leitor", "barra")
+_LEITOR = {"mt": None, "dados": None, "visto": 0.0, "vivo": False, "mudou": 0.0}
+ZONAS_LEITOR = None
+L_PALAVRA, L_FOCO, L_PAUSADA, L_BOTAO, L_TOCAR, L_FECHAR = "#cdd6f4", "#f38ba8", "#a6adc8", "#7f849c", "#a6e3a1", "#6c7086"
+
+
+def leitor_roteiro():
+    """O roteiro da leitura em curso (dict), ou None. Relê o arquivo só quando ele muda."""
+    try:
+        mt = os.stat(os.path.join(DIR_LEITOR, "roteiro.json")).st_mtime_ns
+    except OSError:
+        _LEITOR["mt"] = _LEITOR["dados"] = None
+        return None
+    real = time.time()
+    if mt != _LEITOR["mt"]:
+        try:
+            with open(os.path.join(DIR_LEITOR, "roteiro.json"), encoding="utf-8") as f:
+                d = json.load(f)
+            if not isinstance(d, dict) or not isinstance(d.get("palavras"), list):
+                raise ValueError
+        except (OSError, ValueError):
+            return _LEITOR["dados"] if _LEITOR["vivo"] else None  # pego no meio da troca: vale o anterior
+        _LEITOR.update(mt=mt, dados=d, visto=0.0, mudou=real)
+    if real - _LEITOR["visto"] > 2:
+        try:
+            pid_motor = int(_LEITOR["dados"].get("pid") or 0)
+            _LEITOR["vivo"] = pid_motor > 1 and pid_vivo(pid_motor)
+        except (TypeError, ValueError):
+            _LEITOR["vivo"] = False
+        _LEITOR["visto"] = real
+    return _LEITOR["dados"] if _LEITOR["vivo"] else None
+
+
+def _cels(t):
+    return sum(larg(g) for g in grafemas(t))
+
+
+def quadro_leitor(d, orc, agora):
+    """(corpo de exatamente `orc` células, zonas de clique) da leitura na faixa."""
+    tocando = bool(d.get("tocando"))
+    atual = None
+    try:
+        pal = [e for e in d["palavras"] if isinstance(e, list) and len(e) >= 4]
+        if tocando:
+            for e in pal:
+                if float(e[0]) <= agora:
+                    atual = e
+                else:
+                    break
+        if atual is None and pal:
+            atual = pal[0]
+        texto, foco, pos = (str(atual[1]), int(atual[2]), int(atual[3])) if atual else ("", -1, 0)
+        n = max(1, int(d.get("n") or 1))
+        ppm = int(d.get("ppm") or 0)
+        msg = d.get("msg") or ["", 0]
+        aviso = str(msg[0]) if msg[0] and float(msg[1]) > agora else ""
+    except (TypeError, ValueError, IndexError):
+        texto, foco, pos, n, ppm, aviso = "", -1, 0, 1, 0, ""
+    texto = "".join(c for c in texto if c >= " " and c != "\x7f")
+    pct = min(100, (pos + 1) * 100 // n)
+    esq = [(" « ", "longo-", L_BOTAO), (" ‹ ", "curto-", L_BOTAO), (" ‖ " if tocando else " ▶ ", "alternar", L_TOCAR),
+           (" › ", "curto+", L_BOTAO), (" » ", "longo+", L_BOTAO)]
+    dir_ = [(" − ", "ppm-", L_BOTAO), ("%d" % ppm, "tela", L_BOTAO), (" + ", "ppm+", L_BOTAO), (" %d%% " % pct, "tela", L_BOTAO),
+            (" ✕ ", "parar", L_FECHAR)]
+    for e, r in ((esq, dir_), (esq[1:4], [dir_[0], dir_[2], dir_[4]]), ([esq[2]], [dir_[4]]), ([], [])):
+        w = orc - sum(_cels(t) for t, _, _ in e) - sum(_cels(t) for t, _, _ in r)
+        if w >= 20 or not e:
+            break
+    w = max(1, w)
+    zonas, x, partes = [], 0, []
+    for t, ac, cor in e:
+        partes.append("#[fg=%s%s]%s#[nobold]" % (cor, ",bold" if ac == "alternar" else "", esc(t)))
+        zonas.append([x, x + _cels(t), ac])
+        x += _cels(t)
+    if aviso:
+        t = cortar(aviso, w)
+        sobra = w - _cels(t)
+        miolo = " " * (sobra // 2) + "#[fg=%s,italics]%s#[noitalics]" % (AVISO, esc(t)) + " " * (sobra - sobra // 2)
+    else:
+        gs = grafemas(texto)
+        if sum(larg(g) for g in gs) > w:
+            gs, foco = grafemas(cortar(texto, w)), min(foco, max(0, w - 2))
+        total = sum(larg(g) for g in gs)
+        if 0 <= foco < len(gs):
+            ini = int(w * 0.4) - sum(larg(g) for g in gs[:foco])
+        else:
+            ini = (w - total) // 2
+        ini = max(0, min(w - total, ini))
+        cor = L_PALAVRA if tocando else L_PAUSADA
+        if 0 <= foco < len(gs):
+            corpo = "#[fg=%s,bold]%s#[fg=%s]%s#[fg=%s]%s#[nobold]" % (cor, esc("".join(gs[:foco])), L_FOCO, esc(gs[foco]), cor, esc("".join(gs[foco + 1:])))
+        else:
+            corpo = "#[fg=%s,bold]%s#[nobold]" % (cor, esc("".join(gs)))
+        miolo = " " * ini + corpo + " " * (w - total - ini)
+    partes.append(miolo)
+    zonas.append([x, x + w, "alternar"])
+    x += w
+    for t, ac, cor in r:
+        partes.append("#[fg=%s]%s" % (cor, esc(t)))
+        zonas.append([x, x + _cels(t), ac])
+        x += _cels(t)
+    return "".join(partes), zonas
 
 
 def emitir(q):
@@ -896,11 +1020,13 @@ def fluxo(tty, pid, ocupado=OCUPADO, cols_tmux=0, fps=1, esq=0):
                 return 0
             agora = time.time()
             cols = largura(fd, cols_tmux)
+            q, anim = _quadro(cfg, cols, ponte, agora, ocupado, fps)
             geo = {"cols": cols, "ocupado": ocupado, "esq": esq, "fps": fps, "ponte": ponte}
+            if ZONAS_LEITOR is not None:
+                geo["leitor"] = ZONAS_LEITOR  # onde está cada controle da leitura, para o clique
             if geo != geo_ant or not os.path.exists(arq_geo(pid)):
                 grava_geo(pid, geo)
                 geo_ant = geo
-            q, anim = _quadro(cfg, cols, ponte, agora, ocupado, fps)
             # Sem imprimir por 1 h o tmux dá o #() por abandonado e o recria (format_job_tidy): uma
             # linha igual de tempos em tempos (ponte parada, letreiro desligado) mantém o processo vivo.
             if q != ultimo or repetir or agora - impresso_em > 1500:

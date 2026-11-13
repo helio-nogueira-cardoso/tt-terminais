@@ -41,6 +41,7 @@
 #   tt --busca [estado|agora|on|off|consultar T]  busca na conversa inteira e no scrollback (central: ^e → "conversa")
 #   tt --mac [status|ativar|atalhos]  atalhos no Mac: Option como Meta (Terminal.app, Ghostty, iTerm2) e a tabela Linux → Mac
 #   tt --ghostty [status|configurar]  Ghostty, o terminal padrão do tt: instalado? configuração do tt (tema, Option, ssh)
+#   tt --leitor [ARQ|ID|-]  leitura rápida: as palavras passam na faixa, no lugar do letreiro (txt md html epub docx odt fb2 rtf pdf); -ctl -parar -add -listar -rm -sync
 #
 # Menu: Enter entra; ^n nova; ^r renomeia; ^x fecha; ^a dá nome às genéricas. As palavras do
 # cabeçalho são clicáveis. ^f (ou clique) filtra por máquina; a busca procura em nome, máquina,
@@ -609,7 +610,7 @@ vigiar() {
   [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || exit 0
   echo "$(date '+%F %T') vigia iniciado (pid $$)" >>"$log"
   faxina_vigia
-  local ultima_volta=0 pos_wake=0 ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_tema=0 ultima_atualizacao=0 ultima_sonda=0 ultima_email_sync=0 ultima_email_completo=0 ultima_email_idle=0 ultima_notifs=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
+  local ultima_volta=0 pos_wake=0 ultima_puxada=0 ultima_malha=0 ultima_contas=0 ultima_sessoes_ia=0 ultima_leitor=0 ultima_tema=0 ultima_atualizacao=0 ultima_sonda=0 ultima_email_sync=0 ultima_email_completo=0 ultima_email_idle=0 ultima_notifs=0 email_uso_visto=0 email_ocioso=0 email_intervalo="" ultima_info=0 sondar s agora atividade pasta ultimo pasta_ant auto interacoes pid id st rot titulo nome motivo fechadas
   local t_primeiro=${TT_T_PRIMEIRO:-60} primeira desde falta proximo sid
   ultima_email_completo=$(email_ultima_completa)
   # Marcas de uso por sessão (#{session_id}, que não muda num rename): na memória do vigia, com
@@ -691,6 +692,14 @@ vigiar() {
     if ((t_busca > 0)) && busca_ativa && ((agora - ${ultima_busca:-0} >= t_busca)); then
       ultima_busca=$agora
       ("$EU" --busca-indexar >>"$HOME/.cache/tt-busca.log" 2>&1 &)
+    fi
+    # Leitor rápido: biblioteca e ponto de leitura iguais em todas as máquinas, a cada TT_T_LEITOR (600 s; 0 desliga).
+    # Quem lê já troca ao pausar e ao fechar o livro; isto alcança a máquina que estava desligada.
+    local t_leitor=${TT_T_LEITOR:-600}
+    ((${ultima_leitor:-0} == 0)) && ultima_leitor=$((agora - t_leitor + 120))
+    if ((t_leitor > 0)) && [[ -s $CONF_MAQ ]] && leitor_ativo && ((agora - ultima_leitor >= t_leitor)); then
+      ultima_leitor=$agora
+      mkdir -p "${LEITOR_LOG%/*}"; ("$EU" --leitor-sync --quieto >>"$LEITOR_LOG" 2>&1 &)
     fi
     # Conversas das IAs (Claude, Codex, Kiro) entre as máquinas: a cada TT_T_SESSOES_IA (1800 s; 0 desliga).
     # A primeira volta espera 5 min do início do vigia (ele reinicia a cada versão nova).
@@ -3635,7 +3644,7 @@ versao_rotulo() { if [[ ${2:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then printf 'v%s'
 
 # tt --help: os verbos do dia a dia (o cabeçalho deste arquivo) e onde está o resto.
 ajuda() {
-  sed -n '2,49p' "$EU" | sed 's/^# \{0,1\}//'
+  sed -n '2,50p' "$EU" | sed 's/^# \{0,1\}//'
   printf '\nRecuperar tela: Ctrl+B Esc, menu ⋯ ou tt --recuperar-tela [CLIENTE].\nRetomar anexos preservados: tt --anexo-salvar CAMINHO-DO-LOTE.\n'
   printf '\nVersão instalada: %s (%s)\nTodos os verbos, arquivos e variáveis: %s/README.md e %s/skill-tt-terminais.md\n' "$(versao_humana)" "$(versao)" "$DIR_TT" "$DIR_TT"
 }
@@ -3835,7 +3844,7 @@ mac_configurar_padrao() {
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_SKILL_FIGMA=(skills/figma-cota/SKILL.md skills/figma-cota/scripts/figma_rest.py
   skills/figma-cota/scripts/figma_oauth_retorno.py skills/figma-cota/references/acesso-autenticacao.md)
-ARQUIVOS_FONTE=(tt conversa-mesh.py tela-recuperar.py docs/recuperacao-telas-anexos.md precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
+ARQUIVOS_FONTE=(tt leitor-tt.py leitor-fontes.bin conversa-mesh.py tela-recuperar.py docs/recuperacao-telas-anexos.md precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
   checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf termux/boot-tt
   "${ARQUIVOS_SKILL_FIGMA[@]}")
@@ -4028,7 +4037,7 @@ redesenhar_todos() {
 # Só passa a valer depois de conferido: cada corpo, lido sozinho, dá a mesma definição que o tt inteiro, e
 # o núcleo carregado dá as mesmas funções e as mesmas variáveis de topo (TT_SO_CARREGAR=1 para antes do
 # verbo). Qualquer diferença: nada é instalado e o tt segue inteiro, como sempre. tt --rapido mostra o estado.
-RAPIDO_LONGOS='--vigia | --transferir-fundo | --email-sync | --sessoes-ia-sync | --ticker-loop | --malha-vigia | --instalar-aqui'
+RAPIDO_LONGOS='--vigia | --transferir-fundo | --email-sync | --sessoes-ia-sync | --leitor-sync | --ticker-loop | --malha-vigia | --instalar-aqui'
 gerar_rapido() { # pasta-do-pacote (com o tt dentro) — 0 se gerou e conferiu
   local pasta=${1%/} orig tmp ref rap cmp1 cmp2 filtro n
   orig=$pasta/tt
@@ -9790,6 +9799,7 @@ g	🪟 Janelas flutuantes (clicar fora fecha): $(flutuante_rotulo)…	$EU --flut
 S	🔄 Sincronização das tarefas: $(tarefas_sync_rotulo)…	$(popup_tt "$c" "🔄 sincronização das tarefas" "$EU --tarefas-sync-ui")
 w	✉️ Demandas por e-mail (remetentes autorizados)…	$(popup_tt "$c" "✉️ demandas por e-mail" "$EU --demandas-ui")
 j	📰 Letreiro (fontes e ajustes)…	$(popup_tt "$c" "📰 letreiro" "$EU --letreiro-ui")
+L	📖 Leitor rápido (uma palavra por vez)…	$(leitor_popup_cmd "$c" "$pasta")
 -		
 r	Renomear painel	tmux command-prompt -t $(q "$c") -p 'nome do painel:' "set-option -p -t $p @nome_painel '%%'"
 z	Maximizar / restaurar	tmux resize-pane -Z -t $p
@@ -10311,6 +10321,170 @@ propagar_contas_ia() {
 
 # Junta os cadastros das outras máquinas (o vigia chama ao iniciar e a cada 30 min).
 puxar_contas_ia() { nas_maquinas cat_remoto '~/.config/tt/contas-ia' 6 | receber_contas_ia; }
+
+# --- Leitor rápido (leitor-tt.py) -------------------------------------------------------------------------------------
+# Uma palavra por vez, sempre no mesmo lugar da tela (RSVP). A tela, a extração (txt, md, html, epub, docx, odt, fb2,
+# rtf, pdf) e a biblioteca são do leitor-tt.py; aqui ficam os verbos, a janela e a troca entre as máquinas.
+# Biblioteca: ~/.local/share/tt-leitor/livros/ID (ID = 12 hex do sha256 do arquivo): original, texto extraído, estado.
+# Preferências desta máquina: ~/.config/tt/leitor.json. Troca (leitor_sync, com cada máquina cadastrada): lê o
+# inventário de lá e o mescla aqui (posição e marcadores: o mais novo vence; lápides; livros novos), manda o daqui
+# para lá, puxa os arquivos que faltam aqui e leva os que faltam lá. O texto extraído viaja sempre; o original, até
+# leitor_original_max_mb (200; 0 = nunca; `tt --leitor-baixar ID` traz assim mesmo). leitor_sync=0 desliga nesta
+# máquina (nem manda nem recebe). Teste: tests/test_leitor.sh.
+LEITOR_LOG=$HOME/.cache/tt-leitor.log
+leitor_ativo() { [[ $(conf leitor_sync) != 0 ]]; }
+leitor_py() {
+  TT_MAQUINA=${TT_MAQUINA:-$MAQUINA} TT_LEITOR_TT=$EU TT_LEITOR_ORIGINAL_MAX_MB=$(conf leitor_original_max_mb) \
+    python3 -I "$DIR_TT/leitor-tt.py" "$@"
+}
+# Comando que abre a tela do leitor numa janela do tamanho da tela do cliente (a palavra precisa de espaço).
+leitor_popup_cmd() { # cliente [pasta]
+  echo "$EU --popup -c $(q "$1") -E -w 100% -h 100% -T $(q " 📖 leitor rápido ") $(q "TT_LEITOR_PASTA=$(q "${2:-$HOME}") $EU --leitor")"
+}
+# tt --leitor [ARQUIVO|ID|-]: a tela (biblioteca, ou direto no texto dado; "-" lê o stdin).
+leitor_abrir() {
+  [[ -r $DIR_TT/leitor-tt.py ]] || { echo "leitor: este pacote do tt não traz o leitor-tt.py (tt --atualizar)" >&2; return 1; }
+  local tela=""
+  [[ ${1:-} == --tela ]] && { tela=1; shift; } # --tela: leitura em tela cheia (letras grandes), mesmo havendo faixa
+  if [[ -z $tela ]] && leitor_barra_pode; then
+    # Com a faixa do tt, a leitura acontece nela: um arquivo/código dado já começa a passar lá.
+    if (($#)) && [[ $1 != - ]]; then leitor_barra "$1"; return; fi
+    if (($#)); then
+      local r; r=$(leitor_py adicionar -) || return 1
+      leitor_barra "${r%%$'\t'*}"; return
+    fi
+    TT_LEITOR_BARRA=1 TT_RECEBIDOS=$(pasta_recebidos 2>/dev/null) leitor_py tela; return
+  fi
+  if (($#)); then TT_RECEBIDOS=$(pasta_recebidos 2>/dev/null) leitor_py ler "$@"
+  else TT_RECEBIDOS=$(pasta_recebidos 2>/dev/null) leitor_py tela; fi
+}
+# --- Leitura na faixa: as palavras passam no lugar do letreiro, com os controles ao lado ---------------------------------
+# `tt --leitor-barra ID|ARQ` liga o motor (leitor-tt.py motor: um por máquina) e o miolo da faixa passa a ser só
+# da leitura: o letreiro-tt.py de cada cliente lê o roteiro do motor e não mostra letreiro, aviso nem transferência
+# até `tt --leitor-parar` (✕ da faixa). Controles: os da faixa (clique → letreiro_clique → leitor_ctl), `tt --leitor-ctl
+# AÇÃO` e, com Ctrl+B L, o teclado (tabela tt-leitor do tmux.conf; qualquer outra tecla devolve o teclado ao painel).
+LEITOR_BARRA=${TT_LEITOR_BARRA_DIR:-$HOME/.cache/tt-leitor/barra}
+leitor_barra_ativo() {
+  local pid=""
+  [[ -s $LEITOR_BARRA/roteiro.json ]] || return 1
+  { read -r pid <"$LEITOR_BARRA/pid"; } 2>/dev/null
+  [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
+}
+# Há faixa para ler nela? (dentro do tmux, com a faixa de notificações ligada e python)
+leitor_barra_pode() { [[ -n ${TMUX:-} ]] && faixa_notif_ativa && [[ -r $DIR_TT/letreiro-tt.py ]]; }
+# Manda um comando ao motor (só builtins: é o que cada tecla e cada toque rodam). Se a velocidade pediu outra grade
+# de quadros, a barra é refeita.
+leitor_ctl() { # ação [argumento]
+  leitor_barra_ativo || { echo "leitor: nenhuma leitura na faixa (tt --leitor abre a biblioteca)" >&2; return 1; }
+  local antes="" depois="" i
+  { read -r antes <"$LEITOR_BARRA/fps"; } 2>/dev/null
+  printf '%s\n' "$*" >"$LEITOR_BARRA/ctl" || return 1
+  case $1 in
+    ppm+ | ppm- | recarregar)
+      for i in 1 2 3 4 5 6 7 8; do
+        sleep 0.05
+        { read -r depois <"$LEITOR_BARRA/fps"; } 2>/dev/null
+        [[ $depois != "$antes" ]] && { atualizar_barras; break; }
+      done ;;
+  esac
+  return 0
+}
+# tt --leitor-barra ID|ARQUIVO [--pausado]: põe a leitura na faixa (acrescenta o arquivo, se for um) e começa a tocar.
+leitor_barra() {
+  local alvo=${1:-} tocar=--tocar id r
+  [[ ${2:-} == --pausado ]] && tocar=""
+  [[ -n $alvo ]] || { echo "uso: tt --leitor-barra ID|ARQUIVO [--pausado]" >&2; return 2; }
+  if [[ -f $alvo ]]; then
+    r=$(leitor_py adicionar "$alvo") || return 1
+    id=${r%%$'\t'*}; leitor_sync_fundo
+  else id=$alvo; fi
+  leitor_py motor "$id" $tocar || return 1
+  atualizar_barras
+  return 0
+}
+# tt --leitor-parar: grava o ponto, encerra o motor e devolve a faixa ao letreiro.
+leitor_parar() {
+  local pid="" i
+  { read -r pid <"$LEITOR_BARRA/pid"; } 2>/dev/null
+  if leitor_barra_ativo; then
+    printf 'parar\n' >"$LEITOR_BARRA/ctl"
+    for i in {1..40}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.05; done
+    kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null
+  fi
+  rm -f "$LEITOR_BARRA/roteiro.json" "$LEITOR_BARRA/pid" "$LEITOR_BARRA/fps" "$LEITOR_BARRA/ctl"
+  tmux list-clients -F '#{client_name} #{client_key_table}' 2>/dev/null | while read -r i r; do
+    [[ $r == tt-leitor ]] && tmux switch-client -c "$i" -T root 2>/dev/null
+  done
+  atualizar_barras
+  return 0
+}
+# Ctrl+B L (e a rota `leitor` do clique): com uma leitura na faixa, o teclado deste cliente passa a ser do leitor
+# (tabela tt-leitor); sem leitura, abre a biblioteca.
+leitor_tecla() { # cliente [pasta]
+  if leitor_barra_ativo; then
+    tmux switch-client -c "$1" -T tt-leitor 2>/dev/null
+    tmux display-message -c "$1" -d 2500 "leitor: Espaço toca/pausa · ← → saltam · ↑ ↓ velocidade · o biblioteca · x fecha · outra tecla devolve o teclado" 2>/dev/null
+  else eval "$(leitor_popup_cmd "$1" "${2:-}")"; fi
+}
+# Do lado que é chamado por ssh: desligado, responde vazio (quem chama pula esta máquina).
+leitor_remoto() { # inventario|mesclar|empacotar|aplicar
+  if ! leitor_ativo; then [[ $1 == inventario ]] || cat >/dev/null; return 1; fi
+  case $1 in mesclar) leitor_py mesclar - ;; *) leitor_py "$1" ;; esac
+}
+# tt --leitor-sync [--quieto] [--so ID] [rótulo…]: troca a biblioteca com as máquinas cadastradas (todas, ou as dadas).
+# --quieto (vigia) só escreve quando algo andou ou falhou; --so ID troca só esse livro, original incluído.
+leitor_sync() {
+  local quieto="" so=""
+  while [[ ${1:-} == --* ]]; do
+    case $1 in --quieto) quieto=1; shift ;; --so) so=${2:-}; shift 2 ;; *) echo "uso: tt --leitor-sync [--so ID] [rótulo…]" >&2; return 2 ;; esac
+  done
+  if ! leitor_ativo; then [[ -n $quieto ]] || echo "leitor: sincronização desligada nesta máquina (leitor_sync=0)"; return 0; fi
+  if [[ ! -s $CONF_MAQ ]]; then [[ -n $quieto ]] || echo "leitor: nenhuma outra máquina cadastrada"; return 0; fi
+  local trava=$RT/tt-leitor-$UID.trava dest rot inv lista st r n_ok=0 n_tot=0 trazidos=0 levados=0 linha agora
+  mkdir -p "$RT"
+  if ! mkdir "$trava" 2>/dev/null; then
+    (($(idade_arquivo "$trava") > 1800)) && rmdir "$trava" 2>/dev/null && mkdir "$trava" 2>/dev/null ||
+      { [[ -n $quieto ]] || echo "leitor: já há uma sincronização rodando"; return 0; }
+  fi
+  inv=$(mktemp "$RT/tt-leitor-inv.XXXXXX") || { rmdir "$trava" 2>/dev/null; return 1; }
+  while read -r dest rot; do
+    [[ -n $dest && $dest != . ]] || continue
+    (($# == 0)) || printf '%s\n' "$@" | grep -qxF "$rot" || continue
+    n_tot=$((n_tot + 1)); st=ok; linha=""
+    if ! timeout 90 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --leitor-inventario" </dev/null >"$inv" 2>/dev/null ||
+      ! grep -q '"leitor"' "$inv"; then
+      st=pulada # sem rede, tt antigo ou desligada lá
+    else
+      r=$(leitor_py mesclar "$inv" 2>/dev/null) || st=falhou
+      [[ $r == *novos=0\ estados=0\ removidos=0* ]] || linha+=" aqui: $r"
+      leitor_py inventario 2>/dev/null | timeout 90 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --leitor-mesclar" >/dev/null 2>&1 || st=falhou
+      if [[ $st == ok ]] && lista=$(leitor_py pedir "$inv" ${so:+--so "$so"} 2>/dev/null) && [[ -n $lista ]]; then
+        r=$(printf '%s\n' "$lista" | timeout 3600 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --leitor-empacotar" 2>/dev/null | leitor_py aplicar 2>/dev/null) || st=falhou
+        trazidos=$((trazidos + $(wc -l <<<"$lista"))); linha+=" trazido: ${r:-nada}"
+      fi
+      if [[ $st == ok ]] && lista=$(leitor_py pedir "$inv" --enviar ${so:+--so "$so"} 2>/dev/null) && [[ -n $lista ]]; then
+        r=$(printf '%s\n' "$lista" | leitor_py empacotar 2>/dev/null | timeout 3600 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --leitor-aplicar" 2>/dev/null) || st=falhou
+        [[ $r == *livros=* ]] || st=falhou
+        levados=$((levados + $(wc -l <<<"$lista"))); linha+=" levado: ${r:-nada}"
+      fi
+    fi
+    [[ $st == ok ]] && n_ok=$((n_ok + 1))
+    if [[ -z $quieto ]]; then printf '%-12s %-7s%s\n' "$rot" "$st" "$linha"
+    elif [[ -n $linha || $st == falhou ]]; then printf -v agora '%(%F %T)T' -1; printf '%s %-12s %-7s%s\n' "$agora" "$rot" "$st" "$linha"; fi
+  done < <(maquinas)
+  rm -f "$inv"; rmdir "$trava" 2>/dev/null
+  [[ -n $quieto ]] || echo "leitor: $n_ok de $n_tot máquinas em dia · $trazidos arquivos trazidos, $levados levados"
+  return 0
+}
+# Depois de acrescentar ou apagar pela linha de comando: a troca vai em segundo plano, sem segurar quem chamou
+# (TT_LEITOR_SEM_FUNDO=1 desliga: os testes trocam na hora que querem).
+leitor_sync_fundo() { [[ -z ${TT_LEITOR_SEM_FUNDO:-} ]] || return 0; mkdir -p "${LEITOR_LOG%/*}"; ("$EU" --leitor-sync --quieto >>"$LEITOR_LOG" 2>&1 </dev/null &); }
+# tt --leitor-estado: a biblioteca daqui, onde estão os originais e se a troca entre as máquinas está ligada.
+leitor_estado() {
+  leitor_py estado
+  if leitor_ativo; then echo "🔄 troca entre as máquinas: ligada (a cada $(( ${TT_T_LEITOR:-600} / 60 )) min e ao pausar/fechar um texto; original até $(conf leitor_original_max_mb | grep . || echo 200) MB)"
+  else echo "🔄 troca entre as máquinas: desligada nesta máquina (leitor_sync=0 no config)"; fi
+}
 
 # --- Conversas das IAs entre as máquinas ------------------------------------------------------------
 #
@@ -12912,6 +13086,12 @@ barra_notifs_fmt() {
   # redesenhos entre os segundos, cada um logo depois de um quadro novo.
   local fps k; fps=$(conf ticker_fps); [[ $fps =~ ^([1-9]|1[0-9]|20)$ ]] || fps=6
   fps=$(letreiro_fps_efetivo "$fps" "$(conf ticker_veloc)" "$(conf ticker_rolagem)")
+  # Leitura na faixa (tt --leitor-barra): o miolo é do leitor e a grade de quadros é a que o motor pede para a
+  # velocidade (8 a 20 por segundo: cada palavra dura um nº inteiro de quadros). ⌨ = teclado no leitor (Ctrl+B L).
+  if leitor_barra_ativo; then
+    k=""; { read -r k <"$LEITOR_BARRA/fps"; } 2>/dev/null; [[ $k =~ ^([1-9]|1[0-9]|20)$ ]] && fps=$k
+    printf '%s' '#{?#{==:#{client_key_table},tt-leitor},#[fg=#a6e3a1#,bold]⌨ #[nobold],}'
+  fi
   # O 7º é a largura só da parte esquerda (#{w:}): onde o slot começa, para o clique achar o item sob o mouse.
   local pre=""; [[ -d /proc/self ]] || pre="TT_LETREIRO_PONTE=\`$(q "$EU") --e-ponte #{client_pid}\` "  # (sem /proc: o shell decide uma vez, na partida)
   printf '#(%spython3 -I %s fluxo #{client_tty} #{client_pid} #{e|+:#{w:#{E:@barra_faixa}},#{w:#{E:@barra_faixa_dir}}} #{client_width} %s #{w:#{E:@barra_faixa}})' "$pre" "$DIR_TT/letreiro-tt.py" "$fps"
@@ -13585,6 +13765,12 @@ letreiro_clique() { # cliente x
         central) tmux display-popup -c "$c" -E $(tam_popup "$c") "TT_CLIENTE=$(q "$c") $EU" ;;
       esac ;;
     pausa) TT_RT=$RT python3 -I "$DIR_TT/letreiro-tt.py" pausar >/dev/null ;;
+    leitor) # leitura na faixa: o controle tocado (ver quadro_leitor do letreiro-tt.py)
+      case $alvo in
+        tela) eval "$(leitor_popup_cmd "$c")" ;;
+        parar) leitor_parar ;;
+        *) leitor_ctl "$alvo" ;;
+      esac ;;
   esac
   return 0
 }
@@ -18142,6 +18328,8 @@ clique() {
     fx*) ir_fixada "$2" "$faixa" ;;
     tarefas) abrir_tarefas "$2" ;;
     snapshots) eval "$(popup_tt "$2" "📸 snapshots" "$EU --snapshots")" ;;
+    leitor) leitor_tecla "$2" "${4:-}" ;;
+    leitor-tela) eval "$(leitor_popup_cmd "$2" "${4:-}")" ;;
     entrada) tarefas_filtro_set entrada; abrir_tarefas "$2" ;;   # chip 📥: direto na Entrada
     em_*) email_botao_acao "${faixa#em_}" ;;
     notifs) notifs_popup "$2" ;;
@@ -22921,6 +23109,19 @@ case "${1:-}" in
   --receber-contas-ia) receber_contas_ia; exit ;;
   --propagar-contas-ia) propagar_contas_ia; exit ;;
   --puxar-contas-ia) puxar_contas_ia; exit ;;
+  --leitor) shift; leitor_abrir "$@"; exit ;;
+  --leitor-add) shift; leitor_py adicionar "$@"; rc=$?; leitor_sync_fundo; exit $rc ;;
+  --leitor-listar) shift; leitor_py listar "$@"; exit ;;
+  --leitor-rm) shift; leitor_py remover "$@"; rc=$?; leitor_sync_fundo; exit $rc ;;
+  --leitor-extrair) shift; leitor_py extrair "$@"; exit ;;
+  --leitor-posicao) shift; leitor_py posicao "$@"; exit ;;
+  --leitor-estado) leitor_estado; exit ;;
+  --leitor-barra) shift; leitor_barra "$@"; exit ;;
+  --leitor-ctl) shift; leitor_ctl "$@"; exit ;;
+  --leitor-parar) leitor_parar; exit ;;
+  --leitor-sync) shift; leitor_sync "$@"; exit ;;
+  --leitor-baixar) [[ -n ${2:-} ]] || { echo "uso: tt --leitor-baixar ID" >&2; exit 2; }; leitor_sync --so "$2"; exit ;;
+  --leitor-inventario | --leitor-mesclar | --leitor-empacotar | --leitor-aplicar) leitor_remoto "${1#--leitor-}"; exit ;;
   --sessoes-ia) shift; sessoes_ia_cmd "$@"; exit ;;
   --sessoes-ia-sync) shift; sessoes_ia_sync "$@"; exit ;;
   --sessoes-ia-inventario) sessoes_ia_remoto inventario; exit ;;
