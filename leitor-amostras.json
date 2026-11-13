@@ -1,0 +1,31 @@
+{
+  "amostras": [
+    {"chave": "doze-fatores", "titulo": "Os Doze Fatores", "autor": "Adam Wiggins e colaboradores", "tema": "boas práticas de programação",
+     "arquivo": "leitor-amostra-doze-fatores.md", "nome": "Os Doze Fatores.md",
+     "licenca": "MIT", "fonte": "https://12factor.net/pt_br/"},
+    {"chave": "financas-pessoais", "titulo": "Planejamento Financeiro Pessoal", "autor": "Comissão de Valores Mobiliários (CVM)", "tema": "finanças pessoais",
+     "url": "https://www.gov.br/investidor/pt-br/educacional/publicacoes-educacionais/livros-cvm/livro-top-planejamento-financeiro-pessoal/@@display-file/file",
+     "nome": "Planejamento Financeiro Pessoal (CVM).pdf", "mb": 14,
+     "licenca": "CC BY-NC-ND 3.0 BR (distribuição gratuita, venda proibida)", "fonte": "https://www.gov.br/investidor/pt-br/educacional/publicacoes-educacionais/livros-cvm"},
+    {"chave": "mercado-financeiro", "titulo": "Mercado de Valores Mobiliários Brasileiro", "autor": "Comissão de Valores Mobiliários (CVM)", "tema": "mercado financeiro",
+     "url": "https://www.gov.br/investidor/pt-br/educacional/publicacoes-educacionais/livros-cvm/cvm-livro_top_valores_mobiliarios_br_5ed.pdf/@@display-file/file",
+     "nome": "Mercado de Valores Mobiliários Brasileiro (CVM).pdf", "mb": 13,
+     "licenca": "CC BY-NC-ND 3.0 BR (distribuição gratuita, venda proibida)", "fonte": "https://www.gov.br/investidor/pt-br/educacional/publicacoes-educacionais/livros-cvm"},
+    {"chave": "analise-investimentos", "titulo": "Análise de Investimentos", "autor": "Comissão de Valores Mobiliários (CVM)", "tema": "conhecimento de finanças",
+     "url": "https://www.gov.br/investidor/pt-br/educacional/publicacoes-educacionais/livros-cvm/top-analise-de-investimentos/@@display-file/file",
+     "nome": "Análise de Investimentos (CVM).pdf", "mb": 12,
+     "licenca": "CC BY-NC-ND 3.0 BR (distribuição gratuita, venda proibida)", "fonte": "https://www.gov.br/investidor/pt-br/educacional/publicacoes-educacionais/livros-cvm"},
+    {"chave": "dom-casmurro", "titulo": "Dom Casmurro", "autor": "Machado de Assis", "tema": "romance (domínio público)",
+     "url": "https://machado.mec.gov.br/obra-completa-lista/item/download/13_1b4b16ba2e1704ae4e3aa8a1df0ba933",
+     "nome": "Dom Casmurro.pdf", "mb": 1,
+     "licenca": "domínio público", "fonte": "https://machado.mec.gov.br/"},
+    {"chave": "esau-e-jaco", "titulo": "Esaú e Jacó", "autor": "Machado de Assis", "tema": "romance (domínio público; o Encilhamento, a bolha da Bolsa de 1890, passa por ele)",
+     "url": "https://machado.mec.gov.br/obra-completa-lista/item/download/12_5429573e216bd77e42ec67f367f9eca4",
+     "nome": "Esaú e Jacó.pdf", "mb": 1,
+     "licenca": "domínio público", "fonte": "https://machado.mec.gov.br/"},
+    {"chave": "bras-cubas", "titulo": "Memórias Póstumas de Brás Cubas", "autor": "Machado de Assis", "tema": "romance (domínio público)",
+     "url": "https://machado.mec.gov.br/obra-completa-lista/item/download/16_4568b91b47f09e6ffc1d1369ed2dc17e",
+     "nome": "Memórias Póstumas de Brás Cubas.pdf", "mb": 1,
+     "licenca": "domínio público", "fonte": "https://machado.mec.gov.br/"}
+  ]
+}

@@ -35,13 +35,14 @@ isolar() {
   mkdir -p "$T/pkg" "$T/home/.config/tt" "$T/tmux" "$T/rt"
   local f
   for f in tt tela-recuperar.py docs/recuperacao-telas-anexos.md precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh \
-           atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh leitor-tt.py leitor-fontes.bin sessoes-ia.py tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf conversa-mesh.py termux/boot-tt skills/figma-cota/SKILL.md skills/figma-cota/scripts/figma_rest.py skills/figma-cota/scripts/figma_oauth_retorno.py skills/figma-cota/references/acesso-autenticacao.md; do
+           atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh leitor-tt.py leitor-fontes.bin leitor-amostras.json leitor-amostra-doze-fatores.md sessoes-ia.py tarefas-merge.py tarefas-merge.vim checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf conversa-mesh.py termux/boot-tt skills/figma-cota/SKILL.md skills/figma-cota/scripts/figma_rest.py skills/figma-cota/scripts/figma_oauth_retorno.py skills/figma-cota/references/acesso-autenticacao.md; do
     if [[ -e $RAIZ/$f ]]; then
       [[ $f == */* ]] && mkdir -p "$T/pkg/${f%/*}"
       cp "$RAIZ/$f" "$T/pkg/$f"
     fi
   done
   echo "999 teste 2099-01-01" >"$T/pkg/VERSAO"
+  export TT_LEITOR_AMOSTRAS=0  # biblioteca vazia de teste não ganha amostras (nem vai à rede); o test_leitor liga para testar
   # PATH enxuto dos testes que isolam o ambiente (PATH="$T/bin:$TT_PATH_BASE"). No Linux é /usr/bin:/bin; no macOS essas
   # pastas só têm as ferramentas BSD e o bash 3.2, então entram também o bash e o python3 de agora e os gnubin do PATH
   # (sem o resto do Homebrew: um aerc ou tmux "ausente" continua ausente).

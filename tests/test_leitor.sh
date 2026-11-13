@@ -392,6 +392,62 @@ passou 'faixa: a leitura toma o lugar do letreiro (nem aviso entra), foco em col
 grep -q "^bind L run-shell -b \"~/.local/bin/tt --clique leitor " "$TT_DIR/tmux.conf" || falhou 'Ctrl+B L sem bind'
 grep -q '^    leitor) leitor_tecla ' "$TT_DIR/tt" || falhou 'rota leitor do clique()'
 grep -q $'^L\t📖 Leitor rápido' "$TT_DIR/tt" || falhou 'item do menu do painel'
+
+# --- Amostras: a biblioteca vazia de quem acabou de instalar já tem o que ler ---------------------------------------
+# A amostra do pacote entra na hora; as de rede vêm da fonte de cada uma (aqui, arquivos locais no lugar dos portais).
+# Uma vez só; a apagada não volta; quem já tem textos não recebe nada sem pedir; página de erro não vira livro.
+AM=$T/amostras; mkdir -p "$AM/pkg"
+cp "$TT_DIR/leitor-amostra-doze-fatores.md" "$AM/pkg/"
+printf 'Capítulo um\n\nUm texto de amostra que vem da rede, com algumas palavras para ler.\n' >"$AM/rede.txt"
+printf '<!DOCTYPE html><html><body>Verificação de segurança</body></html>\n' >"$AM/erro.html"
+cat >"$AM/pkg/leitor-amostras.json" <<EOF
+{"amostras": [
+ {"chave": "doze-fatores", "titulo": "Os Doze Fatores", "autor": "Adam Wiggins e colaboradores", "arquivo": "leitor-amostra-doze-fatores.md", "nome": "Os Doze Fatores.md", "licenca": "MIT"},
+ {"chave": "da-rede", "titulo": "Amostra da Rede", "autor": "Fulana", "url": "file://$AM/rede.txt", "nome": "rede.txt", "mb": 1, "licenca": "domínio público"},
+ {"chave": "fora-do-ar", "titulo": "Portal Fora do Ar", "url": "file://$AM/erro.html", "nome": "livro.pdf", "mb": 1},
+ {"chave": "../ruim", "titulo": "Chave inválida", "url": "file:///etc/passwd"},
+ {"chave": "http-puro", "titulo": "Sem https", "url": "http://exemplo.invalid/x.pdf"}
+]}
+EOF
+AMO() { env TT_LEITOR_DIR="$AM/bib" TT_LEITOR_AMOSTRAS_CATALOGO="$AM/pkg/leitor-amostras.json" "$@"; }
+[[ $(AMO TT_LEITOR_AMOSTRAS=0 "$TT" --leitor-listar) == *"Nenhum texto"* && ! -e $AM/bib/amostras.json ]] || falhou 'amostras desligadas não deveriam semear'
+s=$(AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar)
+[[ $s == *"Os Doze Fatores"* ]] || falhou "1ª abertura da biblioteca vazia sem a amostra do pacote: $s"
+for _ in {1..50}; do [[ $(AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar) == *"Amostra da Rede"* ]] && break; sleep 0.2; done
+s=$(AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar --tsv)
+[[ $(wc -l <<<"$s") -eq 2 && $s == *"Amostra da Rede"* ]] || falhou "amostras de rede: esperava 2 textos (pacote + rede; página de erro e entradas inválidas de fora): $s"
+s=$(AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras)
+[[ $s == *"doze-fatores"*"na biblioteca"*"da-rede"*"na biblioteca"*"fora-do-ar"*"para baixar"* && $s != *ruim* && $s != *http-puro* ]] || falhou "lista das amostras: $s"
+grep -q '"autor": "Fulana"' "$AM/bib/livros/"*/meta.json || falhou 'o autor do catálogo não foi para a biblioteca'
+idr=$(awk -F'\t' '/Amostra da Rede/{print $1}' <<<"$(AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar --tsv)")
+AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-rm "$idr" >/dev/null
+AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras baixar >/dev/null 2>"$T/err" && falhou 'baixar com uma fonte fora do ar deveria sair com erro'
+grep -q 'Portal Fora do Ar' "$T/err" || falhou "faltou dizer qual amostra falhou: $(cat "$T/err")"
+[[ $(AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar) != *"Amostra da Rede"* ]] || falhou 'a amostra apagada voltou sem ser pedida'
+[[ $(AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras) == *"da-rede"*"apagada"* ]] || falhou 'a amostra apagada deveria aparecer como apagada'
+AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras baixar da-rede >/dev/null || falhou 'baixar CHAVE deveria trazer de volta a amostra apagada'
+[[ $(AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar) == *"Amostra da Rede"* ]] || falhou 'baixar CHAVE não trouxe a amostra'
+AMO TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras baixar nao-existe >/dev/null 2>&1 && falhou 'chave desconhecida deveria falhar'
+# quem já tem os seus textos: nada entra sem pedir
+mkdir -p "$AM/b2"; printf 'Meu texto, com as minhas palavras.\n' >"$AM/meu.txt"
+env TT_LEITOR_DIR="$AM/b2" TT_LEITOR_AMOSTRAS=0 "$TT" --leitor-add "$AM/meu.txt" >/dev/null
+s=$(env TT_LEITOR_DIR="$AM/b2" TT_LEITOR_AMOSTRAS_CATALOGO="$AM/pkg/leitor-amostras.json" TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar --tsv); sleep 0.5
+[[ $(wc -l <<<"$s") -eq 1 && -s $AM/b2/amostras.json ]] || falhou "biblioteca com textos ganhou amostra sem pedir: $s"
+# o catálogo do pacote: toda entrada com licença e fonte, só https, e o arquivo do pacote existe
+python3 -I - "$TT_DIR" <<'PY' || falhou 'catálogo de amostras do pacote inválido'
+import json, os, sys
+d = sys.argv[1]
+cat = json.load(open(os.path.join(d, "leitor-amostras.json"), encoding="utf-8"))["amostras"]
+assert len(cat) >= 6 and len({a["chave"] for a in cat}) == len(cat)
+for a in cat:
+    assert a["titulo"] and a["autor"] and a["tema"] and a["licenca"] and a["fonte"].startswith("https://"), a
+    if "arquivo" in a:
+        assert os.path.getsize(os.path.join(d, a["arquivo"])) > 1000, a
+    else:
+        assert a["url"].startswith("https://") and a["mb"] <= 20, a
+assert sum("arquivo" in a for a in cat) >= 1, "ao menos uma amostra tem de vir no pacote (sem rede)"
+PY
+passou 'amostras: a biblioteca vazia ganha a do pacote na hora e as de rede em seguida, uma vez só; apagada não volta; erro da fonte não vira livro'
 [[ -s $TT_DIR/leitor-tt.py && -s $TT_DIR/leitor-fontes.bin ]] || falhou 'o pacote instalado não traz o leitor e o atlas'
 [[ $("$TT" --leitor-popup-cmd-teste 2>&1 || true) == *"opção desconhecida"* ]] || falhou 'verbo inexistente não foi recusado'
 passou 'contratos: ajuda, Ctrl+B L, rota do clique, item do menu ⋯ e arquivos do pacote'

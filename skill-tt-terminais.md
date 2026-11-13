@@ -896,6 +896,13 @@ e os instaladores da pasta do usuário ficam no `tt`.
   (`pos⇥total⇥mudada⇥máquina`), `--leitor-estado`, `--leitor-sync [--quieto] [--so ID] [rótulo…]`, `--leitor-baixar ID`. ID = código,
   prefixo (4+ hex) ou pedaço do título. Internos (chamados por ssh): `--leitor-inventario`, `--leitor-mesclar` (inventário no
   stdin), `--leitor-empacotar` (lista `id⇥texto|original` no stdin → tar), `--leitor-aplicar` (tar no stdin).
+- **Amostras (`leitor-amostras.json` + `leitor-amostra-doze-fatores.md` no pacote):** `tt --leitor-amostras` lista o catálogo
+  (chave, título, autor, tema, licença, estado); `tt --leitor-amostras baixar [CHAVE…] [--de-novo]` põe na biblioteca. Na 1ª vez
+  que a biblioteca é aberta VAZIA (`amostras_semear`, chamado por `tela`, `listar` e `ler` sem argumento) a amostra do pacote
+  entra na hora e as de rede (CVM, Machado de Assis no portal do MEC; PDFs, precisam do `pdftotext`) são baixadas da fonte
+  oficial por um processo solto; a marca `~/.local/share/tt-leitor/amostras.json` (`semeado`, `feitas` chave→id) faz isso uma vez
+  só e a amostra apagada não volta. Desliga com `leitor_amostras=0` (ou `TT_LEITOR_AMOSTRAS=0`, que os testes usam). Nada de
+  texto com direito autoral em vigor no catálogo: cada entrada diz a licença e a fonte.
 - **Leitura na faixa (o modo normal dentro do tmux com a faixa ligada, `leitor_barra_pode`):** `tt --leitor-barra ID|ARQ [--pausado]`
   (é o que o ⏎ da biblioteca e `tt --leitor ARQ` chamam) sobe o motor `leitor-tt.py motor ID --tocar` (um por máquina, se
   desliga do terminal sozinho; já rodando, recebe `abrir ID`) e chama `atualizar_barras`. O motor (`Motor`) guarda o texto, lê
@@ -1132,7 +1139,7 @@ de tarefas; só cache) e `tarefas-git.ok` (epoch da última troca boa), `tarefas
 ControlPath do ssh, transferências em andamento.
 
 ### Pacote `~/.local/share/tt/`
-`ARQUIVOS_FONTE` (lista no `tt`): `tt leitor-tt.py leitor-fontes.bin email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf
+`ARQUIVOS_FONTE` (lista no `tt`): `tt leitor-tt.py leitor-fontes.bin leitor-amostras.json leitor-amostra-doze-fatores.md email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf
 tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile
 README.md AI-DLC.md ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py
 skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py

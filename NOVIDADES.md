@@ -3,7 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
-## v2.16.3 · 13/11/2026
+## v2.17.0 · 13/11/2026
+- **📚 Leitor rápido já vem com o que ler:** quem instala o tt e abre o leitor (`tt --leitor`) com a biblioteca vazia encontra sete textos em português do Brasil, todos de distribuição livre. "Os Doze Fatores" (boas práticas de programação, licença MIT) vem dentro do pacote e entra na hora; os outros são baixados em segundo plano da fonte oficial de cada um: da CVM, "Planejamento Financeiro Pessoal", "Mercado de Valores Mobiliários Brasileiro" e "Análise de Investimentos" (distribuição gratuita, venda proibida); do portal do Machado de Assis no MEC, "Dom Casmurro", "Esaú e Jacó" e "Memórias Póstumas de Brás Cubas" (domínio público).
+- **`tt --leitor-amostras`** lista o catálogo com autor, tema e licença; `tt --leitor-amostras baixar` põe na biblioteca de quem já tinha os seus textos (com a chave, só aquela). Amostra apagada não volta sozinha. Os PDFs precisam do `pdftotext` (pacote poppler). Para não receber amostras: `leitor_amostras=0` na configuração.
+
 - **🥁 Leitura na faixa sem travadas:** com várias telas abertas no mesmo tt (outras janelas, o celular, o Mac vendo o Dell), a cada palavra todas redesenhavam a própria barra e a palavra da tela em uso atrasava (medido com 11 telas: 65 a 120 ms na mediana, picos de 500 ms e palavras puladas). Agora só a **tela em uso** (a que recebeu tecla ou toque por último) mostra as palavras, no ritmo exato: 3 ms de atraso na mediana e 12 ms no pior caso, com as mesmas 11 telas. As outras mostram "📖 lendo em outra tela"; um toque ou uma tecla em qualquer uma traz a leitura para ela.
 - **Sem o soluço a cada 2 segundos:** uma conferência interna do desenhista da barra (15 a 40 ms) rodava no meio da contagem do tempo; saiu do caminho. Parada ou pausada, a leitura também deixou de gastar processador em cada tela (era ~3,5% por tela, o tempo todo).
 - **Teclas `f` (tela cheia) e `?` (atalhos) da leitura na faixa:** não faziam nada na 2.16.1 (os botões `⤢` e `?` funcionavam); corrigidas.

@@ -41,7 +41,7 @@
 #   tt --busca [estado|agora|on|off|consultar T]  busca na conversa inteira e no scrollback (central: ^e → "conversa")
 #   tt --mac [status|ativar|atalhos]  atalhos no Mac: Option como Meta (Terminal.app, Ghostty, iTerm2) e a tabela Linux → Mac
 #   tt --ghostty [status|configurar]  Ghostty, o terminal padrão do tt: instalado? configuração do tt (tema, Option, ssh)
-#   tt --leitor [ARQ|ID|-]  leitura rápida: as palavras passam na faixa, no lugar do letreiro (txt md html epub docx odt fb2 rtf pdf); -ctl -parar -add -listar -rm -sync -ls -pegar -atalhos
+#   tt --leitor [ARQ|ID|-]  leitura rápida: as palavras passam na faixa, no lugar do letreiro (txt md html epub docx odt fb2 rtf pdf); -ctl -parar -add -listar -rm -amostras -sync -ls -pegar -atalhos
 #
 # Menu: Enter entra; ^n nova; ^r renomeia; ^x fecha; ^a dá nome às genéricas. As palavras do
 # cabeçalho são clicáveis. ^f (ou clique) filtra por máquina; a busca procura em nome, máquina,
@@ -3844,7 +3844,7 @@ mac_configurar_padrao() {
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_SKILL_FIGMA=(skills/figma-cota/SKILL.md skills/figma-cota/scripts/figma_rest.py
   skills/figma-cota/scripts/figma_oauth_retorno.py skills/figma-cota/references/acesso-autenticacao.md)
-ARQUIVOS_FONTE=(tt leitor-tt.py leitor-fontes.bin conversa-mesh.py tela-recuperar.py docs/recuperacao-telas-anexos.md precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
+ARQUIVOS_FONTE=(tt leitor-tt.py leitor-fontes.bin leitor-amostras.json leitor-amostra-doze-fatores.md conversa-mesh.py tela-recuperar.py docs/recuperacao-telas-anexos.md precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
   checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf termux/boot-tt
   "${ARQUIVOS_SKILL_FIGMA[@]}")
@@ -10329,13 +10329,14 @@ puxar_contas_ia() { nas_maquinas cat_remoto '~/.config/tt/contas-ia' 6 | receber
 # Preferências desta máquina: ~/.config/tt/leitor.json. Troca (leitor_sync, com cada máquina cadastrada): lê o
 # inventário de lá e o mescla aqui (posição e marcadores: o mais novo vence; lápides; livros novos), manda o daqui
 # para lá, puxa os arquivos que faltam aqui e leva os que faltam lá. O texto extraído viaja sempre; o original, até
+# leitor_amostras=0: a biblioteca vazia não ganha as amostras (leitor-amostras.json) na 1ª abertura.
 # leitor_original_max_mb (200; 0 = nunca; `tt --leitor-baixar ID` traz assim mesmo). leitor_sync=0 desliga nesta
 # máquina (nem manda nem recebe). Teste: tests/test_leitor.sh.
 LEITOR_LOG=$HOME/.cache/tt-leitor.log
 leitor_ativo() { [[ $(conf leitor_sync) != 0 ]]; }
 leitor_py() {
   TT_MAQUINA=${TT_MAQUINA:-$MAQUINA} TT_LEITOR_TT=$EU TT_LEITOR_ORIGINAL_MAX_MB=$(conf leitor_original_max_mb) \
-    python3 -I "$DIR_TT/leitor-tt.py" "$@"
+    TT_LEITOR_AMOSTRAS=${TT_LEITOR_AMOSTRAS:-$(conf leitor_amostras)} python3 -I "$DIR_TT/leitor-tt.py" "$@"
 }
 # Comando que abre a tela do leitor numa janela do tamanho da tela do cliente (a palavra precisa de espaço).
 leitor_popup_cmd() { # cliente [pasta]
@@ -23192,6 +23193,7 @@ case "${1:-}" in
   --leitor-add) shift; leitor_py adicionar "$@"; rc=$?; leitor_sync_fundo; exit $rc ;;
   --leitor-listar) shift; leitor_py listar "$@"; exit ;;
   --leitor-rm) shift; leitor_py remover "$@"; rc=$?; leitor_sync_fundo; exit $rc ;;
+  --leitor-amostras) shift; leitor_py amostras "$@"; exit ;;
   --leitor-extrair) shift; leitor_py extrair "$@"; exit ;;
   --leitor-posicao) shift; leitor_py posicao "$@"; exit ;;
   --leitor-estado) leitor_estado; exit ;;

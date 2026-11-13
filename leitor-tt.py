@@ -761,6 +761,161 @@ def remover(lid):
     return meta
 
 
+# --- Amostras ---------------------------------------------------------------------------------------------------------
+# Quem instala o tt abre o leitor e acha uma biblioteca vazia: sem um texto à mão, não dá nem para experimentar. O
+# catálogo (leitor-amostras.json, no pacote) lista textos de distribuição livre em português do Brasil. Um vem DENTRO
+# do pacote (pequeno, licença que deixa redistribuir: entra na hora, sem rede); os outros são baixados da fonte oficial
+# de cada um (a CVM, o portal do Machado de Assis no MEC) e não ficam no repositório: são PDFs de 1 a 14 MB, e os da CVM
+# têm licença de distribuição gratuita sem obra derivada. A primeira vez que a biblioteca é aberta VAZIA, as amostras
+# entram sozinhas (as de rede, num processo à parte); a marca em amostras.json faz isso acontecer uma vez só, e a
+# amostra apagada não volta (a lápide dela vale, como para qualquer texto). `leitor_amostras=0` na configuração desliga.
+AMOSTRAS = os.environ.get("TT_LEITOR_AMOSTRAS_CATALOGO") or os.path.join(AQUI, "leitor-amostras.json")
+AMOSTRAS_MARCA = os.path.join(DIR, "amostras.json")
+AMOSTRA_MAX = 80 << 20   # nenhuma amostra passa disto (bytes)
+AMOSTRA_AGENTE = "Mozilla/5.0 (compatible; tt-terminais)"  # os portais recusam cliente sem nome de navegador
+
+
+def amostras_catalogo():
+    try:
+        with open(AMOSTRAS, encoding="utf-8") as f:
+            lista = json.load(f).get("amostras") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [a for a in lista if isinstance(a, dict) and re.match(r"^[a-z0-9-]{1,40}$", str(a.get("chave") or ""))
+            and a.get("titulo") and (a.get("arquivo") or str(a.get("url") or "").startswith(("https://", "file://")))]
+
+
+def amostras_marca():
+    try:
+        with open(AMOSTRAS_MARCA, encoding="utf-8") as f:
+            m = json.load(f)
+        return m if isinstance(m, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def amostra_baixar(url, destino):
+    """Baixa a amostra da fonte oficial para `destino`. Erro se a resposta não for um documento (os portais devolvem
+    uma página de erro ou de verificação com código 200)."""
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": AMOSTRA_AGENTE})
+    tam = 0
+    with urllib.request.urlopen(req, timeout=60) as r, open(destino, "wb") as f:
+        while True:
+            bloco = r.read(1 << 16)
+            if not bloco:
+                break
+            tam += len(bloco)
+            if tam > AMOSTRA_MAX:
+                raise Erro("arquivo maior que o esperado")
+            f.write(bloco)
+    with open(destino, "rb") as f:
+        ini = f.read(600).lstrip().lower()
+    if not tam or ini.startswith((b"<!doctype html", b"<html")):
+        raise Erro("a fonte não devolveu o arquivo (página de erro)")
+
+
+def amostra_instalar(a, de_novo=False):
+    """Põe a amostra na biblioteca. Devolve (id, estado): novo | já estava | apagada (não volta sem de_novo)."""
+    marca = amostras_marca()
+    feitas = marca.get("feitas") if isinstance(marca.get("feitas"), dict) else {}
+    antes = feitas.get(a["chave"])
+    if antes and not de_novo:
+        return antes, ("já estava" if os.path.isdir(pasta(antes)) else "apagada")
+    nome = str(a.get("nome") or a.get("arquivo") or a["chave"])
+    tmp = None
+    try:
+        if a.get("arquivo"):
+            caminho = os.path.join(os.path.dirname(AMOSTRAS), os.path.basename(str(a["arquivo"])))
+        else:
+            fd, tmp = tempfile.mkstemp(prefix="tt-amostra-")
+            os.close(fd)
+            amostra_baixar(str(a["url"]), tmp)
+            caminho = tmp
+        lid, meta, novo = adicionar(caminho, nome=nome, titulo=str(a["titulo"]))
+        if novo and a.get("autor"):
+            meta["autor"] = str(a["autor"])
+            gravar_json(os.path.join(pasta(lid), "meta.json"), meta)
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    marca = amostras_marca()
+    marca.setdefault("feitas", {})[a["chave"]] = lid
+    gravar_json(AMOSTRAS_MARCA, marca)
+    return lid, ("novo" if novo else "já estava")
+
+
+def amostras_instalar(chaves=None, de_novo=False, quieto=False, so_do_pacote=False):
+    """Instala as amostras pedidas (todas, sem `chaves`). Devolve quantas falharam."""
+    cat = amostras_catalogo()
+    falhas = 0
+    for a in cat:
+        if chaves and a["chave"] not in chaves:
+            continue
+        if so_do_pacote and not a.get("arquivo"):
+            continue
+        try:
+            lid, estado = amostra_instalar(a, de_novo)
+            quieto or print("%s\t%s\t%s" % (lid, a["titulo"], estado))
+        except Exception as e:  # rede, PDF sem pdftotext, portal fora do ar: a amostra fica para depois, nada quebra
+            falhas += 1
+            quieto or print("✗ %s: %s" % (a["titulo"], str(e) or type(e).__name__), file=sys.stderr)
+    return falhas
+
+
+def amostras_semear():
+    """Biblioteca vazia e nunca semeada: as amostras do pacote entram já; as de rede, num processo solto."""
+    if os.environ.get("TT_LEITOR_AMOSTRAS") == "0" or os.path.exists(AMOSTRAS_MARCA):
+        return
+    cat = amostras_catalogo()
+    vazia = not ids() and not lapides()
+    try:
+        gravar_json(AMOSTRAS_MARCA, {"semeado": agora_ms(), "feitas": {}})
+    except OSError:
+        return
+    if not vazia or not cat:  # quem já tem os seus textos não ganha amostra sem pedir (tt --leitor-amostras baixar)
+        return
+    amostras_instalar(quieto=True, so_do_pacote=True)
+    if any(not a.get("arquivo") for a in cat):
+        try:
+            subprocess.Popen([sys.executable, "-I", os.path.abspath(__file__), "amostras", "baixar", "--quieto"],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError:
+            pass
+
+
+def cmd_amostras(args):
+    """amostras [listar] | baixar [CHAVE…] [--de-novo] [--quieto]"""
+    quieto, de_novo = "--quieto" in args, "--de-novo" in args
+    args = [x for x in args if not x.startswith("--")]
+    cat = amostras_catalogo()
+    if args and args[0] == "baixar":
+        pedidas = set(args[1:])
+        fora = pedidas - {a["chave"] for a in cat}
+        if fora:
+            raise Erro("amostra desconhecida: %s (tt --leitor-amostras lista as que existem)" % ", ".join(sorted(fora)))
+        if not os.path.exists(AMOSTRAS_MARCA):
+            gravar_json(AMOSTRAS_MARCA, {"semeado": agora_ms(), "feitas": {}})
+        return 1 if amostras_instalar(pedidas or None, de_novo or bool(pedidas), quieto) else 0
+    if args and args[0] != "listar":
+        raise Erro("uso: tt --leitor-amostras [listar | baixar [CHAVE…] [--de-novo]]")
+    feitas = amostras_marca().get("feitas") or {}
+    if not cat:
+        print("Este pacote do tt não traz o catálogo de amostras.")
+        return 0
+    for a in cat:
+        lid = feitas.get(a["chave"])
+        estado = "na biblioteca" if lid and os.path.isdir(pasta(lid)) else "apagada" if lid else \
+            "vem no pacote" if a.get("arquivo") else "para baixar (%s MB)" % a.get("mb", "?")
+        print("%-22s %-44s %s" % (a["chave"], cortar(str(a["titulo"]), 44), estado))
+        print("%-22s %s · %s · %s" % ("", a.get("autor") or "", a.get("tema") or "", a.get("licenca") or ""))
+    print("\ntt --leitor-amostras baixar [CHAVE…] põe na biblioteca (sem CHAVE: todas as que faltam; com CHAVE, também a que foi apagada).")
+    return 0
+
+
 def marcar_posicao(lid, pos, total=None, **extra):
     e = ler_estado(lid)
     e["pos"] = max(0, int(pos))
@@ -4681,6 +4836,8 @@ def principal(argv):
             cab = [l[2:].rstrip("\n") for l in f.read().split("import ", 1)[0].splitlines()[1:] if l.startswith("#")]
         print("\n".join(cab))
         return 0
+    if cmd in ("tela", "listar") or (cmd == "ler" and not args):
+        amostras_semear()
     if cmd == "tela":
         interface()
     elif cmd == "atalhos":
@@ -4736,6 +4893,8 @@ def principal(argv):
                 print("%s  %3d%%  %9s palavras  %-40s %s%s" % (l["id"], l["pct"], milhar(l["palavras"]), cortar(l["titulo"], 40),
                       ("lido " + ha_quanto(l["mudada"])) if l["mudada"] else "não começado",
                       (" em " + l["maquina"]) if l["maquina"] and l["maquina"] != maquina() else ""))
+    elif cmd == "amostras":
+        return cmd_amostras(args)
     elif cmd == "remover":
         if not args:
             raise Erro("uso: tt --leitor-rm ID")
