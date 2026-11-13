@@ -480,10 +480,27 @@ grep -q "^    leitor-atalhos) leitor_atalhos " "$TT_DIR/tt" && grep -q "^       
 grep -q "^    leitor-cheia) leitor_tela_cheia " "$TT_DIR/tt" && grep -q "^        cheia) leitor_tela_cheia " "$TT_DIR/tt" || falhou 'rota da tela cheia (tecla f e botão ⤢ da faixa)'
 grep -q "^bind -T tt-leitor f run-shell -b \"~/.local/bin/tt --clique leitor-cheia " "$TT_DIR/tmux.conf" || falhou 'tecla f da tabela tt-leitor'
 grep -q 'send-prefix -t "\$p" .; send-keys -t "\$p" L' "$TT_DIR/tt" || falhou 'Ctrl+B L não é repassado ao tmux da outra máquina numa ponte'
+# Cada tecla da leitura que chama `tt --clique` roda aqui como o tmux a roda (os mesmos argumentos do bind) e tem de
+# chegar à rota: o `f` e o `?` iam sem painel, o despacho usava "$4" sob set -u e o tt morria calado (o verbo é mudo
+# de propósito), então a tecla não fazia nada e nenhum teste via. Prova: a marca do clique (cliente e rota) e, no `f`,
+# a faixa liberada para a tela cheia.
+"$TT" --leitor-barra "$ID" --pausado; sleep 0.3
+n_teclas=0
+while IFS= read -r l; do
+  cmd=${l#*run-shell -b \"}; cmd=${cmd%%\"*}; rota=${cmd#*--clique }; rota=${rota%% *}
+  cmd=${cmd//'~/.local/bin/tt'/\"\$TT\"}; cmd=${cmd//'#{client_name}'/cliente-de-teste}; cmd=${cmd//'#{pane_id}'/%0}; cmd=${cmd//'#{pane_current_path}'/$HOME}
+  rm -f "$TT_RT/tt-clique-$UID"
+  (unset TMUX; eval "timeout 20 $cmd" </dev/null >/dev/null 2>&1) || true
+  [[ $(cat "$TT_RT/tt-clique-$UID" 2>/dev/null) == *" cliente-de-teste $rota" ]] || falhou "a tecla da leitura não chegou à rota $rota (rodada como no bind: $cmd)"
+  n_teclas=$((n_teclas + 1)); sleep 0.6   # (fora da janela do duplo clique)
+done < <(grep -- '^bind -T tt-leitor .*tt --clique ' "$TT_DIR/tmux.conf")
+((n_teclas >= 3)) || falhou "esperava as teclas f, ? e o da tabela tt-leitor chamando --clique (achei $n_teclas)"
+! kill -0 "$(cat "$BARRA/pid" 2>/dev/null)" 2>/dev/null || falhou 'a tecla f não liberou a faixa para a tela cheia (leitor_tela_cheia não rodou)'
+"$TT" --leitor-parar >/dev/null 2>&1 || true
 python3 -I - "$TT_DIR/letreiro-tt.py" <<'PY' || falhou 'botão ⤢ (tela cheia) na faixa'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("lt", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 q, z = m.quadro_leitor({"tocando": False, "palavras": [[0, "casa", 1, 0, 0]], "n": 10, "ppm": 300}, 120, 1)
 assert "⤢" in q and any(a == "cheia" for _, _, a in z), z
 PY
-passou 'atalhos: tela única (faixa, tela cheia, biblioteca, arquivos), toda tecla da faixa está nela; 0–9, b, f e ? na faixa; tela cheia direta; Ctrl+B L repassado na ponte'
+passou 'atalhos: tela única (faixa, tela cheia, biblioteca, arquivos), toda tecla da faixa está nela; 0–9, b, f e ? na faixa; tela cheia direta; teclas f, ? e o chegam à rota como o tmux as chama; Ctrl+B L repassado na ponte'

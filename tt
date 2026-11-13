@@ -23170,7 +23170,9 @@ case "${1:-}" in
   --fechar) fechar_em "$2" "$3"; exit ;;
   --cabecalho) cabecalho; exit ;;
   --clique-cabecalho) clique_cabecalho "${2:-}"; exit ;;
-  --clique) clique "$2" "$3" "$4" "${5:-$HOME}" "${6:-0}" "${7:-}"; exit ;;
+  # (painel e pasta são opcionais: um atalho de teclado sem painel, como o `f` e o `?` da leitura na faixa, morria aqui
+  # calado, com "$4: unbound variable" sob set -u, antes de chegar à rota)
+  --clique) clique "${2:-}" "${3:-}" "${4:-}" "${5:-$HOME}" "${6:-0}" "${7:-}"; exit ;;
   --menu-painel) menu_painel "$2" "$3"; exit ;;
   --menu-tmux) menu_tmux "$2" "${3:-}"; exit ;;
   --menu-atalhos) menu_atalhos "$2"; exit ;;
