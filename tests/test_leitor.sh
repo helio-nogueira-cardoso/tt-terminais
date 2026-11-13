@@ -54,8 +54,13 @@ def _bbox(paginas):  # o que o pdftotext -bbox devolve: palavras com caixa, linh
     for linhas in paginas:
         out.append('<page width="595" height="842">')
         for n, linha in enumerate(linhas):
-            for k, w in enumerate(linha.split(" ")):
-                out.append('<word xMin="%d" yMin="%d" xMax="%d" yMax="%d">%s</word>' % (20 + 14 * k, 100 + 14 * n, 32 + 14 * k, 110 + 14 * n, escape(w)))
+            x = 20
+            for w in linha.split(" "):
+                if w == "§":  # vão de coluna
+                    x += 120
+                    continue
+                out.append('<word xMin="%d" yMin="%d" xMax="%d" yMax="%d">%s</word>' % (x, 100 + 14 * n, x + 12, 110 + 14 * n, escape(w)))
+                x += 14
         out.append('</page>')
     out.append('</doc>')
     return "\n".join(out) + "\n"
@@ -64,6 +69,7 @@ open(d + "/ordem.bbox.xml", "w").write(_bbox([
      "lo na testa e vê-", "los de longe. Disse-", "me isto, vendo-", "os tristes. Fizeram-", "lhe festa. O el-", "rei sorriu."],
     ["Fim do trecho.", "CAPÍTULO LIII / . . . . .", "Virgília é que já se não lembrava da meia dobra."],
     ["O caminho do seu", "coração de volta."],
+    ["Aluguéis § R$ § Reserva § R$", "Casa § R$ § Carro § R$"],
     ["Meu bom amigo,", "S", "u", "a", "a", "m", "i", "g", "a", ",", "A imagem v inculada não pode ser exibida. Talv ez o arquiv o tenha sido mov ido, renomeado ou excluído. Verifique se o v ínculo aponta para o arquiv o e o local corretos."]]))
 
 open(d + "/foto.bin", "wb").write(b"\x00\x01\x02\x03" * 50)
@@ -84,11 +90,13 @@ case $ant in
     printf -- '— Nada! interrompeu-me Quincas Borba com um gesto de\nindignação.\nEu viram-\nme ir e trepava-\nlhe ao dorso. Trata-\nse de uma obra; beijá-\nlo na testa e vê-\nlos de longe. Disse-\nme isto, vendo-\nos tristes. Fizeram-\nlhe festa. O el-\nrei sorriu.\n\f'
     printf 'Fim do trecho.\n\nCAPÍTULO LIII / . . . . .\nVirgília é que já se não lembrava da meia dobra.\n\f'
     printf 'Ocaminhodoseu coração de volta.\n\f'
+    printf 'Aluguéis\nCasa\nReserva\nCarro\nR$\nR$\nR$\nR$\n\f'
     printf 'Meu bom amigo,\nS\nu\na\na\nm\ni\ng\na\n,\nA imagem v inculada não pode ser exibida. Talv ez o arquiv o tenha sido mov ido, renomeado ou excluído. Verifique se o v ínculo aponta para o arquiv o e o local corretos.\n\f'
   else
     printf -- '— Nada! interrompeu-me\nindignação.\n\nQuincas\n\nBorba\n\ncom\n\num\n\ngesto\n\nde\n\nEu viramme ir e trepavalhe ao dorso. Tratase de uma obra; beijálo na testa e vêlos de longe. Disseme isto, vendoos tristes. Fizeramlhe festa. O elrei sorriu.\n\f'
     printf 'Fim do trecho.\n\nCAPÍTULO LIII / . . . . .\nVirgília é que já se não lembrava da meia dobra.\n\f'
     printf 'O caminho\n\ndo\n\nseu\n\ncoração de volta.\n\f'
+    printf 'Aluguéis\nCasa\nReserva\nCarro\nR$\nR$\nR$\nR$\n\f'
     printf 'Meu bom amigo,\nS\nu\na\na\nm\ni\ng\na\n,\nA imagem v inculada não pode ser exibida. Talv ez o arquiv o tenha sido mov ido, renomeado ou excluído. Verifique se o v ínculo aponta para o arquiv o e o local corretos.\n\f'
   fi ;;
 *)
@@ -118,6 +126,7 @@ passou 'extração: txt (Latin-1), md, html, epub, docx, odt, fb2, rtf e pdf (ca
 s=$(ex ordem.pdf)
 [[ $s == *"— Nada! interrompeu-me Quincas Borba com um gesto de indignação."* ]] || falhou "pdf: ordem das palavras da linha desmontada: $s"
 [[ $s == *"Eu viram-me ir e trepava-lhe ao dorso. Trata-se de uma obra; beijá-lo na testa e vê-los de longe. Disse-me isto, vendo-os tristes. Fizeram-lhe festa. O el-rei sorriu."* ]] || falhou "pdf: hífen de ênclise ou de palavra composta perdido: $s"
+[[ $s == *"Aluguéis R$ Reserva R$"* && $s == *"Casa R$ Carro R$"* ]] || falhou "pdf: tabela lida coluna a coluna (rótulo longe do valor): $s"
 [[ $s == *"O caminho do seu coração de volta."* && $s != *"Ocaminhodoseu"* ]] || falhou "pdf: o -raw que cola palavras foi escolhido (palavra perdida): $s"
 [[ $s == *$'\n## CAPÍTULO LIII / . . . . .\n'* && $s == *$'\nVirgília é que já se não lembrava da meia dobra.'* ]] || falhou "pdf: título de capítulo em maiúsculas colado no texto: $s"
 [[ $s == *"Meu bom amigo, Suaamiga,"* && $s != *"vinculada"* && $s != *"arquiv o"* ]] || falhou "pdf: letras soltas ou aviso de imagem do Word: $s"

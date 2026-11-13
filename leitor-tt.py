@@ -514,12 +514,14 @@ def _rodar(cmd, prazo=180):
 
 
 def _ordem_geometrica(ws):
-    """Ordem de leitura de uma página só pela geometria das palavras [(x1, y1, x2, y2, texto)]: linhas visuais (mesmo
-    centro vertical); trechos de uma linha separados por vão maior que uma letra e meia; blocos = trechos que continuam
-    na linha de baixo (parágrafo, célula); faixas = blocos que se sobrepõem na vertical, lidos da esquerda para a
-    direita; faixas de cima para baixo. Em texto corrido de uma coluna não há o que decidir: é de cima para baixo."""
+    """Ordem de leitura de uma página só pela geometria das palavras [(x1, y1, x2, y2, texto)]. Devolve
+    (faixas, tabular): cada faixa é uma lista de blocos e cada bloco, uma lista de linhas (listas de palavras).
+    Linhas visuais = mesmo centro vertical; trechos de uma linha = separados por vão maior que uma letra e meia; bloco =
+    trechos que continuam na linha de baixo (parágrafo, célula), salvo entre duas linhas de TABELA (com 2 trechos ou
+    mais cada uma), que são linhas diferentes: rótulo e valor ficam juntos, linha a linha; faixa = blocos que se
+    sobrepõem na vertical, lidos da esquerda para a direita; faixas, de cima para baixo."""
     if not ws:
-        return []
+        return [], False
     h = sorted(w[3] - w[1] for w in ws)[len(ws) // 2] or 1.0
     ws = sorted(ws, key=lambda w: ((w[1] + w[3]) / 2, w[0]))
     linhas = []
@@ -542,6 +544,10 @@ def _ordem_geometrica(ws):
             else:
                 atual.append(b)
         trechos.append((li, atual))
+    nt = {}
+    for li, _ in trechos:
+        nt[li] = nt.get(li, 0) + 1
+    tabular = any(n >= 2 for n in nt.values())
     bx = [(min(w[0] for w in t), min(w[1] for w in t), max(w[2] for w in t), max(w[3] for w in t)) for _, t in trechos]
     pai = list(range(len(trechos)))
 
@@ -557,6 +563,8 @@ def _ordem_geometrica(ws):
                 continue
             if lj > li + 1:
                 break
+            if nt[li] >= 2 and nt[lj] >= 2:
+                continue
             sobre = min(bx[i][2], bx[j][2]) - max(bx[i][0], bx[j][0])
             if sobre > 0.3 * min(bx[i][2] - bx[i][0], bx[j][2] - bx[j][0]) and -0.6 * h <= bx[j][1] - bx[i][3] <= 0.6 * h:
                 pai[raiz(j)] = raiz(i)
@@ -574,10 +582,20 @@ def _ordem_geometrica(ws):
             faixas.append([b[1], [b]])
     saida = []
     for _, fx in faixas:
+        fila = []
         for _, _, _, ids in sorted(fx, key=lambda b: (b[2], b[0])):
+            por_linha = {}
             for i in sorted(ids, key=lambda i: (trechos[i][0], bx[i][0])):
-                saida.extend(w[4] for w in trechos[i][1])
-    return saida
+                por_linha.setdefault(trechos[i][0], []).extend(w[4] for w in trechos[i][1])
+            fila.append([por_linha[k] for k in sorted(por_linha)])
+        saida.append(fila)
+    return saida, tabular
+
+
+def _texto_geometrico(faixas):
+    """Faixas → texto: uma faixa de vários blocos (a linha de uma tabela) é UM parágrafo; faixa de um bloco é o seu
+    próprio parágrafo; parágrafos separados por linha em branco."""
+    return "\n\n".join("\n".join(" ".join(l) for bloco in fx for l in bloco) for fx in faixas)
 
 
 def _fichas(palavras):
@@ -594,7 +612,8 @@ def _fichas(palavras):
 
 
 def _geometria_pdf(caminho):
-    """Uma lista por página com as fichas na ordem geométrica (pdftotext -bbox); None se falhar."""
+    """Uma tupla por página (fichas na ordem geométrica, texto na ordem geométrica, tem tabela?) pelo pdftotext -bbox;
+    None se falhar."""
     xml, _ = _rodar(["pdftotext", "-bbox", "-enc", "UTF-8", "-q", caminho, "-"])
     if xml is None:
         return None
@@ -604,21 +623,30 @@ def _geometria_pdf(caminho):
         ws = [(float(a), float(b), float(c), float(d), tok)
               for a, b, c, d, w in re.findall(r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(.*?)</word>', pg)
               for tok in html.unescape(w).split()]
-        paginas.append(_fichas(_ordem_geometrica(ws)))
+        faixas, tab = _ordem_geometrica(ws)
+        paginas.append((_fichas([w for fx in faixas for bloco in fx for l in bloco for w in l]), _texto_geometrico(faixas), tab))
     return paginas
 
 
 def _pagina_pdf(pad, cru, geo=None):
-    """Escolhe a leitura de uma página entre o modo padrão do pdftotext (acha parágrafos e colunas, mas às vezes tira
-    palavras da linha e as larga depois dela) e o -raw (a ordem em que o PDF desenha o texto). O juiz é a geometria
-    (_ordem_geometrica): fica o padrão se ele a reproduz; o -raw só se for ELE que a reproduz, palavra por palavra
-    (então nada se perde nem se cola, só a ordem muda). Se nenhum dos dois a reproduz (tabela, coluna), fica o padrão."""
+    """Escolhe a leitura de uma página: o modo padrão do pdftotext (acha parágrafos e colunas, mas às vezes tira
+    palavras da linha e as larga depois dela), o -raw (a ordem em que o PDF desenha o texto) ou a própria geometria.
+    O juiz é a geometria (_ordem_geometrica): fica o padrão se ele a reproduz; o -raw só se for ELE que a reproduz,
+    palavra por palavra (nada se perde nem se cola, só a ordem muda). Nenhum dos dois a reproduz e a página tem tabela
+    ou sumário: lê-se a geometria, linha a linha (cada rótulo com o seu valor), desde que traga exatamente as mesmas
+    palavras do padrão. Fora disso, fica o padrão."""
     if geo is None:
         return pad
+    fichas_g, texto_g, tabular = geo
     fichas = lambda t: _fichas(re.sub(r"(?<=\w)-\n(?=\w)", "", t).split())
-    if fichas(pad) == geo:
+    f_pad = fichas(pad)
+    if f_pad == fichas_g:
         return pad
-    return cru if fichas(cru) == geo else pad
+    if fichas(cru) == fichas_g:
+        return cru
+    if tabular and sorted(f_pad) == sorted(fichas_g):
+        return texto_g
+    return pad
 
 
 def _hifens_firmes_do_pdf(paginas_cru):
