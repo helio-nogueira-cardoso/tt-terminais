@@ -749,6 +749,7 @@ assert m.mesclar_estado(meu, {"pos": 99, "mudada": 9, "sobre": "novo", "marcador
 velho = {"capitulos": [{"titulo": "", "paragrafos": ["um dois tres qua- tro cinco seis sete oito nove dez onze doze treze"]}]}
 novo = {"capitulos": [{"titulo": "", "paragrafos": ["um dois tres quatro cinco seis sete oito nove dez onze doze treze"]}]}
 e = m.remapear_estado({"pos": 8, "mudada": 1, "marcadores": {"8": {"nome": "x", "mudada": 1}}}, velho, novo, "s")
+assert m.remapear_estado({"pos": 0, "mudada": 1, "marcadores": {}}, velho, novo, "s")["pos"] == 0
 assert e["pos"] == 7 and e["sobre"] == "s" and "7" in e["marcadores"], e  # "qua-" "tro" viraram uma palavra: o ponto anda uma
 PY
 passou 'reimportar: texto refeito pelo extrator novo, posição e marcadores no mesmo ponto, conferência na meta, em dia não refaz, estados de textos diferentes não se misturam'

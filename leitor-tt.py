@@ -1706,7 +1706,7 @@ def remapear_estado(estado, velho, novo, sha_novo):
     """O estado de leitura (posição, marcadores, posição de cada máquina) levado do texto velho para o novo."""
     mapa = mapa_posicoes(velho, novo)
     e = dict(estado)
-    e["pos"] = mapa(e.get("pos") or 0)
+    e["pos"] = mapa(e["pos"]) if int(e.get("pos") or 0) > 0 else 0  # livro ainda não lido continua no começo (a capa lida por OCR entra antes)
     marc = {}
     for k, v in (e.get("marcadores") or {}).items():
         if isinstance(v, dict) and re.fullmatch(r"\d{1,9}", str(k)):
