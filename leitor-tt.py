@@ -637,6 +637,93 @@ def _ordem_geometrica_1(ws):
     return saida, tabular
 
 
+def _ordem_tabela(ws):
+    """Segunda opinião sobre a ordem de uma página com tabela, independente da ordem geométrica: a página é cortada em
+    FAIXAS nos vãos verticais maiores que o passo de linha dentro de uma célula (1,3 x o menor passo entre linhas de
+    tabela), e cada faixa é lida COLUNA por COLUNA (a célula inteira, de cima a baixo, antes da célula ao lado). Rótulo de
+    duas linhas ('Garantia do' 'FGC') fica inteiro, e o valor ao lado vem depois. Devolve (palavras, texto) na ordem lida."""
+    if not ws:
+        return [], ""
+    h = sorted(w[3] - w[1] for w in ws)[len(ws) // 2] or 1.0
+    linhas = []
+    for w in sorted(ws, key=lambda w: ((w[1] + w[3]) / 2, w[0])):
+        c = (w[1] + w[3]) / 2
+        if linhas and abs(c - linhas[-1][0]) <= 0.5 * h:
+            L = linhas[-1]
+            L[1].append(w)
+            L[0] = (L[0] * (len(L[1]) - 1) + c) / len(L[1])
+        else:
+            linhas.append([c, [w]])
+    tr = []  # por linha: trechos [(x1, [palavras])], separados por vão maior que 1,1 letra
+    for _, lw in linhas:
+        lw.sort(key=lambda w: w[0])
+        atual, saida = [lw[0]], []
+        for a, b in zip(lw, lw[1:]):
+            if b[0] - a[2] > 1.1 * h:
+                saida.append(atual)
+                atual = [b]
+            else:
+                atual.append(b)
+        saida.append(atual)
+        tr.append([(t[0][0], t) for t in saida])
+    gaps = sorted(linhas[k + 1][0] - linhas[k][0] for k in range(len(linhas) - 1) if len(tr[k]) >= 2 and len(tr[k + 1]) >= 2)
+    passo = gaps[len(gaps) // 10] if gaps else 0
+    faixas, atual = [], [0]
+    for k in range(len(linhas) - 1):
+        if passo and linhas[k + 1][0] - linhas[k][0] >= 1.3 * passo or len(tr[k]) == 1 and len(tr[k + 1]) == 1:
+            faixas.append(atual)
+            atual = []
+        atual.append(k + 1)
+    faixas.append(atual)
+    saida, paragrafos = [], []
+    for fx in faixas:
+        xs = sorted(x for k in fx if len(tr[k]) >= 2 for x, _ in tr[k])
+        cols = []
+        for x in xs:
+            if not cols or x - cols[-1] > 1.1 * h:
+                cols.append(x)
+        if not cols:
+            cols = [0.0]
+        if len(cols) >= 3 and len(fx) >= 6 and sum(tr[k][0][0] <= cols[0] + 0.3 * h for k in fx) >= 0.8 * len(fx):
+            for k in fx:  # tabela de três colunas ou mais com rótulo em toda linha (números): cada linha é uma linha
+                saida.extend(w for _, t in tr[k] for w in t)
+                paragrafos.append(" ".join(w[4] for _, t in tr[k] for w in t))
+            continue
+        celulas = [[] for _ in cols]
+        for k in fx:
+            for x, t in tr[k]:
+                for w in t:  # palavra a palavra: o vão curto de um rótulo com a célula ao lado não junta as duas
+                    c = max([i for i, cx in enumerate(cols) if cx <= w[0] + 0.3 * h] or [0])
+                    celulas[c].append(w)
+        for cel in celulas:
+            saida.extend(cel)
+            if cel:
+                paragrafos.append("\n".join(" ".join(w[4] for w in l) for l in _linhas_da_celula(cel, h)))
+    return saida, "\n\n".join(paragrafos)
+
+
+def _linhas_da_celula(cel, h):
+    """Palavras de uma célula (já na ordem lida) → linhas visuais, para o texto manter a quebra de linha."""
+    linhas = []
+    for w in cel:
+        if linhas and abs((w[1] + w[3]) / 2 - (linhas[-1][-1][1] + linhas[-1][-1][3]) / 2) <= 0.5 * h:
+            linhas[-1].append(w)
+        else:
+            linhas.append([w])
+    return linhas
+
+
+def _quase_igual(a, b):
+    """Duas leituras (letras coladas) iguais a menos de poucas diferenças de até 2 letras: sobrescrito de nota,
+    palavra partida pela geometria. Trecho de lugar trocado não passa."""
+    import difflib
+    if len(b) < 40:
+        return a == b
+    ops = [o for o in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes() if o[0] != "equal"]
+    return (not ops) or (len(ops) <= 12 and sum(max(a2 - a1, b2 - b1) for _, a1, a2, b1, b2 in ops) <= len(b) // 50 + 2
+                         and all(max(a2 - a1, b2 - b1) <= 2 for _, a1, a2, b1, b2 in ops))
+
+
 def _texto_geometrico(faixas):
     """Faixas → texto: uma faixa de vários blocos (a linha de uma tabela) é UM parágrafo; faixa de um bloco é o seu
     próprio parágrafo; parágrafos separados por linha em branco."""
@@ -675,7 +762,7 @@ def _geometria_pdf(caminho):
               for tok in html.unescape(w).split()]
         faixas, tab = _ordem_geometrica(ws)
         paginas.append((_fichas([w for fx in faixas for bloco in fx for l in bloco for w in l]), _texto_geometrico(faixas), tab,
-                        _letras(" ".join(w[4] for w in ws))))
+                        _letras(" ".join(w[4] for w in ws)), _fichas(_ordem_tabela(ws)[1].split()), _ordem_tabela(ws)[1]))
     return paginas
 
 
@@ -776,13 +863,19 @@ def _pagina_pdf_modo(pad, cru, geo=None, voc=None):
     rep = _reparar(pad, texto_g, voc if voc is not None else {})
     if rep is not None and "".join(fichas(rep)) == f_geo:
         return rep, "reparada"
-    # só sobrescritos de nota de rodapé ou palavra partida na célula pela própria geometria (ao máximo 2 letras por
-    # diferença, sem nenhum trecho de lugar trocado): a ordem do padrão é a mesma da geometria
-    import difflib
+    # só sobrescritos de nota de rodapé ou palavra partida na célula pela própria geometria: a ordem do padrão é a da geometria
     gp = "".join(f_pad)
-    ops = [o for o in difflib.SequenceMatcher(None, gp, f_geo, autojunk=False).get_opcodes() if o[0] != "equal"]
-    if ops and len(f_geo) >= 40 and len(ops) <= 12 and sum(max(a2 - a1, b2 - b1) for _, a1, a2, b1, b2 in ops) <= len(f_geo) // 50 + 2 and all(max(a2 - a1, b2 - b1) <= 2 for _, a1, a2, b1, b2 in ops):
+    if _quase_igual(gp, f_geo):
         return pad, "padrao"
+    if len(geo) > 5:  # terceiro leitor, de células (coluna por coluna): concorda com o padrão, com o -raw ou com a geometria
+        ftab = "".join(geo[4])
+        if _quase_igual(gp, ftab):
+            return pad, "padrao"
+        if _quase_igual("".join(f_cru), ftab):
+            return cru, "raw"
+        if sorted(ftab) == sorted(f_geo) and (_quase_igual(f_geo, ftab) or _parecido(ftab, f_geo) >= 0.98
+                                              or _parecido(ftab, gp) >= 0.97 or _parecido(ftab, "".join(f_cru)) >= 0.97):
+            return geo[5], "tabela"  # a leitura por células (célula inteira antes da vizinha) concorda com outro leitor
     # nenhuma prova: a leitura mais parecida com a geometria, desde que não perca nem invente letra
     letras = sorted(f_geo)
     cand = [(_parecido("".join(f_pad), f_geo), 1, pad)]
@@ -1086,7 +1179,7 @@ def _costurar_palavras(caps):
         c["paragrafos"] = novos
 
 
-EXTRATOR = 4  # sobe quando o extrator passa a ler melhor: o texto de extrator maior vence na troca entre máquinas
+EXTRATOR = 5  # sobe quando o extrator passa a ler melhor: o texto de extrator maior vence na troca entre máquinas
 
 
 def conferir(livro, fonte):

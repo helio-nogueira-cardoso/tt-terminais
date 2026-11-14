@@ -695,6 +695,30 @@ assert m._pagina_pdf_modo("um dois tres quatro cinco seis mais juros", "x", geo)
 PY
 passou 'ordem do PDF: título grande não separa rótulo de valor, o espaço entre palavras não conta como ordem'
 
+# Leitura por células de uma página com tabela: rótulo de duas linhas inteiro, depois o valor ao lado; linha de números por linha.
+python3 -I - "$TT_DIR/leitor-tt.py" <<'PY' || falhou 'leitura de tabela por células'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("lt", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+def w(x, y, t): return (x, y, x + 6 * len(t), y + 8, t)
+ws = []
+# linha 1: rótulo 'Garantia do' / 'FGC' à esquerda e valor de 3 linhas à direita; linha 2 separada por vão maior
+for i, (rot, val) in enumerate([("Garantia", "Limitada ao total"), ("do", "dos creditos de"), ("FGC", "cada pessoa fisica")]):
+    ws.append(w(60, 100 + 9 * i, rot))
+    x = 130
+    for t in val.split():
+        ws.append(w(x, 100 + 9 * i, t)); x += 6 * len(t) + 4
+ws += [w(60, 140, "Riscos"), w(130, 140, "Risco"), w(166, 140, "emissor")]
+saida, texto = m._ordem_tabela(ws)
+assert " ".join(t[4] for t in saida).startswith("Garantia do FGC Limitada ao total dos creditos de cada pessoa fisica Riscos Risco emissor"), texto
+# tabela de números com rótulo em toda linha: linha a linha
+ws = []
+for r in range(8):
+    ws += [w(60, 100 + 20 * r, "D+%d" % r), w(120, 100 + 20 * r, "%d,00" % (r + 1)), w(200, 100 + 20 * r, "%d,10" % (r + 1)), w(280, 100 + 20 * r, "x%d" % r)]
+saida, texto = m._ordem_tabela(ws)
+assert " ".join(t[4] for t in saida).split()[:8] == ["D+0", "1,00", "1,10", "x0", "D+1", "2,00", "2,10", "x1"], texto
+PY
+passou 'tabela: rótulo de duas linhas inteiro antes do valor; números linha a linha'
+
 # Markdown: tag HTML de verdade sai do texto (mesmo longa) e é conferida; 'a < b > c' é texto.
 python3 -I - "$TT_DIR/leitor-tt.py" <<'PY' || falhou 'markdown: tag HTML, link ou conferência'
 import importlib.util, os, sys, tempfile

@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.20.0 · 13/11/2026
+- **📖 Leitor de tabelas no PDF:** a página com tabela ganhou um terceiro leitor, independente da ordem geométrica, que corta a página em faixas pelos vãos entre linhas de tabela e lê **célula por célula** (o rótulo de duas linhas, "Garantia do / FGC", inteiro antes do valor ao lado; tabela de números, linha a linha). Quando esse leitor concorda com o `pdftotext`, com o `-raw` ou com a geometria, a página fica provada: das 14 de ordem sem prova, **11 passaram** (modo `tabela`, que também corrige o rótulo que o `pdftotext` enfiava no meio do valor). O que resta são 3 páginas (Comparativo entre mercados de derivativos, p. 348; quadro Argentina x Brasil, p. 65, e ranking de riscos, p. 180 de Análise de Investimentos), em que as células são centradas ou de alturas diferentes e só as linhas de grade do PDF dariam a resposta.
+
 ## v2.19.0 · 13/11/2026
 - **📖 Markdown também é conferido:** `.md` e `.txt` passam pela conferência de letras (o endereço de link e a tag HTML não contam como texto). Isso achou um defeito: tag como `<img src="…" alt="…" />` com mais de 80 caracteres vazava para o texto lido; agora só tag HTML de verdade sai (`a < b > c` continua texto).
 - **Página de PDF que só tem sobrescrito de nota (`referencial2`) ou palavra que a geometria parte no meio da célula deixa de ser "ordem sem prova"**: das 17 páginas, 3 foram provadas; 14 seguem registradas em `tt --leitor-conferir`. O extrator subiu para 4, então o vigia reimporta os livros sozinho.
