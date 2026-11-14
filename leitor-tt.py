@@ -773,6 +773,13 @@ def _pagina_pdf_modo(pad, cru, geo=None, voc=None):
     rep = _reparar(pad, texto_g, voc if voc is not None else {})
     if rep is not None and "".join(fichas(rep)) == f_geo:
         return rep, "reparada"
+    # só sobrescritos de nota de rodapé ou palavra partida na célula pela própria geometria (ao máximo 2 letras por
+    # diferença, sem nenhum trecho de lugar trocado): a ordem do padrão é a mesma da geometria
+    import difflib
+    gp = "".join(f_pad)
+    ops = [o for o in difflib.SequenceMatcher(None, gp, f_geo, autojunk=False).get_opcodes() if o[0] != "equal"]
+    if ops and len(f_geo) >= 40 and len(ops) <= 12 and sum(max(a2 - a1, b2 - b1) for _, a1, a2, b1, b2 in ops) <= len(f_geo) // 50 + 2 and all(max(a2 - a1, b2 - b1) <= 2 for _, a1, a2, b1, b2 in ops):
+        return pad, "padrao"
     # nenhuma prova: a leitura mais parecida com a geometria, desde que não perca nem invente letra
     letras = sorted(f_geo)
     cand = [(_parecido("".join(f_pad), f_geo), 1, pad)]

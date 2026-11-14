@@ -686,6 +686,12 @@ geo = (m._fichas(["b", "a"]), "b a", False)
 assert m._pagina_pdf_modo("a b", "c d", geo) == ("b a", "reparada")
 geo = (m._fichas(["b", "c"]), "b c", False)
 assert m._pagina_pdf_modo("a b", "c d", geo) == ("a b", "incerta")
+# Sobrescrito de nota ('referencial2' contra 'referencial' '2') não é ordem trocada; trecho de lugar trocado continua sem prova.
+corpo = "o rendimento da poupanca sera composto por " * 3
+geo = (m._fichas((corpo + "referencial 2 mais juros").split()), "x", True)
+assert m._pagina_pdf_modo(corpo + "referencial2 mais juros", "x", geo)[1] == "padrao"
+geo = (m._fichas(["mais", "juros", "um", "dois", "tres", "quatro", "cinco", "seis"]), "x", False)
+assert m._pagina_pdf_modo("um dois tres quatro cinco seis mais juros", "x", geo)[1] != "padrao"
 PY
 passou 'ordem do PDF: título grande não separa rótulo de valor, o espaço entre palavras não conta como ordem'
 
