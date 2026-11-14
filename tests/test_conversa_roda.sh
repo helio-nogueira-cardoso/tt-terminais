@@ -17,19 +17,27 @@ def ler(t=0.6):
             try: out+=os.read(fd,65536)
             except OSError: break
     return out
-ler(1.0)
-os.write(fd,b"\x1b[<64;10;5M"); assert b"3 linha(s) abaixo" in ler(0.8), "roda para cima deveria rolar (3 linhas por giro)"
-os.write(fd,b"\x1b[<64;10;5M"); assert b"6 linha(s) abaixo" in ler(0.8), "a roda continua rolando"
+def esperar(pad, t=8.0):   # espera o texto aparecer (máquina carregada demora mais que uma janela fixa)
+    out=b""; fim=time.time()+t
+    while pad not in out and time.time()<fim: out+=ler(0.2)
+    return out
+esperar(b"mensagem numero", 8.0)
+os.write(fd,b"\x1b[<64;10;5M"); assert b"3 linha(s) abaixo" in esperar(b"3 linha(s) abaixo"), "roda para cima deveria rolar (3 linhas por giro)"
+os.write(fd,b"\x1b[<64;10;5M"); assert b"6 linha(s) abaixo" in esperar(b"6 linha(s) abaixo"), "a roda continua rolando"
 os.write(fd,b"\x1b[<0;10;5M\x1b[<0;10;5m"); ler(0.6)   # clique na conversa não mexe na posição…
-os.write(fd,b"\x1b[<65;10;5M"); assert b"3 linha(s) abaixo" in ler(0.8), "clique não deveria voltar ao fim (6 - 3 = 3 linhas abaixo)"
+os.write(fd,b"\x1b[<65;10;5M"); assert b"3 linha(s) abaixo" in esperar(b"3 linha(s) abaixo"), "clique não deveria voltar ao fim (6 - 3 = 3 linhas abaixo)"
 os.write(fd,b"\x1b[<65;10;5M"); assert b"linha(s) abaixo" not in ler(0.8), "roda para baixo deveria voltar ao fim"
 apagou = 0
 for tecla in (b"a", b"b", b"\x1b[A", b"\x1b[B"):
     os.write(fd, tecla); apagou += ler(0.4).count(b"\x1b[2J")
 assert apagou == 0, "o redesenho não pode apagar a tela a cada tecla (pisca)"
-os.write(fd,b"\x1b"); fim=ler(0.8)
+os.write(fd,b"\x1b"); fim=esperar(b"\x1b[?1000l")
 assert b"\x1b[?1000l" in fim, "o mouse deveria ser desligado ao sair"
-done,_=os.waitpid(pid, os.WNOHANG)
+done = 0
+for _ in range(50):   # até 5 s para o processo sair depois do Esc
+    done,_s=os.waitpid(pid, os.WNOHANG)
+    if done: break
+    time.sleep(0.1)
 if done == 0:
     os.kill(pid, 9); raise SystemExit("o painel não fechou com Esc")
 PY
