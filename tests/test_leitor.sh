@@ -695,6 +695,20 @@ assert m._pagina_pdf_modo("um dois tres quatro cinco seis mais juros", "x", geo)
 PY
 passou 'ordem do PDF: título grande não separa rótulo de valor, o espaço entre palavras não conta como ordem'
 
+# Markdown: tag HTML de verdade sai do texto (mesmo longa) e é conferida; 'a < b > c' é texto.
+python3 -I - "$TT_DIR/leitor-tt.py" <<'PY' || falhou 'markdown: tag HTML, link ou conferência'
+import importlib.util, os, sys, tempfile
+spec = importlib.util.spec_from_file_location("m", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+d = tempfile.mkdtemp(); f = os.path.join(d, "a.md")
+open(f, "w", encoding="utf-8").write('# T\n\nTexto com [link](http://x.com/a) e a < b > c aqui.\n\n<img src="/images/um-nome-bem-comprido.png" class="full" alt="Um deploy de produção anexado a quatro serviços de apoio." />\n')
+l = m.extrair(f)
+t = " ".join(p for c in l["capitulos"] for p in c["paragrafos"])
+assert "<img" not in t and "a < b > c" in t and "link" in t, t
+assert l["conferencia"]["faltam"] == 0 and l["conferencia"]["sobram"] == 0, l["conferencia"]
+PY
+passou 'markdown: tag HTML sai do texto, link e "a < b > c" ficam, conferência fecha'
+
 # Palavra partida (epub vindo de PDF, uma linha por <p>): reúne pelo vocabulário do livro, sem inventar nem mexer em endereço.
 python3 -I - "$TT_DIR/leitor-tt.py" <<'PY' || falhou 'costura de palavras partidas'
 import importlib.util, sys

@@ -235,6 +235,9 @@ def capitulos_de_blocos(blocos, markdown=False):
     return [c for c in caps if c["paragrafos"]]
 
 
+
+_TAG_MD = re.compile(r"</?(?:table|thead|tbody|tfoot|tr|td|th|br|hr|p|div|span|a|img|b|i|u|em|strong|code|pre|ul|ol|li|h[1-6]|details|summary|sup|sub|blockquote|center|font)\b[^>]*>|<https?://[^>\s]*>")  # só tag HTML de verdade: "a < b > c" é texto
+
 def _md_limpar(b):
     b = re.sub(r"^#{1,6}\s+", "", b)
     b = re.sub(r"^\s*(>+\s*)+", "", b)
@@ -243,7 +246,7 @@ def _md_limpar(b):
     b = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", b)
     b = re.sub(r"(\*\*|__|~~|`+)", "", b)
     b = re.sub(r"(?<!\w)[*_](?=\S)|(?<=\S)[*_](?!\w)", "", b)
-    b = re.sub(r"<[^>]{1,80}>", "", b)
+    b = _TAG_MD.sub("", b)
     if re.fullmatch(r"[-=*_| :]{3,}", b):
         return ""
     return limpar(b.replace("|", " "))
@@ -1083,7 +1086,7 @@ def _costurar_palavras(caps):
         c["paragrafos"] = novos
 
 
-EXTRATOR = 3  # sobe quando o extrator passa a ler melhor: o texto de extrator maior vence na troca entre máquinas
+EXTRATOR = 4  # sobe quando o extrator passa a ler melhor: o texto de extrator maior vence na troca entre máquinas
 
 
 def conferir(livro, fonte):
@@ -1147,8 +1150,11 @@ def extrair(caminho, nome=None):
                 livro["_fonte"] = {"letras": _letras_html(decodificar(dados))}
             else:
                 livro = {"titulo": "", "autor": "", "capitulos": capitulos_de_blocos(blocos_de_texto(decodificar(dados), markdown=(fmt == "md")), markdown=(fmt == "md"))}
-                if fmt == "txt":
-                    livro["_fonte"] = {"letras": _letras(decodificar(dados))}
+                if fmt in ("txt", "md"):
+                    fonte_txt = decodificar(dados)
+                    if fmt == "md":  # endereço de link e tag HTML não são texto lido
+                        fonte_txt = re.sub(r"\]\([^)\s]*(?:\s+\"[^\"]*\")?\)|" + _TAG_MD.pattern + r"|^ {0,3}\[[^\]]+\]:\s*\S+.*$", "]", fonte_txt, flags=re.M)
+                    livro["_fonte"] = {"letras": _letras(fonte_txt)}
     except zipfile.BadZipFile:
         raise Erro("%s: o arquivo está corrompido (não abre como %s)" % (nome, fmt))
     if not any(c["paragrafos"] for c in livro["capitulos"]):

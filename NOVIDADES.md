@@ -3,6 +3,10 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.19.0 · 13/11/2026
+- **📖 Markdown também é conferido:** `.md` e `.txt` passam pela conferência de letras (o endereço de link e a tag HTML não contam como texto). Isso achou um defeito: tag como `<img src="…" alt="…" />` com mais de 80 caracteres vazava para o texto lido; agora só tag HTML de verdade sai (`a < b > c` continua texto).
+- **Página de PDF que só tem sobrescrito de nota (`referencial2`) ou palavra que a geometria parte no meio da célula deixa de ser "ordem sem prova"**: das 17 páginas, 3 foram provadas; 14 seguem registradas em `tt --leitor-conferir`. O extrator subiu para 4, então o vigia reimporta os livros sozinho.
+
 ## v2.18.0 · 13/11/2026
 - **📖 Texto sem palavra partida e na ordem certa, de qualquer arquivo:** a leitura rápida passou a conferir cada importação. Para PDF, a ordem de cada página é provada pela geometria das palavras (como antes), e agora também: a página que o `pdftotext` leu com uma palavra solta no lugar errado volta ao lugar que a geometria põe; a palavra colada por ele (`dedaRiscos`) volta a ser as palavras quando o próprio livro confirma; e o espaço entre palavras deixou de contar como "ordem diferente" (`planejar` contra `plane jar`). Página que é figura ou digitalização é lida por OCR (tesseract) quando ele existe.
 - **Sem hifenização:** epub, html, docx, odt e PDF passam por uma costura que reúne a sílaba partida na margem (`acon- tecimentos`, `polí ticos`), decidida pelo vocabulário do próprio livro: pronome e composto que o livro grafa com hífen (`candidatar-se`) conservam; endereço fica como veio. Epub feito de PDF, com uma linha por parágrafo, volta a ter parágrafos de verdade (838 viraram 138 no "Sistema Político Brasileiro"; 269 palavras partidas caíram para 2).
