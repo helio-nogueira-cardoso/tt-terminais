@@ -1573,6 +1573,30 @@ def amostra_baixar(url, destino):
         raise Erro("a fonte não devolveu o arquivo (página de erro)")
 
 
+_PADRAO_CACHE = {}
+
+
+def padrao_chaves():
+    """(título, autor) normalizados dos livros da biblioteca padrão (pacote + manifesto do dono). Cache por arquivo."""
+    try:
+        sig = (os.stat(AMOSTRAS).st_mtime_ns, os.stat(manifesto_caminho()).st_mtime_ns if os.path.isfile(manifesto_caminho()) else 0)
+    except OSError:
+        sig = None
+    if _PADRAO_CACHE.get("sig") != sig or "v" not in _PADRAO_CACHE:
+        norm = lambda t: re.sub(r"\s+", " ", str(t or "")).strip().casefold()
+        try:
+            _PADRAO_CACHE["v"] = {(norm(a.get("titulo")), norm(a.get("autor"))) for a in amostras_catalogo()}
+        except Exception:
+            _PADRAO_CACHE["v"] = set()
+        _PADRAO_CACHE["sig"] = sig
+    return _PADRAO_CACHE["v"]
+
+
+def eh_padrao(titulo, autor):
+    norm = lambda t: re.sub(r"\s+", " ", str(t or "")).strip().casefold()
+    return (norm(titulo), norm(autor)) in padrao_chaves()
+
+
 def amostra_instalar(a, de_novo=False, respeitar_lapide=False):
     """Põe a amostra na biblioteca. Devolve (id, estado): novo | já estava | apagada (não volta sem de_novo).
     `respeitar_lapide` (a garantia automática): livro que alguém removeu, nesta ou em outra máquina, não volta."""
@@ -2012,7 +2036,8 @@ def resumo(lid):
             "pct": 100 if est.get("concluido") else int(pos * 100 / total), "mudada": int(est.get("mudada") or 0),
             "maquina": est.get("maquina") or "", "adicionada": int(meta.get("adicionada") or 0), "formato": meta.get("formato") or "",
             "bytes": int(meta.get("bytes") or 0), "texto": bool(arquivo_texto(lid)), "original": bool(arquivo_original(lid, meta)),
-            "origem": meta.get("maquina") or "", "concluido": bool(est.get("concluido"))}
+            "origem": meta.get("maquina") or "", "concluido": bool(est.get("concluido")),
+            "padrao": eh_padrao(meta.get("titulo"), meta.get("autor"))}
 
 
 def listar():
@@ -5206,6 +5231,8 @@ class App:
             else:
                 det.append("acrescentado %s%s" % (ha_quanto(l["adicionada"]), " em " + l["origem"] if l["origem"] and l["origem"] != maquina() else ""))
             det.append(l["formato"])
+            if l["padrao"]:
+                det.append("padrão")
             if not det_w:
                 det += ["%s %d%%" % (m, v[0]) for m, v in sorted(l["maquinas"].items()) if m != maquina()][:3]
             l3 = [("  ", None, bg, 0), (cortar(" · ".join(det), w - 4), P.apagado, bg, 0)]
@@ -5265,6 +5292,8 @@ class App:
         if l["marcadores"]:
             campo("marcadores", str(l["marcadores"]))
         campo("entrou", "%s%s" % (ha_quanto(l["adicionada"]), " em " + l["origem"] if l["origem"] else ""))
+        if l["padrao"]:
+            campo("biblioteca", "padrão (vem com o tt em toda máquina)")
         corpo.append([])
         corpo.append([("ONDE CADA MÁQUINA PAROU", P.destaque, None, NEG)])
         nomes = [maquina()] + [m for m in self.maqs] + sorted(m for m in l["maquinas"] if m != maquina() and m not in self.maqs)
@@ -6010,7 +6039,7 @@ def principal(argv):
             for l in livros:
                 print("%s  %3d%%  %9s palavras  %-40s %s%s" % (l["id"], l["pct"], milhar(l["palavras"]), cortar(l["titulo"], 40),
                       ("lido " + ha_quanto(l["mudada"])) if l["mudada"] else "não começado",
-                      (" em " + l["maquina"]) if l["maquina"] and l["maquina"] != maquina() else ""))
+                      ((" em " + l["maquina"]) if l["maquina"] and l["maquina"] != maquina() else "") + ("  [padrão]" if l["padrao"] else "")))
     elif cmd == "amostras":
         return cmd_amostras(args)
     elif cmd == "biblioteca-padrao":

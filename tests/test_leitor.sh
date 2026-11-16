@@ -499,6 +499,8 @@ B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras garantir --quieto >/dev/null 2>"
 s=$(B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar --tsv)
 [[ $(wc -l <<<"$s") -eq 3 && $s == *"Os Doze Fatores"* && $s == *"Amostra da Rede"* && $s == *$'\tmeu\t'* ]] || falhou "garantir não completou a biblioteca de quem já tinha textos: $s"
 grep -q 'Portal Fora do Ar' "$T/err" || falhou 'garantir não disse qual texto falhou'
+s=$(B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar)
+[[ $(grep -c '\[padrão\]' <<<"$s") -eq 2 && $(grep 'meu' <<<"$s") != *padrão* ]] || falhou "marca [padrão] só nos livros do catálogo, não no texto do próprio usuário: $s"
 est=$(B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras estado || true)
 [[ $est == *"fora-do-ar (1x"* ]] || falhou "estado não mostra a falha: $est"
 B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras garantir --quieto >/dev/null 2>"$T/err2"

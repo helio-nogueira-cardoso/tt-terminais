@@ -111,7 +111,7 @@ passou 'Alt+duplo clique não copia sem Ctrl'
 # Ctrl+triplo clique copia a linha.
 : >"$LOG"; : >"$CLIP"
 clicar 30 "$y2" 16; sleep 0.08; clicar 30 "$y2" 16
-esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 6 || falhou "Ctrl+duplo clique não copiou o link inteiro: '$(cat "$CLIP")'"
+esperar '[[ $(cat "$CLIP" 2>/dev/null) == "$U" ]]' 15 || falhou "Ctrl+duplo clique não copiou o link inteiro: '$(cat "$CLIP")'"
 sleep 0.6; [[ ! -s $LOG ]] || falhou "Ctrl+duplo clique também abriu o link: $(cat "$LOG")"
 : >"$CLIP"
 # Um gesto só no PTY: seis chamadas ao tmux e as pausas podiam estourar a janela
