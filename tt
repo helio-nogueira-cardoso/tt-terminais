@@ -209,7 +209,7 @@ arquivo_claude() {
   while read -r d; do
     [[ -n $d ]] || continue
     compgen -G "$d/$1" >/dev/null && { compgen -G "$d/$1" | head -1; return; }
-  done < <(pastas_claude)
+  done <<<"$(pastas_claude)"
   return 1
 }
 
@@ -275,7 +275,7 @@ encerrar_claude_duplicados() {
   linhas=$(tmux list-panes -a -F '#{pane_id}|#{session_name}|#{session_attached}|#{window_activity}' 2>/dev/null |
     while IFS='|' read -r p sess anex ativ; do
       pid=$(claude_no_painel "$p") || continue; [[ -n $pid ]] || continue
-      read -r id st _ < <(claude_info "$pid"); [[ -n $id ]] || continue
+      read -r id st _ <<<"$(claude_info "$pid")"; [[ -n $id ]] || continue
       echo "$id $pid $sess $anex $ativ ${st:-?}"
     done)
   unset PS_CACHE
@@ -284,6 +284,8 @@ encerrar_claude_duplicados() {
   for id in $ids; do
     mantem=$(awk -v id="$id" '$1 == id { print ($4 > 0 ? 1 : 0), $5, $2 }' <<<"$linhas" | sort -k1,1nr -k2,2nr | awk 'NR == 1 { print $3 }')
     while read -r _ pid sess anex ativ st; do
+      [[ -n ${pid}${sess}${anex}${ativ}${st} ]] || continue
+      [[ -n ${pid}${sess}${anex}${ativ}${st} ]] || continue
       [[ $pid == "$mantem" ]] && continue
       if [[ $st == idle ]]; then
         tmux send-keys -t "=$sess:" C-c; sleep 0.3; tmux send-keys -t "=$sess:" C-c
@@ -291,7 +293,7 @@ encerrar_claude_duplicados() {
       else
         avisar "⚠ a conversa ${id:0:8} do Claude está aberta em duas abas ($sess trabalhando) — feche uma"
       fi
-    done < <(awk -v id="$id" '$1 == id' <<<"$linhas")
+    done <<<"$(awk -v id="$id" '$1 == id' <<<"$linhas")"
   done
   return 0
 }
@@ -393,7 +395,7 @@ sugerir_nome() {
   alvo=$(painel_base "$s") || alvo="=$s:" # nunca o e-mail/menu aberto por cima (ver painel_base)
   pid=$(claude_no_painel "$alvo")
   if [[ -n $pid ]]; then
-    read -r id status rot < <(claude_info "$pid")
+    read -r id status rot <<<"$(claude_info "$pid")"
     titulo=$(titulo_claude "${id:-x}") || titulo=""
     if [[ -z $revisar ]]; then
       nome=$(slug "$titulo")
@@ -419,7 +421,7 @@ sugerir_nome() {
     [[ $(modo_nomeador) == @(local|nenhum) ]] || while read -r dest rot; do
       nome=$(timeout 100 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --nomear-texto" <<<"$texto" 2>/dev/null) && nome=$(validar_nome_sugerido "$nome") && break
       nome=""
-    done < <(maquinas)
+    done <<<"$(maquinas)"
   fi
   nome=$(slug "${nome:-}")
   [[ $nome == vazio ]] && nome=""
@@ -959,12 +961,13 @@ nomear_todas() {
   printf '[%s]\n' "$MAQUINA"
   nomear_todas_local
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     printf '\n[%s]\n' "$rot"
     # O destino executa só a parte local; se ele chamasse --nomear-todas, a topologia cadastrada
     # nas máquinas faria a mesma operação voltar para cá indefinidamente.
     timeout 900 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --nomear-todas-local" </dev/null ||
       printf '  ✗ sem resposta ou falha ao nomear %s\n' "$rot"
-  done < <(maquinas)
+  done <<<"$(maquinas)"
 }
 
 # Janelas de terminal abertas fora do tmux: shells líderes de sessão num pts, sem TMUX no ambiente,
@@ -1066,7 +1069,7 @@ listar_painel() { # arq painel pid-do-claude contar título nome-do-painel rótu
   local arq=$1 p=$2 cpid=$3 id st rot titulo=""
   [[ $4 == 1 ]] && tmux capture-pane -p -t "$p" 2>/dev/null | grep -c '[^[:space:]]' >"$arq.v"
   if [[ -n $cpid ]]; then
-    read -r id st rot < <(claude_info "$cpid")
+    read -r id st rot <<<"$(claude_info "$cpid")"
     titulo=$(titulo_claude "${id:-x}")
   fi
   { printf '%s %s ' "$titulo" "$5 $6 $7"
@@ -1092,9 +1095,10 @@ sessoes_vazias_de() { # sessão...
   local -a cs=() cp=()
   for s; do quer[$s]=1; done
   while IFS=$'\x1f' read -r s p c h fl; do
+    [[ -n ${s}${p}${c}${h}${fl} ]] || continue
     [[ -n ${quer[$s]:-} && -z ${ruim[$s]:-} && $fl != 1 ]] || continue # flutuante: janela do tt por cima, não conta
     if [[ $c =~ ^(bash|zsh|fish|sh|dash)$ ]] && ((h < 3)); then cs+=("$s") cp+=("$p"); else ruim[$s]=1; fi
-  done < <(tmux list-panes -a -F $'#{session_name}\x1f#{pane_id}\x1f#{pane_current_command}\x1f#{history_size}\x1f#{pane_floating_flag}' 2>/dev/null)
+  done <<<"$(tmux list-panes -a -F $'#{session_name}\x1f#{pane_id}\x1f#{pane_current_command}\x1f#{history_size}\x1f#{pane_floating_flag}' 2>/dev/null)"
   if ((${#cp[@]})); then
     tmp=$(mktemp -d "$RT/tt-vazias.XXXXXX") || return 0
     for k in "${!cp[@]}"; do
@@ -1117,15 +1121,17 @@ fechar_vazias() {
   local s ponte anexada n=0
   local -a cand=()
   while IFS='|' read -r s ponte anexada; do
+    [[ -n ${s}${ponte}${anexada} ]] || continue
     [[ -n $ponte || $s == _* || $s == "${1:-}" ]] && continue
     # Sessão com ALGUÉM olhando nunca é fechada: matar a sessão anexada desanexa o cliente e,
     # com o tmux vindo de exec no bashrc, a janela do terminal inteira fecha ("o terminal some").
     (( anexada > 0 )) && continue
     cand+=("$s")
-  done < <(tmux list-sessions -F '#{session_name}|#{@ponte}|#{session_attached}' 2>/dev/null)
+  done <<<"$(tmux list-sessions -F '#{session_name}|#{@ponte}|#{session_attached}' 2>/dev/null)"
   while IFS= read -r s; do
+    [[ -n ${s} ]] || continue
     [[ -n $s ]] && tmux kill-session -t "=$s" && n=$((n + 1))
-  done < <(sessoes_vazias_de "${cand[@]}")
+  done <<<"$(sessoes_vazias_de "${cand[@]}")"
   echo "$n"
 }
 
@@ -1135,16 +1141,18 @@ fechar_vazias_expiradas() {
   local agora=$1 limite=${TT_VAZIA_LIMITE:-300} s criada anexada ponte rest idade n=0
   local -a cand=()
   while IFS='|' read -r s criada anexada ponte rest; do
+    [[ -n ${s}${criada}${anexada}${ponte}${rest} ]] || continue
     [[ -n $s && $criada =~ ^[0-9]+$ ]] || continue
     ((anexada > 0)) && continue
     [[ -n $ponte || -n $rest || $s == _* ]] && continue
     idade=$((agora - criada))
     ((idade >= limite)) || continue
     cand+=("$s")
-  done < <(tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{@ponte}|#{@tt_restaurada}' 2>/dev/null)
+  done <<<"$(tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{@ponte}|#{@tt_restaurada}' 2>/dev/null)"
   while IFS= read -r s; do
+    [[ -n ${s} ]] || continue
     [[ -n $s ]] && tmux kill-session -t "=$s" && n=$((n + 1))
-  done < <(sessoes_vazias_de "${cand[@]}")
+  done <<<"$(sessoes_vazias_de "${cand[@]}")"
   ((n)) && echo "$n"
 }
 
@@ -1194,9 +1202,10 @@ sessao_parada() {
   done
   ((ult > 0 && agora - ult >= limite)) || return 1
   while IFS='|' read -r p cmd pid; do
+    [[ -n ${p}${cmd}${pid} ]] || continue
     [[ $cmd =~ ^(bash|zsh|fish|sh|dash|proot)$ ]] || return 1
     if trabalho_abaixo "$pid" >/dev/null; then return 1; fi
-  done < <(tmux list-panes -s -t "=$s" -F '#{pane_id}|#{pane_current_command}|#{pane_pid}' 2>/dev/null)
+  done <<<"$(tmux list-panes -s -t "=$s" -F '#{pane_id}|#{pane_current_command}|#{pane_pid}' 2>/dev/null)"
 }
 
 fechar_paradas() {
@@ -1206,6 +1215,7 @@ fechar_paradas() {
   PS_ARGS=$(ps -ww -eo pid=,ppid=,args= 2>/dev/null)
   fix=$(fixadas 2>/dev/null | awk -F'\t' -v m="$MAQUINA" '$1 == m { print $2 }')
   while IFS='|' read -r s anexada ponte; do
+    [[ -n ${s}${anexada}${ponte} ]] || continue
     [[ -n $s ]] || continue
     ((anexada > 0)) && continue
     [[ -n $ponte || $s == _* ]] && continue
@@ -1213,7 +1223,7 @@ fechar_paradas() {
     sessao_parada "$s" "$agora" "$limite" || continue
     tmux kill-session -t "=$s" && n=$((n + 1)) &&
       { mkdir -p "$HOME/.cache"; echo "$(date '+%F %T') fechada sessão parada: $s ($((limite / 60)) min)" >>"$HOME/.cache/tt-vigia.log"; } 2>/dev/null
-  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{@ponte}' 2>/dev/null)
+  done <<<"$(tmux list-sessions -F '#{session_name}|#{session_attached}|#{@ponte}' 2>/dev/null)"
   ((n)) && avisar "🧹 $n sessão(ões) parada(s) há $((limite / 60)) min fechada(s)"
   return 0
 }
@@ -1227,8 +1237,9 @@ definir_paradas() {
   grep -v '^fechar_paradas=' "$CONF" 2>/dev/null >"$CONF.novo"; echo "fechar_paradas=$m" >>"$CONF.novo"; mv "$CONF.novo" "$CONF"
   [[ $local_so == --local ]] && return 0
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     timeout 10 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --definir-paradas $m --local" </dev/null >/dev/null 2>&1 & pids+=($!)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   esperar ${pids[@]+"${pids[@]}"}
 }
 
@@ -1255,8 +1266,9 @@ nomeador_ui() {
     modo=$(modo_nomeador)
     inst=0; modelo=""; sug=""; ram=""
     while IFS='=' read -r k v; do
+      [[ -n ${k}${v} ]] || continue
       case $k in instalado) inst=$v ;; modelo) modelo=$v ;; sugerido) sug=$v ;; ram_gb) ram=$v ;; dir) dir=$v ;; esac
-    done < <(python3 -I "$py" estado 2>/dev/null)
+    done <<<"$(python3 -I "$py" estado 2>/dev/null)"
     case $sug in 4b) tam="Qwen3 4B, 2,5 GB" ;; 1.7b) tam="Qwen3 1.7B, 1,1 GB" ;; *) tam="" ;; esac
     op=$( {
       if ((inst)); then printf 'r\t🗑 Remover o modelo local (%s)\n' "$modelo"
@@ -1316,7 +1328,7 @@ listar() {
   PS_CACHE=$(ps -eo pid=,ppid=,comm=)
   soltos | while IFS='|' read -r sh fg cmd cwd; do
     if [[ $cmd == claude ]]; then
-      read -r id status nome < <(claude_info "$fg")
+      read -r id status nome <<<"$(claude_info "$fg")"
       [[ $status == idle ]] && desc=$'\033[33mclaude\033[0m \033[32mocioso\033[0m' || desc=$'\033[33mclaude\033[0m \033[31mtrabalhando\033[0m'
     else
       desc=$'\033[33m'"$cmd"$'\033[0m'
@@ -1332,8 +1344,8 @@ listar() {
   local tmp linha ativ s anex pasta ponte p pos c h pid at fl ult wa r rot nomep pastap tit k i n uso extra marca cmdp conta busca
   local -a SESS=() vazias=() buscas=() idx=() P_S=() P_ID=() P_POS=() P_CMD=() P_PID=() P_ROT=() P_NOME=() P_PASTA=() P_TIT=()
   local -A VIVA=() P_DE=() RUIM=() CL=() B_R=() B_I=()
-  mapfile -t SESS < <(tmux list-sessions -F '#{window_activity}|#{session_name}|#{session_attached}|#{pane_current_command}|#{pane_current_path}|#{@ponte}' 2>/dev/null |
-    sort -t'|' -k1,1nr)
+  mapfile -t SESS <<<"$(tmux list-sessions -F '#{window_activity}|#{session_name}|#{session_attached}|#{pane_current_command}|#{pane_current_path}|#{@ponte}' 2>/dev/null |
+    sort -t'|' -k1,1nr)"; if ((${#SESS[@]} == 1)) && [[ -z ${SESS[0]} ]]; then SESS=(); fi
   for linha in "${SESS[@]}"; do
     IFS='|' read -r ativ s anex cmd pasta ponte <<<"$linha"
     [[ -n $ponte || $s == _* ]] || VIVA[$s]=1 # ponte (aparece na linha da outra máquina) e sessão "_nome" (oculta)
@@ -1341,6 +1353,7 @@ listar() {
   ((${#VIVA[@]})) || return 0
   k=0
   while IFS=$'\x1f' read -r s p pos c h pid at fl ult wa rot nomep pastap tit; do
+    [[ -n ${s}${p}${pos}${c}${h}${pid}${at}${fl}${ult}${wa}${rot}${nomep}${pastap}${tit} ]] || continue
     [[ -n ${VIVA[$s]:-} ]] || continue
     [[ $fl == 1 ]] && continue # janela do tt aberta por cima (painel flutuante): não é da sessão (painel_base)
     P_S[k]=$s P_ID[k]=$p P_POS[k]=$pos P_CMD[k]=$c P_PID[k]=$pid P_ROT[k]=$rot P_NOME[k]=$nomep P_PASTA[k]=$pastap P_TIT[k]=$tit
@@ -1351,9 +1364,9 @@ listar() {
     # Candidata a vazia (sessao_vazia): todos os painéis só no shell, sem histórico.
     [[ $c =~ ^(bash|zsh|fish|sh|dash)$ ]] && ((h < 3)) || RUIM[$s]=1
     k=$((k + 1))
-  done < <(tmux list-panes -a -F "$PAINEIS_FMT" 2>/dev/null)
+  done <<<"$(tmux list-panes -a -F "$PAINEIS_FMT" 2>/dev/null)"
   if ((k)); then
-    while read -r p pid; do CL[$p]=$pid; done < <(claude_por_painel "$(printf '%s\n' "${P_PID[@]}")")
+    while read -r p pid; do [[ -n ${p}${pid} ]] || continue; CL[$p]=$pid; done <<<"$(claude_por_painel "$(printf '%s\n' "${P_PID[@]}")")"
   fi
   tmp=$(mktemp -d "$RT/tt-listar.XXXXXX") || return 0
   for ((i = 0; i < k; i++)); do
@@ -1514,11 +1527,11 @@ snapshot_capturar() { # [motivo] [--forcar]
   while IFS=$SNAP_US read -r s sid sp; do
     [[ -n $s && $s != _* && -z $sp ]] || continue # ponte para outra máquina: não é daqui
     VISTA[$s]=1; SID[$s]=$sid; ORDEM+=("$s")
-  done < <(tmux list-sessions -F "#{session_name}${SNAP_US}#{@tt_session_id}${SNAP_US}#{@ponte}" 2>/dev/null)
+  done <<<"$(tmux list-sessions -F "#{session_name}${SNAP_US}#{@tt_session_id}${SNAP_US}#{@ponte}" 2>/dev/null)"
   while IFS=$SNAP_US read -r fl s w wn wl wa pi pa pid pp pc br; do
-    [[ $fl != 1 && -n ${VISTA[$s]:-} && -z $br ]] || continue
+    [[ -n $s && $fl != 1 && -n ${VISTA[$s]:-} && -z $br ]] || continue
     P_S+=("$s") P_W+=("$w") P_WN+=("$wn") P_WL+=("$wl") P_WA+=("$wa") P_PI+=("$pi") P_PA+=("$pa") P_ID+=("$pid") P_PP+=("$pp") P_PC+=("$pc")
-  done < <(tmux list-panes -a -F "#{pane_floating_flag}${SNAP_US}#{session_name}${SNAP_US}#{window_index}${SNAP_US}#{window_name}${SNAP_US}#{window_layout}${SNAP_US}#{window_active}${SNAP_US}#{pane_index}${SNAP_US}#{pane_active}${SNAP_US}#{pane_id}${SNAP_US}#{pane_current_path}${SNAP_US}#{pane_current_command}${SNAP_US}#{@ponte}" 2>/dev/null)
+  done <<<"$(tmux list-panes -a -F "#{pane_floating_flag}${SNAP_US}#{session_name}${SNAP_US}#{window_index}${SNAP_US}#{window_name}${SNAP_US}#{window_layout}${SNAP_US}#{window_active}${SNAP_US}#{pane_index}${SNAP_US}#{pane_active}${SNAP_US}#{pane_id}${SNAP_US}#{pane_current_path}${SNAP_US}#{pane_current_command}${SNAP_US}#{@ponte}" 2>/dev/null)"
   PS_CACHE=$(ps -eo pid=,ppid=,comm= 2>/dev/null)
   for k in "${!P_ID[@]}"; do par snap_agente_de "${P_ID[k]}" "$tmp/ag.$k"; done
   par_fim
@@ -1540,7 +1553,7 @@ snapshot_capturar() { # [motivo] [--forcar]
       fi
       printf 'P%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n' "$SNAP_US" "$s" "$SNAP_US" "$w" "$SNAP_US" "${P_PI[k]}" "$SNAP_US" "$pasta" "$SNAP_US" "${P_PC[k]}" "$SNAP_US" "$prov" "$SNAP_US" "$cod" "$SNAP_US" "$conta" "$SNAP_US" "${P_PA[k]}"
     done
-    while IFS=$'\t' read -r k s w; do [[ -n $k ]] && printf 'F%s%s%s%s%s%s\n' "$SNAP_US" "$k" "$SNAP_US" "$s" "$SNAP_US" "$w"; done < <(fixadas 2>/dev/null)
+    while IFS=$'\t' read -r k s w; do [[ -n $k ]] && printf 'F%s%s%s%s%s%s\n' "$SNAP_US" "$k" "$SNAP_US" "$s" "$SNAP_US" "$w"; done <<<"$(fixadas 2>/dev/null)"
   } | snap_py gravar "$motivo" $forcar
   rm -rf "$tmp"; rmdir "$trava"
 }
@@ -1553,9 +1566,10 @@ snapshot_vigiar() {
   mkdir -p "$ESTADO_DIR"
   PS_CACHE=$(ps -eo pid=,ppid=,comm= 2>/dev/null)
   while read -r p; do
-    prov="" pid=""; read -r prov pid _ < <(agente_no_painel "$p" 2>/dev/null) || true
+    [[ -n ${p} ]] || continue
+    prov="" pid=""; read -r prov pid _ <<<"$(agente_no_painel "$p" 2>/dev/null)" || true
     [[ -n $prov ]] && atual+="$p:$prov:$pid"$'\n'
-  done < <(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)
+  done <<<"$(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)"
   if [[ -f $f && $(<"$f") != "${atual%$'\n'}" ]]; then snapshot_evento agente; fi
   printf '%s' "${atual%$'\n'}" >"$f"
 }
@@ -1634,7 +1648,7 @@ snapshot_restaurar() { # id modo [sessão-em-uso]
     [[ -n $s ]] || continue
     if [[ $modo == substituir && $s != _* && $s != "$atual" && -z $sp ]]; then tmux kill-session -t "=$s" 2>/dev/null; continue; fi
     EXISTE[$s]=1; [[ -n $sid ]] && VIVA[$sid]=$s
-  done < <(tmux list-sessions -F "#{session_name}${SNAP_US}#{@tt_session_id}${SNAP_US}#{@ponte}" 2>/dev/null)
+  done <<<"$(tmux list-sessions -F "#{session_name}${SNAP_US}#{@tt_session_id}${SNAP_US}#{@ponte}" 2>/dev/null)"
   # Sessão do snapshot que existe com outro nome (renomeada depois; o código é o mesmo): é ela, não se cria uma segunda.
   for s in "${SESS[@]}"; do
     sid=${SID[$s]:-}
@@ -1708,12 +1722,12 @@ snapshot_restaurado_gravar() { # rótulo painel…
   printf -v agora '%(%s)T' -1; fim=$((agora + ${TT_SNAP_RESTAURO_ESPERA:-90}))
   while (($#)) && ((agora < fim)); do
     sleep 2
-    VIVO=(); while IFS= read -r p; do VIVO[$p]=1; done < <(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)
+    VIVO=(); while IFS= read -r p; do [[ -n ${p} ]] || continue; VIVO[$p]=1; done <<<"$(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)"
     PS_CACHE=$(ps -eo pid=,ppid=,comm= 2>/dev/null)
     falta=()
     for p; do
       [[ -n ${VIVO[$p]:-} ]] || continue # painel fechado: não espera por ele
-      prov="" cod=""; read -r prov _ cod < <(conversa_do_painel "$p" 2>/dev/null) || true
+      prov="" cod=""; read -r prov _ cod <<<"$(conversa_do_painel "$p" 2>/dev/null)" || true
       [[ -n $cod ]] || falta+=("$p")
     done
     set -- ${falta[@]+"${falta[@]}"}
@@ -1832,10 +1846,11 @@ listar_busca() { # texto
     printf '%s\n' "$MAQUINA" >"$tmp/r.0"; busca_consulta "$q" >"$tmp/q.0" 2>/dev/null & pids+=($!)
   fi
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     [[ -z $filtro || $filtro == "$rot" ]] || continue
     i=$((i + 1)); printf '%s\n' "$rot" >"$tmp/r.$i"
     timeout "${TT_T_BUSCA_REMOTA:-5}" ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --busca-consulta $(q "$q")" >"$tmp/q.$i" 2>/dev/null </dev/null & pids+=($!)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   esperar ${pids[@]+"${pids[@]}"}
   # O trecho já vem cortado pelo busca-tt.py (por caractere: o substr do mawk e do awk do macOS é por byte e partia o "ç").
   for n in $(seq 0 "$i"); do
@@ -1875,7 +1890,7 @@ previa_solta() {
   echo "  pasta:     $(encurtar "$(cwd_do_pid "$fg")")"
   echo
   if [[ $cmd == claude ]]; then
-    read -r id status nome < <(claude_info "$fg")
+    read -r id status nome <<<"$(claude_info "$fg")"
     echo "  conversa:  $nome ($id)"
     echo
     if [[ $status == idle ]]; then
@@ -1902,7 +1917,7 @@ adotar() {
   cwd=$(cwd_do_pid "$fg")
 
   if [[ $cmd == claude ]]; then
-    read -r id status rotulo < <(claude_info "$fg")
+    read -r id status rotulo <<<"$(claude_info "$fg")"
     [[ -n ${id:-} ]] || { echo "Não achei qual conversa esse Claude está usando." >&2; return 1; }
     [[ $status == idle ]] || { echo "Esse Claude está trabalhando. Espere ele terminar e tente de novo." >&2; return 1; }
     flags=$(cmdline_do_pid "$fg" | tr ' ' '\n' | grep -xE -- '--dangerously-skip-permissions|--verbose' | tr '\n' ' ')
@@ -2154,6 +2169,7 @@ atualizar_info() {
   local -a pids=()
   local dest rot f r
   while read -r dest rot; do
+    [[ -n $dest ]] || continue
     f=$(info_maquina "$rot")
     {
       # PATH_REMOTO na frente: o tmux do sistema (3.5/3.6) não conversa com um servidor 3.8 ("server exited
@@ -2161,7 +2177,7 @@ atualizar_info() {
       r=$(timeout "${TT_T_INFO_SSH:-8}" ssh "${SSH_OPC[@]}" "$dest" "$PATH_REMOTO echo \$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^\$') \$(awk '{print \$1+0, \$4}' ~/.local/share/tt/VERSAO 2>/dev/null || echo 0)" </dev/null 2>/dev/null) || r="? ?"
       echo "$r" >"$f.$$" && mv "$f.$$" "$f"
     } & pids+=($!)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   esperar ${pids[@]+"${pids[@]}"}
 }
 limpar_cache_maquinas() { rm -f "$RT/tt-maquinas-$UID" "$RT/tt-maquinas-$UID.t"; }
@@ -2176,9 +2192,10 @@ nas_maquinas() { # função [args...]
   shift
   tmp=$(mktemp -d "$RT/tt-maq.XXXXXX") || return 0
   while read -r dest rot; do
+    [[ -n $dest ]] || continue
     "$f" "$dest" "$rot" "$@" >"$tmp/$i" 2>"$tmp/$i.err" </dev/null &
     pids+=($!) i=$((i + 1))
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   for ((n = 0; n < i; n++)); do
     wait "${pids[n]}"
     cat "$tmp/$n"; [[ -s $tmp/$n.err ]] && cat "$tmp/$n.err" >&2
@@ -2446,14 +2463,16 @@ diagnosticar() {
     return 0
   fi
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     est=$(diagnosticar_conexao "$dest")
     printf '%-16s %-14s %s\n' "$rot" "$est" "$(explicar_diagnostico "$est")"
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   # As desligadas no Tailscale daqui também, como "offline": na malha, uma ilha que só uma máquina acusa, com a visão
   # velha do Tailscale, cai quando outra a dá como desligada (ver malha_estado).
   while read -r rot; do
+    [[ -n ${rot} ]] || continue
     printf '%-16s %-14s %s\n' "$rot" offline "$(explicar_diagnostico offline)"
-  done < <(maquinas_desligadas)
+  done <<<"$(maquinas_desligadas)"
 }
 
 # As cadastradas que o maquinas pulou (desligadas no Tailscale daqui), um rótulo por linha.
@@ -2494,7 +2513,7 @@ saude_local() {
   # em loop: reiniciando sem parar nunca chega a "failed" e não aparece acima (guarda dos serviços)
   if servicos_ok; then
     local -a lp=(); local u
-    while IFS=$'\x1f' read -r u _; do [[ -n $u ]] && lp+=("$u"); done < <(servicos_em_loop)
+    while IFS=$'\x1f' read -r u _; do [[ -n ${u} ]] || continue; [[ -n $u ]] && lp+=("$u"); done <<<"$(servicos_em_loop)"
     ((${#lp[@]})) && printf '  \033[31m●\033[0m %-16s %s\n' "units em loop" "${#lp[@]} reiniciando sem parar: ${lp[*]} (tt --servicos)"
   fi
   [[ -s $tsv ]] || return 0
@@ -2544,28 +2563,31 @@ servicos_listar() {
   local -A n0=()
   local u _l _a sub _r n rs st prog desc i
   while read -r u _l _a sub _r; do
+    [[ -n ${u}${_l}${_a}${sub}${_r} ]] || continue
     [[ $u == *.service ]] || continue
     case $sub in auto-restart* | failed | running | start) us+=("$u") ;; esac
-  done < <(systemctl --user list-units --type=service --all --plain --no-legend 2>/dev/null)
+  done <<<"$(systemctl --user list-units --type=service --all --plain --no-legend 2>/dev/null)"
   ((${#us[@]})) || return 0
   while IFS=$'\x1f' read -r u n sub rs st prog desc; do
+    [[ -n ${u}${n}${sub}${rs}${st}${prog}${desc} ]] || continue
     [[ -n $u ]] || continue
     if [[ $sub == running || $sub == start ]]; then
       [[ -n $prog && ! -x $prog ]] && ((${n:-0} >= 2)) && { rever+=("$u"); n0[$u]=${n:-0}; }
       continue
     fi
     printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$u" "$n" "$sub" "$rs" "$st" "$prog" "$desc"
-  done < <(servicos_show "${us[@]}")
+  done <<<"$(servicos_show "${us[@]}")"
   for ((i = 0; i < 3 && ${#rever[@]}; i++)); do
     sleep "${TT_SERVICO_REAMOSTRA:-0.3}"
     ainda=()
     while IFS=$'\x1f' read -r u n sub rs st prog desc; do
+      [[ -n ${u}${n}${sub}${rs}${st}${prog}${desc} ]] || continue
       [[ -n $u ]] || continue
       if [[ $sub == auto-restart* || $sub == failed ]]; then :
       elif ((${n:-0} > ${n0[$u]:-0})); then sub=auto-restart   # partiu de novo entre as duas olhadas
       else ainda+=("$u"); continue; fi
       printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$u" "$n" "$sub" "$rs" "$st" "$prog" "$desc"
-    done < <(servicos_show "${rever[@]}")
+    done <<<"$(servicos_show "${rever[@]}")"
     rever=(${ainda[@]+"${ainda[@]}"})
   done
 }
@@ -2594,6 +2616,7 @@ servicos_em_loop() {
   printf -v agora '%(%s)T' -1
   if [[ -r $obs ]]; then while read -r u n st; do [[ -n $u ]] && nant[$u]=$n tant[$u]=$st; done <"$obs"; fi
   while IFS=$'\x1f' read -r u n sub rs st prog desc; do
+    [[ -n ${u}${n}${sub}${rs}${st}${prog}${desc} ]] || continue
     [[ -n $u && -n $prog ]] || continue
     n=${n:-0}; causa=""
     if [[ ! -x $prog ]]; then
@@ -2604,7 +2627,7 @@ servicos_em_loop() {
       [[ -n ${nant[$u]:-} ]] && ((n - nant[$u] >= ${TT_SERVICO_TAXA:-5} && agora - tant[$u] <= 3600)) && causa=falha
     fi
     [[ -n $causa ]] && printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$u" "$n" "$sub" "$prog" "$causa" "$desc"
-  done < <(servicos_listar)
+  done <<<"$(servicos_listar)"
   if [[ ${1:-} == --observar ]]; then
     # quem não foi pego em auto-restart agora (de pé entre duas quedas) guarda a linha de base anterior, até 1 h
     for u in "${!nant[@]}"; do
@@ -2701,7 +2724,7 @@ servicos_vigiar() {
   local -a linhas=() novos=()
   printf -v agora '%(%s)T' -1
   servicos_reconciliar
-  mapfile -t linhas < <(servicos_em_loop --observar)
+  mapfile -t linhas <<<"$(servicos_em_loop --observar)"; if ((${#linhas[@]} == 1)) && [[ -z ${linhas[0]} ]]; then linhas=(); fi
   # Programa ausente de um episódio novo: confere de novo uns segundos depois. Uma troca de versão (pipx, uv, cargo,
   # tar por cima) deixa o arquivo ausente por um instante, e isso não é episódio.
   for i in "${!linhas[@]}"; do
@@ -2888,7 +2911,7 @@ servico_instalar_ollama() { # programa (o caminho do ExecStart)
   { tem_cmd zstd || python3 -c 'import sys; sys.exit(sys.version_info < (3, 14))' 2>/dev/null; } && zst=1
   json=$(curl -fsSL --max-time 20 "${TT_OLLAMA_API:-https://api.github.com/repos/ollama/ollama/releases/latest}") ||
     { echo "✗ não consegui consultar a versão publicada do Ollama (rede?)." >&2; return 1; }
-  read -r tag nome url sha bytes < <(python3 -I -c '
+  read -r tag nome url sha bytes <<<"$(python3 -I -c '
 import json, sys
 d = json.loads(sys.argv[1]); arch, zst = sys.argv[2], sys.argv[3] == "1"
 nomes = (["ollama-linux-%s.tar.zst" % arch] if zst else []) + ["ollama-linux-%s.tgz" % arch]
@@ -2897,7 +2920,7 @@ for n in nomes:
     if n in assets:
         a = assets[n]; sha = (a.get("digest") or "").replace("sha256:", "")
         print(d.get("tag_name", "?"), n, a["browser_download_url"], sha or "-", int(a.get("size") or 0)); break
-' "$json" "$arch" "$zst")
+' "$json" "$arch" "$zst")"
   [[ -n $url ]] || { echo "✗ a versão publicada não tem pacote para linux-$arch que eu consiga abrir (falta o zstd?)." >&2; return 1; }
   [[ $sha == - ]] && sha=""
   mb=$(( (${bytes:-0} / 1000000 + 1) * 3 ))   # o pacote + o que ele vira aberto (o .tar.zst cresce ~1,7×)
@@ -2994,9 +3017,10 @@ servicos_status() {
   if ! servicos_ok; then echo "Guarda dos serviços: sem systemd do usuário nesta máquina (ou desligada: servicos_guarda=0)."; return 0; fi
   echo "Guarda dos serviços do usuário ($MAQUINA)"
   while IFS=$'\x1f' read -r u n sub prog causa desc; do
+    [[ -n ${u}${n}${sub}${prog}${causa}${desc} ]] || continue
     [[ -n $u ]] || continue
     achou=1; printf '  \033[31m●\033[0m %s em loop (%s partidas, %s): %s\n' "$u" "$n" "$causa" "$(servico_caminho_curto "$prog")"
-  done < <(servicos_em_loop)
+  done <<<"$(servicos_em_loop)"
   for f in "$ESTADO_DIR"/servicos/*; do
     [[ -f $f && $f != *.log && $f != *.tmp ]] || continue
     servico_ler "${f##*/}"; achou=1
@@ -3045,6 +3069,7 @@ reparar() {
   sem-chave)
     echo "$rot: chave nao autorizada. Procurando uma ponte que ja acesse $rot…"
     while read -r od orot; do
+      [[ -n ${od}${orot} ]] || continue
       [[ $od == "$dest" || $od == . ]] && continue
       if ssh "${SSH_OPC[@]}" "$od" "ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new $(q "$dest") true" </dev/null 2>/dev/null; then
         echo "  ponte: $orot acessa $rot. Instalando a chave por ela…"
@@ -3053,7 +3078,7 @@ reparar() {
           [[ $(diagnosticar_conexao "$dest") == ok ]] && { echo "  ✓ reparado: agora conecta direto."; return 0; }
         fi
       fi
-    done < <(maquinas)
+    done <<<"$(maquinas)"
     echo "  nenhuma ponte disponivel. Autorize manualmente esta chave no $rot:"
     echo "    $(cat ~/.ssh/id_ed25519.pub 2>/dev/null)"
     return 1 ;;
@@ -3155,9 +3180,10 @@ estado_propagar() { # rótulo estado [epoch]
   local -a pids=()
   local rot=$1 est=$2 ep=${3:-$(date +%s)} dest r
   while read -r dest r; do
+    [[ -n ${dest}${r} ]] || continue
     [[ $r == "$rot" ]] && continue
     timeout 20 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --estado-maquina $(q "$rot" "$est" "$ep")" </dev/null >/dev/null 2>&1 & pids+=($!)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   esperar ${pids[@]+"${pids[@]}"}
 }
 
@@ -3427,6 +3453,7 @@ malha_completar() {
   listas=$(mktemp -d "$RT/tt-malha.XXXXXX") || return 0
   nas_maquinas malha_lista_em "$listas" >/dev/null
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     [[ -r $listas/$rot.ok ]] || { falhos+=$'\n'"$dest $rot"; continue; }
     ler_arquivo out "$listas/$rot"
     # 1) estados primeiro: uma remoção mais nova que o meu cadastro vale já nesta volta
@@ -3461,7 +3488,7 @@ malha_completar() {
         log_malha "ILHA: $rot não conhece $MAQUINA e não consegui me apresentar"
       fi
     fi
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   rm -rf "$listas"
   # 3) máquinas que as outras conhecem e eu não. Cada uma pode vir por mais de um endereço (o nome e o IP da
   # tailnet que quem tem o Tailscale anuncia), na ordem das listas: vale o primeiro que conecta. Só pelo nome,
@@ -3513,8 +3540,9 @@ malha_estado() {
   [[ -d $RT ]] || mkdir -p "$RT"; d=$(mktemp -d "$RT/tt-malha-estado.XXXXXX") || return 1
   ( diagnosticar >"$d/$MAQUINA" 2>/dev/null ) & pids+=($!)
   while read -r dest rot; do
+    [[ -n $dest ]] || continue
     ( timeout 120 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --diagnosticar" </dev/null >"$d/$rot" 2>/dev/null ) & pids+=($!)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   esperar ${pids[@]+"${pids[@]}"}
   # Desligada vista de OUTRA máquina também não é ilha, se ninguém a alcança: o Tailscale de uma pode ficar com a visão
   # velha do servidor de coordenação. Em 21/10/2026 o dell dava o s23 como ligado 4 h depois de o celular sair da tailnet
@@ -3601,7 +3629,7 @@ mostrar_maquina() {
     host=$(awk -v r="$rot" '!/^#/ && ($3 == r || $1 == r) { print $1; exit }' "$CONF_MAQ" 2>/dev/null)
   fi
   [[ -n $host ]] || { echo "${rot:-máquina} não está cadastrada."; return 1; }
-  read -r usuario nome < <(awk -v h="$host" '$1 == h { print $2, ($3 ? $3 : $1); exit }' "$CONF_MAQ")
+  read -r usuario nome <<<"$(awk -v h="$host" '$1 == h { print $2, ($3 ? $3 : $1); exit }' "$CONF_MAQ")"
   if [[ $usuario == "-" || -z $usuario ]]; then
     usuario=$(id -un)
     read -rep "Usuário em $host: " -i "$usuario" usuario || return 1
@@ -4137,7 +4165,7 @@ PY
   [[ $rap == pronto ]] || { echo "o núcleo não carregou" >&2; rm -rf "$tmp"; return 1; }
   cmp -s "$tmp/.ref-nomes" "$tmp/.rap-nomes" || { echo "funções diferentes no núcleo" >&2; rm -rf "$tmp"; return 1; }
   cmp1=$(grep -Ev "$filtro" "$tmp/.ref-vars"); cmp2=$(grep -Ev "$filtro" "$tmp/.rap-vars")
-  [[ $cmp1 == "$cmp2" ]] || { echo "variáveis de topo diferentes: $(diff <(echo "$cmp1") <(echo "$cmp2") | head -3 | tr '\n' ' ')" >&2; rm -rf "$tmp"; return 1; }
+  [[ $cmp1 == "$cmp2" ]] || { echo "variáveis de topo diferentes: $(printf '%s\n' "$cmp1" >"$tmp/.d1"; printf '%s\n' "$cmp2" >"$tmp/.d2"; diff "$tmp/.d1" "$tmp/.d2" | head -3 | tr '\n' ' ')" >&2; rm -rf "$tmp"; return 1; }
   # 5) instala de uma vez (o núcleo fica mais novo que o tt: é o que o desvio do topo confere)
   n=$(wc -l <"$tmp/nomes")
   rm -f "$tmp"/.ref-* "$tmp"/.rap-* "$tmp/.corpos"
@@ -4821,7 +4849,7 @@ repo_atualizar() { # repositório
   fi
   timeout 60 git -C "$r" fetch -q origin 2>/dev/null || { echo "  ✗ git fetch falhou (sem rede?)."; return 1; }
   ref=$(git -C "$r" rev-parse -q --verify --symbolic-full-name '@{u}' 2>/dev/null) || ref=refs/remotes/origin/main
-  read -r frente atras < <(git -C "$r" rev-list --left-right --count "HEAD...$ref" 2>/dev/null)
+  read -r frente atras <<<"$(git -C "$r" rev-list --left-right --count "HEAD...$ref" 2>/dev/null)"
   frente=${frente:-0} atras=${atras:-0}
   if ((atras == 0)); then
     ((frente > 0)) && echo "  · $frente commit(s) local(is) à frente do publicado; nada a trazer." || echo "  ✓ já está no publicado."
@@ -4868,7 +4896,7 @@ repo_checar() {
   [[ ${1:-} == --corrigir ]] && repo_local_para_exclude "$r"
   echo "Clone: $r"
   ref=$(git -C "$r" rev-parse -q --verify --symbolic-full-name '@{u}' 2>/dev/null) || ref=refs/remotes/origin/main
-  read -r frente atras < <(git -C "$r" rev-list --left-right --count "HEAD...$ref" 2>/dev/null)
+  read -r frente atras <<<"$(git -C "$r" rev-list --left-right --count "HEAD...$ref" 2>/dev/null)"
   printf '  em relação a %s: %s à frente, %s atrás\n' "${ref#refs/remotes/}" "${frente:-?}" "${atras:-?}"
   while IFS= read -r l; do
     [[ -n $l ]] || continue
@@ -4879,7 +4907,7 @@ repo_checar() {
       motivo="só acréscimos locais: tt --repo-checar --corrigir os move para .git/info/exclude"
     fi
     printf '  ✗ %s — %s\n' "$arq" "$motivo"
-  done < <(git -C "$r" status --porcelain --untracked-files=no 2>/dev/null)
+  done <<<"$(git -C "$r" status --porcelain --untracked-files=no 2>/dev/null)"
   ((n)) || echo "  ✓ nenhum arquivo versionado mudado: o clone pode ser atualizado."
   n=$(git -C "$r" status --porcelain 2>/dev/null | grep -c '^??')
   ((n)) && echo "  · $n arquivo(s) não versionado(s) (não travam nada; tt --repo-checar não mexe neles)."
@@ -4970,7 +4998,7 @@ cadastrar() {
     echo "Faltam lá: $falta"
     local ger_rem priv_rem cmd_txt
     if pacotes_lib; then
-      { read -r ger_rem; read -r priv_rem; } < <({ cat "$PACOTES_LIB"; echo 'pk_gerenciador || echo; pk_privilegio "$(pk_gerenciador 2>/dev/null)"'; } | ssh "${SSH_OPC[@]}" "$dest" 'bash -s' 2>/dev/null)
+      { read -r ger_rem; read -r priv_rem; } <<<"$({ cat "$PACOTES_LIB"; echo 'pk_gerenciador || echo; pk_privilegio "$(pk_gerenciador 2>/dev/null)"'; } | ssh "${SSH_OPC[@]}" "$dest" 'bash -s' 2>/dev/null)"
     fi
     if [[ -z ${ger_rem:-} ]]; then
       echo "Não achei um gerenciador de pacotes lá; instale à mão: $falta"
@@ -5453,7 +5481,7 @@ aerc_binds_abas() { # seção: atalhos de abas daquela seção do binds.conf
     ((++n > 9)) && break
     echo "<A-$n> = :change-tab '$a'<Enter>${frente}"
     echo "$n = :change-tab '$a'<Enter>${frente}"
-  done < <(aerc_abas_contas)
+  done <<<"$(aerc_abas_contas)"
   echo '<A-0> = :change-tab<space>'
   echo '0 = :change-tab<space>'
 }
@@ -5597,7 +5625,7 @@ garantir_path_login() {
 atualizar_bashrc() {
   local rc=$HOME/.bashrc tmp ini fim
   if ! grep -qF "$BASHRC_INI" "$rc" 2>/dev/null; then
-    read -r ini fim < <(bashrc_trecho_antigo "$rc")
+    read -r ini fim <<<"$(bashrc_trecho_antigo "$rc")"
     [[ -n $fim ]] || return 0
     cp -p "$rc" "$rc.antes-marcadores"
     tmp=$(mktemp "${rc}.tt.XXXXXX") || return 1
@@ -5699,10 +5727,11 @@ listar_tudo_() {
   [[ $filtro == todas ]] && filtro=""
   tmp=$(mktemp -d)
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     [[ -z $filtro || $filtro == "$rot" ]] || continue
     i=$((i + 1)); echo "$rot" >>"$tmp/rotulos"
     listar_remoto "$dest" "$rot" >"$tmp/$i" & pids+=($!)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   if [[ -z $filtro || $filtro == "$MAQUINA" ]]; then
     # A lista local também fica guardada, com a assinatura de quando foi feita: a central abre na hora
     # com ela (lista_rapida_central), enquanto esta recarga traz a de agora.
@@ -5779,13 +5808,14 @@ sessoes_ia_linhas() {
   fix=$(fixadas | awk -F'\t' -v m="$MAQUINA" '$1 == m { print $2 }')
   # Uma ida ao tmux para as sessões (com o painel ativo de cada uma) e outra para os papéis das janelas;
   # as telas são lidas em paralelo (sessoes_ia_linha). Antes eram 6 idas por sessão, em fila.
-  mapfile -t L < <(tmux list-sessions -F $'#{session_name}\x1f#{session_attached}\x1f#{session_activity}\x1f#{session_windows}\x1f#{@tt_fixada}\x1f#{pane_current_command}\x1f#{pane_pid}\x1f#{pane_title}' 2>/dev/null)
+  mapfile -t L <<<"$(tmux list-sessions -F $'#{session_name}\x1f#{session_attached}\x1f#{session_activity}\x1f#{session_windows}\x1f#{@tt_fixada}\x1f#{pane_current_command}\x1f#{pane_pid}\x1f#{pane_title}' 2>/dev/null)"
+  ((${#L[@]} == 1)) && [[ -z ${L[0]} ]] && L=() # here-string de saída vazia dá 1 linha vazia
   # O painel de trabalho de cada sessão (painel_base): com o e-mail ou um menu do tt por cima, a tela, o
   # programa e o rascunho são os da sessão, não os da janela do tt.
-  while IFS=$'\x1f' read -r s bp bc bd bi bo bt; do B_P[$s]=$bp B_C[$s]=$bc B_I[$s]=$bi B_T[$s]=$bt; done < <(paineis_base)
+  while IFS=$'\x1f' read -r s bp bc bd bi bo bt; do [[ -n $s ]] || continue; B_P[$s]=$bp B_C[$s]=$bc B_I[$s]=$bi B_T[$s]=$bt; done <<<"$(paineis_base)"
   while IFS=$'\x1f' read -r s papel; do
     [[ -n $papel ]] && PAPEIS[$s]+="$papel"$'\n'
-  done < <(tmux list-windows -a -F $'#{session_name}\x1f#{@tt_papel}' 2>/dev/null)
+  done <<<"$(tmux list-windows -a -F $'#{session_name}\x1f#{@tt_papel}' 2>/dev/null)"
   ((${#L[@]})) || return 0
   PS_SIA=$(ps -e -o pid=,ppid=,comm= 2>/dev/null)
   tmp=$(mktemp -d "$RT/tt-sessoes-ia.XXXXXX") || return 0
@@ -5824,9 +5854,10 @@ sessoes_ia() { # --tsv | --para-ia [-n N]
   echo "Só recomendar shell puro (bash/zsh/sh) ocioso >= 1800 s com prompt vazio. Em dúvida, manter."
   echo; echo '```tsv'; echo "$SESSOES_IA_CAB"; sessoes_ia_linhas; echo '```'; echo
   while IFS=$'\x1f' read -r s p _; do
+    [[ -n ${s}${p} ]] || continue
     echo "## $s (últimas $n linhas)"
     echo '```'; tmux capture-pane -p -t "$p" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n "$n" | cut -c1-200; echo '```'
-  done < <(paineis_base) # o painel de trabalho de cada sessão, nunca a janela do tt por cima
+  done <<<"$(paineis_base)" # o painel de trabalho de cada sessão, nunca a janela do tt por cima
 }
 
 # Abertura instantânea da central (lista_rapida, sem sufixo, é a do seletor): esta máquina fresca (~0,1 s) e as outras com a última lista
@@ -5846,9 +5877,10 @@ lista_rapida_central() {
      else listar | rotular . "$MAQUINA"; fi
    fi
    while read -r dest rot; do
+     [[ -n ${dest}${rot} ]] || continue
      [[ -z $filtro || $filtro == "$rot" ]] || continue
      c=$(cache_lista "$rot"); [[ -s $c ]] && cat "$c"
-   done < <(maquinas))
+   done <<<"$(maquinas)")
 }
 
 rotulos() { echo "$MAQUINA"; maquinas | awk '{ print $2 }'; }
@@ -5956,7 +5988,7 @@ clique_cabecalho() {
       esac ;;
     ^f | filtrar | máquina:)
       # Próxima máquina na roda: todas → esta → as outras → todas.
-      mapfile -t lista < <(echo todas; rotulos)
+      mapfile -t lista <<<"$(echo todas; rotulos)"; if ((${#lista[@]} == 1)) && [[ -z ${lista[0]} ]]; then lista=(); fi
       m=$(estado maquina); m=${m:-todas}
       for ((r = 0; r < ${#lista[@]}; r++)); do [[ ${lista[r]} == "$m" ]] && break; done
       estado_por maquina "${lista[(r + 1) % ${#lista[@]}]}" ;;
@@ -6122,7 +6154,7 @@ ponte_tentar() { # dest nome ponte token [nova]
   fi
   # Campos restritos (id, epoch e hex): | preserva vazios e funciona no tmux 3.5,
   # que imprime o controle 0x1f como os quatro caracteres literais \037.
-  IFS='|' read -r id srv uuid < <(tmux display -p -t "=$ponte:" '#{@ponte_id}|#{@ponte_srv}|#{@ponte_uuid}' 2>/dev/null)
+  IFS='|' read -r id srv uuid <<<"$(tmux display -p -t "=$ponte:" '#{@ponte_id}|#{@ponte_srv}|#{@ponte_uuid}' 2>/dev/null)"
   [[ -n $uuid ]] || uuid=$(tmux show-options -qv -t "=$ponte:" @tt_pre_id 2>/dev/null)
   printf 'Confirmando a sessão %s:%s…\n' "$(rotulo_de "$dest")" "$nome_atual"
   while true; do
@@ -6322,11 +6354,11 @@ abrir_painel() {
 arestas_paineis() {
   local -A sessao_do_cliente=() panes=() pais=()
   local pid s p n precisa=0
-  while read -r pid s; do sessao_do_cliente[$pid]=$s; done < <(tmux list-clients -F '#{client_pid} #{session_name}' 2>/dev/null)
-  while read -r pid s; do panes[$pid]=$s; done < <(tmux list-panes -a -F '#{pane_pid} #{session_name}' 2>/dev/null)
+  while read -r pid s; do [[ -n $pid ]] && sessao_do_cliente[$pid]=$s; done <<<"$(tmux list-clients -F '#{client_pid} #{session_name}' 2>/dev/null)"
+  while read -r pid s; do [[ -n $pid ]] && panes[$pid]=$s; done <<<"$(tmux list-panes -a -F '#{pane_pid} #{session_name}' 2>/dev/null)"
   for pid in "${!sessao_do_cliente[@]}"; do [[ -n ${panes[$pid]:-} ]] || precisa=1; done
   if ((precisa)); then
-    while read -r pid p; do [[ -n $pid ]] && pais[$pid]=$p; done < <(ps -A -o pid= -o ppid=)
+    while read -r pid p; do [[ -n $pid ]] && pais[$pid]=$p; done <<<"$(ps -A -o pid= -o ppid=)"
   fi
   for pid in "${!sessao_do_cliente[@]}"; do
     p=$pid; n=0
@@ -6343,10 +6375,10 @@ contem_cliente() {
   pid=$(do_cliente "$1" '#{client_pid}')
   [[ $pid =~ ^[0-9]+$ ]] || return 1
   local -A panes=() pais=()
-  while IFS=$'\t' read -r p s; do [[ -n $p ]] && panes[$p]=$s; done < <(tmux list-panes -a -F $'#{pane_pid}\t#{session_name}' 2>/dev/null)
+  while IFS=$'\t' read -r p s; do [[ -n ${p}${s} ]] || continue; [[ -n $p ]] && panes[$p]=$s; done <<<"$(tmux list-panes -a -F $'#{pane_pid}\t#{session_name}' 2>/dev/null)"
   [[ -n ${panes[$pid]:-} ]] && { printf '%s\n' "${panes[$pid]}"; return; }
   # Um shell/wrapper pode ser o pane_pid, com tmux como filho. Não perder esse vínculo.
-  while read -r p s; do [[ -n $p ]] && pais[$p]=$s; done < <(ps -A -o pid= -o ppid=)
+  while read -r p s; do [[ -n ${p}${s} ]] || continue; [[ -n $p ]] && pais[$p]=$s; done <<<"$(ps -A -o pid= -o ppid=)"
   while [[ $pid =~ ^[0-9]+$ && $pid != 0 && $pid != 1 ]] && ((n++ < 64)); do
     pid=${pais[$pid]:-0}
     [[ -n ${panes[$pid]:-} ]] && { printf '%s\n' "${panes[$pid]}"; return; }
@@ -6358,7 +6390,7 @@ contem_cliente() {
 # por tty E PID; um tty reciclado não autoriza trocar outra tela. Sem marca, é legado.
 cliente_de_fora() {
   local c=$1 pid term dono dono_pid
-  IFS='|' read -r pid term < <(do_cliente "$c" '#{client_pid}|#{client_termname}')
+  IFS='|' read -r pid term <<<"$(do_cliente "$c" '#{client_pid}|#{client_termname}')"
   if [[ $term == tmux* || $term == screen* ]]; then
     if [[ $(env_do_pid "$pid" TT_EMAIL_CLIENTE) == 1 ]]; then
       dono=$(env_do_pid "$pid" TT_EMAIL_DONO)
@@ -6378,7 +6410,7 @@ recuperar_tela() {
   [[ -n $c ]] || return 1
   externo=$(cliente_de_fora "$c") || { tmux detach-client -t "$c"; return; }
   c=$externo
-  IFS='|' read -r p modal pid token < <(do_cliente "$c" '#{pane_id}|#{window_modal_pane}|#{@tt_tentativa}')
+  IFS='|' read -r p modal pid token <<<"$(do_cliente "$c" '#{pane_id}|#{window_modal_pane}|#{@tt_tentativa}')"
   [[ -n $p ]] || return 1
   if [[ $pid =~ ^[0-9]+$ && $token == tt-* ]] && [[ $(cmdline_do_pid "$pid") == *"tela-recuperar.py conectar --token $token "* ]]; then
     kill -TERM "$pid" 2>/dev/null || true
@@ -6427,6 +6459,7 @@ aviso_ciclo() {
 quebrar_ciclo_para() {
   local alvo=$1 n=0 c term w h s
   while read -r c term w h s; do
+    [[ -n ${c}${term}${w}${h}${s} ]] || continue
     [[ $term == tmux* || $term == screen* ]] || continue
     # Desanexa a vista aninhada cujo painel pertence a cadeia que leva ao alvo (inclui o proprio S).
     if [[ $s == "$alvo" ]] || alcanca "$s" "$alvo"; then
@@ -6435,7 +6468,7 @@ quebrar_ciclo_para() {
         echo "$(date '+%F %T') ciclo: desanexei a vista aninhada $c (sessao $s) para liberar a troca para $alvo" >>"$HOME/.cache/tt-vigia.log"
       }
     fi
-  done < <(tmux list-clients -F '#{client_name} #{client_termname} #{client_width} #{client_height} #{session_name}' 2>/dev/null)
+  done <<<"$(tmux list-clients -F '#{client_name} #{client_termname} #{client_width} #{client_height} #{session_name}' 2>/dev/null)"
   ((n > 0))
 }
 
@@ -6448,18 +6481,19 @@ guarda_tamanho() {
   trap 'rmdir "$trava" 2>/dev/null; trap - RETURN' RETURN # desarma ao sair (ver malha_completar)
   sleep 0.2
   while read -r c term w h s; do
+    [[ -n ${c}${term}${w}${h}${s} ]] || continue
     [[ $term == tmux* || $term == screen* ]] || continue
     if ((w < 12 || h < 4)); then
       # Um tamanho pequeno de passagem (o cliente que acabou de voltar ao e-mail ainda se redesenha, mais devagar no
       # macOS) não é ciclo: confere de novo antes de desligar.
       sleep 0.5
-      read -r w h s < <(do_cliente "$c" '#{client_width} #{client_height} #{session_name}') || continue
+      read -r w h s <<<"$(do_cliente "$c" '#{client_width} #{client_height} #{session_name}')" && [[ -n $w ]] || continue
       [[ -n ${w:-} ]] || continue
       ((w < 12 || h < 4)) || continue
       tmux detach-client -t "$c" && n=$((n + 1))
       echo "$(date '+%F %T') guarda: desliguei a vista aninhada $c ($w x $h, sessão $s)" >>"$HOME/.cache/tt-vigia.log"
     fi
-  done < <(tmux list-clients -F '#{client_name} #{client_termname} #{client_width} #{client_height} #{session_name}' 2>/dev/null)
+  done <<<"$(tmux list-clients -F '#{client_name} #{client_termname} #{client_width} #{client_height} #{session_name}' 2>/dev/null)"
   ((n)) && avisar "⚠ painel fechado: ele mostrava uma sessão que mostra ele mesmo (ciclo) e estava encolhendo a tela"
   return 0
 }
@@ -6473,7 +6507,7 @@ guarda_tamanho() {
 guarda_aninhado() { # cliente [voltou]
   local c=${1:-} pid s cont
   [[ -n $c ]] || return 0
-  IFS=$'\x1f' read -r pid s < <(do_cliente "$c" $'#{client_pid}\x1f#{session_name}')
+  IFS=$'\x1f' read -r pid s <<<"$(do_cliente "$c" $'#{client_pid}\x1f#{session_name}')"
   [[ -n $pid && -n $s ]] || return 0
   mkdir -p "$HOME/.cache"
   if [[ ${2:-} == voltou ]]; then # o gancho do tmux já o trouxe de volta; aqui só fica o registro
@@ -6526,12 +6560,13 @@ criar_ponte() {
     # Dono e alvo de cada ponte já vêm na lista (separador 0x1F: um dono vazio não desloca as colunas); eram mais
     # duas idas ao tmux (show-options) para reaproveitar a ponte.
     while IFS=$'\x1f' read -r nome anexada dono a_alvo; do
+      [[ -n ${nome}${anexada}${dono}${a_alvo} ]] || continue
       [[ $dono == "$cliente" ]] && { ponte=$nome p_dono=$dono p_alvo=$a_alvo; break; }
       [[ -z $ponte && $anexada == 0 ]] && { ponte=$nome p_dono=$dono p_alvo=$a_alvo; }
-    done < <(tmux list-sessions -f '#{!=:#{@tt_pre_estado},espera}' -F "#{session_name}"$'\t'"#{session_attached}"$'\t'"#{@ponte_dono}"$'\t'"#{@ponte_alvo}"$'\t'"#{?@ponte_uuid,#{@ponte_uuid},#{@tt_pre_id}}" 2>/dev/null |
+    done <<<"$(tmux list-sessions -f '#{!=:#{@tt_pre_estado},espera}' -F "#{session_name}"$'\t'"#{session_attached}"$'\t'"#{@ponte_dono}"$'\t'"#{@ponte_alvo}"$'\t'"#{?@ponte_uuid,#{@ponte_uuid},#{@tt_pre_id}}" 2>/dev/null |
       awk -F'\t' -v a="$alvo" -v b="$base" -v u="$uuid" -v d="$dest" '
         (u != "" && $5 == u && index($4,d "|")==1) || (u == "" && ($4 == a || ($4 == "" && $1 == b)))
-          { print $1 "\037" $2 "\037" $3 "\037" $4 }')
+          { print $1 "\037" $2 "\037" $3 "\037" $4 }')"
     if [[ -n $ponte ]]; then
       [[ $p_dono == "$cliente" ]] || lote_add lote set-option -t "=$ponte:" @ponte_dono "$cliente"
       [[ -n $p_alvo ]] || lote_add lote set-option -t "=$ponte:" @ponte_alvo "$alvo"
@@ -6572,6 +6607,7 @@ criar_ponte() {
 fechar_pontes_ociosas() {
   local agora=$1 sondar=${2:-} limite=${TT_T_PONTE:-1800} s anexada ult dest id srv sumiu alvo rs info rc nid nsrv nnome
   while IFS='|' read -r s anexada ult dest id srv sumiu alvo; do
+    [[ -n ${s}${anexada}${ult}${dest}${id}${srv}${sumiu}${alvo} ]] || continue
     [[ $s == _tt-* ]] && continue # sessões ocultas do tt (e-mail aberto em segundo plano)
     if ((anexada == 0 && ult > 0 && agora - ult >= limite)); then
       log_ponte "$s" "ponte encerrada: ociosa há $(((agora - ult) / 60)) min (alvo ${alvo:-?})"
@@ -6605,7 +6641,7 @@ fechar_pontes_ociosas() {
         fi ;;
       *) : ;; # destino mudo: transitório, preserva
     esac
-  done < <(tmux list-sessions -F '#{session_name}|#{session_attached}|#{?session_last_attached,#{session_last_attached},#{session_created}}|#{@ponte}|#{@ponte_id}|#{@ponte_srv}|#{@ponte_sumiu}|#{@ponte_alvo}' -f '#{&&:#{@ponte},#{!=:#{@tt_pre_estado},espera}}' 2>/dev/null)
+  done <<<"$(tmux list-sessions -F '#{session_name}|#{session_attached}|#{?session_last_attached,#{session_last_attached},#{session_created}}|#{@ponte}|#{@ponte_id}|#{@ponte_srv}|#{@ponte_sumiu}|#{@ponte_alvo}' -f '#{&&:#{@ponte},#{!=:#{@tt_pre_estado},espera}}' 2>/dev/null)"
   return 0
 }
 
@@ -6749,7 +6785,7 @@ e_ponte_pid() { # pid
   [[ $p =~ ^[0-9]+$ ]] || { echo 0; return; }
   [[ -n $(env_do_pid "$p" TT_PONTE) ]] && { echo 1; return; }
   while ((p > 1 && n++ < 12)); do
-    read -r p c < <(ps -o ppid=,comm= -p "$p" 2>/dev/null) || break
+    read -r p c <<<"$(ps -o ppid=,comm= -p "$p" 2>/dev/null)" && [[ -n $p ]] || break
     [[ ${c##*/} == sshd* ]] && { echo 1; return; }
     [[ $p =~ ^[0-9]+$ ]] || break
   done
@@ -6955,14 +6991,14 @@ listar_leve() {
   local ativ s anex cmd ponte uso linha bp bc
   local -a SESS=() cand=() vazias=()
   local -A VAZIA=() B_CMD=()
-  while IFS=$'\x1f' read -r s bp bc _; do B_CMD[$s]=$bc; done < <(paineis_base) # o programa do painel de trabalho
-  mapfile -t SESS < <(tmux list-sessions -F '#{window_activity}|#{session_name}|#{session_attached}|#{pane_current_command}|#{@ponte}' 2>/dev/null |
-    sort -t'|' -k1,1nr)
+  while IFS=$'\x1f' read -r s bp bc _; do [[ -n ${s}${bp}${bc} ]] || continue; B_CMD[$s]=$bc; done <<<"$(paineis_base)" # o programa do painel de trabalho
+  mapfile -t SESS <<<"$(tmux list-sessions -F '#{window_activity}|#{session_name}|#{session_attached}|#{pane_current_command}|#{@ponte}' 2>/dev/null |
+    sort -t'|' -k1,1nr)"; if ((${#SESS[@]} == 1)) && [[ -z ${SESS[0]} ]]; then SESS=(); fi
   for linha in "${SESS[@]}"; do
     IFS='|' read -r ativ s anex cmd ponte <<<"$linha"
     [[ -n $ponte || $s == _* ]] || cand+=("$s")
   done
-  while IFS= read -r s; do [[ -n $s ]] && VAZIA[$s]=1; done < <(sessoes_vazias_de "${cand[@]}")
+  while IFS= read -r s; do [[ -n ${s} ]] || continue; [[ -n $s ]] && VAZIA[$s]=1; done <<<"$(sessoes_vazias_de "${cand[@]}")"
   for linha in "${SESS[@]}"; do
     IFS='|' read -r ativ s anex cmd ponte <<<"$linha"
     [[ -n $ponte || $s == _* ]] && continue
@@ -6986,8 +7022,9 @@ alvos_seletor() {
   local m dest rot
   m=$(estado maquina); m=${m:-$MAQUINA}
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     [[ $m == todas || $m == "$rot" ]] && echo "$dest $rot"
-  done < <(echo ". $MAQUINA"; maquinas)
+  done <<<"$(echo ". $MAQUINA"; maquinas)"
 }
 
 # "chave<TAB>texto" (stdin) de uma máquina → linhas do seletor "destino<TAB>chave<TAB>texto".
@@ -7038,13 +7075,14 @@ acoes_seletor() {
 lista_rapida() {
   local dest rot f
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     if [[ $dest == . ]]; then listar_leve | formatar_bloco . "$rot"
     else
       f=$(cache_bloco "$rot")
       [[ -s $f ]] && formatar_bloco "$dest" "$rot" <"$f"
       printf '%s\t!erro\t  \033[90m⟳ atualizando %s…\033[0m\n' "$dest" "$rot"
     fi
-  done < <(alvos_seletor)
+  done <<<"$(alvos_seletor)"
   acoes_seletor
 }
 lista_rapida_salva() { lista_rapida | tee "$TT_ESTADO.lista"; }
@@ -7057,7 +7095,7 @@ lista_seletor() {
   local -a pids=()
   local i dest rot tmp
   local -a dests rots
-  while read -r dest rot; do dests+=("$dest"); rots+=("$rot"); done < <(alvos_seletor)
+  while read -r dest rot; do [[ -n ${dest}${rot} ]] || continue; dests+=("$dest"); rots+=("$rot"); done <<<"$(alvos_seletor)"
   tmp=$(mktemp -d)
   for i in "${!dests[@]}"; do
     {
@@ -7098,7 +7136,7 @@ clique_seletor() {
   elif ((${FZF_CLICK_HEADER_LINE:-0} > 1)); then return
   fi
   if [[ $w == proxima ]]; then
-    mapfile -t lista < <(rotulos; echo todas)
+    mapfile -t lista <<<"$(rotulos; echo todas)"; if ((${#lista[@]} == 1)) && [[ -z ${lista[0]} ]]; then lista=(); fi
     m=$(estado maquina); m=${m:-$MAQUINA}
     for ((r = 0; r < ${#lista[@]}; r++)); do [[ ${lista[r]} == "$m" ]] && break; done
     w=${lista[(r + 1) % ${#lista[@]}]}
@@ -7153,7 +7191,7 @@ seletor() {
 seletor_em() {
   local c=$1 m=${2:-$MAQUINA} p=${3:-} cw ch w h x prev="" atual
   # Tamanho e sessão numa ida só ao tmux (o nome da sessão por último: pode ter espaço)
-  read -r cw ch atual < <(do_cliente "$c" '#{client_width} #{client_height} #{session_name}')
+  read -r cw ch atual <<<"$(do_cliente "$c" '#{client_width} #{client_height} #{session_name}')"
   if ((cw >= 140)); then w=130; prev=1; else w=$((cw < 74 ? cw : 74)); fi
   h=$((ch * 72 / 100)); ((h < 14)) && h=14; ((h > ch - 2)) && h=$((ch - 2))
   x=${TT_X:-0}
@@ -7194,13 +7232,15 @@ bordas() { # [gancho]
   # Com 2+ painéis divididos a barrinha vale para todos ("top"); só com um flutuante, só para ele ("top-floating",
   # onde o título do flutuante, o da -T, aparece na borda); sem nada disso, desligada.
   while read -r w f; do
+    [[ -n ${w}${f} ]] || continue
     if [[ $f == 1 ]]; then flutuantes[$w]=$((${flutuantes[$w]:-0} + 1)); else divididos[$w]=$((${divididos[$w]:-0} + 1)); fi
-  done < <(tmux list-panes -a -F '#{window_id} #{pane_floating_flag}' 2>/dev/null)
+  done <<<"$(tmux list-panes -a -F '#{window_id} #{pane_floating_flag}' 2>/dev/null)"
   while read -r w atual; do
+    [[ -n ${w}${atual} ]] || continue
     n=${divididos[$w]:-0} fl=${flutuantes[$w]:-0}
     if ((n > 1)); then quer=top; elif ((fl > 0)); then quer=top-floating; else quer=off; fi
     [[ $atual == "$quer" ]] || tmux set-option -w -t "$w" pane-border-status "$quer" 2>/dev/null
-  done < <(tmux list-windows -a -F '#{window_id} #{pane-border-status}' 2>/dev/null)
+  done <<<"$(tmux list-windows -a -F '#{window_id} #{pane-border-status}' 2>/dev/null)"
 }
 
 # Confirma e fecha as vazias de DEST, poupando a sessão em uso (se for desta máquina).
@@ -7275,7 +7315,7 @@ abrir_url() {
   local u=${1:-}
   [[ -n $u ]] || return 0
   if command -v xdg-open >/dev/null; then
-    local d w x; { read -r d; read -r w; read -r x; } < <(tela_grafica) # a sessão pode ter perdido o DISPLAY
+    local d w x; { read -r d; read -r w; read -r x; } <<<"$(tela_grafica)" # a sessão pode ter perdido o DISPLAY
     DISPLAY=$d WAYLAND_DISPLAY=$w XDG_RUNTIME_DIR=$x setsid xdg-open "$u" >/dev/null 2>&1 </dev/null && return 0
   fi
   # WSL sem xdg-open (ou com ele falhando): navegador padrão do Windows. rundll32 abre a URL como
@@ -7582,7 +7622,7 @@ email_sem_espelho() { # [oauth]
 # liga o sync local em cada conta que ainda não tem. A primeira sincronização de cada uma vai em 2º plano.
 email_espelho_ligar() {
   local slug rc=0; local -a contas
-  mapfile -t contas < <(email_sem_espelho)
+  mapfile -t contas <<<"$(email_sem_espelho)"; if ((${#contas[@]} == 1)) && [[ -z ${contas[0]} ]]; then contas=(); fi
   ((${#contas[@]})) || return 0
   if [[ -n $(email_sem_espelho oauth) ]]; then
     mbsync_tem_sasl || isync_sasl_construir || rc=1
@@ -8557,7 +8597,7 @@ novidades_ver() { # [--todas]
   [[ -s $ESTADO_DIR/novidades-visto ]] || echo "$atual" >"$ESTADO_DIR/novidades-visto"
   if [[ -t 1 ]] && command -v less >/dev/null 2>&1; then
     # Sem -F: com pouco texto o less saía sozinho e o popup piscava e fechava. q ou Esc fecham.
-    local w=""; { read -r _ w; } < <(stty size </dev/tty 2>/dev/null); [[ $w =~ ^[0-9]+$ ]] && ((w >= 20)) || w=$(tput cols 2>/dev/null)
+    local w=""; { read -r _ w; } <<<"$(stty size </dev/tty 2>/dev/null)"; [[ $w =~ ^[0-9]+$ ]] && ((w >= 20)) || w=$(tput cols 2>/dev/null)
     { novidades_fmt "$((${w:-80} - 1))" <<<"$txt"; printf '\n  \033[2m(q fecha · ↑↓ rolam)\033[0m\n'; } | LESSCHARSET=utf-8 less -R -P'novidades · q fecha' 2>/dev/null ||
       { printf '%s\n' "$txt"; read -rsn1 -p $'\n  (qualquer tecla fecha)' </dev/tty; echo; }
   else printf '%s\n' "$txt"; fi
@@ -9275,7 +9315,7 @@ abrir_com() {
       garantir_navegador chromium || return 1
       garantir_chrome_libs || { echo "Sem as bibliotecas, abro no navegador do sistema."; sleep 1; abrir_url "$u"; return 0; }
       (chrome_atualizar_se_velho >/dev/null 2>&1 &)
-      { read -r disp; read -r way; read -r xdg; } < <(tela_grafica)
+      { read -r disp; read -r way; read -r xdg; } <<<"$(tela_grafica)"
       local log=$HOME/.cache/tt/chrome.log; mkdir -p "${log%/*}"
       # Saída 0 também quando só entrega a URL a uma janela já aberta. Erro logo na partida (sem tela,
       # perfil travado…) avisa e abre no navegador do sistema, em vez de sumir calado; um erro horas
@@ -9457,8 +9497,9 @@ propagar_copia() {
   local t=$1 dest rot
   if (($(stat -c %s "$t" 2>/dev/null || echo 0) <= LIMITE_COPIA)); then
     while read -r dest rot; do
+      [[ -n ${dest}${rot} ]] || continue
       timeout 10 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-copia $(q "$MAQUINA")" <"$t" >/dev/null 2>&1 & pids+=($!)
-    done < <(maquinas)
+    done <<<"$(maquinas)"
     esperar ${pids[@]+"${pids[@]}"}
   fi
   rm -f "$t"
@@ -9501,6 +9542,7 @@ conta_propagar() {
   done
   echo "Propagando a conta '$nome' (${presentes[*]})"
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     if ((${#alvos[@]})); then
       for alvo in "${alvos[@]}"; do [[ $alvo == "$rot" ]] && break; alvo=""; done
       [[ -n $alvo ]] || continue
@@ -9509,7 +9551,7 @@ conta_propagar() {
     tar -C "$dir" -cf - "${presentes[@]}" 2>/dev/null |
       timeout 20 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --conta-receber $(q "$nome")" 2>&1 |
       tail -1 | sed 's/^[^:]*: //' || echo "✗ sem resposta"
-  done < <(maquinas)
+  done <<<"$(maquinas)"
 }
 
 # tt --conta-receber <nome>: recebe pelo stdin o tar com os itens próprios da conta e a instala
@@ -9717,7 +9759,7 @@ menu_popup() {
   local c=$1 titulo=$2 arq w h x cw ch
   arq=$(mktemp "$RT/tt-menu-itens.XXXXXX")
   cat >"$arq"
-  read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
+  read -r cw ch <<<"$(do_cliente "$c" '#{client_width} #{client_height}')"
   cw=${cw:-80} ch=${ch:-24}
   w=$(cut -f2 "$arq" | sed 's/\x1b\[[0-9;]*m//g' | wc -L)
   w=$((w + 12)); ((w < 32)) && w=32; ((w > cw)) && w=$cw
@@ -9757,7 +9799,7 @@ tam_popup() {
   # popup_tt dos itens usam essa medida: era uma ida ao tmux e um awk por item, ~14 por menu.
   if [[ -n ${_TAM_POPUP_V:-} && ${_TAM_POPUP_C:-} == "$1" ]]; then printf '%s\n' "$_TAM_POPUP_V"; return 0; fi
   local cw ch
-  read -r cw ch < <(do_cliente "$1" '#{client_width} #{client_height}')
+  read -r cw ch <<<"$(do_cliente "$1" '#{client_width} #{client_height}')"
   if ((${cw:-80} < 80 || ${ch:-30} < 30)); then echo "-w 100% -h 100%"; else echo "-w 90% -h 85%"; fi
 }
 # Mede uma vez para os popup_tt seguintes. Quem chama declara antes: local _TAM_POPUP_C="" _TAM_POPUP_V=""
@@ -9768,7 +9810,7 @@ tam_popup_fixar() { _TAM_POPUP_V=$(tam_popup "$1"); _TAM_POPUP_C=$1; }
 # too large") e o clique não fazia nada no celular (63 colunas: +N das fixadas, 🔔, renomear…).
 dim_popup() { # cliente largura altura → "-w L -h A", sem passar do tamanho do cliente
   local w=$2 h=$3 cw ch
-  read -r cw ch < <(do_cliente "$1" '#{client_width} #{client_height}')
+  read -r cw ch <<<"$(do_cliente "$1" '#{client_width} #{client_height}')"
   [[ $cw =~ ^[0-9]+$ ]] && ((cw < w)) && w=$cw
   [[ $h != *% && $ch =~ ^[0-9]+$ ]] && ((ch < h)) && h=$ch
   echo "-w $w -h $h"
@@ -9841,7 +9883,7 @@ menu_tmux() {
   local c=$1 p=${2:-} sess win sinc mouse ed p0 info ver pasta
   local _TAM_POPUP_C="" _TAM_POPUP_V=""; tam_popup_fixar "$c"
   # Janela, painel e sessão do cliente numa ida só (a sessão por último: o nome pode ter espaço); eram três.
-  read -r win p0 sess < <(do_cliente "$c" '#{window_id} #{pane_id} #{session_name}')
+  read -r win p0 sess <<<"$(do_cliente "$c" '#{window_id} #{pane_id} #{session_name}')"
   [[ -n $p ]] || p=$p0
   [[ $(tmux show-options -wv -t "$win" synchronize-panes) == on ]] && sinc="✓ ligado" || sinc="desligado"
   [[ $(tmux show-options -gv mouse) == on ]] && mouse="✓ ligado" || mouse="desligado"
@@ -9895,6 +9937,7 @@ linhas_editor_atalhos() {
   base=$(atalhos_base)
   printf '+\t\033[32m＋ Novo atalho…\033[0m\n'
   while IFS=$'\t' read -r emoji id cmd cor menu; do
+    [[ -n ${emoji}${id}${cmd}${cor}${menu} ]] || continue
     [[ -n $id ]] || continue
     loc=$(awk -F '\t' -v id="$id" '$2 == id { print; exit }' "$CONF_ATALHOS" 2>/dev/null)
     padrao=$(awk -F '\t' -v id="$id" '$2 == id { print; exit }' <<<"$base")
@@ -9908,11 +9951,11 @@ linhas_editor_atalhos() {
       origem=$'\033[36mseu\033[0m'
     fi
     printf '%s\t%s %s  %-28.28s  %s%s\n' "$id" "$(amostra_cor "$cor")" "$emoji" "$cmd" "$origem" "${menu:+  \033[90m☰ menu\033[0m}"
-  done < <(atalhos_lista)
+  done <<<"$(atalhos_lista)"
   # Padrões desativados aqui (emoji "-") continuam na lista, apagados, para poder voltar.
   while IFS=$'\t' read -r emoji id _; do
     [[ $emoji == - && -n $id ]] || continue
-    IFS=$'\t' read -r emoji _ cmd cor _ < <(grep "^[^	]*	$id	" <<<"$base" | head -1)
+    IFS=$'\t' read -r emoji _ cmd cor _ <<<"$(grep "^[^	]*	$id	" <<<"$base" | head -1)"
     [[ -n $cmd ]] && printf '%s\t\033[90m    %s  %-28.28s  desativado (^r reativa)\033[0m\n' "$id" "$emoji" "$cmd"
   done 2>/dev/null <"$CONF_ATALHOS"
 }
@@ -9928,7 +9971,7 @@ gravar_atalho() { # id emoji comando cor [menu] — substitui a linha do id (ou 
 
 form_atalho() { # id (vazio = novo)
   local id=${1:-} emoji="" cmd="" cor='#cba6f7' menu="" l e c k m
-  if [[ -n $id ]]; then IFS=$'\t' read -r emoji _ cmd cor menu < <(atalhos_lista | awk -F'\t' -v id="$id" '$2 == id' | head -1); fi
+  if [[ -n $id ]]; then IFS=$'\t' read -r emoji _ cmd cor menu <<<"$(atalhos_lista | awk -F'\t' -v id="$id" '$2 == id' | head -1)"; fi
   [[ $cor =~ ^#[[:xdigit:]]{6}$ ]] || cor='#cba6f7'
   clear
   printf '\033[1m%s\033[0m\n\n' "$([[ -n $id ]] && echo "Editar atalho" || echo "Novo atalho")"
@@ -10009,6 +10052,7 @@ menu_maquinas() {
     local -A SELO SELO_COR; fixadas_selos
     i=1
     while read -r dest rot; do
+      [[ -n ${dest}${rot} ]] || continue
       i=$((i + 1))
       f=$(info_maquina "$rot")
       if [[ -s $f ]]; then read -r n v vr <"$f"; else n="…"; v=$vl; vr=""; fi
@@ -10018,7 +10062,7 @@ menu_maquinas() {
         *) info="$n sessões"; ((${v:-0} < vl)) && info+="  ⚠ $(versao_rotulo "$v" "${vr:-}")" ;;
       esac
       printf '%s\t%s %-10s %s\t%s\n' "$i" "$( [[ -n ${SELO[$rot]:-} ]] && printf '%*s%s' $((2 - ${#SELO[$rot]})) '' "$(selo_ansi "$rot")" || echo '  ')" "$rot" "$info" "TT_X=0 $EU --seletor-em $(q "$c") $(q "$rot") $p"
-    done < <(maquinas)
+    done <<<"$(maquinas)"
     printf 't\t  Todas as máquinas\t%s\n' "$EU --seletor-em $(q "$c") todas $p"
     printf 'c\t  ☰ Central completa…\t%s\n' "$EU --clique tt $(q "$c") $p ''"
     printf -- '-\t\t\n'
@@ -10033,11 +10077,12 @@ menu_admin() {
   local _TAM_POPUP_C="" _TAM_POPUP_V=""; tam_popup_fixar "$c"
   vl=$(versao_num)
   while read -r _ rot; do
+    [[ -n ${rot} ]] || continue
     f=$(info_maquina "$rot")
     [[ -s $f ]] || continue
     read -r n v <"$f"
     [[ $n != '?' ]] && ((${v:-0} < vl)) && atras=1
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   {
     printf 'P\t  ⚡ Pré-carregamento de sessões…\t%s\n' "$(popup_tt "$c" 'pré-carregamento' "$EU --precarregar-ui")"
     printf 'F\t  📌 Barra das fixadas: %s (alternar)\t%s\n' "$(fixadas_faixa_ativa && echo visível || echo oculta)" "$EU --fixadas-faixa alternar"
@@ -10199,9 +10244,10 @@ propagar_fixadas() {
     return 0
   fi
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     [[ -e $CONF_FIX.recusada ]] && break # a recusa pode chegar no meio da volta: os destinos que faltam não recebem
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-fixadas $v" <"$CONF_FIX" >/dev/null 2>&1 &)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
 }
 
 # Grava a opção @ da sessão S só se o valor for outro (todo set-option redesenha todos os clientes).
@@ -10298,7 +10344,7 @@ puxar_fixadas() {
   melhor_v=$(versao_fixadas) melhor_d=""
   while read -r dest v; do
     [[ $v =~ ^[0-9]+$ ]] && ((v > melhor_v)) && { melhor_v=$v; melhor_d=$dest; }
-  done < <(nas_maquinas versao_fixadas_em)
+  done <<<"$(nas_maquinas versao_fixadas_em)"
   [[ -n $melhor_d ]] || return 0
   timeout 8 ssh "${SSH_OPC[@]}" "$melhor_d" 'cat ~/.config/tt/fixadas 2>/dev/null' </dev/null 2>/dev/null | receber_fixadas "$melhor_v"
 }
@@ -10335,8 +10381,9 @@ propagar_contas_ia() {
   local dest rot
   [[ -s $CONF_CONTAS_IA ]] || return 0
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-contas-ia" <"$CONF_CONTAS_IA" >/dev/null 2>&1 &)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
 }
 
 # Junta os cadastros das outras máquinas (o vigia chama ao iniciar e a cada 30 min).
@@ -10383,13 +10430,13 @@ leitor_abrir() {
 leitor_rotulos() {
   local dest rot saida=""
   leitor_ativo || return 0
-  while read -r dest rot; do [[ -n $rot && $dest != . ]] && saida+="$rot "; done < <(maquinas)
+  while read -r dest rot; do [[ -n ${dest}${rot} ]] || continue; [[ -n $rot && $dest != . ]] && saida+="$rot "; done <<<"$(maquinas)"
   printf '%s' "${saida% }"
 }
 # Rótulo → destino do ssh.
 leitor_dest() {
   local dest rot
-  while read -r dest rot; do [[ $rot == "$1" && $dest != . ]] && { printf '%s\n' "$dest"; return 0; }; done < <(maquinas)
+  while read -r dest rot; do [[ -n ${dest}${rot} ]] || continue; [[ $rot == "$1" && $dest != . ]] && { printf '%s\n' "$dest"; return 0; }; done <<<"$(maquinas)"
   return 1
 }
 # tt --leitor-ls [RÓTULO] [PASTA]: uma pasta (subpastas e arquivos que o leitor lê) em JSON, daqui ou de outra máquina.
@@ -10541,6 +10588,7 @@ leitor_sync() {
   fi
   inv=$(mktemp "$RT/tt-leitor-inv.XXXXXX") || { rmdir "$trava" 2>/dev/null; return 1; }
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     [[ -n $dest && $dest != . ]] || continue
     (($# == 0)) || printf '%s\n' "$@" | grep -qxF "$rot" || continue
     n_tot=$((n_tot + 1)); st=ok; linha=""
@@ -10565,7 +10613,7 @@ leitor_sync() {
     leitor_py rede-nota "$rot" "$st" 2>/dev/null # a aba Máquinas mostra como foi a última troca com cada uma
     if [[ -z $quieto ]]; then printf '%-12s %-7s%s\n' "$rot" "$st" "$linha"
     elif [[ -n $linha || $st == falhou ]]; then printf -v agora '%(%F %T)T' -1; printf '%s %-12s %-7s%s\n' "$agora" "$rot" "$st" "$linha"; fi
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   rm -f "$inv"; rmdir "$trava" 2>/dev/null
   [[ -n $quieto ]] || echo "leitor: $n_ok de $n_tot máquinas em dia · $trazidos arquivos trazidos, $levados levados"
   return 0
@@ -10664,7 +10712,7 @@ sessoes_ia_sync() {
     fi
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$st" "$np" "$ne" "${r_p:--}" "${r_e:--}" "$boa" >"$est"
     printf '%-12s %-7s trazidas %-4s levadas %-4s %s\n' "$rot" "$st" "$np" "$ne" "${r_p:+aqui: $r_p}"
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   rm -f "$inv"; rmdir "$trava" 2>/dev/null
   return 0
 }
@@ -10812,8 +10860,9 @@ demandas_propagar() {
   local dest rot
   [[ -s $CONF_DEMANDAS ]] || return 0
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-demandas" <"$CONF_DEMANDAS" >/dev/null 2>&1 &)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
 }
 demandas_puxar() { nas_maquinas cat_remoto '~/.config/tt/demandas' 6 | demandas_receber; } # junta os cadastros das outras máquinas
 
@@ -10924,7 +10973,7 @@ demanda_criar() { # de msgid epoch etiqueta frase descrição subtarefas [extras
       [[ -n $d ]] || continue
       [[ $d == "$id" ]] && descartada=1
       tarefas_demanda_mudar_linhas recusar "$d" >/dev/null
-    done < <(python3 -I "$MERGE_PY" triagem "$CONF_TAREFAS" "$id" 2>/dev/null)
+    done <<<"$(python3 -I "$MERGE_PY" triagem "$CONF_TAREFAS" "$id" 2>/dev/null)"
     ((descartada)) && return 1
   fi
   atualizar_barras_pedir 2>/dev/null
@@ -10964,10 +11013,10 @@ tarefa_email_compor() { # id [destinatário] [cliente]
 tarefas_email_ui() { # [id…]
   local -a ids=("$@"); local dest ult="$ESTADO_DIR/tarefas-email-ultimo" id
   if ((${#ids[@]} == 0)); then
-    mapfile -t ids < <(tarefas_topo_ordenadas | awk -F'\t' '$2 == "aberta" || $2 == "feita" { print $1 }' | while read -r id; do
+    mapfile -t ids <<<"$(tarefas_topo_ordenadas | awk -F'\t' '$2 == "aberta" || $2 == "feita" { print $1 }' | while read -r id; do
       printf '%s\t%s  %s\n' "$id" "$(tarefa_slug "$id")" "$(tarefas_raw | awk -F'\t' -v i="$id" '$1 == i { print $5; exit }')"; done |
       fzf --multi --delimiter=$'\t' --with-nth=2 --prompt='tarefas a enviar (Tab marca, ⏎ confirma) > ' --height=100% --reverse |
-      cut -f1)
+      cut -f1)"; if ((${#ids[@]} == 1)) && [[ -z ${ids[0]} ]]; then ids=(); fi
   fi
   ((${#ids[@]})) || return 0
   if [[ -n ${TT_EMAIL_PARA:-} ]]; then dest=$TT_EMAIL_PARA   # sem perguntar (scripts, testes)
@@ -11033,11 +11082,11 @@ tarefas_aprovar_limpas() {
       st=$(python3 -I "$MERGE_PY" estado "$CONF_TAREFAS" "$id" 2>/dev/null | cut -f1); [[ $st == conflito ]] && continue
     fi
     ids+=("$id")
-  done < <(tarefas_raw | awk -F'\t' '$2 == "pendente" && $6 !~ /(^|\|)pai=/ { print $1 }')
+  done <<<"$(tarefas_raw | awk -F'\t' '$2 == "pendente" && $6 !~ /(^|\|)pai=/ { print $1 }')"
   if ((${#ids[@]})); then tarefas_demanda_mudar aprovar "${ids[@]}"; else echo 0; fi
 }
 tarefas_recusar_todas() {
-  local -a ids; mapfile -t ids < <(tarefas_raw | awk -F'\t' '$2 == "pendente" && $6 !~ /(^|\|)pai=/ { print $1 }')
+  local -a ids; mapfile -t ids <<<"$(tarefas_raw | awk -F'\t' '$2 == "pendente" && $6 !~ /(^|\|)pai=/ { print $1 }')"; if ((${#ids[@]} == 1)) && [[ -z ${ids[0]} ]]; then ids=(); fi
   if ((${#ids[@]})); then tarefas_demanda_mudar recusar "${ids[@]}"; else echo 0; fi
 }
 # A tela de revisão de UMA atualização (vim): decide campo a campo e subtarefa a subtarefa, e aplica.
@@ -11100,7 +11149,7 @@ tarefa_base_gravar() { # id
 }
 tarefa_aplicar_proposta_antiga() { # (substituída por tarefa_aplicar_proposta; mantida só para consulta) id-da-proposta
   local pid=$1 txt m alvo ealvo tm k scod sest si sm se sub sord sd
-  IFS=$'\t' read -r txt m < <(tarefas_raw | awk -F'\t' -v id="$pid" '$1==id{print $5"\t"($6==""?"-":$6); exit}')
+  IFS=$'\t' read -r txt m <<<"$(tarefas_raw | awk -F'\t' -v id="$pid" '$1==id{print $5"\t"($6==""?"-":$6); exit}')"
   [[ -n $txt ]] || return 1
   [[ $m == - ]] && m=""
   alvo=$(tarefas_meta_get "$m" upd); [[ -n $alvo ]] || return 1
@@ -11111,6 +11160,7 @@ tarefa_aplicar_proposta_antiga() { # (substituída por tarefa_aplicar_proposta; 
   sd=$(tarefas_meta_get "$m" desc); [[ -n $sd ]] && tm=$(tarefas_meta_set "$tm" desc "$sd")
   tarefas_gravar_linha "$alvo" "$ealvo" "$txt" "$tm" || return 1
   while IFS=$'\t' read -r si sord sub scod sest; do
+    [[ -n ${si}${sord}${sub}${scod}${sest} ]] || continue
     [[ -n $si ]] || continue
     if [[ -n $scod ]]; then
       se=$(tarefas_estado_de "$scod")
@@ -11131,10 +11181,10 @@ tarefa_aplicar_proposta_antiga() { # (substituída por tarefa_aplicar_proposta; 
       tarefas_filhas "$alvo" | awk -F'\t' -v t="${sub,,}" 'tolower($3) == t { f = 1 } END { exit !f }' ||
         { tarefa_add_sub "$alvo" "$sub" >/dev/null   ; }
     fi
-  done < <(tarefas_raw | awk -F'\t' -v p="$pid" '
+  done <<<"$(tarefas_raw | awk -F'\t' -v p="$pid" '
     function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
     mv($6, "pai") == p && $2 == "pendente" { printf "%s\t%d\t%s\t%s\t%s\n", $1, mv($6, "ord") + 0, $5, mv($6, "scod"), mv($6, "sest") }' | sort -t$'\t' -k2,2n |
-    awk -F'\t' -v OFS='\t' '{ print $1, $2, $3, $4, $5 }')
+    awk -F'\t' -v OFS='\t' '{ print $1, $2, $3, $4, $5 }')"
   # Mãe feita com subtarefa aberta (nova ou reaberta): volta a ficar aberta.
   if [[ $(tarefas_estado_de "$alvo") == feita ]] && [[ -n $(tarefas_subs_abertas "$alvo") ]]; then tarefa_estado "$alvo" aberta; fi
   return 0
@@ -11214,10 +11264,11 @@ demandas_processar_conta() { # slug
     fi
   fi
   while IFS=$'\t' read -r u arq; do
+    [[ -n ${u}${arq} ]] || continue
     [[ -n $u ]] || continue
     n=$((n + 1)); ((n <= 25)) || break
     printf '%s\n' "$u" >>"$proc"
-    IFS=$'\t' read -r de msgid epoch auth asb dsb ssb esb < <(python3 -I "$EMAIL_PY" demanda "$arq" 2>/dev/null) || continue
+    IFS=$'\t' read -r de msgid epoch auth asb dsb ssb esb <<<"$(python3 -I "$EMAIL_PY" demanda "$arq" 2>/dev/null)" && [[ -n $de ]] || continue
     assunto=$(printf '%s' "$asb" | base64 -d 2>/dev/null)
     [[ $assunto =~ ^\[[Tt][Tt](:([^]]*))?\][[:space:]]*(.*)$ ]] || continue
     segmsg=${BASH_REMATCH[2]}; frase=${BASH_REMATCH[3]}
@@ -11268,8 +11319,8 @@ demandas_processar_conta() { # slug
     id=$(demanda_criar "$de" "$msgid" "$epoch" "$tag" "$frase" "$desc" "$subs" "$ext") || continue
     criadas=$((criadas + 1)); ultimo="$de — $frase"; k_criadas+="${k_criadas:+,}$k"
     printf '%s criada id=%s de=%s\n' "$(date '+%F %T')" "$id" "$de" >>"$log"
-  done < <(find "$md/new" "$md/cur" -type f -printf '%f\t%p\n' 2>/dev/null |
-           awk -F'\t' -v p="$proc" 'FILENAME == p { v[$1] = 1; next } { u = $1; sub(/:2,.*/, "", u); if (!(u in v)) print u "\t" $2 }' "$proc" -)
+  done <<<"$(find "$md/new" "$md/cur" -type f -printf '%f\t%p\n' 2>/dev/null |
+           awk -F'\t' -v p="$proc" 'FILENAME == p { v[$1] = 1; next } { u = $1; sub(/:2,.*/, "", u); if (!(u in v)) print u "\t" $2 }' "$proc" -)"
   [[ -f $log ]] && (($(wc -l <"$log") > 300)) && { tail -n 150 "$log" >"$log.c" && mv -f "$log.c" "$log"; }
   [[ -f $espera ]] && (($(wc -l <"$espera") > 500)) && { tail -n 300 "$espera" >"$espera.c" && mv -f "$espera.c" "$espera"; }
   [[ -f $ign ]] && (($(wc -l <"$ign") > 500)) && { tail -n 300 "$ign" >"$ign.c" && mv -f "$ign.c" "$ign"; }
@@ -11432,7 +11483,7 @@ aplicar_fixadas_uma() {
   fi
   # Ponte: o pino acende quando a sessão REAL da outra máquina está fixada (o rótulo vem do cadastro, uma ida só).
   if ((${#fixr[@]})) && [[ $lista == *'|'* ]]; then
-    while read -r d r; do rot[$d]=$r; done < <(maquinas)
+    while read -r d r; do [[ -n ${d}${r} ]] || continue; rot[$d]=$r; done <<<"$(maquinas)"
   fi
   while IFS=$'\x1f' read -r sess marca alvo; do
     [[ -n $sess ]] || continue
@@ -11625,7 +11676,7 @@ tarefas_resolver() {
   t=${t//[[:space:]]/}; t=${t#\~}
   [[ -n $t ]] || return 1
   local -a vivos=() ap=() pre=()
-  mapfile -t vivos < <(tarefas_raw | awk -F'\t' '$2 != "removida" { print $1 }')
+  mapfile -t vivos <<<"$(tarefas_raw | awk -F'\t' '$2 != "removida" { print $1 }')"; if ((${#vivos[@]} == 1)) && [[ -z ${vivos[0]} ]]; then vivos=(); fi
   for i in "${vivos[@]}"; do [[ $i == "$t" ]] && { printf '%s\n' "$i"; return 0; }; done
   if [[ $t =~ ^([a-z0-9]+)\.([a-z0-9]+)$ ]]; then
     local fra=${BASH_REMATCH[2]}
@@ -11639,8 +11690,9 @@ tarefas_resolver() {
     # estado menos removida): a chance de repetir ali é ínfima, e se repetir pede o código inteiro.
     local -a ach=()
     while IFS=$'\t' read -r i; do
+      [[ -n ${i} ]] || continue
       if [[ $(tarefa_slug "$i") == "$fra" ]] || { [[ $fra =~ ^[0-9a-f]{4,}$ ]] && [[ $i == "$fra"* ]]; }; then ach+=("$i"); fi
-    done < <(tarefas_raw | awk -F'\t' -v p="$pai" '$2 != "removida" && index($6, "pai=" p) { print $1 }')
+    done <<<"$(tarefas_raw | awk -F'\t' -v p="$pai" '$2 != "removida" && index($6, "pai=" p) { print $1 }')"
     case ${#ach[@]} in
       0) return 1 ;;
       1) printf '%s\n' "${ach[0]}"; return 0 ;;
@@ -11947,7 +11999,7 @@ tarefa_add_natural() {
 # mostra; lida de volta por tarefas_frase_ler, dá a mesma tarefa. Subtarefa: só o texto.
 tarefas_frase_de() { # id
   local id=$1 txt m f prazo dia hh h mi tgs
-  IFS=$'\t' read -r txt m < <(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5"\t"($6==""?"-":$6); exit}')
+  IFS=$'\t' read -r txt m <<<"$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $5"\t"($6==""?"-":$6); exit}')"
   [[ -n $txt ]] || return 1
   [[ $m == - ]] && m=""
   f=$txt
@@ -12178,9 +12230,9 @@ tarefas_arquivadas_listar() {
 # o checklist da mãe.
 tarefa_limpar_feitas() {
   local id
-  while read -r id; do tarefa_estado "$id" removida; done < <(tarefas_raw | awk -F'\t' '
+  while read -r id; do [[ -n ${id} ]] || continue; tarefa_estado "$id" removida; done <<<"$(tarefas_raw | awk -F'\t' '
     function pai(m,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (a[i] ~ /^pai=/) return substr(a[i], 5); return "" }
-    $2 == "feita" && pai($6) == "" { print $1 }')
+    $2 == "feita" && pai($6) == "" { print $1 }')"
 }
 
 # --- descrição, prazo e subtarefas -----------------------------------------
@@ -12269,7 +12321,7 @@ PY
     cot=$(conf cotacao_brl); cot=${cot:-5.50}
     custo_usd=$(awk -v v="${brl/,/.}" -v c="${cot/,/.}" 'BEGIN { if (c > 0) printf "%.4f", v / c }')
   elif [[ -n $modelo && ( -n $tent || -n $tsai ) && -f $CONF_DIR/precos ]]; then
-    read -r pin pout < <(awk -F'\t' -v m="$modelo" '$1 == m { print $2, $3; exit }' "$CONF_DIR/precos")
+    read -r pin pout <<<"$(awk -F'\t' -v m="$modelo" '$1 == m { print $2, $3; exit }' "$CONF_DIR/precos")"
     [[ -n ${pin:-} && -n ${pout:-} ]] && custo_usd=$(awk -v i="${tent:-0}" -v o="${tsai:-0}" -v pi="$pin" -v po="$pout" 'BEGIN { printf "%.4f", (i * pi + o * po) / 1e6 }')
   fi
   if [[ $brl =~ ^[0-9]+([.,][0-9]+)?$ ]]; then
@@ -12303,11 +12355,11 @@ tarefa_historico() { # id
     txt=$(tarefas_raw | awk -F'\t' -v i="$i" '$1==i{print $5; exit}')
     printf '%s [%s]\n%s\n\n' "$txt" "$(tarefa_slug "$i")" "$sd"
     n=$((n + $(grep -c '^⟡ ' <<<"$sd")))
-    read -r b1 b2 b3 < <(awk '
+    read -r b1 b2 b3 <<<"$(awk '
       /^  uso: / { if (match($0, /[0-9]+ tokens/)) t += substr($0, RSTART, RLENGTH - 7)
                    if (match($0, /US\$ [0-9]+,[0-9]+/)) { v = substr($0, RSTART + 4, RLENGTH - 4); sub(",", ".", v); u += v }
                    if (match($0, /R\$ [0-9]+,[0-9][0-9]/)) { v = substr($0, RSTART + 3, RLENGTH - 3); sub(",", ".", v); r += v } }
-      END { printf "%d %.4f %.2f\n", t, u, r }' <<<"$sd")
+      END { printf "%d %.4f %.2f\n", t, u, r }' <<<"$sd")"
     tt_=$((tt_ + b1)); usd=$(awk -v a="$usd" -v b="$b2" 'BEGIN { printf "%.4f", a + b }'); brl=$(awk -v a="$brl" -v b="$b3" 'BEGIN { printf "%.2f", a + b }')
   done
   ((n > 0)) || { echo "nenhum registro de trabalho em $(tarefa_slug "$id")"; return 0; }
@@ -12406,7 +12458,7 @@ tarefa_add_sub() { # pai texto
 tarefas_sub_normalizar() { # pai
   local pai=$1 id n=0 o m
   local -a ids=()
-  mapfile -t ids < <(tarefas_filhas "$pai" | cut -f1)
+  mapfile -t ids <<<"$(tarefas_filhas "$pai" | cut -f1)"; if ((${#ids[@]} == 1)) && [[ -z ${ids[0]} ]]; then ids=(); fi
   ((${#ids[@]} > 1)) || return 0
   [[ $(for id in "${ids[@]}"; do printf '%s\n' "$(tarefas_meta_get "$(tarefas_meta_de "$id")" ord)"; done | sort | uniq -d | wc -l) -gt 0 ]] || return 0
   for id in "${ids[@]}"; do
@@ -12418,9 +12470,10 @@ tarefas_sub_normalizar() { # pai
 tarefas_sub_proxima_ord() { # pai -> max(ord)+1
   local pai=$1 maior=0 i mm o
   while IFS=$'\t' read -r i mm; do
+    [[ -n ${i}${mm} ]] || continue
     [[ $(tarefas_meta_get "$mm" pai) == "$pai" ]] || continue
     o=$(tarefas_meta_get "$mm" ord); o=${o:-0}; ((o > maior)) && maior=$o
-  done < <(tarefas_raw | awk -F'\t' '($2=="aberta"||$2=="feita"){print $1"\t"$6}')
+  done <<<"$(tarefas_raw | awk -F'\t' '($2=="aberta"||$2=="feita"){print $1"\t"$6}')"
   echo $((maior + 1))
 }
 
@@ -12440,7 +12493,7 @@ tarefa_sub_mover() { # id cima|baixo
   local id=$1 dir=$2 pai linhas i n vizinho m1 m2 o1 o2
   pai=$(tarefas_meta_get "$(tarefas_meta_de "$id")" pai); [[ -n $pai ]] || return 0
   tarefas_sub_normalizar "$pai"
-  mapfile -t linhas < <(tarefas_filhas "$pai" | cut -f1)
+  mapfile -t linhas <<<"$(tarefas_filhas "$pai" | cut -f1)"; if ((${#linhas[@]} == 1)) && [[ -z ${linhas[0]} ]]; then linhas=(); fi
   n=${#linhas[@]}
   for i in "${!linhas[@]}"; do [[ ${linhas[$i]} == "$id" ]] && break; done
   if [[ $dir == cima ]]; then ((i > 0)) && vizinho=${linhas[$((i-1))]} || return 0
@@ -12465,7 +12518,7 @@ tarefa_mover() { # id cima|baixo
   local id=$1 dir=$2 pai
   pai=$(tarefas_meta_get "$(tarefas_meta_de "$id")" pai)
   if [[ -n $pai ]]; then tarefa_sub_mover "$id" "$dir"; return; fi
-  local -a topo; mapfile -t topo < <(tarefas_topo_ordenadas | awk -F'\t' '$2=="aberta"{print $1}')
+  local -a topo; mapfile -t topo <<<"$(tarefas_topo_ordenadas | awk -F'\t' '$2=="aberta"{print $1}')"; if ((${#topo[@]} == 1)) && [[ -z ${topo[0]} ]]; then topo=(); fi
   local n=${#topo[@]} i
   ((n > 1)) || return 0
   for i in "${!topo[@]}"; do [[ ${topo[$i]} == "$id" ]] && break; done
@@ -12490,8 +12543,9 @@ propagar_tarefas() {
   [[ -f $CONF_TAREFAS ]] || return 0
   local dest rot
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-tarefas" <"$CONF_TAREFAS" >/dev/null 2>&1 &)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
 }
 
 # P2P: puxa de todas e funde (o vigia chama ao iniciar e a cada 5 min).
@@ -12884,9 +12938,10 @@ notifs_lotes_normalizar() {
   local -a L=() M=()
   local -A visto=() ficou=()
   while IFS= read -r cod; do
+    [[ -n ${cod} ]] || continue
     base=${cod%%#*}; IFS=, read -ra L <<<"${cod#*#}"
     for i in "${L[@]}"; do visto[$base#$i]=1; done
-  done < <({ cat "$DIR_NOTIFS"/*.apagada 2>/dev/null || true; } | sed -n 's/^codigo=\([^#]*#.*\)/\1/p')
+  done <<<"$({ cat "$DIR_NOTIFS"/*.apagada 2>/dev/null || true; } | sed -n 's/^codigo=\([^#]*#.*\)/\1/p')"
   for nome in $(notifs_ids | sort -n); do
     cod=""; IFS=$'\t' read -r _e _t _a _c cod _ 2>/dev/null <"$DIR_NOTIFS/$nome" || true
     [[ $cod == ?*#?* ]] || continue
@@ -12948,7 +13003,7 @@ notifs_podar() {
     [[ -n $f ]] || continue
     notifs_lapide "$f"
     rm -f "$DIR_NOTIFS/$f" "$DIR_NOTIFS/$f.lida"
-  done < <(notifs_ids | sort | head -n -30)
+  done <<<"$(notifs_ids | sort | head -n -30)"
 }
 notifs_tar_seguro() { # arquivo .tar: só caminhos simples de IDs de notificação
   local lista
@@ -12980,11 +13035,12 @@ notifs_sincronizar() (
   tmp=$(mktemp -d "$RT/tt-notifs-sync.XXXXXX") || { rm -rf "$lock"; exit 1; }
   trap 'rm -rf "$tmp" "$lock"' EXIT
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     [[ -n $dest ]] || continue
     f=$n; n=$((n + 1))
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --notifs-exportar" </dev/null >"$tmp/$f.tar" 2>/dev/null || rm -f "$tmp/$f.tar") &
     pids+=("$!")
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   for f in "${pids[@]}"; do wait "$f" || true; done
   for f in "$tmp"/*.tar; do
     [[ -f $f ]] && notifs_tar_seguro "$f" && tar -xf "$f" -C "$tmp" --no-same-owner --no-same-permissions 2>/dev/null || continue
@@ -12994,10 +13050,11 @@ notifs_sincronizar() (
   tar -C "$DIR_NOTIFS" -cf "$tmp/rede.tar" . 2>/dev/null || { rm -rf "$tmp"; exit 1; }
   n=0; pids=()
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     [[ -n $dest ]] || continue
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --notifs-receber" <"$tmp/rede.tar" >/dev/null 2>&1) &
     pids+=("$!")
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   for f in "${pids[@]}"; do wait "$f" || true; done
   atualizar_barras >/dev/null 2>&1
 )
@@ -13302,7 +13359,7 @@ email_nao_lidas_total() {
 letreiro_dado() { # tarefas-atrasadas | emails-nao-lidos → um número
   local c
   case ${1:-} in
-    tarefas-atrasadas) read -ra c < <(tarefas_contagens); echo "${c[6]:-0}" ;;
+    tarefas-atrasadas) read -ra c <<<"$(tarefas_contagens)"; echo "${c[6]:-0}" ;;
     emails-nao-lidos) email_nao_lidas_total ;;
     *) echo "dado desconhecido: ${1:-} (tarefas-atrasadas, emails-nao-lidos)" >&2; return 2 ;;
   esac
@@ -13320,8 +13377,9 @@ letreiro_propagar() {
   pacote=$(letreiro_py pacote 2>/dev/null) || return 0
   [[ $pacote == *'@@fonte'* ]] || return 0
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     (timeout 8 ssh "${SSH_OPC[@]}" "$dest" "$TT_REMOTO --receber-letreiro" <<<"$pacote" >/dev/null 2>&1 &)
-  done < <(maquinas)
+  done <<<"$(maquinas)"
 }
 letreiro_puxar() { nas_maquinas letreiro_pacote_em | letreiro_py receber >/dev/null 2>&1; } # junta os pacotes das outras máquinas
 letreiro_pacote_em() { timeout 8 ssh "${SSH_OPC[@]}" "$1" "$TT_REMOTO --letreiro-pacote" </dev/null 2>/dev/null; }
@@ -13409,10 +13467,11 @@ letreiro_catalogo() { # [ID [var=valor…]] — sem ID, lista; com ID, instala (
   shift
   local var perg padrao extra=() a achou
   while IFS=$'\t' read -r var perg padrao; do
+    [[ -n ${var}${perg}${padrao} ]] || continue
     achou=0; for a in "$@"; do [[ $a == "$var="* ]] && achou=1; done
     ((achou)) && continue
     if [[ -t 0 && -t 1 ]]; then read -erp "$perg [$padrao]: " -i "" a || return 1; extra+=("$var=${a:-$padrao}"); fi
-  done < <(letreiro_py catalogo perguntas "$id")
+  done <<<"$(letreiro_py catalogo perguntas "$id")"
   letreiro_py catalogo instalar "$id" "$@" ${extra[@]+"${extra[@]}"} || return $?
   letreiro_mudou
 }
@@ -13445,7 +13504,7 @@ letreiro_form_campo() { # rascunho chave — pergunta o novo valor e aplica ao r
   esac
   if [[ $tipo == lista ]]; then
     local kv=("$k=")
-    while IFS= read -r i; do [[ -n $i ]] && kv+=("$k=$i"); done < <(awk -v s="$novo" 'BEGIN { n = split(s, a, / \|\| /); for (i = 1; i <= n; i++) if (a[i] != "") print a[i] }')
+    while IFS= read -r i; do [[ -n ${i} ]] || continue; [[ -n $i ]] && kv+=("$k=$i"); done <<<"$(awk -v s="$novo" 'BEGIN { n = split(s, a, / \|\| /); for (i = 1; i <= n; i++) if (a[i] != "") print a[i] }')"
     letreiro_py aplicar "$arq" "${kv[@]}" || { letreiro_pausa; return 0; }
   else
     letreiro_py aplicar "$arq" "$k=$novo" || { letreiro_pausa; return 0; }
@@ -14286,7 +14345,7 @@ notifs_cabecalho() {
     buf+=$2; printf '%s %s %s %s\n' "$lin" "$col" "$((col + w - 1))" "$3" >>"$mapa.tmp"
     col=$((col + w))
   }
-  local t nl l ag em ta; read -r t nl l ag em ta < <(notifs_contagens)
+  local t nl l ag em ta; read -r t nl l ag em ta <<<"$(notifs_contagens)"
   if [[ $modo == confirmar ]]; then
     local q="Apagar as $l notificações lidas, aqui e nas outras máquinas?"
     ((l == 1)) && q="Apagar a notificação lida, aqui e nas outras máquinas?"
@@ -14388,7 +14447,7 @@ notifs_acao() { # evento id
   if [[ $modo == confirmar ]]; then
     case $ev in
       confirmar | enter)
-        read -r t nl l ag em ta < <(notifs_contagens)
+        read -r t nl l ag em ta <<<"$(notifs_contagens)"
         notifs_apagar_lidas
         notifs_ui_set modo lista
         if ((l == 1)); then notifs_ui_set aviso '🧹 A notificação lida foi apagada.'
@@ -14409,7 +14468,7 @@ notifs_acao() { # evento id
         notifs_ui_set aviso 'Este aviso não leva a outro lugar; ficou marcado como lido.' ;;
       lida) [[ -n $id ]] || { echo ignore; return 0; }; notifs_alternar_lida "$id" ;;
       todas_lidas)
-        read -r t nl l ag em ta < <(notifs_contagens)
+        read -r t nl l ag em ta <<<"$(notifs_contagens)"
         if ((nl == 0)); then notifs_ui_set aviso 'Nada a marcar: tudo já estava lido.'
         elif ((nl == 1)); then notifs_marcar_lidas; notifs_ui_set aviso '✓ 1 notificação marcada como lida.'
         else notifs_marcar_lidas; notifs_ui_set aviso "✓ $nl notificações marcadas como lidas."; fi ;;
@@ -14417,12 +14476,12 @@ notifs_acao() { # evento id
         [[ -n $id ]] || { echo ignore; return 0; }
         notifs_apagar "$id"; notifs_ui_set aviso '✕ Notificação apagada (aqui e nas outras máquinas).' ;;
       limpar)
-        read -r t nl l ag em ta < <(notifs_contagens)
+        read -r t nl l ag em ta <<<"$(notifs_contagens)"
         if ((l == 0)); then notifs_ui_set aviso 'Nenhuma notificação lida para apagar.'
         else notifs_ui_set modo confirmar; recarga=0; fi ;;
       filtro:* | proximo | anterior)
         local -a vis=(); local a k i=0
-        read -r t nl l ag em ta < <(notifs_contagens)
+        read -r t nl l ag em ta <<<"$(notifs_contagens)"
         local -A num=([todas]=$t [naolidas]=$nl [lidas]=$l [agentes]=$ag [email]=$em [tarefas]=$ta)
         for a in "${NOTIFS_ABAS[@]}"; do
           k=${a%%|*}
@@ -14510,24 +14569,20 @@ notificar_aparelho() { # titulo corpo
   elif tem_cmd termux-notification; then termux-notification --title "$t" --content "$c" >/dev/null 2>&1 && ok=0; fi
   # Também na tela de cada terminal aberto (no WSL não há notify-send).
   while read -r cl; do
+    [[ -n ${cl} ]] || continue
     [[ -n $cl ]] && tmux display-message -c "$cl" -d 15000 "$t · $c" 2>/dev/null && ok=0
-  done < <(tmux list-clients -F '#{client_name}' 2>/dev/null)
+  done <<<"$(tmux list-clients -F '#{client_name}' 2>/dev/null)"
   return $ok
 }
 tarefas_lembrete() {
   [[ ${TT_TAREFAS_LEMBRETE:-1} == 0 ]] && return 0
   [[ -s $CONF_TAREFAS ]] || return 0
-  local arq agora tz ant chave quando txt
+  local arq agora tz ant chave quando txt lembretes
   arq=$(tarefas_lembrete_arq); mkdir -p "$ESTADO_DIR"; touch "$arq"
   read -r agora tz <<<"$(tarefas_relogio)"; ant=$(( ${TT_TAREFAS_ANTECEDENCIA:-10} * 60 ))
   # Com horário: avisa quando faltam ANT segundos (ou já passou), uma vez por prazo (id|epoch).
   # Sem horário: uma vez por dia enquanto vence hoje ou está atrasada (id|AAAAMMDD).
-  while IFS=$'\t' read -r chave quando txt; do
-    grep -qxF "$chave" "$arq" && continue
-    # A tarefa (e o prazo) são os mesmos em todas as máquinas, e todas lembram na mesma hora: o código faz do
-    # lembrete um aviso só no 🔔 da rede.
-    tarefas_notificar "📋 $quando" "$txt" tarefas "" "" "lembrete-$chave" && printf '%s\n' "$chave" >>"$arq"
-  done < <(LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v ANT="$ant" "$TAREFAS_AWK"'
+  lembretes=$(LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v ANT="$ant" "$TAREFAS_AWK"'
     NF >= 5 && valida($1, $2) && $2 == "aberta" && mv($6, "pai") == "" && !($1 in v) {
       v[$1] = 1; p = mv($6, "prazo"); if (p == "") next
       if (mv($6, "hora") == 1) {
@@ -14536,6 +14591,13 @@ tarefas_lembrete() {
         civil(dia(NOW)); print $1 "|" sprintf("%04d%02d%02d", CY, CM, CD) "\t" (dia(p) < dia(NOW) ? "Tarefa atrasada" : "Tarefa de hoje") "\t" $5
       }
     }' "$CONF_TAREFAS")
+  while IFS=$'\t' read -r chave quando txt; do
+    [[ -n $chave ]] || continue
+    grep -qxF "$chave" "$arq" && continue
+    # A tarefa (e o prazo) são os mesmos em todas as máquinas, e todas lembram na mesma hora: o código faz do
+    # lembrete um aviso só no 🔔 da rede.
+    tarefas_notificar "📋 $quando" "$txt" tarefas "" "" "lembrete-$chave" && printf '%s\n' "$chave" >>"$arq"
+  done <<<"$lembretes"
   # Poda: guarda só as chaves de hoje e as de prazos dos últimos 2 dias.
   local hoje tmp; hoje=$(date +%Y%m%d); tmp=$(mktemp)
   awk -F'|' -v h="$hoje" -v lim="$((agora - 172800))" '$2 == h || ($2 ~ /^[0-9]+$/ && length($2) >= 10 && $2 + 0 >= lim)' "$arq" >"$tmp" &&
@@ -14675,8 +14737,8 @@ tarefas_contagens() {
     NF >= 5 && $2 == "pendente" && !($1 in ee) && mv($6, "pai") == "" { ee[$1] = 1; en++ }
     END { printf "%d %d %d %d %d %d %d %d\n", h, a, f, z, t, q, x, en }' "$CONF_TAREFAS"
 }
-tarefas_hoje_n() { local c; read -ra c < <(tarefas_contagens); echo "${c[0]}"; }
-tarefas_demandas_n() { local c; read -ra c < <(tarefas_contagens); echo "${c[7]:-0}"; }
+tarefas_hoje_n() { local c; read -ra c <<<"$(tarefas_contagens)"; echo "${c[0]}"; }
+tarefas_demandas_n() { local c; read -ra c <<<"$(tarefas_contagens)"; echo "${c[7]:-0}"; }
 barra_tarefas_fmt() {
   local h n a x en; read -r h n a a a a x en <<<"$(tarefas_contagens)"
   if ((x > 0)); then
@@ -14820,7 +14882,7 @@ flutuante_cmd() { # [status|on|off|alternar] [cliente]
 # Abre (ou, se já está aberto, fecha) o painel de tarefas como painel modal à direita, altura toda.
 abrir_tarefas_flutuante() { # cliente
   local c=$1 win p ww w x ja
-  read -r win p ww < <(do_cliente "$c" '#{window_id} #{pane_id} #{window_width}')
+  read -r win p ww <<<"$(do_cliente "$c" '#{window_id} #{pane_id} #{window_width}')"
   [[ -n ${win:-} && -n ${p:-} ]] || return 1
   ja=$(tmux list-panes -t "$win" -F '#{pane_id} #{pane_floating_flag} #{pane_start_command}' 2>/dev/null |
     awk '$2 == 1 && /--tarefas-ui/ { print $1; exit }')
@@ -14839,7 +14901,7 @@ abrir_tarefas() {
   # Parado na Entrada sem nada pendente (já aprovou/recusou tudo): volta para Hoje em vez de mostrar uma aba vazia.
   [[ $(tarefas_filtro) == entrada ]] && (($(tarefas_demandas_n) == 0)) && tarefas_filtro_set hoje
   flutuante_ativo && abrir_tarefas_flutuante "$c" && return 0
-  read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
+  read -r cw ch <<<"$(do_cliente "$c" '#{client_width} #{client_height}')"
   if ((${cw:-80} < 80)); then
     w=$cw; x=0
   else
@@ -15030,7 +15092,7 @@ tarefas_cabecalho() {
       # esquerda e, alinhados à direita, calendário, ajuda e ⋯ Mais (que tem todas as ações da tarefa:
       # feita, descrição, prioridade, repetir, mover, apagar). Os atalhos de teclado não mudam. Sem
       # espaço, o desenho encolhe em degraus (sem separador, rótulo curto, só ícones) antes de quebrar.
-      local h ab fe pz to ar atr en; read -r h ab fe pz to ar atr en < <(tarefas_contagens)
+      local h ab fe pz to ar atr en; read -r h ab fe pz to ar atr en <<<"$(tarefas_contagens)"
       local verde=$'\e[48;2;166;227;161m\e[38;2;30;30;46m\e[1m' sep=$'\e[38;2;69;71;90m'
       local -a abas=(hoje abertas feitas prazo todas arquivo) lg=(Hoje Abertas Feitas Agenda Todas Arquivo)
       local -a curto=(Hoje Abert. Feitas Agenda Todas Arq.) nums=("$h" "$ab" "$fe" "$pz" "$to" "$ar")
@@ -15410,7 +15472,7 @@ tarefas_ajuda_linhas() {
 # Menu de ações de uma tarefa, no próprio painel (botão direito, "⋯ mais ações" ou o botão ⋯ Mais).
 tarefas_menu_linhas() { # id
   local id=$1 est txt m pai prazo prio rep pr
-  IFS=$'\t' read -r est txt m < <(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $2"\t"$5"\t"($6==""?"-":$6); exit}')
+  IFS=$'\t' read -r est txt m <<<"$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $2"\t"$5"\t"($6==""?"-":$6); exit}')"
   [[ -n $est ]] || { printf 'voltar\t ‹ voltar (a tarefa não existe mais)\n'; return 0; }
   [[ $m == - ]] && m=""
   pai=$(tarefas_meta_get "$m" pai); prazo=$(tarefas_meta_get "$m" prazo)
@@ -15732,7 +15794,7 @@ tarefa_acao_() { # evento chave (o despachante; tarefa_acao trata as recargas)
 # O pedido que a IA recebe (texto puro): título, descrição, prazo e as subtarefas abertas com os ids.
 tarefa_ia_prompt() { # id [pasta]
   local id=$1 pasta=${2:-$PWD} est txt m pai prazo desc sid sest stxt n=0 pai_txt
-  IFS=$'\t' read -r est txt m < <(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $2"\t"$5"\t"($6==""?"-":$6); exit}')
+  IFS=$'\t' read -r est txt m <<<"$(tarefas_raw | awk -F'\t' -v id="$id" '$1==id{print $2"\t"$5"\t"($6==""?"-":$6); exit}')"
   [[ -n $est ]] || return 1
   [[ $m == - ]] && m=""
   pai=$(tarefas_meta_get "$m" pai); prazo=$(tarefas_meta_get "$m" prazo)
@@ -15749,10 +15811,11 @@ tarefa_ia_prompt() { # id [pasta]
   [[ -n $desc ]] && printf '\nDescrição:\n%s\n' "$desc"
   if [[ -z $pai ]]; then
     while IFS=$'\t' read -r sid sest stxt; do
+      [[ -n ${sid}${sest}${stxt} ]] || continue
       [[ -n $sid ]] || continue
       if ((n == 0)); then printf '\nSubtarefas (código · estado · texto · apelido estável; refira-se a elas pelo apelido ou código, nunca pela posição):\n'; fi
       n=$((n + 1)); printf '  [%s] %s · %s · %s\n' "$sid" "$([[ $sest == feita ]] && echo feita || echo aberta)" "$stxt" "$(tarefa_ref "$sid")"
-    done < <(tarefas_filhas "$id")
+    done <<<"$(tarefas_filhas "$id")"
   fi
   cat <<FIM
 
@@ -15815,15 +15878,16 @@ tarefa_preview() { # chave
   [[ -n $arq ]] && printf '%s▤ Arquivada em %s · ↩ restaura pelo menu ⋯%s\n' "$d" "$(tt_fmt_epoch "${arq%%:*}" +%d/%m/%Y)" "$z"
   local sid sest stxt nf=0 nt=0 subs=""
   while IFS=$'\t' read -r sid sest stxt; do
+    [[ -n ${sid}${sest}${stxt} ]] || continue
     [[ -n $sid ]] || continue
     nt=$((nt + 1)); [[ $sest == feita ]] && nf=$((nf + 1))
     subs+="  $([[ $sest == feita ]] && echo "$verde☑$z $d$stxt$z" || echo "$t☐ $stxt$z")"$'\n'
     subs+="      $d⌗ $(tarefa_slug "$sid") · $sid$z"$'\n'   # apelido e código da subtarefa, discretos
-  done < <(tarefas_raw | awk -F'\t' -v p="$id" '
+  done <<<"$(tarefas_raw | awk -F'\t' -v p="$id" '
     function mv(m, k,   n, a, i) { n = split(m, a, "|"); for (i = 1; i <= n; i++) if (index(a[i], k "=") == 1) return substr(a[i], length(k) + 2); return "" }
     mv($6, "pai") == p && ($2 == "aberta" || $2 == "feita" || $2 == "arquivada") {
       e = $2; if (e == "arquivada") e = (mv($6, "arq") ~ /:a$/ ? "aberta" : "feita")
-      printf "%d\t%d\t%s\t%s\t%s\n", mv($6, "ord") + 0, $3 + 0, $1, e, $5 }' | LC_ALL=C sort -t$'\t' -k1,1n -k2,2n -k3,3 | cut -f3-)
+      printf "%d\t%d\t%s\t%s\t%s\n", mv($6, "ord") + 0, $3 + 0, $1, e, $5 }' | LC_ALL=C sort -t$'\t' -k1,1n -k2,2n -k3,3 | cut -f3-)"
   ((nt > 0)) && printf '\n%sSubtarefas %s/%s%s\n%s' "$s" "$nf" "$nt" "$z" "$subs"
   return 0
 }
@@ -16234,15 +16298,16 @@ calendario_tui() { # modo [epoch-ou-dia] [1 = com horário] [id da tarefa]
     [[ -s $CONF_TAREFAS ]] || return 0
     local l
     while IFS= read -r l; do
+      [[ -n ${l} ]] || continue
       case $l in M\ *) MARCA[${l#M }]=1 ;; D\ *) l=${l#D }; DIA_L+=("${l#*$'\t'}") ;; esac
-    done < <(LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v A="$1" -v B="$2" -v F="$foco" -v HJ="$hoje" "$TAREFAS_AWK"'
+    done <<<"$(LC_ALL=C awk -F'\t' -v NOW="$agora" -v TZOFF="$tz" -v A="$1" -v B="$2" -v F="$foco" -v HJ="$hoje" "$TAREFAS_AWK"'
       NF >= 5 && valida($1, $2) && !($1 in v) && mv($6, "pai") == "" {
         v[$1] = 1; p = mv($6, "prazo"); if (p == "") next
         d = dia(p); h = (mv($6, "hora") == 1)
         if ($2 == "aberta" && d >= A && d <= B) print "M " d
         if (d == F || (F == HJ && $2 == "aberta" && d < HJ))
           printf "D %d%d%010d\t%s\t%s\t%s\t%s\t%s\n", (d < F ? 0 : 1), h, p, $1, $2, (h ? hhmm(p) : "-"), (d < F ? 1 : "-"), $5
-      }' "$CONF_TAREFAS" | LC_ALL=C sort)
+      }' "$CONF_TAREFAS" | LC_ALL=C sort)"
   }
   _desenha() {
     W=$(tput cols 2>/dev/null || echo 72); H=$(tput lines 2>/dev/null || echo 40)
@@ -16485,7 +16550,7 @@ calendario_tui() { # modo [epoch-ou-dia] [1 = com horário] [id da tarefa]
 # Calendário do relógio da barra: a agenda num popup, do tamanho que couber na tela.
 abrir_calendario() {
   local c=$1 cw ch w h
-  read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
+  read -r cw ch <<<"$(do_cliente "$c" '#{client_width} #{client_height}')"
   w=76; h=36; ((w > ${cw:-80})) && w=${cw:-80}; ((h > ${ch:-24})) && h=${ch:-24}
   tmux display-popup -c "$c" -w "$w" -h "$h" -b rounded -S 'fg=#89b4fa' -T ' ▦ agenda · esc fecha ' \
     -E "TT_CLIENTE=$(q "$c") TT_BARRA_FUNDO=1 $EU --calendario-agenda"
@@ -16497,13 +16562,15 @@ tarefas_listar() {
   printf '📋 tarefas (%s aberta%s)\n' "$n" "$( ((n==1)) || printf s )"
   local i est txt m pai ap
   while IFS=$'\t' read -r i est txt m; do
+    [[ -n ${i}${est}${txt}${m} ]] || continue
     [[ $m == - ]] && m=""; pai=$(tarefas_meta_get "$m" pai)
     [[ -n $pai ]] && continue
     printf '  %s  %s  [%s %s]\n' "$([[ $est == feita ]] && echo ☑ || echo ☐)" "$txt" "$(tarefa_slug "$i")" "$i"
     while IFS=$'\t' read -r si sest stxt; do
+      [[ -n ${si}${sest}${stxt} ]] || continue
       printf '      %s  %s  [%s %s]\n' "$([[ $sest == feita ]] && echo ☑ || echo ☐)" "$stxt" "$(tarefa_ref "$si")" "$si"
-    done < <(tarefas_filhas "$i")
-  done < <(tarefas_vivas | awk -F'\t' '{ print $1 "\t" $2 "\t" $5 "\t" ($6 == "" ? "-" : $6) }')
+    done <<<"$(tarefas_filhas "$i")"
+  done <<<"$(tarefas_vivas | awk -F'\t' '{ print $1 "\t" $2 "\t" $5 "\t" ($6 == "" ? "-" : $6) }')"
 }
 
 # Botão direito no 📋: ações rápidas sem abrir o painel inteiro.
@@ -16557,10 +16624,11 @@ alternar_fixada() {
 desafixar_item() {
   local c=$1 chave=${2#fxx} r s id k
   while IFS=$'\t' read -r r s id; do
+    [[ -n ${r}${s}${id} ]] || continue
     fixada_chave_em k "$r" "$s" "$id"
     [[ $k == "$chave" ]] && break
     r=""; s=""
-  done < <(fixadas)
+  done <<<"$(fixadas)"
   [[ -n $s ]] || return 0
   # Só remove, nunca alterna: o ✕ dispara no apertar e no soltar e, num toque lento (> 0,5 s), os
   # dois rodam juntos; com alternar, o segundo achava a sessão já fora da lista e fixava de novo.
@@ -16656,7 +16724,7 @@ reconciliar_fixadas() {
   v0=$(versao_fixadas)
   tmp=$(mktemp "$CONF_FIX.XXXXXX") || return 1
   dir=$(mktemp -d "$RT/tt-reconc.XXXXXX") || { rm -f "$tmp"; return 1; }
-  mapfile -t FX < <(fixadas)
+  mapfile -t FX <<<"$(fixadas)"; if ((${#FX[@]} == 1)) && [[ -z ${FX[0]} ]]; then FX=(); fi
   # As outras máquinas respondem todas ao mesmo tempo (antes, uma fixada por vez): a conferência leva o
   # tempo da mais lenta, e a janela em que a lista pode mudar no meio fica menor.
   for k in "${!FX[@]}"; do
@@ -17225,6 +17293,7 @@ barra_fixadas() {
   done <<<"$ls_tela"
   printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
   while IFS=$'\t' read -r r s id; do
+    [[ -n $r ]] || continue
     i=$((i + 1))
     fixada_chave_em chave "$r" "$s" "$id"
     if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
@@ -17235,17 +17304,18 @@ barra_fixadas() {
     else cor='#[bg=#44475a,fg=#f8f8f2]'; fi
     # Item (clique vai à sessão) + ✕ (clique desafixa).
     printf '#[range=user|fx%s]%s %s#[norange]#[range=user|fxx%s]%s ✕ #[norange]#[default] ' "$chave" "$cor" "$rot" "$chave" "$cor"
-  done < <(fixadas)
+  done <<<"$(fixadas)"
 }
 
 # Clique num item fixado: vai para ele (ponte, se for de outra máquina).
 ir_fixada() {
   local c=$1 chave=${2#fx} r s id k d resolvida fora rc _origem_fixada id_real
   while IFS=$'\t' read -r r s id; do
+    [[ -n ${r}${s}${id} ]] || continue
     fixada_chave_em k "$r" "$s" "$id"
     [[ $k == "$chave" ]] && break
     r=""; s=""
-  done < <(fixadas)
+  done <<<"$(fixadas)"
   [[ -n $s ]] || { log_clique sem-fixada "chave=$chave cliente=$c"; return 0; }
   # O encaminhador pode estar frio (ex.: só há uma ponte, sem janela física nesta máquina).
   # Inicia-o aqui antes de decidir por SSH; o cliente aninhado só encaminha, nunca prepara.
@@ -17297,10 +17367,11 @@ ir_fixada() {
 menu_fixada() {
   local c=$1 chave=${2#fx} r s id k n i
   while IFS=$'\t' read -r r s id; do
+    [[ -n ${r}${s}${id} ]] || continue
     fixada_chave_em k "$r" "$s" "$id"
     [[ $k == "$chave" ]] && break
     r=""; s=""
-  done < <(fixadas)
+  done <<<"$(fixadas)"
   [[ -n $s ]] || return 0
   i=$(fixadas | awk -F'\t' -v r="$r" -v s="$s" '$1 == r && $2 == s { print NR; exit }')
   n=$(fixadas | wc -l)
@@ -17404,16 +17475,17 @@ fixadas_popup() {
 fixadas_ui_lista() {
   local i=0 r s id rot marca k
   local -A existe SELO SELO_COR
-  while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  while read -r s; do [[ -n ${s} ]] || continue; existe[$s]=1; done <<<"$(tmux list-sessions -F '#{session_name}' 2>/dev/null)"
   fixadas_selos
   # Nome inteiro (a faixa abrevia; aqui não): "E sessão  · máquina", com o selo colorido.
   while IFS=$'\t' read -r r s id; do
+    [[ -n ${r}${s}${id} ]] || continue
     i=$((i + 1))
     if [[ $r == "$MAQUINA" ]]; then rot=$s; marca=$([[ -n ${existe[$s]:-} ]] && echo "" || echo " ✗ fechada")
     else rot="$(selo_ansi "$r") $s"; marca="  · $r"; fi
     fixada_chave_em k "$r" "$s" "$id"
     printf 'fx%s\t%2d  📌 %s\033[38;2;108;112;134m%s\033[0m\n' "$k" "$i" "$rot" "$marca"
-  done < <(fixadas)
+  done <<<"$(fixadas)"
 }
 
 fixadas_ui() {
@@ -17448,7 +17520,7 @@ mover_fixada_rel() {
 desafixar_n() {
   local n0=$1 r s id
   [[ $n0 =~ ^[0-9]+$ ]] || return 0
-  IFS=$'\t' read -r r s id < <(fixadas | sed -n "$((n0 + 1))p")
+  IFS=$'\t' read -r r s id <<<"$(fixadas | sed -n "$((n0 + 1))p")"
   [[ -n $s ]] && remover_fixada "$r" "$s" "$id"
   return 0
 }
@@ -17515,7 +17587,7 @@ abrir_arquivo_local() {
   local f=${1:-} d w x
   [[ -f $f ]] || return 1
   if command -v xdg-open >/dev/null; then
-    { read -r d; read -r w; read -r x; } < <(tela_grafica)
+    { read -r d; read -r w; read -r x; } <<<"$(tela_grafica)"
     DISPLAY=$d WAYLAND_DISPLAY=$w XDG_RUNTIME_DIR=$x setsid xdg-open "$f" >/dev/null 2>&1 </dev/null && return 0
   fi
   if command -v wslpath >/dev/null && [[ -x /mnt/c/Windows/System32/cmd.exe ]]; then
@@ -17593,7 +17665,10 @@ anexo_salvar() {
     [[ -d $base/salvar ]] || { echo "Nada para salvar: escolha o anexo com Ctrl+j / Ctrl+k e aperte S."; return 1; }
     lote=$(anexos_lote salvar) || return 1
   fi
-  while IFS= read -r -d '' n; do nomes+=("${n##*/}"); done < <(find "$lote" -mindepth 1 -maxdepth 1 -print0)
+  local lt; lt=$(mktemp "$RT/tt-lote.XXXXXX" 2>/dev/null) || lt=/dev/null # arquivo, não < <(find -print0): sem /dev/fd no proot
+  [[ $lt == /dev/null ]] || find "$lote" -mindepth 1 -maxdepth 1 -print0 >"$lt"
+  while IFS= read -r -d '' n; do nomes+=("${n##*/}"); done <"$lt"
+  [[ $lt == /dev/null ]] || rm -f "$lt"
   ((${#nomes[@]})) || { rmdir "$lote" "${lote%/*}" 2>/dev/null; return 0; }
   t=$(dest_da_tela)
   if [[ -n $t ]]; then
@@ -17745,7 +17820,7 @@ AT
 # como tooltip explícito, mostrando o comando completo sem executar nada; o clique normal continua abrindo a sessão.
 atalho_info() {
   local cliente=$1 i=$2 emoji id cmd cor
-  IFS=$'\t' read -r emoji id cmd cor _ < <(atalhos_lista | sed -n "${i}p")
+  IFS=$'\t' read -r emoji id cmd cor _ <<<"$(atalhos_lista | sed -n "${i}p")"
   [[ -n $cmd ]] || return 0
   tmux display-message -c "$cliente" "$emoji  $id: $cmd"
 }
@@ -17803,7 +17878,7 @@ atalho_contas_gerar() { # comando arquivo
 atalho_menu_itens() { # id cliente painel
   local id=$1 c=$2 p=$3 emoji cmd cor menu item rot r d conta prov uso k=0 nfixa=0 seguir="" tecla
   local teclas=123456789abcdefghijklmnopqrstuvwxyz rodar
-  IFS=$'\t' read -r emoji _ cmd cor menu < <(atalho_por_id "$id")
+  IFS=$'\t' read -r emoji _ cmd cor menu <<<"$(atalho_por_id "$id")"
   [[ -n $cmd ]] || return 0
   [[ $cmd == @seguir* ]] && seguir=1
   rodar="$EU --atalho-rodar $(q "$id" "$c" "$p")"
@@ -17821,20 +17896,22 @@ atalho_menu_itens() { # id cliente painel
       @contas)
         printf -- '-\t\t\n'
         while IFS=$'\t' read -r conta prov rot uso; do
+          [[ -n ${conta}${prov}${rot}${uso} ]] || continue
           [[ -n $conta ]] || continue
           [[ $uso == - ]] && uso=""
           tecla=${teclas:k:1} k=$((k + 1))
           printf '%s\t🤖 %s%s\t%s %s\n' "$tecla" "$rot" "${uso:+  ·  $uso}" "$rodar" "$(q "conta=$conta")"
-        done < <(atalho_contas "$cmd")
+        done <<<"$(atalho_contas "$cmd")"
         ;;
       @maquinas)
         printf -- '-\t\t\n'
         while read -r d r; do
+          [[ -n ${d}${r} ]] || continue
           [[ $r == "$MAQUINA" ]] && continue
           tecla=${teclas:k:1} k=$((k + 1))
           if [[ -n $seguir ]]; then rot="$emoji Seguir em $r"; else rot="🖥 Em $r (sessão nova lá)"; fi
           printf '%s\t%s\t%s %s\n' "$tecla" "$rot" "$rodar" "$(q "maquina=$r")"
-        done < <(maquinas)
+        done <<<"$(maquinas)"
         ;;
       *=*)
         nfixa=$((nfixa + 1)) tecla=${teclas:k:1} k=$((k + 1))
@@ -17850,7 +17927,7 @@ atalho_menu_itens() { # id cliente painel
 # Botão direito num atalho: o menu dele, ou (sem a 5ª coluna) o comando, como antes.
 atalho_menu() { # cliente índice painel
   local c=$1 i=$2 p=${3:-} emoji id cmd cor menu
-  IFS=$'\t' read -r emoji id cmd cor menu < <(atalhos_lista | sed -n "${i}p")
+  IFS=$'\t' read -r emoji id cmd cor menu <<<"$(atalhos_lista | sed -n "${i}p")"
   [[ -n $cmd ]] || return 0
   [[ -n $menu ]] || { atalho_info "$c" "$i"; return 0; }
   [[ -n $p ]] || p=$(do_cliente "$c" '#{pane_id}')
@@ -17861,7 +17938,7 @@ atalho_menu() { # cliente índice painel
 # opção fixa). tt --atalho-rodar ID CLIENTE PAINEL [ESCOLHA].
 atalho_rodar() { # id cliente painel [escolha]
   local id=$1 c=$2 p=${3:-} esc=${4:-} emoji cmd cor menu pasta item n=0 v
-  IFS=$'\t' read -r emoji _ cmd cor menu < <(atalho_por_id "$id")
+  IFS=$'\t' read -r emoji _ cmd cor menu <<<"$(atalho_por_id "$id")"
   [[ -n $cmd ]] || { botao_aviso "$c" "atalho $id: não existe (mais) nesta máquina"; return 0; }
   [[ -n $p ]] || p=$(do_cliente "$c" '#{pane_id}')
   pasta=$(tmux display-message -p -t "$p" '#{pane_current_path}' 2>/dev/null); [[ -n $pasta ]] || pasta=$HOME
@@ -17920,7 +17997,7 @@ atalho_nova_sessao() { # pasta comando id
 # O atalho ID numa sessão nova desta máquina (o @maquinas pedido de outra); imprime o nome da sessão.
 atalho_sessao() { # id [pasta]
   local id=$1 pasta emoji cmd cor
-  IFS=$'\t' read -r emoji _ cmd cor _ < <(atalho_por_id "$id")
+  IFS=$'\t' read -r emoji _ cmd cor _ <<<"$(atalho_por_id "$id")"
   [[ -n $cmd && $cmd != @seguir* ]] || return 1
   pasta=$(expandir "${2:-$HOME}"); [[ -d $pasta ]] || pasta=$HOME
   atalho_nova_sessao "$pasta" "${cmd#@aqui }" "$id"
@@ -18010,7 +18087,7 @@ atalho_aqui() {
 
 atalho_executar() {
   local i=$1 cliente=$2 pane=$3 pasta=${4:-$HOME} emoji id cmd cor
-  IFS=$'\t' read -r emoji id cmd cor _ < <(atalhos_lista | sed -n "${i}p")
+  IFS=$'\t' read -r emoji id cmd cor _ <<<"$(atalhos_lista | sed -n "${i}p")"
   [[ -n $cmd ]] || { tmux display-message -c "$cliente" "atalho indisponível" 2>/dev/null || true; return 0; }
   atalho_comando "$cliente" "$pane" "$pasta" "$cmd" "$id"
 }
@@ -18044,7 +18121,7 @@ atalho_janela() { # cliente pasta comando id
     botao_aviso "$c" "⚠ 🎤 não consegui abrir na máquina de origem ($om); abrindo aqui"
   fi
   # até 96 colunas e quase a altura toda (a conversa do 🎤 rola por dentro: roda do mouse, PgUp/PgDn), até 60 linhas
-  read -r cw ch < <(do_cliente "$c" '#{client_width} #{client_height}')
+  read -r cw ch <<<"$(do_cliente "$c" '#{client_width} #{client_height}')"
   [[ $cw =~ ^[0-9]+$ ]] && ((cw < w + 2)) && w=$((cw > 22 ? cw - 2 : 20))
   [[ $ch =~ ^[0-9]+$ ]] && { h=$((ch - 6)); ((h > 60)) && h=60; ((h < 6)) && h=6; }
   tit=$(atalho_por_id "$id" | cut -f1); tit="${tit:+$tit }$id"
@@ -18112,7 +18189,7 @@ agente_no_painel() { # painel
 # o sessoes-ia.py usa o código da linha de comando (--resume) e nunca a conversa de outro Claude vivo.
 conversa_do_painel() { # painel
   local p=$1 prov pid pids id="" tela
-  read -r prov pid pids < <(agente_no_painel "$p") || return 1
+  read -r prov pid pids <<<"$(agente_no_painel "$p")" || return 1
   [[ -n $pid ]] || return 1
   [[ $prov == claude ]] && id=$(claude_info "$pid" 2>/dev/null | awk '{ print $1 }')
   if [[ -z $id ]]; then
@@ -18155,8 +18232,9 @@ conversa_ia() { # id [--de máquina] [--salvar]
 seguir_cmd() {
   local emoji id cmd
   while IFS=$'\t' read -r emoji id cmd _; do
+    [[ -n ${emoji}${id}${cmd} ]] || continue
     [[ $cmd == '@seguir '* ]] && { printf '%s\n' "${cmd#@seguir }"; return 0; }
-  done < <(atalhos_lista; atalhos_base)
+  done <<<"$(atalhos_lista; atalhos_base)"
   return 1
 }
 
@@ -18224,7 +18302,7 @@ seguir_ia() { # cliente painel [rótulo-destino]
   if [[ -n $(tmux show-options -qv -t "=$sessao:" @ponte 2>/dev/null) ]]; then
     botao_aviso "$c" "este painel é de outra máquina: use o ⏩ da barra de lá"; return 0
   fi
-  if ! read -r prov pid id < <(conversa_do_painel "$p") || [[ -z $id ]]; then
+  if ! read -r prov pid id <<<"$(conversa_do_painel "$p")" || [[ -z $id ]]; then
     botao_aviso "$c" "⏩ não achei uma conversa de IA (Claude, Codex ou Kiro) neste painel"; return 0
   fi
   pasta=$(tmux display-message -p -t "$p" '#{pane_current_path}' 2>/dev/null); [[ -n $pasta ]] || pasta=$HOME
@@ -18305,7 +18383,7 @@ rolar_sessao() { # cliente ±1
   local -a L=()
   rolar_vez "s-$c" "${TT_ROLAR_FOLGA:-150}" || return 0
   atual=$(do_cliente "$c" '#{session_name}')
-  mapfile -t L < <(sessoes_roda)
+  mapfile -t L <<<"$(sessoes_roda)"; if ((${#L[@]} == 1)) && [[ -z ${L[0]} ]]; then L=(); fi
   n=${#L[@]}
   for k in "${!L[@]}"; do [[ ${L[k]} == "$atual" ]] && { i=$k; break; }; done
   if ((n == 0)) || ((n == 1 && i == 0)); then
@@ -18334,7 +18412,7 @@ rolar_maquina_cliente() { # cliente rótulo-atual ±1
   local -a R=() D=()
   rolar_vez "m-$c" "${TT_ROLAR_FOLGA:-400}" || return 0
   R=("$MAQUINA"); D=(.)
-  while read -r d r; do [[ -n $r ]] && R+=("$r") D+=("$d"); done < <(maquinas)
+  while read -r d r; do [[ -n ${d}${r} ]] || continue; [[ -n $r ]] && R+=("$r") D+=("$d"); done <<<"$(maquinas)"
   n=${#R[@]}
   for k in "${!R[@]}"; do [[ ${R[k]} == "$atual" ]] && { i=$k; break; }; done
   for ((k = 1; k < n; k++)); do
@@ -18546,8 +18624,9 @@ destinos() {
   p=$(pasta_recebidos)
   printf '%s\t\033[1m%s\033[0m \033[32m(padrão: recebidos)\033[0m \033[90m%s\033[0m\n' "$p" "$p" "$(caminho_visivel "$p" | sed 's/^[^(]*//')"
   while IFS=$'\t' read -r v s; do
+    [[ -n ${v}${s} ]] || continue
     printf '%s\t\033[1m%s\033[0m \033[90m(sessão %s) %s\033[0m\n' "$v" "$v" "$s" "$(caminho_visivel "$v" | sed 's/^[^(]*//')"
-  done < <(pastas_sessoes)
+  done <<<"$(pastas_sessoes)"
   printf '~\t\033[1m~\033[0m \033[90m(pasta pessoal) %s\033[0m\n' "$(caminho_visivel '~' | sed 's/^[^(]*//')"
 }
 
@@ -18821,10 +18900,11 @@ ir_papel() {
     return
   fi
   while IFS=$'\t' read -r sess jan p dir; do
+    [[ -n ${sess}${jan}${p}${dir} ]] || continue
     if [[ $p == "$papel" && $dir == "$pasta" ]]; then
       tmux select-window -t "$jan" && tmux switch-client -c "$cliente" -t "=$sess"; return
     fi
-  done < <(tmux list-windows -a -F '#{session_name}'$'\t''#{window_id}'$'\t''#{@tt_papel}'$'\t''#{@tt_pasta}')
+  done <<<"$(tmux list-windows -a -F '#{session_name}'$'\t''#{window_id}'$'\t''#{@tt_papel}'$'\t''#{@tt_pasta}')"
   nome=$(proximo_nome "$papel")
   tmux new-session -d -s "$nome" -c "$pasta" "$cmd; exec \${SHELL:-bash}" || { botao_aviso "$cliente" "$papel: não consegui abrir a sessão"; return; }
   tmux set-option -w -t "=$nome:" @tt_papel "$papel"
@@ -19017,8 +19097,9 @@ mesh_tick_todas() {
   nome=$(conf nome) || nome=$(hostname -s)
   par mesh_tick_um "$d/0" local "$nome" "" "$n"
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     i=$((i + 1)); par mesh_tick_um "$d/$i" remoto "$rot" "$dest" "$n"
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   par_fim
   for ((j = 0; j <= i; j++)); do
     IFS=$'\t' read -r st rot linha <"$d/$j"
@@ -19032,8 +19113,9 @@ mesh_puxar() {
   local dest rot
   (cd "$HOME/tt-mesh" 2>/dev/null && git pull -q --rebase --autostash >/dev/null 2>&1)
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     timeout 40 ssh "${SSH_OPC[@]}" "$dest" "bash -lc 'cd ~/tt-mesh && git pull -q --rebase --autostash'" </dev/null >/dev/null 2>&1
-  done < <(maquinas)
+  done <<<"$(maquinas)"
 }
 # Como está o tick em cada máquina (esta e as cadastradas), consultando todas ao mesmo tempo:
 # "local|remoto<TAB>rótulo<TAB>agendador: a cada N min | ?  motivo<TAB>destino ssh" por linha, na ordem do cadastro.
@@ -19044,8 +19126,9 @@ mesh_tick_lista() {
   nome=$(conf nome) || nome=$(hostname -s)
   par mesh_tick_um "$d/0" local "$nome" "" ver
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     i=$((i + 1)); dests[i]=$dest; par mesh_tick_um "$d/$i" remoto "$rot" "$dest" ver
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   par_fim
   for ((j = 0; j <= i; j++)); do
     IFS=$'\t' read -r st rot linha <"$d/$j"
@@ -19063,7 +19146,7 @@ mesh_tick_menu() {
   while :; do
     clear 2>/dev/null
     printf '\n  \033[1m🕐 Tick do mesh\033[0m  ·  o chefe de cada máquina roda nesse intervalo\n\n  \033[2mconsultando as máquinas…\033[0m'
-    mapfile -t linhas < <(mesh_tick_lista)
+    mapfile -t linhas <<<"$(mesh_tick_lista)"; if ((${#linhas[@]} == 1)) && [[ -z ${linhas[0]} ]]; then linhas=(); fi
     printf '\r\033[2K  \033[2m%-3s %-14s %-9s %s\033[0m\n' "n." "maquina" "agenda" "intervalo"
     tipos=() rots=() dests=()
     i=0
@@ -19230,7 +19313,7 @@ email_aerc_comando() {
   local cmd criada agora n=0
   printf -v agora '%(%s)T' -1
   while :; do
-    read -r cmd criada < <(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command} #{session_created}' 2>/dev/null)
+    read -r cmd criada <<<"$(tmux display -p -t "=$EMAIL_SESSAO:" '#{pane_current_command} #{session_created}' 2>/dev/null)"
     [[ $cmd == env || $cmd == bash || $cmd == zsh || $cmd == sh ]] || break
     [[ $criada =~ ^[0-9]+$ ]] && ((agora - criada < 5 && n++ < 40)) || break
     sleep .05
@@ -19418,6 +19501,7 @@ re_escapar() { printf '%s' "$1" | sed 's/[][\\.*^$+?(){}|]/\\&/g'; }
 email_binds_contas_gerar() { # tecla_apagar tecla_apagar_direto tecla_arquivar
   local ka=$1 kd=$2 kq=$3 nome l sp td g re p ctx; local -A vistas=()
   while IFS=$'\x1f' read -r nome l sp td g; do
+    [[ -n ${nome}${l}${sp}${td}${g} ]] || continue
     [[ -n $nome ]] || continue
     re=$(re_escapar "$nome")
     if [[ -z $l ]]; then
@@ -19448,7 +19532,7 @@ email_binds_contas_gerar() { # tecla_apagar tecla_apagar_direto tecla_arquivar
         ((g)) && [[ -n $kq ]] && printf '%s =\n' "$kq"
       done
     done
-  done < <(email_contas_lixeira)
+  done <<<"$(email_contas_lixeira)"
   return 0
 }
 email_binds_contas() { email_binds_contas_gerar d D a; }                    # → binds.conf
@@ -20497,22 +20581,24 @@ email_novos_avisar() { # slug
   local todas; todas=$(find "$md/new" "$md/cur" -type f -printf '%f\n' 2>/dev/null | sed 's/:2,.*//' | sort -u)
   if [[ ! -f $vistas ]]; then printf '%s\n' "$todas" >"$vistas"; return 0; fi
   # não lidas agora: tudo em new/ e, em cur/, o que não tem a marca S
-  novas=$(comm -13 <(sort -u "$vistas") <(find "$md/new" "$md/cur" -type f \( -path '*/new/*' -o ! -name '*:2,*S*' \) -printf '%f\n' 2>/dev/null | sed 's/:2,.*//' | sort -u))
+  local agora_nao_lidas; agora_nao_lidas=$(find "$md/new" "$md/cur" -type f \( -path '*/new/*' -o ! -name '*:2,*S*' \) -printf '%f\n' 2>/dev/null | sed 's/:2,.*//' | sort -u)
+  novas=$(grep -vxFf "$vistas" <<<"$agora_nao_lidas") # as que não estavam em $vistas (comm -13 sem substituição de processo)
   printf '%s\n' "$todas" >"$vistas.tmp" && mv "$vistas.tmp" "$vistas"
   [[ -n $novas ]] || return 0
   local -a arqs=(); local -A K=()
   # o arquivo de cada nova, na ordem delas (a de chegada)
-  mapfile -t arqs < <(awk -F'\t' 'NR == FNR { u = $1; sub(/:2,.*/, "", u); if (!(u in p)) p[u] = $2; next } $0 in p { print p[$0] }' \
-    <(find "$md/new" "$md/cur" -type f -printf '%f\t%p\n' 2>/dev/null) <(printf '%s\n' "$novas"))
+  local mapa_novas; mapa_novas=$(mktemp "$RT/tt-novas.XXXXXX") && find "$md/new" "$md/cur" -type f -printf '%f\t%p\n' 2>/dev/null >"$mapa_novas"
+  mapfile -t arqs <<<"$(printf '%s\n' "$novas" | awk -F'\t' 'NR == FNR { u = $1; sub(/:2,.*/, "", u); if (!(u in p)) p[u] = $2; next } $0 in p { print p[$0] }' "$mapa_novas" -)"; rm -f "$mapa_novas"; if ((${#arqs[@]} == 1)) && [[ -z ${arqs[0]} ]]; then arqs=(); fi
   ((${#arqs[@]})) || return 0
-  while IFS= read -r chave; do [[ -n $chave ]] && K[$chave]=1; done < <(notifs_itens_conhecidos "email-$slug")
+  while IFS= read -r chave; do [[ -n ${chave} ]] || continue; [[ -n $chave ]] && K[$chave]=1; done <<<"$(notifs_itens_conhecidos "email-$slug")"
   while IFS=$'\t' read -r chave de assunto; do
+    [[ -n ${chave}${de}${assunto} ]] || continue
     [[ -n $chave ]] || continue
     n=$((n + 1)); ((n <= 3)) && corpo+="${corpo:+ · }${de:-?} — ${assunto:-(sem assunto)}"
     [[ -n ${K[$chave]:-} ]] && continue
     K[$chave]=1; m=$((m + 1)); itens+="${itens:+,}$chave"
     ((m <= 3)) && corpo_rede+="${corpo_rede:+ · }${de:-?} — ${assunto:-(sem assunto)}"
-  done < <(python3 -I "$EMAIL_PY" cabecalhos "${arqs[@]}" 2>/dev/null)
+  done <<<"$(python3 -I "$EMAIL_PY" cabecalhos "${arqs[@]}" 2>/dev/null)"
   ((n > 0)) || return 0
   ((n > 3)) && corpo+=" · e mais $((n - 3))"
   ((m > 3)) && corpo_rede+=" · e mais $((m - 3))"
@@ -20764,11 +20850,11 @@ EMAIL_ERRO_SENHA='AUTHENTICATIONFAILED|Invalid credentials|login failed|authenti
 email_sync_resumo() { # slug → ok|nunca|atrasado|erro|parado
   local slug=$1 dir="$ESTADO_DIR/email-sync" agora intervalo ultimo st ok seq vivo ini esp
   printf -v agora '%(%s)T' -1
-  read -r ultimo st ok seq vivo < <(awk -F'\t' '
+  read -r ultimo st ok seq vivo <<<"$(awk -F'\t' '
     $1 == "inbox" { ultimo = $3; st = $4; if ($4 == 0) { ok = $3; seq = 0 } else seq++ }
     $1 == "completo" && $4 == 0 { ok = $3; seq = 0; st = 0 }   # o grupo inclui o INBOX
     $3 > vivo { vivo = $3 }
-    END { printf "%d %d %d %d %d\n", ultimo, st, ok, seq, vivo }' "$dir/$slug" 2>/dev/null)
+    END { printf "%d %d %d %d %d\n", ultimo, st, ok, seq, vivo }' "$dir/$slug" 2>/dev/null)"
   if [[ -f $dir/$slug.andamento ]]; then
     read -r _ ini <"$dir/$slug.andamento"
     ((agora - ${ini:-0} < ${TT_EMAIL_SYNC_TETO:-600} + 60)) && vivo=$agora   # andamento velho = processo que morreu
@@ -20804,7 +20890,7 @@ email_sync_estado() { # [curto]
     ((esp > agora)) && printf '  ⏸ %s falha(s) seguida(s): o vigia tenta de novo em %s (à mão: tt --email-sync %s)\n' "$(cat "$dir/$slug.falhas" 2>/dev/null || echo 1)" "$(_dur $((esp - agora)))" "$slug"
     for modo in inbox completo; do
       ini=""; fim=""; st=0
-      read -r _ ini fim st < <(awk -F'\t' -v m="$modo" '$1 == m' "$dir/$slug" 2>/dev/null | tail -1)
+      read -r _ ini fim st <<<"$(awk -F'\t' -v m="$modo" '$1 == m' "$dir/$slug" 2>/dev/null | tail -1)"
       if [[ -z ${fim:-} ]]; then printf '  %-9s nunca\n' "$modo"; continue; fi
       printf '  %-9s há %s · levou %s · %s\n' "$modo" "$(_dur $((agora - fim)))" "$(_dur $((fim - ini)))" "$( ((st == 0)) && echo ok || echo "✗ erro $st")"
     done
@@ -20835,6 +20921,7 @@ email_importar_legado() {
   [[ -f $AERC_CONTAS ]] || return 0
   local nome slug end tmp; local -A E=()
   while IFS=$'\t' read -r nome end; do
+    [[ -n ${nome}${end} ]] || continue
     slug=$(email_slug "$nome")
     [[ -e $(email_conf_arq "$slug") || ! -f $(email_cred_arq "$slug") ]] && continue
     E=([_slug]=$slug [nome]=$nome [endereco]=$end [provedor]=gmail [auth]=senha [imap_host]=imap.gmail.com [imap_porta]=993
@@ -20843,11 +20930,11 @@ email_importar_legado() {
     tmp=$(mktemp)
     awk -v alvo="[$nome]" '$0 == alvo { pula = 1; next } pula && /^\[.*\]$|^# >>> tt e-mail:/ { pula = 0 } !pula' "$AERC_CONTAS" >"$tmp" && cat "$tmp" >"$AERC_CONTAS"
     rm -f "$tmp"; email_gravar; email_regerar "$slug"
-  done < <(awk '/^# >>> tt e-mail:/ { g = 1 } /^# <<< tt e-mail:/ { g = 0; next } g { next }
+  done <<<"$(awk '/^# >>> tt e-mail:/ { g = 1 } /^# <<< tt e-mail:/ { g = 0; next } g { next }
     /^\[.*\]$/ { n = substr($0, 2, length($0) - 2); next }
     n != "" && /^source[ \t]*=[ \t]*imaps:\/\/[^@]*@imap\.gmail\.com/ { src[n] = 1 }
     n != "" && /^from[ \t]*=/ { sub(/^from[ \t]*=[ \t]*/, ""); fr[n] = $0 }
-    END { for (k in src) print k "\t" fr[k] }' "$AERC_CONTAS")
+    END { for (k in src) print k "\t" fr[k] }' "$AERC_CONTAS")"
 }
 
 # Contas escritas à mão (fora dos marcadores): "nome" por linha.
@@ -20865,6 +20952,7 @@ email_assumir() {
   [[ -e $(email_conf_arq "$slug") ]] && { echo "Já existe uma conta do tt com o identificador $slug."; return 1; }
   E=([_slug]=$slug [nome]=$nome [pasta]=INBOX [provedor]=outro)
   while IFS= read -r l; do
+    [[ -n ${l} ]] || continue
     [[ $l =~ ^[[:space:]]*([a-z-]+)[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
     k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
     case $k in
@@ -20880,7 +20968,7 @@ email_assumir() {
       default) E[pasta]=$v ;;
       *) n=$((n + 1)); ((n <= 8)) && E[extra_$n]=$l ;;
     esac
-  done < <(awk -v alvo="[$nome]" '$0 == alvo { p = 1; next } p && /^\[.*\]$|^# >>> tt e-mail:/ { p = 0 } p' "$AERC_CONTAS")
+  done <<<"$(awk -v alvo="[$nome]" '$0 == alvo { p = 1; next } p && /^\[.*\]$|^# >>> tt e-mail:/ { p = 0 } p' "$AERC_CONTAS")"
   E[usuario]=${E[usuario]//%40/@}; [[ ${E[usuario]} == "${E[endereco]:-}" ]] && E[usuario]=""
   [[ ${E[auth]:-} == oauth ]] || { E[auth]=comando; }
   case ${E[imap_host]:-} in imap.gmail.com) E[provedor]=gmail ;; outlook.office365.com) E[provedor]=microsoft ;; imap.mail.yahoo.com) E[provedor]=yahoo ;; imap.mail.me.com) E[provedor]=icloud ;; imap.fastmail.com) E[provedor]=fastmail ;; esac
@@ -20944,8 +21032,9 @@ email_aplicar_provedor() {
   local linha imap smtp auths h p s k v achado=""
   if [[ ${E[provedor]} == outro && -z ${E[imap_host]:-} && ${E[endereco]:-} == *@* ]] && command -v python3 >/dev/null; then
     while IFS='=' read -r k v; do
+      [[ -n ${k}${v} ]] || continue
       case $k in imap_* | smtp_*) E[$k]=$v ;; provedor) achado=$v ;; esac
-    done < <(python3 "$EMAIL_PY" descobrir "${E[endereco]#*@}" 2>/dev/null)
+    done <<<"$(python3 "$EMAIL_PY" descobrir "${E[endereco]#*@}" 2>/dev/null)"
     if [[ -n $achado && -n $(email_provedor "$achado") ]]; then
       E[provedor]=$achado
     fi
@@ -21033,7 +21122,7 @@ EOF
 # O tar da conta na saída padrão, montado direto dos arquivos (vários -C: nada é copiado antes).
 email_pacote() { # slug
   local d n; local -a args=()
-  while IFS=$'\t' read -r d n; do args+=(-C "$d" "$n"); done < <(email_pacote_itens "$1")
+  while IFS=$'\t' read -r d n; do [[ -n ${d}${n} ]] || continue; args+=(-C "$d" "$n"); done <<<"$(email_pacote_itens "$1")"
   ((${#args[@]})) || return 1
   tar -cf - "${args[@]}"
 }
@@ -21056,6 +21145,7 @@ email_propagar() {
   fi
   echo "Propagando a conta '${E[nome]}' (configuração + senha/token, por ssh):"
   while read -r dest rot; do
+    [[ -n ${dest}${rot} ]] || continue
     if ((${#alvos[@]})); then
       for a in "${alvos[@]}"; do [[ $a == "$rot" ]] && break; a=""; done
       [[ -n $a ]] || continue
@@ -21066,7 +21156,7 @@ email_propagar() {
     echo "$r"
     [[ $r == '· já existe'* ]] && existentes+=("$rot")
     ((rc == 0)) || falhas=$((falhas + 1))
-  done < <(maquinas)
+  done <<<"$(maquinas)"
   for a in "${alvos[@]}"; do
     for rot in "${vistos[@]}"; do [[ $rot == "$a" ]] && continue 2; done
     printf '  %-10s ✗ não está cadastrada, ou não está acessível agora\n' "$a"; falhas=$((falhas + 1))
@@ -21202,7 +21292,7 @@ email_listar() {
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$s" "${E[nome]}" "${E[endereco]}" "${E[provedor]:-outro}" "${E[auth]}" "${E[imap_host]}:${E[imap_porta]}"
   done
   # Escritas à mão: aparecem com slug "!NOME" (abrir assume a conta no tt).
-  while IFS= read -r n; do [[ -n $n ]] && printf '!%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$n" "-" manual "-" "-"; done < <(email_manuais)
+  while IFS= read -r n; do [[ -n $n ]] && printf '!%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$n" "-" manual "-" "-"; done <<<"$(email_manuais)"
 }
 
 # Os comandos de apagar/arquivar desta conta funcionam? "estado⇥resumo⇥correção" (ok|aviso|falha), sem
@@ -21286,13 +21376,13 @@ email_conferir() {
       *) s=$(email_achar "$a") || { echo "Conta não encontrada: $a"; return 1; }; slugs+=("$s") ;;
     esac
   done
-  ((${#slugs[@]})) || mapfile -t slugs < <(email_slugs)
+  ((${#slugs[@]})) || { mapfile -t slugs <<<"$(email_slugs)"; if ((${#slugs[@]} == 1)) && [[ -z ${slugs[0]} ]]; then slugs=(); fi; }
   ((${#slugs[@]})) || { echo "Nenhuma conta de e-mail cadastrada."; return 0; }
   for s in "${slugs[@]}"; do
-    IFS=$'\t' read -r st res cor < <(email_cmds_estado "$s")
+    IFS=$'\t' read -r st res cor <<<"$(email_cmds_estado "$s")"
     if ((corr)) && [[ $st != ok ]] && ! email_sem_token "$s"; then
       email_cmds_corrigir "$s"
-      IFS=$'\t' read -r st res cor < <(email_cmds_estado "$s")
+      IFS=$'\t' read -r st res cor <<<"$(email_cmds_estado "$s")"
     fi
     case $st in ok) ic=✓ ;; aviso) ic=! ;; *) ic=✗ ;; esac
     printf '%s %s: %s\n' "$ic" "$s" "$res"
@@ -21489,7 +21579,7 @@ email_enviar_cli() {
     if [[ -n $padrao ]]; then
       s=$(email_conta_resolver "$padrao") || { echo "✗ email_padrao=$padrao não é uma conta (tt --email-listar)" >&2; return 2; }
     else
-      local -a todas; mapfile -t todas < <(email_slugs)
+      local -a todas; mapfile -t todas <<<"$(email_slugs)"; if ((${#todas[@]} == 1)) && [[ -z ${todas[0]} ]]; then todas=(); fi
       ((${#todas[@]} == 1)) || { echo "✗ escolha a conta com --conta (${#todas[@]} contas: ${todas[*]}) ou defina email_padrao= na config" >&2; return 2; }
       s=${todas[0]}
     fi
@@ -21544,13 +21634,13 @@ tarefas_email_enviar_ui() {
   local -a base=("$@") todas=() lote=(); local id dest confirma opcoes='' s
   if ((${#ids[@]} == 0)); then
     command -v fzf >/dev/null || { echo '✗ precisa do fzf para selecionar tarefas' >&2; return 1; }
-    mapfile -t ids < <(tarefas_topo_ordenadas | awk -F'\t' '$2 == "aberta" || $2 == "feita" { print $1 }' | while read -r id; do
+    mapfile -t ids <<<"$(tarefas_topo_ordenadas | awk -F'\t' '$2 == "aberta" || $2 == "feita" { print $1 }' | while read -r id; do
     printf '%s\t%s  %s\n' "$id" "$(tarefa_slug "$id")" "$(tarefas_raw | awk -F'\t' -v i="$id" '$1 == i { print $5; exit }')"; done |
-    fzf --multi --delimiter=$'\t' --with-nth=2 --prompt='tarefas a enviar (Tab marca, ⏎ confirma) > ' --height=100% --reverse | cut -f1)
+    fzf --multi --delimiter=$'\t' --with-nth=2 --prompt='tarefas a enviar (Tab marca, ⏎ confirma) > ' --height=100% --reverse | cut -f1)"; if ((${#ids[@]} == 1)) && [[ -z ${ids[0]} ]]; then ids=(); fi
   fi
   ((${#ids[@]})) || return 0
   if [[ -z $conta ]]; then
-    mapfile -t todas < <(email_slugs)
+    mapfile -t todas <<<"$(email_slugs)"; if ((${#todas[@]} == 1)) && [[ -z ${todas[0]} ]]; then todas=(); fi
     ((${#todas[@]})) || { echo '✗ cadastre uma conta no menu do 📧 → Contas'; return 2; }
     if ((${#todas[@]} == 1)); then conta=${todas[0]}
     else
@@ -22421,7 +22511,7 @@ enviar_fluxo() {
   local src=${1:-.} dir=${2:-$(pasta_aqui)} dst=${3:-} ddst=${4:-} lista pasta
   local -a nomes
   lista=$(escolher_arquivos "$src" "$dir" "arquivos ou pastas para enviar") || return 0
-  pasta=$(head -1 <<<"$lista"); mapfile -t nomes < <(tail -n +2 <<<"$lista")
+  pasta=$(head -1 <<<"$lista"); mapfile -t nomes <<<"$(tail -n +2 <<<"$lista")"; if ((${#nomes[@]} == 1)) && [[ -z ${nomes[0]} ]]; then nomes=(); fi
   ((${#nomes[@]})) || return 0
   if [[ -z $dst && -z $ddst && -t 0 ]]; then repetir_rota envio dst ddst "📤 enviar para"; fi
   [[ -n $dst ]] || dst=$(escolher_maquina "📤 enviar ${#nomes[@]} ite$([[ ${#nomes[@]} == 1 ]] && echo m || echo ns) para" "$src") || return 0
@@ -22453,7 +22543,7 @@ trazer_fluxo() {
   [[ -n $src ]] || return 0
   [[ -n $dir ]] || dir=$(escolher_destino "$src" "" "📥 começar em qual pasta") || return 0
   lista=$(escolher_arquivos "$src" "$dir" "arquivos ou pastas para trazer") || return 0
-  pasta=$(head -1 <<<"$lista"); mapfile -t nomes < <(tail -n +2 <<<"$lista")
+  pasta=$(head -1 <<<"$lista"); mapfile -t nomes <<<"$(tail -n +2 <<<"$lista")"; if ((${#nomes[@]} == 1)) && [[ -z ${nomes[0]} ]]; then nomes=(); fi
   ((${#nomes[@]})) || return 0
   confirmar_transferencia "$src" "$pasta" "$dst" "$ddst" "${nomes[@]}" || return 0
   rota_lembrar traz "$src" "$dir"
@@ -22632,8 +22722,9 @@ com_x() {
   # TAB) e a chave "$d|$sn" nunca casava com "destino|sessão" da linha: o pino da central ficava
   # sempre 📍 mesmo com a sessão fixada.
   while IFS=$'\t' read -r r sn id; do
+    [[ -n ${r}${sn}${id} ]] || continue
     d=$(dest_de "$r"); [[ -n $d ]] && fx+="$d|$sn"$'\n'
-  done < <(fixadas)
+  done <<<"$(fixadas)"
   python3 -c '
 import sys, re, unicodedata
 w = int(sys.argv[1]); conf = sys.argv[2]; fix = set(sys.argv[3].split("\n"))
