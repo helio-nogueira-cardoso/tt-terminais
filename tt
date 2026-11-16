@@ -3857,7 +3857,7 @@ mac_configurar_padrao() {
 # Arquivos versionados que formam o tt instalado; o pacote leva também o VERSAO.
 ARQUIVOS_SKILL_FIGMA=(skills/figma-cota/SKILL.md skills/figma-cota/scripts/figma_rest.py
   skills/figma-cota/scripts/figma_oauth_retorno.py skills/figma-cota/references/acesso-autenticacao.md)
-ARQUIVOS_FONTE=(tt leitor-tt.py leitor-fontes.bin leitor-amostras.json leitor-amostra-doze-fatores.md conversa-mesh.py tela-recuperar.py docs/recuperacao-telas-anexos.md precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
+ARQUIVOS_FONTE=(tt leitor-tt.py leitor-fontes.bin leitor-amostras.json dono-tt.py dono-chaves biblioteca-padrao.json biblioteca-padrao.json.sig leitor-amostra-doze-fatores.md conversa-mesh.py tela-recuperar.py docs/recuperacao-telas-anexos.md precarregar-tt.py precarregar_remoto.py email-tt.py links-tt.py letreiro-tt.py letreiro-fontes.py letreiro-catalogo.json letreiro-padrao.json gatilho-tt.sh tmux.conf tema-tmux.conf tema-terminal.sh tema-agentes.sh memoria-agentes.sh atalhos-padrao atalhos-padrao-mobile README.md AI-DLC.md tailscale-ws.sh tailscale-ws.py tailscale-ws-bridge.cjs tailscale-websocket.md busca-tt.py snapshots-tt.py
   ia-conta ia-rot ia-login contas-uso.py skill-rodizio-de-contas.md nomeador-local.py skill-tt-terminais.md skill-celular-android.md agentes-regras-tt.md aidlc-tt NOVIDADES.md pacotes-tt.sh sessoes-ia.py tarefas-merge.py tarefas-merge.vim
   checagens-tt.md checagem-prompt.md voz voz-audio.py voz-windows.ps1 telas-agentes.py telas-agentes.conf termux/boot-tt
   "${ARQUIVOS_SKILL_FIGMA[@]}")
@@ -23214,6 +23214,11 @@ case "${1:-}" in
   --leitor-listar) shift; leitor_py listar "$@"; exit ;;
   --leitor-rm) shift; leitor_py remover "$@"; rc=$?; leitor_sync_fundo; exit $rc ;;
   --leitor-amostras) shift; leitor_py amostras "$@"; exit ;;
+  --dono) shift
+    case ${1:-} in
+      biblioteca) shift; TT_REPO=$REPO_TT leitor_py biblioteca-padrao "$@"; exit ;;
+      *) TT_REPO=$REPO_TT python3 -I "$DIR_TT/dono-tt.py" "$@"; exit ;;
+    esac ;;
   --leitor-extrair) shift; leitor_py extrair "$@"; exit ;;
   --leitor-posicao) shift; leitor_py posicao "$@"; exit ;;
   --leitor-estado) leitor_estado; exit ;;

@@ -617,6 +617,20 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   prefixo "[Mensagem da sessão 'X' (M)]", `esperar_resposta_longa` (`VOZ_CONVERSA_ESPERA`=60 s), `extrair` a resposta e a entrega à origem; sem origem, a voz
   lê a resposta. Teste: `tests/test_voz_plano.sh`; avaliação manual com o modelo de verdade (sem executar nada): `tests/avaliar_cerebro.sh`.
 
+### Token de dono e biblioteca padrão (`dono-tt.py`, `biblioteca-padrao.json`)
+- **Token de dono** = chave ed25519 de assinatura só do dono (`~/.secrets/tt-dono`, modo 600; nunca copiada, impressa nem sincronizada; o
+  backup é do dono). Cada tt traz só as públicas em `dono-chaves` (formato allowed_signers, namespace `tt-dono`, identidade `dono`);
+  verificar/assinar usam `ssh-keygen -Y` (sem dependência nova). `tt --dono chave [gerar [--no-repo]]`, `assinar ARQ` (grava `ARQ.sig`),
+  `verificar ARQ [SIG]`, `estado`. Ganchos de teste só com `TT_DONO_TESTE=1`: `TT_DONO_CHAVES`, `TT_DONO_CHAVE`, `TT_LEITOR_MANIFESTO`.
+  Mensagem do dono = arquivo assinado de um TIPO com lista fixa do que pode (hoje só `biblioteca-padrao`); nunca texto executado como comando.
+  Rotação: acrescente a chave nova ao `dono-chaves` e publique; remova a velha depois.
+- **Biblioteca padrão:** `leitor-amostras.json` (pacote) + `biblioteca-padrao.json` assinado (`{tipo, versao, amostras[], remover[]}`), somados em
+  `amostras_catalogo()` (a entrada do dono troca a do pacote de mesma chave; `remover` tira do garantido, nunca apaga livro de ninguém). Do dono só entra
+  https com `licenca` e `fonte` https, sem `arquivo` nem `file://`; assinatura que não confere, manifesto malformado ou `versao` menor que a aceita
+  (`manifesto_versao` no `amostras.json`) é ignorado e `tt --leitor-amostras estado` diz por quê. `tt --dono biblioteca lista|add|rm|publicar|descartar`:
+  rascunho em `~/.local/state/tt/biblioteca-padrao-rascunho.json`; `add` baixa e extrai o texto de verdade (`--sem-testar` pula); `publicar` sobe a versão, assina,
+  comita só os dois arquivos e dá push na `main` do clone (`repo=`); as máquinas pegam pela atualização normal e o vigia (`--leitor-amostras garantir`) baixa. Teste: `tests/test_dono.sh`.
+
 ### Arquivos entre máquinas
 - `tt --enviar [arquivo... [destino[:pasta]]]` — navega e envia; `tt --trazer [maquina:caminho [pasta]]`
   traz. `tt --pasta-padrao [maquina:pasta]` define a pasta de recebidos.

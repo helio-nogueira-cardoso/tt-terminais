@@ -174,6 +174,7 @@ tt --leitor-ctl AÇÃO           controla a leitura da faixa       tt --leitor-p
 tt --leitor-add ARQUIVO…       só acrescenta        tt --leitor-listar [--tsv]     tt --leitor-rm ID
 tt --leitor-estado             livros daqui e em que máquina está cada arquivo original
 tt --leitor-amostras           textos de distribuição livre para começar (lista)   tt --leitor-amostras baixar [CHAVE…]  (o vigia completa o catálogo sozinho: garantir, estado)
+tt --dono [chave|assinar|verificar|estado]   token de dono (chave de assinatura só do dono; os outros tt só verificam)   tt --dono biblioteca [lista|add|rm|publicar]
 tt --leitor-sync [rótulo…]     troca agora com as outras máquinas   tt --leitor-baixar ID  traz o original
 tt --leitor-ls [RÓTULO] [PASTA]   uma pasta daqui ou de outra máquina, em JSON (o que a aba Arquivos mostra)
 tt --leitor-pegar RÓTULO CAMINHO  põe na biblioteca um arquivo que está em outra máquina

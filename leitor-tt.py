@@ -1460,14 +1460,87 @@ AMOSTRA_MAX = 80 << 20   # nenhuma amostra passa disto (bytes)
 AMOSTRA_AGENTE = "Mozilla/5.0 (compatible; tt-terminais)"  # os portais recusam cliente sem nome de navegador
 
 
+def _amostra_ok(a, so_https=False):
+    if not (isinstance(a, dict) and re.match(r"^[a-z0-9-]{1,40}$", str(a.get("chave") or "")) and a.get("titulo")):
+        return False
+    url = str(a.get("url") or "")
+    if so_https:  # o que vem do dono: só rede https com licença e fonte; nunca arquivo do disco nem file://
+        return (url.startswith("https://") and bool(a.get("licenca")) and str(a.get("fonte") or "").startswith("https://")
+                and not a.get("arquivo"))
+    return bool(a.get("arquivo")) or url.startswith(("https://", "file://"))
+
+
+def _dono_mod():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("dono_tt", os.path.join(AQUI, "dono-tt.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def manifesto_caminho():
+    if os.environ.get("TT_DONO_TESTE") == "1" and os.environ.get("TT_LEITOR_MANIFESTO"):
+        return os.environ["TT_LEITOR_MANIFESTO"]
+    return os.path.join(AQUI, "biblioteca-padrao.json")
+
+
+_MANIFESTO_CACHE = {}
+
+
+def manifesto_lido():
+    """Manifesto da biblioteca padrão assinado pelo dono → (dados, motivo). `dados` é None se não há, não confere
+    a assinatura (pelas chaves do pacote) ou é mais velho que o último aceito aqui (volta atrás)."""
+    caminho = manifesto_caminho()
+    try:
+        st = os.stat(caminho)
+        chave = (caminho, st.st_mtime_ns, st.st_size, os.environ.get("TT_DONO_CHAVES"))
+    except OSError:
+        return None, "sem manifesto"
+    if chave in _MANIFESTO_CACHE:
+        return _MANIFESTO_CACHE[chave]
+    try:
+        with open(caminho, "rb") as f:
+            cru = f.read()
+        with open(caminho + ".sig", "rb") as f:
+            sig = f.read()
+        ok, motivo = _dono_mod().verificar_bytes(cru, sig)
+        if not ok:
+            r = (None, "assinatura não confere: %s" % motivo)
+        else:
+            d = json.loads(cru.decode("utf-8"))
+            versao = d.get("versao")
+            if d.get("tipo") != "biblioteca-padrao" or not isinstance(versao, int) or isinstance(versao, bool):
+                r = (None, "manifesto malformado")
+            elif versao < int(amostras_marca().get("manifesto_versao") or 0):
+                r = (None, "manifesto v%d é mais velho que o já aceito (v%s)" % (versao, amostras_marca().get("manifesto_versao")))
+            else:
+                r = (d, "ok")
+    except Exception as e:  # sem ssh-keygen, arquivo ruim: o catálogo do pacote segue valendo
+        r = (None, "manifesto ilegível: %s" % (str(e) or type(e).__name__))
+    _MANIFESTO_CACHE[chave] = r
+    return r
+
+
 def amostras_catalogo():
+    """Catálogo do pacote + o manifesto assinado do dono (a entrada do dono troca a do pacote de mesma chave; `remover`
+    tira do que é garantido, sem apagar nada de ninguém)."""
     try:
         with open(AMOSTRAS, encoding="utf-8") as f:
             lista = json.load(f).get("amostras") or []
     except (OSError, ValueError, AttributeError):
-        return []
-    return [a for a in lista if isinstance(a, dict) and re.match(r"^[a-z0-9-]{1,40}$", str(a.get("chave") or ""))
-            and a.get("titulo") and (a.get("arquivo") or str(a.get("url") or "").startswith(("https://", "file://")))]
+        lista = []
+    por_chave = {}
+    for a in lista:
+        if _amostra_ok(a):
+            por_chave[a["chave"]] = a
+    d, _ = manifesto_lido()
+    if d:
+        for a in d.get("amostras") or []:
+            if _amostra_ok(a, so_https=True):
+                por_chave[a["chave"]] = a
+        for k in d.get("remover") or []:
+            por_chave.pop(str(k), None)
+    return list(por_chave.values())
 
 
 def amostras_marca():
@@ -1584,6 +1657,11 @@ def amostras_garantir(quieto=False):
     marca = amostras_marca()
     if not marca:
         gravar_json(AMOSTRAS_MARCA, {"semeado": agora_ms(), "feitas": {}})
+    d, _ = manifesto_lido()
+    if d and int(d["versao"]) > int(amostras_marca().get("manifesto_versao") or 0):
+        marca = amostras_marca()
+        marca["manifesto_versao"] = int(d["versao"])
+        gravar_json(AMOSTRAS_MARCA, marca)
     falta = 0
     for a in amostras_catalogo():
         marca = amostras_marca()
@@ -1634,6 +1712,228 @@ def amostras_semear():
             pass
 
 
+def _estado_dir():
+    return os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"), "tt")
+
+
+def _rascunho_caminho():
+    return os.path.join(_estado_dir(), "biblioteca-padrao-rascunho.json")
+
+
+def _repo():
+    r = os.environ.get("TT_REPO") or ""
+    if not r or not os.path.isdir(os.path.join(r, ".git")):
+        raise Erro("sem clone de desenvolvimento do tt (repo= no config): a biblioteca padrão é publicada por ele")
+    return r
+
+
+def _publicado(repo=None):
+    """O manifesto que está no clone (sem conferir assinatura: é o ponto de partida do dono)."""
+    try:
+        with open(os.path.join(repo or _repo(), "biblioteca-padrao.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict) and d.get("tipo") == "biblioteca-padrao":
+            return d
+    except (OSError, ValueError):
+        pass
+    return {"tipo": "biblioteca-padrao", "versao": 0, "amostras": [], "remover": []}
+
+
+def _rascunho():
+    try:
+        with open(_rascunho_caminho(), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return _publicado()
+
+
+def _exigir_dono():
+    if not os.path.isfile(_dono_mod().arquivo_chave_privada()):
+        raise Erro("só o dono mexe na biblioteca padrão: este tt não tem a chave do dono (tt --dono chave gerar)")
+
+
+def cmd_biblioteca_padrao(args):
+    """biblioteca-padrao lista | estado | add [ID] --url U --licenca L --fonte F [...] | rm CHAVE | publicar [--sim] | descartar"""
+    sub = args[0] if args else "lista"
+    resto = args[1:]
+    if sub == "lista":
+        base = {}
+        try:
+            with open(AMOSTRAS, encoding="utf-8") as f:
+                base = {x["chave"]: x for x in json.load(f).get("amostras") or [] if _amostra_ok(x)}
+        except (OSError, ValueError):
+            pass
+        rasc = os.path.exists(_rascunho_caminho())
+        d = _rascunho() if rasc else (manifesto_lido()[0] or {})
+        efetivo = {k: (x, "pacote") for k, x in base.items()}
+        for x in d.get("amostras") or []:
+            if _amostra_ok(x, True):
+                efetivo[x["chave"]] = (x, "dono")
+        for k in d.get("remover") or []:
+            efetivo.pop(k, None)
+        for k in sorted(efetivo):
+            print("%-24s %-46s %s" % (k, cortar(str(efetivo[k][0]["titulo"]), 46), efetivo[k][1]))
+        if d.get("remover"):
+            print("retirados do padrão: %s" % ", ".join(d["remover"]))
+        if rasc:
+            print("\n(rascunho não publicado: tt --dono biblioteca publicar | descartar)")
+        return 0
+    if sub == "estado":
+        pub = _publicado() if os.environ.get("TT_REPO") else {"versao": 0}
+        print("publicado no clone: v%s · rascunho: %s" % (pub.get("versao", 0), "sim" if os.path.exists(_rascunho_caminho()) else "não"))
+        return 0
+    if sub == "descartar":
+        try:
+            os.unlink(_rascunho_caminho())
+        except OSError:
+            pass
+        print("rascunho descartado")
+        return 0
+    _exigir_dono()
+    if sub == "rm":
+        if not resto:
+            raise Erro("uso: tt --dono biblioteca rm CHAVE")
+        chave = resto[0]
+        d = _rascunho()
+        d["amostras"] = [a for a in d.get("amostras") or [] if a.get("chave") != chave]
+        if chave not in d.get("remover", []):
+            d.setdefault("remover", []).append(chave)
+        _gravar_rascunho(d)
+        print("%s sai do padrão (quem já tem o livro continua com ele); falta publicar" % chave)
+        return 0
+    if sub == "add":
+        return _bp_add(resto)
+    if sub == "publicar":
+        return _bp_publicar(resto)
+    raise Erro("uso: tt --dono biblioteca [lista | estado | add | rm | publicar | descartar]")
+
+
+def _gravar_rascunho(d):
+    os.makedirs(_estado_dir(), exist_ok=True)
+    gravar_json(_rascunho_caminho(), d)
+
+
+def _opcao(args, nome, padrao=None):
+    pref = "--%s=" % nome
+    for i, a in enumerate(args):
+        if a == "--" + nome and i + 1 < len(args):
+            return args[i + 1]
+        if a.startswith(pref):
+            return a[len(pref):]
+    return padrao
+
+
+def _bp_add(args):
+    ref = args[0] if args and not args[0].startswith("--") else None
+    lid = resolver(ref) if ref else None
+    meta = ler_meta(lid) if lid else {}
+    url, licenca, fonte = _opcao(args, "url"), _opcao(args, "licenca"), _opcao(args, "fonte")
+    titulo = _opcao(args, "titulo", meta.get("titulo"))
+    autor = _opcao(args, "autor", meta.get("autor") or "")
+    if not url or not url.startswith("https://"):
+        raise Erro("--url https://… é obrigatório: só entra no padrão texto com fonte pública")
+    if not licenca:
+        raise Erro("--licenca é obrigatória (domínio público, CC…): texto com direito autoral em vigor não entra")
+    if not fonte or not fonte.startswith("https://"):
+        raise Erro("--fonte https://… é obrigatória (a página oficial da obra)")
+    if not titulo:
+        raise Erro("--titulo é obrigatório (ou informe o livro da biblioteca: tt --dono biblioteca add ID --url …)")
+    chave = _opcao(args, "chave") or re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", titulo.lower())
+                                                      .encode("ascii", "ignore").decode())).strip("-")[:40]
+    nome = _opcao(args, "nome", meta.get("nome") or "")
+    a = {"chave": chave, "titulo": titulo, "autor": autor, "tema": _opcao(args, "tema", ""), "url": url,
+         "nome": nome, "mb": int(_opcao(args, "mb", 0) or 0), "licenca": licenca, "fonte": fonte}
+    if not _amostra_ok(a, True):
+        raise Erro("entrada inválida (a chave só tem a-z, 0-9 e hífen, até 40 letras): %s" % chave)
+    if "--sem-testar" not in args:  # baixa de verdade: página de erro, PDF ilegível ou arquivo enorme não entram no padrão
+        fd, tmp = tempfile.mkstemp(prefix="tt-padrao-")
+        os.close(fd)
+        try:
+            amostra_baixar(url, tmp)
+            tam = os.path.getsize(tmp)
+            if tam > 20 << 20:
+                raise Erro("o arquivo tem %d MB (o limite do padrão é 20)" % (tam >> 20))
+            nome_ext = nome or os.path.basename(url.split("?")[0]) or "texto"
+            livro = extrair(tmp, nome_ext)
+            a["mb"] = a["mb"] or max(1, tam >> 20)
+            if not a["nome"]:
+                a["nome"] = nome_ext
+            print("testado: %d palavras, %d MB" % (contar_palavras(livro), tam >> 20))
+        finally:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    a["mb"] = a["mb"] or 1
+    d = _rascunho()
+    d["amostras"] = [x for x in d.get("amostras") or [] if x.get("chave") != chave] + [a]
+    d["remover"] = [k for k in d.get("remover") or [] if k != chave]
+    _gravar_rascunho(d)
+    print("%s entra no padrão (rascunho); falta publicar: tt --dono biblioteca publicar" % chave)
+    return 0
+
+
+def _bp_publicar(args):
+    import subprocess as sp
+    repo = _repo()
+    d = _rascunho()
+    pub = _publicado(repo)
+    antes = {a["chave"] for a in pub.get("amostras") or []}
+    depois = {a["chave"] for a in d.get("amostras") or []}
+    novo = {"tipo": "biblioteca-padrao", "versao": int(pub.get("versao") or 0) + 1,
+            "emitido": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "amostras": sorted(d.get("amostras") or [], key=lambda a: a["chave"]),
+            "remover": sorted(set(d.get("remover") or []))}
+    if (novo["amostras"], novo["remover"]) == (pub.get("amostras") or [], pub.get("remover") or []) and "--forcar" not in args:
+        print("nada mudou desde a v%s publicada" % pub.get("versao", 0))
+        return 0
+    print("v%d: entram %s · saem %s · retirados do padrão %s" % (
+        novo["versao"], ", ".join(sorted(depois - antes)) or "nada", ", ".join(sorted(antes - depois)) or "nada",
+        ", ".join(novo["remover"]) or "nada"))
+    if "--sim" not in args:
+        if not sys.stdin.isatty():
+            raise Erro("sem terminal: confirme com --sim")
+        if input("Assinar e publicar para todas as máquinas? [s/N] ").strip().lower() not in ("s", "sim"):
+            print("cancelado (o rascunho fica)")
+            return 1
+    sp.run(["git", "-C", repo, "fetch", "-q"], check=False, capture_output=True)
+    r = sp.run(["git", "-C", repo, "status", "-sb"], capture_output=True, text=True)
+    if "behind" in (r.stdout.splitlines() or [""])[0]:
+        raise Erro("o clone está atrás do remoto: git -C %s pull --ff-only e tente de novo" % repo)
+    alvo = os.path.join(repo, "biblioteca-padrao.json")
+    with open(alvo, "w", encoding="utf-8") as f:
+        json.dump(novo, f, ensure_ascii=False, indent=1, sort_keys=True)
+        f.write("\n")
+    try:
+        _dono_mod().assinar_arquivo(alvo)
+    except Exception:
+        try:
+            with open(alvo, "w", encoding="utf-8") as f:
+                json.dump(pub, f, ensure_ascii=False, indent=1, sort_keys=True)
+                f.write("\n")
+        finally:
+            pass
+        raise
+    for cmd in (["add", "biblioteca-padrao.json", "biblioteca-padrao.json.sig"],
+                ["commit", "-q", "-m", "chore(biblioteca): padrão v%d (assinado pelo dono)" % novo["versao"], "--",
+                 "biblioteca-padrao.json", "biblioteca-padrao.json.sig"]):
+        r = sp.run(["git", "-C", repo] + cmd, capture_output=True, text=True)
+        if r.returncode:
+            raise Erro("git %s falhou: %s" % (cmd[0], (r.stderr or r.stdout).strip()))
+    if "--sem-push" in args:
+        print("gravado e commitado em %s (sem push)" % repo)
+    else:
+        r = sp.run(["git", "-C", repo, "push", "-q", "origin", "HEAD"], capture_output=True, text=True)
+        if r.returncode:
+            raise Erro("commit feito, mas o push falhou: %s" % (r.stderr or r.stdout).strip())
+        print("publicado: as máquinas pegam sozinhas na próxima atualização do tt (até 5 min)")
+    try:
+        os.unlink(_rascunho_caminho())
+    except OSError:
+        pass
+    return 0
+
+
 def cmd_amostras(args):
     """amostras [listar] | baixar [CHAVE…] [--de-novo] [--quieto] | garantir [--quieto] | estado"""
     quieto, de_novo = "--quieto" in args, "--de-novo" in args
@@ -1642,6 +1942,11 @@ def cmd_amostras(args):
     if args and args[0] == "garantir":
         return 1 if amostras_garantir(quieto) else 0
     if args and args[0] == "estado":
+        d, motivo = manifesto_lido()
+        if d:
+            print("manifesto do dono: v%s (%d texto(s), %d retirado(s) do padrão)" % (d["versao"], len(d.get("amostras") or []), len(d.get("remover") or [])))
+        elif motivo != "sem manifesto":
+            print("manifesto do dono IGNORADO: %s" % motivo)
         feitas = amostras_marca().get("feitas") or {}
         falhas = amostras_marca().get("falhas") or {}
         falta = [a for a in cat if a["chave"] not in feitas]
@@ -5708,6 +6013,8 @@ def principal(argv):
                       (" em " + l["maquina"]) if l["maquina"] and l["maquina"] != maquina() else ""))
     elif cmd == "amostras":
         return cmd_amostras(args)
+    elif cmd == "biblioteca-padrao":
+        return cmd_biblioteca_padrao(args)
     elif cmd == "remover":
         if not args:
             raise Erro("uso: tt --leitor-rm ID")
