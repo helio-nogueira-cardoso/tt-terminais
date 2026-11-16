@@ -1242,9 +1242,15 @@ def extrair(caminho, nome=None):
                 livro = extrair_html(decodificar(dados))
                 livro["_fonte"] = {"letras": _letras_html(decodificar(dados))}
             else:
-                livro = {"titulo": "", "autor": "", "capitulos": capitulos_de_blocos(blocos_de_texto(decodificar(dados), markdown=(fmt == "md")), markdown=(fmt == "md"))}
+                texto_cru = decodificar(dados)
+                if fmt == "txt":  # Projeto Gutenberg: licença e cabeçalho do arquivo ficam fora do livro
+                    ini = re.search(r"^\*\*\* ?START OF (?:THE|THIS) PROJECT GUTENBERG EBOOK[^\n]*\n", texto_cru, re.M)
+                    fim = re.search(r"^\*\*\* ?END OF (?:THE|THIS) PROJECT GUTENBERG EBOOK", texto_cru, re.M)
+                    if ini and fim and fim.start() > ini.end():
+                        texto_cru = texto_cru[ini.end():fim.start()]
+                livro = {"titulo": "", "autor": "", "capitulos": capitulos_de_blocos(blocos_de_texto(texto_cru, markdown=(fmt == "md")), markdown=(fmt == "md"))}
                 if fmt in ("txt", "md"):
-                    fonte_txt = decodificar(dados)
+                    fonte_txt = texto_cru
                     if fmt == "md":  # endereço de link e tag HTML não são texto lido
                         fonte_txt = re.sub(r"\]\([^)\s]*(?:\s+\"[^\"]*\")?\)|" + _TAG_MD.pattern + r"|^ {0,3}\[[^\]]+\]:\s*\S+.*$", "]", fonte_txt, flags=re.M)
                     livro["_fonte"] = {"letras": _letras(fonte_txt)}
@@ -1494,13 +1500,23 @@ def amostra_baixar(url, destino):
         raise Erro("a fonte não devolveu o arquivo (página de erro)")
 
 
-def amostra_instalar(a, de_novo=False):
-    """Põe a amostra na biblioteca. Devolve (id, estado): novo | já estava | apagada (não volta sem de_novo)."""
+def amostra_instalar(a, de_novo=False, respeitar_lapide=False):
+    """Põe a amostra na biblioteca. Devolve (id, estado): novo | já estava | apagada (não volta sem de_novo).
+    `respeitar_lapide` (a garantia automática): livro que alguém removeu, nesta ou em outra máquina, não volta."""
     marca = amostras_marca()
     feitas = marca.get("feitas") if isinstance(marca.get("feitas"), dict) else {}
     antes = feitas.get(a["chave"])
     if antes and not de_novo:
         return antes, ("já estava" if os.path.isdir(pasta(antes)) else "apagada")
+    if respeitar_lapide and not de_novo:  # já chegou pela troca (a fonte entrega bytes diferentes a cada máquina): vale como feita
+        norm = lambda t: re.sub(r"\s+", " ", str(t or "")).strip().casefold()
+        for lid in ids():
+            m = ler_meta(lid)
+            if norm(m.get("titulo")) == norm(a["titulo"]) and norm(m.get("autor")) == norm(a.get("autor")) and os.path.isdir(pasta(lid)):
+                marca = amostras_marca()
+                marca.setdefault("feitas", {})[a["chave"]] = lid
+                gravar_json(AMOSTRAS_MARCA, marca)
+                return lid, "já estava"
     nome = str(a.get("nome") or a.get("arquivo") or a["chave"])
     tmp = None
     try:
@@ -1511,6 +1527,17 @@ def amostra_instalar(a, de_novo=False):
             os.close(fd)
             amostra_baixar(str(a["url"]), tmp)
             caminho = tmp
+        if respeitar_lapide:
+            h = hashlib.sha256()
+            with open(caminho, "rb") as f:
+                for bloco in iter(lambda: f.read(1 << 20), b""):
+                    h.update(bloco)
+            lid = h.hexdigest()[:12]
+            if lid in lapides() and not os.path.isdir(pasta(lid)):
+                marca = amostras_marca()
+                marca.setdefault("feitas", {})[a["chave"]] = lid
+                gravar_json(AMOSTRAS_MARCA, marca)
+                return lid, "apagada"
         lid, meta, novo = adicionar(caminho, nome=nome, titulo=str(a["titulo"]))
         if novo and a.get("autor"):
             meta["autor"] = str(a["autor"])
@@ -1545,6 +1572,47 @@ def amostras_instalar(chaves=None, de_novo=False, quieto=False, so_do_pacote=Fal
     return falhas
 
 
+AMOSTRA_ESPERA = (600, 3600, 6 * 3600, 24 * 3600)  # segundos entre tentativas de uma amostra que falhou
+
+
+def amostras_garantir(quieto=False):
+    """Todo texto do catálogo precisa estar na biblioteca, mesmo de quem já tinha os seus. Só tenta o que nunca foi feito;
+    a falha recua (10 min, 1 h, 6 h, 1 dia) e fica na marca (`falhas`). Devolve quantas amostras seguem faltando."""
+    if os.environ.get("TT_LEITOR_AMOSTRAS") == "0":
+        return 0
+    os.makedirs(DIR, exist_ok=True)
+    marca = amostras_marca()
+    if not marca:
+        gravar_json(AMOSTRAS_MARCA, {"semeado": agora_ms(), "feitas": {}})
+    falta = 0
+    for a in amostras_catalogo():
+        marca = amostras_marca()
+        feitas = marca.get("feitas") if isinstance(marca.get("feitas"), dict) else {}
+        if a["chave"] in feitas:
+            continue
+        falhas = marca.get("falhas") if isinstance(marca.get("falhas"), dict) else {}
+        f = falhas.get(a["chave"]) or {}
+        if f.get("proxima", 0) > agora_ms():
+            falta += 1
+            continue
+        try:
+            lid, estado = amostra_instalar(a, respeitar_lapide=True)
+            quieto or print("%s\t%s\t%s" % (lid, a["titulo"], estado))
+            marca = amostras_marca()
+            if marca.get("falhas", {}).pop(a["chave"], None) is not None:
+                gravar_json(AMOSTRAS_MARCA, marca)
+        except Exception as e:
+            falta += 1
+            n = int(f.get("n", 0)) + 1
+            marca = amostras_marca()
+            marca.setdefault("falhas", {})[a["chave"]] = {
+                "n": n, "motivo": (str(e) or type(e).__name__)[:200],
+                "proxima": agora_ms() + 1000 * AMOSTRA_ESPERA[min(n, len(AMOSTRA_ESPERA)) - 1]}
+            gravar_json(AMOSTRAS_MARCA, marca)
+            print("✗ %s: %s" % (a["titulo"], str(e) or type(e).__name__), file=sys.stderr)
+    return falta
+
+
 def amostras_semear():
     """Biblioteca vazia e nunca semeada: as amostras do pacote entram já; as de rede, num processo solto."""
     if os.environ.get("TT_LEITOR_AMOSTRAS") == "0" or os.path.exists(AMOSTRAS_MARCA):
@@ -1567,10 +1635,20 @@ def amostras_semear():
 
 
 def cmd_amostras(args):
-    """amostras [listar] | baixar [CHAVE…] [--de-novo] [--quieto]"""
+    """amostras [listar] | baixar [CHAVE…] [--de-novo] [--quieto] | garantir [--quieto] | estado"""
     quieto, de_novo = "--quieto" in args, "--de-novo" in args
     args = [x for x in args if not x.startswith("--")]
     cat = amostras_catalogo()
+    if args and args[0] == "garantir":
+        return 1 if amostras_garantir(quieto) else 0
+    if args and args[0] == "estado":
+        feitas = amostras_marca().get("feitas") or {}
+        falhas = amostras_marca().get("falhas") or {}
+        falta = [a for a in cat if a["chave"] not in feitas]
+        print("%d de %d no catálogo; faltam: %s" % (len(cat) - len(falta), len(cat),
+              ", ".join("%s%s" % (a["chave"], " (%dx: %s)" % (falhas[a["chave"]]["n"], falhas[a["chave"]].get("motivo", ""))
+                       if a["chave"] in falhas else "") for a in falta) or "nenhum"))
+        return 1 if falta else 0
     if args and args[0] == "baixar":
         pedidas = set(args[1:])
         fora = pedidas - {a["chave"] for a in cat}

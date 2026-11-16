@@ -707,6 +707,13 @@ vigiar() {
       ultima_reimp=$agora
       mkdir -p "${LEITOR_LOG%/*}"; ("$EU" --leitor-reimportar --quieto >>"$LEITOR_LOG" 2>&1 </dev/null &)
     fi
+    # Leitor rápido: os textos de base do catálogo (leitor-amostras.json) chegam a TODA máquina, tenha ela biblioteca ou não;
+    # a 1ª volta sai 4 min depois do vigia iniciar, depois a cada hora (falha recua dentro do leitor-tt.py).
+    ((${ultima_amostras:-0} == 0)) && ultima_amostras=$((agora - 3600 + 240))
+    if ((t_leitor > 0)) && ((agora - ultima_amostras >= 3600)) && [[ $(conf leitor_amostras) != 0 ]]; then
+      ultima_amostras=$agora
+      mkdir -p "${LEITOR_LOG%/*}"; ("$EU" --leitor-amostras garantir --quieto >>"$LEITOR_LOG" 2>&1 </dev/null &)
+    fi
     # Conversas das IAs (Claude, Codex, Kiro) entre as máquinas: a cada TT_T_SESSOES_IA (1800 s; 0 desliga).
     # A primeira volta espera 5 min do início do vigia (ele reinicia a cada versão nova).
     local t_sessoes_ia=${TT_T_SESSOES_IA:-1800}
@@ -8709,6 +8716,13 @@ checar_coletar() {
   elif [[ $ign == *motivo=segredo* ]]; then checar_linha demandas aviso "e-mail [tt] de remetente autorizado ignorado nos últimos 7 dias: $ign" "o assunto não trouxe o segredo certo ([tt:SEGREDO]): confira com o remetente"
   elif [[ -n $ign ]]; then checar_linha demandas aviso "e-mail [tt] de remetente autorizado ignorado nos últimos 7 dias: $ign" "o provedor não autenticou o remetente (none = o espelho não trouxe o cabeçalho; fail = o cabeçalho não prova o remetente): mudar o modo dele (relaxado: passa sem depender do resultado, só para quem é confiável; ou segredo: tt --demanda-autorizar EMAIL - segredo XXXX) é decisão do usuário, e o e-mail ignorado é lido de novo"
   elif ((n)); then checar_linha demandas ok "caixa de entrada de tarefas pronta: $naut remetente(s) autorizado(s), $npend aguardando na aba Entrada"
+  fi
+
+  # leitor rápido: os textos de base do catálogo
+  if [[ $(conf leitor_amostras) == 0 ]]; then checar_linha leitor-amostras ok "textos de base desligados nesta máquina (leitor_amostras=0)"
+  elif [[ -f $DIR_TT/leitor-amostras.json && -f $DIR_TT/leitor-tt.py ]]; then
+    m=$(leitor_py amostras estado 2>/dev/null) && checar_linha leitor-amostras ok "textos de base na biblioteca: $m" \
+      || checar_linha leitor-amostras aviso "textos de base: $m" "tt --leitor-amostras garantir (o vigia tenta de hora em hora; falha recua até 1 dia); pdftotext (poppler) é preciso para os PDFs"
   fi
 
   # tarefas

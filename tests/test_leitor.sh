@@ -491,6 +491,37 @@ mkdir -p "$AM/b2"; printf 'Meu texto, com as minhas palavras.\n' >"$AM/meu.txt"
 env TT_LEITOR_DIR="$AM/b2" TT_LEITOR_AMOSTRAS=0 "$TT" --leitor-add "$AM/meu.txt" >/dev/null
 s=$(env TT_LEITOR_DIR="$AM/b2" TT_LEITOR_AMOSTRAS_CATALOGO="$AM/pkg/leitor-amostras.json" TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar --tsv); sleep 0.5
 [[ $(wc -l <<<"$s") -eq 1 && -s $AM/b2/amostras.json ]] || falhou "biblioteca com textos ganhou amostra sem pedir: $s"
+# garantir: o texto de base chega a TODA biblioteca, mesmo a de quem já tinha os seus; falha recua; remoção vale
+B2() { env TT_LEITOR_DIR="$AM/b2" TT_LEITOR_AMOSTRAS_CATALOGO="$AM/pkg/leitor-amostras.json" "$@"; }
+B2 TT_LEITOR_AMOSTRAS=0 "$TT" --leitor-amostras garantir --quieto >/dev/null 2>&1
+[[ $(B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar --tsv | wc -l) -eq 1 ]] || falhou 'leitor_amostras=0 não deveria garantir nada'
+B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras garantir --quieto >/dev/null 2>"$T/err" && falhou 'garantir com a fonte fora do ar deveria sair com 1'
+s=$(B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar --tsv)
+[[ $(wc -l <<<"$s") -eq 3 && $s == *"Os Doze Fatores"* && $s == *"Amostra da Rede"* && $s == *$'\tmeu\t'* ]] || falhou "garantir não completou a biblioteca de quem já tinha textos: $s"
+grep -q 'Portal Fora do Ar' "$T/err" || falhou 'garantir não disse qual texto falhou'
+est=$(B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras estado || true)
+[[ $est == *"fora-do-ar (1x"* ]] || falhou "estado não mostra a falha: $est"
+B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras garantir --quieto >/dev/null 2>"$T/err2"
+[[ ! -s $T/err2 ]] || falhou "a falha deveria recuar, não repetir na hora: $(cat "$T/err2")"
+idr=$(awk -F'\t' '/Amostra da Rede/{print $1}' <<<"$(B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar --tsv)")
+B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-rm "$idr" >/dev/null
+python3 -I - "$AM/b2/amostras.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1])); m["feitas"].pop("da-rede", None); json.dump(m, open(sys.argv[1], "w"))
+PY
+B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras garantir --quieto >/dev/null 2>&1
+[[ $(B2 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar --tsv) != *"Amostra da Rede"* ]] || falhou 'texto removido (lápide) voltou pela garantia'
+# o mesmo livro que já chegou pela troca (a fonte entrega bytes um pouco diferentes por máquina) não é baixado de novo
+mkdir -p "$AM/b3"; B3() { env TT_LEITOR_DIR="$AM/b3" TT_LEITOR_AMOSTRAS_CATALOGO="$AM/pkg/leitor-amostras.json" "$@"; }
+printf 'Capítulo um\n\nOutra versão do mesmo livro, com palavras de sobra.\n' >"$AM/outra.txt"
+B3 TT_LEITOR_AMOSTRAS=0 "$TT" --leitor-add "$AM/outra.txt" >/dev/null
+python3 -I - "$AM/b3" <<'PY'
+import glob, json, sys
+for f in glob.glob(sys.argv[1] + "/livros/*/meta.json"):
+    m = json.load(open(f)); m["titulo"] = "Amostra da Rede"; m["autor"] = "Fulana"; json.dump(m, open(f, "w"))
+PY
+B3 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-amostras garantir --quieto >/dev/null 2>&1
+[[ $(B3 TT_LEITOR_AMOSTRAS=1 "$TT" --leitor-listar --tsv | grep -c 'Amostra da Rede') -eq 1 ]] || falhou 'garantir baixou de novo o livro que já estava na biblioteca (outro hash)'
 # o catálogo do pacote: toda entrada com licença e fonte, só https, e o arquivo do pacote existe
 python3 -I - "$TT_DIR" <<'PY' || falhou 'catálogo de amostras do pacote inválido'
 import json, os, sys
@@ -505,7 +536,7 @@ for a in cat:
         assert a["url"].startswith("https://") and a["mb"] <= 20, a
 assert sum("arquivo" in a for a in cat) >= 1, "ao menos uma amostra tem de vir no pacote (sem rede)"
 PY
-passou 'amostras: a biblioteca vazia ganha a do pacote na hora e as de rede em seguida, uma vez só; apagada não volta; erro da fonte não vira livro'
+passou 'amostras: garantir completa a biblioteca de todos, recua na falha e respeita a remoção; a biblioteca vazia ganha a do pacote na hora e as de rede em seguida, uma vez só; apagada não volta; erro da fonte não vira livro'
 [[ -s $TT_DIR/leitor-tt.py && -s $TT_DIR/leitor-fontes.bin ]] || falhou 'o pacote instalado não traz o leitor e o atlas'
 [[ $("$TT" --leitor-popup-cmd-teste 2>&1 || true) == *"opção desconhecida"* ]] || falhou 'verbo inexistente não foi recusado'
 passou 'contratos: ajuda, Ctrl+B L, rota do clique, item do menu ⋯ e arquivos do pacote'
