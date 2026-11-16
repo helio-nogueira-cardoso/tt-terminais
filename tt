@@ -16902,9 +16902,15 @@ selo_ansi() { # maquina
 # TT_FIX_VISIVEIS, se definido, é um teto duro de itens na faixa.
 barra_fixadas_fmt() {
   local normal='#[bg=#44475a]#[fg=#f8f8f2]#[nobold]' atual='#[bg=#bd93f9]#[fg=#282a36]#[bold]' morta='#[bg=#282a36]#[fg=#6272a4]#[nobold]'
-  local -A existe=() SELO=() SELO_COR=() FX_ABREV=([_]=); local FX_MEMO=1
-  local s r id fxk
-  while read -r s; do [[ -n $s ]] && existe[$s]=1; done <<<"$(tmux_tela list-sessions -F '#{session_name}' 2>/dev/null)"
+  local -A existe=() existe_id=() SELO=() SELO_COR=() FX_ABREV=([_]=); local FX_MEMO=1
+  local s r id fxk ls_tela ls_ok=1
+  # Existência pelo nome E pelo código estável (@tt_session_id): entre o rename de uma sessão e a atualização da fixada o nome
+  # guardado some, mas o código segue vivo, e isso não é morte. Consulta que falha = desconhecido, nunca "morreu".
+  ls_tela=$(tmux_tela list-sessions -F $'#{session_name}\x1f#{@tt_session_id}' 2>/dev/null) || ls_ok=0
+  while IFS=$'\x1f' read -r s id; do
+    [[ -n $s ]] && existe[$s]=1
+    [[ -n ${id:-} ]] && existe_id[$id]=1
+  done <<<"$ls_tela"
   if [[ -z $(fixadas) ]]; then
     printf '#[fg=#6272a4] ▸ 📌'
     return 0
@@ -16919,7 +16925,9 @@ barra_fixadas_fmt() {
     [[ -n $r$s$id ]] || continue
     total=$((total + 1))
     fixada_chave_em fxk "$r" "$s" "$id"; chaves[total]=$fxk; nome[total]=$s; maq[total]=$r
-    if [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then vivas[total]=0
+    if [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then
+      # nome sumiu: renomeada (o código dela segue vivo) ou consulta sem resposta → não é morta
+      if ((ls_ok)) && [[ -z $id || -z ${existe_id[$id]:-} ]]; then vivas[total]=0; else vivas[total]=1; fi
     elif [[ $r == "$MAQUINA" && $s != *[,}#\']* ]]; then vivas[total]=2
     else vivas[total]=1; fi
   done <<<"$(fixadas)"
@@ -17207,9 +17215,14 @@ barra_hora() {
 }
 
 barra_fixadas() {
-  local atual=${1:-} i=0 r s id rot cor chave
-  local -A existe
-  while read -r s; do existe[$s]=1; done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  local atual=${1:-} i=0 r s id rot cor chave ls_tela ls_ok=1
+  local -A existe existe_id
+  # Como no barra_fixadas_fmt: nome OU código estável vivo = existe; consulta sem resposta = desconhecido, não "morreu".
+  ls_tela=$(tmux list-sessions -F $'#{session_name}\x1f#{@tt_session_id}' 2>/dev/null) || ls_ok=0
+  while IFS=$'\x1f' read -r s id; do
+    [[ -n $s ]] && existe[$s]=1
+    [[ -n ${id:-} ]] && existe_id[$id]=1
+  done <<<"$ls_tela"
   printf '#[fg=#6272a4] ▸ ' # só marcador (não clicável); os pinos da barra são botões
   while IFS=$'\t' read -r r s id; do
     i=$((i + 1))
@@ -17217,7 +17230,8 @@ barra_fixadas() {
     if [[ $r == "$MAQUINA" ]]; then rot=$s; else rot="$r:$s"; fi
     rot=${rot:0:22}
     if [[ $r == "$MAQUINA" && $s == "$atual" ]]; then cor='#[bg=#bd93f9,fg=#282a36,bold]'
-    elif [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]]; then cor='#[bg=#282a36,fg=#6272a4]'; rot="✗ $rot"
+    elif [[ $r == "$MAQUINA" && -z ${existe[$s]:-} ]] && ((ls_ok)) && [[ -z $id || -z ${existe_id[$id]:-} ]]; then
+      cor='#[bg=#282a36,fg=#6272a4]'; rot="✗ $rot"
     else cor='#[bg=#44475a,fg=#f8f8f2]'; fi
     # Item (clique vai à sessão) + ✕ (clique desafixa).
     printf '#[range=user|fx%s]%s %s#[norange]#[range=user|fxx%s]%s ✕ #[norange]#[default] ' "$chave" "$cor" "$rot" "$chave" "$cor"
