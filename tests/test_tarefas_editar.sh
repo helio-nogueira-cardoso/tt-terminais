@@ -6,7 +6,9 @@
 # subtarefa só troca o texto; arquivada avisa; --tarefa-renomear segue só no texto.
 # Isola HOME/XDG e usa stub de tmux; nenhum arquivo real é tocado.
 set -euo pipefail
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# Caminho físico (pwd -P): o tt monta as ações com readlink -f "$0", e num clone sob link (no macOS o /tmp
+# é /private/tmp) o "$ROOT/tt" lógico não batia com a ação que o tt devolve.
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 TT="$ROOT/tt"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 source "$(dirname "$0")/tmux-isolado.sh"

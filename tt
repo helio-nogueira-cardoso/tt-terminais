@@ -11623,10 +11623,22 @@ tarefas_repo_url()  { conf tarefas_repo; }
 # O arquivo de tarefas linha a linha, sempre com quebra no fim: um arquivo truncado sem quebra, concatenado
 # com cat a outra fonte, grudava a linha seguinte nele (incidente de 21/10/2026, linha de 9 MB).
 tarefas_linhas() { [[ -f $CONF_TAREFAS ]] && awk 1 "$CONF_TAREFAS"; return 0; }
+# Só as linhas COMPLETAS de cada arquivo (as que terminam em quebra de linha), um arquivo depois do outro.
+# Uma cópia cortada no meio (o cat_remoto de uma máquina lenta morto pelo timeout, um envio por ssh que
+# caiu) deixa a última linha pela metade; concatenada à fonte seguinte, ela grudava na primeira linha dela
+# e virava uma tarefa nova com um pedaço de outro código colado na frente (16 e 19/11/2026: ids de 17 a
+# 74 hex, cópias do HB-1104 que cresciam a cada volta) ou entrava no merge com a descrição cortada.
+tarefas_completas() { # arquivo...
+  local f
+  for f in "$@"; do
+    [[ -s $f ]] || continue
+    if [[ $(tail -c 1 "$f" | od -An -tx1) == *0a* ]]; then cat "$f"; else sed '$d' "$f"; fi
+  done
+}
 # Todas as linhas válidas do arquivo (inclui lápides). Sanitiza silenciosamente linhas quebradas.
 tarefas_raw() {
   [[ -f $CONF_TAREFAS ]] || return 0
-  awk -F'\t' 'NF >= 5 && $1 ~ /^[0-9a-f]{6,}$/ { print }' "$CONF_TAREFAS"
+  awk -F'\t' 'NF >= 5 && $1 ~ /^[0-9a-f]{12}$/ { print }' "$CONF_TAREFAS"
 }
 
 # Só as vivas (não removidas), ordenadas: abertas antes de feitas, cada grupo da mais nova para a
@@ -11791,8 +11803,9 @@ tarefas_merge() {
       return r
     }
     # Linha malformada (estado desconhecido, datas não numéricas) não entra: uma linha truncada colada
-    # na seguinte tinha id válido e "mudada" maior que a versão boa, e vencia o merge.
-    NF >= 5 && $1 ~ /^[0-9a-f]{6,}$/ && $2 ~ /^(aberta|feita|arquivada|removida|pendente)$/ && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ {
+    # na seguinte tinha id válido e "mudada" maior que a versão boa, e vencia o merge. O código tem
+    # sempre 12 hex (tarefas_novo_id, demandas, subtarefas de e-mail): um maior é pedaço de outro colado.
+    NF >= 5 && $1 ~ /^[0-9a-f]{12}$/ && $2 ~ /^(aberta|feita|arquivada|removida|pendente)$/ && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ {
       if (NF >= 6) { mt = limpo($6); $0 = $1 OFS $2 OFS $3 OFS $4 OFS $5 (mt == "" ? "" : OFS mt) }
       id=$1
       if (!(id in m) || $4+0 > md[id]+0 || ($4+0==md[id]+0 && rank($2) > rank(st[id]))) {
@@ -11809,8 +11822,11 @@ tarefas_merge() {
 
 # Recebe uma lista (stdin) de outra máquina/repo e funde na local. Não re-propaga (evita eco).
 receber_tarefas() {
-  local tmp_in tmp_out
-  tmp_in=$(mktemp) || return 1; cat >"$tmp_in"
+  local tmp_cru tmp_in tmp_out
+  tmp_cru=$(mktemp) || return 1; cat >"$tmp_cru"
+  # O que chega pode estar cortado (ssh que caiu, timeout de quem envia): só as linhas completas.
+  tmp_in=$(mktemp) || { rm -f "$tmp_cru"; return 1; }
+  tarefas_completas "$tmp_cru" >"$tmp_in"; rm -f "$tmp_cru"
   tarefas_travar || { rm -f "$tmp_in"; return 1; }
   mkdir -p "$CONF_DIR"; touch "$CONF_TAREFAS"
   tmp_out=$(mktemp "$CONF_TAREFAS.XXXXXX") || { tarefas_destravar; rm -f "$tmp_in"; return 1; }
@@ -12549,7 +12565,13 @@ propagar_tarefas() {
 }
 
 # P2P: puxa de todas e funde (o vigia chama ao iniciar e a cada 5 min).
-puxar_tarefas() { nas_maquinas cat_remoto '~/.config/tt/tarefas' 6 | receber_tarefas; }
+puxar_tarefas() { nas_maquinas tarefas_de_remoto '~/.config/tt/tarefas' 6 | receber_tarefas; }
+# O arquivo de tarefas de uma máquina (para nas_maquinas), só com as linhas completas: o nas_maquinas emenda
+# a saída de uma máquina na da seguinte, e a cortada pelo timeout grudava a última linha na 1ª da próxima.
+tarefas_de_remoto() { # dest rótulo caminho-lá segundos
+  local t; t=$(mktemp) || return 0
+  cat_remoto "$@" >"$t"; tarefas_completas "$t"; rm -f "$t"
+}
 
 # --- repositório git pessoal (tarefas_sync=git|ambos) ----------------------
 #
@@ -12656,7 +12678,7 @@ tarefas_git_volta() {
       git -C "$dir" read-tree --empty 2>/dev/null
     fi
     # Na lista local: o que veio do remoto e o que o clone tinha e não chegou a enviar.
-    cat "$dir/tarefas" "$antes" 2>/dev/null | tarefas_sem_lapide_velha "$corte" | receber_tarefas
+    tarefas_completas "$dir/tarefas" "$antes" | tarefas_sem_lapide_velha "$corte" | receber_tarefas
     rm -f "$antes"
     # No repo: a junção das duas (se a lista local estiver atrás, nada some do repo).
     junto=$(mktemp)

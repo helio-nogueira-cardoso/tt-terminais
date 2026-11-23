@@ -102,7 +102,15 @@ while time.monotonic() < deadline and not os.path.exists(marcador):
         try: saida.extend(os.read(master, 4096))
         except OSError: break
 assert os.path.exists(marcador), f"clique não chamou TT_BIN --mesh-tick-menu; rc={p.poll()}, saída={bytes(saida[-1000:])!r}"
-time.sleep(0.1)
+# Espera o painel voltar do menu: o tty.setraw da volta usa TCSAFLUSH (descarta a soltura do clique que
+# sobrou) e engolia o Esc mandado antes dele. No Mac (mais lento) o Esc de 0,1 s depois chegava antes.
+inicio = len(saida)
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline and b"tick ajustado" not in saida[inicio:]:
+    if select.select([master], [], [], 0.1)[0]:
+        try: saida.extend(os.read(master, 4096))
+        except OSError: break
+assert b"tick ajustado" in saida[inicio:], f"painel não voltou do menu; saída={bytes(saida[-600:])!r}"
 os.write(master, b"\x1b")
 try: p.wait(timeout=5)
 except subprocess.TimeoutExpired: p.kill(); raise

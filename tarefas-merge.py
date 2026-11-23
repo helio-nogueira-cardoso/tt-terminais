@@ -36,7 +36,8 @@ META_ORDEM = ["desc", "prazo", "hora", "prio", "rep", "ant", "antsub", "ciclos",
 CAMPOS = [("texto", "Título"), ("prazo", "Prazo"), ("prio", "Prioridade"), ("rep", "Repetição"),
           ("tags", "Etiquetas"), ("desc", "Descrição"), ("estado", "Situação")]
 ROTULO = dict(CAMPOS)
-HEX = re.compile(r"^[0-9a-f]{6,}$")
+HEX = re.compile(r"^[0-9a-f]{6,}$")    # código citado em e-mail (~CÓDIGO, [CÓDIGO]): pode vir abreviado
+ID = re.compile(r"^[0-9a-f]{12}$")     # código de uma linha do arquivo: sempre 12 hex (maior = pedaço colado)
 SUB_CAMPOS = ("desc", "prazo", "hora", "prio", "rep", "tags")
 
 
@@ -104,7 +105,7 @@ def ler(arq):
         with open(arq, encoding="utf-8") as f:
             for ln in f:
                 p = ln.rstrip("\n").split("\t")
-                if len(p) < 5 or not HEX.match(p[0]):
+                if len(p) < 5 or not ID.match(p[0]):
                     continue
                 while len(p) < 6:
                     p.append("")

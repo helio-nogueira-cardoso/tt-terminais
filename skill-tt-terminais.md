@@ -1222,6 +1222,14 @@ devolve o host assim mesmo (`maquinas_agora todas`) e sai 2, e quem chama diz "n
   gravação usa temporário próprio (`mktemp`). Incidente de 21/10/2026: arquivo truncado sem quebra + `cat` grudou duas
   tarefas, o texto caiu no meta e crescia a cada merge (9 MB, merges presos em todas as máquinas). Teste:
   `tests/test_tarefas_linha_colada.sh`.
+  O código de uma linha tem sempre **12 hex**; o merge (e o `ler` do `tarefas-merge.py`) descarta outro tamanho. O que
+  vem de outra máquina passa por `tarefas_completas ARQ…` (só linhas com quebra no fim; a última cortada some): o
+  `puxar_tarefas` usa `nas_maquinas tarefas_de_remoto` (cada máquina limpa antes de emendar na seguinte), o
+  `receber_tarefas` limpa o stdin e a volta do git limpa `$dir/tarefas` e a cópia de antes. Incidente de 16 e
+  19/11/2026: o `cat_remoto` de uma máquina lenta, cortado pelo timeout de 6 s, deixava a última linha pela metade
+  e ela grudava na 1ª linha da máquina seguinte: tarefas com um pedaço de outro código na frente (17 a 74 hex; as
+  cópias do HB-1104 ganhavam o mesmo prefixo a cada volta) e descrições cortadas que venciam a versão inteira (a
+  cortada tinha `mudada` maior). Teste: `tests/test_tarefas_linha_cortada.sh`.
   Modo git (`tarefas_git_sincronizar` → `tarefas_git_volta`): o clone depth 1 em
   `$ESTADO_DIR/tarefas-git` é cache. Cada volta busca com refspec explícito (o clone de repo vazio
   nasce sem nenhum), realinha (`checkout -f -B` no remoto; repo vazio recomeça o ramo), junta na lista
