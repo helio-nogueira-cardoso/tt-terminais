@@ -555,6 +555,9 @@ desta máquina em ordem, `_energia`), nunca a rede. Log rotativo `~/.cache/tt-le
   de notificações desligada, os chips de tarefas/versão passam para a linha das janelas quando as fixadas estão ocultas.
   `--nao-perturbe` usa estado local em `nao-perturbe` (on ou epoch de término, até 86400 s); a expiração é conferida
   com relógio do Bash. Silencia `notificar_aparelho`, incluindo sobreposição de terminal; histórico e sino permanecem.
+  `--notif-sistema on|off|alternar|status` (chave `notif_sistema=0|1` do config, por máquina, padrão ligada; menu
+  Administrar → 🖥, tecla N) desliga só a notificação do SISTEMA (`notify-send`/`termux-notification`) em
+  `notificar_aparelho`: 🔔, faixa e, sem a faixa, a mensagem nos terminais continuam. Não expira e a voz não a alterna.
   `--letreiro-mensagem` cria/edita a fonte local `voz-mensagem` (lista), substitui seu item e atualiza só essa fonte.
   A CLI `--renomear S N` usa o mesmo `renomear` manual; a voz acompanha a mudança no alvo, permissões, pendente,
   chamadas, agenda, acompanhamentos e fila de retorno. `--interface-abrir TIPO CLIENTE` reutiliza e-mail/calendário/popup
@@ -1638,7 +1641,8 @@ tt --notificar-daqui "Preciso da sua aprovação para o push" --sempre      # av
   de qualquer canal e idade. A união preserva a marca `.lida`, então uma cópia antiga não desfaz uma leitura.
   Criar/ler sincroniza logo; o vigia recupera máquinas que estavam offline. Até 30 avisos ativos ficam
   disponíveis; expiram conforme o tempo configurado (padrão 24 h). Mais a notificação do sistema onde houver
-  (`notify-send`, Termux). Clicar no 🔔 abre a central; ⏎ num aviso de agente leva à máquina de origem e à
+  (`notify-send`, Termux), salvo na máquina com `notif_sistema=0` (`tt --notif-sistema off`; menu Administrar → 🖥),
+  em que os avisos ficam só no tt. Clicar no 🔔 abre a central; ⏎ num aviso de agente leva à máquina de origem e à
   sessão. Sem a faixa (`faixa_notif=0`, não há 🔔) segue o caminho antigo (tela dos clientes).
 - Fora do tmux (sem `$TMUX_PANE`) vira um `tt --notificar` comum. Notificação de outra máquina
   fica na faixa daquela máquina.

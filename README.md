@@ -2284,6 +2284,12 @@ Os outros controles seguem a máquina escolhida na voz:
 Pelo terminal, os mesmos controles estão em `tt --fixadas-faixa on|off|status`, `tt --nao-perturbe on|off|SEGUNDOS|status`,
 `tt --letreiro-mensagem "TEXTO"` e `tt --renomear SESSÃO "NOME"`. O menu Administrar também alterna a barra das fixadas e o não perturbe.
 
+**Avisos só no tt, numa máquina:** `tt --notif-sistema off` (ou menu Administrar → 🖥 Notificação do sistema) grava
+`notif_sistema=0` no config daquela máquina. Os avisos do tt (e-mail novo, lembrete de tarefa, `--notificar-daqui` dos
+agentes) continuam no 🔔 e na faixa, mas deixam de aparecer na notificação do sistema dela (`notify-send`, Termux). Sem a
+faixa, a mensagem na tela dos terminais continua. É diferente do não perturbe: não expira, não cala os terminais e a voz não
+mexe nela. `tt --notif-sistema on` volta ao padrão.
+
 **Fechar sessões e a limpeza:** "feche a sessão X" pergunta antes ("diga sim para fechar"); se é a sessão escolhida, ou
 se o agente dela está trabalhando, pergunta duas vezes. "Limpeza" (ou "quais sessões posso fechar", "limpe as sessões
 do dell") olha todas as sessões das máquinas: quem está olhando, fixada, papel no tt, texto não enviado, uso recente,

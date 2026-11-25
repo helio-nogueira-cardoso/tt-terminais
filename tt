@@ -33,6 +33,7 @@
 #                   -catalogo -ajustes; painel: menu ⋯ → 📰 Letreiro (README: "Letreiro: fontes")
 #   tt --fixadas-faixa on|off|status  mostra/esconde a barra sem desafixar as sessões
 #   tt --nao-perturbe on|off|SEGUNDOS|status  silencia avisos do aparelho e preserva o sino
+#   tt --notif-sistema on|off|alternar|status  nesta máquina, avisos do tt também na notificação do sistema (ou só no tt)
 #   tt --letreiro-mensagem "TEXTO"  muda a mensagem local sem remover as outras fontes
 #   tt --renomear SESSÃO "NOME"  renomeia sem abrir o prompt
 #   tt --tailscale-ws garantir|ativar|desativar|status|testar  fallback WebSocket local no macOS
@@ -10087,6 +10088,7 @@ menu_admin() {
     printf 'P\t  ⚡ Pré-carregamento de sessões…\t%s\n' "$(popup_tt "$c" 'pré-carregamento' "$EU --precarregar-ui")"
     printf 'F\t  📌 Barra das fixadas: %s (alternar)\t%s\n' "$(fixadas_faixa_ativa && echo visível || echo oculta)" "$EU --fixadas-faixa alternar"
     printf 'D\t  🌙 Não perturbe: %s (alternar)\t%s\n' "$(nao_perturbe_ativo && echo ligado || echo desligado)" "$EU --nao-perturbe alternar"
+    printf 'N\t  🖥  Notificação do sistema nesta máquina: %s (alternar)\t%s\n' "$(notif_sistema_ativa && echo ligada || echo 'desligada, só no tt')" "$EU --notif-sistema alternar"
     printf 'e\t  📤 Enviar arquivos…\t%s\n' "$(popup_tt "$c" "📤 enviar" "TT_CLIENTE=$c TT_PANE=$p $EU --enviar")"
     printf 'r\t  📥 Trazer arquivos…\t%s\n' "$(popup_tt "$c" "📥 trazer" "TT_CLIENTE=$c TT_PANE=$p $EU --trazer")"
     printf 'f\t  ⇅  Acompanhar as transferências…\t%s\n' "$(popup_tt "$c" "⇅ transferências" "$EU --transferencias")"
@@ -13104,6 +13106,23 @@ fixadas_faixa_cmd() {
   if fixadas_faixa_ativa; then echo 'Barra das fixadas: visível.'; else echo 'Barra das fixadas: oculta.'; fi
 }
 
+# Notificação do SISTEMA (notify-send, Termux) é escolha de cada máquina: notif_sistema=0 no config deixa os avisos
+# só dentro do tt (🔔, faixa e, sem a faixa, a mensagem na tela dos terminais). Não é o não perturbe: ele cala também
+# a mensagem nos terminais, pode expirar e é alternado pela voz; esta chave fica até alguém mudá-la.
+notif_sistema_ativa() { local v; conf_em v notif_sistema; [[ $v != 0 ]]; }
+notif_sistema_cmd() { # on | off | alternar | status
+  local modo=${1:-status}
+  [[ $modo == alternar ]] && { if notif_sistema_ativa; then modo=off; else modo=on; fi; }
+  case $modo in
+    on) conf_gravar notif_sistema 1 || return 1 ;;
+    off) conf_gravar notif_sistema 0 || return 1 ;;
+    status|estado) ;;
+    *) echo 'uso: tt --notif-sistema on|off|alternar|status' >&2; return 2 ;;
+  esac
+  if notif_sistema_ativa; then echo 'Notificação do sistema: ligada (os avisos do tt também aparecem no sistema).'
+  else echo 'Notificação do sistema: desligada (os avisos ficam só no tt).'; fi
+}
+
 nao_perturbe_ativo() {
   local fim="" agora
   { IFS= read -r fim <"$ESTADO_DIR/nao-perturbe"; } 2>/dev/null || return 1
@@ -14578,16 +14597,19 @@ tarefas_notificar() { # titulo corpo [ação para o clique na faixa] [canal: sin
 # A notificação do sistema (e, sem a faixa, a tela dos terminais abertos) é DESTE aparelho: cada máquina que
 # percebe o evento mostra a sua, mesmo quando o aviso do 🔔 (um só na rede, pelo código) já veio de outra.
 notificar_aparelho() { # titulo corpo
-  local t=$1 c=$2 cl ok=1
+  local t=$1 c=$2 cl ok=1 sistema=1
   nao_perturbe_ativo && return 0
+  notif_sistema_ativa || sistema=0
   # Com a faixa ligada o aviso JÁ aparece nela: o display-message por cima da 1ª linha vira
   # redundância que cobre a barra — só entra quando a faixa está desligada.
   if faixa_notif_ativa; then
+    ((sistema)) || return 0
     tem_cmd notify-send && notify-send -a tt "$t" "$c" >/dev/null 2>&1
     tem_cmd termux-notification && termux-notification --title "$t" --content "$c" >/dev/null 2>&1
     return 0
   fi
-  if tem_cmd notify-send; then notify-send -a tt "$t" "$c" >/dev/null 2>&1 && ok=0
+  if ((!sistema)); then :
+  elif tem_cmd notify-send; then notify-send -a tt "$t" "$c" >/dev/null 2>&1 && ok=0
   elif tem_cmd termux-notification; then termux-notification --title "$t" --content "$c" >/dev/null 2>&1 && ok=0; fi
   # Também na tela de cada terminal aberto (no WSL não há notify-send).
   while read -r cl; do
@@ -23380,6 +23402,7 @@ case "${1:-}" in
   --notifs-limpar-lidas) notifs_limpar_lidas_cli; exit 0 ;; # apaga as lidas (aqui e na rede) e diz quantas
   --fixadas-faixa) fixadas_faixa_cmd "${2:-status}"; exit $? ;;
   --nao-perturbe) nao_perturbe_cmd "${2:-status}"; exit $? ;;
+  --notif-sistema) notif_sistema_cmd "${2:-status}"; exit $? ;;
   --interface-abrir) interface_abrir "${2:-}" "${3:-}"; exit $? ;;
   --letreiro-mensagem) letreiro_mensagem "${2:-}"; exit $? ;;
   --letreiro-ler) ticker_linha_montar; echo; exit 0 ;;      # o que o letreiro mostra agora (sem buscar nada na rede)

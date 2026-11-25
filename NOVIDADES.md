@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.23.0 · 25/11/2026
+- **🖥 Avisos só no tt, por máquina:** `tt --notif-sistema off` (ou menu Administrar → 🖥 Notificação do sistema, tecla N) faz os avisos do tt daquela máquina (e-mail novo, lembrete de tarefa, avisos dos agentes) ficarem só no 🔔 e na faixa, sem a notificação do sistema operacional. Fica gravado no config da máquina (`notif_sistema=0`) até você mudar; `tt --notif-sistema on` volta. Diferente do não perturbe, não expira, não esconde a mensagem nos terminais e a voz não a alterna.
+
 ## v2.22.5 · 23/11/2026
 - **📋 Tarefas não se duplicam mais na sincronização:** a tarefa que aparecia repetida com um código estranho, mais comprido que o normal (as cópias do HB-1104, da SAUDE do Skynet, do Zeev), e a descrição que chegava cortada pela metade tinham a mesma causa. Ao puxar as tarefas das outras máquinas, a de uma máquina lenta era cortada no meio pelo limite de tempo e o pedaço grudava na primeira tarefa da máquina seguinte. Agora o que chega cortado é descartado (a próxima troca traz inteiro), em todas as vias (puxar, receber por ssh e repositório git), e uma tarefa só entra com o código de 12 caracteres. As cópias que já existem somem na primeira troca.
 - **Mac:** dois testes que falhavam só no macOS passam (o Esc do painel da conversa do mesh e o caminho do tt sob `/private/tmp`).
