@@ -1,0 +1,12 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# Mantém o servidor ai-memory (Debian/proot) de pé numa sessão tmux; chamado pelo cron a cada 2 min.
+export TMUX_TMPDIR=$PREFIX/var/run
+# Modo leve do tt (padrão no celular; modo_leve=0 em ~/.config/tt/config desliga): sem servidor ai-memory.
+v=$(sed -n 's/^modo_leve=//p' "$HOME/.config/tt/config" 2>/dev/null | tail -1)
+if [ "${v:-1}" != 0 ]; then
+  tmux has-session -t ai-memory 2>/dev/null && tmux kill-session -t ai-memory
+  exit 0
+fi
+curl -sf --max-time 5 http://127.0.0.1:49374/healthz >/dev/null 2>&1 && exit 0
+tmux has-session -t ai-memory 2>/dev/null && tmux kill-session -t ai-memory
+tmux new-session -d -s ai-memory "proot-distro login debian --shared-tmp -- /root/.local/bin/ai-memory --data-dir /root/.local/share/ai-memory serve --transport http"
