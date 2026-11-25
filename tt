@@ -2525,7 +2525,7 @@ saude_local() {
   fi
   [[ -s $tsv ]] || return 0
   echo "  ultimas falhas registradas ($tsv):"
-  tail -n 3 "$tsv" | while IFS=$'\t' read -r ts unit est; do printf '    %s  %s %s\n' "$ts" "$unit" "$est"; done
+  tail -n 3 "$tsv" | while IFS=$'\t' read -r ts unit est _; do printf '    %s  %s %s\n' "$ts" "$unit" "$est"; done
 }
 
 # --- Guarda dos serviços do usuário (systemd --user) -------------------------------------------------------------

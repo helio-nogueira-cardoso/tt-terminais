@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.23.4 · 25/11/2026
+- **`tt --saude`:** nas "ultimas falhas registradas" volta a aparecer só `FAILED`; a assinatura do erro (4ª coluna do `unit-failures.tsv`) deixou de sair grudada no estado. Ela continua gravada no arquivo.
+
 ## v2.23.0 · 25/11/2026
 - **🖥 Avisos só no tt, por máquina:** `tt --notif-sistema off` (ou menu Administrar → 🖥 Notificação do sistema, tecla N) faz os avisos do tt daquela máquina (e-mail novo, lembrete de tarefa, avisos dos agentes) ficarem só no 🔔 e na faixa, sem a notificação do sistema operacional. Fica gravado no config da máquina (`notif_sistema=0`) até você mudar; `tt --notif-sistema on` volta. Diferente do não perturbe, não expira, não esconde a mensagem nos terminais e a voz não a alterna.
 
