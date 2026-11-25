@@ -636,11 +636,16 @@ vigiar() {
   # Renomeação seguinte por pontos: cada pedido novo vale TT_PESO_PEDIDO (3) e cada minuto com uso
   # vale 1; ao somar TT_PONTOS_RENOMEAR (10), com ao menos um pedido novo, pergunta ao Haiku.
   local peso_pedido=${TT_PESO_PEDIDO:-3} pontos_renomear=${TT_PONTOS_RENOMEAR:-10}
+  if modo_leve; then # celular: tudo o que é pesado ou constante fica desligado; o essencial anda em passo lento
+    export TT_T_BUSCA=0 TT_T_LEITOR=0 TT_T_SESSOES_IA=0 TT_EMAIL_SYNC=0
+    : "${TT_T_NOTIFS_SYNC:=300}" "${TT_T_INFO:=900}" "${TT_T_MALHA:=3600}"
+    t_info=$TT_T_INFO pausa=${TT_PAUSA:-120}
+  fi
   while tmux list-sessions >/dev/null 2>&1; do
     proximo=$pausa sondar=""
     _TEM_CMD_PATH="" # o vigia vive dias: a cada volta, pergunta de novo que comandos existem (tem_cmd)
     atualizar_barras
-    (precarregar_evento evento >/dev/null 2>&1 &)
+    modo_leve || (precarregar_evento evento >/dev/null 2>&1 &)
     [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || { echo "$(date '+%F %T') vigia $$ saiu: há outro" >>"$log"; exit 0; }
     agora=$(date +%s)
     # Acordou de um sleep? O laço anda no tempo em que a máquina está acordada, e o relógio dá o salto: se esta volta
@@ -686,7 +691,7 @@ vigiar() {
       ultima_contas=$agora
       ("$EU" --puxar-contas-ia >/dev/null 2>&1 &)
       ("$EU" --puxar-demandas >/dev/null 2>&1 &)
-      ("$EU" --puxar-letreiro >/dev/null 2>&1 &)
+      modo_leve || ("$EU" --puxar-letreiro >/dev/null 2>&1 &)
     fi
     # Snapshots do estado (snapshots=1): troca de agente de IA num painel não tem gancho no tmux, então a volta confere.
     if snapshots_ativo; then ("$EU" --snapshot-vigiar >/dev/null 2>&1 &); fi
@@ -13041,15 +13046,25 @@ notifs_exportar() {
 notifs_receber() { # arquivo tar no stdin; origem só pode acrescentar arquivos e marcas lidas
   # Sem ficar pendurado: quem envia desiste em 8 s (timeout do ssh) e o stdin daqui pode não fechar; e o
   # redesenho vai para a fila coalescida em 2º plano. Antes, no celular carregado, sobrava um receptor por minuto.
-  local tmp
-  tmp=$(mktemp -d "$RT/tt-notifs.XXXXXX") || return 1
-  timeout 20 cat >"$tmp/in.tar" || { rm -rf "$tmp"; return 1; }
+  # Instância única (leve no Android): se outro receptor ainda trabalha, este sai sem processar — o próximo
+  # envio (a cada minuto) leva o estado completo de novo, então nada se perde. Trava velha (>90 s ou dono morto) é refeita.
+  local tmp lock="$RT/tt-notifs-receber-$UID.lock" dono
+  if ! mkdir "$lock" 2>/dev/null; then
+    dono=$(<"$lock/pid" 2>/dev/null)
+    if [[ -n $dono ]] && kill -0 "$dono" 2>/dev/null && [[ -z $(find "$lock" -maxdepth 0 -mmin +1.5 2>/dev/null) ]]; then
+      return 0
+    fi
+    rm -rf "$lock"; mkdir "$lock" 2>/dev/null || return 0
+  fi
+  echo $$ >"$lock/pid"
+  tmp=$(mktemp -d "$RT/tt-notifs.XXXXXX") || { rm -rf "$lock"; return 1; }
+  trap 'rm -rf "$tmp" "$lock"' RETURN
+  timeout 10 cat >"$tmp/in.tar" || return 1
   if notifs_tar_seguro "$tmp/in.tar" && tar -xf "$tmp/in.tar" -C "$tmp" --no-same-owner --no-same-permissions 2>/dev/null; then
     notifs_mesclar_dir "$tmp"
     notifs_podar
     atualizar_barras_fundo >/dev/null 2>&1
   fi
-  rm -rf "$tmp"
 }
 notifs_sincronizar() (
   local tmp dest rot f n=0 lock="$RT/tt-notifs-sync-$UID.lock"
@@ -13178,7 +13193,11 @@ interface_abrir() { # tipo cliente: as mesmas ações dos botões da barra
   esac
 }
 
+# Modo leve (celular): sem letreiro, e-mail em sync constante/IDLE, índice de busca, livros, conversas das IAs,
+# pré-carregamento nem nomeador local; o vigia gira devagar. Padrão no Termux; `modo_leve=0` na config desliga.
+modo_leve() { local v; v=$(conf modo_leve); [[ -n $v ]] && { [[ $v != 0 ]]; return; }; [[ ${PREFIX:-} == *com.termux* ]]; }
 faixa_notif_ativa() {
+  modo_leve && return 1
   local v; conf_em v faixa_notif
   [[ -n $v ]] && { [[ $v != 0 ]]; return; }
   ! tem_cmd termux-open-url
