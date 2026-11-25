@@ -3,7 +3,7 @@
 # usuário e e-mail com erro; o agente (tt --checar-agente, por um ia-rot de mentira) recebe o pedido com o
 # coletor, o trecho novo do NOVIDADES.md e os limites, roda sem pedir permissão e fecha a rodada (histórico,
 # relatório, aviso no 🔔); o vigia (--checar-auto) dispara uma vez por versão nova, não incomoda máquina
-# recém-instalada, respeita checagem_auto=0 e, sem conta livre, tenta 3 vezes e fecha só com o coletor; as
+# recém-instalada, só lança o agente com checagem_auto=1 (convite uma vez sem a escolha), respeita checagem_auto=0 e, sem conta livre, tenta 3 vezes e fecha só com o coletor; as
 # rodadas antigas são podadas; o handoff empacota tudo sem segredo nem e-mail legível.
 source "$(dirname "$0")/lib.sh"; isolar
 instalar_isolado
@@ -153,6 +153,39 @@ rm -rf "$CK"; : >"$T/args"
 "$TT" --checar-auto
 [[ $(cat "$CK/versao-checada") == 1.14.0 ]] || falhou 'máquina recém-instalada deveria só marcar a versão'
 [[ -s $T/args ]] && falhou 'máquina recém-instalada não deveria lançar o agente'
+# A v2.24 desliga à força, uma vez, em toda máquina que já tinha o tt (mesmo com checagem_auto=1 gravado).
+rm -f "$CK/zerada-2.24"; echo 1.13.1 >"$CK/versao-checada"; echo checagem_auto=1 >>"$XDG_CONFIG_HOME/tt/config"; : >"$T/args"
+"$TT" --checar-auto; sleep 0.5
+[[ $(grep '^checagem_auto=' "$XDG_CONFIG_HOME/tt/config" | tail -1) == checagem_auto=0 ]] || falhou 'a atualização deveria forçar checagem_auto=0'
+[[ -s $T/args ]] && falhou 'máquina zerada não pode lançar o agente'
+[[ $(cat "$CK/versao-checada") == 1.13.1 && ! -e $CK/convite ]] || falhou 'zerada: sem rodada e sem convite'
+echo checagem_auto=1 >>"$XDG_CONFIG_HOME/tt/config"; "$TT" --checagem-auto status | grep -q ligada || falhou 'ligar depois de zerada deveria valer'
+"$TT" --checar-auto; esperar_hist 1 || falhou 'ligada depois de zerada deveria lançar'
+rm -rf "$CK"; : >"$T/args"; sed -i '/^checagem_auto=/d' "$XDG_CONFIG_HOME/tt/config"
+"$TT" --checar-auto
+grep -q '^checagem_auto=' "$XDG_CONFIG_HOME/tt/config" && falhou 'instalação nova não deveria ganhar a chave'
+passou 'v2.24: máquina que já tinha o tt fica com checagem_auto=0 uma vez; ligar depois vale; instalação nova fica sem a chave'
+
+# Sem a escolha de quem usa a máquina, versão nova não lança agente nenhum: só o convite, uma vez.
+echo 1.13.1 >"$CK/versao-checada"; : >"$T/args"
+"$TT" --checar-auto; sleep 0.5
+[[ -s $T/args ]] && falhou 'sem checagem_auto=1 o agente não pode ser lançado'
+[[ -e $CK/historico.log ]] && falhou 'sem checagem_auto=1 não deveria abrir rodada'
+[[ $(cat "$CK/versao-checada") == 1.14.0 ]] || falhou 'sem consentimento a marca deveria avançar (não insistir a cada volta)'
+[[ -e $CK/convite ]] || falhou 'faltou o convite para ligar a checagem'
+grep -l 'checagem-auto on' "$ES"/notifs/* >/dev/null 2>&1 || falhou 'o convite não diz como ligar'
+n1=$(grep -l 'checagem-auto on' "$ES"/notifs/* 2>/dev/null | wc -l)
+echo 1.13.1 >"$CK/versao-checada"; "$TT" --checar-auto
+[[ $(grep -l 'checagem-auto on' "$ES"/notifs/* 2>/dev/null | wc -l) == "$n1" ]] || falhou 'o convite deveria sair uma vez só'
+[[ -s $T/args ]] && falhou 'sem consentimento a 2ª versão também não lança agente'
+"$TT" --checagem-auto status | grep -q desligada || falhou 'status deveria dizer desligada'
+"$TT" --checagem-auto on | grep -q ligada || falhou '--checagem-auto on não ligou'
+grep -qx 'checagem_auto=1' "$XDG_CONFIG_HOME/tt/config" || falhou '--checagem-auto on não gravou o config'
+"$TT" --checagem-auto alternar | grep -q desligada || falhou 'alternar não desligou'
+"$TT" --checagem-auto on >/dev/null
+rc=0; "$TT" --checagem-auto xyz >/dev/null 2>&1 || rc=$?; [[ $rc == 2 ]] || falhou 'opção inválida deveria sair 2'
+passou 'vigia: sem a escolha da máquina não lança agente; convite uma vez; tt --checagem-auto liga e desliga'
+
 echo 1.13.1 >"$CK/versao-checada"
 "$TT" --checar-auto; esperar_hist 1 || falhou 'versão nova não lançou a checagem'
 [[ $(cat "$CK/versao-checada") == 1.14.0 ]] || falhou 'a marca não avançou'
@@ -163,7 +196,7 @@ passou 'vigia: uma rodada por versão nova; instalação nova só marca'
 echo 1.13.1 >"$CK/versao-checada"; echo checagem_auto=0 >>"$XDG_CONFIG_HOME/tt/config"
 "$TT" --checar-auto
 [[ $(cat "$CK/versao-checada") == 1.13.1 ]] || falhou 'checagem_auto=0 deveria desligar'
-sed -i '/^checagem_auto=/d' "$XDG_CONFIG_HOME/tt/config"
+sed -i '/^checagem_auto=/d' "$XDG_CONFIG_HOME/tt/config"; echo checagem_auto=1 >>"$XDG_CONFIG_HOME/tt/config"
 touch "$T/sem-conta"
 TT_CHECAGEM_REPETIR=0 "$TT" --checar-auto; TT_CHECAGEM_REPETIR=0 "$TT" --checar-auto
 [[ $(cat "$CK/tentativas") == 2 && $(cat "$CK/versao-checada") == 1.13.1 ]] || falhou "sem conta: deveria contar tentativas ($(cat "$CK/tentativas" 2>/dev/null))"
@@ -201,3 +234,7 @@ fn=$(TT_COMPLETO=1 bash -c 'TT_SO_CARREGAR=1 source "$1" >/dev/null 2>&1; declar
 grep -q -- '--checar-agente' <<<"$fn" && grep -q -- '--checar-handoff' <<<"$fn" || falhou 'menu administrar sem os itens 🩺'
 grep -q 'checagem:' <<<"$fn" || falhou 'aviso da checagem sem destino'
 passou 'menu administrar → 🩺 e o clique no aviso abrem a checagem'
+
+grep -q 'escute em porta' "$(dirname "$0")/../checagem-prompt.md" || falhou 'o pedido do agente perdeu a proibição de subir servidor'
+grep -q 'abrir navegador' "$(dirname "$0")/../checagem-prompt.md" || falhou 'o pedido do agente perdeu a proibição de abrir navegador'
+passou 'pedido do agente: proíbe servidor, navegador, rede de exemplo e suíte fora da máquina de desenvolvimento'

@@ -102,7 +102,9 @@ barra/fzf/vigia; os de usuário são os mais úteis no dia a dia.
   avisa no 🔔 (ação `checagem:RODADA`). Saída 2 = sem conta livre (nada criado), 3 = sem agente, 4 = já rodando.
   `tt --checar-ver [RODADA]`, `tt --checar-handoff [ARQ]` (tar.gz mascarado: rodadas sem `backup/`, fim dos logs, estado; nunca
   `~/.secrets`). Vigia: `--checar-auto` a cada 300 s (versão instalada > `checagens/versao-checada`; instalação nova só marca;
-  sem conta repete a cada `TT_CHECAGEM_REPETIR`=1800 s até 3 vezes; `checagem_auto=0` desliga). `TT_IA_ROT` troca o rotador (`-` = nenhum; testes).
+  sem conta repete a cada `TT_CHECAGEM_REPETIR`=1800 s até 3 vezes; só com `checagem_auto=1`, que `tt --checagem-auto on|off|alternar|status` e o menu administrar → 🩺 (tecla A) gravam; sem a chave nenhum agente
+  é lançado e sai um convite único no 🔔, código `checagem-convite`; `checagem_auto=0` desliga sem convite). O `checagem-prompt.md` proíbe o agente de abrir
+  navegador/janela/link, subir servidor, acessar site de exemplo e rodar a suíte fora da máquina de desenvolvimento: novidade se confere só lendo. `TT_IA_ROT` troca o rotador (`-` = nenhum; testes).
   Teste: `tests/test_checagem.sh`.
 - `tt --novidades [--todas]` — a tela de novidades (novo = seções ACIMA do título guardado em `~/.local/state/tt/novidades-visto`, que é o do título mais novo visto, não o rótulo instalado: o rótulo anda com commits sem entrada e quem publica ao mesmo tempo; estado antigo, que não é título, cai na comparação numérica; o aviso `novidades_avisar` leva o código `novidades-v<título mais novo>`) (`NOVIDADES.md` formatado por `novidades_fmt`: negrito, código,
   subitens, quebra na largura até 100 colunas); `tt --novidades-fmt LARGURA` (interno) formata o Markdown do stdin.
@@ -1185,7 +1187,7 @@ atômicas (`fixadas.XXXXXX` etc.) com mais de uma hora. A cada volta: `atualizar
 - Padrão visual + memória a cada 300 s: `--reforcar-padrao`, `--memoria-agentes`.
 - Atualização: sonda leve a cada `TT_T_SONDA` s (300; 900 no Termux) com `--sondar-atualizacao` e busca completa a cada `TT_T_ATUALIZACAO` s (21600) com `--garantir-atualizacao`.
 - Hora confiável a cada `TT_T_HORA` s (21600; 15 min enquanto não houver medida): `--hora --sincronizar`.
-- A cada 300 s (e ao iniciar): `--checar-auto` — versão nova instalada → um agente confere e corrige o tt (ver `tt --checar`).
+- A cada 300 s (e ao iniciar): `--checar-auto` — versão nova instalada → um agente confere e corrige o tt, só onde `checagem_auto=1` (ver `tt --checar`).
 - A cada 300 s (junto de `--reforcar-padrao`): `reforcar_agentes` — skill `tt-terminais`, regras `agentes-regras-tt.md` e `aidlc-tt` em todas as IAs (também na instalação).
 - O vigia faz `cd "$HOME"` ao começar (`vigiar`) e `vigia_garantir` o lança com `tmux run-shell -b -c "$HOME"`: ele vive dias e herda o diretório de quem o lançou; se esse diretório é apagado (worktree, pasta temporária), todo git falhava com `getcwd` e a sonda acusava "rede" (`tests/test_vigia_cwd.sh`).
 - Toda volta: fecha sessões paradas, pontes ociosas, Claude duplicados, janelas vazias abandonadas.

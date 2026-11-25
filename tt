@@ -9086,15 +9086,46 @@ FIM
 
 # Vigia (a cada 5 min e ao iniciar, que acontece a cada versão nova): versão instalada mais nova que a
 # última checada → uma rodada. Máquina recém-instalada só marca. Sem conta livre, tenta de novo a cada
-# 30 min; na 3ª vez fecha só com o coletor. checagem_auto=0 desliga.
+# 30 min; na 3ª vez fecha só com o coletor.
+# O agente roda sozinho, sem pedir permissão a cada passo, com a conta de IA de quem usa a máquina: por isso só
+# roda onde a pessoa ligou (checagem_auto=1, tt --checagem-auto on). Sem a escolha, o tt não lança nada: avisa
+# uma vez que o recurso existe e segue. checagem_auto=0 desliga sem aviso.
+checagem_auto_ligada() { local v; conf_em v checagem_auto; [[ $v == 1 ]]; }
+checagem_auto_cmd() { # on | off | alternar | status
+  local modo=${1:-status}
+  [[ $modo == alternar ]] && { if checagem_auto_ligada; then modo=off; else modo=on; fi; }
+  case $modo in
+    on) conf_gravar checagem_auto 1 || return 1 ;;
+    off) conf_gravar checagem_auto 0 || return 1 ;;
+    status|estado) ;;
+    *) echo 'uso: tt --checagem-auto on|off|alternar|status' >&2; return 2 ;;
+  esac
+  if checagem_auto_ligada; then echo 'Checagem por IA a cada versão: ligada (um agente confere e corrige o tt nesta máquina, sem perguntar).'
+  else echo 'Checagem por IA a cada versão: desligada (nenhum agente é lançado sozinho; tt --checar-agente roda quando você pedir).'; fi
+}
+checar_convidar() {
+  local feito=$CHECAGEM_DIR/convite
+  [[ -e $feito ]] && return 0
+  : >"$feito"
+  notificar "🩺 tt: a checagem por IA a cada versão está desligada nesta máquina. Ela lança um agente que age sem perguntar. Ligar: tt --checagem-auto on" 86400 "" sino checagem-convite
+}
 checar_auto() {
-  [[ $(conf checagem_auto) == 0 ]] && return 0
+  # v2.24: a checagem vinha ligada de fábrica e lançava o agente em máquina de quem nunca a pediu. Na 1ª volta
+  # depois da atualização, toda máquina que já tinha o tt fica com checagem_auto=0, uma vez; quem quiser, liga.
+  local zerada=$CHECAGEM_DIR/zerada-2.24
+  if [[ ! -e $zerada ]]; then
+    mkdir -p "$CHECAGEM_DIR"; : >"$zerada"
+    [[ -s $CHECAGEM_DIR/versao-checada ]] && conf_gravar checagem_auto 0
+  fi
+  local modo; conf_em modo checagem_auto
+  [[ $modo == 0 ]] && return 0
   local atual visto marca=$CHECAGEM_DIR/versao-checada tent=$CHECAGEM_DIR/tentativas trava=$RT/tt-checagem-$UID.trava rc n
   atual=$(versao_disp)
   mkdir -p "$CHECAGEM_DIR"
   if [[ ! -s $marca ]]; then echo "$atual" >"$marca"; return 0; fi
   visto=$(<"$marca")
   (($(versao_chave "$atual") > $(versao_chave "$visto"))) || return 0
+  if [[ $modo != 1 ]]; then checar_convidar; rm -f "$tent"; echo "$atual" >"$marca"; return 0; fi
   [[ -f $tent ]] && (($(idade_arquivo "$tent") < ${TT_CHECAGEM_REPETIR:-1800})) && return 0
   [[ -d $trava ]] && (($(idade_arquivo "$trava") > 3600)) && rmdir "$trava" 2>/dev/null
   mkdir "$trava" 2>/dev/null || return 0
@@ -10116,6 +10147,7 @@ menu_admin() {
     printf 'd\t  − Descadastrar máquina…\t%s\n' "$(popup_tt "$c" "descadastrar máquina" "$EU --descadastrar; read -rsn1 -p '(tecla fecha)'")"
     printf 'n\t  📰 Novidades do tt…\t%s\n' "$(popup_tt "$c" "📰 novidades do tt" "$EU --novidades")"
     printf 'k\t  🩺 Checar o tt agora (agente confere e corrige)…\t%s\n' "$(popup_tt "$c" "🩺 checagem do tt" "$EU --checar; echo; $EU --checar-agente; read -rsn1 -p '(tecla fecha)'")"
+    printf 'A\t  🩺 Checagem por IA a cada versão nesta máquina: %s (alternar)\t%s\n' "$(checagem_auto_ligada && echo ligada || echo desligada)" "$EU --checagem-auto alternar"
     printf 'v\t  🩺 Último relatório de checagem…\t%s\n' "$(popup_tt "$c" "🩺 checagem do tt" "$EU --checar-ver")"
     printf 'K\t  🩺 Pacote de handoff (logs para quem mantém o tt)…\t%s\n' "$(popup_tt "$c" "🩺 handoff" "$EU --checar-handoff; read -rsn1 -p '(tecla fecha)'")"
     printf 'i\t  📦 Pendências de instalação… (reavaliar todas)\t%s\n' "$(popup_tt "$c" "📦 pendências de instalação" "TT_PEND_TODAS=1 $EU --pedir-sudo")"
@@ -23109,6 +23141,7 @@ case "${1:-}" in
   --checar) shift; checar "$@"; exit ;;
   --checar-agente) shift; checar_agente "$@"; exit ;;
   --servicos) shift; servicos_cli "$@"; exit $? ;;  # guarda dos serviços do usuário (systemd)
+  --checagem-auto) checagem_auto_cmd "${2:-status}"; exit $? ;;   # liga/desliga o agente de checagem a cada versão (por máquina)
   --checar-auto) checar_auto; exit 0 ;;              # (interno, vigia) uma rodada por versão nova
   --sshd-garantir) if [[ ${2:-} == --vigia ]]; then sshd_vigiar; else sshd_garantir; fi; exit ;; # --vigia: só na malha
   --checar-fechar) shift; checar_fechar "$@"; exit ;; # (interno) fim da rodada do agente

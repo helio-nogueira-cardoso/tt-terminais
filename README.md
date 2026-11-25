@@ -1831,13 +1831,16 @@ tela. Máquina recém-instalada não recebe o aviso. Quem publica uma versão ac
 
 ## Checagem pós-atualização
 
-Cada máquina, ao instalar uma versão nova, se confere: o vigia (`--checar-auto`) lança um agente de IA pelo
+Onde você ligou (`tt --checagem-auto on`, que grava `checagem_auto=1`; menu Administrar → 🩺, tecla A), cada máquina, ao
+instalar uma versão nova, se confere: o vigia (`--checar-auto`) lança um agente de IA pelo
 rotador (`ia-rot -p … --dangerously-skip-permissions`, a conta com mais folga) na sessão oculta `_tt-checagem`.
 O agente recebe o resultado do coletor, o trecho novo do `NOVIDADES.md` e as regras de `checagens-tt.md` (mais
 `~/.config/tt/checagens.md`, regras só desta máquina). Ele corrige o que é desta máquina, com cópia em `backup/` do que mexer no
-perfil, e testa o que a versão trouxe. Defeito no código vira commit pronto sem push, na máquina de
+perfil, e confere o que a versão trouxe só com leitura: não abre navegador, janela nem link, não sobe servidor, não
+acessa site de exemplo e não deixa nada rodando. Defeito no código vira commit pronto sem push, na máquina de
 desenvolvimento, ou tarefa no tt, nas outras. O relatório chega pelo 🔔. Instalação nova só marca a versão;
-`checagem_auto=0` desliga; sem conta livre, tenta de novo a cada 30 min, até 3 vezes, e fecha só com o coletor.
+sem a escolha (`checagem_auto` ausente) nenhum agente é lançado e o tt só avisa uma vez no 🔔 que o recurso existe;
+`checagem_auto=0` desliga sem aviso; sem conta livre, tenta de novo a cada 30 min, até 3 vezes, e fecha só com o coletor.
 
 - `tt --checar [--tsv]`: o coletor, sem IA. Uma linha por item, com estado (ok/aviso/falha) e correção; sai 1 com falha.
 - `tt --checar-agente [--de VERSÃO] [--so-coletor]`, `tt --checar-ver [RODADA]`: rodada à mão e último relatório (menu administrar → 🩺).
