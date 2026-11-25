@@ -640,6 +640,7 @@ vigiar() {
     export TT_T_BUSCA=0 TT_T_LEITOR=0 TT_T_SESSOES_IA=0 TT_EMAIL_SYNC=0
     : "${TT_T_NOTIFS_SYNC:=300}" "${TT_T_INFO:=900}" "${TT_T_MALHA:=3600}"
     t_info=$TT_T_INFO pausa=${TT_PAUSA:-120}
+    renice -n "${TT_NICE_LEVE:-10}" -p $$ >/dev/null 2>&1 # o vigia e tudo o que ele lança (herdam) cedem CPU à tela e às IAs
   fi
   while tmux list-sessions >/dev/null 2>&1; do
     proximo=$pausa sondar=""
