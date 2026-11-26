@@ -3,6 +3,11 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.24.1 · 26/11/2026
+
+- O nome desta máquina na barra, no menu e em `tt --nome` acompanha a rede Tailscale ativa. O vigia guarda o último nome quando a rede cai. As fixadas continuam usando a identidade do cadastro local.
+- **Avisos:** o receptor de avisos entre máquinas volta a respeitar a instância única (no bash 5.2/5.3 a leitura do pid da trava vinha vazia e tomava a trava de um receptor vivo); trava sem pid continua sendo refeita. O trap do receptor se desarma ao sair e a skill do celular lista o `ai-memory-guard`.
+
 ## v2.24.0 · 25/11/2026
 - **🩺 A checagem por IA a cada versão agora só roda onde você ligar:** até aqui, toda máquina com o tt lançava sozinha, a cada versão nova, um agente de IA para conferir e corrigir o tt, com a sua conta e sem pedir permissão a cada passo. Passa a valer só na máquina em que você escolher: `tt --checagem-auto on` (ou menu Administrar → 🩺 Checagem por IA a cada versão, tecla A). Sem essa escolha o tt não lança nada: avisa uma vez no 🔔 que o recurso existe e segue. `tt --checagem-auto off` desliga sem aviso; `tt --checar` (sem IA) e `tt --checar-agente` (quando você pedir) continuam iguais. **Ao receber esta versão, toda máquina que já tinha o tt fica com a checagem desligada (`checagem_auto=0`), uma única vez; quem quer manter liga de novo em cada máquina.**
 - **O agente de checagem ficou proibido de aparecer na sua máquina:** nada de abrir navegador, janela ou link, subir servidor (nem de teste, nem em 127.0.0.1), acessar site de exemplo, instalar programa, criar sessão ou arquivo de teste, ou deixar processo rodando. Conferir uma novidade passou a ser só leitura; o que não dá para provar assim sai como "?" no relatório. A suíte de testes só roda na máquina de desenvolvimento.

@@ -150,4 +150,18 @@ for i in $(seq 10 40); do printf '%s\t%s\n' 9999999999 "aviso $i" >"$DIR_NOTIFS/
 notifs_podar
 grep -qx 'codigo=email-gm#ddd' "$DIR_NOTIFS/4000000000000000000.apagada" || { echo "FALHOU: a poda não guardou o código do lote" >&2; exit 1; }
 [[ $(notifs_itens_conhecidos email-gm) == ddd ]] || { echo "FALHOU: item do lote podado deveria continuar conhecido" >&2; exit 1; }
+# Instância única do receptor: com dono vivo sai sem processar; trava sem pid (órfã) é refeita. ($(<arq 2>/dev/null)
+# volta vazio no bash 5.2/5.3 e a trava viva era tomada.)
+source <(sed -n '/^notifs_receber()/,/^}/p' "$ROOT/tt")
+notifs_tar_seguro() { :; }; notifs_mesclar_dir() { cp -a "$1"/envio/. "$DIR_NOTIFS"/; }; atualizar_barras_fundo() { :; }
+rm -f "$DIR_NOTIFS"/*; mkdir -p "$TS/env/envio"; printf '%s\t%s\n' 9999999999 'chegou' >"$TS/env/envio/5000000000000000001"
+tar -C "$TS/env" -cf "$TS/env.tar" envio
+trava="$RT/tt-notifs-receber-$UID.lock"; rm -rf "$trava"; mkdir "$trava"
+sleep 30 & vivo=$!; echo "$vivo" >"$trava/pid"
+notifs_receber <"$TS/env.tar"
+kill "$vivo" 2>/dev/null || true
+[[ ! -e $DIR_NOTIFS/5000000000000000001 ]] || { echo "FALHOU: receptor tomou a trava de um dono vivo" >&2; exit 1; }
+rm -rf "$trava"; mkdir "$trava"
+notifs_receber <"$TS/env.tar"
+[[ -f $DIR_NOTIFS/5000000000000000001 ]] || { echo "FALHOU: trava sem pid não foi refeita" >&2; exit 1; }
 echo 'ok: notificações, leituras e exclusões convergem; cópia antiga não restaura aviso apagado; o mesmo código vira um aviso na rede, e o lote só fica com item novo'

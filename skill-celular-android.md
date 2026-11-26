@@ -58,6 +58,7 @@ ssh "$dest" 'PATH="$HOME/.local/bin:$PATH"; tt --listar-tudo --para-ia'   # sess
 | tmux, sshd, cron, tt, `adb` (android-tools), `termux-*` (Termux:API) | Termux | o cron e o Termux:Boot só enxergam o Termux |
 | agentes de IA, apt, ferramentas de desenvolvimento | Debian (proot) | `dbn` abre um shell lá na pasta atual |
 | comandos do sistema Android | shell do sistema (seção 4) | `tt-rish`, adb local ou o servidor rápido (seção 9) |
+| guarda da memória dos agentes | `ai-memory-guard` (repositório; desligado no modo leve) | ver o script no repositório |
 
 - Script do proot chamado do Termux nativo: o shebang `#!/bin/bash` não existe no Termux. Um lançador
   em `~/.local/bin` do Termux roda o script do proot com o bash do Termux apontando para o caminho dele

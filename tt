@@ -645,6 +645,7 @@ vigiar() {
   while tmux list-sessions >/dev/null 2>&1; do
     proximo=$pausa sondar=""
     _TEM_CMD_PATH="" # o vigia vive dias: a cada volta, pergunta de novo que comandos existem (tem_cmd)
+    nome_rede_atualizar
     atualizar_barras
     modo_leve || (precarregar_evento evento >/dev/null 2>&1 &)
     [[ $(cat "$pidf" 2>/dev/null) == "$$" ]] || { echo "$(date '+%F %T') vigia $$ saiu: há outro" >>"$log"; exit 0; }
@@ -2304,6 +2305,43 @@ for p in (d.get("Peer") or {}).values():
     if host and p.get("Online") and host not in cad and p.get("OS") in ("linux",):
         print(host, p.get("OS"))
 ' "$CONF_MAQ" 2>/dev/null
+}
+
+# Rótulo visível. MAQUINA continua sendo a chave das fixadas, sessões e destinos.
+nome_exibido() {
+  local nome=${TT_MACHINE:-}
+  if [[ -z $nome && -r $ESTADO_DIR/nome-rede ]]; then
+    IFS= read -r nome <"$ESTADO_DIR/nome-rede"
+  fi
+  nome=${nome:-$MAQUINA}
+  printf '%s\n' "${nome//_/-}"
+}
+
+# O vigia consulta a rede uma vez por volta. Cliques e menus só leem o último nome válido.
+nome_rede_atualizar() {
+  local nome anterior="" tmp
+  tem_cmd tailscale || return 0
+  nome=$(timeout 5 tailscale status --json 2>/dev/null | python3 -c '
+import json, re, sys
+d = json.load(sys.stdin)
+if d.get("BackendState") == "Running":
+    node = d.get("Self") or {}
+    dns = (node.get("DNSName") or "").split(".")[0]
+    host = node.get("HostName") or ""
+    name = host if not dns or dns.lower() == host.lower() else dns
+    if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{0,62}", name):
+        print(name)
+' 2>/dev/null) || return 0
+  [[ -n $nome ]] || return 0
+  [[ ! -r $ESTADO_DIR/nome-rede ]] || IFS= read -r anterior <"$ESTADO_DIR/nome-rede"
+  if [[ $nome != "$anterior" ]]; then
+    mkdir -p "$ESTADO_DIR" || return 1
+    tmp=$(mktemp "$ESTADO_DIR/nome-rede.XXXXXX") || return 1
+    printf '%s\n' "$nome" >"$tmp" && mv -f "$tmp" "$ESTADO_DIR/nome-rede" || { rm -f "$tmp"; return 1; }
+  fi
+  nome=${TT_MACHINE:-$nome}
+  nome=${nome//_/-}
+  [[ $(tmux show-option -gqv @maquina 2>/dev/null) == "$nome" ]] || tmux set-option -g @maquina "$nome"
 }
 
 # Como as outras máquinas chamam esta: nome curto no Tailscale (senão, hostname).
@@ -10086,7 +10124,7 @@ menu_maquinas() {
   atualizar_info >/dev/null 2>&1 &
   {
     n=$(tmux list-sessions -F '#{@ponte}' 2>/dev/null | grep -c '^$')
-    printf '1\t● %-10s %s sessões\t%s\n' "$MAQUINA" "$n" "TT_X=0 $EU --seletor-em $(q "$c") $(q "$MAQUINA") $p"
+    printf '1\t● %-10s %s sessões\t%s\n' "$(nome_exibido)" "$n" "TT_X=0 $EU --seletor-em $(q "$c") $(q "$MAQUINA") $p"
     local -A SELO SELO_COR; fixadas_selos
     i=1
     while read -r dest rot; do
@@ -13083,7 +13121,7 @@ notifs_receber() { # arquivo tar no stdin; origem só pode acrescentar arquivos 
   # envio (a cada minuto) leva o estado completo de novo, então nada se perde. Trava velha (>90 s ou dono morto) é refeita.
   local tmp lock="$RT/tt-notifs-receber-$UID.lock" dono
   if ! mkdir "$lock" 2>/dev/null; then
-    dono=$(<"$lock/pid" 2>/dev/null)
+    read -r dono 2>/dev/null <"$lock/pid" || dono=
     if [[ -n $dono ]] && kill -0 "$dono" 2>/dev/null && [[ -z $(find "$lock" -maxdepth 0 -mmin +1.5 2>/dev/null) ]]; then
       return 0
     fi
@@ -13091,7 +13129,7 @@ notifs_receber() { # arquivo tar no stdin; origem só pode acrescentar arquivos 
   fi
   echo $$ >"$lock/pid"
   tmp=$(mktemp -d "$RT/tt-notifs.XXXXXX") || { rm -rf "$lock"; return 1; }
-  trap 'rm -rf "$tmp" "$lock"' RETURN
+  trap 'rm -rf "$tmp" "$lock"; trap - RETURN' RETURN
   timeout 10 cat >"$tmp/in.tar" || return 1
   if notifs_tar_seguro "$tmp/in.tar" && tar -xf "$tmp/in.tar" -C "$tmp" --no-same-owner --no-same-permissions 2>/dev/null; then
     notifs_mesclar_dir "$tmp"
@@ -22909,7 +22947,7 @@ clique_linha() {
 }
 
 escolher() {
-  local rotulo_borda=" 🖥  terminais · $MAQUINA " borda=rounded prev_janela='down,55%,border-top,follow' pre_bind=()
+  local rotulo_borda=" 🖥  terminais · $(nome_exibido) " borda=rounded prev_janela='down,55%,border-top,follow' pre_bind=()
   if precarregar_ativo; then
     pre_bind=("--bind=focus:execute-silent($EU --precarregar-evento focus $(q "${TT_CLIENTE:-}") {1} {2} >/dev/null 2>&1 &)")
   fi
@@ -23008,7 +23046,7 @@ esac
 
 case "${1:-}" in
   --listar) listar; exit ;;
-  --nome) m=${TT_MACHINE:-$MAQUINA}; echo "${m//_/-}"; exit ;;
+  --nome) nome_exibido; exit ;;
   --copiar) shift; copiar "$@"; exit 0 ;;
   --copiar-buffer) tmux save-buffer - 2>/dev/null | copiar; exit 0 ;;
   --copiado) copiado "$2"; exit 0 ;;
