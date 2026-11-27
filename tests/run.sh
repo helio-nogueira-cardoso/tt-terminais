@@ -586,7 +586,8 @@ rg -q 'SecondClick1Pane .*@tt_link_id' "$tmp/keys" && rg -q 'MouseDrag1Pane .*@t
 rg -q -- ' u .*--links-tela' "$tmp/prefix-keys" || falha 'Ctrl+B u não lista os links da tela'
 (( $(rg -c 'copy-pipe-and-cancel "#\{E:@tt_copiar\}"' "$conf") >= 12 )) && rg -q -- '@tt_copiar .*--copiar --tela' "$conf" ||
   falha 'há cópia por seleção que não passa pelo tt --copiar --tela'
-if rg '^(bind -n|bind -T copy-mode(-vi)?) (M-)?(MouseDrag|DoubleClick|TripleClick).*copy-pipe' "$conf"; then
+# Só vale o clique com Ctrl: a soltura do arrasto copia apenas atrás de `if -F "#{@tt_ctrl}"`.
+if rg '^(bind -n|bind -T copy-mode(-vi)?) (M-)?(MouseDrag|DoubleClick|TripleClick).*copy-pipe' "$conf" | rg -v 'MouseDragEnd1Pane if -F "#\{@tt_ctrl\}"' | rg .; then
   falha 'cópia por mouse sem Ctrl'
 fi
 ((falhas == base)) && ok 'links: clique, duplo clique, arrasto e Ctrl+B u ligados; cópias passam pela correção da tela' || true

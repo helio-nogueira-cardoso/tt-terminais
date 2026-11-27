@@ -36,9 +36,11 @@ for modo in emacs vi; do
     [[ $(tmux display -p -t mac:copia '#{pane_in_mode}') == 0 ]] || { tmux send -t mac:copia -X cancel; falhou "modo de cópia $modo: $tecla não saiu do modo"; }
   done
 done
-# o Option+clique num link é o mesmo comando do Ctrl+clique (argumento "ctrl")
-diff <(grep -E 'root +C-MouseDown1Pane' <<<"$chaves" | sed -E 's/C-MouseDown1Pane/X/') \
-     <(grep -E 'root +M-MouseDown1Pane' <<<"$chaves" | sed -E 's/M-MouseDown1Pane/X/') >/dev/null || falhou 'Option+clique difere do Ctrl+clique'
+# o Option+clique num link é o mesmo comando do Ctrl+clique (argumento "ctrl"); só a marca @tt_ctrl
+# (Ctrl copia por mouse, Option não) muda, por isso ela sai da comparação
+sem_marca() { sed -E 's/ set-option -pu? -t = @tt_ctrl( 1)? \\;//'; }
+diff <(grep -E 'root +C-MouseDown1Pane' <<<"$chaves" | sed -E 's/C-MouseDown1Pane/X/' | sem_marca) \
+     <(grep -E 'root +M-MouseDown1Pane' <<<"$chaves" | sed -E 's/M-MouseDown1Pane/X/' | sem_marca) >/dev/null || falhou 'Option+clique difere do Ctrl+clique'
 
 # 2) tt --mac
 tab=$("$TT" --mac atalhos)

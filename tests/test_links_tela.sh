@@ -148,7 +148,9 @@ sleep 0.6; [[ ! -s $LOG ]] || falhou "Ctrl+arrastar a partir de um link abriu o 
 passou "Ctrl+arrastar copia a URL inteira, sem abrir o link nem criar painel flutuante"
 
 # A seleção anterior não pode expandir a seguinte para palavra/linha inteira.
-# Soltar Ctrl antes do mouse também não autoriza copiar.
+# O Ctrl vale pelo CLIQUE: há terminais (e PCs) que não mandam o Ctrl no arrasto nem na soltura,
+# e a seleção parava no meio sem copiar. Com o Ctrl no clique, o arrasto e a soltura copiam
+# mesmo sem o modificador; sem Ctrl no clique, arrastar continua sem copiar.
 for modo in emacs vi; do
   tmux set-window-option -t minha mode-keys "$modo"
   for anterior in select-word select-line; do
@@ -165,14 +167,30 @@ for modo in emacs vi; do
       falhou "$modo/$anterior expandiu seleção: $(cat "$CLIP")"
     sleep 0.5
   done
+  # Ctrl só no clique: o terminal não manda o modificador no arrasto nem na soltura.
+  : >"$CLIP"
+  apertar 3 "$ys" 16; sleep 0.1
+  fora send -t v -l $'\e[<32;8;'"$ys"$'M'; sleep 0.1
+  soltar 8 "$ys" 0
+  esperar '[[ -s $CLIP ]]' 3 || falhou "$modo: Ctrl só no clique não copiou"
+  [[ $(cat "$CLIP") == "$esperado" ]] || falhou "$modo: Ctrl só no clique copiou '$(cat "$CLIP")' em vez de '$esperado'"
+  sleep 0.5
+  # Soltar o Ctrl antes do mouse (arrasto com Ctrl, soltura sem) também copia.
   : >"$CLIP"
   apertar 3 "$ys" 16; sleep 0.1
   fora send -t v -l $'\e[<48;8;'"$ys"$'M'; sleep 0.1
+  soltar 8 "$ys" 0
+  esperar '[[ -s $CLIP ]]' 3 || falhou "$modo: soltar sem Ctrl não copiou"
+  sleep 0.5
+  # Sem Ctrl no clique, arrastar não copia (vai ao programa).
+  : >"$CLIP"
+  apertar 3 "$ys" 0; sleep 0.1
+  fora send -t v -l $'\e[<32;8;'"$ys"$'M'; sleep 0.1
   soltar 8 "$ys" 0; sleep 0.5
-  [[ ! -s $CLIP ]] || falhou "$modo: copiou depois de soltar Ctrl"
-  tmux send -t minha -X cancel
+  [[ ! -s $CLIP ]] || falhou "$modo: copiou arrastando sem Ctrl no clique"
+  tmux send -t minha -X cancel 2>/dev/null || true
 done
-passou 'seleção parcial exata nos modos emacs/vi, sem cópia ao soltar Ctrl antes do mouse'
+passou 'seleção parcial exata nos modos emacs/vi; o Ctrl vale pelo clique (copia mesmo sem Ctrl no arrasto ou na soltura)'
 
 # Ctrl+B u: os links da tela num popup.
 fora send -t v C-b u; sleep 2

@@ -3,6 +3,9 @@
 Uma seção por versão, da mais nova para a mais velha. `tt --novidades` mostra o que saiu desde a última
 vez que você olhou; `tt --novidades --todas` mostra tudo. Também no menu administrar → 📰 Novidades do tt.
 
+## v2.24.2 · 27/11/2026
+- **📋 Copiar com Ctrl+arrastar deixa de falhar em certos PCs:** em alguns terminais o Ctrl não chega ao tmux no arrasto nem na soltura, e a seleção parava no meio, sem copiar. Agora o Ctrl vale pelo **clique**: clicou com Ctrl, arrastar e soltar copiam mesmo que o terminal deixe de mandar o modificador. Sem Ctrl no clique (ou com Alt), arrastar continua indo ao programa e nada é copiado. Muda uma regra de 22/10: soltar o Ctrl antes do mouse agora também copia (para cancelar a seleção use Esc).
+
 ## v2.24.1 · 26/11/2026
 
 - O nome desta máquina na barra, no menu e em `tt --nome` acompanha a rede Tailscale ativa. O vigia guarda o último nome quando a rede cai. As fixadas continuam usando a identidade do cadastro local.
